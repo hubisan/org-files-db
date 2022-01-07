@@ -1,0 +1,26 @@
+# -*- mode: gitignore; -*-
+
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+.markdown-preview.html
+
+# makem.sh sandbox
+.sandbox/
+
+# Flycheck
+flycheck_*.el
+
+# Flymake
+*_flymake.*
+
+# Projectiles
+.projectile
+
+# Mkdocs build
+/site
