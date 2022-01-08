@@ -9,6 +9,7 @@ Make sure to:
 
 - Check that the issue has not already been reported (open and closed ones).
 - Check that the issue is not part of an active pull request.
+- Check that the issue has not already been fixed in the develop branch.
 
 ** Pull Requests
 
@@ -20,18 +21,18 @@ Remember to:
 - Open an issue and mention your planned pull request.
 - Add/update tests if needed.
 - The tests must pass (see [[#testing][Testing]]).
-- Update [[./README.org]] if needed.
-- Update the documentation in the [[./README.org]] if needed.
-- Update [[./CHANGELOG.org]].
+- Update [[./README.org][README.org]] if needed.
+- Update the documentation in the [[./README.org][README.org]] if needed.
+- Update [[./CHANGELOG.org][CHANGELOG.org]].
 
 *** Testing
 :PROPERTIES:
 :CUSTOM_ID: testing
 :END:
 
-Uses [[https://github.com/alphapapa/makem.sh][makem.sh]] for linting and running the tests. The tests are written with
-[[https://github.com/jorgenschaefer/emacs-buttercup][buttercup]]. After pushing a GitHub action is triggered to automatically lint and
-run tests. The outcome can be seen on the [[https://github.com/hubisan/org-files-db/actions][Actions]] page.
+Uses [[https://github.com/doublep/eldev][Eldev]] which needs to be [[https://github.com/doublep/eldev#installation][installed]]. The tests are written with [[https://github.com/jorgenschaefer/emacs-buttercup][Buttercup]].
+After pushing a GitHub action is triggered to automatically lint and run tests.
+The outcome can be seen on the [[https://github.com/hubisan/org-files-db/actions][Actions]] page.
 
 **** Lint & run tests
 
@@ -61,3 +62,4 @@ separately:
 
 To increase the verbosity add ~v=v~ or ~v=vv~ before or after the target like
 ~make v=vv sandbox-all~.
+**** Eldev

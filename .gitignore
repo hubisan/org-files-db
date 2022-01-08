@@ -8,10 +8,9 @@
 auto-save-list
 tramp
 .\#*
-.markdown-preview.html
 
-# makem.sh sandbox
-.sandbox/
+# Eldev
+/.eldev/
 
 # Flycheck
 flycheck_*.el
@@ -21,6 +20,3 @@ flycheck_*.el
 
 # Projectiles
 .projectile
-
-# Mkdocs build
-/site

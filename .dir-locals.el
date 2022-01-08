@@ -1,3 +1,4 @@
 ((emacs-lisp-mode . ((indent-tabs-mode . nil)
                      (fill-column . 80)
-                     (sentence-end-double-space . nil))))
+                     (sentence-end-double-space . nil)
+                     (outline-regexp . ";; [*]\\{1,8\\} "))))

@@ -4,10 +4,10 @@
 
 ;; Author: Daniel Hubmann <hubisan@gmail.com>
 ;; Maintainer: Daniel Hubmann <hubisan@gmail.com>
-;; URL: https://github.com/{{{owner}}}/{{{repo}}}
+;; URL: https://github.com/hubisan/org-files-db
 ;; Keywords: outlines
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.2"))
+;; Package-Requires: ((emacs "26.1") (org "9.5"))
 
 ;; This file is not part of GNU Emacs
 
@@ -34,21 +34,7 @@
 
 ;; * Customization
 
-;; TODO add customization if needed.
-;; (defgroup pkg-name nil
-;;   "TODO"
-;;   :group 'convenience)
-
-;; TODO add code here with whatever headings needed.
-;; Using `outshine-mode', which automatically detects outline used for headings.
-
-;; * Helpers
-
-;; * <Topic Heading>
-
-;; * <Topic Heading>
-
-;; * ...
+;; * Main
 
 ;; * Footer
 
