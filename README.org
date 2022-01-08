@@ -34,13 +34,42 @@ sqlite database.
 :CUSTOM_ID: installation
 :END:
 
-The packages is available on github. My preferred way to install is with
-[[https://github.com/conao3/leaf.el][leaf]] and [[https://github.com/raxod502/straight.el][straight]]:
+The packages is available on Github. Packages from Github can be installed with
+for instance [[https://github.com/quelpa/quelpa][Quelpa]] or [[https://github.com/raxod502/straight.el][Straight]]. In addition you can use [[https://github.com/jwiegley/use-package][Use-package]] or [[https://github.com/conao3/leaf.el][Leaf]] to
+simplify your init file. Listing some of the possibilites here:
 
+@@html:<details>@@
+@@html:<summary><b>@@[[https://github.com/raxod502/straight.el][Straight]]@@html:</summaryb>@@
 #+BEGIN_SRC emacs-lisp
-  (leaf org-files-db
-    :straight (org-files-db :type git :host github :repo "hubisan/org-files-db"))
+  (straight-use-package '(org-files-db :type git :host github :repo "hubisan/org-files-db"))
 #+END_SRC
+@@html:</details>@@
+
+- [[https://github.com/raxod502/straight.el][Straight]]
+  #+BEGIN_SRC emacs-lisp
+    (straight-use-package '(org-files-db :type git :host github :repo "hubisan/org-files-db"))
+  #+END_SRC
+
+- [[https://github.com/conao3/leaf.el][Leaf]] and [[https://github.com/raxod502/straight.el][Straight]]
+  #+BEGIN_SRC emacs-lisp
+    (leaf org-files-db
+      :straight (org-files-db :type git :host github :repo "hubisan/org-files-db"))
+  #+END_SRC
+
+- [[https://github.com/quelpa/quelpa][Quelpa]]
+  #+BEGIN_SRC emacs-lisp
+    (quelpa '(org-files-db :repo "hubisan/org-files-db" :fetcher github))
+  #+END_SRC
+  
+- [[https://github.com/jwiegley/use-package][Use-package]] and [[https://github.com/quelpa/quelpa][Quelpa]]
+  #+BEGIN_SRC emacs-lisp
+
+  #+END_SRC
+
+*** Dependencies
+
+Org-files-db depends on [[https://github.com/Genivia/ugrep][ugrep]] to parse the files and [[https://www.sqlite.org/index.html][SQLite]] for the database.
+You have to install both on your system.
 
 ** Usage
 :PROPERTIES:
