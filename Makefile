@@ -1,36 +1,36 @@
 # Makefile
 
-.PHONY: help prepare test lint compile clean clean-elc
+.PHONY: help all prepare test lint compile clean clean-elc
 
 help:
 	$(info )
 	$(info - make            # Show this help)
 	$(info - make help       # Show this help)
+	$(info - make all        # Run tests, lint and compile)
 	$(info - make prepare    # Install dependencies)
-	$(info - make test       # Install dependencies unless already installed and run tests)
+	$(info - make test       # Run tests and installs dependencies unless already installed)
 	$(info - make lint       # Lint the package)
-	$(info - make clean-elc  # Clean .elc, .info and .)
-	$(info - make clean      # Clean .elc, .info and .)
+	$(info - make compile    # Compiles the files to check for errors/warnings)
+	$(info - make clean      # Clean everything)
+	$(info - make clean-elc  # Clean .elc, .info and info-dir)
 	$(info )
 
+all: test lint compile
+
 prepare:
-	@echo 'PREPARE'
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> PREPARE'
 	@eldev --color --packaged --unstable --debug --time prepare
 
 test:
-	@echo
-	@echo 'RUNNING TESTS'
-	@echo
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> TEST'
 	@eldev --color --packaged --unstable --debug --time test
 
 lint:
-	@echo
-	@echo 'LINTING'
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> LINT'
 	@eldev --color --debug --time lint
 
 compile:
-	@echo
-	@echo 'COMPILING'
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> COMPILE'
 	@eldev --color --packaged --unstable --debug --time compile --warnings-as-errors
 	@eldev clean .elc > /dev/null
 
