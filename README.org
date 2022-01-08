@@ -39,7 +39,9 @@ for instance [[https://github.com/quelpa/quelpa][Quelpa]] or [[https://github.co
 simplify your init file. Listing some of the possibilites here:
 
 @@html:<details>@@
-@@html:<summary><b>@@[[https://github.com/raxod502/straight.el][Straight]]@@html:</summaryb>@@
+@@html:<summary><b>@@
+[[https://github.com/raxod502/straight.el][Straight]]
+@@html:</summary>@@
 #+BEGIN_SRC emacs-lisp
   (straight-use-package '(org-files-db :type git :host github :repo "hubisan/org-files-db"))
 #+END_SRC
