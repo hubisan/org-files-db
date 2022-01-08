@@ -35,8 +35,10 @@ compile:
 	@eldev clean .elc > /dev/null
 
 clean:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> CLEAN ALL'
 	@eldev clean all
 
 clean-elc:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> CLEAN'
 	@eldev clean
 

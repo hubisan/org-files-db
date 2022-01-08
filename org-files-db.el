@@ -39,4 +39,5 @@
 ;; * Footer
 
 (provide 'org-files-db)
+
 ;;; org-files-db.el ends here
