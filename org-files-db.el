@@ -26,13 +26,37 @@
 
 ;;; Commentary:
 
-;; TODO add description.
+;; Store headings and links from org files from one or more directories in a
+;; sqlite database.
+
+;;  Main features
+
+;; - Store headings and links from org files from one or more directories in a
+;;   sqlite database.
+;; - For each heading it stores the filename, line number, title, level,
+;;   priority, todo keyword, statistic cookies, planning info (scheduled,
+;;   deadline, closed),
+;;   parent heading id, tags and properties.
+;; - For each link it stores the filename, position, full link, type, link and
+;;   description.
+;; - Provides queries for the most common use cases.
+;; - Uses ugrep to quickly parse the files and reparses files if modified.
 
 ;;; Code:
 
 ;; * Requirements
 
 ;; * Customization
+
+(defgroup org-files-db nil
+  "Store headings and links from org files in a sqlite database."
+  :group 'org
+  :link '(url-link :tag "Github" "https://github.com/hubisan/org-files-db"))
+
+(defcustom org-files-db-directories nil
+  "One or multiple directories to parse the org files in."
+  :group 'org-files-db
+  :type '(repeat directory))
 
 ;; * Main
 

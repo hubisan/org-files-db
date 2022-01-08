@@ -4,12 +4,13 @@
 
 [[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]]
 
-Adds headings and links from org files in one or more directories to a
-sqlite database.
+Store headings and links from org files from one or more directories in a sqlite
+database.
 
 ** Main features                                                :noexport_0:
 
-- Adds headings and links from org files in one or more directories to a sqlite database.
+- Store headings and links from org files from one or more directories in a
+  sqlite database.
 - For each heading it stores the filename, line number, title, level, priority,
   todo keyword, statistic cookies, planning info (scheduled, deadline, closed),
   parent heading id, tags and properties.
