@@ -66,3 +66,27 @@ jobs:
 
       - name: Run lint
         run: make lint
+
+  compile:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs_version:
+          - '27.1'
+
+    steps:
+      - name: Set up Emacs
+        uses: purcell/setup-emacs@master
+        with:
+          version: ${{matrix.emacs_version}}
+
+      - name: Install Eldev
+        run: curl -fsSL https://raw.github.com/doublep/eldev/master/webinstall/github-eldev | sh
+
+      - name: Check out the source code
+        uses: actions/checkout@v2
+
+      - name: Compile files
+        run: make compile
