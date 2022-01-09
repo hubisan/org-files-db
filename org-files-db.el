@@ -1,4 +1,4 @@
-;;; org-files-db.el --- Add headings and links of org file to sqlite db -*- lexical-binding: t -*-
+;;; org-files-db.el --- Add headings and links of org file to SQLite db -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2022 Daniel Hubmann <hubisan@gmail.com>
 
@@ -7,7 +7,7 @@
 ;; URL: https://github.com/hubisan/org-files-db
 ;; Keywords: outlines
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "26.1") (org "9.5"))
+;; Package-Requires: ((emacs "27.1") (org "9.5") (emacsql-sqlite "1.0.0"))
 
 ;; This file is not part of GNU Emacs
 
@@ -27,12 +27,12 @@
 ;;; Commentary:
 
 ;; Store headings and links from org files from one or more directories in a
-;; sqlite database.
+;; SQLite database.
 
 ;;  Main features
 
 ;; - Store headings and links from org files from one or more directories in a
-;;   sqlite database.
+;;   SQLite database.
 ;; - For each heading it stores the filename, line number, title, level,
 ;;   priority, todo keyword, statistic cookies, planning info (scheduled,
 ;;   deadline, closed),
@@ -40,25 +40,63 @@
 ;; - For each link it stores the filename, position, full link, type, link and
 ;;   description.
 ;; - Provides queries for the most common use cases.
-;; - Uses ugrep to quickly parse the files and reparses files if modified.
+;; - Uses ugrep to quickly parse the files.
+;; - Uses fd to check if files are modified for reparsing.
 
 ;;; Code:
 
 ;; * Requirements
 
+(require 'org-files-db-database)
+
 ;; * Customization
 
 (defgroup org-files-db nil
-  "Store headings and links from org files in a sqlite database."
+  "Store headings and links from org files in a SQLite database."
   :group 'org
-  :link '(url-link :tag "Github" "https://github.com/hubisan/org-files-db"))
+  :link '(url-link :tag "Github" "https://github.com/hubisan/org-files-db")
+  :prefix "org-files-db-")
 
 (defcustom org-files-db-directories nil
-  "One or multiple directories to parse the org files in."
+  "List of one or multiple directories to parse the org files in."
   :group 'org-files-db
   :type '(repeat directory))
 
-;; * Main
+(defcustom org-files-db-check-for-changes-interval 300
+  "Interval in seconds to check if any file has been changed.
+If any file has been modified, the database is updated."
+  :group 'org-files-db
+  :type 'number)
+
+(defcustom org-files-db-db-path (locate-user-emacs-file "org-files-db.sqlite")
+  "The path where the database is stored. Use .db or .sqlite as extension."
+  :group 'org-files-db
+  :type 'string)
+
+(defcustom org-files-db-files-exclude-regexp nil
+  "Org files matching this regular expression are excluded."
+  :group 'org-files-db
+  :type 'string)
+
+;; * Initialize
+
+;; * DB
+
+;; ** DB Core
+
+;; ** DB Build
+
+;; ** DB Insert & Update
+
+;; ** DB Queries
+
+;; * Parse Files
+
+;; Uses ugrep (https://github.com/Genivia/ugrep) to parse the org files.
+
+
+
+;; * File Management
 
 ;; * Footer
 

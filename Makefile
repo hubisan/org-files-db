@@ -19,7 +19,7 @@ all: test lint compile
 
 prepare:
 	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> PREPARE'
-	@eldev --color --packaged --unstable --debug --time prepare
+	@eldev --color --packaged --unstable --debug --trace --time prepare
 
 test:
 	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> TEST'

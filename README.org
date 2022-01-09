@@ -4,20 +4,21 @@
 
 [[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]]
 
-Store headings and links from org files from one or more directories in a sqlite
+Store headings and links from org files from one or more directories in a SQLite
 database.
 
 ** Main features                                                :noexport_0:
 
 - Store headings and links from org files from one or more directories in a
-  sqlite database.
+  SQLite database.
 - For each heading it stores the filename, line number, title, level, priority,
   todo keyword, statistic cookies, planning info (scheduled, deadline, closed),
   parent heading id, tags and properties.
 - For each link it stores the filename, position, full link, type, link and
   description.
 - Provides queries for the most common use cases.
-- Uses [[https://github.com/Genivia/ugrep][ugrep]] to quickly parse the files and reparses files if modified.
+- Uses [[https://github.com/Genivia/ugrep][ugrep]] to quickly parse the files.
+- Uses [[https://github.com/sharkdp/fd][fd]] to check if files are modified for reparsing.
 
 -----
 
@@ -82,8 +83,9 @@ With Quelpa
 
 *** Dependencies
 
-Org-files-db depends on [[https://github.com/Genivia/ugrep][ugrep]] to parse the files and [[https://www.sqlite.org/index.html][SQLite]] for the database.
-You have to install both on your system.
+Org-files-db depends on [[https://github.com/Genivia/ugrep][ugrep]] to parse the files, [[https://www.sqlite.org/index.html][SQLite]] for the database and [[https://github.com/sharkdp/fd][fd]]
+is used to check for modified files. You have to install those three
+dependencies.
 
 ** Usage
 :PROPERTIES:
