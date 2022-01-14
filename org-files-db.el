@@ -45,6 +45,11 @@
 
 ;;; Code:
 
+;; Use this to add the files to the load path:
+;; (let ((default-directory "~/projects/coding/org-files-db"))
+;;   (normal-top-level-add-to-load-path '("."))
+;;   (normal-top-level-add-subdirs-to-load-path))
+
 ;; * Requirements
 
 (require 'org-files-db-core)
