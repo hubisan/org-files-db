@@ -47,36 +47,8 @@
 
 ;; * Requirements
 
+(require 'org-files-db-core)
 (require 'org-files-db-database)
-
-;; * Customization
-
-(defgroup org-files-db nil
-  "Store headings and links from org files in a SQLite database."
-  :group 'org
-  :link '(url-link :tag "Github" "https://github.com/hubisan/org-files-db")
-  :prefix "org-files-db-")
-
-(defcustom org-files-db-directories nil
-  "List of one or multiple directories to parse the org files in."
-  :group 'org-files-db
-  :type '(repeat directory))
-
-(defcustom org-files-db-check-for-changes-interval 300
-  "Interval in seconds to check if any file has been changed.
-If any file has been modified, the database is updated."
-  :group 'org-files-db
-  :type 'number)
-
-(defcustom org-files-db-db-path (locate-user-emacs-file "org-files-db.sqlite")
-  "The path where the database is stored. Use .db or .sqlite as extension."
-  :group 'org-files-db
-  :type 'string)
-
-(defcustom org-files-db-files-exclude-regexp nil
-  "Org files matching this regular expression are excluded."
-  :group 'org-files-db
-  :type 'string)
 
 ;; * Initialize
 
@@ -93,8 +65,6 @@ If any file has been modified, the database is updated."
 ;; * Parse Files
 
 ;; Uses ugrep (https://github.com/Genivia/ugrep) to parse the org files.
-
-
 
 ;; * File Management
 
