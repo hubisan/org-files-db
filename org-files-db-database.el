@@ -27,6 +27,7 @@
 
 (require 'emacsql)
 (require 'emacsql-sqlite)
+(require 'org-files-db-core)
 
 ;; * Variables
 
@@ -37,6 +38,7 @@ If the database version changes it will be rebuilt from scratch.")
 (defvar org-files-db--db-connection nil
   "Database connection to org-files-db database.")
 
+;; SQLite Dataypes: integer, real, text, blob
 (defconst org-files-db--db-schema
   '((db
      [(version integer :not-null)])
@@ -48,52 +50,47 @@ If the database version changes it will be rebuilt from scratch.")
       (size integer :not-null)])
     (files
      [(filename text :unique :primary-key)
-      (directory text :not-null)]
+      (directory text :not-null)
+      (title text)]
      (:foreign-key [directory] :references directories [directory] :on-delete :cascade))
     (headings
-     ([(id :not-null :primary-key)
-       (file :not-null)
-       (level :not-null)
-       (pos :not-null)
-       todo
-       priority
-       (scheduled text)
-       (deadline text)
-       title
-       properties
-       olp]
-      (:foreign-key [file] :references files [file] :on-delete :cascade)))
-
-    (aliases
-     ([(node-id :not-null)
-       alias]
-      (:foreign-key [node-id] :references nodes [id] :on-delete :cascade)))
-
-    (citations
-     ([(node-id :not-null)
-       (cite-key :not-null)
-       (pos :not-null)
-       properties]
-      (:foreign-key [node-id] :references nodes [id] :on-delete :cascade)))
-
-    (refs
-     ([(node-id :not-null)
-       (ref :not-null)
-       (type :not-null)]
-      (:foreign-key [node-id] :references nodes [id] :on-delete :cascade)))
-
+     ([(id integer :not-null :primary-key)
+       (file text :not-null)
+       (level integer :not-null)
+       (position integer :not-null)
+       (priority text)
+       (todoKeyword text)
+       (title text)
+       (statisticCookies text)
+       ;; Store as float to be able to store date and time.
+       (scheduled real)
+       (deadline real)
+       (closed real)
+       (parentId integer)]
+      (:foreign-key [file] :references files [file] :on-delete :cascade)
+      (:foreign-key [parentId] :references headings [id] :on-delete :cascade)))
     (tags
-     ([(node-id :not-null)
-       tag]
-      (:foreign-key [node-id] :references nodes [id] :on-delete :cascade)))
-
+     ([(headingId integer :not-null)
+       (tag text :not-null)]
+      (:primary-key [headingId, tag])
+      (:foreign-key [headingId] :references headings [id] :on-delete :cascade)))
+    (properties
+     ([(headingId integer :not-null)
+       (property text :not-null)
+       (value text)]
+      (:primary-key [headingId, property])
+      (:foreign-key [headingId] :references headings [id] :on-delete :cascade)))
     (links
-     ([(pos :not-null)
-       (source :not-null)
-       (dest :not-null)
-       (type :not-null)
-       (properties :not-null)]
-      (:foreign-key [source] :references nodes [id] :on-delete :cascade)))))
+     ([(fileId integer :not-null)
+       (position integer :not-null)
+       (full-link text :not-null)
+       (type text)
+       (link text :not-null)
+       (description text)]
+      (:primary-key [fileId, position])
+      (:foreign-key [file] :references files [file] :on-delete :cascade)))))
+
+;; * Build
 
 ;; * Create
 
