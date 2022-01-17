@@ -70,40 +70,40 @@ be rebuilt from scratch.")
        (level integer :not-null)
        (position integer :not-null)
        (priority text)
-       (todoKeyword text)
+       (todo_keyword text)
        (title text)
-       (statisticCookies text)
+       (statistic_cookies text)
        ;; Store planning info as float to be able to store date and time.
        (scheduled real)
        (deadline real)
        (closed real)
-       (parentId integer)]
+       (parent_id integer)]
       (:unique [file position])
       (:foreign-key [file] :references files [file] :on-delete :cascade)
-      (:foreign-key [parentId] :references headings [id] :on-delete :cascade)))
+      (:foreign-key [parent_id] :references headings [id] :on-delete :cascade)))
     ;; Tags per heading.
     (tags
-     ([(headingId integer :not-null)
+     ([(heading_id integer :not-null)
        (tag text :not-null)]
-      (:primary-key [headingId tag])
-      (:foreign-key [headingId] :references headings [id] :on-delete :cascade)))
+      (:primary-key [heading_id tag])
+      (:foreign-key [heading_id] :references headings [id] :on-delete :cascade)))
     ;; Properties per heading.
     (properties
-     ([(headingId integer :not-null)
+     ([(heading_id integer :not-null)
        (property text :not-null)
        (value text)]
-      (:primary-key [headingId property])
-      (:foreign-key [headingId] :references headings [id] :on-delete :cascade)))
+      (:primary-key [heading_id property])
+      (:foreign-key [heading_id] :references headings [id] :on-delete :cascade)))
     ;; Links in the files.
     (links
-     ([(fileId integer :not-null)
+     ([(file integer :not-null)
        (position integer :not-null)
-       (full-link text :not-null)
+       (full_link text :not-null)
        (type text)
        (link text :not-null)
        (description text)]
-      (:primary-key [fileId position])
-      (:foreign-key [fileId] :references files [file] :on-delete :cascade))))
+      (:primary-key [file position])
+      (:foreign-key [file] :references files [file] :on-delete :cascade))))
   "The schema that is used for the database.")
 
 (defconst org-files-db--db-indices
@@ -152,10 +152,6 @@ Will overwrite existing files and creates parent directories if needed."
   "Get the user_version of the open DB connection."
   (caar (emacsql db "PRAGMA user_version")))
 
-;; * Indizes
-
-;; TODO
-
 ;; * Connection
 
 (defun org-files-db--db-open-connection (path)
@@ -189,12 +185,52 @@ Check `org-files-db--db-indices' on how to define the indices."
 ;; * Insert
 
 ;; Insert directory
+
+(defun org-files-db--insert-directory (db dir updated mtime size)
+  "Insert directory DIR into the directory table in the connected DB.
+Also store the current time UPDATED, the MTIME (modification time) and the SIZE
+in bytes. Times are stored as seconds since the epoch."
+  (emacsql db [:insert :into directories :values $v1]
+           (vector dir updated mtime size )))
+
 ;; Insert file
+
+(defun org-files-db--insert-file (db file dir updated mtime size title)
+  "Insert FILE into the files table in the connected DB.
+Also store the current time UPDATED, the MTIME (modification time) and the SIZE
+in bytes. Times are stored as seconds since the epoch. If there is a title in
+the org file it is stored as well."
+  (emacsql db [:insert :into files :values $v1]
+           (vector file dir updated mtime size title)))
+
+;; Insert heading
+
+(defun org-files-db--insert-heading (db file level pos prio todo title cookies
+scheduled deadline closed parent-id)
+  "Insert PROPERTY and its VALUE into the properties table in the connected DB.
+Also stores ID HEADINGID of the referenced the heading."
+  (emacsql db [:insert :into files :values $v1]
+           (vector file level pos prio todo title cookies scheduled deadline
+           closed parent-id)))
+
 ;; Insert property
+
+(defun org-files-db--insert-property (db heading-id property value)
+  "Insert PROPERTY and its VALUE into the properties table in the connected DB.
+Also stores ID HEADINGID of the referenced the heading."
+  (emacsql db [:insert :into files :values $v1]
+           (vector heading-id property value)))
+
 ;; Insert tag
+
+
 ;; Insert link
 
 ;; * Update
+
+;; Update directory
+
+;; * Delete
 
 ;; Update directory
 
