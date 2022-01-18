@@ -60,7 +60,8 @@ be rebuilt from scratch.")
       (size integer :not-null)
       ;; The title keyword if there is any.
       (title text)]
-     (:foreign-key [directory] :references directories [directory] :on-delete :cascade))
+     (:foreign-key [directory] :references directories [directory] :on-delete
+     :cascade))
     ;; Metadata of the headings in the org files.
     ;; Level 0 is used for file level. This is needed to store file level
     ;; properties and tag.
@@ -205,10 +206,13 @@ the org file it is stored as well."
 
 ;; Insert heading
 
-(defun org-files-db--insert-heading (db file level pos prio todo title cookies
-scheduled deadline closed parent-id)
-  "Insert PROPERTY and its VALUE into the properties table in the connected DB.
-Also stores ID HEADINGID of the referenced the heading."
+(defun org-files-db--insert-heading (db file level pos title parent-id
+                                        &optional prio todo  cookies
+                                        scheduled deadline closed)
+  "Insert a heading into the headings table in the connected DB.
+Needs the FILE, LEVEL, POS (position), TITLE and PARENT-ID. The other arguments
+are optional as not available for all headings: PRIO, TODO keyword, statistic
+COOKIES and planning info (SCHEDULED, DEADLINE, CLOSED)."
   (emacsql db [:insert :into files :values $v1]
            (vector file level pos prio todo title cookies scheduled deadline
            closed parent-id)))
@@ -217,7 +221,7 @@ Also stores ID HEADINGID of the referenced the heading."
 
 (defun org-files-db--insert-property (db heading-id property value)
   "Insert PROPERTY and its VALUE into the properties table in the connected DB.
-Also stores ID HEADINGID of the referenced the heading."
+Also stores id HEADING-ID of the referenced the heading."
   (emacsql db [:insert :into files :values $v1]
            (vector heading-id property value)))
 
