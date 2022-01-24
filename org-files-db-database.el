@@ -109,7 +109,7 @@ No indices are create if this is set to nil")
 
 ;; * Core
 
-(defun org-file-db--db-execute (db sql &optional no-transaction silent)
+(defun org-files-db--db-execute (db sql &optional no-transaction silent)
   "Execute an SQL statement in the SQLite3 shell for the DB.
 SQL can be a string or a list of string. If the SQL is a list of statements a
 transaction is used unless NO-TRANSACTION is non-nil. If SILENT is non-nil no
@@ -119,23 +119,23 @@ output is shown."
     (set-process-filter db #'org-files-db--db-message-output))
   (if (stringp sql)
       (process-send-string
-       db (format "%s\n" (org-file-db--db-fix-sql-statement sql)))
+       db (format "%s\n" (org-files-db--db-fix-sql-statement sql)))
     (unless no-transaction
       (process-send-string db "BEGIN TRANSACTION;"))
     (dolist (statement sql)
       (process-send-string
-       db (format "%s\n" (org-file-db--db-fix-sql-statement statement))))
+       db (format "%s\n" (org-files-db--db-fix-sql-statement statement))))
     (unless no-transaction
       (process-send-string db "COMMIT;"))))
 
-(defun org-file-db--db-fix-sql-statement (sql)
+(defun org-files-db--db-fix-sql-statement (sql)
   "This just verifies if there is a semicolon at the end of the SQL.
 If not the semicolon is added."
   (if (string-suffix-p ";" sql)
       sql
     (format "%s;" sql)))
 
-(defun org-file-db--db-execute-commmand (db command)
+(defun org-files-db--db-execute-commmand (db command)
   "Execute an SQLite dot COMMAND in the SQLite3 shell for the DB.
 Those commands start with a dot and are not terminated with a semicolon."
   (unless (and (string-prefix-p "." command)
@@ -143,7 +143,7 @@ Those commands start with a dot and are not terminated with a semicolon."
     (user-error "The command '%s' is not valid" command))
   (process-send-string db (format "%s\n" command)))
 
-(defun org-file-db--db-get-output (db sql &optional object-type raw)
+(defun org-files-db--db-get-output (db sql &optional object-type raw)
   "Execute SQL string in the SQLite3 shell for DB and return result.
 The DB is configured to output JSON string. The JSON returned is parsed into a
 lips object used the OBJECT-TYPE which defaults to `hash-table'. Other
@@ -152,20 +152,20 @@ returned."
   (set-process-filter db #'org-files-db--db-capture-output)
   (unless (accept-process-output
            (process-send-string
-            db (format "%s\n" (org-file-db--db-fix-sql-statement sql)))
+            db (format "%s\n" (org-files-db--db-fix-sql-statement sql)))
            org-files-db-db-timeout)
-    (error "Timeout reached before output was received."))
+    (error "Timeout reached before output was received"))
   (if raw
       org-files-db--db-sqlite-output
     (let ((type (or object-type 'hash-table)))
       (json-parse-string org-files-db--db-sqlite-output :object-type type))))
 
 (defun org-files-db--db-message-output (_process output)
-  "Just show a message with the output."
+  "Just show a message with the OUTPUT."
   (message "Org-files-db SQLite output: %s" output))
 
 (defun org-files-db--db-capture-output (_process output)
-  "Store the output in a variable."
+  "Store the OUTPUT in a variable."
   (setq org-files-db--db-sqlite-output output))
 
 ;; * Create
@@ -191,8 +191,9 @@ Returns the connection (the process object)."
     ;; Store the connection.
     (setq org-files-db--db-connection process)
     ;; Create the tables and the indices.
-    ;; (org-files-db--db-create-tables process schema)
-    ;; (org-files-db--db-create-indices process indices)
+    ;; TODO
+    (org-files-db--db-create-tables process schema)
+    (org-files-db--db-create-indices process indices)
     ;; Set the user version.
     (org-files-db--db-set-user-version process version)
     process))
@@ -208,13 +209,13 @@ Will overwrite existing files and creates parent directories if needed."
 
 (defun org-files-db--db-set-user-version (db version)
   "Set the user_version to VERSION for the DB."
-  (org-file-db--db-execute
+  (org-files-db--db-execute
    db (format "PRAGMA user_version = %s;" version)))
 
 (defun org-files-db--db-get-user-version (db)
   "Get the user_version of the open DB connection."
   (plist-get
-   (seq-first (org-file-db--db-get-output db "PRAGMA user_version;" 'plist))
+   (seq-first (org-files-db--db-get-output db "PRAGMA user_version;" 'plist))
    :user_version))
 
 ;; * Connection (process)
@@ -244,10 +245,10 @@ Set the TIMEOUT for the database as the default is 0 in the interactive shell."
         (set-process-sentinel process
                               #'org-files-db--db-handle-process-status-change)
         ;; Enable foreign keys and set output mode.
-        (org-file-db--db-execute process "PRAGMA foreign_keys = ON;")
-        (org-file-db--db-execute
+        (org-files-db--db-execute process "PRAGMA foreign_keys = ON;")
+        (org-files-db--db-execute
          process (format "PRAGMA busy_timeout=%s" (* 1000  timeout)))
-        (org-file-db--db-execute-commmand process ".mode json")
+        (org-files-db--db-execute-commmand process ".mode json")
         process))))
 
 (defun org-files-db--db-disconnect (db)
@@ -258,8 +259,10 @@ Set the TIMEOUT for the database as the default is 0 in the interactive shell."
     (kill-buffer (process-buffer db))))
 
 (defun org-files-db--db-handle-process-status-change (process event)
-  "Handle changes of the `process-status'.
-This function is set with `set-process-sentinel'. On status changes the db is disconnected. If this"
+  "Handle changes of the `process-status' of the PROCESS.
+The function gets two arguments: the PROCESS and the EVENT, a string describing
+the change. This function is set with `set-process-sentinel'. On status changes
+the db is disconnected."
   (message "Org-files-db: %s had the event '%s'." process event)
   (org-files-db--db-disconnect process))
 

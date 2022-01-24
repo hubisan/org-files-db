@@ -55,8 +55,9 @@ If any file has been modified, the database is updated."
   :type 'string)
 
 (defcustom org-files-db-db-full-text-search-enabled-p t
-  "If non-nil full text search is enabled. This will store the content of all org
-files from the directories in a seconds database. Takes additional space."
+  "If non-nil full text search is enabled.
+This will store the content of all org files from the directories in a seconds
+database. Takes additional space."
   :group 'org-files-db
   :type 'boolean)
 
