@@ -1,0 +1,54 @@
+CREATE TABLE IF NOT EXISTS directories (
+    contact_id integer,
+    group_id integer,
+    test integer,
+    PRIMARY KEY (contact_id, group_id),
+    FOREIGN KEY (contact_id) REFERENCES contacts (contact_id) ON DELETE CASCADE ON UPDATE NO ACTION,
+    FOREIGN KEY (group_id) REFERENCES GROUPS (group_id) ON DELETE CASCADE ON UPDATE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS directories (
+    directory text NOT NULL PRIMARY KEY,
+    updated integer NOT NULL,
+    mtime integer NOT NULL,
+    size integer NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS files (
+    filename text NOT NULL PRIMARY KEY,
+    directory text NOT NULL,
+    -- Updated, mtime and size are used to make sure the file is not dirty.
+    -- Updated and mtime stored as seconds since the epoch.
+
+    updated integer NOT NULL,
+    mtime integer NOT NULL,
+    size integer NOT NULL,
+    title text,
+    FOREIGN KEY (directory) REFERENCES directories (directory) ON DELETE CASCADE ON UPDATE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS headings (
+    id integer NOT NULL PRIMARY KEY,
+    file text NOT NULL,
+    -- The level of the heading. An artificial level 0 heading
+    -- is added to store file level properties and metadata
+    level integer NOT NULL,
+    position integer NOT NULL,
+    -- Store the full line text of the heading including stars.
+    full_text text,
+    -- Components of the heading.
+    priority text NOT NULL,
+    todo_keyword text,
+    title text,
+    statistic_cookies text,
+    -- Store planning info as float to be able to store date and time.
+    scheduled real,
+    deadline real,
+    closed real,
+    -- Self reference to the parent id.
+    parent_id integer,
+    UNIQUE(file, position),
+    FOREIGN KEY (file) REFERENCES files (file) ON DELETE CASCADE ON UPDATE NO ACTION,
+    FOREIGN KEY (parent_id) REFERENCES directories (directory) ON DELETE CASCADE ON UPDATE NO ACTION
+);
+

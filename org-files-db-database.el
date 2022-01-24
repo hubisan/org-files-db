@@ -38,78 +38,70 @@ Make sure to update this if the `org-files-db--db-schema' or the
 be rebuilt from scratch.")
 
 (defvar org-files-db--db-connection nil
-  "Database connection to org-files-db database.")
+  "Process that runs the SQLite3 programm.")
+
+(defconst org-files-db--db-sqlite-process-name "org-files-db"
+  "The name for the process. Is also used to name the buffer.")
 
 (defconst org-files-db--db-schema
-  ;; All the directories in which the org-files are parsed.
-  '((directories
-     [(directory text :not-null :primary-key)
-      ;; Updated, mtime and size are used to make sure the directory is not
-      ;; dirty. Updated and mtime stored as seconds since the epoch.
-      (updated integer :not-null)
-      (mtime integer :not-null)
-      (size integer :not-null)])
+  ;; https://www.sqlitetutorial.net/sqlite-create-table/
+  '(
+    ;; All the directories in which the org-files are parsed.
+    ("CREATE TABLE IF NOT EXISTS directories (
+directory text NOT NULL PRIMARY KEY,
+-- Updated, mtime and size are used to make sure the directory is not
+-- dirty. Updated and mtime stored as seconds since the epoch.
+updated integer NOT NULL, mtime integer NOT NULL, size integer NOT NULL);")
     ;; Metadata of the org files in those directories.
-    (files
-     [(filename text :not-null :primary-key)
-      (directory text :not-null)
-      ;; Updated, mtime and size are used to make sure the file is not dirty.
-      ;; Updated and mtime stored as seconds since the epoch.
-      (updated integer :not-null)
-      (mtime integer :not-null)
-      (size integer :not-null)
-      ;; The title keyword if there is any.
-      (title text)]
-     (:foreign-key [directory] :references directories [directory] :on-delete
-     :cascade))
+    ("CREATE TABLE IF NOT EXISTS files (
+filename text NOT NULL PRIMARY KEY, directory text NOT NULL,
+-- Updated, mtime and size are used to make sure the file is not dirty.
+-- Updated and mtime stored as seconds since the epoch.
+updated integer NOT NULL, mtime integer NOT NULL, size integer NOT NULL,
+title text,
+FOREIGN KEY (directory) REFERENCES directories (directory) ON DELETE CASCADE);")
     ;; Metadata of the headings in the org files.
-    ;; Level 0 is used for file level. This is needed to store file level
-    ;; properties and tag.
-    (headings
-     ([(id integer :not-null :primary-key)
-       (file text :not-null)
-       (level integer :not-null)
-       (position integer :not-null)
-       (priority text)
-       (todo_keyword text)
-       (title text)
-       (statistic_cookies text)
-       ;; Store planning info as float to be able to store date and time.
-       (scheduled real)
-       (deadline real)
-       (closed real)
-       (parent_id integer)]
-      (:unique [file position])
-      (:foreign-key [file] :references files [file] :on-delete :cascade)
-      (:foreign-key [parent_id] :references headings [id] :on-delete :cascade)))
+    ("CREATE TABLE IF NOT EXISTS headings (
+id integer NOT NULL PRIMARY KEY, file text NOT NULL,
+-- The level of the heading. An artificial level 0 heading
+-- is added to store file level properties and metadata.
+level integer NOT NULL, position integer NOT NULL,
+-- Store the full line text of the heading including stars.
+full_text text,
+-- Components of the heading.
+priority text NOT NULL, todo_keyword text, title text, statistic_cookies text,
+-- Store planning info as float to be able to store date and time.
+scheduled real, deadline real, closed real,
+-- Self reference to the parent id.
+parent_id integer,
+UNIQUE(file, position),
+FOREIGN KEY (file) REFERENCES files (file) ON DELETE CASCADE,
+FOREIGN KEY (parent_id) REFERENCES headings (id) ON DELETE CASCADE);")
     ;; Tags per heading.
-    (tags
-     ([(heading_id integer :not-null)
-       (tag text :not-null)]
-      (:primary-key [heading_id tag])
-      (:foreign-key [heading_id] :references headings [id] :on-delete :cascade)))
+    ("CREATE TABLE IF NOT EXISTS tags (
+heading_id integer NOT NULL, tag text NOT NULL,
+PRIMARY KEY (heading_id, tag),
+FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE);")
     ;; Properties per heading.
-    (properties
-     ([(heading_id integer :not-null)
-       (property text :not-null)
-       (value text)]
-      (:primary-key [heading_id property])
-      (:foreign-key [heading_id] :references headings [id] :on-delete :cascade)))
+    ("CREATE TABLE IF NOT EXISTS properties (
+heading_id integer NOT NULL, property text NOT NULL, value text,
+PRIMARY KEY (heading_id, property),
+FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE);")
     ;; Links in the files.
-    (links
-     ([(file integer :not-null)
-       (position integer :not-null)
-       (full_link text :not-null)
-       (type text)
-       (link text :not-null)
-       (description text)]
-      (:primary-key [file position])
-      (:foreign-key [file] :references files [file] :on-delete :cascade))))
-  "The schema that is used for the database.")
+    ("CREATE TABLE IF NOT EXISTS links (
+file text NOT NULL, position integer NOT NULL,
+full_link text NOT NULL, type text, link text NOT NULL, description text,
+PRIMARY KEY (file, position),
+FOREIGN KEY (file) REFERENCES files (file) one DELETE CASCADE);")
+    ;; The virtual table for full text search.
+    ("CREATE VIRUTAL TABLE IF NOT EXISTS files_fts
+USING fts5 (file, content);"))
+  "List of SQL statements to create the tables.")
 
 (defconst org-files-db--db-indices
-  '((headings-title-id headings [title]))
-  "The indices used in the database.
+  ;; https://www.sqlitetutorial.net/sqlite-index/
+  '(("CREATE INDEX headings_title_id ON headings(title);"))
+  "List of SQL statements to create the indices.
 No indices are create if this is set to nil")
 
 ;; * Build
@@ -125,20 +117,20 @@ existing tables will be dropped. The user_version is set to
 Returns the connection."
   ;; Create the file at path. It will be overwritten if it already exists.
   (org-files-db--db-create-db-file path)
-  (let* ((conn (org-files-db--db-open-connection path))
+  (let* ((process (org-files-db--db-open-connection
+                   path
+                   org-files-db--db-sqlite-process-name))
          (schema org-files-db--db-schema)
          (indices org-files-db--db-indices)
          (version org-files-db--db-version))
     ;; Store the connection.
-    (setq org-files-db--db-connection conn)
+    (setq org-files-db--db-connection process)
     ;; Create the tables and the indices.
-    (org-files-db--db-create-tables conn schema)
-    (org-files-db--db-create-indices conn indices)
-    ;; Create the virtual table for fts (full text search).
-    ;; TODO
+    (org-files-db--db-create-tables process schema)
+    (org-files-db--db-create-indices process indices)
     ;; Set the user version.
-    (org-files-db--db-set-user-version conn version)
-    conn))
+    (org-files-db--db-set-user-version process version)
+    process))
 
 (defun org-files-db--db-exists-p (path)
   "Check if the database file with PATH exists."
@@ -157,18 +149,34 @@ Will overwrite existing files and creates parent directories if needed."
   "Get the user_version of the open DB connection."
   (caar (emacsql db "PRAGMA user_version")))
 
-;; * Connection
+;; * Connection (process)
 
-(defun org-files-db--db-open-connection (path)
+(defun org-files-db--db-open-connection (path name)
   "Open connection to the database at PATH and return it.
-This also enables foreign keys."
-  (let ((connection (emacsql-sqlite path)))
-    (emacsql connection [:pragma (= foreign_keys on)])
-    connection))
+Uses NAME for the process and its buffer.
+This also enables foreign keys and sets output mode to json.
+Returns the process object."
+  (let* ((process-connection-type nil)  ; use a pipe
+         (coding-system-for-write 'utf-8-auto)
+         (coding-system-for-read 'utf-8-auto)
+         (buffer (generate-new-buffer (format " *%s* " name)))
+         (process (start-process name buffer "sqlite3" path)))
+    ;; If a signal is received stop the process.
+    ;; TODO Have a look at this again if there are some errors. Just copied this
+    ;; from emacsql.
+    (set-process-sentinel
+     process (lambda (process event)
+               (message "Process: %s had the event '%s'" process event)
+               (kill-buffer (process-buffer process))))
+    ;; Enable foreign keys and set output mode.
+    (process-send-string process "PRAGMA foreign_keys;\n")
+    (process-send-string process ".mode json\n")
+    process))
 
 (defun org-files-db--db-close-connection (db)
   "Close the DB connection."
-  (emacsql-close db))
+  (when (process-live-p db)
+    (process-send-eof db)))
 
 ;; * Create
 
@@ -176,16 +184,16 @@ This also enables foreign keys."
   "Create the tables in the connected DB with the SCHEMA provided.
 Check `org-files-db--db-schema' on how to define a schema."
   (emacsql-with-transaction db
-   (pcase-dolist (`(,table ,schemata) schema)
-     (emacsql db [:create-table :if-not-exists $i1 $S2] table schemata))))
+                            (pcase-dolist (`(,table ,schemata) schema)
+                              (emacsql db [:create-table :if-not-exists $i1 $S2] table schemata))))
 
 (defun org-files-db--db-create-indices (db indices)
   "Create the INDICES in the connected DB.
 Check `org-files-db--db-indices' on how to define the indices."
   (when indices
     (emacsql-with-transaction db
-      (pcase-dolist (`(,index-name ,table ,columns) indices)
-        (emacsql db [:create-index $i1 :on $i2 $S3] index-name table columns)))))
+                              (pcase-dolist (`(,index-name ,table ,columns) indices)
+                                (emacsql db [:create-index $i1 :on $i2 $S3] index-name table columns)))))
 
 ;; * Insert
 
@@ -211,15 +219,15 @@ the org file it is stored as well."
 ;; Insert heading
 
 (defun org-files-db--db-insert-heading (db file level pos title parent-id
-                                        &optional prio todo  cookies
-                                        scheduled deadline closed)
+                                           &optional prio todo  cookies
+                                           scheduled deadline closed)
   "Insert a heading into the headings table in the connected DB.
 Needs the FILE, LEVEL, POS (position), TITLE and PARENT-ID. The other arguments
 are optional as not available for all headings: PRIO, TODO keyword, statistic
 COOKIES and planning info (SCHEDULED, DEADLINE, CLOSED)."
   (emacsql db [:insert :into headings :values $v1]
            (vector file level pos prio todo title cookies scheduled deadline
-           closed parent-id)))
+                   closed parent-id)))
 
 ;; Insert tag
 
@@ -269,8 +277,8 @@ the link (FULL-LINK), TYPE of the link, LINK and DESCRIPTION."
   "Create the virtual table for fts in the connected DB.
 Uses the default tokenizer unicode61 as porter only works for english."
   (emacsql-with-transaction db
-    (emacsql db [:create-virtual-table :if-not-exists files_fts
-                                       :using :fts5 [(filename content)]])))
+                            (emacsql db [:create-virtual-table :if-not-exists files_fts
+                                                               :using :fts5 [(filename content)]])))
 
 ;; ** FTS Insert
 
