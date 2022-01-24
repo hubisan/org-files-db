@@ -121,7 +121,8 @@ No indices are create if this is set to nil")
 Use the `org-files-db--db-schema' to create the tables and also create the
 INDICES taken from `org-files-db--db-indices'. If the database exists the
 existing tables will be dropped. The user_version is set to
-`org-files-db--db-version'. This sets the `org-files-db--db-connection'."
+`org-files-db--db-version'. This sets the `org-files-db--db-connection'.
+Returns the connection."
   ;; Create the file at path. It will be overwritten if it already exists.
   (org-files-db--db-create-db-file path)
   (let* ((conn (org-files-db--db-open-connection path))
@@ -133,8 +134,11 @@ existing tables will be dropped. The user_version is set to
     ;; Create the tables and the indices.
     (org-files-db--db-create-tables conn schema)
     (org-files-db--db-create-indices conn indices)
+    ;; Create the virtual table for fts (full text search).
+    ;; TODO
     ;; Set the user version.
-    (org-files-db--db-set-user-version conn version)))
+    (org-files-db--db-set-user-version conn version)
+    conn))
 
 (defun org-files-db--db-exists-p (path)
   "Check if the database file with PATH exists."
@@ -187,16 +191,16 @@ Check `org-files-db--db-indices' on how to define the indices."
 
 ;; Insert directory
 
-(defun org-files-db--insert-directory (db dir updated mtime size)
+(defun org-files-db--db-insert-directory (db dir updated mtime size)
   "Insert directory DIR into the directory table in the connected DB.
 Also store the current time UPDATED, the MTIME (modification time) and the SIZE
 in bytes. Times are stored as seconds since the epoch."
   (emacsql db [:insert :into directories :values $v1]
-           (vector dir updated mtime size )))
+           (vector dir updated mtime size)))
 
 ;; Insert file
 
-(defun org-files-db--insert-file (db file dir updated mtime size title)
+(defun org-files-db--db-insert-file (db file dir updated mtime size title)
   "Insert FILE into the files table in the connected DB.
 Also store the current time UPDATED, the MTIME (modification time) and the SIZE
 in bytes. Times are stored as seconds since the epoch. If there is a title in
@@ -206,29 +210,41 @@ the org file it is stored as well."
 
 ;; Insert heading
 
-(defun org-files-db--insert-heading (db file level pos title parent-id
+(defun org-files-db--db-insert-heading (db file level pos title parent-id
                                         &optional prio todo  cookies
                                         scheduled deadline closed)
   "Insert a heading into the headings table in the connected DB.
 Needs the FILE, LEVEL, POS (position), TITLE and PARENT-ID. The other arguments
 are optional as not available for all headings: PRIO, TODO keyword, statistic
 COOKIES and planning info (SCHEDULED, DEADLINE, CLOSED)."
-  (emacsql db [:insert :into files :values $v1]
+  (emacsql db [:insert :into headings :values $v1]
            (vector file level pos prio todo title cookies scheduled deadline
            closed parent-id)))
 
-;; Insert property
-
-(defun org-files-db--insert-property (db heading-id property value)
-  "Insert PROPERTY and its VALUE into the properties table in the connected DB.
-Also stores id HEADING-ID of the referenced the heading."
-  (emacsql db [:insert :into files :values $v1]
-           (vector heading-id property value)))
-
 ;; Insert tag
 
+(defun org-files-db--db-insert-tag (db heading-id tag)
+  "Insert TAG of a heading into the tags table in the DB.
+References to the heading by the id HEADING-ID stored in the db."
+  (emacsql db [:insert :into tags :values $v1]
+           (vector heading-id tag)))
+
+;; Insert property
+
+(defun org-files-db--db-insert-property (db heading-id property value)
+  "Insert PROPERTY and VALUE of a heading into the properties table in the DB.
+References to the heading by the id HEADING-ID stored in the db."
+  (emacsql db [:insert :into properties :values $v1]
+           (vector heading-id property value)))
 
 ;; Insert link
+
+(defun org-files-db--db-insert-link (db file pos full-link type link description)
+  "Insert a link in a FILE into the DB.
+Stores the references to the FILE, POS (position), full text of
+the link (FULL-LINK), TYPE of the link, LINK and DESCRIPTION."
+  (emacsql db [:insert :into links :values $v1]
+           (vector file pos full-link type link description)))
 
 ;; * Update
 
@@ -244,6 +260,46 @@ Also stores id HEADING-ID of the referenced the heading."
 ;; Drop file
 
 ;; * Select
+
+;; * FTS Full Text Search
+
+;; ** FTS Create
+
+(defun org-files-db--db-fts-create-tables (db)
+  "Create the virtual table for fts in the connected DB.
+Uses the default tokenizer unicode61 as porter only works for english."
+  (emacsql-with-transaction db
+    (emacsql db [:create-virtual-table :if-not-exists files_fts
+                                       :using :fts5 [(filename content)]])))
+
+;; ** FTS Insert
+
+(defun org-files-db--db-fts-insert-file (db file)
+  "Read content FILE into the files_fts table in the connected DB.
+The readfile function provided by SQLite is used."
+  ;; TODO This can't be done. Opened an issue:
+  ;; https://github.com/skeeto/emacsql/issues/88
+  ;; Probably better to just use a simple
+  (emacsql db [:insert :into files_fts :values ([filename readfile([test])])]
+           file ))
+
+;; (defun org-files-db--db-fts-insert-file-shell (path file)
+;;   "Read content FILE into the files_fts table in the connected DB.
+;; The readfile function provided by SQLite is used."
+;;   ;; TODO This can't be done. Opened an issue:
+;;   ;; https://github.com/skeeto/emacsql/issues/88
+;;   ;; Probably better to just use a process to run a shell command or script.
+;;   ;; This might be better and probably faster for evertying here expect queries.
+;;   ;; Ok, emacsql accepts pure strings as well as SQL, but looks like the version
+;;   ;; used has not loaded the extension readfile. So just do it with a process
+;;   ;; async.
+;;   (emacsql db [:insert :into files_fts :values ([filename readfile([test])])]
+;;            file ))
+
+;; (start-process-shell-command "sleep" "*sleep*" "sleep 5 && echo wake")
+;; (delete-process)
+
+;; ** FTS Delete
 
 ;; * Footer
 
