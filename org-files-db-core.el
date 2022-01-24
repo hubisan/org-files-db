@@ -54,12 +54,16 @@ If any file has been modified, the database is updated."
   :group 'org-files-db
   :type 'string)
 
-(defcustom org-files-db-full-text-search-enabled-p t
+(defcustom org-files-db-db-full-text-search-enabled-p t
   "If non-nil full text search is enabled. This will store the content of all org
-files from the directories in the database. Takes additional space and might
-lead to decreased performance."
+files from the directories in a seconds database. Takes additional space."
   :group 'org-files-db
   :type 'boolean)
+
+(defcustom org-files-db-db-timeout 30
+  "Maximum number of seconds to wait before bailing out on a SQL command."
+  :group 'org-files-db
+  :type 'integer)
 
 ;; * Variables
 

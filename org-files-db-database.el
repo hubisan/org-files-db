@@ -38,10 +38,13 @@ Make sure to update this if the `org-files-db--db-schema' or the
 be rebuilt from scratch.")
 
 (defvar org-files-db--db-connection nil
-  "Process that runs the SQLite3 programm.")
+  "Process that runs the SQLite3 interative shell.")
 
-(defconst org-files-db--db-sqlite-process-name "org-files-db"
+(defconst org-files-db--db-process-name "org-files-db"
   "The name for the process. Is also used to name the buffer.")
+
+(defvar org-files-db--db-sqlite-output nil
+  "The output of the SQLite3 interactive shell.")
 
 (defconst org-files-db--db-schema
   ;; https://www.sqlitetutorial.net/sqlite-create-table/
@@ -104,30 +107,92 @@ USING fts5 (file, content);"))
   "List of SQL statements to create the indices.
 No indices are create if this is set to nil")
 
-;; * Build
+;; * Core
+
+(defun org-file-db--db-execute (db sql &optional no-transaction silent)
+  "Execute an SQL statement in the SQLite3 shell for the DB.
+SQL can be a string or a list of string. If the SQL is a list of statements a
+transaction is used unless NO-TRANSACTION is non-nil. If SILENT is non-nil no
+output is shown."
+  (if silent
+      (set-process-filter db t)
+    (set-process-filter db #'org-files-db--db-message-output))
+  (if (stringp sql)
+      (process-send-string
+       db (format "%s\n" (org-file-db--db-fix-sql-statement sql)))
+    (unless no-transaction
+      (process-send-string db "BEGIN TRANSACTION;"))
+    (dolist (statement sql)
+      (process-send-string
+       db (format "%s\n" (org-file-db--db-fix-sql-statement statement))))
+    (unless no-transaction
+      (process-send-string db "COMMIT;"))))
+
+(defun org-file-db--db-fix-sql-statement (sql)
+  "This just verifies if there is a semicolon at the end of the SQL.
+If not the semicolon is added."
+  (if (string-suffix-p ";" sql)
+      sql
+    (format "%s;" sql)))
+
+(defun org-file-db--db-execute-commmand (db command)
+  "Execute an SQLite dot COMMAND in the SQLite3 shell for the DB.
+Those commands start with a dot and are not terminated with a semicolon."
+  (unless (and (string-prefix-p "." command)
+               (not (string-suffix-p ";" command)))
+    (user-error "The command '%s' is not valid" command))
+  (process-send-string db (format "%s\n" command)))
+
+(defun org-file-db--db-get-output (db sql &optional object-type raw)
+  "Execute SQL string in the SQLite3 shell for DB and return result.
+The DB is configured to output JSON string. The JSON returned is parsed into a
+lips object used the OBJECT-TYPE which defaults to `hash-table'. Other
+object-types are `alist' or `plist'. If RAW is non-nil the raw JSON string is
+returned."
+  (set-process-filter db #'org-files-db--db-capture-output)
+  (unless (accept-process-output
+           (process-send-string
+            db (format "%s\n" (org-file-db--db-fix-sql-statement sql)))
+           org-files-db-db-timeout)
+    (error "Timeout reached before output was received."))
+  (if raw
+      org-files-db--db-sqlite-output
+    (let ((type (or object-type 'hash-table)))
+      (json-parse-string org-files-db--db-sqlite-output :object-type type))))
+
+(defun org-files-db--db-message-output (_process output)
+  "Just show a message with the output."
+  (message "Org-files-db SQLite output: %s" output))
+
+(defun org-files-db--db-capture-output (_process output)
+  "Store the output in a variable."
+  (setq org-files-db--db-sqlite-output output))
+
+;; * Create
 
 ;; SQLite Dataypes: integer, real, text, blob
 
-(defun org-files-db--db-initialize (path)
-  "Initialize the database at PATH.
+(defun org-files-db--db-create (path)
+  "Create the database at PATH. If it already exists it is overwritten.
 Use the `org-files-db--db-schema' to create the tables and also create the
 INDICES taken from `org-files-db--db-indices'. If the database exists the
 existing tables will be dropped. The user_version is set to
 `org-files-db--db-version'. This sets the `org-files-db--db-connection'.
-Returns the connection."
+Returns the connection (the process object)."
   ;; Create the file at path. It will be overwritten if it already exists.
   (org-files-db--db-create-db-file path)
-  (let* ((process (org-files-db--db-open-connection
-                   path
-                   org-files-db--db-sqlite-process-name))
+  (let* ((process (org-files-db--db-connect path org-files-db--db-process-name
+                                            org-files-db-db-timeout t))
          (schema org-files-db--db-schema)
          (indices org-files-db--db-indices)
          (version org-files-db--db-version))
+    ;; No output unless a function explicitly wants it.
+    (set-process-filter process t)
     ;; Store the connection.
     (setq org-files-db--db-connection process)
     ;; Create the tables and the indices.
-    (org-files-db--db-create-tables process schema)
-    (org-files-db--db-create-indices process indices)
+    ;; (org-files-db--db-create-tables process schema)
+    ;; (org-files-db--db-create-indices process indices)
     ;; Set the user version.
     (org-files-db--db-set-user-version process version)
     process))
@@ -142,41 +207,61 @@ Will overwrite existing files and creates parent directories if needed."
   (make-empty-file path t))
 
 (defun org-files-db--db-set-user-version (db version)
-  "Set the user_version to VERSION for the open DB connection."
-  (emacsql db (format "PRAGMA user_version = %s" version)))
+  "Set the user_version to VERSION for the DB."
+  (org-file-db--db-execute
+   db (format "PRAGMA user_version = %s;" version)))
 
 (defun org-files-db--db-get-user-version (db)
   "Get the user_version of the open DB connection."
-  (caar (emacsql db "PRAGMA user_version")))
+  (plist-get
+   (seq-first (org-file-db--db-get-output db "PRAGMA user_version;" 'plist))
+   :user_version))
 
 ;; * Connection (process)
 
-(defun org-files-db--db-open-connection (path name)
-  "Open connection to the database at PATH and return it.
-Uses NAME for the process and its buffer.
-This also enables foreign keys and sets output mode to json.
-Returns the process object."
-  (let* ((process-connection-type nil)  ; use a pipe
-         (coding-system-for-write 'utf-8-auto)
-         (coding-system-for-read 'utf-8-auto)
-         (buffer (generate-new-buffer (format " *%s* " name)))
-         (process (start-process name buffer "sqlite3" path)))
-    ;; If a signal is received stop the process.
-    ;; TODO Have a look at this again if there are some errors. Just copied this
-    ;; from emacsql.
-    (set-process-sentinel
-     process (lambda (process event)
-               (message "Process: %s had the event '%s'" process event)
-               (kill-buffer (process-buffer process))))
-    ;; Enable foreign keys and set output mode.
-    (process-send-string process "PRAGMA foreign_keys;\n")
-    (process-send-string process ".mode json\n")
-    process))
+(defun org-files-db--db-connect (path name timeout &optional force)
+  "Start an interactive SQLite3 shell against the existing db at PATH.
+Uses the NAME for the process and its buffer. If FORCE is non-nil an already
+existing process will be killed and a new process is started. Foreign keys and
+sets output mode to json are enabled. Returns the process object.
+Set the TIMEOUT for the database as the default is 0 in the interactive shell."
+  (let ((running-process (get-process name))
+        (process-buffer-name (format " *%s* " name)))
+    (when (and (process-live-p running-process) force)
+      (org-files-db--db-disconnect running-process))
+    (if (process-live-p running-process)
+        running-process
+      ;; Start a new process.
+      (when (buffer-live-p (get-buffer process-buffer-name))
+        (kill-buffer process-buffer-name))
+      (let* ((process-connection-type nil)  ; use a pipe
+             (coding-system-for-write 'utf-8-auto)
+             (coding-system-for-read 'utf-8-auto)
+             (buffer (generate-new-buffer process-buffer-name))
+             (process (start-process name buffer "sqlite3"
+                                     (expand-file-name path))))
+        ;; Call the sentinel when the process state changes.
+        (set-process-sentinel process
+                              #'org-files-db--db-handle-process-status-change)
+        ;; Enable foreign keys and set output mode.
+        (org-file-db--db-execute process "PRAGMA foreign_keys = ON;")
+        (org-file-db--db-execute
+         process (format "PRAGMA busy_timeout=%s" (* 1000  timeout)))
+        (org-file-db--db-execute-commmand process ".mode json")
+        process))))
 
-(defun org-files-db--db-close-connection (db)
-  "Close the DB connection."
+(defun org-files-db--db-disconnect (db)
+  "Ends the Close the DB connection."
   (when (process-live-p db)
-    (process-send-eof db)))
+    (process-send-eof db))
+  (when (buffer-live-p (process-buffer db))
+    (kill-buffer (process-buffer db))))
+
+(defun org-files-db--db-handle-process-status-change (process event)
+  "Handle changes of the `process-status'.
+This function is set with `set-process-sentinel'. On status changes the db is disconnected. If this"
+  (message "Org-files-db: %s had the event '%s'." process event)
+  (org-files-db--db-disconnect process))
 
 ;; * Create
 
