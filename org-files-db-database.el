@@ -119,7 +119,7 @@ Those commands start with a dot and are not terminated with a semicolon."
 (defun org-files-db--db-execute-get-output (db sql &optional object-type raw)
   "Execute SQL string in the SQLite3 shell running in DB and return output.
 The database is configured to output a JSON string. The JSON returned is parsed
-into a lisp object with the specified OBJECT-TYPE which defaults to
+into a Lisp object with the specified OBJECT-TYPE which defaults to
 `hash-table'. Other object-types are `alist' or `plist'. If RAW is non-nil the
 raw JSON string is returned."
   (set-process-filter db #'org-files-db--db-capture-output)
@@ -242,7 +242,7 @@ Set the TIMEOUT for the database as the default is 0 in the interactive shell."
 ;; ** Process Filter & Sentinel
 
 (defun org-files-db--db-message-output (process output)
-  "Just show a message with the OUTPUT."
+  "Just show a message with the OUTPUT of PROCESS."
   (message "SQLite '%s': '%s'" process output))
 
 (defun org-files-db--db-capture-output (_process output)
