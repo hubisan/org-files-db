@@ -19,9 +19,33 @@
 
 ;;; Commentary:
 
-;; Variables and functions to interact with the database.
+;; Variables and functions to interact with the database. The schemas to create
+;; the databases are stored in the sql folder.
 
 ;;; Code:
+
+;; TODO checkout json_group_object for queries:
+;; https://stackoverflow.com/q/55421128/1365754
+;; This
+;; SELECT
+;;     json_group_object (directory,
+;;         json_object('updated', updated, 'mtime', mtime, 'size', size))
+;; FROM
+;;     directories;
+;; gives
+;; {
+;;   "test": {
+;;     "updated": 333,
+;;     "mtime": 333,
+;;     "size": 333
+;;   },
+;;   "test 1": {
+;;     "updated": 333,
+;;     "mtime": 333,
+;;     "size": 333
+;;   }
+;; }
+;; which is perfect to convert into the lisp object.
 
 ;; * Requirements
 
@@ -37,7 +61,7 @@ Make sure to update this if the `org-files-db--db-schema' or the
 `org-files-db--db-indices' are changed. If the database version changes it will
 be rebuilt from scratch.")
 
-(defvar org-files-db--db-connection nil
+(defvar org-files-db--db-process nil
   "Process that runs the SQLite3 interative shell.")
 
 (defconst org-files-db--db-process-name "org-files-db"
@@ -46,109 +70,58 @@ be rebuilt from scratch.")
 (defvar org-files-db--db-sqlite-output nil
   "The output of the SQLite3 interactive shell.")
 
-(defconst org-files-db--db-schema
-  ;; https://www.sqlitetutorial.net/sqlite-create-table/
-  '(
-    ;; All the directories in which the org-files are parsed.
-    ("CREATE TABLE IF NOT EXISTS directories (
-directory text NOT NULL PRIMARY KEY,
--- Updated, mtime and size are used to make sure the directory is not
--- dirty. Updated and mtime stored as seconds since the epoch.
-updated integer NOT NULL, mtime integer NOT NULL, size integer NOT NULL);")
-    ;; Metadata of the org files in those directories.
-    ("CREATE TABLE IF NOT EXISTS files (
-filename text NOT NULL PRIMARY KEY, directory text NOT NULL,
--- Updated, mtime and size are used to make sure the file is not dirty.
--- Updated and mtime stored as seconds since the epoch.
-updated integer NOT NULL, mtime integer NOT NULL, size integer NOT NULL,
-title text,
-FOREIGN KEY (directory) REFERENCES directories (directory) ON DELETE CASCADE);")
-    ;; Metadata of the headings in the org files.
-    ("CREATE TABLE IF NOT EXISTS headings (
-id integer NOT NULL PRIMARY KEY, file text NOT NULL,
--- The level of the heading. An artificial level 0 heading
--- is added to store file level properties and metadata.
-level integer NOT NULL, position integer NOT NULL,
--- Store the full line text of the heading including stars.
-full_text text,
--- Components of the heading.
-priority text NOT NULL, todo_keyword text, title text, statistic_cookies text,
--- Store planning info as float to be able to store date and time.
-scheduled real, deadline real, closed real,
--- Self reference to the parent id.
-parent_id integer,
-UNIQUE(file, position),
-FOREIGN KEY (file) REFERENCES files (file) ON DELETE CASCADE,
-FOREIGN KEY (parent_id) REFERENCES headings (id) ON DELETE CASCADE);")
-    ;; Tags per heading.
-    ("CREATE TABLE IF NOT EXISTS tags (
-heading_id integer NOT NULL, tag text NOT NULL,
-PRIMARY KEY (heading_id, tag),
-FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE);")
-    ;; Properties per heading.
-    ("CREATE TABLE IF NOT EXISTS properties (
-heading_id integer NOT NULL, property text NOT NULL, value text,
-PRIMARY KEY (heading_id, property),
-FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE);")
-    ;; Links in the files.
-    ("CREATE TABLE IF NOT EXISTS links (
-file text NOT NULL, position integer NOT NULL,
-full_link text NOT NULL, type text, link text NOT NULL, description text,
-PRIMARY KEY (file, position),
-FOREIGN KEY (file) REFERENCES files (file) one DELETE CASCADE);")
-    ;; The virtual table for full text search.
-    ("CREATE VIRUTAL TABLE IF NOT EXISTS files_fts
-USING fts5 (file, content);"))
-  "List of SQL statements to create the tables.")
+;; * Execute
 
-(defconst org-files-db--db-indices
-  ;; https://www.sqlitetutorial.net/sqlite-index/
-  '(("CREATE INDEX headings_title_id ON headings(title);"))
-  "List of SQL statements to create the indices.
-No indices are create if this is set to nil")
-
-;; * Core
+;; Execute SQL statements (as string, as list of strings or by reading from a
+;; file) or execute a SQLite command.
 
 (defun org-files-db--db-execute (db sql &optional no-transaction silent)
-  "Execute an SQL statement in the SQLite3 shell for the DB.
+  "Execute an SQL statement in the SQLite3 shell run in DB.
 SQL can be a string or a list of string. If the SQL is a list of statements a
 transaction is used unless NO-TRANSACTION is non-nil. If SILENT is non-nil no
 output is shown."
   (if silent
       (set-process-filter db t)
     (set-process-filter db #'org-files-db--db-message-output))
-  (if (stringp sql)
-      (process-send-string
-       db (format "%s\n" (org-files-db--db-fix-sql-statement sql)))
-    (unless no-transaction
-      (process-send-string db "BEGIN TRANSACTION;"))
-    (dolist (statement sql)
-      (process-send-string
-       db (format "%s\n" (org-files-db--db-fix-sql-statement statement))))
-    (unless no-transaction
-      (process-send-string db "COMMIT;"))))
+  (unwind-protect
+      (if (stringp sql)
+          (process-send-string
+           db (format "%s\n" (org-files-db--db-fix-sql-statement sql)))
+        ;; It is a list of transactions.
+        (unless no-transaction
+          (process-send-string db "BEGIN TRANSACTION;"))
+        (dolist (statement sql)
+          (process-send-string
+           db (format "%s\n" (org-files-db--db-fix-sql-statement statement))))
+        (unless no-transaction
+          (process-send-string db "COMMIT;")))
+    (set-process-filter db t)))
 
-(defun org-files-db--db-fix-sql-statement (sql)
-  "This just verifies if there is a semicolon at the end of the SQL.
-If not the semicolon is added."
-  (if (string-suffix-p ";" sql)
-      sql
-    (format "%s;" sql)))
+(defun org-files-db--db-execute-from-file (db path &optional silent)
+  "Execute an SQL statement stored in a file in the SQLite3 shell run in DB.
+If SILENT is non-nil no output is shown. PATH has to be the absolute path of
+the file."
+  (if silent
+      (set-process-filter db t)
+    (set-process-filter db #'org-files-db--db-message-output))
+  (unwind-protect
+      (process-send-string db (format ".read %s\n" (expand-file-name path)))
+    (set-process-filter db t)))
 
 (defun org-files-db--db-execute-commmand (db command)
-  "Execute an SQLite dot COMMAND in the SQLite3 shell for the DB.
+  "Execute an SQLite dot COMMAND in the SQLite3 shell with DB.
 Those commands start with a dot and are not terminated with a semicolon."
   (unless (and (string-prefix-p "." command)
                (not (string-suffix-p ";" command)))
     (user-error "The command '%s' is not valid" command))
   (process-send-string db (format "%s\n" command)))
 
-(defun org-files-db--db-get-output (db sql &optional object-type raw)
-  "Execute SQL string in the SQLite3 shell for DB and return result.
-The DB is configured to output JSON string. The JSON returned is parsed into a
-lips object used the OBJECT-TYPE which defaults to `hash-table'. Other
-object-types are `alist' or `plist'. If RAW is non-nil the raw JSON string is
-returned."
+(defun org-files-db--db-execute-get-output (db sql &optional object-type raw)
+  "Execute SQL string in the SQLite3 shell running in DB and return output.
+The database is configured to output a JSON string. The JSON returned is parsed
+into a lisp object with the specified OBJECT-TYPE which defaults to
+`hash-table'. Other object-types are `alist' or `plist'. If RAW is non-nil the
+raw JSON string is returned."
   (set-process-filter db #'org-files-db--db-capture-output)
   (unless (accept-process-output
            (process-send-string
@@ -160,40 +133,42 @@ returned."
     (let ((type (or object-type 'hash-table)))
       (json-parse-string org-files-db--db-sqlite-output :object-type type))))
 
-(defun org-files-db--db-message-output (_process output)
-  "Just show a message with the OUTPUT."
-  (message "Org-files-db SQLite output: %s" output))
+(defun org-files-db--db-fix-sql-statement (sql)
+  "This verifies if there is a semicolon at the end of the SQL.
+If not the semicolon is added."
+  (if (string-suffix-p ";" sql)
+      sql
+    (format "%s;" sql)))
 
-(defun org-files-db--db-capture-output (_process output)
-  "Store the OUTPUT in a variable."
-  (setq org-files-db--db-sqlite-output output))
+;;;###autoload
+(defmacro org-files-db-api-with-current-db (process &rest body)
+  "Execute the forms in BODY with the PROCESS temporarily current.
+The PROCESS has to run a interactive SQLite shell."
+  (declare (indent 1) (debug t))
+  `(let ((org-files-db--sqlite-api-process ,process))
+     ,@body))
 
 ;; * Create
 
 ;; SQLite Dataypes: integer, real, text, blob
 
 (defun org-files-db--db-create (path)
-  "Create the database at PATH. If it already exists it is overwritten.
+  "Create the database at absolute PATH. If it already exists it is overwritten.
 Use the `org-files-db--db-schema' to create the tables and also create the
 INDICES taken from `org-files-db--db-indices'. If the database exists the
 existing tables will be dropped. The user_version is set to
-`org-files-db--db-version'. This sets the `org-files-db--db-connection'.
+`org-files-db--db-version'. This sets the `org-files-db--db-process'.
 Returns the connection (the process object)."
   ;; Create the file at path. It will be overwritten if it already exists.
-  (org-files-db--db-create-db-file path)
+  (org-files-db--db-create-db-file (expand-file-name path))
   (let* ((process (org-files-db--db-connect path org-files-db--db-process-name
                                             org-files-db-db-timeout t))
-         (schema org-files-db--db-schema)
-         (indices org-files-db--db-indices)
-         (version org-files-db--db-version))
-    ;; No output unless a function explicitly wants it.
-    (set-process-filter process t)
-    ;; Store the connection.
-    (setq org-files-db--db-connection process)
-    ;; Create the tables and the indices.
-    ;; TODO
-    (org-files-db--db-create-tables process schema)
-    (org-files-db--db-create-indices process indices)
+         (version org-files-db--db-version)
+         (sql-path (concat (file-name-directory (locate-library "org-files-db"))
+                           "sql/db-schema.sql")))
+    (setq org-files-db--db-process process)
+    ;; Read the schema from file to create tables, indices, triggers and views.
+    (org-files-db--db-execute-from-file process sql-path)
     ;; Set the user version.
     (org-files-db--db-set-user-version process version)
     process))
@@ -215,10 +190,11 @@ Will overwrite existing files and creates parent directories if needed."
 (defun org-files-db--db-get-user-version (db)
   "Get the user_version of the open DB connection."
   (plist-get
-   (seq-first (org-files-db--db-get-output db "PRAGMA user_version;" 'plist))
+   (seq-first (org-files-db--db-execute-get-output
+               db "PRAGMA user_version;" 'plist))
    :user_version))
 
-;; * Connection (process)
+;; * Connection (Process)
 
 (defun org-files-db--db-connect (path name timeout &optional force)
   "Start an interactive SQLite3 shell against the existing db at PATH.
@@ -229,7 +205,8 @@ Set the TIMEOUT for the database as the default is 0 in the interactive shell."
   (let ((running-process (get-process name))
         (process-buffer-name (format " *%s* " name)))
     (when (and (process-live-p running-process) force)
-      (org-files-db--db-disconnect running-process))
+      (org-files-db--db-disconnect running-process)
+      (delete-process running-process))
     (if (process-live-p running-process)
         running-process
       ;; Start a new process.
@@ -241,22 +218,36 @@ Set the TIMEOUT for the database as the default is 0 in the interactive shell."
              (buffer (generate-new-buffer process-buffer-name))
              (process (start-process name buffer "sqlite3"
                                      (expand-file-name path))))
+        ;; Don't show any output unless it is needed.
+        (set-process-filter process t)
         ;; Call the sentinel when the process state changes.
         (set-process-sentinel process
                               #'org-files-db--db-handle-process-status-change)
         ;; Enable foreign keys and set output mode.
-        (org-files-db--db-execute process "PRAGMA foreign_keys = ON;")
+        (org-files-db--db-execute process "PRAGMA foreign_keys = ON;" t t)
         (org-files-db--db-execute
-         process (format "PRAGMA busy_timeout=%s" (* 1000  timeout)))
+         process (format "PRAGMA busy_timeout=%s" (* 1000  timeout)) t t)
         (org-files-db--db-execute-commmand process ".mode json")
         process))))
 
 (defun org-files-db--db-disconnect (db)
   "Ends the Close the DB connection."
+  (set-process-sentinel db nil)
   (when (process-live-p db)
     (process-send-eof db))
   (when (buffer-live-p (process-buffer db))
-    (kill-buffer (process-buffer db))))
+    (kill-buffer (process-buffer db)))
+  (delete-process db))
+
+;; ** Process Filter & Sentinel
+
+(defun org-files-db--db-message-output (process output)
+  "Just show a message with the OUTPUT."
+  (message "SQLite '%s': '%s'" process output))
+
+(defun org-files-db--db-capture-output (_process output)
+  "Store the OUTPUT in a variable."
+  (setq org-files-db--db-sqlite-output output))
 
 (defun org-files-db--db-handle-process-status-change (process event)
   "Handle changes of the `process-status' of the PROCESS.
@@ -264,24 +255,9 @@ The function gets two arguments: the PROCESS and the EVENT, a string describing
 the change. This function is set with `set-process-sentinel'. On status changes
 the db is disconnected."
   (message "Org-files-db: %s had the event '%s'." process event)
-  (org-files-db--db-disconnect process))
-
-;; * Create
-
-(defun org-files-db--db-create-tables (db schema)
-  "Create the tables in the connected DB with the SCHEMA provided.
-Check `org-files-db--db-schema' on how to define a schema."
-  (emacsql-with-transaction db
-                            (pcase-dolist (`(,table ,schemata) schema)
-                              (emacsql db [:create-table :if-not-exists $i1 $S2] table schemata))))
-
-(defun org-files-db--db-create-indices (db indices)
-  "Create the INDICES in the connected DB.
-Check `org-files-db--db-indices' on how to define the indices."
-  (when indices
-    (emacsql-with-transaction db
-                              (pcase-dolist (`(,index-name ,table ,columns) indices)
-                                (emacsql db [:create-index $i1 :on $i2 $S3] index-name table columns)))))
+  ;; If process is not live anymore disconnect it;
+  (unless (process-live-p process)
+    (org-files-db--db-disconnect process)))
 
 ;; * Insert
 
@@ -365,8 +341,8 @@ the link (FULL-LINK), TYPE of the link, LINK and DESCRIPTION."
   "Create the virtual table for fts in the connected DB.
 Uses the default tokenizer unicode61 as porter only works for english."
   (emacsql-with-transaction db
-                            (emacsql db [:create-virtual-table :if-not-exists files_fts
-                                                               :using :fts5 [(filename content)]])))
+    (emacsql db [:create-virtual-table :if-not-exists files_fts
+                                       :using :fts5 [(filename content)]])))
 
 ;; ** FTS Insert
 
