@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS links (
     link text NOT NULL,
     description text,
     PRIMARY KEY (file, position),
-    FOREIGN KEY (file) REFERENCES files (file) one DELETE CASCADE
+    FOREIGN KEY (file) REFERENCES files (file) ON DELETE CASCADE
 );
 
 CREATE INDEX headings_title_id ON headings(title);
