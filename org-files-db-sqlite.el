@@ -65,6 +65,7 @@ Returns the process running the SQLite shell.
 Use force to overwrite it or create a new one" path))
     (let ((process (org-files-db--sqlite-process-start
                     path name 'force foreign-keys busy-timeout)))
+
       ;; Create the tables etc. from the schema which is a string or stored in a
       ;; file.
       (if (file-exists-p schema)
@@ -85,8 +86,8 @@ Will overwrite existing files and creates parent directories if needed."
 If the PROCESS is nil the default stored in `org-files-db--sqlite-process' is
 used. This also makes a simple check to see if the process is valid."
   (let ((process (or process org-files-db--sqlite-process)))
-    (org-files-db--sqlite-execute
-     (format "PRAGMA user_version = %s;" version) nil nil process)
+    (org-files-db--sqlite-execute (format "PRAGMA user_version = %s;" version)
+                                  nil nil process)
     version))
 
 (defun org-files-db--sqlite-get-user-version (&optional process)
@@ -159,7 +160,7 @@ needed. If the PROCESS is nil the default stored in
            "PRAGMA foreign_keys = ON;" nil nil process))
         (when busy-timeout
           (org-files-db--sqlite-execute
-           (format "PRAGMA busy_timeout=%s" busy-timeout) nil nil process))))
+           (format "PRAGMA busy_timeout=%s;" busy-timeout) nil nil process))))
 
 (defun org-files-db--sqlite-process-delete (process &optional no-message)
   "Deletes the PROCESS and its buffer.
@@ -205,6 +206,7 @@ To start a new process use `org-files-db--sqlite-process-start'."
   (when (string-prefix-p "Error: " output)
     (user-error "SQLite Shell Error (%s): %s" process (substring output 7))))
 
+;; TODO not used, maybe remove.
 (defun org-files-db--sqlite-process-filter-message-output (process output)
   "Just show a message with the OUTPUT from PROCESS."
   (org-files-db--sqlite-process-filter-check-for-error process output)
@@ -284,7 +286,7 @@ Please see `org-files-db--sqlite-execute' for the meaning of MODE and TIMEOUT.
 PROCESS: If PROCESS is nil the process stored in `org-files-db--sqlite-process'
 is used."
   (let* ((path (expand-file-name path))
-         (sql (format ".read %s\n" (expand-file-name path))))
+         (sql (format ".read %s" path)))
     (if (file-exists-p path)
         (org-files-db--sqlite-execute sql mode timeout process)
       (error "Path '%s' doesn't exist" path))))

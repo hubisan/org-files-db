@@ -44,7 +44,7 @@ If any file has been modified, the database is updated."
   :group 'org-files-db
   :type 'number)
 
-(defcustom org-files-db-db-path (locate-user-emacs-file "org-files-db.sqlite")
+(defcustom org-files-db-db-path (locate-user-emacs-file "org-files.db")
   "The path where the database is stored. Use .db or .sqlite as extension."
   :group 'org-files-db
   :type 'string)
