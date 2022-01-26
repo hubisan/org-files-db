@@ -52,6 +52,7 @@
 (require 'emacsql)
 (require 'emacsql-sqlite)
 (require 'org-files-db-core)
+(require 'org-files-db-sqlite)
 
 ;; * Variables
 
