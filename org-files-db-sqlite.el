@@ -58,7 +58,7 @@ new one. Returns the process object."
     ;; If force is non-nil and the process is live then delete it and its
     ;; buffer.
     (when (and (process-live-p running-process) force)
-      (org-files-db--sqlite-process-delete running-process))
+      (org-files-db--sqlite-process-delete running-process 'no-message))
     ;; Return the process if it is live.
     (if (process-live-p running-process)
         running-process
@@ -94,14 +94,18 @@ returned."
           (org-files-db--sqlite-execute
            (format "PRAGMA busy_timeout=%s" timeout) nil nil process))))
 
-(defun org-files-db--sqlite-process-delete (process)
-  "Deletes the PROCESS and its buffer."
-  (set-process-sentinel process nil)
-  (when (process-live-p process)
-    (process-send-eof process))
-  (when (buffer-live-p (process-buffer process))
-    (kill-buffer (process-buffer process)))
-  (delete-process process))
+(defun org-files-db--sqlite-process-delete (process &optional no-message)
+  "Deletes the PROCESS and its buffer.
+If NO-MESSAGE is non-nil don't show a confirmation message."
+  (let ((name (process-name process)))
+    (set-process-sentinel process nil)
+    (when (process-live-p process)
+      (process-send-eof process))
+    (when (buffer-live-p (process-buffer process))
+      (kill-buffer (process-buffer process)))
+    (delete-process process)
+    (unless no-message
+      (message "Process '%s' has been deleted" name))))
 
 (defun org-files-db--sqlite-process-get (&optional process)
   "Return the PROCESS.
@@ -130,26 +134,31 @@ The PROCESS has to run a interactive SQLite shell."
 ;; ** Filter & Sentinel
 
 (defun org-files-db--sqlite-process-filter-check-for-error (process output)
-  "Checks if the OUTPUT of the PROCESS is an error message."
+  "Checks if the OUTPUT of the PROCESS is an error message. "
   (when (string-prefix-p "Error: " output)
     (user-error "SQLite Error (%s): %s" process (substring output 7))))
 
 (defun org-files-db--sqlite-process-filter-message-output (process output)
   "Just show a message with the OUTPUT from PROCESS."
   (org-files-db--sqlite-process-filter-check-for-error process output)
-  (message "SQLite '%s': '%s'" process output))
+  (message "SQLite (%s): '%s'" process output))
 
 (defun org-files-db--sqlite-process-filter-capture-output (process output)
-  "Store the OUTPUT in a variable."
-  (org-files-db--sqlite-process-filter-check-for-error process output)
-  (setq org-files-db--sqlite-output output))
+  "Store the OUTPUT in a variable.
+Don't do anything if the output is \"nil\n\". This is my hack to get around the
+problem that some SQL statements produce no output. Then it would wait forever
+for the process to return anything. See `org-files-db--sqlite-execute'."
+  (unless (string-equal output "nil\n")
+    (let ((output (replace-regexp-in-string "\nnil\n$" "" output)))
+      (org-files-db--sqlite-process-filter-check-for-error process output)
+      (setq org-files-db--sqlite-output output))))
 
 (defun org-files-db--sqlite-process-sentinel-handle-status-change (process event)
   "Handle changes of the `process-status' of the PROCESS.
 The function gets two arguments: the PROCESS and the EVENT, a string describing
 the change. This function is set with `set-process-sentinel'. On status changes
 the db is disconnected."
-  (message "Org-files-db: %s had the event '%s'." process event)
+  (message "SQLite (%s): had the event '%s'." process event)
   ;; If process is not live anymore disconnect it;
   (unless (process-live-p process)
     (org-files-db--sqlite-process-delete process)))
@@ -185,11 +194,17 @@ is used."
               (set-process-filter
                process #'org-files-db--sqlite-process-filter-capture-output)
               ;; Execute the statement and wait for the output.
-              (unless
-                  (accept-process-output
-                   (process-send-string process (format "%s\n" sql)) timeout)
-                (user-error "Timeout reached before output was received.
-It either takes too long or that sql statement produces no output"))
+              (process-send-string process (format "%s\n" sql))
+              (unless org-files-db--sqlite-output
+                (unless (accept-process-output
+                         ;; HACK It is not guaranteed that the process returns an
+                         ;; output. Therefore just make it output nil after the
+                         ;; previous statement. This nil will be removed in the
+                         ;; filter. Makes sure the mode is set to list before.
+                         (process-send-string
+                          process ".mode list\nSELECT 'nil';\n")
+                         timeout)
+                  (user-error "Timeout reached before output was received")))
               org-files-db--sqlite-output)
           (set-process-filter
            process #'org-files-db--sqlite-process-filter-check-for-error))
