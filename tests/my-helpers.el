@@ -1,14 +1,14 @@
-;;; helpers.el --- Helper functions -*- lexical-binding: t -*-
+;;; my-helpers.el --- Helper functions -*- lexical-binding: t -*-
 
 ;;; Commentary:
 
-;; TODO
+;; Helper functions for all tests.
 
 ;;; Code:
 
 ;; * Files
 
-(defun helpers-file-read-contents (path)
+(defun my-helpers-file-read-contents (path)
   "Return the contents file at PATH."
   (with-temp-buffer
     (insert-file-contents path)
@@ -16,6 +16,6 @@
 
 ;; * Footer
 
-(provide 'helpers)
+(provide 'my-helpers)
 
 ;;; helpers.el ends here

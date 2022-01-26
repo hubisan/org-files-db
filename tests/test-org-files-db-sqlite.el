@@ -11,7 +11,7 @@
 (require 'buttercup)
 (require 'ert)
 
-(require 'helpers)
+(require 'my-helpers)
 (require 'org-files-db-sqlite)
 
 ;; Load helpers.
@@ -28,20 +28,14 @@
          (files-path (expand-file-name "tests/files" pkg-dir))
          (tmp-path (expand-file-name temporary-file-directory))
          (schema-file (expand-file-name "schema.sql" files-path))
-         (schema-string (helpers-file-read-contents schema-file))
-         (path-string (expand-file-name "test-string.db" tmp-path))
-         (path-file (expand-file-name "test-file.db" tmp-path))
+         (schema-string (my-helpers-file-read-contents schema-file))
+         (path-string (make-temp-file "test-string-" nil ".db"))
+         (path-file (make-temp-file "test-file-" nil ".db"))
          (name-string "sqlite-from-string")
          (name-file "sqlite-from-file")
-         (schema )
-         ;; don't ask to kill buffers with a live process attached
-
          process-with-string
-         process-with-file
-         schema)
+         process-with-file)
 
-  (before-all
-    (setq schema ))
   (describe "creates"
     (it "DB and process from SQL as string"
       (setq process-with-string
