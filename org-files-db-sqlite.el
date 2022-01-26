@@ -132,14 +132,16 @@ The PROCESS has to run a interactive SQLite shell."
 (defun org-files-db--sqlite-process-filter-check-for-error (process output)
   "Checks if the OUTPUT of the PROCESS is an error message."
   (when (string-prefix-p "Error: " output)
-    (user-error "SQLite %s: %s" process output)))
+    (user-error "SQLite Error (%s): %s" process (substring output 7))))
 
 (defun org-files-db--sqlite-process-filter-message-output (process output)
   "Just show a message with the OUTPUT from PROCESS."
+  (org-files-db--sqlite-process-filter-check-for-error process output)
   (message "SQLite '%s': '%s'" process output))
 
-(defun org-files-db--sqlite-process-filter-capture-output (_process output)
+(defun org-files-db--sqlite-process-filter-capture-output (process output)
   "Store the OUTPUT in a variable."
+  (org-files-db--sqlite-process-filter-check-for-error process output)
   (setq org-files-db--sqlite-output output))
 
 (defun org-files-db--sqlite-process-sentinel-handle-status-change (process event)
