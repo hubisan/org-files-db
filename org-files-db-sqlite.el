@@ -41,8 +41,8 @@
 
 ;; * Create
 
-(defun org-files-db--sqlite-create-database (path schema name version
-                                                  &optional force foreign-keys busy-timeout)
+(defun org-files-db--sqlite-create-database (path schema name sqlite-executable
+                                                  &optional version force foreign-keys busy-timeout)
   "Create database file at PATH with the SCHEMA.
 Returns the process running the SQLite shell.
 - PATH: Path of file to create.
@@ -52,6 +52,7 @@ Returns the process running the SQLite shell.
     will wipe an already existing database.
 - NAME: The name to use for the process and the process buffer.
 - VERSION: Sets the user_version of the database to VERSION.
+- SQLITE-EXECUTABLE: The sqlite executable.
 - FOREIGN-KEYS: Turn FOREIGN-KEYS on if non-nil.
 - BUSY-TIMEOUT: If BUSY-TIMEOUT is a number set the timeout before the
     connection stops waiting for locks to clear in milliseconds. In the SQLite
@@ -59,9 +60,8 @@ Returns the process running the SQLite shell.
   (cl-check-type path string "a string")
   (cl-check-type schema string "a string")
   (cl-check-type name string "a string")
-  (cl-check-type version (integer 1 *) "a positive integer")
-  (cl-check-type force boolean "boolean")
-  (cl-check-type foreign-keys boolean "boolean")
+  (cl-check-type version (or (integer 1 *) null) "a positive integer")
+  (cl-check-type sqlite-executable string "a string")
   (cl-check-type busy-timeout (or (integer 1 *) null) "a positive integer or nil")
   (let* ((path (expand-file-name path))
          (exists (file-exists-p path)))
@@ -71,8 +71,7 @@ Returns the process running the SQLite shell.
       (error "The file '%s' already exists.
 Use force to overwrite it or create a new one" path))
     (let ((process (org-files-db--sqlite-process-start
-                    path name 'force foreign-keys busy-timeout)))
-
+                    path name sqlite-executable 'force foreign-keys busy-timeout)))
       ;; Create the tables etc. from the schema which is a string or stored in a
       ;; file.
       (if (file-exists-p schema)
@@ -80,7 +79,8 @@ Use force to overwrite it or create a new one" path))
            (expand-file-name schema) nil nil process)
         (org-files-db--sqlite-execute schema nil nil process))
       ;; Set the user_version.
-      (org-files-db--sqlite-set-user-version version process)
+      (when version
+        (org-files-db--sqlite-set-user-version version process))
       process)))
 
 (defun org-files-db--sqlite-create-db-file (path)
@@ -108,12 +108,14 @@ used. This also makes a simple check to see if the process is valid."
 
 ;; * Process
 
-(defun org-files-db--sqlite-process-start (path name &optional force foreign-keys busy-timeout)
+(defun org-files-db--sqlite-process-start (path name sqlite-executable
+                                                &optional force foreign-keys busy-timeout)
   "Start a process that runs an interactive SQLite3 shell and return it.
 It connects to the SQLite file with PATH.
 Returns the process running the SQLite shell.
 - PATH: Path of the database to connect to.
 - NAME: Uses the NAME for the process and its buffer.
+- SQLITE-EXECUTABLE: The sqlite executable.
 - FORCE: If FORCE is non-nil a live process will be killed and a new process is
   started. If FORCE is nil an already live process is returned without starting
   a new one.
@@ -122,13 +124,20 @@ Returns the process running the SQLite shell.
     connection stops waiting for locks to clear in milliseconds. In the SQLite
     shell this is usually set to 0 so you might increase this to wait if
     needed."
+  (cl-check-type path string "a string")
+  (cl-check-type name string "a string")
+  (cl-check-type sqlite-executable string "a string")
+  (cl-check-type busy-timeout (or (integer 1 *) null) "a positive integer or nil")
   (let ((running-process (get-process name))
         (process-buffer-name (format " *%s* " name))
+        (sqlite (executable-find sqlite-executable))
         (path (expand-file-name path)))
     (if (file-exists-p path)
         (unless (file-writable-p path)
           (error "File '%s' is not writable" path))
       (error "File '%s' doesn't exist, please create it first" path))
+    (unless sqlite
+      (error "Sqlite executable not found"))
     ;; If force is non-nil and the process is live then delete it and its
     ;; buffer.
     (when (and (process-live-p running-process) force)
@@ -143,15 +152,28 @@ Returns the process running the SQLite shell.
              (coding-system-for-write 'utf-8-auto)
              (coding-system-for-read 'utf-8-auto)
              (buffer (generate-new-buffer process-buffer-name))
-             (process (start-process name buffer "sqlite3" path)))
+             (process (start-process name buffer sqlite-executable path)))
         ;; Don't show any output unless it is an error.
         (set-process-filter
          process #'org-files-db--sqlite-process-filter-check-for-error)
         ;; Call the sentinel when the process state changes.
         (set-process-sentinel
          process #'org-files-db--sqlite-process-sentinel-handle-status-change)
+        ;; (org-files-db--sqlite-check-if-json-is-enabled process)
         (org-files-db--sqlite-process-configure foreign-keys busy-timeout process)
         process))))
+
+(defun org-files-db--sqlite-check-if-json-is-enabled (&optional process)
+  "Check if JSON1 extension is enabled.
+If the PROCESS is nil the default stored in `org-files-db--sqlite-process' is
+used."
+  (let ((process (org-files-db--sqlite-process-get process)))
+    (when (string-equal (org-files-db--sqlite-execute
+                           "SELECT sqlite_compileoption_used('ENABLE_JSON1');"
+                           'list 1 process)
+                        "0")
+      (org-files-db--sqlite-process-delete process)
+      (error "SQlite JSON1 extension not loaded. See README.org"))))
 
 (defun org-files-db--sqlite-process-configure (foreign-keys
                                                &optional busy-timeout process)
@@ -258,7 +280,7 @@ is used."
   (cl-check-type sql string "a string")
   (cl-check-type mode (or symbol null) "a symbol or nil")
   (cl-check-type timeout (or (integer 1 *) null) "a positive integer or nil")
-  (cl-check-type process (or process null) "a positive integer or nil")
+  (cl-check-type process (or process null) "a process or nil")
   (let ((process (org-files-db--sqlite-process-get process))
         (timeout (or timeout org-files-db--sqlite-timeout)))
     (setq org-files-db--sqlite-output nil)
@@ -295,7 +317,14 @@ is used."
                 (setq org-files-db--sqlite-output nil)))
           (set-process-filter
            process #'org-files-db--sqlite-process-filter-check-for-error))
-      (process-send-string process (format "%s\n" sql)))))
+      ;; No output is catpure. But also use the hack and wait for output to not
+      ;; affect later calls to this function capture the output from a call
+      ;; before.
+      (accept-process-output
+       (process-send-string
+        process (format "%s\n.mode list\nSELECT 'nil';\n" sql))
+       timeout)
+      nil)))
 
 (defun org-files-db--sqlite-execute-from-file (path &optional mode timeout process)
   "Execute an SQL statement stored in a file in the SQLite3 interactive shell.

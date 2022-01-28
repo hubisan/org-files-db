@@ -3,18 +3,21 @@ name: CI
 
 on:
   push:
-    branches:
-      - master
-      - develop
+    # branches:
+    #   - master
+    #   - develop
     paths-ignore:
       - '**.org'
       - 'docs/**'
   pull_request:
     branches:
       - master
+      - develop
     paths-ignore:
       - '**.org'
       - 'docs/**'
+env:
+  SQLITE_VERSION: 3370200
 
 jobs:
   test:
@@ -37,6 +40,12 @@ jobs:
       - name: Install Eldev
         run: curl -fsSL https://raw.github.com/doublep/eldev/master/webinstall/github-eldev | sh
 
+      - name: install SQLite with JSON1 enabled
+        run: |
+            sudo apt-get -qqy install wget unzip
+            wget --quiet https://www.sqlite.org/2022/sqlite-tools-linux-x86-$SQLITE_VERSION.zip \
+            --output-document=$HOME/sqlite-download.zip
+            sudo unzip -ojqq $HOME/sqlite-download.zip -d /bin
       - name: Check out the source code
         uses: actions/checkout@v2
 

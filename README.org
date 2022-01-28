@@ -10,7 +10,7 @@ database.
 ** Main features                                                :noexport_0:
 
 - Store headings and links from org files from one or more directories in a
-  SQLite database.
+  [[https://www.sqlite.org/index.html][SQLite]] database.
 - For each heading it stores the filename, line number, title, level, priority,
   todo keyword, statistic cookies, planning info (scheduled, deadline, closed),
   parent heading id, tags and properties.
@@ -42,7 +42,7 @@ simplify your init file:
 
 @@html:<details>@@
 @@html:<summary>@@
-With Straight
+*With Straight*
 @@html:</summary>@@
 
 - Straight
@@ -66,7 +66,7 @@ With Straight
 
 @@html:<details>@@
 @@html:<summary>@@
-With Quelpa
+*With Quelpa*
 @@html:</summary>@@
 
 - Quelpa
@@ -83,9 +83,58 @@ With Quelpa
 
 *** Dependencies
 
-Org-files-db depends on [[https://github.com/Genivia/ugrep][ugrep]] to parse the files, [[https://www.sqlite.org/index.html][SQLite]] for the database and [[https://github.com/sharkdp/fd][fd]]
-is used to check for modified files. You have to install those three
-dependencies.
+Org-files-db depends on [[https://github.com/Genivia/ugrep][ugrep]] to parse the files, [[https://www.sqlite.org/index.html][SQLite]] (with JSON1 Extension
+enabled) for the database and [[https://github.com/sharkdp/fd][fd]] is used to check for modified files. You have
+to install those three dependencies.
+
+@@html:<details>@@
+@@html:<summary>@@
+*Install SQLite with JSON1 Extension*
+@@html:</summary>@@
+
+SQLite needs [[https://www.sqlite.org/json1.html][JSON1 Extension]] to be enabled to be able to output queries as JSON
+and parse it into a Lsip object. Use ~SELECT
+sqlite_compileoption_used('ENABLE_JSON1');~ inside the sqlite shell to see if
+the extension is loaded.
+
+The latest SQLite precompiled binary has it enabled by default. Install it as
+follows (Linux). Make sure to remove the already installed sqlite first:
+
+#+BEGIN_SRC shell
+  sudo apt update
+  # Remove existings sqlite3
+  sudo apt remove sqlite3
+  # Dependencies
+  sudo apt install -y wget unzip
+  # Download the files
+  wget https://www.sqlite.org/2022/sqlite-tools-linux-x86-3370200.zip --output-document=$HOME/sqlite-download.zip
+  # Unzip to /bin
+  sudo unzip -j $HOME/sqlite-download.zip -d /bin
+  rm $HOME/sqlite-download.zip
+#+END_SRC
+
+Or compile it from source:
+
+#+BEGIN_SRC bash
+  sudo apt update
+  # Remove existing sqlite
+  sudo apt remove sqlite3
+  # Dependencies
+  sudo apt install -y wget unzip
+  # Dowload it, the auto configure version.
+  wget https://www.sqlite.org/2022/sqlite-autoconf-3370200.tar.gz
+  # Extract it and cd into it.
+  tar xf sqlite-autoconf-3370200.tar.gz
+  cd sqlite-autoconf-3370200
+  # Configure the software
+  ./configure
+  # Build the software
+  make
+  # Install it
+  sudo make install
+#+END_SRC
+  
+@@html:</details>@@
 
 ** Usage
 :PROPERTIES:
