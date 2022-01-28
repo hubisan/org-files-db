@@ -11,6 +11,7 @@
 (require 'buttercup)
 (require 'ert)
 
+(require 'subr-x)
 (require 'my-helpers)
 (require 'org-files-db-sqlite)
 
@@ -23,88 +24,121 @@
 
 ;; * Build
 
-(describe "Sqlite DB"
+(describe "org-files-db-sqlite"
   :var* ((pkg-dir (expand-file-name default-directory))
          (files-path (expand-file-name "tests/files" pkg-dir))
-         (tmp-path (expand-file-name temporary-file-directory))
          (schema-file (expand-file-name "schema.sql" files-path))
-         (schema-string (my-helpers-file-read-contents schema-file))
-         (path-string (make-temp-file "test-string-" nil ".db"))
-         (path-file (make-temp-file "test-file-" nil ".db"))
-         (name-string "sqlite-from-string")
-         (name-file "sqlite-from-file")
-         process-with-string
-         process-with-file)
+         (schema-string (my-helpers-file-read-contents schema-file)))
 
   (describe "creates"
-    (it "DB and process from SQL as string"
+    :var* ((path-string (make-temp-file "test-string-" nil ".db"))
+           (name-string "sqlite-from-string")
+           (path-file (make-temp-file "test-file-" nil ".db"))
+           (name-file "sqlite-from-file")
+           (target-schema "CREATE TABLE directories (
+    directory text NOT NULL PRIMARY KEY,
+    updated integer NOT NULL,
+    mtime integer NOT NULL,
+    size integer NOT NULL
+);")
+           process-with-string
+           process-with-file)
+    (it "a database from SQL as string"
       (setq process-with-string
             (org-files-db--sqlite-create-database
              path-string schema-string name-string 1 t t 3000))
-
+      (expect (file-exists-p path-string) :to-be t)
       (expect (processp (org-files-db--sqlite-process-get process-with-string)) :to-be t)
       (expect (process-name process-with-string) :to-equal name-string)
       (let ((schema (org-files-db--sqlite-execute
                      ".schema" 'list 10 process-with-string)))
-        (expect schema :to-equal "CREATE TABLE directories (
-    directory text NOT NULL PRIMARY KEY,
-    updated integer NOT NULL,
-    mtime integer NOT NULL,
-    size integer NOT NULL
-);")))
-    (it "DB and process from SQL in a file"
+        (expect schema :to-equal target-schema)))
+    (it "a database from SQL in a file"
       (setq process-with-file
             (org-files-db--sqlite-create-database
              path-file schema-file name-file 1 t t 3000))
-
+      (expect (file-exists-p path-file) :to-be t)
       (expect (processp (org-files-db--sqlite-process-get process-with-file)) :to-be t)
       (expect (process-name process-with-file) :to-equal name-file)
       (let ((schema (org-files-db--sqlite-execute
                      ".schema" 'list 10 process-with-file)))
-        (expect schema :to-equal "CREATE TABLE directories (
-    directory text NOT NULL PRIMARY KEY,
-    updated integer NOT NULL,
-    mtime integer NOT NULL,
-    size integer NOT NULL
-);"))))
+        (expect schema :to-equal target-schema))))
 
-  (describe "generally"
-    (it "throws if the file would be overwritten"
+  (describe "it"
+    :var* ((path-main (make-temp-file "test-main-" nil ".db"))
+           (name-main "sqlite-main")
+           process
+           process-restarted)
+    (before-all
+      (setq process
+            (org-files-db--sqlite-create-database
+             path-main schema-string name-main 1 t t 3000))
+      (org-files-db--sqlite-execute
+       "INSERT INTO directories VALUES('dir', 1, 1, 1);" nil nil process))
+    (it "throws if the file would be overwritten and force is nil"
       (should-error
        (org-files-db--sqlite-create-database
-        path-string schema-file name-string
-        1 nil t 3000)))
+        path-main schema-file name-main 1 nil t 3000)))
     (it "has set the correct user version"
-      (expect (org-files-db--sqlite-get-user-version process-with-string) :to-be 1))
-    (it "ignores the output of a SQL statement")
-    (it "captures the output of a SQL statement")
-    (it "can parse the output of a SQL statement as json")
-    (it "shows an user-error if there was an error in a SQL statement")
+      (expect (org-files-db--sqlite-get-user-version process) :to-be 1))
+    (it "ignores the output of a SQL statement"
+      (expect (org-files-db--sqlite-execute
+               "SELECT * FROM directories;" nil nil process)
+              :to-equal nil)
+      (expect org-files-db--sqlite-output :to-be nil))
+    (it "captures the output of a SQL statement with the mode used"
+      (expect (string-trim (org-files-db--sqlite-execute
+                            "SELECT * FROM directories;" 'list 1 process))
+              :to-equal "dir|1|1|1")
+      (expect (string-trim (org-files-db--sqlite-execute
+                            "SELECT * FROM directories;" 'json 1 process))
+            :to-equal "[{\"directory\":\"dir\",\"updated\":1,\"mtime\":1,\"size\":1}]")
+      (expect (string-trim (org-files-db--sqlite-execute
+                            "SELECT * FROM directories;" 'csv 1 process))
+            :to-equal "dir,1,1,1"))
+    (it "shows error if needed > how to do this? with a spy?"
+      (expect (org-files-db--sqlite-execute "SELECT * FROM notexisting;" nil nil process) :to-be nil)
+      ;; Need to wait for the function to throw.
+      (expect (sleep-for 2) :to-throw))
     (it "shows a message if the status of the process has changed")
     (it "can set the default process"
-      (org-files-db--sqlite-process-set-default process-with-string)
-      (expect (org-files-db--sqlite-process-get) :to-be process-with-string))
+      (org-files-db--sqlite-process-set-default process)
+      (expect (org-files-db--sqlite-process-get) :to-be process))
     (it "makes the process current"
-      (expect (org-files-db--sqlite-with process-with-file
-                (org-files-db--sqlite-process-get) :to-be process-with-file)))
+      (setq org-files-db--sqlite-process nil)
+      (expect (org-files-db--sqlite-with process (org-files-db--sqlite-process-get) :to-be process)))
     (it "reuses the process if force is not used"
-      (org-files-db--sqlite-process-start path-string name-string nil)
-      (expect (process-live-p process-with-string) :not :to-be nil))
+      (org-files-db--sqlite-process-start path-main name-main nil)
+      (expect (process-live-p process) :not :to-be nil))
     (it "restarts the process if force is used"
       (spy-on #'org-files-db--sqlite-process-delete :and-call-through)
       (let ((kill-buffer-query-functions (remq 'process-kill-buffer-query-function
                                                kill-buffer-query-functions)))
-        (org-files-db--sqlite-process-start path-string name-string t))
+        (setq process-restarted
+              (org-files-db--sqlite-process-start path-main name-main t)))
       (expect 'org-files-db--sqlite-process-delete :to-have-been-called)
-      (expect (process-live-p process-with-string) :to-be nil))
+      (expect (process-live-p process) :to-be nil)
+      (expect (processp (org-files-db--sqlite-process-get process-restarted)) :to-be t))
     (it "deletes the process and buffer"
-      (expect (let ((kill-buffer-query-functions (remq 'process-kill-buffer-query-function
-                                                       kill-buffer-query-functions)))
-                (org-files-db--sqlite-process-delete process-with-file t)
-                (process-live-p process-with-file))
+      (expect (let ((kill-buffer-query-functions
+                     (remq 'process-kill-buffer-query-function
+                           kill-buffer-query-functions)))
+                (org-files-db--sqlite-process-delete process-restarted t)
+                (process-live-p process-restarted))
               :to-be nil)
-      (expect (buffer-live-p (process-buffer process-with-file))
-              :to-be nil))))
+      (expect (buffer-live-p (process-buffer process-restarted)) :to-be nil))
+    (it "if terminated abruptly the sentinel has been called"
+      (spy-on 'org-files-db--sqlite-process-sentinel-handle-status-change :and-call-through)
+      (spy-on 'message)
+      (let ((kill-buffer-query-functions
+             (remq 'process-kill-buffer-query-function
+                   kill-buffer-query-functions)))
+        (setq process (org-files-db--sqlite-process-start path-main name-main))
+        (process-send-eof process))
+      ;; Wait for it to terminate.
+      (sleep-for 1)
+      (expect 'org-files-db--sqlite-process-sentinel-handle-status-change :to-have-been-called)
+      (expect 'message :to-have-been-called-with "Process '%s' has been deleted" name-main))))
 
 (provide 'test-org-files-db)
 

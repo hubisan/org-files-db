@@ -36,7 +36,7 @@
 (defvar org-files-db--sqlite-output nil
   "The output of the SQLite3 interactive shell.")
 
-(defvar org-files-db--sqlite-timeout 30
+(defvar org-files-db--sqlite-timeout 10
   "Maximum number of seconds to wait before bailing out on a SQL command.")
 
 ;; * Create
@@ -56,6 +56,13 @@ Returns the process running the SQLite shell.
 - BUSY-TIMEOUT: If BUSY-TIMEOUT is a number set the timeout before the
     connection stops waiting for locks to clear in milliseconds. In the SQLite
     shell this is usually set to 0 so you might increase this to wait if needed."
+  (cl-check-type path string "a string")
+  (cl-check-type schema string "a string")
+  (cl-check-type name string "a string")
+  (cl-check-type version (integer 1 *) "a positive integer")
+  (cl-check-type force boolean "boolean")
+  (cl-check-type foreign-keys boolean "boolean")
+  (cl-check-type busy-timeout (or (integer 1 *) null) "a positive integer or nil")
   (let* ((path (expand-file-name path))
          (exists (file-exists-p path)))
     ;; Create or overwrite (if force is on) the file.
@@ -190,6 +197,8 @@ used. This also makes a simple check to see if the process is valid."
   "Set the PROCESS that is used by the default.
 The default process is stored in `org-files-db--sqlite-process'.
 Consider using `org-files-db--sqlite-with' instead."
+  ;; Verify the process.
+  (org-files-db--sqlite-process-get process)
   (setq org-files-db--sqlite-process process))
 
 (defmacro org-files-db--sqlite-with (process &rest body)
@@ -222,12 +231,11 @@ for the process to return anything. See `org-files-db--sqlite-execute'."
       (org-files-db--sqlite-process-filter-check-for-error process output)
       (setq org-files-db--sqlite-output output))))
 
-(defun org-files-db--sqlite-process-sentinel-handle-status-change (process event)
+(defun org-files-db--sqlite-process-sentinel-handle-status-change (process _event)
   "Handle changes of the `process-status' of the PROCESS.
 The function gets two arguments: the PROCESS and the EVENT, a string describing
 the change. This function is set with `set-process-sentinel'. On status changes
 the db is disconnected."
-  (message "SQLite (%s): had the event '%s'." process event)
   ;; If process is not live anymore disconnect it;
   (unless (process-live-p process)
     (org-files-db--sqlite-process-delete process)))
@@ -247,10 +255,14 @@ TIMEOUT: Set the TIMEOUT in seconds. IF TIMEOUT is nil the timeout stored in
 `org-files-db--sqlite-timeout' is used.
 PROCESS: If PROCESS is nil the process stored in `org-files-db--sqlite-process'
 is used."
+  (cl-check-type sql string "a string")
+  (cl-check-type mode (or symbol null) "a symbol or nil")
+  (cl-check-type timeout (or (integer 1 *) null) "a positive integer or nil")
+  (cl-check-type process (or process null) "a positive integer or nil")
   (let ((process (org-files-db--sqlite-process-get process))
         (timeout (or timeout org-files-db--sqlite-timeout)))
     (setq org-files-db--sqlite-output nil)
-    ;; Silence it.
+    ;; Silence it but output errors.
     (set-process-filter
      process #'org-files-db--sqlite-process-filter-check-for-error)
     (if mode
@@ -262,19 +274,25 @@ is used."
               ;; Set the filter to send the output to.
               (set-process-filter
                process #'org-files-db--sqlite-process-filter-capture-output)
-              ;; Execute the statement and wait for the output.
-              (process-send-string process (format "%s\n" sql))
-              (unless org-files-db--sqlite-output
-                (unless (accept-process-output
-                         ;; HACK It is not guaranteed that the process returns an
-                         ;; output. Therefore just make it output nil after the
-                         ;; previous statement. This nil will be removed in the
-                         ;; filter. Makes sure the mode is set to list before.
-                         (process-send-string
-                          process ".mode list\nSELECT 'nil';\n")
-                         timeout)
-                  (user-error "Timeout reached before output was received")))
-              org-files-db--sqlite-output)
+              (let ((end (+ (float-time) timeout)))
+                (unless org-files-db--sqlite-output
+                  (unless
+                      (accept-process-output
+                       (process-send-string
+                        process (format "%s\n.mode list\nSELECT 'nil';\n" sql))
+                       timeout)
+                    (user-error "Timeout reached before output was received")))
+                ;; DISABLED Turned this off again. Used to have output from a
+                (ignore end)
+                ;; next statement combined with from the last. Looks like it is
+                ;; working now.
+                ;; Really make sure the variable is set.
+                ;; (while (and (not org-files-db--sqlite-output)
+                ;;             (< (float-time) end)))
+                )
+              (prog1
+                  org-files-db--sqlite-output
+                (setq org-files-db--sqlite-output nil)))
           (set-process-filter
            process #'org-files-db--sqlite-process-filter-check-for-error))
       (process-send-string process (format "%s\n" sql)))))
