@@ -44,7 +44,7 @@ If any file has been modified, the database is updated."
   :group 'org-files-db
   :type 'number)
 
-(defcustom org-files-db-db-path (locate-user-emacs-file "org-files.db")
+(defcustom org-files-db-path-of-database (locate-user-emacs-file "org-files.db")
   "The path where the database is stored. Use .db or .sqlite as extension."
   :group 'org-files-db
   :type 'string)
@@ -54,17 +54,22 @@ If any file has been modified, the database is updated."
   :group 'org-files-db
   :type 'string)
 
-(defcustom org-files-db-db-full-text-search-enabled-p t
+(defcustom org-files-db-enable-full-text-search t
   "If non-nil full text search is enabled.
-This will store the content of all org files from the directories in a seconds
-database. Takes additional space."
+This will store the content of all org files from the directories in a second
+database to be able to use full-text-search provided by SQLite."
   :group 'org-files-db
   :type 'boolean)
 
-(defcustom org-files-db-db-timeout 30
+(defcustom org-files-db-sqlite-timeout 30
   "Maximum number of seconds to wait before bailing out on a SQL command."
   :group 'org-files-db
   :type 'integer)
+
+(defcustom org-files-db-sqlite-executable (executable-find "sqlite3")
+  "The sqlite3 executable."
+  :group 'org-files-db
+  :type 'file)
 
 ;; * Variables
 
