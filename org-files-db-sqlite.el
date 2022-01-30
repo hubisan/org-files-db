@@ -274,12 +274,13 @@ supported modes of your SQLite version inside the shell with '.help mode'. If
 mode is non-nil it is waiting for the process to finish to be able to return the
 output else it is not waiting.
 TIMEOUT: Set the TIMEOUT in seconds. IF TIMEOUT is nil the timeout stored in
-`org-files-db--sqlite-timeout' is used.
+`org-files-db--sqlite-timeout' is used. If mode is nil you can use a timeout of
+0 if you are sure that it will produce no output.
 PROCESS: If PROCESS is nil the process stored in `org-files-db--sqlite-process'
 is used."
   (cl-check-type sql string "a string")
   (cl-check-type mode (or symbol null) "a symbol or nil")
-  (cl-check-type timeout (or (integer 1 *) null) "a positive integer or nil")
+  (cl-check-type timeout (or (integer 0 *) null) "a positive integer or nil")
   (cl-check-type process (or process null) "a process or nil")
   (let ((process (org-files-db--sqlite-process-get process))
         (timeout (or timeout org-files-db--sqlite-timeout)))
@@ -317,13 +318,15 @@ is used."
                 (setq org-files-db--sqlite-output nil)))
           (set-process-filter
            process #'org-files-db--sqlite-process-filter-check-for-error))
-      ;; No output is catpure. But also use the hack and wait for output to not
+      ;; No output is catpured. But also use the hack and wait for output to not
       ;; affect later calls to this function capture the output from a call
       ;; before.
-      (accept-process-output
-       (process-send-string
-        process (format "%s\n.mode list\nSELECT 'nil';\n" sql))
-       timeout)
+      (if (equal timeout 0)
+          (process-send-string process (format "%s\n" sql))
+        (accept-process-output
+         (process-send-string
+          process (format "%s\n.mode list\nSELECT 'nil';\n" sql))
+         timeout))
       nil)))
 
 (defun org-files-db--sqlite-execute-from-file (path &optional mode timeout process)
