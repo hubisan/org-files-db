@@ -98,12 +98,12 @@
                             "SELECT * FROM directories;" 'csv 1 process))
             :to-equal "dir,1,1,1"))
     (it "can parse the json output into a Lisp object"
-      (gethash "dir"
-                (org-files-db--sqlite-output-to-json
-                 (org-files-db--sqlite-execute
-                  "SELECT json_group_object(directory, mtime) FROM directories;"
-                  'list nil process)))
-      :to-equal 1)
+        (expect (gethash "dir"
+                         (org-files-db--sqlite-output-to-json
+                          (org-files-db--sqlite-execute
+                           "SELECT json_group_object(directory, mtime) FROM directories;"
+                           'list nil process)))
+                :to-equal 1))
     (it "shows error if needed > how to do this? with a spy?"
       (spy-on 'org-files-db--sqlite-process-filter-check-for-error)
       (expect (org-files-db--sqlite-execute "SELECT * FROM notexisting;" nil nil process) :to-be nil)
