@@ -25,6 +25,9 @@
 
 ;; * Requirements
 
+(require 'seq)
+
+(require 'org-files-db-core)
 (require 'org-files-db-sqlite)
 
 ;; * Variables
@@ -40,48 +43,47 @@ be rebuilt from scratch.")
 (defconst org-files-db--database-process-name "org-files-db"
   "The name for the process. Is also used to name the buffer.")
 
-;; * Create
+(defvar org-files-db--database-process nil
+  "Process that runs the SQLite3 interative shell.")
 
-;; TODO
-;; Connect if the database already exists else create it and connect to it.
-(defun org-files-db--database-connect (force)
-  "docstring")
+(defconst org-files-db--database-schema-path
+  (expand-file-name "sql/db-schema.sql" org-files-db--load-dir)
+  "Path where the schema to create the database is stored.
+This is relative to the directory the package is installyed.")
+
+;; * Connect & Create
+
+(defun org-files-db--database-connect (&optional path)
+  "Connect to the database at PATH. If it doesn't exist it will be created.
+If the `org-files-db--database-version' doesn't match the database is recreated
+as well."
+  (let* ((path (or path org-files-db-path-of-database))
+         (name org-files-db--database-process-name)
+         (schema org-files-db--database-schema-path)
+         (executable org-files-db-sqlite-executable)
+         (version org-files-db--database-version)
+         (timeout 5000)
+         process version-matches)
+    ;; Connect if db exists.
+    (when (file-exists-p path)
+      (setq process (org-files-db--sqlite-process-start path name
+                                                        executable t t timeout))
+      (setq version-matches (= (org-files-db--sqlite-get-user-version process)
+                               version)))
+    ;; Create or recreate the db if needed.
+    (setq org-files-db--database-process
+          (if (and process version-matches)
+              process
+            (cond ((not process) (message "Creating new database"))
+                  ((not version-matches)
+                   (message (concat "Recreating database as the "
+                                    "version doesn't match"))))
+            (org-files-db--sqlite-create-database path schema name executable
+                                                  version t t timeout)))))
 
 (defun org-files-db--database-disconnect ()
-  "docstring")
-
-;; TODO
-(defun org-files-db--database-create (path schema-path)
-  "Create the database at absolute PATH. If it already exists it is overwritten.
-Use the schema found at `schema-path' to create the tables and indices."
-  )
-
-;; TODO
-(defun org-files-db--database-exists-p (path)
-  "Check if the database file with PATH exists."
-  (file-exists-p path))
-
-;; TODO
-(defun org-files-db--database-create-db-file (path)
-  "Create the database file at PATH.
-Will overwrite existing files and creates parent directories if needed."
-  (make-empty-file path t))
-
-;; TODO
-(defun org-files-db--database-set-user-version (db version)
-  "Set the user_version to VERSION for the DB."
-  (org-files-db--db-execute
-   db (format "PRAGMA user_version = %s;" version)))
-
-;; TODO
-(defun org-files-db--database-get-user-version (db)
-  "Get the user_version of the open DB connection."
-  (plist-get
-   (seq-first (org-files-db--db-execute-get-output
-               db "PRAGMA user_version;" 'plist))
-   :user_version))
-
-;; * Connect
+  "Disconnect from the database."
+  (org-files-db--sqlite-process-delete org-files-db--database-process))
 
 ;; * Insert
 

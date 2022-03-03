@@ -34,25 +34,34 @@
   :prefix "org-files-db-")
 
 (defcustom org-files-db-directories nil
-  "List of one or multiple directories to parse the org files in."
+  "List of one or multiple directories to parse the Org files in.
+Can also be a list of cons cells with the car being the directory and the cdr a
+list of regular expressions. Org file names matching the regular expressions
+within that directory are ignored."
   :group 'org-files-db
   :type '(repeat directory))
 
-(defcustom org-files-db-check-for-changes-interval 300
-  "Interval in seconds to check if any file has been changed.
-If any file has been modified, the database is updated."
+(defcustom org-files-db-files-exclude-regexps nil
+  "List of regular expressions to ignore Org files.
+Matching Org file names in all directories are ignored."
   :group 'org-files-db
-  :type 'number)
+  :type 'string)
 
 (defcustom org-files-db-path-of-database (locate-user-emacs-file "org-files.db")
   "The path where the database is stored. Use .db or .sqlite as extension."
   :group 'org-files-db
   :type 'string)
 
-(defcustom org-files-db-files-exclude-regexp nil
-  "Org files matching this regular expression are excluded."
+(defcustom org-files-db-sqlite-executable (executable-find "sqlite3")
+  "The sqlite3 executable."
   :group 'org-files-db
-  :type 'string)
+  :type 'file)
+
+(defcustom org-files-db-check-for-changes-interval 300
+  "Interval in seconds to check if any file has been changed.
+If any file has been modified, the database is updated."
+  :group 'org-files-db
+  :type 'number)
 
 (defcustom org-files-db-enable-full-text-search t
   "If non-nil full text search is enabled.
@@ -61,17 +70,10 @@ database to be able to use full-text-search provided by SQLite."
   :group 'org-files-db
   :type 'boolean)
 
-(defcustom org-files-db-sqlite-timeout 30
-  "Maximum number of seconds to wait before bailing out on a SQL command."
-  :group 'org-files-db
-  :type 'integer)
-
-(defcustom org-files-db-sqlite-executable (executable-find "sqlite3")
-  "The sqlite3 executable."
-  :group 'org-files-db
-  :type 'file)
-
 ;; * Variables
+
+(defconst org-files-db--load-dir (file-name-directory
+                                  (or load-file-name buffer-file-name)))
 
 ;; * Functions
 

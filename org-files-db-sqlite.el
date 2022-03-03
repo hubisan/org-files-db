@@ -159,7 +159,7 @@ Returns the process running the SQLite shell.
         ;; Call the sentinel when the process state changes.
         (set-process-sentinel
          process #'org-files-db--sqlite-process-sentinel-handle-status-change)
-        ;; (org-files-db--sqlite-check-if-json-is-enabled process)
+        (org-files-db--sqlite-check-if-json-is-enabled process)
         (org-files-db--sqlite-process-configure foreign-keys busy-timeout process)
         process))))
 
