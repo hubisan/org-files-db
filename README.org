@@ -37,7 +37,7 @@ database.
 :END:
 
 The packages is available on Github. Packages from Github can be installed with
-for instance [[https://github.com/quelpa/quelpa][Quelpa]] or [[https://github.com/raxod502/straight.el][Straight]]. In addition you can use [[https://github.com/jwiegley/use-package][Use-package]] or [[https://github.com/conao3/leaf.el][Leaf]] to
+for instance [[https://github.com/quelpa/quelpa][Quelpa]] or [[https://github.com/raxod502/straight.el][Straight]]. In addition you can use [[https://github.com/jwiegley/use-package][Use-Package]] or [[https://github.com/conao3/leaf.el][Leaf]] to
 simplify your init file:
 
 @@html:<details>@@
@@ -93,7 +93,7 @@ to install those three dependencies.
 @@html:</summary>@@
 
 SQLite needs [[https://www.sqlite.org/json1.html][JSON1 Extension]] to be enabled to be able to output queries as JSON
-and parse it into a Lsip object. Use ~SELECT
+and parse it into a Lisp object. Use ~SELECT
 sqlite_compileoption_used('ENABLE_JSON1');~ inside the sqlite shell to see if
 the extension is loaded.
 

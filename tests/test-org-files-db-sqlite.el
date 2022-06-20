@@ -104,7 +104,7 @@
                            "SELECT json_group_object(directory, mtime) FROM directories;"
                            'list nil process)))
                 :to-equal 1))
-    (it "shows error if needed > how to do this? with a spy?"
+    (it "shows error if needed"
       (spy-on 'org-files-db--sqlite-process-filter-check-for-error)
       (expect (org-files-db--sqlite-execute "SELECT * FROM notexisting;" nil nil process) :to-be nil)
       ;; Need to wait for the function to be called.
@@ -113,7 +113,7 @@
                       "Error: "
                       (nth 1 (spy-calls-args-for 'org-files-db--sqlite-process-filter-check-for-error 0))))
               :to-be t))
-    (it "shows a message if the status of the process has changed")
+    ;; (it "shows a message if the status of the process has changed")
     (it "can set the default process"
       (org-files-db--sqlite-process-set-default process)
       (expect (org-files-db--sqlite-process-get) :to-be process))
@@ -155,4 +155,4 @@
 
 (provide 'test-org-files-db)
 
-;;; test-org-files-db.el ends here
+;;; test-org-files-db-sqlite.el ends here

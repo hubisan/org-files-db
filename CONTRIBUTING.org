@@ -31,35 +31,21 @@ Remember to:
 :END:
 
 Uses [[https://github.com/doublep/eldev][Eldev]] which needs to be [[https://github.com/doublep/eldev#installation][installed]]. The tests are written with [[https://github.com/jorgenschaefer/emacs-buttercup][Buttercup]].
-After pushing a GitHub action is triggered to automatically lint and run tests.
+After pushing GitHub an action is triggered to automatically lint and run tests.
 The outcome can be seen on the [[https://github.com/hubisan/org-files-db/actions][Actions]] page.
 
-**** Lint & run tests
+**** Testing locally
 
-To lint the package and run the tests locally from the command line you can use
-the Makefile targets or call makem.sh directly. Make sure to build the sandbox
-(~make sandbox-build~) before running the tests and to rebuild it if the
-dependencies or the emacs version have changed. The main targets are:
+To test the package locally call the Makefile targets:
 
-| sandbox-build       | Creates the sandbox directory and installs the dependencies and linters in the sandbox. |
-| sandbox-clean       | Removes the sandbox directory.                                                          |
-| sandbox-rebuild     | Runs ~sandbox-clean~ and then ~sandbox-build~.                                          |
-| sandbox-all         | Run the tests and lint the package in the sandbox.                                      |
-| sandbox-lint        | Lint in the sandbox.                                                                    |
-| sandbox-test        | Run the tests in the sandbox.                                                           |
-| sandbox-interactive | Load the packages in the sandbox and launch Emacs (GUI).                                |
+| Target         | Description                                                 |
+|----------------+-------------------------------------------------------------|
+| make help      | Show help for targets available                             |
+| make all       | Run tests, lint and compile                                 |
+| make prepare   | Install dependencies                                        |
+| make test      | Run tests and install dependencies unless already installed |
+| make lint      | Lint the package                                            |
+| make compile   | Compiles the files to check for errors/warnings             |
+| make clean     | Clean everything                                            |
+| make clean-elc | Clean .elc, .info and info-dir                              |
 
-There are additional makefile targets for linting to be able to call the linters
-separately:
-
-| sandbox-lint-checkdoc | Run checkdoc. Checks for style errors.                         |
-| sandbox-lint-compile  | Byte-compile source files with warnings as errors.             |
-| sandbox-lint-declare  | Run check-declare.                                             |
-| sandbox-lint-elsa     | Run Elsa (not included in "sandbox-lint" rule).                |
-| sandbox-lint-indent   | Lint indentation.                                              |
-| sandbox-lint-package  | Run package-lint, a linting library for elisp package metadata |
-| sandbox-lint-regexps  | Relint scans elisp files for mistakes in regexps.              |
-
-To increase the verbosity add ~v=v~ or ~v=vv~ before or after the target like
-~make v=vv sandbox-all~.
-**** Eldev
