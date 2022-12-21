@@ -19,7 +19,8 @@
 
 ;;; Commentary:
 
-;; Customization: variables and faces.
+;; This file contains customizations, faces, constants, global variables and
+;; auxiliary functions.
 
 ;;; Code:
 
@@ -34,48 +35,60 @@
   :prefix "org-files-db-")
 
 (defcustom org-files-db-directories nil
-  "List of one or multiple directories to parse the Org files in.
-Can also be a list of cons cells with the car being the directory and the cdr a
-list of regular expressions. Org file names matching the regular expressions
-within that directory are ignored."
+  "List of one or multiple directories to parse the Org files in."
   :group 'org-files-db
   :type '(repeat directory))
 
 (defcustom org-files-db-files-exclude-regexps nil
-  "List of regular expressions to ignore Org files.
-Matching Org file names in all directories are ignored."
+  "List of regular expressions to exclude matching file names."
   :group 'org-files-db
-  :type 'string)
+  :type '(repeat string))
 
-(defcustom org-files-db-path-of-database (locate-user-emacs-file "org-files.db")
+(defcustom org-files-db-path (locate-user-emacs-file "org-files.db")
   "The path where the database is stored. Use .db or .sqlite as extension."
   :group 'org-files-db
   :type 'string)
 
-(defcustom org-files-db-sqlite-executable (executable-find "sqlite3")
-  "The sqlite3 executable."
-  :group 'org-files-db
-  :type 'file)
-
 (defcustom org-files-db-check-for-changes-interval 300
   "Interval in seconds to check if any file has been changed.
-If any file has been modified, the database is updated."
+If any file has changed, the database is updated accordingly."
   :group 'org-files-db
   :type 'number)
 
-(defcustom org-files-db-enable-full-text-search t
+(defcustom org-files-db-full-text-search-enabled t
   "If non-nil full text search is enabled.
-This will store the content of all org files from the directories in a second
+This will store the content of the org files from the directories in a second
 database to be able to use full-text-search provided by SQLite."
   :group 'org-files-db
   :type 'boolean)
 
-;; * Variables
+(defcustom org-files-db-full-text-search-path (locate-user-emacs-file "org-files-fts.db")
+  "The path where the database for the full text search is stored.
+Use .db or .sqlite as extension."
+  :group 'org-files-db
+  :type 'string)
+
+;; * Faces
+
+;; * Constants
+
+(defconst org-files-db--version "v0.1.0"
+  "The `org-files-db' version.")
 
 (defconst org-files-db--load-dir (file-name-directory
-                                  (or load-file-name buffer-file-name)))
+                                  (or load-file-name buffer-file-name))
+  "The directory where this package is stored.")
 
-;; * Functions
+;; * Global Variables
+
+;; * Auxiliary Functions
+
+(defun org-files-db-version ()
+  "Return the `org-files-db' version."
+  (interactive)
+  (when (called-interactively-p 'interactive)
+    (message "%s" org-files-db--version))
+  org-files-db--version)
 
 ;; * Footer
 

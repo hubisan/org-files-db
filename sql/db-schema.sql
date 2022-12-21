@@ -1,4 +1,4 @@
-BEGIN TRANSACTION;
+-- BEGIN TRANSACTION;
 
 --  All the directories in which the org-files are parsed.
 CREATE TABLE IF NOT EXISTS directories (
@@ -80,4 +80,4 @@ CREATE TABLE IF NOT EXISTS links (
 
 CREATE INDEX headings_title_id ON headings(title);
 
-COMMIT;
+-- COMMIT;
