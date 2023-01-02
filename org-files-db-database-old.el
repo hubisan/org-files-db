@@ -47,14 +47,14 @@
 ;; }
 ;; which is perfect to convert into the lisp object.
 
-;; * Requirements
+;;;; * Requirements
 
 (require 'emacsql)
 (require 'emacsql-sqlite)
 (require 'org-files-db-core)
 (require 'org-files-db-sqlite)
 
-;; * Variables
+;;;; * Variables
 
 (defconst org-files-db--db-version 1
   "The version of the database.
@@ -71,7 +71,7 @@ be rebuilt from scratch.")
 (defvar org-files-db--db-sqlite-output nil
   "The output of the SQLite3 interactive shell.")
 
-;; * Execute
+;;;; * Execute
 
 ;; Execute SQL statements (as string, as list of strings or by reading from a
 ;; file) or execute a SQLite command.
@@ -149,7 +149,7 @@ The PROCESS has to run a interactive SQLite shell."
   `(let ((org-files-db--sqlite-api-process ,process))
      ,@body))
 
-;; * Create
+;;;; * Create
 
 ;; SQLite Dataypes: integer, real, text, blob
 
@@ -195,7 +195,7 @@ Will overwrite existing files and creates parent directories if needed."
                db "PRAGMA user_version;" 'plist))
    :user_version))
 
-;; * Connection (Process)
+;;;; * Connection (Process)
 
 (defun org-files-db--db-connect (path name timeout &optional force)
   "Start an interactive SQLite3 shell against the existing db at PATH.
@@ -240,7 +240,7 @@ Set the TIMEOUT for the database as the default is 0 in the interactive shell."
     (kill-buffer (process-buffer db)))
   (delete-process db))
 
-;; ** Process Filter & Sentinel
+;;;;; ** Process Filter & Sentinel
 
 (defun org-files-db--db-message-output (process output)
   "Just show a message with the OUTPUT of PROCESS."
@@ -260,7 +260,7 @@ the db is disconnected."
   (unless (process-live-p process)
     (org-files-db--db-disconnect process)))
 
-;; * Insert
+;;;; * Insert
 
 ;; Insert directory
 
@@ -319,24 +319,24 @@ the link (FULL-LINK), TYPE of the link, LINK and DESCRIPTION."
   (emacsql db [:insert :into links :values $v1]
            (vector file pos full-link type link description)))
 
-;; * Update
+;;;; * Update
 
 ;; Update directory
 
-;; * Delete
+;;;; * Delete
 
 ;; Update directory
 
-;; * Drop
+;;;; * Drop
 
 ;; Drop directory
 ;; Drop file
 
-;; * Select
+;;;; * Select
 
-;; * FTS Full Text Search
+;;;; * FTS Full Text Search
 
-;; ** FTS Create
+;;;;; ** FTS Create
 
 (defun org-files-db--db-fts-create-tables (db)
   "Create the virtual table for fts in the connected DB.
@@ -345,7 +345,7 @@ Uses the default tokenizer unicode61 as porter only works for english."
     (emacsql db [:create-virtual-table :if-not-exists files_fts
                                        :using :fts5 [(filename content)]])))
 
-;; ** FTS Insert
+;;;;; ** FTS Insert
 
 (defun org-files-db--db-fts-insert-file (db file)
   "Read content FILE into the files_fts table in the connected DB.
@@ -372,9 +372,9 @@ The readfile function provided by SQLite is used."
 ;; (start-process-shell-command "sleep" "*sleep*" "sleep 5 && echo wake")
 ;; (delete-process)
 
-;; ** FTS Delete
+;;;;; ** FTS Delete
 
-;; * Footer
+;;;; * Footer
 
 (provide 'org-files-db-database)
 

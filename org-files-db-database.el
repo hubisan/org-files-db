@@ -19,114 +19,76 @@
 
 ;;; Commentary:
 
-;; Variables and functions to interact with the database.
+;; Functions to interact with the sqlite database.
 
 ;;; Code:
 
-;; * Requirements
+;;;; * Requirements
 
 (require 'seq)
 (require 'sqlite)
 
-(require 'org-files-db-core)
+;;;; * Variables
 
-;; * Variables
+;;;; * Open & Close
 
-(defvar org-files-db--database-object nil
-  "Holds the sqlite object.")
+(defun org-files-db--database-open (file user-version schema-file)
+  "Open the database FILE. If it doesn't exist it will be build.
+If the USER-VERSION doesn't match the version stored in the
+database, the database is rebuild. The SCHEMA-FILE is used to
+build the database."
+  (let* ((db-exists (org-files-db--database-exists-p file))
+         (db (when db-exists (sqlite-open file))))
+    (unless (and db-exists (= user-version (org-files-db--database-get-user-version db)))
+      ;; Build or rebuid the database.
+      (org-files-db--database-build file user-version schema-file))
+    (org-files-db--database-turn-foreign-keys-on db)
+    db))
 
-(defconst org-files-db--database-schema-path
-  (expand-file-name "sql/db-schema.sql" org-files-db--load-dir)
-  "Path where the schema to create the database is stored.
-This is relative to the directory the package is installed.")
+(defun org-files-db--database-close (db)
+  "Close the DB."
+  (sqlite-close db))
 
-(defconst org-files-db--database-user-version 1
-  "The current version of the database.
-If the database version changes it will be rebuilt from scratch.")
+;;;; * Build
 
-;; * Open & Close
+(defun org-files-db--database-build (file user-version schema-file)
+  "Build the database FILE using SCHEMA-FILE and set USER-VERSION.
+Returns the sqlite database object of the created database."
+  (org-files-db--database-create-file file)
+  (let ((db (sqlite-open file)))
+    (org-files-db--database-create-schema db schema-file)
+    (org-files-db--database-set-user-version db user-version)))
 
-
-(defun org-files-db--database-open ()
-  "Open the database at PATH. If it doesn't exist it will be created.
-Uses the path stored in the customizable variable `org-files-db-path'.
-If the `org-files-db--database-version' doesn't match the version stored in the
-database, the database is rebuild."
-  (if (sqlitep org-files-db--database-object)
-      ;; Just return the existing database object if it already is set.
-      org-files-db--database-object
-    ;; If the database exists and the version matches return the db object.
-    ;; If the database exists but the version does't match rebuild it.
-    ;; If the database doesn't exist create and build it.
-    (let* ((path org-files-db-path)
-           (version org-files-db--database-get-user-version)
-           db version-matches)
-      (when (org-files-db--database-exists-p path)
-          (setq db (sqlite-open path))
-          (if (sqlitep db)
-              (setq version-matches (= (org-files- process)
-                                 version)))
-
-          )
-      (when (org-files-db--database-exists-p path)
-        (setq version-matches (= (org-files-db--sqlite-get-user-version process)
-                                 version)))
-      ;; Create or recreate the db if needed.
-      (setq org-files-db--database-process
-            (if (and process version-matches)
-                process
-              (cond ((not process) (message "Creating new database"))
-                    ((not version-matches)
-                     (message (concat "Recreating database as the "
-                                      "version doesn't match"))))
-              )))))
-
-(defun org-files-db--database-close ()
-  "Close the database."
-  (sqlite-close org-files-db--database-object))
-
-;; * Build
-
-(defun org-files-db--database-create-file (path)
-  "Create the database file at PATH.
+(defun org-files-db--database-create-file (file)
+  "Create the database FILE.
 Will overwrite existing files and creates parent directories if needed."
-  (make-empty-file path t))
+  (make-empty-file file t))
 
-(defun org-files-db--database-create-schema (db schema)
-  "Create the SCHEMA in the DB."
-  (with-sqlite-transaction db
-    ;; Build the database with the schema stored in the file.
-    (sqlite-execute db schema)))
+(defun org-files-db--database-create-schema (db schema-file)
+  "Create the database schema using SCHEMA-FILE."
+  (sqlite-execute db ".read ?" (list (expand-file-name schema-file))))
 
-;; * Auxiliary Functions
+;;;; * Auxiliary Functions
 
-(defun org-files-db--database-exists-p (path)
-  "Check if the database file with PATH exists."
-  (file-exists-p path))
+(defun org-files-db--database-exists-p (file)
+  "Check if the database FILE exists."
+  (file-exists-p file))
 
 (defun org-files-db--database-set-user-version (db version)
   "Set the user_version to VERSION for the DB."
-  (sqlite-pragma db (format "user_version = %s;" version)))
+  (sqlite-pragma db (format "user_version = %s" version)))
 
 (defun org-files-db--database-get-user-version (db)
   "Get the user_version of the DB."
-  (caar (sqlite-select db "PRAGMA user_version;")))
+  (caar (sqlite-select db "PRAGMA user_version")))
 
 (defun org-files-db--database-turn-foreign-keys-on (db)
   "Turn foreign keys on for the database.
 This has to be done on every new connection as SQLite is usually
 compiled with foreign keys turned off by default."
-  (sqlite-pragma db "foreign_keys = ON;"))
+  (sqlite-pragma db "foreign_keys = ON"))
 
-;; * Insert
-
-;; * Update
-
-;; * Delete
-
-;; * Select
-
-;; * Footer
+;;;; * Footer
 
 (provide 'org-files-db-database)
 

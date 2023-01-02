@@ -24,9 +24,9 @@
 
 ;;; Code:
 
-;; * Requirements
+;;;; * Requirements
 
-;; * Customization
+;;;; * Customization
 
 (defgroup org-files-db nil
   "Store headings and links from org files in a SQLite database."
@@ -44,8 +44,8 @@
   :group 'org-files-db
   :type '(repeat string))
 
-(defcustom org-files-db-path (locate-user-emacs-file "org-files.db")
-  "The path where the database is stored. Use .db or .sqlite as extension."
+(defcustom org-files-db-file (locate-user-emacs-file "org-files.db")
+  "Filename used for the database. Use .db or .sqlite as extension."
   :group 'org-files-db
   :type 'string)
 
@@ -62,15 +62,16 @@ database to be able to use full-text-search provided by SQLite."
   :group 'org-files-db
   :type 'boolean)
 
-(defcustom org-files-db-full-text-search-path (locate-user-emacs-file "org-files-fts.db")
-  "The path where the database for the full text search is stored.
+(defcustom org-files-db-full-text-search-file
+  (locate-user-emacs-file "org-files-fts.db")
+  "Filename used for the full text search database.
 Use .db or .sqlite as extension."
   :group 'org-files-db
   :type 'string)
 
-;; * Faces
+;;;; * Faces
 
-;; * Constants
+;;;; * Constants
 
 (defconst org-files-db--version "v0.1.0"
   "The `org-files-db' version.")
@@ -79,9 +80,10 @@ Use .db or .sqlite as extension."
                                   (or load-file-name buffer-file-name))
   "The directory where this package is stored.")
 
-;; * Global Variables
+;;;; * Global Variables
 
-;; * Auxiliary Functions
+
+;;;; * Auxiliary Functions
 
 (defun org-files-db-version ()
   "Return the `org-files-db' version."
@@ -90,7 +92,7 @@ Use .db or .sqlite as extension."
     (message "%s" org-files-db--version))
   org-files-db--version)
 
-;; * Footer
+;;;; * Footer
 
 (provide 'org-files-db-core)
 

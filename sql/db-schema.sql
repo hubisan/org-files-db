@@ -1,83 +1,105 @@
--- BEGIN TRANSACTION;
+BEGIN TRANSACTION;
 
---  All the directories in which the org-files are parsed.
+--  Table to store directories containing org-files to be parsed.
 CREATE TABLE IF NOT EXISTS directories (
-    directory text NOT NULL PRIMARY KEY,
-    -- Updated, mtime and size are used to make sure the directory is not
-    -- dirty. Updated and mtime stored as seconds since the epoch.
-    updated integer NOT NULL,
-    mtime integer NOT NULL,
-    size integer NOT NULL
+  id integer PRIMARY KEY AUTOINCREMENT,
+  -- Absolute path of the directory.
+  directory text UNIQUE NOT NULL,
+  -- Last time directory was updated, stored as seconds since the epoch.
+  updated integer NOT NULL
 );
 
---  Metadata of the org files in those directories.
+CREATE INDEX directories_directory_idx ON directories (directory);
+
+--  Table to store metadata of org files in directories.
 CREATE TABLE IF NOT EXISTS files (
-    filename text NOT NULL PRIMARY KEY,
-    directory text NOT NULL,
-    -- Updated, mtime and size are used to make sure the file is not dirty.
-    -- Updated and mtime stored as seconds since the epoch.
-    updated integer NOT NULL,
-    mtime integer NOT NULL,
-    size integer NOT NULL,
-    title text,
-    FOREIGN KEY (directory) REFERENCES directories (directory) ON DELETE CASCADE
+  id integer PRIMARY KEY AUTOINCREMENT,
+  -- Foreign key referencing the directory containing this file.
+  directory_id integer NOT NULL,
+  -- Absolute path of the file.
+  filename text NOT NULL,
+  -- Last time file was updated, stored as seconds since the epoch.
+  updated integer NOT NULL,file
+  -- Modification time as seconds since the epoch.
+  mtime integer NOT NULL,
+  -- Size in bytes reported by stat.
+  size integer NOT NULL,
+  -- Set up cascading delete for referenced directory.
+  FOREIGN KEY (directory_id) REFERENCES directories (id) ON DELETE CASCADE
 );
 
---  Metadata of the headings in the org files.
+CREATE INDEX files_filename_idx ON files (filename);
+
+--  Table to store metadata of headings in org files.
 CREATE TABLE IF NOT EXISTS headings (
-    id integer NOT NULL PRIMARY KEY,
-    file text NOT NULL,
-    -- The level of the heading. An artificial level 0 heading
-    -- is added to store file level properties and metadata.
-    level integer NOT NULL,
-    position integer NOT NULL,
-    -- Store the full line text of the heading including stars.
-    full_text text,
-    -- Components of the heading.
-    priority text NOT NULL,
-    todo_keyword text,
-    title text,
-    statistic_cookies text,
-    -- Store planning info as float to be able to store date and time.
-    scheduled real,
-    deadline real,
-    closed real,
-    -- Self reference to the parent id.
-    parent_id integer,
-    UNIQUE (file, position),
-    FOREIGN KEY (file) REFERENCES files (file) ON DELETE CASCADE,
-    FOREIGN KEY (parent_id) REFERENCES headings (id) ON DELETE CASCADE
+  id integer PRIMARY KEY AUTOINCREMENT,
+  -- Foreign key referencing the file containing this heading.
+  file_id integer NOT NULL,
+  /* Level of the heading. An artificial level 0 heading is added to store
+   file level properties and metadata. */
+  level integer NOT NULL,
+  position integer NOT NULL,
+  -- Full line text of heading including stars.
+  full_text text,
+  -- Components of heading.
+  priority text,
+  todo_keyword text,
+  title text,
+  statistic_cookies text,
+  -- Store planning info as float to store date and time.
+  scheduled real,
+  deadline real,
+  closed real,
+  -- Self reference to the parent id.
+  parent_id integer,
+  -- Set up unique constraint on file and position.
+  UNIQUE (file_id, position),
+  -- Set up cascading delete for referenced file.
+  FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE,
+  -- Set up cascading delete for referenced parent heading.
+  FOREIGN KEY (parent_id) REFERENCES headings (id) ON DELETE CASCADE
 );
 
---  Tags per heading.
+CREATE INDEX headings_title_idx ON headings (title);
+
+--  Table to store tags for headings.
 CREATE TABLE IF NOT EXISTS tags (
-    heading_id integer NOT NULL,
-    tag text NOT NULL,
-    PRIMARY KEY (heading_id, tag),
-    FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE
+  id integer PRIMARY KEY AUTOINCREMENT,
+  -- Foreign key referencing the heading containing these tags.
+  heading_id integer NOT NULL,
+  tag text NOT NULL,
+  -- Set up cascading delete for referenced heading.
+  FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE
 );
 
---  Properties per heading.
+CREATE INDEX tags_tag_idx ON tags (tag);
+
+--  Table to store properties for headings.
 CREATE TABLE IF NOT EXISTS properties (
-    heading_id integer NOT NULL,
-    property text NOT NULL,
-    value text,
-    PRIMARY KEY (heading_id, property),
-    FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE
+  id integer PRIMARY KEY AUTOINCREMENT,
+  -- Foreign key referencing the heading containing these properties.
+  heading_id integer NOT NULL,
+  property text NOT NULL,
+  value text,
+  -- Set up cascading delete for referenced heading.
+  FOREIGN KEY (heading_id) REFERENCES headings (id) ON DELETE CASCADE
 );
 
---  Links in the files.
+--  Table to store links in files.
 CREATE TABLE IF NOT EXISTS links (
-    file text NOT NULL,
-    position integer NOT NULL,
-    full_link text NOT NULL,
-    type text,
-    link text NOT NULL,
-    description text,
-    PRIMARY KEY (file, position),
-    FOREIGN KEY (file) REFERENCES files (file) ON DELETE CASCADE
+  id integer PRIMARY KEY AUTOINCREMENT,
+  -- Foreign key referencing the file containing these links.
+  file_id integer NOT NULL,
+  link_position integer NOT NULL,
+  full_link text NOT NULL,
+  link_type text,
+  link text NOT NULL,
+  description text,
+  -- Set up unique constraint on file and position.
+  UNIQUE (file_id, link_position),
+  -- Set up cascading delete for referenced file.
+  FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
 );
 
-CREATE INDEX headings_title_id ON headings(title);
+COMMIT;
 
--- COMMIT;

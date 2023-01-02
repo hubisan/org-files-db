@@ -6,7 +6,7 @@
 
 ;;; Code:
 
-;; * Files
+;;;; * Files
 
 (defun my-helpers-file-read-contents (path)
   "Return the contents file at PATH."
@@ -14,7 +14,7 @@
     (insert-file-contents path)
     (buffer-string)))
 
-;; * Footer
+;;;; * Footer
 
 (provide 'my-helpers)
 

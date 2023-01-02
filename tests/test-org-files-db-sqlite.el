@@ -6,7 +6,7 @@
 
 ;;; Code:
 
-;; * Requirements
+;;;; * Requirements
 
 (require 'buttercup)
 (require 'ert)
@@ -19,10 +19,10 @@
 ;; (let ((pkg-dir (file-name-directory (locate-library "org-files-db"))))
 ;;   (load (expand-file-name "tests/helpers.el" pkg-dir)))
 
-;; * Helpers
+;;;; * Helpers
 
 
-;; * Build
+;;;; * Build
 
 (describe "org-files-db-sqlite"
   :var* ((pkg-dir (expand-file-name default-directory))

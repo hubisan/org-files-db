@@ -24,11 +24,11 @@
 
 ;;; Code:
 
-;; * Requirements
+;;;; * Requirements
 
 (require 'cl-lib)
 
-;; * Variables
+;;;; * Variables
 
 (defvar org-files-db--sqlite-process nil
   "Process that runs the SQLite3 interative shell.")
@@ -39,7 +39,7 @@
 (defvar org-files-db--sqlite-timeout 10
   "Maximum number of seconds to wait before bailing out on a SQL command.")
 
-;; * Create
+;;;; * Create
 
 (defun org-files-db--sqlite-create-database (path schema name sqlite-executable
                                                   &optional version force foreign-keys busy-timeout)
@@ -106,7 +106,7 @@ used. This also makes a simple check to see if the process is valid."
     "\n" ""
     (org-files-db--sqlite-execute "PRAGMA user_version;" 'list nil process))))
 
-;; * Process
+;;;; * Process
 
 (defun org-files-db--sqlite-process-start (path name sqlite-executable
                                                 &optional force foreign-keys busy-timeout)
@@ -230,7 +230,7 @@ To start a new process use `org-files-db--sqlite-process-start'."
   `(let ((org-files-db--sqlite-process ,process))
      ,@body))
 
-;; ** Filter & Sentinel
+;;;;; ** Filter & Sentinel
 
 (defun org-files-db--sqlite-process-filter-check-for-error (process output)
   "Checks if the OUTPUT of the PROCESS is an error message."
@@ -262,7 +262,7 @@ the db is disconnected."
   (unless (process-live-p process)
     (org-files-db--sqlite-process-delete process)))
 
-;; * Execute SQL
+;;;; * Execute SQL
 
 (defun org-files-db--sqlite-execute (sql &optional mode timeout process)
   "Execute an SQL statement in the SQLite3 interactive shell.
@@ -351,7 +351,7 @@ json_group_array in the select statement. If OBJECT-TYPE in nil efaults to
   (let ((object-type (or object-type 'hash-table)))
     (json-parse-string output :object-type object-type)))
 
-;; * Footer
+;;;; * Footer
 
 (provide 'org-files-db-sqlite)
 

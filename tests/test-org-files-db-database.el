@@ -8,16 +8,16 @@
 
 ;;; Code:
 
-;; * Requirements
+;;;; * Requirements
 
 (require 'buttercup)
 (require 'ert)
 
 (require 'org-files-db)
 
-;; * Helpers
+;;;; * Helpers
 
-;; * Build
+;;;; * Build
 
 (describe "A suite"
   (it "contains a spec with an expectation"

@@ -26,12 +26,12 @@
 
 ;;; Code:
 
-;; * Requirements
+;;;; * Requirements
 
 (require 'org-files-db-core)
 (require 'org-files-db-database)
 
-;; * Variables
+;;;; * Variables
 
 (defvar org-files-db--fts-process nil
   "Process that runs the SQLite3 interative shell.")
@@ -42,9 +42,9 @@
 (defvar org-files-db--fts-sqlite-output nil
   "The output of the SQLite3 interactive shell.")
 
-;; * Main
+;;;; * Main
 
-;; * Footer
+;;;; * Footer
 
 (provide 'org-files-db-fts)
 
