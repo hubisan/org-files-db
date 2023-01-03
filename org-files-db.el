@@ -52,7 +52,7 @@
 
 ;;;; * Requirements
 
-(require 'seq)
+(require 'subr-x)
 (require 'sqlite)
 
 (require 'org-files-db-database)
@@ -82,123 +82,39 @@ If the database version changes it will be rebuilt from scratch.")
 
 ;;;; * Initialize
 
-(defun org-files-db--check-requirements ()
-  "Check if the requirements are met to use `org-files-db'."
-  ;; TODO Does this also check if the executable is available?
-  (let* ((sqlite-availabe (sqlite-available-p))
-         (sqlite-executable (executable-find "sqlite3")))))
-
-;;;; * DB
-
-;;;;; ** DB Open
-
-(defun org-files-db--open ()
-  "Open the main database and return the sqlite object.
-If the database doesn't exist or the user-version has changed the
-data is (re)built from scratch."
-  (setq org-files-db--db-object
-        (org-files-db--database-open
-         org-files-db-file
-         org-files-db--db-user-version
-         org-files-db--db-schema-file)))
-
-;;;;; ** DB Insert
-
-(defun org-files-db--insert-directory (args)
-  ""
-
-  )
-
-(defun org-files-db--insert-file (args)
-  ""
-
-  )
-
-(defun org-files-db--insert-heading (args)
-  ""
-
-  )
-
-(defun org-files-db--insert-tag (args)
-  ""
-
-  )
-
-(defun org-files-db--insert-property (args)
-  ""
-
-  )
-
-(defun org-files-db--insert-link (args)
-  ""
-
-  )
-
-;;;;; ** DB Update
-
-(defun org-files-db--update-directory (args)
-  ""
-
-  )
-
-(defun org-files-db--update-file (args)
-  ""
-
-  )
-
-(defun org-files-db--update-heading (args)
-  ""
-
-  )
-
-(defun org-files-db--update-tag (args)
-  ""
-
-  )
-
-(defun org-files-db--update-property (args)
-  ""
-
-  )
-
-(defun org-files-db--update-link (args)
-  ""
-
-  )
-
-;;;;; ** DB Delete
-
-(defun org-files-db--delete-directory (args)
-  ""
-
-  )
-
-(defun org-files-db--delete-file (args)
-  ""
-
-  )
-
-(defun org-files-db--delete-heading (args)
-  ""
-
-  )
-
-(defun org-files-db--delete-tag (args)
-  ""
-
-  )
-
-(defun org-files-db--delete-property (args)
-  ""
-
-  )
-
-(defun org-files-db--delete-link (args)
-  ""
-
-  )
-
-;;;;; ** DB Queries
+(defun org-files-db-check-requirements ()
+  "Check if the requirements are met to use `org-files-db'.
+If the requirements are not met an `user-error' is signaled."
+  (interactive)
+  (let* ((sqlite-available (and (fboundp 'sqlite-available-p)
+                                (sqlite-available-p)))
+         (sqlite-executable (executable-find "sqlite3"))
+         (ugrep-executable (executable-find "ugrep"))
+         (fd-find-executable (executable-find org-files-db-fd-find-executable))
+         (stat-executable (executable-find "stat"))
+         (message
+          (concat (unless sqlite-available
+                    (concat
+                     "\nEmacs doesn't have native SQLite support"
+                     " -> Emacs 29 or higher is required"))
+                  (unless sqlite-executable
+                    (concat "\nexecutable 'sqlite3' not found"
+                            " ->  install SQLite3"))
+                  (unless ugrep-executable
+                    (concat "\nexecutable 'ugrep' not found"
+                            " -> install ugrep"))
+                  (unless fd-find-executable
+                    (concat
+                     "\nexecutable '"
+                     org-files-db-fd-find-executable
+                     "' not found -> either fd-find needs to be installed"
+                     " or the executable name has to be customized"))
+                  (unless stat-executable
+                    (concat "\nexecutable 'stat' not found"
+                            " ->  install stat")))))
+    (if (string-equal message "")
+        "Requirements fulfilled"
+      (user-error "Requirements not fulfilled, see the documentation:%s" message))))
 
 ;;;; * Parse Files
 
@@ -207,10 +123,6 @@ data is (re)built from scratch."
 ;;;; * File Management
 
 ;;;; * Auxiliary Functions
-
-(defun org-files-db--sqlite-available-p ()
-  "Return t if sqlite3 support is available in this instance of Emacs."
-  (and (fboundp 'sqlite-available-p) (sqlite-available-p)))
 
 ;;;; * Footer
 

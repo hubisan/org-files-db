@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS files (
   filename text NOT NULL,
   -- Last time file was updated, stored as seconds since the epoch.
   updated integer NOT NULL,file
+  inode integer NOT NULL,
   -- Modification time as seconds since the epoch.
   mtime integer NOT NULL,
   -- Size in bytes reported by stat.
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS headings (
   /* Level of the heading. An artificial level 0 heading is added to store
    file level properties and metadata. */
   level integer NOT NULL,
-  position integer NOT NULL,
+  point integer NOT NULL,
   -- Full line text of heading including stars.
   full_text text,
   -- Components of heading.
@@ -52,8 +53,8 @@ CREATE TABLE IF NOT EXISTS headings (
   closed real,
   -- Self reference to the parent id.
   parent_id integer,
-  -- Set up unique constraint on file and position.
-  UNIQUE (file_id, position),
+  -- Set up unique constraint on file and point.
+  UNIQUE (file_id, point),
   -- Set up cascading delete for referenced file.
   FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE,
   -- Set up cascading delete for referenced parent heading.
@@ -90,13 +91,13 @@ CREATE TABLE IF NOT EXISTS links (
   id integer PRIMARY KEY AUTOINCREMENT,
   -- Foreign key referencing the file containing these links.
   file_id integer NOT NULL,
-  link_position integer NOT NULL,
+  point integer NOT NULL,
   full_link text NOT NULL,
-  link_type text,
+  type text,
   link text NOT NULL,
   description text,
-  -- Set up unique constraint on file and position.
-  UNIQUE (file_id, link_position),
+  -- Set up unique constraint on file and point.
+  UNIQUE (file_id, point),
   -- Set up cascading delete for referenced file.
   FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE
 );

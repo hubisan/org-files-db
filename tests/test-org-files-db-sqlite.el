@@ -11,8 +11,9 @@
 (require 'buttercup)
 (require 'ert)
 
-(require 'subr-x)
 (require 'my-helpers)
+(require 'org-files-db-core)
+(require 'org-files-db-db)
 (require 'org-files-db-sqlite)
 
 ;; Load helpers.
@@ -21,13 +22,15 @@
 
 ;;;; * Helpers
 
-
 ;;;; * Build
+
+
 
 (describe "org-files-db-sqlite"
   :var* ((pkg-dir (expand-file-name default-directory))
          (files-path (expand-file-name "tests/files" pkg-dir))
-         (schema-file (expand-file-name "schema.sql" files-path))
+         ;; (schema-file (expand-file-name "schema.sql" files-path))
+         (schema-file (expand-file-name "sql/db-schema.sql" org-files-db--load-dir))
          (schema-string (my-helpers-file-read-contents schema-file))
          (sqlite "sqlite3"))
 

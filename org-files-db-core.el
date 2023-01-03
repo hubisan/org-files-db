@@ -1,4 +1,4 @@
-;;; org-files-db-core.el --- Customization, common vars and functions  -*- lexical-binding: t -*-
+;;; org-files-db-core.el --- Customization, common vars & functions  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2022 Daniel Hubmann
 
@@ -38,6 +38,13 @@
   "List of one or multiple directories to parse the Org files in."
   :group 'org-files-db
   :type '(repeat directory))
+
+(defcustom org-files-db-fd-find-executable
+  "fd"
+  "The name of the command fd-find.
+This can be fd, fdfind, fd-find and probably others."
+  :group 'org-files-db
+  :type 'string)
 
 (defcustom org-files-db-files-exclude-regexps nil
   "List of regular expressions to exclude matching file names."
