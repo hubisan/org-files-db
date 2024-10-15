@@ -19,8 +19,9 @@
 
 ;;; Commentary:
 
-;; This file contains customizations, faces, constants, global variables and
-;; auxiliary functions.
+;; It handles the main logic like specifying files/folders and invoking the
+;; parsing. This file contains customizations, faces, constants, global
+;; variables and auxiliary functions.
 
 ;;; Code:
 
@@ -34,70 +35,59 @@
   :link '(url-link :tag "Github" "https://github.com/hubisan/org-files-db")
   :prefix "org-files-db-")
 
-(defcustom org-files-db-directories nil
-  "List of one or multiple directories to parse the Org files in."
+(defcustom org-files-db-source-paths nil
+  "List of directories and/or files to be scanned for Org files.
+Each element can be either a directory or a specific Org file.
+All matching Org files will be parsed and stored in the SQLite database."
   :group 'org-files-db
-  :type '(repeat directory))
-
-(defcustom org-files-db-fd-find-executable
-  "fd"
-  "The name of the command fd-find.
-This can be fd, fdfind, fd-find and probably others."
-  :group 'org-files-db
-  :type 'string)
+  :type '(repeat (file :tag "Directory or Org File")))
 
 (defcustom org-files-db-files-exclude-regexps nil
   "List of regular expressions to exclude matching file names."
   :group 'org-files-db
   :type '(repeat string))
 
-(defcustom org-files-db-file (locate-user-emacs-file "org-files.db")
-  "Filename used for the database. Use .db or .sqlite as extension."
+(defcustom org-files-db-exclude-file-regexps nil
+  "List of regular expressions to exclude certain files from parsing.
+Any file whose name matches one of these regular expressions will be skipped."
+  :group 'org-files-db
+  :type '(repeat (regexp :tag "Exclude File Pattern")))
+
+(defcustom org-files-db-database-file (locate-user-emacs-file "org-files.db")
+  "Path to the SQLite database file used by `org-files-db'.
+It is recommended to use a `.db` or `.sqlite` extension for the file."
   :group 'org-files-db
   :type 'string)
 
-(defcustom org-files-db-check-for-changes-interval 300
-  "Interval in seconds to check if any file has been changed.
-If any file has changed, the database is updated accordingly."
+(defcustom org-files-db-check-interval 300
+  "Interval (in seconds) for checking changes in Org files.
+If any files have been modified since the last check, the database will
+be updated accordingly. Set this to `nil` to disable automatic checks."
   :group 'org-files-db
   :type 'number)
-
-(defcustom org-files-db-full-text-search-enabled t
-  "If non-nil full text search is enabled.
-This will store the content of the org files from the directories in a second
-database to be able to use full-text-search provided by SQLite."
-  :group 'org-files-db
-  :type 'boolean)
-
-(defcustom org-files-db-full-text-search-file
-  (locate-user-emacs-file "org-files-fts.db")
-  "Filename used for the full text search database.
-Use .db or .sqlite as extension."
-  :group 'org-files-db
-  :type 'string)
 
 ;;;; * Faces
 
 ;;;; * Constants
 
-(defconst org-files-db--version "v0.1.0"
+(defconst org-files-db--version "0.1.0"
   "The `org-files-db' version.")
 
-(defconst org-files-db--load-dir (file-name-directory
-                                  (or load-file-name buffer-file-name))
-  "The directory where this package is stored.")
+(defconst org-files-db--install-directory
+  ;; TODO maybe use this instead?
+  ;; (file-name-directory (or (locate-library "org-files-db") ""))
+  (file-name-directory (or load-file-name buffer-file-name))
+  "The directory where the `org-files-db' package is installed.")
 
 ;;;; * Global Variables
-
 
 ;;;; * Auxiliary Functions
 
 (defun org-files-db-version ()
-  "Return the `org-files-db' version."
+  "Show the `org-files-db' version."
   (interactive)
   (when (called-interactively-p 'interactive)
-    (message "%s" org-files-db--version))
-  org-files-db--version)
+    (message "Org-files-db version %s" org-files-db--version)))
 
 ;;;; * Footer
 

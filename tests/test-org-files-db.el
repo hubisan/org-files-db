@@ -1,29 +1,17 @@
-;;; test-org-files-db.el --- Tests for org-files-db -*- lexical-binding:t -*-
+;;; test-org-files-db.el --- Tests  -*- lexical-binding:t -*-
 
-;; Package-Requires: ((buttercup))
-
-;;; Commentary:
-
-;; If you want to split your tests into multiple files just use another file
-;; named test-*.el, *-test.el or *-tests.el
-
-;;; Code:
-
-;;;; * Requirements
+;;; Requirements
 
 (require 'buttercup)
 (require 'ert)
+(require 'with-simulated-input)
+
+(require 'test-helper)
 
 (require 'org-files-db)
 
-;;;; * Helpers
+;;; Tests for ...
 
-;;;; * Heading1
-
-(describe "A suite"
-  (it "contains a spec with an expectation"
-    (expect t :to-be t)))
-
-(provide 'test-org-files-db)
-
-;;; test-org-files-db.el ends here
+(describe "Testing Example"
+  (it "- t is equal t"
+    (expect t :to-equal t)))

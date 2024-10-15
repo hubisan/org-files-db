@@ -1,13 +1,13 @@
 ;;; org-files-db.el --- Add headings and links of org file to SQLite db -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Daniel Hubmann <hubisan@gmail.com>
+;; Copyright (C) 2024 Daniel Hubmann <hubisan@gmail.com>
 
 ;; Author: Daniel Hubmann <hubisan@gmail.com>
 ;; Maintainer: Daniel Hubmann <hubisan@gmail.com>
 ;; URL: https://github.com/hubisan/org-files-db
 ;; Keywords: outlines
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1") (org "9.5") (emacsql-sqlite "1.0.0"))
+;; Package-Requires: ((emacs "29.1") (org "9.8"))
 
 ;; This file is not part of GNU Emacs
 
@@ -26,8 +26,8 @@
 
 ;;; Commentary:
 
-;; Store headings and links from org files from one or more directories in a
-;; SQLite database.
+;; Store headings and links from org files from one or more directories/files in
+;; a SQLite database.
 
 ;;  Main features
 
@@ -40,8 +40,6 @@
 ;; - For each link it stores the filename, position, full link, type, link and
 ;;   description.
 ;; - Provides queries for the most common use cases.
-;; - Uses ugrep to quickly parse the files.
-;; - Uses fd to check if files are modified for reparsing.
 
 ;;; Code:
 

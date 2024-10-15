@@ -1,44 +1,82 @@
 # Makefile
 
-.PHONY: help all prepare test lint compile clean clean-elc
+EMACS ?= emacs
+EASK ?= eask
+
+.PHONY: help all clean package install compile test test-local docker-test lint emacs
 
 help:
 	$(info )
 	$(info - make            # Show this help)
-	$(info - make help       # Show this help)
-	$(info - make all        # Run tests, lint and compile)
-	$(info - make prepare    # Install dependencies)
-	$(info - make test       # Run tests and installs dependencies unless already installed)
-	$(info - make lint       # Lint the package)
-	$(info - make compile    # Compiles the files to check for errors/warnings)
+	$(info - make all        # Run clean, package, install, compile, lint and test)
 	$(info - make clean      # Clean everything)
-	$(info - make clean-elc  # Clean .elc, .info and info-dir)
+	$(info - make package    # Build package artifact)
+	$(info - make install    # Install the package)
+	$(info - make compile    # Compiles the files to check for errors/warnings)
+	$(info - make test       # Run tests with buttercup)
+	$(info - make test-local # Test locally (compile, test, lint))
+	$(info - make lint       # Clean autoloads and run linters)
+	$(info - make emacs      # Run Emacs with package and dependencies installed)
 	$(info )
+	@echo > /dev/null
 
-all: test lint compile
-
-prepare:
-	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> PREPARE'
-	@eldev --color --packaged --unstable --debug --trace --time prepare
-
-test:
-	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> TEST'
-	@eldev --color --packaged --unstable --debug --time test
-
-lint:
-	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> LINT'
-	@eldev --color --debug --time lint
-
-compile:
-	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> COMPILE'
-	@eldev --color --packaged --unstable --debug --time compile --warnings-as-errors
-	@eldev clean .elc > /dev/null
+all: clean package install compile lint test
 
 clean:
 	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> CLEAN ALL'
-	@eldev clean all
+	@$(EASK) clean all
 
-clean-elc:
-	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> CLEAN'
-	@eldev clean
+package:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> PACKAGING'
+	@$(EASK) package
 
+install:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> INSTALL'
+	@$(EASK) install
+
+compile:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> COMPILE'
+	@$(EASK) recompile
+
+test:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> TEST'
+	@$(EASK) install-deps --dev
+	@$(EASK) test buttercup
+
+test-local: compile test lint
+
+lint:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> LINT'
+	@$(EASK) clean autoloads --verbose 0
+	@printf '\e[1;34m%-10s\e[0m\n\n' '>>> package-lint'
+	@$(EASK) lint package --verbose 0
+	@printf '\e[1;34m%-10s\e[0m\n\n' '>>> elint'
+	@$(EASK) lint elint --verbose 0
+	@printf '\e[1;34m%-10s\e[0m\n\n' '>>> checkdoc'
+	@$(EASK) lint checkdoc --verbose 0
+	@printf '\e[1;34m%-10s\e[0m\n' '>>> indent-lint'
+	@$(EASK) lint indent --verbose 0
+	@printf '\e[1;34m%-10s\e[0m\n\n' '>>> relint'
+	@$(EASK) lint regexps --verbose 0
+
+docker-test:
+ifndef emacs
+	$(error emacs is undefined. Use 'make docker-test emacs=<version>')
+endif
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> COMPILE'
+	$(EASK) docker $(emacs) recompile
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> TEST'
+	$(EASK) docker $(emacs) install-deps --dev
+	$(EASK) docker $(emacs) test buttercup
+	$(EASK) docker $(emacs) clean autoloads
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> LINT'
+	$(EASK) docker $(emacs) lint package --verbose 0
+	$(EASK) docker $(emacs) lint elint --verbose 0
+	$(EASK) docker $(emacs) lint checkdoc --verbose 0
+	$(EASK) docker $(emacs) lint indent --verbose 0
+	$(EASK) docker $(emacs) lint regexps --verbose 0
+
+emacs:
+	@printf '\n\e[1;34m%-10s\e[0m\n\n' '>> RUN EMACS'
+	$(EASK) install
+	$(EASK) emacs &
