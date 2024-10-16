@@ -27,17 +27,12 @@
 ;;;; * Requirements
 
 (require 'org-files-db-core)
+(require 'sqlite)
 
 ;;;; * Constants & Variables
 
-;; TODO Check old version of this to handle this better.
-;; It is probably a defcustom.
-(defvar org-files-db-file
-  (expand-file-name "org-files.db" user-emacs-directory)
-  "Path to the SQLite database file.")
-
 (defconst org-files-db-db--schema-file
-  (expand-file-name "sql/db-schema.sql" org-files-db--load-dir)
+  (expand-file-name "sql/db-schema.sql" org-files-db--install-directory)
   "File with the schema to build the database.")
 
 (defconst org-files-db-db--user-version 1
@@ -47,72 +42,98 @@ If the database version changes it will be rebuilt from scratch.")
 (defvar org-files-db-db--connection nil
   "Database connection to the SQLite database.")
 
-;;;; * Build
+;;;; * Initialize
 
-;; TODO Name is not so good, rather use initialize or so, Check older versions.
-(defun org-files-db--build ()
-  "Create the necessary tables in the SQLite database."
-  (let ((db (org-files-db--open))
-        (sql-statements '))
+(defun org-files-db-db--intialize (db-filename)
+  "Initialize the SQLite database and create the necessary tables.
+Database will be stored at DB-FILENAME."
+  (let ((db (sqlite-open db-filename))
+        (sql-statements '("bla")))
     (dolist (sql sql-statements)
-      (sqlite-exec org-files-db--db-connection sql))
-    (sqlite-pragma db (format "user_version=%s" org-files-db-db--user-version))
-    ))
+      (sqlite-execute org-files-db-db--connection sql))
+    (org-files-db--sqlite-set-user-version db org-files-db-db--user-version)))
 
 ;;;; * Open & Close
 
-(defun org-files-db--open (db-file)
+(defun org-files-db-db--open ()
   "Open a connection to the SQLite database."
-  ;; TODO if file doesn't exist or the version doesn't match then build the
-  ;; database from scratch.
-  (let* ((db (unless org-files-db--db-connection
-               ;; `sqlite-open' automatically creates the file if it doesn't
-               ;; exist.
-               (setq org-files-db--db-connection (sqlite-open db-file)))))
-    (sqlite-pragma db "journal_mode=WAL")
-    (sqlite-pragma db "foreign_keys=ON")))
+  (if (sqlitep org-files-db-db--connection)
+      org-files-db-db--connection
+    (let* ((db-filename org-files-db-database-file))
+      (if (not (org-files-db-db--database-file-exists))
+          (progn
+            (message "Org-files-db: Aborting. Database doesn't exist.
+Database needs to be built from scratch.
+You will be notified once the database has been built in the background.")
+            (org-files-db-db--intialize db-filename)
+            nil)
+        (let* ((db (sqlite-open db-filename)))
+          (if (not (org-files-db-db--check-version db))
+              (progn
+                (message "Org-files-db: Aborting. Database version mismatch.
+Recreating database. You will be notified once the database has been rebuilt.")
+                (org-files-db-db--close db)
+                (org-files-db-db--intialize db-filename)
+                nil)
+            (sqlite-pragma db "journal_mode=WAL")
+            (sqlite-pragma db "foreign_keys=ON")
+            (setq org-files-db-db--connection db)))))))
 
-(defun org-files-db--close ()
-  "Close the connection to the SQLite database."
-  (when org-files-db--db-connection
-    (sqlite-close org-files-db--db-connection)
-    (setq org-files-db--db-connection nil)))
+(defun org-files-db-db--close (&optional db-connection)
+  "Close the connection to the SQLite database.
+If DB-CONNECTION is not given it uses the global variable
+`org-files-db-db--connection'."
+  (let* ((db-connection (or db-connection org-files-db-db--connection)))
+    (when (sqlitep db-connection)
+      (sqlite-close db-connection))
+    (setq org-files-db-db--connection nil)))
 
-(defun org-files-db-check-version (db)
-  "Check the version of the database schema and recreate if necessary."
-  (let* ((current-version (caar (sqlite-select db "PRAGMA user_version;")))
-        (version-match (= current-version org-files-db-version)))
-    (unless version-match
-      (message "Database version mismatch. Recreating database..."))
-    version-match))
+(defun org-files-db-db--database-file-exists ()
+  "Check if the database file  exists. "
+  (file-exists-p org-files-db-database-file))
+
+(defun org-files-db--sqlite-create-schema (db schema-file)
+  "Create the database schema using SCHEMA-FILE."
+  (sqlite-execute db ".read ?" (list (expand-file-name schema-file))))
+
+(defun org-files-db--sqlite-set-user-version (db version)
+  "Set the user_version to VERSION for the DB."
+  (sqlite-pragma db (format "user_version = %s" version)))
+
+(defun org-files-db--sqlite-get-user-version (db)
+  "Get the user_version of the DB."
+  (caar (sqlite-select db "PRAGMA user_version")))
+
+(defun org-files-db-db--check-version (db)
+  "Check if the version of the database matches `org-files-db-db--user-version'."
+  (let* ((current-version (org-files-db--sqlite-get-user-version db)))
+    (= current-version org-files-db-db--user-version)))
+
+(defun org-files-db--sqlite-turn-foreign-keys-on (db)
+  "Turn foreign keys on for the database.
+This has to be done on every new connection as SQLite is usually
+compiled with foreign keys turned off by default."
+  (sqlite-pragma db "foreign_keys = ON"))
 
 ;;;; * Insert
 
-(defun org-files-db--insert-file (file-path)
-  "Insert a FILE-PATH into the files table."
-  (org-files-db--open-connection)
-  (let ((timestamp (string-to-number (format-time-string "%s"))))
-    (sqlite-exec org-files-db--db-connection
-                 "INSERT INTO files (file_path, created_at, updated_at) VALUES (?, ?, ?);"
-                 file-path timestamp timestamp)))
-
-(defun org-files-db--insert-heading (file-id heading-text level scheduled-time deadline-time)
-  "Insert a heading into the 'headings' table."
-  (org-files-db--open-connection)
-  (sqlite-exec org-files-db--db-connection
-               "INSERT INTO headings (file_id, heading_text, level, scheduled_time, deadline_time)
-                VALUES (?, ?, ?, ?, ?);"
-               file-id heading-text level scheduled-time deadline-time))
-
-(defun org-files-db-db--insert-tag (arg)
+(defun org-files-db--insert-file ()
   ""
   )
 
-(defun org-files-db-db--insert-property (arg)
+(defun org-files-db--insert-heading ()
   ""
   )
 
-(defun org-files-db-db--insert-link (arg)
+(defun org-files-db-db--insert-tag ()
+  ""
+  )
+
+(defun org-files-db-db--insert-property ()
+  ""
+  )
+
+(defun org-files-db-db--insert-link ()
   ""
   )
 
