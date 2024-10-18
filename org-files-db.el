@@ -26,20 +26,23 @@
 
 ;;; Commentary:
 
-;; Store headings and links from org files from one or more directories/files in
-;; a SQLite database.
 
-;;  Main features
+;; The org-files-db package allows you to store and manage data from Org files
+;; (headings, tags, properties, links) in a SQLite database. It supports the
+;; extraction of relevant information from specified directories or individual
+;; Org files.
 
-;; - Store headings and links from org files from one or more directories in a
-;;   SQLite database.
-;; - For each heading it stores the filename, line number, title, level,
-;;   priority, todo keyword, statistic cookies, planning info (scheduled,
-;;   deadline, closed),
-;;   parent heading id, tags and properties.
-;; - For each link it stores the filename, position, full link, type, link and
-;;   description.
-;; - Provides queries for the most common use cases.
+;; The primary goal of org-files-db is to make it easy to interact with large
+;; collections of Org files by leveraging the power of a relational database.
+;; With the data stored in SQLite, you can perform complex queries, filter
+;; information, and integrate seamlessly with other tools and workflows.
+
+;; Parsing Org files and inserting data into the database is done
+;; asynchronously, ensuring a non-blocking and responsive experience.
+
+;; It detect changes in files periodically and updates the database
+;; automatically to keep your data synchronized. Changes made to Org files with
+;; Emacs are updated instantly.
 
 ;;; Code:
 

@@ -13,8 +13,8 @@
 (keywords "dictionary" "thesaurus" "convenience")
 (license "GPLv3")
 
-(package-file "woerterbuch.el")
-(files "woerterbuch.el")
+(package-file "org-files-db.el")
+(files "org-files-db.el")
 
 ;; https://emacs-eask.github.io/DSL/#-source-alias
 (source "gnu")

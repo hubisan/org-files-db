@@ -73,11 +73,11 @@ To run an eask command in a docker container use:
     eask docker 29.4 package
     eask docker 29.4 install
     docker run --interactive --tty \
-        --volume ~/projects/coding/woerterbuch:/woerterbuch \
-        --workdir /woerterbuch \
+        --volume ~/projects/coding/org-files-db:/org-files-db \
+        --workdir /org-files-db \
         --rm \
         silex/emacs:29.4-ci-eask emacs \
-        --init-directory /woerterbuch/.eask/29.4
+        --init-directory /org-files-db/.eask/29.4
   #+END_SRC
 
 

@@ -1,6 +1,6 @@
 ;;; org-files-db-core.el --- Customization, common vars & functions  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Daniel Hubmann
+;; Copyright (C) 2024 Daniel Hubmann
 
 ;; This file is not part of GNU Emacs
 
@@ -19,9 +19,16 @@
 
 ;;; Commentary:
 
-;; It handles the main logic like specifying files/folders and invoking the
-;; parsing. This file contains customizations, faces, constants, global
-;; variables and auxiliary functions.
+;; This file implements the core functionality of the org-files-db package,
+;; which manages the extraction and storage of data from Org files into a SQLite
+;; database. It handles the main logic like initiating the parsing process, and
+;; invoking writing parsed data to the database.
+
+;; Additionally, this file contains customizations, faces, constants, global
+;; variables, and auxiliary functions.
+
+;; It is part of the org-files-db package, which stores Org file data
+;; in a SQLite database.
 
 ;;; Code:
 
@@ -68,18 +75,15 @@ be updated accordingly. Set this to `nil` to disable automatic checks."
 
 ;;;; * Faces
 
-;;;; * Constants
+;;;; * Global Constants & Variables
 
 (defconst org-files-db--version "0.1.0"
   "The `org-files-db' version.")
 
 (defconst org-files-db--install-directory
-  ;; TODO maybe use this instead?
-  ;; (file-name-directory (or (locate-library "org-files-db") ""))
-  (file-name-directory (or load-file-name buffer-file-name))
+  (file-name-directory
+   (or load-file-name buffer-file-name (locate-library "org-files-db") nil))
   "The directory where the `org-files-db' package is installed.")
-
-;;;; * Global Variables
 
 ;;;; * Auxiliary Functions
 
