@@ -93,6 +93,27 @@ be updated accordingly. Set this to `nil` to disable automatic checks."
   (when (called-interactively-p 'interactive)
     (message "Org-files-db version %s" org-files-db--version)))
 
+;;;; * Parse Files
+
+;;;; * Write Data to Database
+
+;;;; * Check for Modifications
+
+;;;; * Async
+
+;; (async-start `(lambda ()
+;;                 (setq
+;;                  ;; Not sure if this is correct, but seems so.
+;;                  ;; The keywords have to be set, the rest should be inside the
+;;                  ;; let in the function to parse the files. Maybe I should add
+;;                  ;; the keywords as well to be a parameter
+;;                  org-todo-keywords ',org-todo-keywords
+;;                  org-inhibit-startup t
+;;                  org-agenda-files nil)
+;;                  )
+;;                (lambda (result)
+;;                  ))
+
 ;;;; * Footer
 
 (provide 'org-files-db-core)
