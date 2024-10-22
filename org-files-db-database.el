@@ -45,7 +45,7 @@ If the database version changes it will be rebuilt from scratch.")
 
 ;;;; * Initialize
 
-(defun org-files-db-database--intialize (db-filename)
+(defun org-files-db-database--initialize (db-filename)
   "Initialize the SQLite database and create the necessary tables.
 Database will be stored at DB-FILENAME."
   (let ((db (sqlite-open db-filename))
@@ -66,7 +66,7 @@ Database will be stored at DB-FILENAME."
             (message "Org-files-db: Aborting. Database doesn't exist.
 Database needs to be built from scratch.
 You will be notified once the database has been built in the background.")
-            (org-files-db-database--intialize db-filename)
+            (org-files-db-database--initialize db-filename)
             nil)
         (let* ((db (sqlite-open db-filename)))
           (if (not (org-files-db-database--check-version db))
@@ -74,7 +74,7 @@ You will be notified once the database has been built in the background.")
                 (message "Org-files-db: Aborting. Database version mismatch.
 Recreating database. You will be notified once the database has been rebuilt.")
                 (org-files-db-database--close db)
-                (org-files-db-database--intialize db-filename)
+                (org-files-db-database--initialize db-filename)
                 nil)
             (sqlite-pragma db "journal_mode=WAL")
             (sqlite-pragma db "foreign_keys=ON")

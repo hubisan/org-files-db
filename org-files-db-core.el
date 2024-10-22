@@ -114,6 +114,21 @@ be updated accordingly. Set this to `nil` to disable automatic checks."
 ;;                (lambda (result)
 ;;                  ))
 
+;; (async-start
+;;  (lambda ()
+;;    ;; Add the path where your package is located
+;;    (add-to-list 'load-path "/path/to/org-files-db")
+
+;;    ;; Require your package
+;;    (require 'org-files-db)
+
+;;    ;; Your async code here
+;;    (org-files-db-your-function))
+
+;;  (lambda (result)
+;;    ;; Handle the result
+;;    (message "Async finished with result: %s" result)))
+
 ;;;; * Footer
 
 (provide 'org-files-db-core)

@@ -1,67 +1,41 @@
 BEGIN TRANSACTION;
 
---  Table to store directories containing org-files to be parsed.
-CREATE TABLE IF NOT EXISTS directories (
-  id integer PRIMARY KEY AUTOINCREMENT,
-  -- Absolute path of the directory.
-  directory text UNIQUE NOT NULL,
-  -- Last time directory was updated, stored as seconds since the epoch.
-  updated integer NOT NULL
-);
-
-CREATE INDEX directories_directory_idx ON directories (directory);
-
---  Table to store metadata of org files in directories.
+-- Table to store metadata of Org files
 CREATE TABLE IF NOT EXISTS files (
-  id integer PRIMARY KEY AUTOINCREMENT,
-  -- Foreign key referencing the directory containing this file.
-  directory_id integer NOT NULL,
-  -- Absolute path of the file.
-  filename text NOT NULL,
-  -- Last time file was updated, stored as seconds since the epoch.
-  updated integer NOT NULL,file
-  inode integer NOT NULL,
-  -- Modification time as seconds since the epoch.
-  mtime integer NOT NULL,
-  -- Size in bytes reported by stat.
-  size integer NOT NULL,
-  -- Set up cascading delete for referenced directory.
-  FOREIGN KEY (directory_id) REFERENCES directories (id) ON DELETE CASCADE
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Absolute path of the file
+  path TEXT NOT NULL,
+  -- Timestamp of when the file record was created, in seconds since the epoch
+  created_at REAL DEFAULT (strftime('%s', 'now')),
+  -- Timestamp of when the file record was last updated, in seconds since the epoch
+  updated_at REAL DEFAULT (strftime('%s', 'now')),
+  -- Last modification time of the file, in seconds since the epoch
+  modification_time REAL
 );
 
-CREATE INDEX files_filename_idx ON files (filename);
-
---  Table to store metadata of headings in org files.
+-- Table to store headings extracted from Org files
 CREATE TABLE IF NOT EXISTS headings (
   id integer PRIMARY KEY AUTOINCREMENT,
-  -- Foreign key referencing the file containing this heading.
+  -- Foreign key referencing the 'files' table.
   file_id integer NOT NULL,
-  /* Level of the heading. An artificial level 0 heading is added to store
-   file level properties and metadata. */
-  level integer NOT NULL,
-  point integer NOT NULL,
-  -- Full line text of heading including stars.
-  full_text text,
+  -- Heading level (0 for file-level, 1 for top-level, 2 for subheading, etc.).
+  level INTEGER NOT NULL,
+  -- Point of where the headings begins in the file.
+  begin INTEGER NOT NULL,
   -- Components of heading.
-  priority text,
-  todo_keyword text,
-  title text,
-  statistic_cookies text,
-  -- Store planning info as float to store date and time.
-  scheduled real,
-  deadline real,
-  closed real,
-  -- Self reference to the parent id.
-  parent_id integer,
-  -- Set up unique constraint on file and point.
+  title_raw TEXT,
+  --Title without statistic cookies and emphasis markers, and links converted to text.
+  title TEXT,
+  priority TEXT,
+  todo_keyword TEXT,
+  todo_type TEXT,
+  statistic_cookies TEXT,
+  -- Parent heading ID, referencing another entry in this table.
+  parent_id INTEGER,
   UNIQUE (file_id, point),
-  -- Set up cascading delete for referenced file.
   FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE,
-  -- Set up cascading delete for referenced parent heading.
   FOREIGN KEY (parent_id) REFERENCES headings (id) ON DELETE CASCADE
 );
-
-CREATE INDEX headings_title_idx ON headings (title);
 
 --  Table to store tags for headings.
 CREATE TABLE IF NOT EXISTS tags (
