@@ -4,9 +4,7 @@
 
 [[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]]
 
-The org-files-db package allows you to store and manage data from Org files (headings, tags, properties, links) in a SQLite database. It supports the extraction of relevant information from specified directories or individual Org files.
-
-The primary goal of org-files-db is to make it easy to interact with large collections of Org files by leveraging the power of a relational database. With the data stored in SQLite, you can perform complex queries, filter information, and integrate seamlessly with other tools and workflows.
+The org-files-db package allows you to store data from Org files (headings, tags, properties, links) in a SQLite database. It supports the extraction of relevant information from specified directories or individual Org files.
 
 Parsing Org files and inserting data into the database is done asynchronously, ensuring a non-blocking and responsive experience.
 
@@ -28,6 +26,7 @@ It detect changes in files periodically and updates the database automatically t
 :CUSTOM_ID: installation
 :END:
 
+Check woerterbuch for a better text.
 - [ ] Add the new command ~package-vc-install~ from Emacs 29
 
 The packages is available on Github. Packages from Github can be installed with

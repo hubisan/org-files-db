@@ -8,9 +8,9 @@
 ;; https://emacs-eask.github.io/DSL/
 (package "org-files-db"
          "0.1.0"
-         "Store org headings and links in a SQLite database")
+         "Store data from Org files (headings, tags, properties, links) in a SQLite database.")
 (website-url "https://github.com/hubisan/org-files-db")
-(keywords "dictionary" "thesaurus" "convenience")
+(keywords "outlines")
 (license "GPLv3")
 
 (package-file "org-files-db.el")

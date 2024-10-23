@@ -82,10 +82,10 @@ The TREE is used to get the keywords."
                           (org-sort-remove-invisible title-raw))
                        (file-name-sans-extension (buffer-file-name)))))
     (list
+     :level 0
+     :begin 0
      :title title-text
      :title-raw title-raw
-     :begin 0
-     :level 0
      :keywords keywords
      :tags (split-string (cadr (assoc "FILETAGS" keywords)) ":" t)
      :properties (org-files-db-parse--get-local-properties (point-min)))))
@@ -118,20 +118,19 @@ The parse TREE is used if possible to extract the metadata."
              (priority (org-element-property :priority node))
              (priority (when (characterp priority) (char-to-string priority))))
         (list
+         :level (org-element-property :level node)
+         :begin (org-element-property :begin node)
          :title title-text
          :title-raw title-raw
-         :begin (org-element-property :begin node)
-         :level (org-element-property :level node)
          :priority priority
          :todo-keyword (org-element-property :todo-keyword node)
          :todo-type (org-element-property :todo-type node)
-         :statistics-cookie statistics-cookie
+         :archivedp (org-element-property :archivedp node)
+         :footnote-section-p (org-element-property :footnote-section-p node)
          :tags (org-element-property :tags node)
          :scheduled (org-element-property :scheduled node)
          :deadline (org-element-property :deadline node)
          :closed (org-element-property :closed node)
-         :archivedp (org-element-property :archivedp node)
-         :footnote-section-p (org-element-property :footnote-section-p node)
          :properties (org-files-db-parse--get-local-properties node))))))
 
 ;;;; * Keywords
@@ -183,10 +182,11 @@ only get the headings properties."
   (org-element-map tree 'link
     (lambda (link)
       (let* ((path (org-element-property :path link))
+             (type (org-element-property :type link))
              (path-absolute (when (string-equal type "file")
                               (expand-file-name path))))
         (list
-         :type (org-element-property :type link)
+         :type type
          :begin (org-element-property :begin link)
          :path path
          :path-absolute path-absolute

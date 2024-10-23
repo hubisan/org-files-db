@@ -1,4 +1,4 @@
-;;; org-files-db.el --- Add headings and links of org file to SQLite db -*- lexical-binding: t -*-
+;;; org-files-db.el --- Store data from Org files (headings, tags, properties, links) in a SQLite database -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2024 Daniel Hubmann <hubisan@gmail.com>
 
@@ -7,7 +7,7 @@
 ;; URL: https://github.com/hubisan/org-files-db
 ;; Keywords: outlines
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (org "9.8"))
+;; Package-Requires: ((emacs "29.1") (org "9.7.13"))
 
 ;; This file is not part of GNU Emacs
 
