@@ -78,56 +78,33 @@ The following faces are defined:
 :CUSTOM_ID: sqlite-database-schema
 :END:
 
-This section describes the database tables. Check out [[file:sql/db-schema.sql][sql/db-schema.sql]] to see the actual schema used to create the database.
+This section describes the database tables used. For the actual schema, refer to the [[file:sql/db-schema.sql][database schema file]]. Examples are provided to clarify column content where necessary.
 
 *** Links
 
-The links table has to following columns:
+The =links= table has to following columns:
 
 - id: INTEGER (Primary key)
 - heading_id: INTEGER (Foreign key referencing the 'headings' table)
 - begin: INTEGER (Point of where the headings begins in the file)
-  #+BEGIN_SRC org
-    399
-  #+END_SRC
-- type: TEXT (Type of link (e.g., file, https, etc.))
-  @@html:<details>@@
-  @@html:<summary>@@
-  Examples:
-  @@html:</summary>@@
-  #+BEGIN_SRC org
-    - [[https://www.example.com][Example]] > https
-    - https://www.example.com > https
-    - [[file:../example.org]]  > file
-    - [[../test.org]]  > file
-  #+END_SRC
-  @@html:</details>@@
-- path: TEXT (Path. Can be a relative one for files.)
-  #+BEGIN_SRC org
-    - [[https://www.example.com][Example]] > //www.example.com
-    - [[../example.org]]  > ../example.org
-    - REMOVE [[https://www.example.com][Example]] > //www.example.com very long line to see what happens if this is printed on github.
-  #+END_SRC
-- path_absolute: TEXT (Absolute path if it is of type file.)
-  #+BEGIN_SRC org
-    - Example: [[../example.org]]  > ~/example/example.org
-  #+END_SRC
-- description: TEXT (Optional description of the link.)
-  #+BEGIN_SRC org
-    - Example: [[https://www.example.com][Example]] > Example
-  #+END_SRC
-- format: TEXT (Format of the link (plain or bracket).)
-  #+BEGIN_SRC org
-    - [[https://www.example.com][Example]] > bracket
-    - https://www.example.com > plain
-  #+END_SRC
-- raw_link: TEXT (The raw link without the description.)
-  #+BEGIN_SRC org
-  #+END_SRC
-- search_option: TEXT (The [[info:org#Search Options][Search Options]])
-  #+BEGIN_SRC org
-    - [[file:~/example/example.org::255]] > 255
-  #+END_SRC
+- type: ~TEXT~ Type of link (e.g., file, https, etc.)
+- path: ~TEXT~ Path. Can be a relative one for files.
+  - ~[[https://www.example.com][Example]]~ > //www.example.com
+  - ~[[file:example.org]]~ → example.org
+  - ~[[file:./example.org]]~ → ./example.org
+- path_absolute: ~TEXT~ Absolute path if it is of type file.
+  - ~[[file:./example.org]]~ → ~/example/example.org
+- description: ~TEXT~ Optional description of the link.
+  - ~[[https://www.example.com][Example]]~ → Example
+- format: ~TEXT~ Format of the link (plain or bracket).
+  - ~[[https://www.example.com][Example]]~ → bracket
+  - ~https://www.example.com~ → plain
+- raw_link: ~TEXT~ The link without the description.
+  - ~[[https://www.example.com][Example]]~ → ~https://www.example.com~
+  - ~[[file:example.org][Example]]~ → ~file:example.org~
+  - ~[[example.org]]~ → example.org
+- search_option: ~TEXT~ The search options.
+  - ~[[file:~/example/example.org::255]]~ → 255
 
 ** Changelog
 :PROPERTIES:
