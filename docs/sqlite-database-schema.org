@@ -1,0 +1,46 @@
+* SQLite Database Schema
+
+Describes the database tables used. For the actual schema, refer to the [[file:../sql/db-schema.sql][database schema file]]. Examples are provided to clarify column content where necessary.
+
+** Links
+
+Each row represents a link along with its associated metadata. The link references the associated heading.
+
+- id: :: ~INTEGER~ Primary key
+- heading_id: :: ~INTEGER~ Foreign key referencing the headings table
+- begin :: ~INTEGER~ The point where the heading starts in the file.
+- type :: ~TEXT~ Specifies the type of link (e.g., file, https, etc.).
+- path :: ~TEXT~ The path for the link. If it's a file, it can be relative.
+  - ~[[https://www.example.com][Example]]~ > ~//www.example.com~
+  - ~[[file:example.org]]~ → ~example.org~
+  - ~[[file:./example.org]]~ → ~./example.org~
+- path_absolute :: ~TEXT~ The absolute path if the link is of type file. 
+  - ~[[file:./example.org]]~ → ~~/example/example.org~
+- raw_link :: ~TEXT~ The link itself, without any description.
+  - ~[[https://www.example.com][Example]]~ → ~https://www.example.com~
+  - ~[[file:example.org][Example]]~ → ~file:example.org~
+  - ~[[example.org]]~ → ~example.org~
+- description :: ~TEXT~ An optional description of the link.
+  - ~[[https://www.example.com][Example]]~ → ~Example~
+- format :: ~TEXT~ Indicates the link format, either plain or bracket.
+  - ~[[https://www.example.com][Example]]~ → ~bracket~
+  - ~https://www.example.com~ → ~plain~
+- search_option :: ~TEXT~ Search options for the link, if applicable.
+  - ~[[file:~/example/example.org::255]]~ → ~255~
+
+#+BEGIN_SRC sql
+  CREATE TABLE IF NOT EXISTS links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    heading_id INTEGER NOT NULL,
+    begin INTEGER NOT NULL,
+    type TEXT,
+    path TEXT,
+    path_absolute TEXT,
+    raw_link TEXT,
+    description TEXT,
+    format TEXT,
+    search_option TEXT,
+    UNIQUE (heading_id, begin),
+    FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
+  );
+#+END_SRC

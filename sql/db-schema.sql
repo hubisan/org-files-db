@@ -68,11 +68,8 @@ CREATE TABLE IF NOT EXISTS keywords (
 -- Table to store properties for headings
 CREATE TABLE IF NOT EXISTS properties (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  -- Foreign key referencing the 'headings' table.
   heading_id INTEGER NOT NULL,
-  -- Property key name.
   key TEXT NOT NULL,
-  -- Property value.
   value TEXT NOT NULL,
   FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
 );
@@ -80,39 +77,16 @@ CREATE TABLE IF NOT EXISTS properties (
 -- Table to store links associated with headings
 CREATE TABLE IF NOT EXISTS links (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  -- Foreign key referencing the 'headings' table.
   heading_id INTEGER NOT NULL,
-  -- Point of where the headings begins in the file.
   begin INTEGER NOT NULL,
-  -- Type of link (e.g., file, http, etc.).
-  -- Example: [[https://www.example.com][Example]] > https
-  -- Example: https://www.example.com > https
-  -- Example: [[file:../test.org]]  > file
-  -- Example: [[../test.org]]  > file
   type TEXT,
-  -- Path. Can be a relative one for files.
-  -- Example: [[https://www.example.com][Example]] > //www.example.com
-  -- Example: [[../test.org]]  > ../test.org
   path TEXT,
-  -- Absolute path if it is of type file.
-  -- Example: [[../example.org]]  > ~/example/example.org
   path_absolute TEXT,
-  -- Description, if there is one.
-  -- Example: [[https://www.example.com][Example]] > Example
-  description TEXT,
-  -- Format of the link (plain or bracket).
-  -- Example: [[https://www.example.com][Example]] > bracket
-  -- Example: https://www.example.com > plain
-  format TEXT,
-  -- The raw link without the description.
-  -- Example: [[https://www.example.com][Example]] > https://www.example.com
   raw_link TEXT,
-  -- Search option. Example: [[file:~/code/main.c::255]] > 255.
-  search_option TEXT,
-  -- Set up unique constraint on file and point.
-  UNIQUE (heading_id, begin),
-  -- Optional description of the link.
   description TEXT,
+  format TEXT,
+  search_option TEXT,
+  UNIQUE (heading_id, begin),
   FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
 );
 
