@@ -18,6 +18,7 @@ It detect changes in files periodically and updates the database automatically t
 - [[#usage][Usage]]
 - [[#customization][Customization]]
 - [[#key-bindings][Key Bindings]]
+- [[#sqlite-database-schema][SQLite Database Schema]]
 - [[#changelog][Changelog]]
 - [[#contributing][Contributing]]
 
@@ -26,108 +27,7 @@ It detect changes in files periodically and updates the database automatically t
 :CUSTOM_ID: installation
 :END:
 
-Check woerterbuch for a better text.
-- [ ] Add the new command ~package-vc-install~ from Emacs 29
-
-The packages is available on Github. Packages from Github can be installed with
-for instance [[https://github.com/quelpa/quelpa][Quelpa]] or [[https://github.com/raxod502/straight.el][Straight]]. In addition you can use [[https://github.com/jwiegley/use-package][Use-Package]] or [[https://github.com/conao3/leaf.el][Leaf]] to
-simplify your init file:
-
-@@html:<details>@@
-@@html:<summary>@@
-*With Straight*
-@@html:</summary>@@
-
-- Straight
-  #+BEGIN_SRC emacs-lisp
-  (straight-use-package '(org-files-db :type git :host github :repo "hubisan/org-files-db"))
-  #+END_SRC
-
-- Use-package & Straight
-  #+BEGIN_SRC emacs-lisp
-    (use-package org-files-db
-      :straight (org-files-db :type git :host github :repo "hubisan/org-files-db"))
-  #+END_SRC
-
-- Leaf & Straight
-  #+BEGIN_SRC emacs-lisp
-  (leaf org-files-db
-      :straight (org-files-db :type git :host github :repo "hubisan/org-files-db"))
-  #+END_SRC
-  
-@@html:</details>@@
-
-@@html:<details>@@
-@@html:<summary>@@
-*With Quelpa*
-@@html:</summary>@@
-
-- Quelpa
-  #+BEGIN_SRC emacs-lisp
-    (quelpa '(org-files-db :repo "hubisan/org-files-db" :fetcher github))
-  #+END_SRC
-
-- Use-package & Quelpa
-  #+BEGIN_SRC emacs-lisp
-    (use-package org-files-db
-      :quelpa (org-files-db :repo "hubisan/org-files-db" :fetcher github))
-  #+END_SRC
-@@html:</details>@@
-
-*** Dependencies
-
-Org-files-db depends on [[https://github.com/Genivia/ugrep][ugrep]] to parse the files, [[https://www.sqlite.org/index.html][SQLite]] (with JSON1 Extension
-enabled) for the database and [[https://github.com/sharkdp/fd][fd]] is used to check for modified files. You have
-to install those three dependencies.
-
-@@html:<details>@@
-@@html:<summary>@@
-*Install SQLite with JSON1 Extension*
-@@html:</summary>@@
-
-SQLite needs [[https://www.sqlite.org/json1.html][JSON1 Extension]] to be enabled to be able to output queries as JSON
-and parse it into a Lisp object. Use ~SELECT
-sqlite_compileoption_used('ENABLE_JSON1');~ inside the sqlite shell to see if
-the extension is loaded.
-
-The latest SQLite precompiled binary has it enabled by default. Install it as
-follows (Linux). Make sure to remove the already installed sqlite first:
-
-#+BEGIN_SRC shell
-  sudo apt update
-  # Remove existings sqlite3
-  sudo apt remove sqlite3
-  # Dependencies
-  sudo apt install -y wget unzip
-  # Download the files
-  wget https://www.sqlite.org/2022/sqlite-tools-linux-x86-3370200.zip --output-document=$HOME/sqlite-download.zip
-  # Unzip to /bin
-  sudo unzip -j $HOME/sqlite-download.zip -d /bin
-  rm $HOME/sqlite-download.zip
-#+END_SRC
-
-Or compile it from source:
-
-#+BEGIN_SRC bash
-  sudo apt update
-  # Remove existing sqlite
-  sudo apt remove sqlite3
-  # Dependencies
-  sudo apt install -y wget unzip
-  # Dowload it, the auto configure version.
-  wget https://www.sqlite.org/2022/sqlite-autoconf-3370200.tar.gz
-  # Extract it and cd into it.
-  tar xf sqlite-autoconf-3370200.tar.gz
-  cd sqlite-autoconf-3370200
-  # Configure the software
-  ./configure
-  # Build the software
-  make
-  # Install it
-  sudo make install
-#+END_SRC
-  
-@@html:</details>@@
+This package is hosted on Github. Use your favourite way to install like [[https://github.com/progfolio/elpaca][Elpaca]], [[https://github.com/radian-software/straight.el][Straight]], [[https://github.com/quelpa/quelpa][Quelpa]]. Starting with Emacs 29 ~package-vc-install~ may be used.
 
 ** Usage
 :PROPERTIES:
@@ -172,6 +72,62 @@ The following faces are defined:
 *** Hydra
 
 <if there is any hydra>
+
+** SQLite Database Schema
+:PROPERTIES:
+:CUSTOM_ID: sqlite-database-schema
+:END:
+
+This section describes the database tables. Check out [[file:sql/db-schema.sql][sql/db-schema.sql]] to see the actual schema used to create the database.
+
+*** Links
+
+The links table has to following columns:
+
+- id: INTEGER (Primary key)
+- heading_id: INTEGER (Foreign key referencing the 'headings' table)
+- begin: INTEGER (Point of where the headings begins in the file)
+  #+BEGIN_SRC org
+    399
+  #+END_SRC
+- type: TEXT (Type of link (e.g., file, https, etc.))
+  @@html:<details>@@
+  @@html:<summary>@@
+  Examples:
+  @@html:</summary>@@
+  #+BEGIN_SRC org
+    - [[https://www.example.com][Example]] > https
+    - https://www.example.com > https
+    - [[file:../example.org]]  > file
+    - [[../test.org]]  > file
+  #+END_SRC
+  @@html:</details>@@
+- path: TEXT (Path. Can be a relative one for files.)
+  #+BEGIN_SRC org
+    - [[https://www.example.com][Example]] > //www.example.com
+    - [[../example.org]]  > ../example.org
+    - REMOVE [[https://www.example.com][Example]] > //www.example.com very long line to see what happens if this is printed on github.
+  #+END_SRC
+- path_absolute: TEXT (Absolute path if it is of type file.)
+  #+BEGIN_SRC org
+    - Example: [[../example.org]]  > ~/example/example.org
+  #+END_SRC
+- description: TEXT (Optional description of the link.)
+  #+BEGIN_SRC org
+    - Example: [[https://www.example.com][Example]] > Example
+  #+END_SRC
+- format: TEXT (Format of the link (plain or bracket).)
+  #+BEGIN_SRC org
+    - [[https://www.example.com][Example]] > bracket
+    - https://www.example.com > plain
+  #+END_SRC
+- raw_link: TEXT (The raw link without the description.)
+  #+BEGIN_SRC org
+  #+END_SRC
+- search_option: TEXT (The [[info:org#Search Options][Search Options]])
+  #+BEGIN_SRC org
+    - [[file:~/example/example.org::255]] > 255
+  #+END_SRC
 
 ** Changelog
 :PROPERTIES:
