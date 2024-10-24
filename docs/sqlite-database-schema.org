@@ -2,7 +2,84 @@
 
 Describes the database tables used. For the actual schema, refer to the [[file:../sql/db-schema.sql][database schema file]]. Examples are provided to clarify column content where necessary.
 
-** Links
+** files
+
+Each row represents metadata for Org files.
+
+- *id* (INTEGER) Primary key
+- *path* (TEXT) The absolute path of the file. This must be unique across all records.
+- *created_at* (REAL) The timestamp of when the file record was created, in seconds since the epoch. Defaults to the current time when the record is created.
+- *updated_at* (REAL) The timestamp of when the file record was last updated, in seconds since the epoch. Defaults to the current time when the record is updated.
+- *modification_time* (REAL) The last modification time of the file, in seconds since the epoch, including milliseconds.
+
+** headings
+
+Each row represents a heading extracted from Org files.
+
+- *id* (INTEGER) Primary key
+- *file_id* (INTEGER) Foreign key referencing the associated file.
+- *level* (INTEGER) The heading level (0 for file-level, 1 for top-level, 2 for subheading, etc.).
+- *begin* (INTEGER) The point where the heading begins in the file.
+- *title* (TEXT) The title of the heading, without statistic cookies and emphasis markers; links are converted to text (the description is used if provided else the link itself).
+- *title_raw* (TEXT) The raw title of the heading, excluding the TODO keyword.
+- *priority* (TEXT) The priority of the heading, if applicable.
+- *todo_keyword* (TEXT) The TODO keyword associated with the heading.
+- *todo_type* (TEXT) The type of TODO associated with the heading.
+- *archivedp* (INTEGER) Indicates if the heading is archived (1 for true, 0 for false).
+- *footnote_section_p* (INTEGER) Indicates if the heading is part of a footnote section (1 for true, 0 for false).
+- *parent_id* (INTEGER) Foreign key referencing another entry in this table (the parent heading).
+
+** tags
+
+Each row represents a tag associated with a heading.
+
+- *id* (INTEGER) Primary key
+- *heading_id* (INTEGER) Foreign key referencing the associated heading.
+- *tag* (TEXT) The name of the tag (e.g., "urgent", "personal", "work").
+
+** keywords
+
+Each row represents a keyword associated with a heading.
+
+- *id* (INTEGER) Primary key
+- *heading_id* (INTEGER) Foreign key referencing the associated heading.
+- *keyword* (TEXT) The name of the keyword (e.g., "AUTHOR", "STARTUP").
+- *value* (TEXT) The value of the keyword.
+
+** properties
+
+Each row represents a property associated with a heading.
+
+- *id* (INTEGER) Primary key
+- *heading_id* (INTEGER) Foreign key referencing the associated heading.
+- *key* (TEXT) The name of the property (e.g., "CUSTOM_ID", "VISIBILITY").
+- *value* (TEXT) The value of the property.
+  
+** timestamps
+
+Each row represents a timestamp associated with a heading.
+
+- *id* (INTEGER) Primary key.
+- *heading_id* (INTEGER) Foreign key referencing the associated heading.
+- *start_timestamp* (REAL) The start time in seconds since the epoch (including milliseconds).
+- *end_timestamp* (REAL) The end time in seconds since the epoch (including milliseconds), if applicable.
+- *type* (TEXT) The type of the timestamp (e.g., "active" or "inactive").
+- *range_type* (TEXT) Indicates the range type, if applicable (e.g., nil, daterange, timerange).
+- *raw_value* (TEXT) The raw string representation of the timestamp.
+
+** timestamps_repeater
+
+Each row represents repeater information associated with a timestamp.
+
+- *id* (INTEGER) Primary key.
+- *timestamp_id* (INTEGER) Foreign key referencing the associated timestamp.
+- *type* (TEXT) The type of the repeater (nil, restart, cumulate, catch-up).
+- *value* (INTEGER) The value for the repetition.
+- *unit* (TEXT) The unit for the repetition (hour, day, week, month, year).
+- *deadline_value* (INTEGER) The value for the deadline repetition, if applicable.
+- *deadline_unit* (TEXT) The unit for the deadline repetition (hour, day, week, month, year).
+
+** links
 
 Each row represents a link along with its associated metadata. The link references the associated heading.
 
@@ -27,20 +104,3 @@ Each row represents a link along with its associated metadata. The link referenc
   - ~https://www.example.com~ → ~plain~
 - *search_option* (TEXT) Search options for the link, if applicable.
   - ~[[file:~/example/example.org::255]]~ → ~255~
-
-#+BEGIN_SRC sql
-  CREATE TABLE IF NOT EXISTS links (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    heading_id INTEGER NOT NULL,
-    begin INTEGER NOT NULL,
-    type TEXT,
-    path TEXT,
-    path_absolute TEXT,
-    raw_link TEXT,
-    description TEXT,
-    format TEXT,
-    search_option TEXT,
-    UNIQUE (heading_id, begin),
-    FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
-  );
-#+END_SRC
