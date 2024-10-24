@@ -14,4 +14,5 @@
 
 (describe "Testing Example"
   (it "- t is equal t"
-    (expect t :to-equal t)))
+    (message "%s" org-files-db--install-directory)
+    (expect t :to-be t)))

@@ -8,7 +8,7 @@
 ;; https://emacs-eask.github.io/DSL/
 (package "org-files-db"
          "0.1.0"
-         "Store data from Org files (headings, tags, properties, links) in a SQLite database.")
+         "Store data from Org files in a SQLite database")
 (website-url "https://github.com/hubisan/org-files-db")
 (keywords "outlines")
 (license "GPLv3")
@@ -23,6 +23,7 @@
 
 ;; https://emacs-eask.github.io/DSL/#-depends-on-package-name-rest-recipe
 (depends-on "emacs" "29.1")
+(depends-on "org")
 
 ;; https://emacs-eask.github.io/DSL/#-development-rest-body
 (development

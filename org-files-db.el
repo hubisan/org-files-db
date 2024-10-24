@@ -1,4 +1,4 @@
-;;; org-files-db.el --- Store data from Org files (headings, tags, properties, links) in a SQLite database -*- lexical-binding: t -*-
+;;; org-files-db.el --- Store data from Org files in a SQLite database -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2024 Daniel Hubmann <hubisan@gmail.com>
 
@@ -53,77 +53,9 @@
 
 ;;;; * Requirements
 
-(require 'subr-x)
-(require 'sqlite)
-
-(require 'org-files-db-database)
 (require 'org-files-db-core)
-
-;;;; * Constants & Variables
-
-(defconst org-files-db--db-schema-file
-  (expand-file-name "sql/db-schema.sql" org-files-db--load-dir)
-  "File with the schema to build the database.")
-
-(defconst org-files-db--db-user-version 1
-  "The current version of the database.
-If the database version changes it will be rebuilt from scratch.")
-
-(defvar org-files-db--db-object nil
-  "Holds the sqlite object.")
-
-;;;; * TODO
-
-(defun org-files-db-rename-file (args)
-  "docstring"
-  (interactive "P")
-
-  )
-
-
-;;;; * Initialize
-
-(defun org-files-db-check-requirements ()
-  "Check if the requirements are met to use `org-files-db'.
-If the requirements are not met an `user-error' is signaled."
-  (interactive)
-  (let* ((sqlite-available (and (fboundp 'sqlite-available-p)
-                                (sqlite-available-p)))
-         (sqlite-executable (executable-find "sqlite3"))
-         (ugrep-executable (executable-find "ugrep"))
-         (fd-find-executable (executable-find org-files-db-fd-find-executable))
-         (stat-executable (executable-find "stat"))
-         (message
-          (concat (unless sqlite-available
-                    (concat
-                     "\nEmacs doesn't have native SQLite support"
-                     " -> Emacs 29 or higher is required"))
-                  (unless sqlite-executable
-                    (concat "\nexecutable 'sqlite3' not found"
-                            " ->  install SQLite3"))
-                  (unless ugrep-executable
-                    (concat "\nexecutable 'ugrep' not found"
-                            " -> install ugrep"))
-                  (unless fd-find-executable
-                    (concat
-                     "\nexecutable '"
-                     org-files-db-fd-find-executable
-                     "' not found -> either fd-find needs to be installed"
-                     " or the executable name has to be customized"))
-                  (unless stat-executable
-                    (concat "\nexecutable 'stat' not found"
-                            " ->  install stat")))))
-    (if (string-equal message "")
-        "Requirements fulfilled"
-      (user-error "Requirements not fulfilled, see the documentation:%s" message))))
-
-;;;; * Parse Files
-
-;; Uses ugrep (https://github.com/Genivia/ugrep) to parse the org files.
-
-;;;; * File Management
-
-;;;; * Auxiliary Functions
+(require 'org-files-db-database)
+(require 'org-files-db-parse)
 
 ;;;; * Footer
 

@@ -1,4 +1,4 @@
-;;; org-files-db-core.el --- Customization, common vars & functions  -*- lexical-binding: t -*-
+;;; org-files-db-core.el --- Core functions and variables  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2024 Daniel Hubmann
 
@@ -92,6 +92,12 @@ be updated accordingly. Set this to `nil` to disable automatic checks."
   (interactive)
   (when (called-interactively-p 'interactive)
     (message "Org-files-db version %s" org-files-db--version)))
+
+;;;; * Initialize
+
+;; TODO
+;; Function to check if sqlite is available. Give a user error message if
+;; not.
 
 ;;;; * Parse Files
 

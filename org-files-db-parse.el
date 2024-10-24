@@ -30,7 +30,7 @@
 (require 'org)
 (require 'org-element)
 
-;; (require 'org-files-db-core)
+(require 'org-files-db-core)
 
 ;;;; * Global Constants & Variables
 
