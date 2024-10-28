@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS headings (
   todo_type TEXT,
   archivedp INTEGER,
   footnote_section_p INTEGER
+  outline TEXT,
+  all_tags TEXT,
   parent_id INTEGER,
   FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE,
   FOREIGN KEY (parent_id) REFERENCES headings (id) ON DELETE CASCADE
@@ -72,22 +74,12 @@ CREATE TABLE IF NOT EXISTS links (
   FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
 );
 
--- Table to store general timestamp information for headings
-CREATE TABLE IF NOT EXISTS timestamps (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    heading_id INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    range_type TEXT,
-    raw_value TEXT NOT NULL,
-    FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
-);
-
 -- Table to store timestamp information
 CREATE TABLE IF NOT EXISTS timestamps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     heading_id INTEGER NOT NULL,
-    start_timestamp REAL NOT NULL,
-    end_timestamp REAL,
+    start_timestamp INTEGER NOT NULL,
+    end_timestamp INTEGER,
     type TEXT NOT NULL,
     range_type TEXT,
     raw_value TEXT NOT NULL,

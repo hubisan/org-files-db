@@ -96,25 +96,17 @@ The parse TREE is used if possible to extract the metadata."
   (org-element-map tree 'headline
     (lambda (node)
       (let* ((title-raw (org-element-property :raw-value node))
-             ;; Convert links to text and remove statistics-cookie.
-             ;; Taken from `org--get-outline-path-1'.
-             (statistics-cookie (org-element-map node 'statistics-cookie
-                                  (lambda (cookie)
-                                    (org-element-property
-                                     :value cookie))
-                                  nil t t))
-             (title-text (org-trim
-                          (substring-no-properties
-                           ;; This also removes emphasis markers.
-                           ;; Used `org-link-display-format' before.
-                           (org-sort-remove-invisible
-                            (if statistics-cookie
-                                (replace-regexp-in-string
-                                 (regexp-quote (concat " " statistics-cookie))
-                                 ""
-                                 title-raw
-                                 t t)
-                              title-raw)))))
+             (outline (org-with-point-at node
+                        (org-get-outline-path t 'use-cache)))
+             (outline-cleaned
+              (mapcar
+               (lambda (heading)
+                 (substring-no-properties
+                  ;; This also removes emphasis markers.
+                  ;; Used `org-link-display-format' before.
+                  (org-sort-remove-invisible heading)))
+               outline))
+             (title-text (car (last outline-cleaned)))
              (priority (org-element-property :priority node))
              (priority (when (characterp priority) (char-to-string priority))))
         (list
@@ -127,6 +119,8 @@ The parse TREE is used if possible to extract the metadata."
          :todo-type (org-element-property :todo-type node)
          :archivedp (org-element-property :archivedp node)
          :footnote-section-p (org-element-property :footnote-section-p node)
+         :outline outline-cleaned
+         :all-tags (save-match-data (org-get-tags node))
          :tags (org-element-property :tags node)
          :scheduled (org-element-property :scheduled node)
          :deadline (org-element-property :deadline node)
@@ -144,12 +138,16 @@ The parse TREE is used if possible to extract the metadata."
 
 ;;;; * Properties
 
+;; TODO Include Properties defined with a keyword unless it already exists.
+;; TODO Include Category defined with a keyword unless it already exists.
 (defun org-files-db-parse--get-local-properties (epom)
   "Get the local properties of EPOM, which is an element, point or marker.
 Got this from `org-entry-properties'. I only want the local properties
-without inherited category. When trying to get the properties from the
-parse tree directly, it included properties of children. Found no solution to
-only get the headings properties."
+without inherited category.
+When trying to get the properties from the parse tree directly, it included
+properties of children. Found no solution to only get the headings properties.
+Handles added values correctly if they are added to a property from a parent
+heading or at file level, even if defined with a keyword."
   (org-with-point-at epom
     (when (and (derived-mode-p 'org-mode)
                (org-back-to-heading-or-point-min t))
@@ -158,21 +156,27 @@ only get the headings properties."
         (when range
           (let ((end (cdr range)) seen-base)
             (goto-char (car range))
-            (while (re-search-forward org-property-re end t)
-              (let* ((key (upcase (match-string-no-properties 2)))
-                     (extendp (string-match-p "\\+\\'" key))
-                     (key-base (if extendp (substring key 0 -1) key))
-                     (value (match-string-no-properties 3)))
-                (cond
-                 ((member-ignore-case key-base org-special-properties))
-                 (extendp
-                  (setq props
-                        (org--update-property-plist key value props)))
-                 ((member key seen-base))
-                 (t (push key seen-base)
-                    (let ((p (assoc-string key props t)))
-                      (if p (setcdr p (concat value " " (cdr p)))
-                        (push (cons key value) props)))))))))
+            (save-match-data
+              (while (re-search-forward org-property-re end t)
+                (let* ((key (upcase (match-string-no-properties 2)))
+                       (extendp (string-match-p "\\+\\'" key))
+                       (key-base (if extendp (substring key 0 -1) key))
+                       (value (match-string-no-properties 3)))
+                  (cond
+                   ((member-ignore-case key-base org-special-properties))
+                   (extendp
+                    ;; Handle adding value to existing property including
+                    ;; inherited ones.
+                    (let* ((val (org-entry-get epom key-base t)))
+                      (setq props
+                            (org--update-property-plist key-base val props))
+                      (push key seen-base)
+                      (push key-base seen-base)))
+                   ((member key seen-base))
+                   (t (push key seen-base)
+                      (let ((p (assoc-string key props t)))
+                        (if p (setcdr p (concat value " " (cdr p)))
+                          (push (cons key value) props))))))))))
         props))))
 
 ;;;; * Links

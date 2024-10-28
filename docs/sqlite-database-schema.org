@@ -1,3 +1,4 @@
+#+STARTUP: showall
 * SQLite Database Schema
 
 Describes the database tables used. For the actual schema, refer to the [[file:../sql/db-schema.sql][database schema file]]. Examples are provided to clarify column content where necessary.
@@ -27,6 +28,8 @@ Each row represents a heading extracted from Org files.
 - *todo_type* (TEXT) The type of TODO associated with the heading.
 - *archivedp* (INTEGER) Indicates if the heading is archived (1 for true, 0 for false).
 - *footnote_section_p* (INTEGER) Indicates if the heading is part of a footnote section (1 for true, 0 for false).
+- *outline* (TEXT) A JSON array representing the path from the top-level parent to the current heading, with each element as a heading title. (e.g., ["Top Parent", "Next \"Parent\"", "Current Heading"]).
+- *all_tags* (TEXT) A JSON array representing all tags, direct and inherited ones. (e.g., ["work", "urgent", "accounting"]).
 - *parent_id* (INTEGER) Foreign key referencing another entry in this table (the parent heading).
 
 ** tags
@@ -55,14 +58,20 @@ Each row represents a property associated with a heading.
 - *key* (TEXT) The name of the property (e.g., "CUSTOM_ID", "VISIBILITY").
 - *value* (TEXT) The value of the property.
   
+Remarks:
+
+- Adding to a value of an existing property is working as expected, even for inherited properties.
+- Properties defined with a keyword at file level are added to properties as well. If the property already exists (defined as property) it is not overwritten.
+- If the category is defined at file level is is added to properties as well unless it already exists (defined as property).
+
 ** timestamps
 
 Each row represents a timestamp associated with a heading.
 
 - *id* (INTEGER) Primary key.
 - *heading_id* (INTEGER) Foreign key referencing the associated heading.
-- *start_timestamp* (REAL) The start time in seconds since the epoch (including milliseconds).
-- *end_timestamp* (REAL) The end time in seconds since the epoch (including milliseconds), if applicable.
+- *start_timestamp* (INTEGER) The start time in seconds since the epoch.
+- *end_timestamp* (INTEGER) The end time in seconds since the epoch.
 - *type* (TEXT) The type of the timestamp (e.g., "active" or "inactive").
 - *range_type* (TEXT) Indicates the range type, if applicable (e.g., nil, daterange, timerange).
 - *raw_value* (TEXT) The raw string representation of the timestamp.
