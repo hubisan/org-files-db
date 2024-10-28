@@ -1,0 +1,184 @@
+:PROPERTIES:
+:CATEGORY: Cat at file level with property
+:CUSTOM_ID: 4444
+:END:
+#+TITLE: /Testing/ File ([[https://www.example.com][Link]])
+#+AUTHOR: Bilbo Beutlin 
+#+DATE: [2023-12-13 Wed]
+#+STARTUP: showall
+#+FILETAGS: :file_level:top:
+#+CATEGORY: Cat at file level with Keyword
+#+PROPERTY: Genres_Keyword Topkk
+#+PROPERTY: NDisks_ALL 1 2 3 4
+
+* Heading Level
+
+** TODO Todo-Keyword
+
+** [#A] Priortiy
+
+** Statistic Cookies [0/1]
+
+*** TODO Good For Nothing
+
+* Tags
+
+** First                                                       :parent:more:
+
+*** Child                                                           :child:
+
+* Properties
+:PROPERTIES:
+:TEST: me
+:TEST+: extra data
+:Genres_Keyword+: Working
+:END:
+[[info:org#Property Syntax][org#Property Syntax]]
+
+** CD collection
+
+*** Classic
+:PROPERTIES:
+:Genres:   Classic
+:Genres_2:  Test
+:Genres_2+:  Me
+:END:
+
+**** Goldberg Variations
+:PROPERTIES:
+:Title:    Goldberg Variations
+:Composer: J.S. Bach
+:Artist:   Glenn Gould
+:Publisher: Deutsche Grammophon
+:NDisks:   1
+:Genres+:  Baroque
+:Genres_2+:  Again
+:END:
+
+* Misc
+
+** Emphasis /Markers/ in Heading
+
+* Links
+
+** Normal Links
+
+[[https://emacs.stackexchange.com/questions/71123/how-to-automatically-add-closed-timestamps-to-todo-items-after-they-are-alread][stackoverflow]]
+
+** Plain Links
+
+https://www.google.ch
+[[./parse-headings-test-data.org]]
+
+** File Link without ~file:~
+
+[[../../../../../otd/1-actions.org]]
+
+** Link in [[file:../../../../../][Title]]
+
+** Link with a search option
+
+[[file:../notes/familie/test/test.org::#f0901b7f-bddc-41b7-b55e-3898dae90db2][Link with search option]]
+
+* Timestamps
+
+** Deadline and Scheduled
+DEADLINE: <2023-12-11 Mo> SCHEDULED: <2023-12-12 Di>
+
+** DONE Closed Timestamp
+CLOSED: [2024-10-23 Wed 17:33]
+
+** Plain Timestamp
+SCHEDULED: <2024-10-14 Mon 20:0>
+[[info:org#Timestamps][org#Timestamps]]
+
+Properties of timestamp, if no ~range-type~ is ~nil~ the end and the start are the same:
+
+#+BEGIN_SRC emacs-lisp
+  (timestamp
+   (:standard-properties
+    ...
+    :type active :range-type nil :raw-value "<2024-10-14 Mon 20:0>"
+    :year-start 2024 :month-start 10 :day-start 14 :hour-start nil
+    :minute-start nil :year-end 2024 :month-end 10 :day-end 14 :hour-end
+    nil :minute-end nil))
+#+END_SRC
+
+** Plain Timestamp with Time
+SCHEDULED: <2024-10-14 Mon 20:00>
+[[info:org#Timestamps][org#Timestamps]]
+
+Hour and minute have values as well:
+
+#+BEGIN_SRC emacs-lisp
+  :type active :range-type nil :raw-value "<2024-10-14 Mon 20:00>"
+  :year-start 2024 :month-start 10 :day-start 14 :hour-start 20
+  :minute-start 0 :year-end 2024 :month-end 10 :day-end 14 :hour-end 20
+  :minute-end 0
+#+END_SRC
+
+** Timestamp with Repeater Interval
+SCHEDULED: <2024-10-15 Tue 13:23 +3h>
+[[info:org#Timestamps][org#Timestamps]]
+
+Repeater information is added:
+
+#+BEGIN_SRC emacs-lisp
+  ... :raw-value "<2024-10-15 Tue 13:23 +3h>" ...
+  :repeater-type cumulate :repeater-value 3 :repeater-unit hour
+#+END_SRC
+
+** Diary-style Expression Entries
+<%%(diary-float t 4 2) 22:00-23:00>
+[[info:org#Timestamps][org#Timestamps]]
+
+Not sure how this would work. Not included in the db.
+
+** Timestamp Date Range
+SCHEDULED: <2004-08-23 Mon>--<2004-08-26 Thu>
+[[info:org#Timestamps][org#Timestamps]]
+
+Type and range-type change:
+
+#+BEGIN_SRC emacs-lisp
+  :type active-range :range-type daterange
+#+END_SRC
+
+** Timestamp Time/Date Range
+SCHEDULED: <2004-08-23 Mon 10:00-11:00>--<2004-08-26 Thu 10:00-11:00>
+[[info:org#Timestamps][org#Timestamps]]
+
+Same as with a date range.
+
+** Inactive Timestamp
+[2006-11-01 Wed]
+[[info:org#Timestamps][org#Timestamps]]
+
+Not storing those timestamps in the database. Not sure how to extract those.
+
+** Timestamp to Track Habits
+SCHEDULED: <2024-10-26 Sat .+2d/4d>
+[[info:org#Tracking your habits][org#Tracking your habits]]
+
+To make this work ~habit~ apparently has to be added to ~org-module~.
+
+Two more properties to track for timestamps:
+
+#+BEGIN_SRC emacs-lisp
+  :repeater-deadline-value 4 :repeater-deadline-unit day
+#+END_SRC
+
+* Clocking (not stored)
+:LOGBOOK:
+CLOCK: [2024-10-21 Mon 09:53]--[2024-10-21 Mon 09:54] =>  0:01
+:END:
+
+* Archived Heading                                                  :ARCHIVE:
+
+* Footnote
+
+A footnote [fn:1]
+
+* Footnotes
+
+[fn:1] This is the footnote section 
