@@ -36,6 +36,67 @@
 
 ;;;; * Auxiliary Functions
 
+;;;; * TODO Optimize
+
+;; Proposed by Chat GPT. To not parse the tree multiple times.
+;; Level 0 data will be missing.
+
+(defun org-files-db-parse--parse-tree (tree)
+  "Parse the Org parse TREE to extract headings, links, and keywords in one pass."
+  (let (headings links keywords)
+    (org-element-map tree '(headline link keyword)
+      (lambda (element)
+        (pcase (org-element-type element)
+          ('headline
+           (push (org-files-db-parse--parse-single-heading element) headings))
+          ('link
+           (push (org-files-db-parse--parse-single-link element) links))
+          ('keyword
+           (push (org-files-db-parse--parse-single-keyword element) keywords)))))
+    (list :headings (reverse headings)  ;; Reverse to maintain original order
+          :links (reverse links)
+          :keywords (reverse keywords))))
+
+(defun org-files-db-parse--parse-single-heading (node)
+  "Parse a single headline NODE into a plist."
+  (let* ((title-raw (org-element-property :raw-value node))
+         (outline (org-with-point-at node
+                    (org-get-outline-path t 'use-cache)))
+         (outline-cleaned
+          (mapcar
+           (lambda (heading)
+             (substring-no-properties
+              (org-sort-remove-invisible heading)))
+           outline))
+         (title-text (car (last outline-cleaned)))
+         (priority (org-element-property :priority node))
+         (priority (when (characterp priority) (char-to-string priority))))
+    (list :level (org-element-property :level node)
+          :begin (org-element-property :begin node)
+          :title title-text
+          :title-raw title-raw
+          :priority priority
+          :todo-keyword (org-element-property :todo-keyword node)
+          :tags (org-element-property :tags node))))
+
+(defun org-files-db-parse--parse-single-link (node)
+  "Parse a single link NODE into a plist."
+  (let* ((path (org-element-property :path node))
+         (type (org-element-property :type node))
+         (path-absolute (when (string-equal type "file")
+                          (expand-file-name path))))
+    (list :type type
+          :begin (org-element-property :begin node)
+          :path path
+          :path-absolute path-absolute
+          :description (substring-no-properties
+                        (org-element-interpret-data (org-element-contents node))))))
+
+(defun org-files-db-parse--parse-single-keyword (node)
+  "Parse a single keyword NODE into a plist."
+  (list :key (org-element-property :key node)
+        :value (org-element-property :value node)))
+
 ;;;; * Files
 
 (defun org-files-db-parse--parse-file (filename)
@@ -129,9 +190,9 @@ The parse TREE is used if possible to extract the metadata."
 
 ;;;; * Keywords
 
-(defun org-files-db-parse--get-level-0-keywords (parse-tree)
-  "Return a list of the Org keywords at level 0 (file level) for PARSE-TREE."
-  (org-element-map parse-tree 'keyword
+(defun org-files-db-parse--get-level-0-keywords (tree)
+  "Return a list of the Org keywords at level 0 (file level) for parse TREE."
+  (org-element-map tree 'keyword
     (lambda (property)
       (list (org-element-property :key property)
             (org-element-property :value property)))))
