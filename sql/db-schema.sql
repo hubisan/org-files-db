@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS repeater_timestamps (
     unit TEXT,
     deadline_value INTEGER,
     deadline_unit TEXT,
-    FOREIGN KEY (timestamps) REFERENCES timestamps(id) ON DELETE CASCADE
+    FOREIGN KEY (timestamp_id) REFERENCES timestamps(id) ON DELETE CASCADE
 );
 
 COMMIT;
