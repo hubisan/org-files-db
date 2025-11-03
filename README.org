@@ -6,9 +6,9 @@
 
 =Org-files-db= stores data from Org-mode files — headings, tags, properties, links, timestamps, and keywords — in a SQLite database.
 
-You can track *individual files* or *directories (recursively)**.
+You can track individual files or directories (recursively).
 
-The package parses the files *asynchronously (non-blocking)* and *automatically detects changes* to keep the database up to date.
+The package parses the files asynchronously (non-blocking) and automatically detects changes to keep the database up to date.
 
 -----
 
