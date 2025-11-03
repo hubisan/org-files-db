@@ -4,11 +4,11 @@
 
 [[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]]
 
-The org-files-db package allows you to store data from Org files (headings, tags, properties, links) in a SQLite database. It supports the extraction of relevant information from specified directories or individual Org files.
+=Org-files-db= stores data from Org-mode files — headings, tags, properties, links, timestamps, and keywords — in a SQLite database.
 
-Parsing Org files and inserting data into the database is done asynchronously, ensuring a non-blocking and responsive experience.
+You can track *individual files* or *directories (recursively)**.
 
-It detect changes in files periodically and updates the database automatically to keep your data synchronized. Changes made to Org files with Emacs are updated instantly.
+The package parses the files *asynchronously (non-blocking)* and *automatically detects changes* to keep the database up to date.
 
 -----
 
@@ -95,5 +95,7 @@ See the [[./CHANGELOG.org][changelog]].
 Use the issue tracker to reports bugs, suggest improvements or propose new
 features. If you want to contribute please open a pull request after having
 opened a new issue.
+
+This project is maintained on a “best-effort” basis.
 
 In any case please check out the [[./CONTRIBUTING.org][contributing guidelines]] beforehand.

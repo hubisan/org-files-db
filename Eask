@@ -8,12 +8,14 @@
 ;; https://emacs-eask.github.io/DSL/
 (package "org-files-db"
          "0.1.0"
-         "Store data from Org files in a SQLite database")
+         "Asynchronously store data from Org-mode files or directories in an automatically updated SQLite database.")
 (website-url "https://github.com/hubisan/org-files-db")
 (keywords "outlines")
 (license "GPLv3")
 
-(package-file "org-files-db.el")
+(package-file "list/org-files-db.el")
+(files "lisp/*.el")
+
 (files "org-files-db.el")
 
 ;; https://emacs-eask.github.io/DSL/#-source-alias

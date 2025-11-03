@@ -7,34 +7,37 @@ assignees: ''
 
 ---
 
-<!-- Check that the issue has not already been reported. -->
-<!-- Check that the issue is not part of an active pull request. -->
+<!-- 
+  Before submitting:
+    - Ensure this issue hasn’t been reported yet.
+    - Ensure it’s not already covered by an open pull request.
+-->
 
 ### Description
 
+
 #### Expected Behavior
 
-<!-- Tell us what should happen -->
+<!-- What should happen? -->
 
 #### Current Behavior
 
-<!-- Tell us what happens instead of the expected behavior -->
-
-#### Possible Solution
-
-<!-- Not obligatory, but suggest a fix/reason for the bug, -->
-<!-- or ideas how to implement the addition or change -->
+<!-- What happens instead? Please include any error messages. -->
 
 #### Steps to Reproduce
 
-<!-- Provide a link to a live example, or an unambiguous set of steps to -->
-<!-- reproduce this bug. Include code to reproduce, if relevant -->
+<!-- A minimal, clear, and reproducible example is required. -->
+
+#### Possible Solution
+
+<!-- If you have an idea of what might cause the problem or how to fix it, describe it here. -->
+
 
 ### Your Environment
 
 <!-- Include as many relevant details about the environment you experienced the bug in -->
 <!-- Get the Emacs version with M-x emacs-version -->
-<!-- Get the package version with M-x {{{pkg-name}}}-version -->
+<!-- Get the package version with M-x org-files-db-version -->
 
 - Emacs version:
 - Org-files-db version:
