@@ -1,6 +1,5 @@
 BEGIN TRANSACTION;
 
-PRAGMA user_version = 1;
 PRAGMA foreign_keys = ON;
 
 -- Table to store metadata of Org files

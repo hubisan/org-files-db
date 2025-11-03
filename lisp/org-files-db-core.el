@@ -1,6 +1,6 @@
-;;; org-files-db-core.el --- Core functions and variables  -*- lexical-binding: t -*-
+;;; org-files-db-core.el --- Core configuration for org-files-db -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2024 Daniel Hubmann
+;; Copyright (C) 2025 Daniel Hubmann
 
 ;; This file is not part of GNU Emacs
 
@@ -19,27 +19,18 @@
 
 ;;; Commentary:
 
-;; This file implements the core functionality of the org-files-db package,
-;; which manages the extraction and storage of data from Org files into a SQLite
-;; database. It handles the main logic like initiating the parsing process, and
-;; invoking writing parsed data to the database.
-
-;; Additionally, this file contains customizations, faces, constants, global
-;; variables, and auxiliary functions.
-
-;; It is part of the org-files-db package, which stores Org file data
-;; in a SQLite database.
+;; Core configuration and shared constants for org-files-db.
+;; This file defines all customization options, global variables,
+;; and basic helper functions. It does not directly access the database.
 
 ;;; Code:
 
-;;;; * Requirements
-
-;;;; * Customization
+;;; Customization
 
 (defgroup org-files-db nil
-  "Store headings and links from org files in a SQLite database."
+  "Store headings and links from Org files in a SQLite database."
   :group 'org
-  :link '(url-link :tag "Github" "https://github.com/hubisan/org-files-db")
+  :link '(url-link :tag "GitHub" "https://github.com/hubisan/org-files-db")
   :prefix "org-files-db-")
 
 (defcustom org-files-db-source-paths nil
@@ -60,22 +51,21 @@ Any file whose name matches one of these regular expressions will be skipped."
   :group 'org-files-db
   :type '(repeat (regexp :tag "Exclude File Pattern")))
 
-(defcustom org-files-db-database-file (locate-user-emacs-file "org-files.db")
+(defcustom org-files-db-database-file
+  (locate-user-emacs-file "org-files.db")
   "Path to the SQLite database file used by `org-files-db'.
 It is recommended to use a `.db` or `.sqlite` extension for the file."
   :group 'org-files-db
-  :type 'string)
+  :type 'file)
 
 (defcustom org-files-db-check-interval 300
   "Interval (in seconds) for checking changes in Org files.
 If any files have been modified since the last check, the database will
-be updated accordingly. Set this to `nil` to disable automatic checks."
+be updated accordingly.  Set this to `nil` to disable automatic checks."
   :group 'org-files-db
   :type 'number)
 
-;;;; * Faces
-
-;;;; * Global Constants & Variables
+;;; Global Constants & Variables
 
 (defconst org-files-db--version "0.1.0"
   "The `org-files-db' version.")
@@ -85,58 +75,14 @@ be updated accordingly. Set this to `nil` to disable automatic checks."
    (or load-file-name buffer-file-name (locate-library "org-files-db") nil))
   "The directory where the `org-files-db' package is installed.")
 
-;;;; * Auxiliary Functions
+;;; Helper Functions
 
 (defun org-files-db-version ()
   "Show the `org-files-db' version."
   (interactive)
-  (when (called-interactively-p 'interactive)
-    (message "Org-files-db version %s" org-files-db--version)))
-
-;;;; * Initialize
-
-;; TODO
-;; Function to check if sqlite is available. Give a user error message if
-;; not.
-
-;;;; * Parse Files
-
-;;;; * Write Data to Database
-
-;;;; * Check for Modifications
-
-;;;; * Async
-
-;; (async-start `(lambda ()
-;;                 (setq
-;;                  ;; Not sure if this is correct, but seems so.
-;;                  ;; The keywords have to be set, the rest should be inside the
-;;                  ;; let in the function to parse the files. Maybe I should add
-;;                  ;; the keywords as well to be a parameter
-;;                  org-todo-keywords ',org-todo-keywords
-;;                  org-inhibit-startup t
-;;                  org-agenda-files nil)
-;;                  )
-;;                (lambda (result)
-;;                  ))
-
-;; (async-start
-;;  (lambda ()
-;;    ;; Add the path where your package is located
-;;    (add-to-list 'load-path "/path/to/org-files-db")
-
-;;    ;; Require your package
-;;    (require 'org-files-db)
-
-;;    ;; Your async code here
-;;    (org-files-db-your-function))
-
-;;  (lambda (result)
-;;    ;; Handle the result
-;;    (message "Async finished with result: %s" result)))
-
-;;;; * Footer
+  (if (called-interactively-p 'interactive)
+      (message "Org-files-db version %s" org-files-db--version)
+    org-files-db--version))
 
 (provide 'org-files-db-core)
-
 ;;; org-files-db-core.el ends here

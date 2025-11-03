@@ -1,6 +1,6 @@
 ;;; org-files-db.el --- Store data from Org files in a SQLite database -*- lexical-binding: t -*-
 
-;; Copyright (C) 2024 Daniel Hubmann <hubisan@gmail.com>
+;; Copyright (C) 2025 Daniel Hubmann <hubisan@gmail.com>
 
 ;; Author: Daniel Hubmann <hubisan@gmail.com>
 ;; Maintainer: Daniel Hubmann <hubisan@gmail.com>
@@ -27,37 +27,22 @@
 ;;; Commentary:
 
 
-;; The org-files-db package allows you to store and manage data from Org files
-;; (headings, tags, properties, links) in a SQLite database. It supports the
-;; extraction of relevant information from specified directories or individual
-;; Org files.
-
-;; The primary goal of org-files-db is to make it easy to interact with large
-;; collections of Org files by leveraging the power of a relational database.
-;; With the data stored in SQLite, you can perform complex queries, filter
-;; information, and integrate seamlessly with other tools and workflows.
-
-;; Parsing Org files and inserting data into the database is done
-;; asynchronously, ensuring a non-blocking and responsive experience.
-
-;; It detect changes in files periodically and updates the database
-;; automatically to keep your data synchronized. Changes made to Org files with
-;; Emacs are updated instantly.
 
 ;;; Code:
 
-;; Use this to add the files to the load path:
-;; (let ((default-directory "~/projects/coding/org-files-db"))
-;;   (normal-top-level-add-to-load-path '("."))
-;;   (normal-top-level-add-subdirs-to-load-path))
-
-;;;; * Requirements
+;;; Requirements
 
 (require 'org-files-db-core)
 (require 'org-files-db-database)
 (require 'org-files-db-parse)
+(require 'org-files-db-sync)
+(require 'org-files-db-async)
+(require 'org-files-db-watch)
+(require 'org-files-db-query)
+(require 'org-files-db-utils)
 
-;;;; * Footer
+
+;;; Footer
 
 (provide 'org-files-db)
 
