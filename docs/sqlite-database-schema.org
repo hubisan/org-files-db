@@ -75,8 +75,8 @@ Each row represents a timestamp associated with a heading.
 
 - *id* (INTEGER) Primary key.
 - *heading_id* (INTEGER) Foreign key referencing the associated heading.
-- *start_timestamp* (INTEGER) The start time in seconds since the epoch.
-- *end_timestamp* (INTEGER) The end time in seconds since the epoch.
+- *start_timestamp* (REAL) The start time in seconds since the epoch.
+- *end_timestamp* (REAL) The end time in seconds since the epoch.
 - *type* (TEXT) The type of the timestamp (e.g., "active" or "inactive").
 - *range_type* (TEXT) Indicates the range type, if applicable (e.g., nil, daterange, timerange).
 - *raw_value* (TEXT) The raw string representation of the timestamp.

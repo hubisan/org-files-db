@@ -81,8 +81,8 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE TABLE IF NOT EXISTS timestamps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     heading_id INTEGER NOT NULL,
-    start_timestamp INTEGER NOT NULL,
-    end_timestamp INTEGER,
+    start_timestamp REAL NOT NULL,
+    end_timestamp REAL,
     type TEXT NOT NULL,
     range_type TEXT,
     raw_value TEXT NOT NULL,
