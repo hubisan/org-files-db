@@ -36,6 +36,12 @@ This package is hosted on Github. Use your favourite way to install like [[https
 
 <Usage description>
 
+*** Notes on File Change Detection
+
+File modification times (*mtime*) are used to efficiently detect changed Org files. Only when the recorded *mtime* differs from the stored value, the file's MD5 hash is recalculated.
+
+Since Git may alter file modification times when switching branches or performing checkouts, this can temporarily cause a large number of files to be rechecked. In such cases, many MD5 hashes need to be computed, which can take noticeable time depending on the number and size of files.
+
 ** Customization
 :PROPERTIES:
 :CUSTOM_ID: customization
