@@ -1,7 +1,12 @@
 #+STARTUP: showall
 * SQLite Database Schema
 
-Describes the database tables used. For the actual schema, refer to the [[file:../sql/db-schema.sql][database schema file]]. Examples are provided to clarify column content where necessary.
+Describes the database tables used. For the actual schema, refer to the [[file:../sql/schema.sql][database schema file]]. Examples are provided to clarify column content where necessary.
+
+** PRAGMA settings
+
+- *user_version* (PRAGMA) The current schema version. Used internally to detect outdated databases. If the database version does not match, the existing database is deleted and rebuilt using.
+- *foreign_keys* (PRAGMA) Foreign key constraints are enforced (`ON`).
 
 ** files
 
@@ -9,8 +14,8 @@ Each row represents metadata for Org files.
 
 - *id* (INTEGER) Primary key
 - *path* (TEXT) The absolute path of the file. This must be unique across all records.
-- *created_at* (REAL) The timestamp of when the file record was created, in seconds since the epoch. Defaults to the current time when the record is created.
-- *updated_at* (REAL) The timestamp of when the file record was last updated, in seconds since the epoch. Defaults to the current time when the record is updated.
+- *created_at* (INTEGER) The timestamp of when the file record was created, in seconds since the epoch. Defaults to the current time when the record is created.
+- *updated_at* (INTEGER) The timestamp of when the file record was last updated, in seconds since the epoch. Defaults to the current time when the record is updated.
 - *modification_time* (REAL) The last modification time of the file, in seconds since the epoch, including milliseconds.
 
 ** headings
@@ -94,7 +99,7 @@ Each row represents a link along with its associated metadata. The link referenc
 
 - *id* (INTEGER) Primary key
 - *heading_id* (INTEGER) Foreign key referencing the associated heading. 
-- *begin* (INTEGER) The point where the heading starts in the file.
+- *begin* (INTEGER) The point where the links starts in the file.
 - *type* (TEXT) Specifies the type of link (e.g., file, https, etc.).
 - *path* (TEXT) The path for the link. If it's a file, it can be relative.
   - ~[[https://www.example.com][Example]]~ > ~//www.example.com~

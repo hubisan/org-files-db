@@ -1,17 +1,15 @@
 BEGIN TRANSACTION;
 
+PRAGMA user_version = 1;
+PRAGMA foreign_keys = ON;
+
 -- Table to store metadata of Org files
 CREATE TABLE IF NOT EXISTS files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  -- Absolute path of the file
   path TEXT NOT NULL UNIQUE,
-  -- Timestamp of when the file record was created, in seconds since the epoch
-  created_at REAL NOT NULL DEFAULT (strftime('%s', 'now')),
-  -- Timestamp of when the file record was last updated, in seconds since the epoch
-  updated_at REAL NOT NULL DEFAULT (strftime('%s', 'now')),
-  -- Store the hash, mtime is not enough for instance when using Git.
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
   md5_hash TEXT NOT NULL,
-  -- Last modification time of the file, in seconds since the epoch
   modification_time REAL NOT NULL
 );
 
@@ -26,8 +24,8 @@ CREATE TABLE IF NOT EXISTS headings (
   priority TEXT,
   todo_keyword TEXT,
   todo_type TEXT,
-  archivedp INTEGER,
-  footnote_section_p INTEGER,
+  archivedp INTEGER NOT NULL DEFAULT 0,
+  footnote_section_p INTEGER NOT NULL DEFAULT 0,
   outline TEXT,
   all_tags TEXT,
   parent_id INTEGER,
@@ -74,7 +72,7 @@ CREATE TABLE IF NOT EXISTS links (
   path_absolute TEXT,
   raw_link TEXT,
   description TEXT,
-  format TEXT,
+  format TEXT CHECK (format IN ('plain', 'bracket')),
   search_option TEXT,
   FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE
 );
@@ -83,8 +81,8 @@ CREATE TABLE IF NOT EXISTS links (
 CREATE TABLE IF NOT EXISTS timestamps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     heading_id INTEGER NOT NULL,
-    start_timestamp REAL NOT NULL,
-    end_timestamp REAL,
+    start_timestamp INTEGER NOT NULL,
+    end_timestamp INTEGER,
     type TEXT NOT NULL,
     range_type TEXT,
     raw_value TEXT NOT NULL,
@@ -92,7 +90,7 @@ CREATE TABLE IF NOT EXISTS timestamps (
 );
 
 -- Table to store repeater information for timestamps
-CREATE TABLE IF NOT EXISTS repeater_timestamps (
+CREATE TABLE IF NOT EXISTS timestamps_repeater (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp_id INTEGER NOT NULL,
     type TEXT NOT NULL,
@@ -105,16 +103,13 @@ CREATE TABLE IF NOT EXISTS repeater_timestamps (
 
 -- ===== FILES =====
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
-CREATE INDEX IF NOT EXISTS idx_files_hash ON files(hash);
+CREATE INDEX IF NOT EXISTS idx_files_md5_hash ON files(md5_hash);
 CREATE INDEX IF NOT EXISTS idx_files_modification_time ON files(modification_time);
 
 -- ===== HEADINGS =====
 CREATE INDEX IF NOT EXISTS idx_headings_file_id ON headings(file_id);
 CREATE INDEX IF NOT EXISTS idx_headings_parent_id ON headings(parent_id);
 CREATE INDEX IF NOT EXISTS idx_headings_todo_keyword ON headings(todo_keyword);
-CREATE INDEX IF NOT EXISTS idx_headings_todo_type ON headings(todo_type);
-CREATE INDEX IF NOT EXISTS idx_headings_level ON headings(level);
-CREATE INDEX IF NOT EXISTS idx_headings_all_tags ON headings(all_tags);
 
 -- ===== TAGS =====
 CREATE INDEX IF NOT EXISTS idx_tags_heading_id ON tags(heading_id);
@@ -130,9 +125,12 @@ CREATE INDEX IF NOT EXISTS idx_properties_key ON properties(key);
 
 -- ===== LINKS =====
 CREATE INDEX IF NOT EXISTS idx_links_heading_id ON links(heading_id);
+CREATE INDEX IF NOT EXISTS idx_links_path ON links(path);
+CREATE INDEX IF NOT EXISTS idx_links_description ON links(description);
 
 -- ===== TIMESTAMPS =====
 CREATE INDEX IF NOT EXISTS idx_timestamps_heading_id ON timestamps(heading_id);
+CREATE INDEX IF NOT EXISTS idx_timestamps_start_timestamp ON timestamps(start_timestamp);
 
 COMMIT;
 
