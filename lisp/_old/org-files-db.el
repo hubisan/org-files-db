@@ -26,19 +26,23 @@
 
 ;;; Commentary:
 
+
+
 ;;; Code:
 
 ;;; Requirements
 
-(require 'org-files-db-async)
 (require 'org-files-db-core)
 (require 'org-files-db-database)
-(require 'org-files-db-files)
-(require 'org-files-db-indexer)
 (require 'org-files-db-parse)
+(require 'org-files-db-sync)
+(require 'org-files-db-async)
 (require 'org-files-db-watch)
+(require 'org-files-db-query)
+(require 'org-files-db-utils)
 
-;;; Provide
+
+;;; Footer
 
 (provide 'org-files-db)
 

@@ -24,14 +24,14 @@ Remember to:
 - Update the documentation in the [[./README.org][README.org]] if needed.
 - Update [[./CHANGELOG.org][CHANGELOG.org]].
 
-*** Testing
+** Testing
 :PROPERTIES:
 :CUSTOM_ID: testing
 :END:
 
 Uses [[https://emacs-eask.github.io/Getting-Started/Introduction/][Eask]], which needs to be [[https://emacs-eask.github.io/Getting-Started/Install-Eask/#-npm-cross-platform][installed]]. The tests are written with [[https://github.com/jorgenschaefer/emacs-buttercup][Buttercup]]. After pushing to GitHub, an action is triggered which calls ~make all~. 
 
-**** Testing locally
+*** Testing locally
 
 To test the package locally, call the Makefile target ~make test-local~.
 
@@ -39,7 +39,7 @@ To open Emacs with just the package installed run ~make emacs~. Like this you ca
 
 To see all make targets run ~make~.
 
-***** Linters
+**** Linters
 
 When using ~make lint~, the following linters are used:
 
@@ -51,7 +51,7 @@ When using ~make lint~, the following linters are used:
 
 If you want to use another linter or call a linter separately, use ~eask lint <name of linter>~. To get the names just run ~eask lint~.
 
-***** Test in Specific Emacs Version
+**** Test in Specific Emacs Version
 
 It is possible to run an Eask command with specific Emacs version in a Docker container (Docker needs to be installed and configured to run without sudo).
 
