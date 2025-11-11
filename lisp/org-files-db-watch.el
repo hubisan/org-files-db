@@ -31,6 +31,7 @@
 (require 'org)
 (require 'org-files-db-core)
 (require 'org-files-db-database)
+(require 'org-files-db-indexer)
 
 ;;; Constants & Variables
 

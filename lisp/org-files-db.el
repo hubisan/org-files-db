@@ -30,14 +30,6 @@
 
 ;;; Requirements
 
-(require 'org-files-db-async)
-(require 'org-files-db-core)
-(require 'org-files-db-database)
-(require 'org-files-db-files)
-(require 'org-files-db-indexer)
-(require 'org-files-db-parse)
-(require 'org-files-db-watch)
-
 ;;; Provide
 
 (provide 'org-files-db)

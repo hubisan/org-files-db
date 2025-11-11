@@ -60,9 +60,56 @@ Intended for internal use when the buffer is already visiting an Org file."
 
 ;;; Parsing
 
-(defun org-files-db-parse--file-properties ()
-  ""
-  )
+(defun org-files-db-parse--collect-elements (parsed opts)
+  "Walk PARSED Org data and collect all relevant elements according to OPTS.
+Return a flat list of plists, each representing a headline, link, timestamp, etc."
+  (let ((result '()))
+    ;; Ein einziger Durchlauf durch den gesamten Baum
+    (org-element-map parsed '(headline link timestamp)
+      (lambda (el)
+        (pcase (org-element-type el)
+
+          ;; Headline
+          ('headline
+           (push (org-files-db-parse--headline el opts) result))
+
+          ;; Links (optional)
+          ('link
+           (when (plist-get opts :include-links)
+             (push (org-files-db-parse--link el) result)))
+
+          ;; Timestamps (optional)
+          ('timestamp
+           (when (plist-get opts :include-timestamps)
+             (push (org-files-db-parse--timestamp el) result)))))
+
+      ;; recurse into all sub-elements of headlines etc.
+      nil nil)
+
+    (nreverse result)))
+
+(defun org-files-db-parse--headline (el opts)
+  "Parse a headline EL into a plist structure."
+  (let* ((title (org-element-property :raw-value el))
+         (todo  (org-element-property :todo-keyword el))
+         (level (org-element-property :level el))
+         (tags  (when (plist-get opts :include-tags)
+                  (org-element-property :tags el)))
+         (props (when (plist-get opts :include-properties)
+                  (org-files-db-parse--properties el)))
+         (timestamps (when (plist-get opts :include-timestamps)
+                       (org-files-db-parse--timestamps el)))
+         (begin (org-element-property :begin el)))
+    `(:type "headline"
+      :title ,title
+      :todo ,todo
+      :level ,level
+      :tags ,tags
+      :properties ,props
+      :timestamps ,timestamps
+      :pos ,begin)))
+
+
 
 (defun org-files-db-parse--file-keywords ()
   "Extract file-level metadata (#+TITLE, #+CATEGORY, etc.) from the current buffer."
@@ -82,19 +129,23 @@ properties, and scheduling/deadline info."
   ""
   )
 
-(defun org-files-db-parse--timestamps (element)
-  "Extract timestamps (SCHEDULED, DEADLINE, CLOSED) from ELEMENT."
-  )
+(defun org-files-db-parse--timestamp (el)
+  "Return a plist for a timestamp element."
+  (let ((raw (org-element-property :raw-value el))
+        (ts-type (org-element-property :type el)))
+    `(:type "timestamp"
+      :timestamp-type ,ts-type
+      :raw ,raw)))
 
-(defun org-files-db-parse--links (element)
-  ""
-  )
-
-(defun org-files-db-parse--collect-elements (parsed)
-  "Walk PARSED Org data and collect all relevant elements.
-This function transforms the org-element tree into a flat list
-of entries ready for indexing."
-  )
+(defun org-files-db-parse--link (el)
+  "Return a plist representing a link element."
+  (let ((type (org-element-property :type el))
+        (path (org-element-property :path el))
+        (desc (org-element-contents el)))
+    `(:type "link"
+      :link-type ,type
+      :path ,path
+      :description ,(when desc (org-no-properties (org-element-interpret-data desc))))))
 
 ;;; Provide
 
