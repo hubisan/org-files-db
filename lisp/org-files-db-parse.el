@@ -47,6 +47,24 @@
 
 ;;; Wrapper
 
+;; TODO dies ist wichtig
+(with-current-buffer (generate-new-buffer "new")
+    (insert-file-contents "~/memento/notes/work/swissmilk/prozesse/swissmilk-prozesse.org")
+    ;; So werden minor modes etc. nicht geladen.
+    (delay-mode-hooks
+      ;; Weitere automatische Sachen abstellen.
+      (let ((org-inhibit-startup t)
+            (org-agenda-files nil))
+        ;; Ist irgendwie in einer neuen Version so, dass org-element einen Fehler
+        ;; verursacht, wenn man nicht 8 hat. 8 ist der Default-Wert und sollte
+        ;; wohl nicht global angepasst werden, aber das kann man natürlich nicht
+        ;; ausschliessen.
+        (setq-local tab-width 8)
+        (org-mode)
+        ;; Lokale variablen anwenden.
+        ;; Hmm, brauchts es da keine Bestätigung durch den Nutzer?
+        (hack-local-variables))))
+
 (defun org-files-db-parse-file (filename)
   "Parse the Org file with FILENAME and return structured data.
 The returned structure is suitable for database insertion.
@@ -65,6 +83,7 @@ Intended for internal use when the buffer is already visiting an Org file."
 Return a flat list of plists, each representing a headline, link, timestamp, etc."
   (let ((result '()))
     ;; Ein einziger Durchlauf durch den gesamten Baum
+    ;; TODO `org-element-with-enabled-cache' nutzen?
     (org-element-map parsed '(headline link timestamp keyword)
       (lambda (el)
         (pcase (org-element-type el)
@@ -82,6 +101,7 @@ Return a flat list of plists, each representing a headline, link, timestamp, etc
              (push (org-files-db-parse--link el) result)))
 
           ;; Timestamps (optional)
+          ;; TODO Nicht nötig, timestamps werden mit Heading mitgliefert.
           ('timestamp
            (when (plist-get opts :include-timestamps)
              (push (org-files-db-parse--timestamp el) result)))
