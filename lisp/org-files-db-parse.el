@@ -65,12 +65,15 @@ Intended for internal use when the buffer is already visiting an Org file."
 Return a flat list of plists, each representing a headline, link, timestamp, etc."
   (let ((result '()))
     ;; Ein einziger Durchlauf durch den gesamten Baum
-    (org-element-map parsed '(headline link timestamp)
+    (org-element-map parsed '(headline link timestamp keyword)
       (lambda (el)
         (pcase (org-element-type el)
 
           ;; Headline
           ('headline
+           (push (org-files-db-parse--headline el opts) result))
+
+          ('keyword
            (push (org-files-db-parse--headline el opts) result))
 
           ;; Links (optional)
@@ -81,7 +84,8 @@ Return a flat list of plists, each representing a headline, link, timestamp, etc
           ;; Timestamps (optional)
           ('timestamp
            (when (plist-get opts :include-timestamps)
-             (push (org-files-db-parse--timestamp el) result)))))
+             (push (org-files-db-parse--timestamp el) result)))
+          ))
 
       ;; recurse into all sub-elements of headlines etc.
       nil nil)
