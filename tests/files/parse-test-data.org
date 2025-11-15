@@ -15,6 +15,8 @@
 
 ** TODO Todo-Keyword
 
+** TODO [#A] Priortiy
+
 ** [#A] Priortiy
 
 ** Statistic Cookies [0/1]
@@ -69,6 +71,16 @@
 
 https://www.google.ch
 [[./parse-headings-test-data.org]]
+path: ./parse-headings-test-data.org
+
+[[mailto:hubisan@gmail.com][Hubi]]
+path: hubisan@gmail.com
+
+[[file:~/memento/persons/bierwanderung.org]]
+path: ~/memento/persons/bierwanderung.org
+
+[[https://www.google.ch]]
+path: //www.google.ch
 
 ** File Link without ~file:~
 

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS headings (
 
     level                 INTEGER NOT NULL,
     line                  INTEGER NOT NULL,
-    begin                 INTEGER NOT NULL,
+    pos                   INTEGER NOT NULL,
 
     title                 TEXT,
     title_raw             TEXT,
