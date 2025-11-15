@@ -6,12 +6,12 @@
 // absolute file-link paths with ~ expansion.
 // ---------------------------------------------------------------
 
+use crate::config::{is_uppercase_word, TodoMode};
 use crate::types::{OrgHeading, OrgLink};
-use crate::config::{TodoMode, is_uppercase_word};
+use dirs;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use std::path::{Path, PathBuf, Component};
-use dirs;
+use std::path::{Component, Path, PathBuf};
 
 fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();
@@ -25,8 +25,10 @@ fn normalize_path(path: &Path) -> PathBuf {
     for component in components {
         match component {
             Component::Normal(c) => ret.push(c),
-            Component::CurDir => {},
-            Component::ParentDir => { ret.pop(); },
+            Component::CurDir => {}
+            Component::ParentDir => {
+                ret.pop();
+            }
             Component::RootDir => unreachable!(),
             Component::Prefix(p) => ret.push(p.as_os_str()),
         }
@@ -39,61 +41,45 @@ fn normalize_path(path: &Path) -> PathBuf {
 //   HEADING REGEX (Minimal — keine TODO/PRIO/Tags/Cookie hier!)
 // ─────────────────────────────────────────────
 //
-static HEADING_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?P<stars>\*+)\s*(?P<title_raw>.*)$").unwrap()
-});
+static HEADING_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(?P<stars>\*+)\s*(?P<title_raw>.*)$").unwrap());
 
 //
 // ─────────────────────────────────────────────
 //   FILE-LEVEL DIRECTIVES (case-insensitive)
 // ─────────────────────────────────────────────
 //
-static FILETITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^#\+title:\s*(.*)$").unwrap()
-});
+static FILETITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#\+title:\s*(.*)$").unwrap());
 
-static FILETAGS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^#\+filetags:\s*(.*)$").unwrap()
-});
+static FILETAGS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#\+filetags:\s*(.*)$").unwrap());
 
-static FILEPROP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^#\+property:\s*([A-Za-z0-9_-]+)\s+(.*)$").unwrap()
-});
+static FILEPROP_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^#\+property:\s*([A-Za-z0-9_-]+)\s+(.*)$").unwrap());
 
 //
 // ─────────────────────────────────────────────
 //   DRAWERS (case-insensitive)
 // ─────────────────────────────────────────────
 //
-static DRAWER_START_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^:([A-Za-z0-9_-]+):\s*$").unwrap()
-});
+static DRAWER_START_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^:([A-Za-z0-9_-]+):\s*$").unwrap());
 
-static DRAWER_END_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^:end:\s*$").unwrap()
-});
+static DRAWER_END_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^:end:\s*$").unwrap());
 
 // property key/value inside drawer (case-insensitive key match)
-static PROP_LINE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^\s*:([A-Za-z0-9_+-]+):\s*(.*?)\s*$").unwrap()
-});
+static PROP_LINE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^\s*:([A-Za-z0-9_+-]+):\s*(.*?)\s*$").unwrap());
 
 //
 // ─────────────────────────────────────────────
 //   PLANNING
 // ─────────────────────────────────────────────
 //
-static PLAN_SCHEDULED: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"SCHEDULED:\s*(<.*?>)").unwrap()
-});
+static PLAN_SCHEDULED: Lazy<Regex> = Lazy::new(|| Regex::new(r"SCHEDULED:\s*(<.*?>)").unwrap());
 
-static PLAN_DEADLINE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"DEADLINE:\s*(<.*?>)").unwrap()
-});
+static PLAN_DEADLINE: Lazy<Regex> = Lazy::new(|| Regex::new(r"DEADLINE:\s*(<.*?>)").unwrap());
 
-static PLAN_CLOSED: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"CLOSED:\s*(<.*?>)").unwrap()
-});
+static PLAN_CLOSED: Lazy<Regex> = Lazy::new(|| Regex::new(r"CLOSED:\s*(<.*?>)").unwrap());
 
 //
 // ─────────────────────────────────────────────
@@ -102,18 +88,14 @@ static PLAN_CLOSED: Lazy<Regex> = Lazy::new(|| {
 //
 
 // #+BEGIN_<NAME> / #+END_<NAME>, case-insensitive
-static BEGIN_BLOCK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^#\+begin_([A-Za-z0-9_-]+)").unwrap()
-});
+static BEGIN_BLOCK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^#\+begin_([A-Za-z0-9_-]+)").unwrap());
 
-static END_BLOCK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^#\+end_([A-Za-z0-9_-]+)").unwrap()
-});
+static END_BLOCK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^#\+end_([A-Za-z0-9_-]+)").unwrap());
 
 // #+RESULTS:, case-insensitive
-static RESULTS_BEGIN_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^#\+results:").unwrap()
-});
+static RESULTS_BEGIN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#\+results:").unwrap());
 
 //
 // ─────────────────────────────────────────────
@@ -122,9 +104,8 @@ static RESULTS_BEGIN_RE: Lazy<Regex> = Lazy::new(|| {
 //
 
 // [[target][desc]] oder [[target]]
-static BRACKET_LINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\[([^\]\[]+)(?:\]\[([^\]]*))?\]\]").unwrap()
-});
+static BRACKET_LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\[([^\]\[]+)(?:\]\[([^\]]*))?\]\]").unwrap());
 
 // plain links (Org-mode compliant)
 static PLAIN_LINK_RE: Lazy<Regex> = Lazy::new(|| {
@@ -134,24 +115,21 @@ static PLAIN_LINK_RE: Lazy<Regex> = Lazy::new(|| {
             (?:https?|ftp|mailto|news|id|file):[^\s\]]+
             | \#[A-Za-z0-9_\-]+
         )
-    ").unwrap()
+    ",
+    )
+    .unwrap()
 });
 
 // Statistik-Cookie [0/3], [75%]
-static STAT_COOKIE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\s*\[(?:\d+/\d+|\d+%)\]\s*$").unwrap()
-});
+static STAT_COOKIE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\s*\[(?:\d+/\d+|\d+%)\]\s*$").unwrap());
 
 // [[x][desc]] → desc
-static TITLE_LINK_DESC_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\[[^\]]+\]\[(.*?)\]\]").unwrap()
-});
+static TITLE_LINK_DESC_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\[[^\]]+\]\[(.*?)\]\]").unwrap());
 
 // [[x]] → x
-static TITLE_LINK_TARGET_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\[([^\]]+)\]\]").unwrap()
-});
-
+static TITLE_LINK_TARGET_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[\[([^\]]+)\]\]").unwrap());
 
 //
 // ─────────────────────────────────────────────
@@ -183,9 +161,7 @@ fn make_absolute_path(raw: &str, org_file: &str) -> Option<String> {
         cwd.join(org_file_path)
     };
 
-    let org_dir = absolute_org_path
-        .parent()
-        .unwrap_or_else(|| Path::new("/"));
+    let org_dir = absolute_org_path.parent().unwrap_or_else(|| Path::new("/"));
 
     // 4) relative -> absolute (no canonicalize)
     let combined = org_dir.join(raw);
@@ -471,11 +447,7 @@ pub fn parse_org(
     headings
 }
 
-fn parse_body(
-    input: &str,
-    filename: &str,
-    todo_mode: &TodoMode,
-) -> Vec<OrgHeading> {
+fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeading> {
     let mut headings = vec![];
     let mut current: Option<OrgHeading> = None;
     let mut in_src = false;
@@ -578,7 +550,6 @@ fn parse_body(
 
         // HEADING
         if let Some(cap) = HEADING_RE.captures(line) {
-
             if let Some(h) = current.take() {
                 headings.push(h);
             }
@@ -589,7 +560,7 @@ fn parse_body(
             let no_cookie = strip_cookie(full);
             let (no_tags, tags) = strip_taggroup(&no_cookie);
 
-            let (todo, after_todo) = extract_todo(&no_tags, &todo_mode);
+            let (todo, after_todo) = extract_todo(&no_tags, todo_mode);
             let (priority, after_prio) = extract_priority(&after_todo);
 
             let title_raw = after_prio.trim().to_string();
@@ -649,7 +620,7 @@ fn parse_body(
     headings
 }
 
-fn build_inheritance(headings: &mut Vec<OrgHeading>) {
+fn build_inheritance(headings: &mut [OrgHeading]) {
     let mut stack = vec![0];
 
     for i in 1..headings.len() {

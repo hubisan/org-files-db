@@ -6,8 +6,8 @@
 // 3) Fallback (Unicode-Uppercase-Regel)
 //
 
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 /// Der Modus, wie TODO-Keywords bestimmt werden.
 #[derive(Debug, Clone)]
