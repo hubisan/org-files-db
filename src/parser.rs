@@ -123,7 +123,7 @@ static RESULTS_BEGIN_RE: Lazy<Regex> = Lazy::new(|| {
 
 // [[target][desc]] oder [[target]]
 static BRACKET_LINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\[\[([^\]\[]+?)(?:\]\[(.*?)\])?\]\]").unwrap()
+    Regex::new(r"\[\[([^\]\[]+)(?:\]\[([^\]]*))?\]\]").unwrap()
 });
 
 // plain links (Org-mode compliant)
@@ -216,7 +216,7 @@ fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
         let m = cap.get(0).unwrap();
         used.push((m.start(), m.end()));
 
-        let raw_target = cap[1].to_string();
+        let raw_target = cap.get(1).unwrap().as_str().to_string();
         let desc = cap.get(2).map(|m| m.as_str().to_string());
         let (path_raw, search_option) = parse_target_and_search(&raw_target);
 
@@ -236,6 +236,7 @@ fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
         };
 
         out.push(OrgLink {
+            raw: m.as_str().to_string(),
             link_type,
             path,
             path_absolute,
@@ -275,6 +276,7 @@ fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
         };
 
         out.push(OrgLink {
+            raw: m.as_str().to_string(),
             link_type,
             path,
             path_absolute,

@@ -3,6 +3,10 @@ use serde::Serialize;
 /// Ein einzelner Link im Body oder im Header.
 #[derive(Debug, Clone, Serialize)]
 pub struct OrgLink {
+    /// Der unveränderte Original-Link-String.
+    /// z.B. "[[file:~/test.org][Test]]" oder "https://google.com"
+    pub raw: String,
+
     /// Link-Typ: "http", "https", "file", "id", "anchor", …
     pub link_type: String,
 

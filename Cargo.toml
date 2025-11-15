@@ -1,5 +1,5 @@
 [package]
-name = "org_mem_lite"
+name = "org_files_db"
 version = "0.1.0"
 edition = "2021"
 
