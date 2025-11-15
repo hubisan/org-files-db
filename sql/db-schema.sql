@@ -14,8 +14,9 @@ CREATE TABLE IF NOT EXISTS files (
     created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at          INTEGER NOT NULL DEFAULT (unixepoch()),
     md5_hash            TEXT,
+    -- TODO ist mtime nicht float?
     modification_time   INTEGER NOT NULL,
-    -- TODO noch Typ anpassen, kann bei Prüfen auf Veränderung
+    -- TODO kann bei Prüfen auf Veränderung
     -- verwendet werden. wenn mtime anders und size ist es bestimmt
     -- nicht mehr das Gleiche
     size               INTEGER NOT NULL,
