@@ -138,9 +138,9 @@ static TITLE_LINK_TARGET_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[\[([^\]]+
 //
 fn make_absolute_path(raw: &str, org_file: &str) -> Option<String> {
     // 1) ~ expansion -> absoluter Home-Pfad
-    if raw.starts_with("~/") {
+    if let Some(stripped) = raw.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
-            let expanded = home.join(&raw[2..]);
+            let expanded = home.join(stripped);
             return Some(normalize_path(&expanded).to_string_lossy().to_string());
         }
     }
