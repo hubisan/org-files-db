@@ -1,13 +1,13 @@
-#+TITLE: Link-Testdatei Präzise
+#+title: Link-Testdatei Präzise
 #+FILETAGS: :root:links:
 #+PROPERTY: OWNER hubisan
 
 * Erste Überschrift :tagA:
 SCHEDULED: <2025-11-16 So> DEADLINE: <2025-11-17 Mo>
 :PROPERTIES:
-:ID: h1
-:TEST: base
-:TEST+: appended
+:ID:       h1
+:TEST:     base
+:TEST+:    appended
 :Genres_Keyword+: Working
 :END:
 
@@ -44,15 +44,18 @@ Link in [[file:../../../../../][Root Dir]]
 10) ID link  
 id:f0901b7f-bddc-41b7-b55e-3898dae90db2
 
+11) Link with ~ for home directory  
+[[file:~/documents/personal.org][Personal Doc]]
+
 #+RESULTS:
 [[https://should-not-parse.com][NO]]
 
 More text.
 
 #+BEGIN_SRC rust
-// THIS MUST NOT BE PARSED AS LINK:
-[[https://example.com/bad][NotParsed]]
-#anchor-bad
+  // THIS MUST NOT BE PARSED AS LINK:
+  [[https://example.com/bad][NotParsed]]
+    #anchor-bad
 #+END_SRC
 
 :NOTES:
@@ -63,8 +66,8 @@ https://drawerlink.com/path
 
 ** Unterpunkt A
 :PROPERTIES:
-:ID: h1a
-:TEST+: inherited
+:ID:       h1a
+:TEST+:    inherited
 :END:
 
 Body with link:
@@ -82,7 +85,7 @@ Body with deep link: [[https://deep.example.com][Deep]]
 
 * Zweite Überschrift
 :PROPERTIES:
-:ID: h2
+:ID:       h2
 :END:
 
 Ein File-Link mit Search Option ohne Beschreibung:
@@ -100,7 +103,7 @@ DEADLINE: <2025-11-21 Fr>
 [[file:./search.org::*Section name]]
 
 #+BEGIN_SRC python
-# do not parse: [[file:bad.org]]
+  # do not parse: [[file:bad.org]]
 #+END_SRC
 
 :MYCUSTOMDRAWER:
@@ -109,11 +112,67 @@ DEADLINE: <2025-11-21 Fr>
 
 * Überschrift Fünf
 :PROPERTIES:
-:Key1: Value
-:Key1+: More
-:Key1+: Extended
+:Key1:     Value
+:Key1+:    More
+:Key1+:    Extended
 :END:
 
 [[https://extended.test][Desc]]
 [[file:./morespecial.org::#tag][Desc]]
 [[./no-schema-file.org]]
+
+* Links
+
+** Links in Environments
+
+This copies what Org-mode does.
+
+*** Links Should Not Be Parsed
+
+#+BEGIN_SRC emacs-lisp
+  [[https://www.example.com][no real link]]
+  https://www.example.com
+#+END_SRC
+
+#+BEGIN_SRC
+  [[https://www.example.com][no real link]]
+  https://www.example.com
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+  [[https://www.example.com][no real link]]
+  https://www.example.com
+#+END_EXAMPLE
+
+: [[https://www.example.com][no real link]]
+: https://www.example.com 
+
+# [[mailto:hubisan@gmail.com]]
+# file:src/
+# [[https://www.google.ch]]
+
+*** Links Should Be Parsed
+
+#+BEGIN_VERSE
+https://www.example.com
+#+END_VERSE
+
+#+BEGIN_QUOTE
+https://www.example.com
+#+END_QUOTE
+
+#+BEGIN_COMMENT
+https://www.example.com
+#+END_COMMENT
+
+#+BEGIN_LaTeX
+https://www.example.com
+#+END_LaTeX
+
+#+BEGIN_HTML
+https://www.example.com
+#+END_HTML
+
+#+BEGIN_ASCII
+https://www.example.com
+#+END_ASCII

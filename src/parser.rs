@@ -3,7 +3,7 @@
 // FINAL VERSION — clean, fast, no body, full link parsing,
 // file-level tags + properties inherited, TODO system dynamic,
 // no keywords, no keyword-properties, correct title/title_raw logic,
-// absolute file-link paths (but no ~ expansion).
+// absolute file-link paths with ~ expansion.
 // ---------------------------------------------------------------
 
 use crate::types::{OrgHeading, OrgLink};
@@ -11,6 +11,7 @@ use crate::config::{TodoMode, is_uppercase_word};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::path::{Path, PathBuf, Component};
+use dirs;
 
 fn normalize_path(path: &Path) -> PathBuf {
     let mut components = path.components().peekable();
@@ -44,37 +45,37 @@ static HEADING_RE: Lazy<Regex> = Lazy::new(|| {
 
 //
 // ─────────────────────────────────────────────
-//   FILE-LEVEL DIRECTIVES
+//   FILE-LEVEL DIRECTIVES (case-insensitive)
 // ─────────────────────────────────────────────
 //
 static FILETITLE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^#\+TITLE:\s*(.*)$").unwrap()
+    Regex::new(r"(?i)^#\+title:\s*(.*)$").unwrap()
 });
 
 static FILETAGS_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^#\+FILETAGS:\s*(.*)$").unwrap()
+    Regex::new(r"(?i)^#\+filetags:\s*(.*)$").unwrap()
 });
 
 static FILEPROP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^#\+PROPERTY:\s*([A-Za-z0-9_-]+)\s+(.*)$").unwrap()
+    Regex::new(r"(?i)^#\+property:\s*([A-Za-z0-9_-]+)\s+(.*)$").unwrap()
 });
 
 //
 // ─────────────────────────────────────────────
-//   DRAWERS
+//   DRAWERS (case-insensitive)
 // ─────────────────────────────────────────────
 //
 static DRAWER_START_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^:([A-Za-z0-9_-]+):\s*$").unwrap()
+    Regex::new(r"(?i)^:([A-Za-z0-9_-]+):\s*$").unwrap()
 });
 
 static DRAWER_END_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^:END:\s*$").unwrap()
+    Regex::new(r"(?i)^:end:\s*$").unwrap()
 });
 
-// property key/value inside drawer
+// property key/value inside drawer (case-insensitive key match)
 static PROP_LINE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^\s*:([A-Za-z0-9_+-]+):\s*(.*?)\s*$").unwrap()
+    Regex::new(r"(?i)^\s*:([A-Za-z0-9_+-]+):\s*(.*?)\s*$").unwrap()
 });
 
 //
@@ -96,19 +97,22 @@ static PLAN_CLOSED: Lazy<Regex> = Lazy::new(|| {
 
 //
 // ─────────────────────────────────────────────
-//   BLOCKS: SRC / RESULTS
+//   BLOCKS: GENERIC BEGIN/END + RESULTS
 // ─────────────────────────────────────────────
 //
-static SRC_BEGIN_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^#\+BEGIN_SRC").unwrap()
+
+// #+BEGIN_<NAME> / #+END_<NAME>, case-insensitive
+static BEGIN_BLOCK_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^#\+begin_([A-Za-z0-9_-]+)").unwrap()
 });
 
-static SRC_END_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^#\+END_SRC").unwrap()
+static END_BLOCK_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^#\+end_([A-Za-z0-9_-]+)").unwrap()
 });
 
+// #+RESULTS:, case-insensitive
 static RESULTS_BEGIN_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^#\+RESULTS:").unwrap()
+    Regex::new(r"(?i)^#\+results:").unwrap()
 });
 
 //
@@ -151,33 +155,43 @@ static TITLE_LINK_TARGET_RE: Lazy<Regex> = Lazy::new(|| {
 
 //
 // ─────────────────────────────────────────────
-//   RELATIVE → ABSOLUTE PATH (NO ~ expansion)
+//   RELATIVE → ABSOLUTE PATH (WITH ~ expansion)
 // ─────────────────────────────────────────────
 //
 fn make_absolute_path(raw: &str, org_file: &str) -> Option<String> {
-    // "~" nicht expandieren → einfach unverändert übernehmen
+    // 1) ~ expansion -> absoluter Home-Pfad
     if raw.starts_with("~/") {
-        return Some(raw.to_string());
+        if let Some(home) = dirs::home_dir() {
+            let expanded = home.join(&raw[2..]);
+            return Some(normalize_path(&expanded).to_string_lossy().to_string());
+        }
     }
 
-    // Already absolute?
     let p = Path::new(raw);
+
+    // 2) already absolute?
     if p.is_absolute() {
         return Some(normalize_path(p).to_string_lossy().to_string());
     }
 
-    // relative → zum org_file auflösen
-    let org_dir = Path::new(org_file)
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    // 3) base dir of the org file
+    let org_file_path = Path::new(org_file);
+    let absolute_org_path = if org_file_path.is_absolute() {
+        org_file_path.to_path_buf()
+    } else {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        cwd.join(org_file_path)
+    };
 
+    let org_dir = absolute_org_path
+        .parent()
+        .unwrap_or_else(|| Path::new("/"));
+
+    // 4) relative -> absolute (no canonicalize)
     let combined = org_dir.join(raw);
 
-    // KEIN canonicalize() → würde ~ entfernen oder echte Pfade erzwingen
     Some(normalize_path(&combined).to_string_lossy().to_string())
 }
-
-
 
 //
 // ─────────────────────────────────────────────
@@ -463,7 +477,8 @@ fn parse_body(
     let mut headings = vec![];
     let mut current: Option<OrgHeading> = None;
     let mut in_src = false;
-    let mut in_results = false;
+    let mut in_example = false;
+    let mut in_comment_block = false;
     let mut drawer_stack: Vec<String> = vec![];
     let mut temp_props = vec![];
     let mut file_pos = 0;
@@ -471,33 +486,48 @@ fn parse_body(
     for line in input.lines() {
         let trimmed = line.trim();
 
-        // SRC
-        if SRC_BEGIN_RE.is_match(trimmed) {
-            in_src = true;
-            file_pos += line.len() + 1;
-            continue;
-        }
-        if SRC_END_RE.is_match(trimmed) {
-            in_src = false;
+        // ─────────────────────────────
+        // BEGIN_/END_ blocks (case-insensitive)
+        // ─────────────────────────────
+        if let Some(c) = BEGIN_BLOCK_RE.captures(trimmed) {
+            let block = c[1].to_ascii_lowercase();
+            match block.as_str() {
+                "src" => in_src = true,
+                "example" => in_example = true,
+                "comment" => in_comment_block = true,
+                _ => {}
+            }
             file_pos += line.len() + 1;
             continue;
         }
 
-        // RESULTS
-        if RESULTS_BEGIN_RE.is_match(trimmed) {
-            in_results = true;
+        if let Some(c) = END_BLOCK_RE.captures(trimmed) {
+            let block = c[1].to_ascii_lowercase();
+            match block.as_str() {
+                "src" => in_src = false,
+                "example" => in_example = false,
+                "comment" => in_comment_block = false,
+                _ => {}
+            }
             file_pos += line.len() + 1;
             continue;
         }
-        if in_results && trimmed.is_empty() {
-            in_results = false;
+
+        // If we are inside a comment/src/example block: ignore everything until END_
+        if in_src || in_example || in_comment_block {
+            file_pos += line.len() + 1;
+            continue;
+        }
+
+        // #+RESULTS: line itself → überspringen, aber Folgezeilen normal parsen
+        if RESULTS_BEGIN_RE.is_match(trimmed) {
             file_pos += line.len() + 1;
             continue;
         }
 
         // DRAWER start
         if let Some(cap) = DRAWER_START_RE.captures(trimmed) {
-            drawer_stack.push(cap[1].to_uppercase());
+            drawer_stack.push(cap[1].to_ascii_uppercase());
             file_pos += line.len() + 1;
             continue;
         }
@@ -516,13 +546,30 @@ fn parse_body(
             continue;
         }
 
-        // PROPERTIES drawer
-        if drawer_stack.last().map(|d| d == "PROPERTIES").unwrap_or(false) {
+        // PROPERTIES drawer content
+        let in_properties = drawer_stack
+            .last()
+            .map(|d| d == "PROPERTIES")
+            .unwrap_or(false);
+
+        if in_properties {
             if let Some(c) = PROP_LINE.captures(line) {
                 let key = c[1].trim_end_matches('+').to_string();
                 let val = c[2].to_string();
                 temp_props.push((key, val));
             }
+            file_pos += line.len() + 1;
+            continue;
+        }
+
+        // Fixed-width: Zeile startet mit ":" und wir sind NICHT in einem Drawer
+        if trimmed.starts_with(':') && drawer_stack.is_empty() {
+            file_pos += line.len() + 1;
+            continue;
+        }
+
+        // Kommentar-Zeilen: "# ..." aber NICHT "#+..."
+        if trimmed.starts_with('#') && !trimmed.starts_with("#+") {
             file_pos += line.len() + 1;
             continue;
         }
@@ -586,14 +633,8 @@ fn parse_body(
 
         // BODY LINKS ONLY (body not stored)
         if let Some(h) = current.as_mut() {
-
-            let in_src_block = in_src;
-            let in_results_block = in_results;
-            let in_properties = drawer_stack.last().map(|d| d == "PROPERTIES").unwrap_or(false);
-
-            if !in_src_block && !in_results_block && !in_properties {
-                h.links.extend(scan_links(line, file_pos, filename));
-            }
+            // Wir sind hier garantiert NICHT in src/example/comment/properties-blocken
+            h.links.extend(scan_links(line, file_pos, filename));
         }
 
         file_pos += line.len() + 1;
@@ -641,4 +682,3 @@ fn build_inheritance(headings: &mut Vec<OrgHeading>) {
         stack.push(i);
     }
 }
-

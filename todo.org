@@ -1,0 +1,31 @@
+* Bugs
+
+** NEXT Post bei Links ist irgendwie falsch
+
+#+BEGIN_SRC js-json
+  {
+    "link_type": "https",
+    "path": "//www.example.com",
+    "path_absolute": null,
+    "search_option": null,
+    "description": null,
+    "format": "plain",
+    "pos": 3240
+  }
+#+END_SRC
+
+** TODO Heading Pos prüfen
+
+** TODO Desription bei Links fehlt
+
+* Features
+
+** TODO Category Keyword parsen
+
+Vielleicht doch besser alle Keywords parsen. Aber Category ist speziell.
+
+** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
+
+* Testing
+
+** TODO Org Testdatei und erwarteter Output

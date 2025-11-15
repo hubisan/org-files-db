@@ -31,7 +31,13 @@ fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
     // 1. Parsen
-    let headings = parser::parse_org_from_file(&cli.file, cli.todo.as_deref(), cli.todo_file.as_deref())?;
+    let absolute_path = std::fs::canonicalize(&cli.file)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, format!("File not found: {}: {}", &cli.file, e)))?;
+    let headings = parser::parse_org_from_file(
+        absolute_path.to_str().unwrap(),
+        cli.todo.as_deref(),
+        cli.todo_file.as_deref(),
+    )?;
 
     // 2. JSON erzeugen
     let json = serde_json::to_string_pretty(&headings)
