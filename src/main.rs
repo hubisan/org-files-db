@@ -48,7 +48,7 @@ fn main() -> std::io::Result<()> {
     //
     // 2) Write JSON
     //
-    let json = serde_json::to_string_pretty(&headings).map_err(|e| std::io::Error::other(e))?;
+    let json = serde_json::to_string_pretty(&headings).map_err(std::io::Error::other)?;
 
     let mut outfile = File::create(&cli.output)?;
     outfile.write_all(json.as_bytes())?;
