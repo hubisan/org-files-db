@@ -3,7 +3,8 @@
 // FINAL VERSION — clean, fast, no body, full link parsing,
 // file-level tags + properties inherited, TODO system dynamic,
 // no keywords, no keyword-properties, correct title/title_raw logic,
-// absolute file-link paths with ~ expansion.
+// absolute file-link paths with ~ expansion, and
+// *** Emacs-kompatible CHAR-OFFSETS statt Byte-Offsets ***
 // ---------------------------------------------------------------
 
 use crate::config::{is_uppercase_word, TodoMode};
@@ -163,7 +164,7 @@ fn make_absolute_path(raw: &str, org_file: &str) -> Option<String> {
 
     let org_dir = absolute_org_path.parent().unwrap_or_else(|| Path::new("/"));
 
-    // 4) relative -> absolute (no canonicalize)
+    // 4) relative → absolute (no canonicalize)
     let combined = org_dir.join(raw);
 
     Some(normalize_path(&combined).to_string_lossy().to_string())
@@ -171,9 +172,10 @@ fn make_absolute_path(raw: &str, org_file: &str) -> Option<String> {
 
 //
 // ─────────────────────────────────────────────
-//   LINK SCANNING
+//   LINK HELFER
 // ─────────────────────────────────────────────
 //
+
 fn parse_target_and_search(target: &str) -> (String, Option<String>) {
     if let Some(idx) = target.find("::") {
         let (left, rest) = target.split_at(idx);
@@ -183,27 +185,40 @@ fn parse_target_and_search(target: &str) -> (String, Option<String>) {
     (target.to_string(), None)
 }
 
-fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
+fn classify_link(path_raw: &str) -> (String, String) {
+    if path_raw.starts_with('#') {
+        ("anchor".to_string(), path_raw.to_string())
+    } else if let Some(idx) = path_raw.find(':') {
+        let (l_type, p_val) = path_raw.split_at(idx);
+        (l_type.to_string(), p_val[1..].to_string())
+    } else {
+        ("file".to_string(), path_raw.to_string())
+    }
+}
+
+//
+// ─────────────────────────────────────────────
+//   LINK SCANNING (Emacs CHAR-OFFSETS!)
+// ─────────────────────────────────────────────
+//
+fn scan_links(line: &str, offset_chars: usize, org_file: &str) -> Vec<OrgLink> {
     let mut out = vec![];
     let mut used = vec![];
 
     // bracket links
     for cap in BRACKET_LINK_RE.captures_iter(line) {
         let m = cap.get(0).unwrap();
+        let byte_start = m.start();
+        let char_start = line[..byte_start].chars().count();
+        let pos = offset_chars + char_start;
+
         used.push((m.start(), m.end()));
 
         let raw_target = cap.get(1).unwrap().as_str().to_string();
         let desc = cap.get(2).map(|m| m.as_str().to_string());
         let (path_raw, search_option) = parse_target_and_search(&raw_target);
 
-        let (link_type, path) = if path_raw.starts_with('#') {
-            ("anchor".to_string(), path_raw.clone())
-        } else if let Some(idx) = path_raw.find(':') {
-            let (l_type, p_val) = path_raw.split_at(idx);
-            (l_type.to_string(), p_val[1..].to_string())
-        } else {
-            ("file".to_string(), path_raw.clone())
-        };
+        let (link_type, path) = classify_link(&path_raw);
 
         let path_absolute = if link_type == "file" {
             make_absolute_path(&path, org_file)
@@ -219,7 +234,7 @@ fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
             search_option,
             description: desc,
             format: "bracket".into(),
-            pos: offset + m.start(),
+            pos,
         });
     }
 
@@ -227,23 +242,18 @@ fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
     for cap in PLAIN_LINK_RE.captures_iter(line) {
         let m = cap.get(0).unwrap();
 
-        // skip overlaps
+        // skip overlaps mit bracket links
         if used.iter().any(|(s, e)| m.start() >= *s && m.start() < *e) {
             continue;
         }
 
+        let byte_start = m.start();
+        let char_start = line[..byte_start].chars().count();
+        let pos = offset_chars + char_start;
+
         let raw = m.as_str().to_string();
         let (path_raw, search_option) = parse_target_and_search(&raw);
-
-        let (link_type, path) = if path_raw.starts_with('#') {
-            ("anchor".to_string(), path_raw.clone())
-        } else if let Some(idx) = path_raw.find(':') {
-            let (l_type, p_val) = path_raw.split_at(idx);
-            (l_type.to_string(), p_val[1..].to_string())
-        } else {
-            // Should not happen with the current regex for plain links
-            ("unknown".to_string(), path_raw.clone())
-        };
+        let (link_type, path) = classify_link(&path_raw);
 
         let path_absolute = if link_type == "file" {
             make_absolute_path(&path, org_file)
@@ -259,7 +269,7 @@ fn scan_links(line: &str, offset: usize, org_file: &str) -> Vec<OrgLink> {
             search_option,
             description: None,
             format: "plain".into(),
-            pos: offset + m.start(),
+            pos,
         });
     }
 
@@ -455,10 +465,13 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
     let mut in_comment_block = false;
     let mut drawer_stack: Vec<String> = vec![];
     let mut temp_props = vec![];
-    let mut file_pos = 0;
+
+    // *** WICHTIG: file_pos ist jetzt ein CHAR-Offset (Emacs-kompatibel) ***
+    let mut file_pos: usize = 1; // Emacs-basierter Start, startet bei 1 und nicht 0
 
     for line in input.lines() {
         let trimmed = line.trim();
+        let line_chars = line.chars().count();
 
         // ─────────────────────────────
         // BEGIN_/END_ blocks (case-insensitive)
@@ -471,7 +484,7 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
                 "comment" => in_comment_block = true,
                 _ => {}
             }
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
@@ -483,26 +496,26 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
                 "comment" => in_comment_block = false,
                 _ => {}
             }
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
-        // If we are inside a comment/src/example block: ignore everything until END_
+        // Wenn wir in src/example/comment-block sind: alles ignorieren bis END_
         if in_src || in_example || in_comment_block {
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
-        // #+RESULTS: line itself → überspringen, aber Folgezeilen normal parsen
+        // #+RESULTS: Zeile selbst → überspringen, aber Folgezeilen normal parsen
         if RESULTS_BEGIN_RE.is_match(trimmed) {
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
         // DRAWER start
         if let Some(cap) = DRAWER_START_RE.captures(trimmed) {
             drawer_stack.push(cap[1].to_ascii_uppercase());
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
@@ -516,7 +529,7 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
                     temp_props.clear();
                 }
             }
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
@@ -532,19 +545,19 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
                 let val = c[2].to_string();
                 temp_props.push((key, val));
             }
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
         // Fixed-width: Zeile startet mit ":" und wir sind NICHT in einem Drawer
         if trimmed.starts_with(':') && drawer_stack.is_empty() {
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
         // Kommentar-Zeilen: "# ..." aber NICHT "#+..."
         if trimmed.starts_with('#') && !trimmed.starts_with("#+") {
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
@@ -566,6 +579,7 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
             let title_raw = after_prio.trim().to_string();
             let title = normalize_title(&title_raw);
 
+            // Links im Heading: offset = file_pos (Char-Offset des Zeilenanfangs)
             let links = scan_links(line, file_pos, filename);
 
             current = Some(OrgHeading {
@@ -587,7 +601,7 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
                 file: false,
             });
 
-            file_pos += line.len() + 1;
+            file_pos += line_chars + 1;
             continue;
         }
 
@@ -604,13 +618,13 @@ fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeadi
             }
         }
 
-        // BODY LINKS ONLY (body not stored)
+        // BODY LINKS ONLY (body nicht gespeichert, aber Links schon)
         if let Some(h) = current.as_mut() {
             // Wir sind hier garantiert NICHT in src/example/comment/properties-blocken
             h.links.extend(scan_links(line, file_pos, filename));
         }
 
-        file_pos += line.len() + 1;
+        file_pos += line_chars + 1;
     }
 
     if let Some(h) = current {

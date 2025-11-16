@@ -3,7 +3,7 @@
 
 * Bugs
 
-** NEXT Post bei Links ist irgendwie falsch
+** DONE Post bei Links ist irgendwie falsch
 
 #+BEGIN_SRC js-json
   {
@@ -17,15 +17,15 @@
   }
 #+END_SRC
 
-** TODO Description bei Links fehlt
-
-** TODO Heading Pos prüfen
+** DONE Description bei Links fehlt
 
 * Features
 
-** TODO Link raw fehlt
+** DONE Link raw fehlt
 
-** TODO Headline pos fehlt
+** TODO Abgleich mit Felder der Datenbank
+
+** TODO Headline pos und line fehlt
 
 ** TODO Category Keyword parsen
 
@@ -34,6 +34,8 @@ Vielleicht doch besser alle Keywords parsen. Aber Category ist speziell.
 ** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
 
 * Testing
+
+** TODO Input [[https://github.com/novoid/github-orgmode-tests?tab=readme-ov-file][GitHub - novoid/github-orgmode-tests: This is a test project where you can explore how github interprets Org-mode files]]
 
 ** TODO Org Testdatei und erwarteter Output
 
