@@ -84,6 +84,28 @@ Body with deep link: [[https://deep.example.com][Deep]]
 
 ** Statistic Cookie [0/0]
 
+** Links um pos zu testen
+
+Extr mit Emojis und Unicode Sachen.
+
+*** Übung 🚀 Ein Titel mit Umlaut und Emoji                         :foo:bar:
+Some body text with a link: https://example.com/test🔥
+
+And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
+
+*** TODO Zweiter Überschriftstitel ❤️
+SCHEDULED: <2024-05-02 Thu>
+
+More links:
+- [[https://gnu.org][GNU]]
+- #anchor
+- mailto:john.doe@example.com
+
+*** Dritter Titel [0%]
+Text with: äöü ÄÖÜ 😀😇🤖
+
+A relative link: [[./überraschung.org]] and an emoji in link text [[id:123][ID Link ❤️🔥]].
+
 * Zweite Überschrift
 :PROPERTIES:
 :ID:       h2
