@@ -175,6 +175,9 @@ This copies what Org-mode does.
 # [[https://www.google.ch]]
 
 *** Links Should Be Parsed
+:PROPERTIES:
+:link_to_parse: [[https://www.example.com][Link in properties]]
+:END:
 
 #+BEGIN_VERSE
 https://www.example.com

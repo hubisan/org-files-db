@@ -18,9 +18,14 @@
   }
 #+END_SRC
 *** DONE Description bei Links fehlt
+*** NEXT Links in Comment Blocks are ok, but not if line comment #, org line with : at start
+*** TODO Need to be parsed Links in Property, and other Drawers? 
 
 ** Features
 *** DONE Link raw fehlt
+*** TODO Relational Links - Link Relation
+Example würde von [[Daniel][Daniel (->Inhaber)]] 2023 gegründet.
+Für Parser: Relation erkennen " (->...)", entfernen und in Feld Relation verschieben.
 *** TODO Regulare Expression im Parser oben sammeln?
 Damit nicht so verstreut.
 *** TODO Code cleaning (parse_body modularisieren falls nötig)

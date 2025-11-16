@@ -144,25 +144,43 @@ CREATE TABLE IF NOT EXISTS keywords_properties (
 --------------------------------------------------
 CREATE TABLE IF NOT EXISTS links (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- File in dem sich der Link befindet
     file_id        INTEGER NOT NULL,
-    heading_id     INTEGER,
+    -- Heading unter welcher sich der link befindet. Null
+    -- wenn file level
+    heading_id        INTEGER,
     pos            INTEGER NOT NULL,
 
     type           TEXT,
     path           TEXT NOT NULL,
+    -- only for type file
     path_absolute  TEXT,
+    target_file_id        INTEGER,
+    target_heading_id     INTEGER,
+
     description    TEXT,
 
     format         TEXT,
     search_option  TEXT,
 
+    -- Maybe create a possibility to store the relation in the link.
+    -- [[https://www.example.com][Example (->Inhaber)]]
+    relation TEXT,
+
     CONSTRAINT ck_links_format CHECK (format IN ('plain', 'bracket')),
 
     CONSTRAINT fk_links_file
-        FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_file_id) REFERENCES files(id) ON DELETE CASCADE,
 
     CONSTRAINT fk_links_heading
-        FOREIGN KEY (heading_id) REFERENCES headings(id)
+        FOREIGN KEY (target_heading_id) REFERENCES headings(id)
+            ON DELETE SET NULL,
+
+    CONSTRAINT fk_links_target_file
+        FOREIGN KEY (target_file_id) REFERENCES files(id) ON DELETE CASCADE,
+
+    CONSTRAINT fk_links_target_heading
+        FOREIGN KEY (target_heading_id) REFERENCES headings(id)
             ON DELETE SET NULL,
 
     CONSTRAINT uq_links_file_pos UNIQUE (file_id, pos)
