@@ -1,9 +1,10 @@
-#+TITLE: Org-files-db TODOs
+#+TITLE: Org-files-db 
 #+STARTUP: showall
 
-* Bugs
+* Parser
 
-** DONE Post bei Links ist irgendwie falsch
+** Bugs
+*** DONE Post bei Links ist irgendwie falsch
 
 #+BEGIN_SRC js-json
   {
@@ -16,28 +17,79 @@
     "pos": 3240
   }
 #+END_SRC
+*** DONE Description bei Links fehlt
 
-** DONE Description bei Links fehlt
-
-* Features
-
-** DONE Link raw fehlt
-
-** TODO Abgleich mit Felder der Datenbank
-
-** TODO Headline pos und line fehlt
-
-** TODO Category Keyword parsen
-
+** Features
+*** DONE Link raw fehlt
+*** TODO Regulare Expression im Parser oben sammeln?
+Damit nicht so verstreut.
+*** TODO Code cleaning (parse_body modularisieren falls nötig)
+*** TODO Abgleich mit Felder der Datenbank
+*** TODO Headline pos und line fehlt
+*** TODO Category Keyword parsen
 Vielleicht doch besser alle Keywords parsen. Aber Category ist speziell.
+*** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
 
-** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
-
-* Testing
-
-** TODO Input [[https://github.com/novoid/github-orgmode-tests?tab=readme-ov-file][GitHub - novoid/github-orgmode-tests: This is a test project where you can explore how github interprets Org-mode files]]
-
-** TODO Org Testdatei und erwarteter Output
-
-** TODO Test all kind of Links
+** Testing
+Keine Unit-Tests, einfach Output mit erwartetem Output vergleichen.
+*** TODO Input [[https://github.com/novoid/github-orgmode-tests?tab=readme-ov-file][GitHub - novoid/github-orgmode-tests: This is a test project where you can explore how github interprets Org-mode files]]
+*** TODO Org Testdatei und erwarteter Output
+*** TODO Test all kind of Links
 [[https://orgmode.org/guide/Hyperlinks.html][Hyperlinks (Org Mode Compact Guide)]]
+
+* Types.rs
+** TODO OrgHeading final definieren
+** TODO OrgLink final definieren
+
+* Db.rs
+** TODO SQLite öffnen + WAL-Modus aktivieren
+- PRAGMA journal_mode = WAL;
+- PRAGMA synchronous = NORMAL;
+** TODO Schema anlegen
+- headings
+- links
+- files (optional)
+** TODO Funktionen implementieren:
+- insert/update headings
+- delete headings for file
+- insert links
+** TODO Transaction-Batching für Performance (optional)
+
+* Indexer.rs (Initial-Index)
+** TODO Funktion: find_org_files (rekursiv)
+** TODO Funktion: build_initial_index
+- alle Dateien finden
+- Datei parsen (parser.rs)
+- Ergebnisse in DB schreiben (db.rs)
+** TODO Parallelisierung einbauen
+- Rayon verwenden
+- jede Datei wird parallel geparst
+- jede Datei öffnet eigene DB-Connection (WAL macht es möglich)
+** TODO Logging: Fortschritt anzeigen (optional)
+
+* Watcher.rs (Inkrementelle Updates)
+** TODO File-Watcher einbauen (notify crate)
+** TODO Events verarbeiten:
+    - Create → parse + in DB einfügen
+    - Modify → parse + updaten
+    - Delete → aus DB löschen
+** TODO Debounce einbauen (mehrere Events zu einem zusammenfassen)
+** TODO Test mit realem Org-Verzeichnis
+
+* Integration (lib.rs)
+** TODO Rebuild-Modus:
+    - Datenbank löschen
+    - Full-Scan erneut ausführen
+** TODO Startup-Modus:
+    - wenn DB leer → initial indexer
+    - danach watcher starten
+
+* Optimierung (optional)
+** TODO SQLite Indizes optimieren
+** TODO Prüfen welche Insert-Batches sinnvoll sind
+
+* Dokumentation
+** TODO README schreiben
+** TODO API-Dokumentation
+** TODO Beispiel-Code für User
+
