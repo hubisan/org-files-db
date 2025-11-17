@@ -1,17 +1,13 @@
 #+TITLE: Org Tests for Links
-#+STARTUP: showall
+#+STARTUP: content
 #+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
 
-See following pages in the manual:
-
-- https://orgmode.org/guide/Hyperlinks.html
-  
 * Internal Links 
 :PROPERTIES:
 :CUSTOM_ID: internal-link-to-custom-id
 :END:
 
-Specification: https://orgmode.org/manual/Internal-Links.html
+Specification: [[https://orgmode.org/manual/Internal-Links.html][Internal Links (The Org Manual)]]
 
 ** OK Internal Link to a Custom ID
 Stored and linked to the target heading.
@@ -43,7 +39,7 @@ The link ist stored but not linked to the target heading.
 
 * Radio Targets
 
-Specification: https://orgmode.org/manual/Radio-Targets.html
+Specification: [[https://orgmode.org/manual/Radio-Targets.html][Radio Targets (The Org Manual)]]
 
 ** NOT_IMPLEMENTING Radio Target Links
 Those links are not parsed.
@@ -52,11 +48,11 @@ radio target link
 
 * External Links
 
-** Built-in Links 
+Specification: [[https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html][External Links (The Org Manual)]]
 
 Built-in links are stored. External links can also be plain, as long as they start with the link type.
 
-*** OK File
+** OK File
 If a file link links to a heading in an org file which is tracked, it is linked to the target heading.
 - Absolute
   - file:/etc
@@ -122,7 +118,7 @@ If a file link links to a heading in an org file which is tracked, it is linked 
   - [[file:~/.emacs.d/init.el]]
   - [[file:~/.emacs.d/init.el][description: file:~/.emacs.d/init.el]]
       
-*** OK Attachment
+** OK Attachment
 
 For storing the path, as this depends on ~org-attach-id-dir~, this directory has to be added to the configuration file. If not set the default value "data/" is used. Apart from that it is handled like link type file.
 
@@ -130,7 +126,7 @@ For storing the path, as this depends on ~org-attach-id-dir~, this directory has
 - [[attachment:projects.org]]
 - [[attachment:projects.org][description: attachment:projects.org]]
 
-*** OK Docview
+** OK Docview
 
 This is handle like link type file.
 
@@ -138,7 +134,7 @@ This is handle like link type file.
 - [[docview:/etc/test.pdf]]
 - [[docview:/etc/test.pdf][description: docview:/etc/test.pdf]]
 
-*** OK ID
+** OK ID
 
 To be able to get the path the ~org-id-locations-file~ has to be searched.
 
@@ -146,7 +142,7 @@ To be able to get the path the ~org-id-locations-file~ has to be searched.
 - [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5]]
 - [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5][description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5]]
 
-*** OK Others
+** OK Others
 
 - http://orgmode.org
 - https://orgmode.org 
@@ -182,9 +178,9 @@ To be able to get the path the ~org-id-locations-file~ has to be searched.
 - elisp:org-todo
 - [[elisp:(find-file "~/.emacs.d/init.el")]]
 
-** OK Custom Links
+* OK Custom Link Types
 
-Specification: https://orgmode.org/manual/Adding-Hyperlink-Types.html
+Specification: [[https://orgmode.org/manual/Adding-Hyperlink-Types.html][Adding Hyperlink Types (The Org Manual)]]
 
 To be able to recognize plain link with a custom link type, they need to be added in the configuration file. For the test I added =customlink= to the configuration file.
 
@@ -192,9 +188,9 @@ To be able to recognize plain link with a custom link type, they need to be adde
 - [[customlink:test]]
 - [[customlink:test][description: customlink:test]]
 
-** OK Search Options
+* OK Search Options
 
-Specification: https://orgmode.org/manual/Search-Options.html
+Specification: [[https://orgmode.org/manual/Search-Options.html][Search Options (The Org Manual)]]
 
 Those search options are stored in a separated field.
 
@@ -220,41 +216,51 @@ Those search options are stored in a separated field.
 - docview:papers/last.pdf::12
 - [[docview:papers/last.pdf::12]]
 
-** NOT_IMPLEMENTING Link Abbrevations
+* NOT_IMPLEMENTING Link Abbrevations
 
 Specification: https://orgmode.org/manual/Link-Abbreviations.html
 
 Long URLs can be abbreviated like ~[[linkword:tag][description]]~. But to find out the URL the variable ~org-link-abbrev-alist~ is needed. This is very rare so I won't implement it.
 
-* Special Cases
+* OK Links in Angle Brackets
 
-Under some circumstances links have to be ignored.
+Specification (at the end): [[https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html][External Links (The Org Manual)]]
+
+Plain URIs are recognized only for a well-defined set of schemes. Unlike URI syntax, they cannot contain parenthesis or white spaces, either. URIs within angle brackets have no such limitation.
+
+- <file:::*Links in Angle Brackets>
+- <info:org#External Link>
+- <shell:ls *.org>
+- <https://orgmode.org/ spaces >
+- <https://orgmode.org/ spaces >
+
+* Ignored Links
+
+Org-mode typically ignores links under certain circumstances (e.g., within comments or code blocks). While my implementation generally follows the parsing rules established by ~org-element-parse-buffer~, I made a deliberate exception: Links found within the Property Drawer (:PROPERTIES:) are also parsed, which deviates from the standard logic.
 
 ** Links to Ignore
 
-Inside ~ ~https://orgmode.org~
+*** OK Text marked as Verbatim or Code
 
+Inside ~ ~https://orgmode.org~
 Inside = =https://orgmode.org=
 
-Inside <<...>> <<https://orgmode.org>>
+*** OK Code Blocks & Inline Code Blocks
 
-Inside an inline code block and its result:
+Specification: [[https://orgmode.org/manual/Structure-of-Code-Blocks.html][Structure of Code Blocks (The Org Manual)]]
 
-src_elisp{"https://orgmode.org"} {{{results(=https://orgmode.org=)}}} 
-src_elisp[:results raw]{"https://orgmode.org"} https://orgmode.org 
-
-Inside #+BEGIN_SRC blocks:
 #+BEGIN_SRC emacs-lisp
   [[https://www.example.com][no real link]]
   https://www.example.com
 #+END_SRC
 
-#+BEGIN_SRC
-  [[https://www.example.com][no real link]]
-  https://www.example.com
-#+END_SRC
+src_elisp{"https://orgmode.org"} {{{results(=https://orgmode.org=)}}} 
+src_elisp[:results raw]{"https://orgmode.org"}
 
-Inside #+BEGIN_EXAMPLE blocks:
+*** OK Example Blocks & Example Lines
+
+Specification: [[https://orgmode.org/manual/Literal-Examples.html][Literal Examples (The Org Manual)]]
+
 #+BEGIN_EXAMPLE
   [[https://www.example.com][no real link]]
   https://www.example.com
@@ -264,12 +270,47 @@ When lines starts with colon:
 : [[https://www.example.com][no real link]]
 : https://www.example.com 
 
+*** OK Comments & Comment Blocks
+
+Specification: [[https://orgmode.org/manual/Comment-Lines.html][Comment Lines (The Org Manual)]]
+
+#+BEGIN_COMMENT
+[[https://orgmode.org][link in comment block]]
+#+END_COMMENT
+
 When line starts with # (commented):
 # [[mailto:emacs-orgmode@gnu.org]]
 # file:src/
 # [[https://orgmode.org]]
 
-** Links to Parse
+*** OK Export Blocks
+
+Specification:
+
+- [[https://orgmode.org/manual/Quoting-HTML-tags.html][Quoting HTML tags (The Org Manual)]]
+- [[https://orgmode.org/manual/Quoting-LaTeX-code.html][Quoting LaTeX code (The Org Manual)]]
+- [[https://www.gnu.org/software//emacs/manual/html_node/org/ASCII_002fLatin_002d1_002fUTF_002d8-export.html][ASCII/Latin-1/UTF-8 export (The Org Manual)]]
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Beamer-specific-syntax.html][Beamer specific syntax (The Org Manual)]]
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Quoting-Texinfo-code.html][Quoting Texinfo code (The Org Manual)]]
+
+All export blocks starting with ~#+BEGIN_EXPORT~.
+
+#+BEGIN_EXPORT LATEX
+https://orgmode.org
+[[https://orgmode.org][link in latex block]]
+#+END_EXPORT
+
+#+BEGIN_EXPORT HTML
+https://orgmode.org
+[[https://orgmode.org][link in html block]]
+#+END_EXPORT
+
+And the inline version:
+
+@@html:https://www.google.ch@@
+@@latex:https://www.google.ch@@
+
+** OK Links to Parse
 
 And those have to be parsed.
 
@@ -281,40 +322,32 @@ And those have to be parsed.
 [[https://orgmode.org][link in quote block]]
 #+END_QUOTE
 
-#+BEGIN_COMMENT
-[[https://orgmode.org][link in comment block]]
-#+END_COMMENT
+#+BEGIN_CENTER
+[[https://orgmode.org][link in a center block]]
+#+END_CENTER
 
-#+BEGIN_LaTeX
-[[https://orgmode.org][link in latex block]]
-#+END_LaTeX
+#+BEGIN_JUSTIFYLEFT
+[[https://orgmode.org][link in a center block]]
+#+END_JUSTIFYLEFT
 
-#+BEGIN_HTML
-[[https://orgmode.org][link in html block]]
-#+END_HTML
-
-#+BEGIN_ASCII
-[[https://orgmode.org][link in ascii block]]
-#+END_ASCII
+#+BEGIN_JUSTIFYRIGHT
+[[https://orgmode.org][link in a center block]]
+#+END_JUSTIFYRIGHT
 
 :A_DRAWER:
 [[https://orgmode.org][link in a drawer]]
 :END:
 
-#+BEGIN_CENTER
-[[https://orgmode.org][link in a center block]]
-#+END_CENTER
+*** Link in Heading [[file:::10]]
 
 *** In Property Drawer
 :PROPERTIES:
 :link_to_parse: [[https://orgmode.org][link in property drawer]]
 :END:
 
-*** Link in Heading [[file:::10]]
+** OK Unicode Characters
 
-** Test Unicode Characters
-
-This is also to test if position is staying correct.
+To test if unicode characters are working and if the position is staying correct (bytes vs chars).
 
 Text with: äöü ÄÖÜ 😀😇🤖
 
@@ -325,4 +358,6 @@ Some body text with a link: https://orgmode.org/🔥
 And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
 
 https://orgmode.org/🔥
+
+<https://orgmode.org/ 🔥>
 

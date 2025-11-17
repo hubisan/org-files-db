@@ -3,7 +3,7 @@
 
 * Parser
 
-** Parser Modularisieren
+** NEXT Parser Modularisieren
 
 Auch in Files splitten, schon nur damit einfacher mit AI.
 
@@ -254,12 +254,22 @@ Gibt sonst ein riesen Durcheinander:
   }
 #+END_SRC
 *** DONE Description bei Links fehlt
-*** NEXT Links in Comment Blocks are ok, but not if line comment #, org line with : at start
+*** TODO Links in Comment Blocks are ok, but not if line comment #, org line with : at start
 Ich mache den Link Scanner neu, so komme ich nirgends hin und wird immer verzwickter.
 *** TODO Need to be parsed Links in Property, and other Drawers? 
 
 ** Features
 *** DONE Link raw fehlt
+*** NEXT Link Parser Regular Expressions
+org-link-bracket-re: "\\[\\[\\(\\(?:[^][\\]\\|\\\\\\(?:\\\\\\\\\\)*[][]\\|\\\\+[^][]\\)+\\)]\\(?:\\[\\([^z-a]+?\\)]\\)?]"
+
+org-link-plain-re
+"\\(?:\\<\\(?:\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|news\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\)\\):\\(\\(?:[^][ 	\n()<>]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)+\\(?:[^[:punct:][:space:]\n]\\|[/-]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)\\)\\)"
+
+org-link-angle-re
+"<\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|news\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\):\\([^>\n]*\\(?:\n[ 	]*[^> 	\n][^>\n]*\\)*\\)>"
+
+
 *** TODO config
 wie kann man die Konfiguration am besten speichern? .conf datei oder .ini? Und wie lege ich Standardwerte fest? wie für das Attachment dir?
 Konf:
