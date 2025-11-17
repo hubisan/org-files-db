@@ -240,23 +240,6 @@ Gibt sonst ein riesen Durcheinander:
 #+END_SRC
 
 ** Bugs
-*** DONE Post bei Links ist irgendwie falsch
-
-#+BEGIN_SRC js-json
-  {
-    "link_type": "https",
-    "path": "//www.example.com",
-    "path_absolute": null,
-    "search_option": null,
-    "description": null,
-    "format": "plain",
-    "pos": 3240
-  }
-#+END_SRC
-*** DONE Description bei Links fehlt
-*** TODO Links in Comment Blocks are ok, but not if line comment #, org line with : at start
-Ich mache den Link Scanner neu, so komme ich nirgends hin und wird immer verzwickter.
-*** TODO Need to be parsed Links in Property, and other Drawers? 
 
 ** Features
 *** DONE Link raw fehlt
@@ -292,6 +275,7 @@ Damit nicht so verstreut.
 *** TODO Category Keyword parsen
 Vielleicht doch besser alle Keywords parsen. Aber Category ist speziell.
 https://orgmode.org/manual/In_002dbuffer-Settings.html
+
 *** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
 [[info:org#Per-file keywords][org#Per-file keywords]]
 *** TODO Not sure where this belongs - link to heading id

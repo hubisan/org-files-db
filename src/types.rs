@@ -21,7 +21,7 @@ pub struct OrgLink {
 
     // If custom id or id then store the link to be able to link to the heading
     // or file later on.
-    pub heading_id: Option<String>,
+    pub target_heading_id: Option<String>,
 
     /// Search-Option (#anchor, *heading, Text…)
     pub search_option: Option<String>,

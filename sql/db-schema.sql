@@ -187,26 +187,6 @@ CREATE TABLE IF NOT EXISTS links (
 );
 
 --------------------------------------------------
--- CITATIONS
---------------------------------------------------
-CREATE TABLE IF NOT EXISTS citations (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_id        INTEGER NOT NULL,
-    heading_id     INTEGER,
-    pos            INTEGER NOT NULL,
-    cite_key       TEXT NOT NULL,
-
-    CONSTRAINT fk_citations_file
-        FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
-
-    CONSTRAINT fk_citations_heading
-        FOREIGN KEY (heading_id) REFERENCES headings(id)
-            ON DELETE SET NULL,
-
-    CONSTRAINT uq_citations UNIQUE (file_id, pos, cite_key)
-);
-
---------------------------------------------------
 -- INDEXES
 --------------------------------------------------
 
@@ -260,10 +240,6 @@ CREATE INDEX IF NOT EXISTS idx_links_path
 
 CREATE INDEX IF NOT EXISTS idx_links_type
     ON links(type);
-
--- CITATIONS
-CREATE INDEX IF NOT EXISTS idx_citations_key
-    ON citations(cite_key);
 
 -- HEADING PATH
 CREATE INDEX IF NOT EXISTS idx_hp_heading
