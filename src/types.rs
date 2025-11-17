@@ -19,6 +19,10 @@ pub struct OrgLink {
     /// - relativ zum Org-File berechnet
     pub path_absolute: Option<String>,
 
+    // If custom id or id then store the link to be able to link to the heading
+    // or file later on.
+    pub heading_id: Option<String>,
+
     /// Search-Option (#anchor, *heading, Text…)
     pub search_option: Option<String>,
 

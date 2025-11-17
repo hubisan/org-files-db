@@ -1,0 +1,328 @@
+#+TITLE: Org Tests for Links
+#+STARTUP: showall
+#+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
+
+See following pages in the manual:
+
+- https://orgmode.org/guide/Hyperlinks.html
+  
+* Internal Links 
+:PROPERTIES:
+:CUSTOM_ID: internal-link-to-custom-id
+:END:
+
+Specification: https://orgmode.org/manual/Internal-Links.html
+
+** OK Internal Link to a Custom ID
+Stored and linked to the target heading.
+- [[#internal-link-to-custom-id]]
+- [[#internal-link-to-custom-id][description: internal-link-to-custom-id]]
+
+** PARTLY Internal Link to a Heading by Name
+The link ist stored but not linked to the target heading.
+- [[*Internal Links]]
+- [[*Internal Links][description: Internal Links with Heading Name]]
+
+** PARTLY Internal Link to Dedicated Target
+The link ist stored but not linked to the target heading.
+<<dedicated target>>
+- [[dedicated target]]
+- [[dedicated target][description: dedicated target]]
+
+** PARTLY Internal Link to Named Target
+The link ist stored but not linked to the target heading.
+#+NAME: named target
+- [[named target]]
+- [[named target][description: named target]]
+
+** PARTLY Internal Link with None from Above
+The behaviour depends on ~org-link-search-must-match-exact-headline~.
+The link ist stored but not linked to the target heading.
+- [[no matching target]]
+- [[no matching target][description: no matching target]]
+
+* Radio Targets
+
+Specification: https://orgmode.org/manual/Radio-Targets.html
+
+** NOT_IMPLEMENTING Radio Target Links
+Those links are not parsed.
+<<<radio target link>>>
+radio target link
+
+* External Links
+
+** Built-in Links 
+
+Built-in links are stored. External links can also be plain, as long as they start with the link type.
+
+*** OK File
+If a file link links to a heading in an org file which is tracked, it is linked to the target heading.
+- Absolute
+  - file:/etc
+  - [[file:/etc]]
+  - [[file:/etc][description: /etc]]
+  - [[/etc]]
+  - file+sys:/etc
+  - file+emacs:/etc
+  - [[file+emacs:/etc]]
+  - [[file+sys:/etc][desription: file+sys:/etc]]
+
+  - file:/etc/
+  - [[file:/etc/]]
+  - [[file:/etc/][description: /etc/]]
+  - [[/etc/]]
+
+  - file:/etc/host.conf
+  - [[file:/etc/host.conf]]
+  - [[file:/etc/host.conf][description: /etc/host.conf]]
+  - [[/etc/host.conf]]
+  - file+sys:/etc/host.conf
+  - file+emacs:/etc/host.conf
+
+- Relative
+  The parser will also create the absolute file name and store it.
+  - file:../
+  - [[file:../]]
+  - [[file:../][description: ../]]
+  - [[../]]
+
+  - file:../../sql
+  - [[file:../../sql]]
+  - [[file:../../sql][description: ../../sql]]
+  - [[../../sql]]
+
+  - file:../../sql/
+  - [[file:../../sql/]]
+  - [[file:../../sql/][description: ../../sql/]]
+  - [[../../sql/]]
+
+  - file:../parser_test.rs
+  - [[file:../parser_test.rs]]
+  - [[file:../parser_test.rs][description: ../parser_test.rs]]
+  - [[../parser_test.rs]]
+
+  - file:./org-test-links.org
+  - [[file:./org-test-links.org]]
+  - [[file:./org-test-links.org][description: ./org-test-links.org]]
+  - [[./org-test-links.org]]
+
+- With home directory abbreviated
+  Parser store the path as it is and will expand the home directory when storing the absolute path.
+
+  - file:~/.emacs.d
+  - [[file:~/.emacs.d]]
+  - [[file:~/.emacs.d][description: file:~/.emacs.d]]
+
+  - file:~/.emacs.d/
+  - [[file:~/.emacs.d/]]
+  - [[file:~/.emacs.d/][description: file:~/.emacs.d/]]
+
+  - file:~/.emacs.d/init.el
+  - [[file:~/.emacs.d/init.el]]
+  - [[file:~/.emacs.d/init.el][description: file:~/.emacs.d/init.el]]
+      
+*** OK Attachment
+
+For storing the path, as this depends on ~org-attach-id-dir~, this directory has to be added to the configuration file. If not set the default value "data/" is used. Apart from that it is handled like link type file.
+
+- attachment:projects.org
+- [[attachment:projects.org]]
+- [[attachment:projects.org][description: attachment:projects.org]]
+
+*** OK Docview
+
+This is handle like link type file.
+
+- docview:/etc/test.pdf
+- [[docview:/etc/test.pdf]]
+- [[docview:/etc/test.pdf][description: docview:/etc/test.pdf]]
+
+*** OK ID
+
+To be able to get the path the ~org-id-locations-file~ has to be searched.
+
+- id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5
+- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5]]
+- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5][description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5]]
+
+*** OK Others
+
+- http://orgmode.org
+- https://orgmode.org 
+- [[http://orgmode.org]]
+- [[http://orgmode.org][description: http://orgmode.org]]
+- [[https://orgmode.org]]
+- [[https://orgmode.org][description: https://orgmode.org]]
+- doi:10.1000/182
+- [[doi:10.1000/182]]
+- news:comp.emacs
+- [[news:comp.emacs]]
+- mailto:emacs-orgmode@gnu.org
+- [[mailto:emacs-orgmode@gnu.org]]
+- mhe:folder
+- mhe:folder#id
+- [[mhe:folder]]
+- rmail:folder
+- rmail:folder#id
+- [[rmail:folder]]
+- gnus:group
+- gnus:group#id
+- [[gnus:group]]
+- bbdb:B.*Harper
+- [[bbdb:B.*Harper]]
+- irc:/irc.com/#emacs/bob
+- [[irc:/irc.com/#emacs/bob]]
+- help:org-store-link
+- [[help:org-store-link]]
+- info:org#Link
+- [[info:org#External Link]]
+- shell:ls
+- [[shell:ls *.org  ]]
+- elisp:org-todo
+- [[elisp:(find-file "~/.emacs.d/init.el")]]
+
+** OK Custom Links
+
+Specification: https://orgmode.org/manual/Adding-Hyperlink-Types.html
+
+To be able to recognize plain link with a custom link type, they need to be added in the configuration file. For the test I added =customlink= to the configuration file.
+
+- customlink:test
+- [[customlink:test]]
+- [[customlink:test][description: customlink:test]]
+
+** OK Search Options
+
+Specification: https://orgmode.org/manual/Search-Options.html
+
+Those search options are stored in a separated field.
+
+- file:./org-test-links.org::10
+- [[./org-test-links.org::10]]
+- [[./org-test-links.org::10][desription: ./org-test-links.org::10]]
+- file:::10 (special for current file, only works with search option)
+- [[file:::10]]
+- [[file:::10][description: file:::10]]
+
+- id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10
+- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10]]
+- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10][description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10]]
+
+- file:./org-test-links.org::#internal-link-to-custom-id
+- [[./org-test-links.org::#internal-link-to-custom-id]]
+- [[./org-test-links.org::#internal-link-to-custom-id][description: ./org-test-links.org::#internal-link-to-custom-id]]
+
+- [[./org-test-links.org::dedicated target]]
+- [[./org-test-links.org::*Search Options]]
+- file:./org-test-links.org::/*.External.*/
+- [[./org-test-links.org::/*.Search.*/]]
+- docview:papers/last.pdf::12
+- [[docview:papers/last.pdf::12]]
+
+** NOT_IMPLEMENTING Link Abbrevations
+
+Specification: https://orgmode.org/manual/Link-Abbreviations.html
+
+Long URLs can be abbreviated like ~[[linkword:tag][description]]~. But to find out the URL the variable ~org-link-abbrev-alist~ is needed. This is very rare so I won't implement it.
+
+* Special Cases
+
+Under some circumstances links have to be ignored.
+
+** Links to Ignore
+
+Inside ~ ~https://orgmode.org~
+
+Inside = =https://orgmode.org=
+
+Inside <<...>> <<https://orgmode.org>>
+
+Inside an inline code block and its result:
+
+src_elisp{"https://orgmode.org"} {{{results(=https://orgmode.org=)}}} 
+src_elisp[:results raw]{"https://orgmode.org"} https://orgmode.org 
+
+Inside #+BEGIN_SRC blocks:
+#+BEGIN_SRC emacs-lisp
+  [[https://www.example.com][no real link]]
+  https://www.example.com
+#+END_SRC
+
+#+BEGIN_SRC
+  [[https://www.example.com][no real link]]
+  https://www.example.com
+#+END_SRC
+
+Inside #+BEGIN_EXAMPLE blocks:
+#+BEGIN_EXAMPLE
+  [[https://www.example.com][no real link]]
+  https://www.example.com
+#+END_EXAMPLE
+
+When lines starts with colon:
+: [[https://www.example.com][no real link]]
+: https://www.example.com 
+
+When line starts with # (commented):
+# [[mailto:emacs-orgmode@gnu.org]]
+# file:src/
+# [[https://orgmode.org]]
+
+** Links to Parse
+
+And those have to be parsed.
+
+#+BEGIN_VERSE
+[[https://orgmode.org][link in verse block]]
+#+END_VERSE
+
+#+BEGIN_QUOTE
+[[https://orgmode.org][link in quote block]]
+#+END_QUOTE
+
+#+BEGIN_COMMENT
+[[https://orgmode.org][link in comment block]]
+#+END_COMMENT
+
+#+BEGIN_LaTeX
+[[https://orgmode.org][link in latex block]]
+#+END_LaTeX
+
+#+BEGIN_HTML
+[[https://orgmode.org][link in html block]]
+#+END_HTML
+
+#+BEGIN_ASCII
+[[https://orgmode.org][link in ascii block]]
+#+END_ASCII
+
+:A_DRAWER:
+[[https://orgmode.org][link in a drawer]]
+:END:
+
+#+BEGIN_CENTER
+[[https://orgmode.org][link in a center block]]
+#+END_CENTER
+
+*** In Property Drawer
+:PROPERTIES:
+:link_to_parse: [[https://orgmode.org][link in property drawer]]
+:END:
+
+*** Link in Heading [[file:::10]]
+
+** Test Unicode Characters
+
+This is also to test if position is staying correct.
+
+Text with: äöü ÄÖÜ 😀😇🤖
+
+*** Übung 🚀 Ein Titel mit Umlaut und Emoji                         :foo:bar:
+
+Some body text with a link: https://orgmode.org/🔥
+
+And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
+
+https://orgmode.org/🔥
+

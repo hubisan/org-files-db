@@ -3,6 +3,242 @@
 
 * Parser
 
+** Parser Modularisieren
+
+Auch in Files splitten, schon nur damit einfacher mit AI.
+
+Gibt sonst ein riesen Durcheinander:
+
+#+BEGIN_SRC rust-ts
+  for (lineno, line) in lines.enumerate() {
+
+      context.update(line);
+
+      if context.is_heading_line() {
+          headings.push(parse_heading(line, context));
+          continue;
+      }
+
+      if context.is_property_line() {
+          parse_property(line);
+          continue;
+      }
+
+      if context.allows_links() {
+          scan_links(line);
+      }
+
+      // weitere Module (planning, tags etc.)
+  }
+#+END_SRC
+
+#+BEGIN_SRC rust-ts
+  // ─────────────────────────────────────────────────────────────
+  //   Parser-Kontext: Zustände + optionaler Fast-Skip-Modus
+  // ─────────────────────────────────────────────────────────────
+
+  #[derive(Default)]
+  struct Context {
+      // normale Block-Zustände
+      in_src: bool,
+      in_example: bool,
+      in_export: bool,
+      in_comment_block: bool,
+      drawer_stack: Vec<String>,
+      in_properties: bool,
+
+      // der neue, optionale Fast-Skip-Modus
+      fast_skip: bool,
+  }
+
+  impl Context {
+      /// Wird am Anfang jeder Zeile aufgerufen.
+      /// Aktualisiert den Zustand, aber implementiert noch keine konkrete
+      /// Skip-Entscheidung – nur die Struktur dafür.
+      fn update(&mut self, line: &str) {
+          let trimmed = line.trim();
+
+          // ─── BEGIN Block ───────────────────────────
+          if let Some(name) = parse_begin_block(trimmed) {
+              let lname = name.to_ascii_lowercase();
+
+              // HIER später entscheiden:
+              // if lname == "src" { self.fast_skip = true }
+
+              match lname.as_str() {
+                  "src"     => self.in_src = true,
+                  "example" => self.in_example = true,
+                  "export"  => self.in_export = true,
+                  "comment" => self.in_comment_block = true,
+                  _ => {}
+              }
+
+              return;
+          }
+
+          // ─── END Block ─────────────────────────────
+          if let Some(name) = parse_end_block(trimmed) {
+              let lname = name.to_ascii_lowercase();
+
+              // HIER später entscheiden:
+              // if lname == "src" { self.fast_skip = false }
+
+              match lname.as_str() {
+                  "src"     => self.in_src = false,
+                  "example" => self.in_example = false,
+                  "export"  => self.in_export = false,
+                  "comment" => self.in_comment_block = false,
+                  _ => {}
+              }
+
+              return;
+          }
+
+          // ─── Drawer ────────────────────────────────
+          if let Some(dname) = parse_drawer_start(trimmed) {
+              let up = dname.to_ascii_uppercase();
+              self.drawer_stack.push(up.clone());
+              self.in_properties = up == "PROPERTIES";
+              return;
+          }
+
+          if is_drawer_end(trimmed) {
+              if let Some(name) = self.drawer_stack.pop() {
+                  if name == "PROPERTIES" {
+                      self.in_properties = false;
+                  }
+              }
+              return;
+          }
+      }
+
+      /// HIER wird später entschieden, ob spezielle Blocktypen Links erlauben.
+      fn allows_links(&self, line: &str) -> bool {
+          if self.fast_skip {
+              return false;
+          }
+
+          let trimmed = line.trim();
+
+          if trimmed.starts_with('#') && !trimmed.starts_with("#+") {
+              return false;
+          }
+
+          if trimmed.starts_with(':') && self.drawer_stack.is_empty() {
+              return false;
+          }
+
+          // default = erlaubt
+          true
+      }
+
+      fn in_properties_drawer(&self) -> bool {
+          self.in_properties && !self.fast_skip
+      }
+
+      /// Abfrage, ob diese Zeile den Fast-Skip beenden könnte.
+      /// Logik wird später konkretisiert.
+      fn maybe_end_fast_skip(&mut self, line: &str) {
+          if self.fast_skip {
+              let trimmed = line.trim();
+              if trimmed.to_ascii_lowercase().starts_with("#+end_") {
+                  // konkrete Prüfung folgt später
+                  // self.fast_skip = false;
+              }
+          }
+      }
+  }
+
+
+  // ─────────────────────────────────────────────────────────────
+  //  Helper-Funktionen (noch immer generisch, unverändert)
+  // ─────────────────────────────────────────────────────────────
+
+  fn parse_begin_block(line: &str) -> Option<&str> {
+      line.strip_prefix("#+BEGIN_")
+  }
+
+  fn parse_end_block(line: &str) -> Option<&str> {
+      line.strip_prefix("#+END_")
+  }
+
+  fn parse_drawer_start(line: &str) -> Option<&str> {
+      if line.starts_with(':') && line.ends_with(':') {
+          let name = &line[1..line.len() - 1];
+          if !name.contains(char::is_whitespace) {
+              return Some(name);
+          }
+      }
+      None
+  }
+
+  fn is_drawer_end(line: &str) -> bool {
+      line.trim().eq_ignore_ascii_case(":end:")
+  }
+
+  fn is_heading_line(line: &str) -> bool {
+      line.starts_with('*')
+  }
+
+
+  // ─────────────────────────────────────────────────────────────
+  //   Module (nur Schnittstellen)
+  // ─────────────────────────────────────────────────────────────
+
+  fn parse_heading(line: &str) {
+      // TODO
+  }
+
+  fn parse_properties(line: &str) {
+      // TODO
+  }
+
+  fn scan_links(line: &str) {
+      // TODO
+  }
+
+
+  // ─────────────────────────────────────────────────────────────
+  //   Hauptschleife – mit vorbereitetem Fast-Skip-Hook
+  // ─────────────────────────────────────────────────────────────
+
+  pub fn parse_org(input: &str) {
+      let mut ctx = Context::default();
+
+      for line in input.lines() {
+          // 1) Falls wir im Fast-Skip sind:
+          ctx.maybe_end_fast_skip(line);
+          if ctx.fast_skip {
+              // später wird die END-Logik hier exakter implementiert
+              continue; 
+          }
+
+          // 2) Kontext aktualisieren
+          ctx.update(line);
+
+          // 3) Heading
+          if is_heading_line(line) {
+              parse_heading(line);
+              continue;
+          }
+
+          // 4) Properties
+          if ctx.in_properties_drawer() {
+              parse_properties(line);
+              continue;
+          }
+
+          // 5) Links
+          if ctx.allows_links(line) {
+              scan_links(line);
+          }
+
+          // 6) weitere Module kommen später
+      }
+  }
+
+#+END_SRC
+
 ** Bugs
 *** DONE Post bei Links ist irgendwie falsch
 
@@ -19,10 +255,22 @@
 #+END_SRC
 *** DONE Description bei Links fehlt
 *** NEXT Links in Comment Blocks are ok, but not if line comment #, org line with : at start
+Ich mache den Link Scanner neu, so komme ich nirgends hin und wird immer verzwickter.
 *** TODO Need to be parsed Links in Property, and other Drawers? 
 
 ** Features
 *** DONE Link raw fehlt
+*** TODO config
+wie kann man die Konfiguration am besten speichern? .conf datei oder .ini? Und wie lege ich Standardwerte fest? wie für das Attachment dir?
+Konf:
+- 
+- Dirs (recursive or not) und Dateien zum scannen
+- org todo keywords
+- org-id location
+- attachment directory (relative or absolute)
+- link types
+- ...
+Write a funtion to dump all the current settings from Emacs to a conf file.
 *** TODO Relational Links - Link Relation
 Example würde von [[Daniel][Daniel (->Inhaber)]] 2023 gegründet.
 Für Parser: Relation erkennen " (->...)", entfernen und in Feld Relation verschieben.
@@ -33,7 +281,18 @@ Damit nicht so verstreut.
 *** TODO Headline pos und line fehlt
 *** TODO Category Keyword parsen
 Vielleicht doch besser alle Keywords parsen. Aber Category ist speziell.
+https://orgmode.org/manual/In_002dbuffer-Settings.html
 *** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
+[[info:org#Per-file keywords][org#Per-file keywords]]
+*** TODO Not sure where this belongs - link to heading id
+After links are stored, links to custom_id and id need to connected to the heading in the SQL db. For this I think the links need to be stored in the DB already.
+*** TODO File Types like File, muss auch den Pfad speichern
+- docview
+  Ist wie file einfach halt, dass es ein pdf öffnet z. B.
+- attachment
+  Benötigt eine Konfiguration
+*** TODO id links - scan the org-id file
+Sonst kann man die Pfade nicht rausfinden.
 
 ** Testing
 Keine Unit-Tests, einfach Output mit erwartetem Output vergleichen.

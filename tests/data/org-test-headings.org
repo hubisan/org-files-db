@@ -1,0 +1,6 @@
+#+TITLE: Org Tests for Headings
+#+STARTUP: showall
+#+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
+
+* Priortiy
+
