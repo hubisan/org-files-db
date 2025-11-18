@@ -206,6 +206,11 @@ Gibt sonst ein riesen Durcheinander:
       let mut ctx = Context::default();
 
       for line in input.lines() {
+
+          if line.starts_with(": ") || line.starts_with("# ") {
+              continue;
+          }
+
           // 1) Falls wir im Fast-Skip sind:
           ctx.maybe_end_fast_skip(line);
           if ctx.fast_skip {
