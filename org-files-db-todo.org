@@ -2,6 +2,81 @@
 #+STARTUP: showall
 
 * Parser
+** NEXT Alle Regular Expression zusammentragen
+
+- Block
+- Property
+- Keywords
+- Links
+- Emphasis Marker
+- Inline html, latex, Export
+- COMMENT
+- etc.
+
+** NEXT Prop Drawer
+
+Muss man auch erkennen, so ist der Prop Drawer keiner:
+
+#+BEGIN_SRC org
+  :PROPERTIES:
+  :test:     me
+
+
+
+
+  :END:
+#+END_SRC
+
+#+BEGIN_SRC org
+  :PROPERTIES:
+  :test:     me
+
+  Daniel ....
+#+END_SRC
+
+Eine gültige Heading unterbricht, dass ganze immer:
+
+org-block-regexp is a variable defined in org.el.
+
+Value
+"^[ 	]*#\\+begin_?\\([^ \n]+\\)\\(\\([^\n]+\\)\\)?\n\\(\\(?:.\\|\n\\)+?\\)#\\+end_?\\1[ 	]*$"
+
+org-babel-src-block-regexp is a variable defined in ob-core.el.
+
+Value
+"^\\([ 	]*\\)#\\+begin_src\\(?:[ 	]+\\([^ \f	\n
+]*\\)\\)?[ 	]*\\([^\":\n]*\"[^\"\n*]*\"[^\":\n]*\\|[^\":\n]*\\)\\([^\n]*\\)\n\\(\\(?:.\\|\n\\)*?\n\\)??[ 	]*#\\+end_src"
+
+
+
+#+BEGIN_SRC org
+
+  ,#+BEGIN_SRC emacs-lisp
+  "dsfsdf"
+
+  sdfsdfsd
+
+  ,* dsfsdf
+
+  ,#+BEGIN_EXAMPLE
+
+  ,* 
+  ,#+END_EXAMPLE
+
+#+END_SRC
+
+** NEXT Übel > wenn dies fehlt, erkennt es org und gibt keinen Fehler
+
+#+BEGIN_SRC org
+  ,#+BEGIN_SRC emacs-lisp
+  "dsfsdf"
+
+  sdfsdfsd
+
+#+END_SRC
+
+
+** NEXT Keywords nur vor erste Headline parsen
 
 ** NEXT Parser Modularisieren
 
