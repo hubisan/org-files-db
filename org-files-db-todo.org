@@ -15,6 +15,15 @@
 
 ** NEXT Prop Drawer
 
+LOGIK:
+
+- Es braucht Hilfsfunktionen, welche prüfen, ob es sich um einen gültigen Block oder Property Drawer handelt. Diese suche einfach weiter, bis sie ein Ende finden. 
+- Eine Heading unterbricht das ganze in jedem Fall
+
+- PropDrawer wird ungültig sobald keine property oder eine Heading.  props provisorisch speichern und falls nciht gültig verwerfen.
+
+- BEGIN_SRC provisorisch weiterhin links scannen und nur verwerfen, falls keine Heading mehr folgt und auch kein END_SRC. Ah, nerft
+
 Muss man auch erkennen, so ist der Prop Drawer keiner:
 
 #+BEGIN_SRC org
@@ -63,6 +72,28 @@ Value
   ,* 
   ,#+END_EXAMPLE
 
+#+END_SRC
+
+#+BEGIN_SRC org
+  ,#+BEGIN_SRC emacs-lisp
+
+  ,#+BEGIN_EXAMPLE
+
+  sdfdfsdf
+
+  ,#+END_EXAMPLE
+#+END_SRC
+
+#+BEGIN_SRC org
+  ,#+BEGIN_SRC emacs-lisp
+
+  ,#+BEGIN_EXAMPLE
+
+  sdfdfsdf
+
+  ,#+END_EXAMPLE
+
+  ,#+END_SRC
 #+END_SRC
 
 ** NEXT Übel > wenn dies fehlt, erkennt es org und gibt keinen Fehler
