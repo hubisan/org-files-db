@@ -3,8 +3,6 @@
 
 * Parser
 
-
-
 ** NEXT Parser Modularisieren
 
 Auch in Files splitten, schon nur damit einfacher mit AI.
@@ -12,17 +10,292 @@ Auch in Files splitten, schon nur damit einfacher mit AI.
 Gibt sonst ein riesen Durcheinander:
 
 #+BEGIN_SRC rust-ts
-  for (lineno, line) in lines.enumerate() {
+  // in context.rs:
 
+  #[derive(Default)]
+  pub struct Context {
+      /// Current active block (SRC, EXAMPLE, EXPORT, COMMENT)
+      pub block: Option<BlockType>,
+
+      /// True when inside :PROPERTIES: drawer
+      pub in_properties_drawer: bool,
+
+      /// Have we seen the first heading yet?
+      pub has_seen_heading: bool,
+
+      // ------------------------------------------------------------
+      // File-level + heading-level property drawer logic
+      // ------------------------------------------------------------
+
+      /// TRUE until the first heading is encountered.
+      /// Org: "Before the first headline, everything is file-level."
+      pub before_first_heading: bool,
+
+      pub property_drawer_allowed: bool,
+
+      pub planning_line_allowed: bool,
+  }
+
+  impl Context {
+      pub fn new() -> Self {
+          Context {
+              block: None,
+              in_properties_drawer: false,
+              has_seen_heading: false,
+
+              before_first_heading: true,
+              file_property_drawer_allowed: true,
+              heading_property_drawer_allowed: false,
+          }
+      }
+  }
+
+
+  // Kompletter Versuch von ChatGPT
+
+  // ------------------------------------------------------------
+  // Org Parser Context
+  // Tracks parser state: blocks, drawers, headings, and file-level rules.
+  // Fully Org-mode compliant.
+  // ------------------------------------------------------------
+
+  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+  pub enum BlockType {
+      Src,
+      Example,
+      Export,
+      Comment,
+  }
+
+  #[derive(Debug)]
+  pub struct Context {
+      // ------------------------------------------------------------
+      // BLOCK STATE
+      // ------------------------------------------------------------
+
+      /// Current active block (SRC / EXAMPLE / EXPORT / COMMENT)
+      pub block: Option<BlockType>,
+
+      /// True while inside a :PROPERTIES: ... :END: drawer
+      pub in_properties_drawer: bool,
+
+      // ------------------------------------------------------------
+      // HEADING STATE
+      // ------------------------------------------------------------
+
+      /// True after the first heading is seen
+      pub has_seen_heading: bool,
+
+      /// True until the first heading appears
+      pub before_first_heading: bool,
+
+      // ------------------------------------------------------------
+      // PROPERTY DRAWER RULES
+      // ------------------------------------------------------------
+
+      /// File-level PROPERTIES drawer is allowed only when:
+      /// - before first heading, and
+      /// - only comments/empty lines have occurred
+      pub file_property_drawer_allowed: bool,
+
+      /// After a heading (and optionally planning lines), exactly one
+      /// PROPERTIES drawer is allowed. Disabled once body text appears.
+      pub heading_property_drawer_allowed: bool,
+  }
+
+  impl Context {
+      // ------------------------------------------------------------
+      // Constructor
+      // ------------------------------------------------------------
+      pub fn new() -> Self {
+          Context {
+              block: None,
+              in_properties_drawer: false,
+
+              has_seen_heading: false,
+              before_first_heading: true,
+
+              file_property_drawer_allowed: true,
+              heading_property_drawer_allowed: false,
+          }
+      }
+
+      // ------------------------------------------------------------
+      // Public: Update state for each line
+      // ------------------------------------------------------------
+      /// Update the parser state based on the line:
+      /// - BEGIN_ blocks
+      /// - END_ blocks
+      /// - :PROPERTIES:
+      /// - :END:
+      pub fn update(&mut self, line: &str) {
+          let trimmed = line.trim();
+
+          if self.handle_begin_block(trimmed) { return; }
+          if self.handle_end_block(trimmed) { return; }
+
+          if self.handle_property_drawer_start(trimmed) { return; }
+          if self.handle_property_drawer_end(trimmed) { return; }
+      }
+
+      // ------------------------------------------------------------
+      // Block START detection
+      // ------------------------------------------------------------
+      fn handle_begin_block(&mut self, line: &str) -> bool {
+          if let Some(rest) = begins_with_ci(line, "#+BEGIN_") {
+              let kind = rest.trim().to_ascii_lowercase();
+
+              self.block = match kind.as_str() {
+                  "src"     => Some(BlockType::Src),
+                  "example" => Some(BlockType::Example),
+                  "export"  => Some(BlockType::Export),
+                  "comment" => Some(BlockType::Comment),
+                  _ => self.block,
+              };
+
+              return true;
+          }
+          false
+      }
+
+      // ------------------------------------------------------------
+      // Block END detection
+      // ------------------------------------------------------------
+      fn handle_end_block(&mut self, line: &str) -> bool {
+          if let Some(rest) = begins_with_ci(line, "#+END_") {
+              let kind = rest.trim().to_ascii_lowercase();
+
+              if let Some(active) = self.block {
+                  let matches = match (active, kind.as_str()) {
+                      (BlockType::Src,     "src")     => true,
+                      (BlockType::Example, "example") => true,
+                      (BlockType::Export,  "export")  => true,
+                      (BlockType::Comment, "comment") => true,
+                      _ => false,
+                  };
+
+                  if matches {
+                      self.block = None;
+                  }
+              }
+              return true;
+          }
+          false
+      }
+
+      // ------------------------------------------------------------
+      // PROPERTIES drawer START
+      // ------------------------------------------------------------
+      fn handle_property_drawer_start(&mut self, line: &str) -> bool {
+          if !line.eq_ignore_ascii_case(":PROPERTIES:") {
+              return false;
+          }
+
+          // Case 1: file-level drawer
+          if self.before_first_heading && self.file_property_drawer_allowed {
+              self.in_properties_drawer = true;
+              return true;
+          }
+
+          // Case 2: heading-level drawer
+          if self.heading_property_drawer_allowed {
+              self.in_properties_drawer = true;
+              return true;
+          }
+
+          // Invalid drawer → ignored
+          false
+      }
+
+      // ------------------------------------------------------------
+      // PROPERTIES drawer END
+      // ------------------------------------------------------------
+      fn handle_property_drawer_end(&mut self, line: &str) -> bool {
+          if !line.eq_ignore_ascii_case(":END:") {
+              return false;
+          }
+
+          if self.in_properties_drawer {
+              self.in_properties_drawer = false;
+              return true;
+          }
+
+          false
+      }
+
+      // ------------------------------------------------------------
+      // Utility: Are we currently inside a block where parsing is disabled?
+      // ------------------------------------------------------------
+      pub fn in_ignored_block(&self) -> bool {
+          matches!(
+              self.block,
+              Some(BlockType::Src | BlockType::Example | BlockType::Export | BlockType::Comment)
+          )
+      }
+
+      // ------------------------------------------------------------
+      // Utility: call when a heading is parsed
+      // ------------------------------------------------------------
+      pub fn note_heading_seen(&mut self) {
+          self.has_seen_heading = true;
+          self.before_first_heading = false;
+          self.heading_property_drawer_allowed = true; // drawer allowed right below heading
+      }
+
+      // ------------------------------------------------------------
+      // Utility: call when a planning line is parsed
+      // ------------------------------------------------------------
+      pub fn note_planning_line(&mut self) {
+          self.heading_property_drawer_allowed = true;
+      }
+
+      // ------------------------------------------------------------
+      // Utility: call when normal content appears after heading
+      // ------------------------------------------------------------
+      pub fn note_body_content(&mut self) {
+          // Planning drawer window closes
+          self.heading_property_drawer_allowed = false;
+      }
+  }
+
+  // ------------------------------------------------------------
+  // Fast case-insensitive prefix checker
+  // ------------------------------------------------------------
+  #[inline(always)]
+  fn begins_with_ci<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
+      let p = prefix.as_bytes();
+      let l = line.as_bytes();
+
+      if l.len() > p.len() && l[..p.len()].eq_ignore_ascii_case(p) {
+          Some(&line[p.len()..])
+      } else {
+          None
+      }
+  }
+
+
+  // im parser.rs
+
+  for (lineno, line) in lines.enumerate() {
       context.update(line);
 
-      if context.is_heading_line() {
-          headings.push(parse_heading(line, context));
+      if context.is_heading_line(line) {
+          parse_heading(line);
           continue;
       }
 
-      if context.is_property_line() {
-          parse_property(line);
+      if context.is_property_drawer_start(line) {
+          context.enter_property_drawer();
+          continue;
+      }
+
+      if context.in_properties_drawer {
+          parse_drawer_property(line);
+          continue;
+      }
+
+      if context.is_inline_property(line) {
+          parse_inline_property(line);
           continue;
       }
 
@@ -30,219 +303,9 @@ Gibt sonst ein riesen Durcheinander:
           scan_links(line);
       }
 
-      // weitere Module (planning, tags etc.)
-  }
-#+END_SRC
-
-#+BEGIN_SRC rust-ts
-  // ─────────────────────────────────────────────────────────────
-  //   Parser-Kontext: Zustände + optionaler Fast-Skip-Modus
-  // ─────────────────────────────────────────────────────────────
-
-  #[derive(Default)]
-  struct Context {
-      // normale Block-Zustände
-      in_src: bool,
-      in_example: bool,
-      in_export: bool,
-      in_comment_block: bool,
-      drawer_stack: Vec<String>,
-      in_properties: bool,
-
-      // der neue, optionale Fast-Skip-Modus
-      fast_skip: bool,
+      // weitere Module...
   }
 
-  impl Context {
-      /// Wird am Anfang jeder Zeile aufgerufen.
-      /// Aktualisiert den Zustand, aber implementiert noch keine konkrete
-      /// Skip-Entscheidung – nur die Struktur dafür.
-      fn update(&mut self, line: &str) {
-          let trimmed = line.trim();
-
-          // ─── BEGIN Block ───────────────────────────
-          if let Some(name) = parse_begin_block(trimmed) {
-              let lname = name.to_ascii_lowercase();
-
-              // HIER später entscheiden:
-              // if lname == "src" { self.fast_skip = true }
-
-              match lname.as_str() {
-                  "src"     => self.in_src = true,
-                  "example" => self.in_example = true,
-                  "export"  => self.in_export = true,
-                  "comment" => self.in_comment_block = true,
-                  _ => {}
-              }
-
-              return;
-          }
-
-          // ─── END Block ─────────────────────────────
-          if let Some(name) = parse_end_block(trimmed) {
-              let lname = name.to_ascii_lowercase();
-
-              // HIER später entscheiden:
-              // if lname == "src" { self.fast_skip = false }
-
-              match lname.as_str() {
-                  "src"     => self.in_src = false,
-                  "example" => self.in_example = false,
-                  "export"  => self.in_export = false,
-                  "comment" => self.in_comment_block = false,
-                  _ => {}
-              }
-
-              return;
-          }
-
-          // ─── Drawer ────────────────────────────────
-          if let Some(dname) = parse_drawer_start(trimmed) {
-              let up = dname.to_ascii_uppercase();
-              self.drawer_stack.push(up.clone());
-              self.in_properties = up == "PROPERTIES";
-              return;
-          }
-
-          if is_drawer_end(trimmed) {
-              if let Some(name) = self.drawer_stack.pop() {
-                  if name == "PROPERTIES" {
-                      self.in_properties = false;
-                  }
-              }
-              return;
-          }
-      }
-
-      /// HIER wird später entschieden, ob spezielle Blocktypen Links erlauben.
-      fn allows_links(&self, line: &str) -> bool {
-          if self.fast_skip {
-              return false;
-          }
-
-          let trimmed = line.trim();
-
-          if trimmed.starts_with('#') && !trimmed.starts_with("#+") {
-              return false;
-          }
-
-          if trimmed.starts_with(':') && self.drawer_stack.is_empty() {
-              return false;
-          }
-
-          // default = erlaubt
-          true
-      }
-
-      fn in_properties_drawer(&self) -> bool {
-          self.in_properties && !self.fast_skip
-      }
-
-      /// Abfrage, ob diese Zeile den Fast-Skip beenden könnte.
-      /// Logik wird später konkretisiert.
-      fn maybe_end_fast_skip(&mut self, line: &str) {
-          if self.fast_skip {
-              let trimmed = line.trim();
-              if trimmed.to_ascii_lowercase().starts_with("#+end_") {
-                  // konkrete Prüfung folgt später
-                  // self.fast_skip = false;
-              }
-          }
-      }
-  }
-
-
-  // ─────────────────────────────────────────────────────────────
-  //  Helper-Funktionen (noch immer generisch, unverändert)
-  // ─────────────────────────────────────────────────────────────
-
-  fn parse_begin_block(line: &str) -> Option<&str> {
-      line.strip_prefix("#+BEGIN_")
-  }
-
-  fn parse_end_block(line: &str) -> Option<&str> {
-      line.strip_prefix("#+END_")
-  }
-
-  fn parse_drawer_start(line: &str) -> Option<&str> {
-      if line.starts_with(':') && line.ends_with(':') {
-          let name = &line[1..line.len() - 1];
-          if !name.contains(char::is_whitespace) {
-              return Some(name);
-          }
-      }
-      None
-  }
-
-  fn is_drawer_end(line: &str) -> bool {
-      line.trim().eq_ignore_ascii_case(":end:")
-  }
-
-  fn is_heading_line(line: &str) -> bool {
-      line.starts_with('*')
-  }
-
-
-  // ─────────────────────────────────────────────────────────────
-  //   Module (nur Schnittstellen)
-  // ─────────────────────────────────────────────────────────────
-
-  fn parse_heading(line: &str) {
-      // TODO
-  }
-
-  fn parse_properties(line: &str) {
-      // TODO
-  }
-
-  fn scan_links(line: &str) {
-      // TODO
-  }
-
-
-  // ─────────────────────────────────────────────────────────────
-  //   Hauptschleife – mit vorbereitetem Fast-Skip-Hook
-  // ─────────────────────────────────────────────────────────────
-
-  pub fn parse_org(input: &str) {
-      let mut ctx = Context::default();
-
-      for line in input.lines() {
-
-          if line.starts_with(": ") || line.starts_with("# ") {
-              continue;
-          }
-
-          // 1) Falls wir im Fast-Skip sind:
-          ctx.maybe_end_fast_skip(line);
-          if ctx.fast_skip {
-              // später wird die END-Logik hier exakter implementiert
-              continue; 
-          }
-
-          // 2) Kontext aktualisieren
-          ctx.update(line);
-
-          // 3) Heading
-          if is_heading_line(line) {
-              parse_heading(line);
-              continue;
-          }
-
-          // 4) Properties
-          if ctx.in_properties_drawer() {
-              parse_properties(line);
-              continue;
-          }
-
-          // 5) Links
-          if ctx.allows_links(line) {
-              scan_links(line);
-          }
-
-          // 6) weitere Module kommen später
-      }
-  }
 
 #+END_SRC
 
