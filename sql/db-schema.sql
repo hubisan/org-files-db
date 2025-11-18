@@ -123,12 +123,17 @@ CREATE TABLE IF NOT EXISTS keywords_properties (
     heading_id  INTEGER NOT NULL,
 
     type        TEXT NOT NULL,     -- 'keyword' oder 'property'
+    -- Properties can be set by keyword or in drawer
+    prop_from   TEXT NOT NULL,
     key         TEXT NOT NULL,
     value       TEXT,
     inherited   BOOLEAN NOT NULL DEFAULT 0,    -- 0=lokal, 1=vererbt
 
     CONSTRAINT ck_kp_type
         CHECK (type IN ('keyword', 'property')),
+
+    CONSTRAINT ck_kp_prop_from
+        CHECK (type IN ('keyword', 'drawer')),
 
     CONSTRAINT fk_kp_heading
         FOREIGN KEY (heading_id)
@@ -153,6 +158,7 @@ CREATE TABLE IF NOT EXISTS links (
 
     type           TEXT,
     path           TEXT NOT NULL,
+
     -- only for type file
     path_absolute  TEXT,
     target_file_id        INTEGER,
@@ -163,7 +169,7 @@ CREATE TABLE IF NOT EXISTS links (
     format         TEXT,
     search_option  TEXT,
 
-    -- Maybe create a possibility to store the relation in the link.
+    -- Create a possibility to store the relation in the link.
     -- [[https://www.example.com][Example (->Inhaber)]]
     relation TEXT,
 

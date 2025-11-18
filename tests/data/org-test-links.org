@@ -2,6 +2,51 @@
 #+STARTUP: content
 #+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
 
+* Specification
+
+** Manual
+
+- [[https://orgmode.org/manual/Internal-Links.html][Internal Links (The Org Manual)]]
+- [[https://orgmode.org/manual/Radio-Targets.html][Radio Targets (The Org Manual)]]
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html][External Links (The Org Manual)]]
+- [[https://orgmode.org/manual/Adding-Hyperlink-Types.html][Adding Hyperlink Types (The Org Manual)]]
+- [[https://orgmode.org/manual/Search-Options.html][Search Options (The Org Manual)]]
+- [[https://orgmode.org/manual/Link-Abbreviations.html][Link Abbreviations (The Org Manual)]]
+- [[https://orgmode.org/manual/Structure-of-Code-Blocks.html][Structure of Code Blocks (The Org Manual)]]
+- [[https://orgmode.org/manual/Literal-Examples.html][Literal Examples (The Org Manual)]]
+- [[https://orgmode.org/manual/Comment-Lines.html][Comment Lines (The Org Manual)]]
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Beamer-specific-syntax.html][Beamer specific syntax (The Org Manual)]]
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Paragraphs.html][Paragraphs (The Org Manual)]]
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Drawers.html][Drawers (The Org Manual)]]
+
+** Regular Expressions
+
+#+BEGIN_SRC emacs-lisp
+  (defvar org-link-plain-re nil
+    "Matches plain link, without spaces.
+  Group 1 must contain the link type (i.e. https).
+  Group 2 must contain the link path (i.e. //example.com).
+  Used by `org-element-link-parser'.")
+  "\\(?:\\<\\(?:\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\)\\):\\(\\(?:[^][ 	\n()<>]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)+\\(?:[^[:punct:][:space:]\n]\\|[/-]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)\\)\\)"
+
+  (defvar org-link-bracket-re nil
+    "Matches a link in double brackets.")
+  "\\[\\[\\(\\(?:[^][\\]\\|\\\\\\(?:\\\\\\\\\\)*[][]\\|\\\\+[^][]\\)+\\)]\\(?:\\[\\([^z-a]+?\\)]\\)?]"
+
+  (defvar org-link-angle-re nil
+    "Matches link with angular brackets, spaces are allowed.")
+  "<\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\):\\([^>\n]*\\(?:\n[ 	]*[^> 	\n][^>\n]*\\)*\\)>"
+
+  (defvar org-link-types-re nil
+    "Matches a link that has a url-like prefix like \"http:\".")
+  "\\`\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\):"
+
+  (defvar org-link-any-re nil
+    "Regular expression matching any link.")
+  "\\(\\[\\[\\(\\(?:[^][\\]\\|\\\\\\(?:\\\\\\\\\\)*[][]\\|\\\\+[^][]\\)+\\)]\\(?:\\[\\([^z-a]+?\\)]\\)?]\\)\\|\\(<\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\):\\([^>\n]*\\(?:\n[ 	]*[^> 	\n][^>\n]*\\)*\\)>\\)\\|\\(\\(?:\\<\\(?:\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\)\\):\\(\\(?:[^][ 	\n()<>]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)+\\(?:[^[:punct:][:space:]\n]\\|[/-]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)\\)\\)\\)"
+#+END_SRC
+
+
 * Internal Links 
 :PROPERTIES:
 :CUSTOM_ID: internal-link-to-custom-id
@@ -218,7 +263,7 @@ Those search options are stored in a separated field.
 
 * NOT_IMPLEMENTING Link Abbrevations
 
-Specification: https://orgmode.org/manual/Link-Abbreviations.html
+Specification: [[https://orgmode.org/manual/Link-Abbreviations.html][Link Abbreviations (The Org Manual)]]
 
 Long URLs can be abbreviated like ~[[linkword:tag][description]]~. But to find out the URL the variable ~org-link-abbrev-alist~ is needed. This is very rare so I won't implement it.
 

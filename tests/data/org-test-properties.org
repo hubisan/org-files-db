@@ -1,0 +1,1188 @@
+:PROPERTIES:
+:drawer_prop:  valid
+:keyword_overwritten_by_drawer: valid
+:END:
+#+TITLE: Org Tests for Properties
+#+STARTUP: showall
+#+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
+#+CATEGORY: is_ignored_when_property_is_used
+#+PROPERTY: keyword_property valid (if inherited)
+#+PROPERTY: keyword_overwritten_by_drawer invalid (overwritten from property drawer)
+#+PROPERTY: keyword_overwritten_by_second invalid (overwritten by second definition)
+#+PROPERTY: keyword_overwritten_by_second valid (overwritten by second definition)
+
+* Specification
+
+** Manual
+
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html][Property Syntax (The Org Manual)]] 
+  [[info:org#Property Syntax][org#Property Syntax]]
+
+  - Properties are key-value pairs.
+  - When they are associated with a single entry or with a tree they need to be inserted into a special drawer (see ,*note Drawers::) with the name ‘PROPERTIES’, which has to be located right below a headline, and its planning line (see *note Deadlines and Scheduling::) when applicable.
+  - Each property is specified on a single line, with the key--surrounded by colons--first, and the value after it.
+  - Keys are case-insensitive.
+  - Properties can be inserted at the buffer level.  That means they
+    apply before the first headline and can be inherited by all entries in a
+    file.  Property blocks defined before the first headline must be at the
+    top of the buffer with only comments above them.
+  - Properties can also be defined using lines like (as keywords):
+    #+BEGIN_SRC org
+      ,#+PROPERTY: NDisks_ALL 1 2 3 4
+    #+END_SRC
+    - Those properties only show up if using with inheritance (not sure why). This probably explains it ([[info:org#In-buffer Settings][org#In-buffer Settings]]):
+        #+BEGIN_EXAMPLE
+        ‘#+PROPERTY: Property_Name Value’
+            This line sets a default inheritance value for entries in the
+            current buffer, most useful for specifying the allowed values of a
+            property.
+        #+END_EXAMPLE
+    - And they also work anywhere in the buffer, still only when using inheritance at buffer level.
+    - I will add a field in the sql properties table to tag them as being set with a keyword.
+  - If you want to add to the value of an existing property, append a ‘+’ to the property name.  The following results in the property ‘var’ having the value ‘foo=1 bar=2’.
+    #+BEGIN_SRC org
+      ,#+PROPERTY: var  foo=1
+      ,#+PROPERTY: var+ bar=2
+    #+END_SRC
+  - It is also possible to add to the values of inherited properties.
+    The following results in the ‘Genres’ property having the value ‘Classic
+    Baroque’ under the ‘Goldberg Variations’ subtree.
+  - Note that a property can only have one entry per drawer.
+
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html][Special Properties (The Org Manual)]]
+
+- [[https://www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html][Property Inheritance (The Org Manual)]]
+
+** Regular Expressions
+
+#+BEGIN_SRC lisp-interaction
+  (defconst org-property-start-re "^[ \t]*:PROPERTIES:[ \t]*$"
+    "Regular expression matching the first line of a property drawer.")
+  "^[ 	]*:PROPERTIES:[ 	]*$"
+
+  (defconst org-property-end-re "^[ \t]*:END:[ \t]*$"
+    "Regular expression matching the last line of a property drawer.")
+  "^[ 	]*:END:[ 	]*$"
+
+  (defconst org-property-drawer-re
+    (concat "^[ \t]*:PROPERTIES:[ \t]*\n"
+            "\\(?:[ \t]*:\\S-+:\\(?:[ \t].*\\)?[ \t]*\n\\)*?"
+            "[ \t]*:END:[ \t]*$")
+    "Matches an entire property drawer.")
+  "^[ 	]*:PROPERTIES:[ 	]*
+  \\(?:[ 	]*:\\S-+:\\(?:[ 	].*\\)?[ 	]*
+  \\)*?[ 	]*:END:[ 	]*$"
+
+  (defconst org-property-re
+    (org-re-property "\\S-+" 'literal t)
+    "Regular expression matching a property line.
+  There are four matching groups:
+  1: :PROPKEY: including the leading and trailing colon,
+  2: PROPKEY without the leading and trailing colon,
+  3: PROPVAL without leading or trailing spaces,
+  4: the indentation of the current line,
+  5: trailing whitespace.")
+  "^\\(?4:[ 	]*\\)\\(?1::\\(?2:\\S-+\\):\\)\\(?:\\(?3:$\\)\\|[ 	]+\\(?3:.*?\\)\\)\\(?5:[ 	]*\\)$"
+#+END_SRC
+
+* Tests
+
+** OK Children Overwrite Parent Props (Inheritance)
+:PROPERTIES:
+:parent-prop: property on parent
+:END:
+*** Child
+:PROPERTIES:
+:parent-prop: valid (overwrites parent)
+:END:
+
+** OK Keywords Work Everywhere
+This will set the inherited property on buffer level,
+#+PROPERTY: keyword_prop_works_everywhere valid (at buffer level)
+
+** OK Second Property with Same Name Overwrites First
+:PROPERTIES:
+:defined_twice: invalid
+:defined_twice: valid
+:END:
+
+** Add Value, separated by space
+
+*** OK Adds Value to the first definition
+:PROPERTIES:
+:add-value: is
+:add-value+: valid
+:END:
+
+*** OK Adds Value to the parent
+:PROPERTIES:
+:add-value-to-parent: is
+:END:
+
+**** Child
+:PROPERTIES:
+:add-value-to-parent+: valid
+:END:
+
+*** OK After Deadline
+DEADLINE: <2025-11-19 Wed>
+:PROPERTIES:
+:after-deadline: valid
+:END:
+
+** Malformed
+
+*** OK Whitespace in Key
+:PROPERTIES:
+:props-before-dont-work: invalid
+:key with whitespace: invalid
+:props-after-dont-work: invalid
+:END:
+
+*** OK :END: not correct
+:PROPERTIES:
+:props-dont-work: invalid
+
+:END:
+
+*** OK :END: missing
+:PROPERTIES:
+:props-dont-work: invalid
+
+*** OK After Deadline with extra line
+
+DEADLINE: <2025-11-19 Wed>
+:PROPERTIES:
+:after-deadline: invalid
+:END:
+
+*** NOT_IMPLEMENTING After Deadline with extra line 2
+DEADLINE: <2025-11-19 Wed>
+
+:PROPERTIES:
+:after-deadline: invalid
+:END:
+
+Well, this is strange: shows up in org-element-parse-buffer, but not when using org-entry-get. I think this is not correct, therefore I am not parsing this. Just look at the next example.
+
+*** OK Not just after heading
+
+:PROPERTIES:
+:props-dont-work: invalid
+:END:
+
+* Testing with Emacs Lisp
+
+#+BEGIN_SRC lisp-interaction
+  ;; Test Property with inheritance at point.
+  (with-current-buffer "org-test-properties.org"
+    (org-entry-get-with-inheritance "add-value"))
+
+  ;; Without inheritance.
+  (with-current-buffer "org-test-properties.org"
+    (org-entry-get (org-element-at-point) "defined_twice"))
+
+  (defun my-org-element-list-properties-with-path ()
+    (let* ((ast (org-element-parse-buffer))
+           (results '()))
+      (cl-labels
+          ((get-path (pos)
+             (save-excursion
+               (goto-char pos)
+               (condition-case nil
+                   (org-get-outline-path t)
+                 (error nil)))))
+        (org-element-map ast 'keyword
+          (lambda (kw)
+            (when (string-equal (org-element-property :key kw) "PROPERTY")
+              (let* ((pos (org-element-property :begin kw))
+                     (path (get-path pos))
+                     (raw  (org-element-property :value kw))
+                     (parts (split-string raw "[ \t]+" t))
+                     (key (upcase (car parts)))
+                     (val (mapconcat #'identity (cdr parts) " ")))
+                (push (list :outline path :type 'keyword :key key :value val)
+                      results)))))
+        (org-element-map ast 'property-drawer
+          (lambda (drawer)
+            (let* ((pos (org-element-property :begin drawer))
+                   (path (get-path pos)))
+              (dolist (node (org-element-contents drawer))
+                (when (eq (org-element-type node) 'node-property)
+                  (let* ((key (upcase (org-element-property :key node)))
+                         (val (org-element-property :value node)))
+                    (push (list :type 'drawer :outline path :key key :value val)
+                          results))))))))
+      (nreverse results)))
+
+  (with-current-buffer "org-test-properties.org"
+    (my-org-element-list-properties-with-path))
+#+END_SRC
+
+** Output Parse Tree for AI Check
+
+#+BEGIN_SRC emacs-lisp :results code replace
+  (with-current-buffer "org-test-properties.org"
+    (org-element-parse-buffer))
+#+END_SRC
+
+#+RESULTS:
+#+begin_src emacs-lisp
+(org-data
+ (:standard-properties
+  [1 1 1 96222 96222 0 nil org-data nil nil nil 78 96222 nil #<buffer
+     org-test-properties.org> nil nil nil]
+  :pre-blank 0 :path
+  "/home/hubisan/projects/coding/org-files-db/tests/data/org-test-properties.org"
+  :DRAWER_PROP "valid" :KEYWORD_OVERWRITTEN_BY_DRAWER "valid" :CATEGORY
+  "is_ignored_when_property_is_used")
+ (section
+  (:standard-properties
+   [1 1 1 536 536 0 nil first-section nil nil nil 1 536 nil #<buffer
+      org-test-properties.org> nil nil #0])
+  (property-drawer
+   (:standard-properties
+    [1 1 14 73 79 0 nil top-comment nil nil nil nil nil nil #<buffer
+       org-test-properties.org> nil nil #1])
+   (node-property
+    (:standard-properties
+     [14 14 nil nil 35 0 nil node-property nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #2]
+     :key "drawer_prop" :value "valid"))
+   (node-property
+    (:standard-properties
+     [35 35 nil nil 73 0 nil node-property nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #2]
+     :key "keyword_overwritten_by_drawer" :value "valid")))
+  (keyword
+   (:standard-properties
+    [79 79 nil nil 113 0 nil nil nil nil nil nil nil nil #<buffer
+        org-test-properties.org> nil nil #1]
+    :key "TITLE" :value "Org Tests for Properties"))
+  (keyword
+   (:standard-properties
+    [113 113 nil nil 132 0 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "STARTUP" :value "showall"))
+  (keyword
+   (:standard-properties
+    [132 132 nil nil 187 0 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "TODO" :value "TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n)"))
+  (keyword
+   (:standard-properties
+    [187 187 nil nil 232 0 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "CATEGORY" :value "is_ignored_when_property_is_used"))
+  (keyword
+   (:standard-properties
+    [232 232 nil nil 282 0 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "PROPERTY" :value "keyword_property valid (if inherited)"))
+  (keyword
+   (:standard-properties
+    [282 282 nil nil 367 0 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "PROPERTY" :value
+    "keyword_overwritten_by_drawer invalid (overwritten from property drawer)"))
+  (keyword
+   (:standard-properties
+    [367 367 nil nil 452 0 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "PROPERTY" :value
+    "keyword_overwritten_by_second invalid (overwritten by second definition)"))
+  (keyword
+   (:standard-properties
+    [452 452 nil nil 536 1 nil nil nil nil nil nil nil nil #<buffer
+         org-test-properties.org> nil nil #1]
+    :key "PROPERTY" :value
+    "keyword_overwritten_by_second valid (overwritten by second definition)")))
+ (headline
+  (:standard-properties
+   [536 536 553 4187 4187 0 (:title) nil nil nil nil 555 4185 1 #<buffer
+        org-test-properties.org> nil nil #0]
+   :pre-blank 1 :raw-value "Specification" :title
+   (#("Specification" 0 13 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (headline
+   (:standard-properties
+    [553 553 564 3022 3022 0 (:title) section nil nil nil 566 3020 2 #<buffer
+         org-test-properties.org> nil nil #1]
+    :pre-blank 1 :raw-value "Manual" :title (#("Manual" 0 6 (:parent #2)))
+    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil
+    :footnote-section-p nil :archivedp nil :commentedp nil)
+   (section
+    (:standard-properties
+     [564 564 564 3022 3022 0 nil section nil nil nil 564 3022 nil #<buffer
+          org-test-properties.org> nil nil #2])
+    (plain-list
+     (:standard-properties
+      [564 564 564 3021 3022 1 nil planning nil nil nil nil nil nil #<buffer
+           org-test-properties.org> nil
+           ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+            (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+            (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+            (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+            (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+            (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+            (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+            (2894 0 "- " nil nil nil 3021))
+           #3]
+      :type unordered)
+     (item
+      (:standard-properties
+       [564 564 566 2769 2770 1 (:tag) item nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil
+            ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+             (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+             (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+             (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+             (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+             (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+             (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+             (2894 0 "- " nil nil nil 3021))
+            #4]
+       :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+      (paragraph
+       (:standard-properties
+        [566 566 566 734 735 1 nil nil nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #5])
+       (link
+        (:standard-properties
+         [566 nil 646 678 681 1 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #6]
+         :type "https" :type-explicit-p t :path
+         "//www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html"
+         :format bracket :raw-link
+         "https://www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html"
+         :application nil :search-option nil)
+        #("Property Syntax (The Org Manual)" 0 32 (:parent #7)))
+       #("\n  " 0 3 (:parent #6))
+       (link
+        (:standard-properties
+         [684 nil 712 731 733 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #6]
+         :type "info" :type-explicit-p t :path "org#Property Syntax" :format
+         bracket :raw-link "info:org#Property Syntax" :application nil
+         :search-option nil)
+        #("org#Property Syntax" 0 19 (:parent #7)))
+       #("\n" 0 1 (:parent #6)))
+      (plain-list
+       (:standard-properties
+        [735 735 735 2769 2769 0 nil nil nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil
+             ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+              (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+              (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+              (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+              (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+              (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+              (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+              (2894 0 "- " nil nil nil 3021))
+             #5]
+        :type unordered)
+       (item
+        (:standard-properties
+         [735 735 739 771 771 0 (:tag) item nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil
+              ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+               (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+               (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+               (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+               (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+               (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+               (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+               (2894 0 "- " nil nil nil 3021))
+              #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [739 739 739 771 771 0 nil nil nil nil nil nil nil nil #<buffer
+               org-test-properties.org> nil nil #7])
+         #("Properties are key-value pairs.\n" 0 32 (:parent #8))))
+       (item
+        (:standard-properties
+         [771 771 775 1059 1059 0 (:tag) item nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil
+              ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+               (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+               (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+               (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+               (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+               (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+               (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+               (2894 0 "- " nil nil nil 3021))
+              #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [775 775 775 1059 1059 0 nil nil nil nil nil nil nil nil #<buffer
+               org-test-properties.org> nil nil #7])
+         #("When they are associated with a single entry or with a tree they need to be inserted into a special drawer (see ,*note Drawers::) with the name ‘PROPERTIES’, which has to be located right below a headline, and its planning line (see *note Deadlines and Scheduling::) when applicable.\n"
+           0 284 (:parent #8))))
+       (item
+        (:standard-properties
+         [1059 1059 1063 1175 1175 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [1063 1063 1063 1175 1175 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("Each property is specified on a single line, with the key--surrounded by colons--first, and the value after it.\n"
+           0 112 (:parent #8))))
+       (item
+        (:standard-properties
+         [1175 1175 1179 1206 1206 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [1179 1179 1179 1206 1206 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("Keys are case-insensitive.\n" 0 27 (:parent #8))))
+       (item
+        (:standard-properties
+         [1206 1206 1210 1481 1481 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [1210 1210 1210 1481 1481 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("Properties can be inserted at the buffer level.  That means they\n    apply before the first headline and can be inherited by all entries in a\n    file.  Property blocks defined before the first headline must be at the\n    top of the buffer with only comments above them.\n"
+           0 271 (:parent #8))))
+       (item
+        (:standard-properties
+         [1481 1481 1485 2240 2240 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [1485 1485 1485 1548 1548 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("Properties can also be defined using lines like (as keywords):\n" 0
+           63 (:parent #8)))
+        (src-block
+         (:standard-properties
+          [1548 1548 nil nil 1620 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7]
+          :language "org" :switches nil :parameters nil :number-lines nil
+          :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil
+          :value "      #+PROPERTY: NDisks_ALL 1 2 3 4\n"))
+        (plain-list
+         (:standard-properties
+          [1620 1620 1620 2240 2240 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil
+                ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                 (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                 (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                 (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                 (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                 (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                 (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                 (2894 0 "- " nil nil nil 3021))
+                #7]
+          :type unordered)
+         (item
+          (:standard-properties
+           [1620 1620 1626 2046 2046 0 (:tag) item nil nil nil nil nil nil
+                 #<buffer org-test-properties.org> nil
+                 ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                  (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                  (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                  (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                  (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                  (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                  (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                  (2894 0 "- " nil nil nil 3021))
+                 #8]
+           :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+          (paragraph
+           (:standard-properties
+            [1626 1626 1626 1783 1783 0 nil nil nil nil nil nil nil nil #<buffer
+                  org-test-properties.org> nil nil #9])
+           #("Those properties only show up if using with inheritance (not sure why). This probably explains it ("
+             0 99 (:parent #10))
+           (link
+            (:standard-properties
+             [1725 nil 1756 1778 1780 0 nil nil nil nil nil nil nil nil #<buffer
+                   org-test-properties.org> nil nil #10]
+             :type "info" :type-explicit-p t :path "org#In-buffer Settings"
+             :format bracket :raw-link "info:org#In-buffer Settings"
+             :application nil :search-option nil)
+            #("org#In-buffer Settings" 0 22 (:parent #11)))
+           #("):\n" 0 3 (:parent #10)))
+          (example-block
+           (:standard-properties
+            [1783 1783 nil nil 2046 0 nil nil nil nil nil nil nil nil #<buffer
+                  org-test-properties.org> nil nil #9]
+            :value
+            "        ‘#+PROPERTY: Property_Name Value’\n            This line sets a default inheritance value for entries in the\n            current buffer, most useful for specifying the allowed values of a\n            property.\n"
+            :switches nil :number-lines nil :preserve-indent nil :retain-labels
+            t :use-labels t :label-fmt nil)))
+         (item
+          (:standard-properties
+           [2046 2046 2052 2146 2146 0 (:tag) item nil nil nil nil nil nil
+                 #<buffer org-test-properties.org> nil
+                 ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                  (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                  (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                  (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                  (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                  (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                  (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                  (2894 0 "- " nil nil nil 3021))
+                 #8]
+           :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+          (paragraph
+           (:standard-properties
+            [2052 2052 2052 2146 2146 0 nil nil nil nil nil nil nil nil #<buffer
+                  org-test-properties.org> nil nil #9])
+           #("And they also work anywhere in the buffer, still only when using inheritance at buffer level.\n"
+             0 94 (:parent #10))))
+         (item
+          (:standard-properties
+           [2146 2146 2152 2240 2240 0 (:tag) item nil nil nil nil nil nil
+                 #<buffer org-test-properties.org> nil
+                 ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                  (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                  (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                  (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                  (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                  (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                  (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                  (2894 0 "- " nil nil nil 3021))
+                 #8]
+           :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+          (paragraph
+           (:standard-properties
+            [2152 2152 2152 2240 2240 0 nil nil nil nil nil nil nil nil #<buffer
+                  org-test-properties.org> nil nil #9])
+           #("I will add a field in the sql properties table to tag them as being set with a keyword.\n"
+             0 88 (:parent #10))))))
+       (item
+        (:standard-properties
+         [2240 2240 2244 2507 2507 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [2244 2244 2244 2413 2413 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("If you want to add to the value of an existing property, append a ‘+’ to the property name.  The following results in the property ‘var’ having the value ‘foo=1 bar=2’.\n"
+           0 169 (:parent #8)))
+        (src-block
+         (:standard-properties
+          [2413 2413 nil nil 2507 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7]
+          :language "org" :switches nil :parameters nil :number-lines nil
+          :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil
+          :value "      #+PROPERTY: var  foo=1\n      #+PROPERTY: var+ bar=2\n")))
+       (item
+        (:standard-properties
+         [2507 2507 2511 2708 2708 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [2511 2511 2511 2708 2708 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("It is also possible to add to the values of inherited properties.\n    The following results in the ‘Genres’ property having the value ‘Classic\n    Baroque’ under the ‘Goldberg Variations’ subtree.\n"
+           0 197 (:parent #8))))
+       (item
+        (:standard-properties
+         [2708 2708 2712 2769 2769 0 (:tag) item nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil
+               ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+                (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+                (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+                (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+                (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+                (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+                (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+                (2894 0 "- " nil nil nil 3021))
+               #6]
+         :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+        (paragraph
+         (:standard-properties
+          [2712 2712 2712 2769 2769 0 nil nil nil nil nil nil nil nil #<buffer
+                org-test-properties.org> nil nil #7])
+         #("Note that a property can only have one entry per drawer.\n" 0 57
+           (:parent #8))))))
+     (item
+      (:standard-properties
+       [2770 2770 2772 2893 2894 1 (:tag) item nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil
+             ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+              (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+              (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+              (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+              (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+              (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+              (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+              (2894 0 "- " nil nil nil 3021))
+             #4]
+       :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+      (paragraph
+       (:standard-properties
+        [2772 2772 2772 2893 2893 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5])
+       (link
+        (:standard-properties
+         [2772 nil 2855 2890 2892 0 nil nil nil nil nil nil nil nil #<buffer
+               org-test-properties.org> nil nil #6]
+         :type "https" :type-explicit-p t :path
+         "//www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html"
+         :format bracket :raw-link
+         "https://www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html"
+         :application nil :search-option nil)
+        #("Special Properties (The Org Manual)" 0 35 (:parent #7)))
+       #("\n" 0 1 (:parent #6))))
+     (item
+      (:standard-properties
+       [2894 2894 2896 3021 3021 0 (:tag) item nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil
+             ((564 0 "- " nil nil nil 2770) (735 2 "- " nil nil nil 771)
+              (771 2 "- " nil nil nil 1059) (1059 2 "- " nil nil nil 1175)
+              (1175 2 "- " nil nil nil 1206) (1206 2 "- " nil nil nil 1481)
+              (1481 2 "- " nil nil nil 2240) (1620 4 "- " nil nil nil 2046)
+              (2046 4 "- " nil nil nil 2146) (2146 4 "- " nil nil nil 2240)
+              (2240 2 "- " nil nil nil 2507) (2507 2 "- " nil nil nil 2708)
+              (2708 2 "- " nil nil nil 2770) (2770 0 "- " nil nil nil 2894)
+              (2894 0 "- " nil nil nil 3021))
+             #4]
+       :bullet "- " :checkbox nil :counter nil :pre-blank 0 :tag nil)
+      (paragraph
+       (:standard-properties
+        [2896 2896 2896 3021 3021 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5])
+       (link
+        (:standard-properties
+         [2896 nil 2981 3018 3020 0 nil nil nil nil nil nil nil nil #<buffer
+               org-test-properties.org> nil nil #6]
+         :type "https" :type-explicit-p t :path
+         "//www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html"
+         :format bracket :raw-link
+         "https://www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html"
+         :application nil :search-option nil)
+        #("Property Inheritance (The Org Manual)" 0 37 (:parent #7)))
+       #("\n" 0 1 (:parent #6)))))))
+  (headline
+   (:standard-properties
+    [3022 3022 3046 4187 4187 0 (:title) nil nil nil nil 3048 4185 2 #<buffer
+          org-test-properties.org> nil nil #1]
+    :pre-blank 1 :raw-value "Regular Expressions" :title
+    (#("Regular Expressions" 0 19 (:parent #2))) :level 2 :priority nil :tags
+    nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil)
+   (section
+    (:standard-properties
+     [3046 3046 3046 4187 4187 0 nil section nil nil nil 3046 4187 nil #<buffer
+           org-test-properties.org> nil nil #2])
+    (src-block
+     (:standard-properties
+      [3046 3046 nil nil 4187 1 nil planning nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3]
+      :language "lisp-interaction" :switches nil :parameters nil :number-lines
+      nil :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil
+      :value
+      "  (defconst org-property-start-re \"^[ \\t]*:PROPERTIES:[ \\t]*$\"\n    \"Regular expression matching the first line of a property drawer.\")\n  \"^[ 	]*:PROPERTIES:[ 	]*$\"\n\n  (defconst org-property-end-re \"^[ \\t]*:END:[ \\t]*$\"\n    \"Regular expression matching the last line of a property drawer.\")\n  \"^[ 	]*:END:[ 	]*$\"\n\n  (defconst org-property-drawer-re\n    (concat \"^[ \\t]*:PROPERTIES:[ \\t]*\\n\"\n            \"\\\\(?:[ \\t]*:\\\\S-+:\\\\(?:[ \\t].*\\\\)?[ \\t]*\\n\\\\)*?\"\n            \"[ \\t]*:END:[ \\t]*$\")\n    \"Matches an entire property drawer.\")\n  \"^[ 	]*:PROPERTIES:[ 	]*\n  \\\\(?:[ 	]*:\\\\S-+:\\\\(?:[ 	].*\\\\)?[ 	]*\n  \\\\)*?[ 	]*:END:[ 	]*$\"\n\n  (defconst org-property-re\n    (org-re-property \"\\\\S-+\" 'literal t)\n    \"Regular expression matching a property line.\n  There are four matching groups:\n  1: :PROPKEY: including the leading and trailing colon,\n  2: PROPKEY without the leading and trailing colon,\n  3: PROPVAL without leading or trailing spaces,\n  4: the indentation of the current line,\n  5: trailing whitespace.\")\n  \"^\\\\(?4:[ 	]*\\\\)\\\\(?1::\\\\(?2:\\\\S-+\\\\):\\\\)\\\\(?:\\\\(?3:$\\\\)\\\\|[ 	]+\\\\(?3:.*?\\\\)\\\\)\\\\(?5:[ 	]*\\\\)$\"\n")))))
+ (headline
+  (:standard-properties
+   [4187 4187 4196 5790 5790 0 (:title) nil nil nil nil 4198 5788 1 #<buffer
+         org-test-properties.org> nil nil #0]
+   :pre-blank 1 :raw-value "Tests" :title (#("Tests" 0 5 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+   nil :archivedp nil :commentedp nil)
+  (headline
+   (:standard-properties
+    [4196 4196 4248 4370 4370 0 (:title) section nil nil nil 4299 4368 2
+          #<buffer org-test-properties.org> nil nil #1]
+    :pre-blank 0 :raw-value "Children Overwrite Parent Props (Inheritance)"
+    :title
+    (#("Children Overwrite Parent Props (Inheritance)" 0 45 (:parent #2)))
+    :level 2 :priority nil :tags nil :todo-keyword "OK" :todo-type done
+    :footnote-section-p nil :archivedp nil :commentedp nil :PARENT-PROP
+    "property on parent")
+   (section
+    (:standard-properties
+     [4248 4248 4248 4300 4300 0 nil section nil nil nil 4248 4300 nil #<buffer
+           org-test-properties.org> nil nil #2])
+    (property-drawer
+     (:standard-properties
+      [4248 4248 4261 4294 4300 0 nil planning nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (node-property
+      (:standard-properties
+       [4261 4261 nil nil 4294 0 nil node-property nil nil nil nil nil nil
+             #<buffer org-test-properties.org> nil nil #4]
+       :key "parent-prop" :value "property on parent"))))
+   (headline
+    (:standard-properties
+     [4300 4300 4310 4370 4370 0 (:title) nil nil nil nil nil nil 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value "Child" :title (#("Child" 0 5 (:parent #3))) :level
+     3 :priority nil :tags nil :todo-keyword nil :todo-type nil
+     :footnote-section-p nil :archivedp nil :commentedp nil :PARENT-PROP
+     "valid (overwrites parent)")
+    (section
+     (:standard-properties
+      [4310 4310 4310 4370 4370 0 nil section nil nil nil 4310 4370 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (property-drawer
+      (:standard-properties
+       [4310 4310 4323 4363 4370 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4])
+      (node-property
+       (:standard-properties
+        [4323 4323 nil nil 4363 0 nil node-property nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5]
+        :key "parent-prop" :value "valid (overwrites parent)"))))))
+  (headline
+   (:standard-properties
+    [4370 4370 4401 4522 4522 0 (:title) nil nil nil nil 4403 4520 2 #<buffer
+          org-test-properties.org> nil nil #1]
+    :pre-blank 0 :raw-value "Keywords Work Everywhere" :title
+    (#("Keywords Work Everywhere" 0 24 (:parent #2))) :level 2 :priority nil
+    :tags nil :todo-keyword "OK" :todo-type done :footnote-section-p nil
+    :archivedp nil :commentedp nil)
+   (section
+    (:standard-properties
+     [4401 4401 4401 4522 4522 0 nil section nil nil nil 4401 4522 nil #<buffer
+           org-test-properties.org> nil nil #2])
+    (paragraph
+     (:standard-properties
+      [4401 4401 4401 4455 4455 0 nil planning nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3])
+     #("This will set the inherited property on buffer level,\n" 0 54
+       (:parent #4)))
+    (keyword
+     (:standard-properties
+      [4455 4455 nil nil 4522 1 nil nil nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3]
+      :key "PROPERTY" :value
+      "keyword_prop_works_everywhere valid (at buffer level)"))))
+  (headline
+   (:standard-properties
+    [4522 4522 4576 4642 4642 0 (:title) nil nil nil nil nil nil 2 #<buffer
+          org-test-properties.org> nil nil #1]
+    :pre-blank 0 :raw-value "Second Property with Same Name Overwrites First"
+    :title
+    (#("Second Property with Same Name Overwrites First" 0 47 (:parent #2)))
+    :level 2 :priority nil :tags nil :todo-keyword "OK" :todo-type done
+    :footnote-section-p nil :archivedp nil :commentedp nil :DEFINED_TWICE
+    "valid")
+   (section
+    (:standard-properties
+     [4576 4576 4576 4642 4642 0 nil section nil nil nil 4576 4642 nil #<buffer
+           org-test-properties.org> nil nil #2])
+    (property-drawer
+     (:standard-properties
+      [4576 4576 4589 4635 4642 1 nil planning nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (node-property
+      (:standard-properties
+       [4589 4589 nil nil 4613 0 nil node-property nil nil nil nil nil nil
+             #<buffer org-test-properties.org> nil nil #4]
+       :key "defined_twice" :value "invalid"))
+     (node-property
+      (:standard-properties
+       [4613 4613 nil nil 4635 0 nil node-property nil nil nil nil nil nil
+             #<buffer org-test-properties.org> nil nil #4]
+       :key "defined_twice" :value "valid")))))
+  (headline
+   (:standard-properties
+    [4642 4642 4676 5001 5001 0 (:title) nil nil nil nil 4678 4999 2 #<buffer
+          org-test-properties.org> nil nil #1]
+    :pre-blank 1 :raw-value "Add Value, separated by space" :title
+    (#("Add Value, separated by space" 0 29 (:parent #2))) :level 2 :priority
+    nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil)
+   (headline
+    (:standard-properties
+     [4676 4676 4718 4772 4772 0 (:title) section nil nil nil nil nil 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value "Adds Value to the first definition" :title
+     (#("Adds Value to the first definition" 0 34 (:parent #3))) :level 3
+     :priority nil :tags nil :todo-keyword "OK" :todo-type done
+     :footnote-section-p nil :archivedp nil :commentedp nil :ADD-VALUE "is"
+     :ADD-VALUE+ "valid")
+    (section
+     (:standard-properties
+      [4718 4718 4718 4772 4772 0 nil section nil nil nil 4718 4772 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (property-drawer
+      (:standard-properties
+       [4718 4718 4731 4765 4772 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4])
+      (node-property
+       (:standard-properties
+        [4731 4731 nil nil 4746 0 nil node-property nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5]
+        :key "add-value" :value "is"))
+      (node-property
+       (:standard-properties
+        [4746 4746 nil nil 4765 0 nil node-property nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5]
+        :key "add-value+" :value "valid")))))
+   (headline
+    (:standard-properties
+     [4772 4772 4804 4909 4909 0 (:title) nil nil nil nil 4847 4907 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value "Adds Value to the parent" :title
+     (#("Adds Value to the parent" 0 24 (:parent #3))) :level 3 :priority nil
+     :tags nil :todo-keyword "OK" :todo-type done :footnote-section-p nil
+     :archivedp nil :commentedp nil :ADD-VALUE-TO-PARENT "is")
+    (section
+     (:standard-properties
+      [4804 4804 4804 4849 4849 0 nil section nil nil nil 4804 4849 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (property-drawer
+      (:standard-properties
+       [4804 4804 4817 4842 4849 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4])
+      (node-property
+       (:standard-properties
+        [4817 4817 nil nil 4842 0 nil node-property nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5]
+        :key "add-value-to-parent" :value "is"))))
+    (headline
+     (:standard-properties
+      [4849 4849 4860 4909 4909 0 (:title) nil nil nil nil nil nil 4 #<buffer
+            org-test-properties.org> nil nil #3]
+      :pre-blank 0 :raw-value "Child" :title (#("Child" 0 5 (:parent #4)))
+      :level 4 :priority nil :tags nil :todo-keyword nil :todo-type nil
+      :footnote-section-p nil :archivedp nil :commentedp nil
+      :ADD-VALUE-TO-PARENT+ "valid")
+     (section
+      (:standard-properties
+       [4860 4860 4860 4909 4909 0 nil section nil nil nil 4860 4909 nil
+             #<buffer org-test-properties.org> nil nil #4])
+      (property-drawer
+       (:standard-properties
+        [4860 4860 4873 4902 4909 1 nil planning nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5])
+       (node-property
+        (:standard-properties
+         [4873 4873 nil nil 4902 0 nil node-property nil nil nil nil nil nil
+               #<buffer org-test-properties.org> nil nil #6]
+         :key "add-value-to-parent+" :value "valid"))))))
+   (headline
+    (:standard-properties
+     [4909 4909 4931 5001 5001 0 (:title) nil nil nil nil nil nil 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value "After Deadline" :title
+     (#("After Deadline" 0 14 (:parent #3))) :level 3 :priority nil :tags nil
+     :todo-keyword "OK" :todo-type done :footnote-section-p nil :archivedp nil
+     :commentedp nil :deadline
+     (timestamp
+      (:standard-properties
+       [4941 nil nil nil 4957 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+       :type active :range-type nil :raw-value "<2025-11-19 Wed>" :year-start
+       2025 :month-start 11 :day-start 19 :hour-start nil :minute-start nil
+       :year-end 2025 :month-end 11 :day-end 19 :hour-end nil :minute-end nil))
+     :AFTER-DEADLINE "valid")
+    (section
+     (:standard-properties
+      [4931 4931 4931 5001 5001 0 nil section nil nil nil 4931 5001 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (planning
+      (:standard-properties
+       [4931 4931 nil nil 4958 0 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4]
+       :closed nil :deadline
+       (timestamp
+        (:standard-properties
+         [4941 nil nil nil 4957 0 nil nil nil nil nil nil nil nil nil nil nil
+               nil]
+         :type active :range-type nil :raw-value "<2025-11-19 Wed>" :year-start
+         2025 :month-start 11 :day-start 19 :hour-start nil :minute-start nil
+         :year-end 2025 :month-end 11 :day-end 19 :hour-end nil :minute-end nil))
+       :scheduled nil))
+     (property-drawer
+      (:standard-properties
+       [4958 4958 4971 4994 5001 1 nil property-drawer nil nil nil nil nil nil
+             #<buffer org-test-properties.org> nil nil #4])
+      (node-property
+       (:standard-properties
+        [4971 4971 nil nil 4994 0 nil node-property nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5]
+        :key "after-deadline" :value "valid"))))))
+  (headline
+   (:standard-properties
+    [5001 5001 5015 5790 5790 0 (:title) nil nil nil nil 5017 5788 2 #<buffer
+          org-test-properties.org> nil nil #1]
+    :pre-blank 1 :raw-value "Malformed" :title (#("Malformed" 0 9 (:parent #2)))
+    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil
+    :footnote-section-p nil :archivedp nil :commentedp nil)
+   (headline
+    (:standard-properties
+     [5015 5015 5040 5155 5155 0 (:title) section nil nil nil 5042 5153 3
+           #<buffer org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value "Whitespace in Key" :title
+     (#("Whitespace in Key" 0 17 (:parent #3))) :level 3 :priority nil :tags nil
+     :todo-keyword "OK" :todo-type done :footnote-section-p nil :archivedp nil
+     :commentedp nil)
+    (section
+     (:standard-properties
+      [5040 5040 5040 5155 5155 0 nil section nil nil nil 5040 5155 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (drawer
+      (:standard-properties
+       [5040 5040 5053 5148 5155 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4]
+       :drawer-name "PROPERTIES")
+      (paragraph
+       (:standard-properties
+        [5053 5053 5053 5148 5148 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5])
+       #(":props-before-dont-work: invalid\n:key with whitespace: invalid\n:props-after-dont-work: invalid\n"
+         0 95 (:parent #6))))))
+   (headline
+    (:standard-properties
+     [5155 5155 5180 5227 5227 0 (:title) nil nil nil nil 5182 5225 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value ":END: not correct" :title
+     (#(":END: not correct" 0 17 (:parent #3))) :level 3 :priority nil :tags nil
+     :todo-keyword "OK" :todo-type done :footnote-section-p nil :archivedp nil
+     :commentedp nil)
+    (section
+     (:standard-properties
+      [5180 5180 5180 5227 5227 0 nil section nil nil nil 5180 5227 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (drawer
+      (:standard-properties
+       [5180 5180 5193 5220 5227 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4]
+       :drawer-name "PROPERTIES")
+      (paragraph
+       (:standard-properties
+        [5193 5193 5193 5219 5220 1 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5])
+       #(":props-dont-work: invalid\n" 0 26 (:parent #6))))))
+   (headline
+    (:standard-properties
+     [5227 5227 5248 5288 5288 0 (:title) nil nil nil nil 5250 5286 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value ":END: missing" :title
+     (#(":END: missing" 0 13 (:parent #3))) :level 3 :priority nil :tags nil
+     :todo-keyword "OK" :todo-type done :footnote-section-p nil :archivedp nil
+     :commentedp nil)
+    (section
+     (:standard-properties
+      [5248 5248 5248 5288 5288 0 nil section nil nil nil 5248 5288 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (paragraph
+      (:standard-properties
+       [5248 5248 5248 5287 5288 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4])
+      #(":PROPERTIES:\n:props-dont-work: invalid\n" 0 39 (:parent #5)))))
+   (headline
+    (:standard-properties
+     [5288 5288 5327 5399 5399 0 (:title) nil nil nil nil nil nil 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 1 :raw-value "After Deadline with extra line" :title
+     (#("After Deadline with extra line" 0 30 (:parent #3))) :level 3 :priority
+     nil :tags nil :todo-keyword "OK" :todo-type done :footnote-section-p nil
+     :archivedp nil :commentedp nil)
+    (section
+     (:standard-properties
+      [5327 5327 5327 5399 5399 0 nil section nil nil nil 5327 5399 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (paragraph
+      (:standard-properties
+       [5327 5327 5327 5354 5354 0 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4])
+      #("DEADLINE: " 0 10 (:parent #5))
+      (timestamp
+       (:standard-properties
+        [5337 nil nil nil 5353 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5]
+        :type active :range-type nil :raw-value "<2025-11-19 Wed>" :year-start
+        2025 :month-start 11 :day-start 19 :hour-start nil :minute-start nil
+        :year-end 2025 :month-end 11 :day-end 19 :hour-end nil :minute-end nil))
+      #("\n" 0 1 (:parent #5)))
+     (drawer
+      (:standard-properties
+       [5354 5354 5367 5392 5399 1 nil nil nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4]
+       :drawer-name "PROPERTIES")
+      (paragraph
+       (:standard-properties
+        [5367 5367 5367 5392 5392 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5])
+       #(":after-deadline: invalid\n" 0 25 (:parent #6))))))
+   (headline
+    (:standard-properties
+     [5399 5399 5453 5713 5713 0 (:title) nil nil nil nil 5480 5711 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 0 :raw-value "After Deadline with extra line 2" :title
+     (#("After Deadline with extra line 2" 0 32 (:parent #3))) :level 3
+     :priority nil :tags nil :todo-keyword "NOT_IMPLEMENTING" :todo-type done
+     :footnote-section-p nil :archivedp nil :commentedp nil :deadline
+     (timestamp
+      (:standard-properties
+       [5463 nil nil nil 5479 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+       :type active :range-type nil :raw-value "<2025-11-19 Wed>" :year-start
+       2025 :month-start 11 :day-start 19 :hour-start nil :minute-start nil
+       :year-end 2025 :month-end 11 :day-end 19 :hour-end nil :minute-end nil)))
+    (section
+     (:standard-properties
+      [5453 5453 5453 5713 5713 0 nil section nil nil nil 5453 5713 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (planning
+      (:standard-properties
+       [5453 5453 nil nil 5481 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4]
+       :closed nil :deadline
+       (timestamp
+        (:standard-properties
+         [5463 nil nil nil 5479 0 nil nil nil nil nil nil nil nil nil nil nil
+               nil]
+         :type active :range-type nil :raw-value "<2025-11-19 Wed>" :year-start
+         2025 :month-start 11 :day-start 19 :hour-start nil :minute-start nil
+         :year-end 2025 :month-end 11 :day-end 19 :hour-end nil :minute-end nil))
+       :scheduled nil))
+     (property-drawer
+      (:standard-properties
+       [5481 5481 5494 5519 5526 1 nil property-drawer nil nil nil nil nil nil
+             #<buffer org-test-properties.org> nil nil #4])
+      (node-property
+       (:standard-properties
+        [5494 5494 nil nil 5519 0 nil node-property nil nil nil nil nil nil
+              #<buffer org-test-properties.org> nil nil #5]
+        :key "after-deadline" :value "invalid")))
+     (paragraph
+      (:standard-properties
+       [5526 5526 5526 5712 5713 1 nil nil nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4])
+      #("Well, this is strange: show up in org-element-parse-buffer but not when using org-entry-get. I think this is not correct, therefore I am not parsing this. Just look at the next example.\n"
+        0 186 (:parent #5)))))
+   (headline
+    (:standard-properties
+     [5713 5713 5744 5790 5790 0 (:title) nil nil nil nil nil nil 3 #<buffer
+           org-test-properties.org> nil nil #2]
+     :pre-blank 1 :raw-value "Not just after heading" :title
+     (#("Not just after heading" 0 22 (:parent #3))) :level 3 :priority nil
+     :tags nil :todo-keyword "OK" :todo-type done :footnote-section-p nil
+     :archivedp nil :commentedp nil)
+    (section
+     (:standard-properties
+      [5744 5744 5744 5790 5790 0 nil section nil nil nil 5744 5790 nil #<buffer
+            org-test-properties.org> nil nil #3])
+     (drawer
+      (:standard-properties
+       [5744 5744 5757 5783 5790 1 nil planning nil nil nil nil nil nil #<buffer
+             org-test-properties.org> nil nil #4]
+       :drawer-name "PROPERTIES")
+      (paragraph
+       (:standard-properties
+        [5757 5757 5757 5783 5783 0 nil nil nil nil nil nil nil nil #<buffer
+              org-test-properties.org> nil nil #5])
+       #(":props-dont-work: invalid\n" 0 26 (:parent #6))))))))
+ (headline
+  (:standard-properties
+   [5790 5790 5817 96222 96222 0 (:title) nil nil nil nil 5819 96220 1 #<buffer
+         org-test-properties.org> nil nil #0]
+   :pre-blank 1 :raw-value "Testing with Emacs Lisp" :title
+   (#("Testing with Emacs Lisp" 0 23 (:parent #1))) :level 1 :priority nil :tags
+   nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (section
+   (:standard-properties
+    [5817 5817 5817 7755 7755 0 nil section nil nil nil 5817 7755 nil #<buffer
+          org-test-properties.org> nil nil #1])
+   (src-block
+    (:standard-properties
+     [5817 5817 nil nil 7755 1 nil planning nil nil nil nil nil nil #<buffer
+           org-test-properties.org> nil nil #2]
+     :language "lisp-interaction" :switches nil :parameters nil :number-lines
+     nil :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil
+     :value
+     "  ;; Test Property with inheritance at point.\n  (with-current-buffer \"org-test-properties.org\"\n    (org-entry-get-with-inheritance \"add-value\"))\n\n  ;; Without inheritance.\n  (with-current-buffer \"org-test-properties.org\"\n    (org-entry-get (org-element-at-point) \"defined_twice\"))\n\n  (defun my-org-element-list-properties-with-path ()\n    (let* ((ast (org-element-parse-buffer))\n           (results '()))\n      (cl-labels\n          ((get-path (pos)\n             (save-excursion\n               (goto-char pos)\n               (condition-case nil\n                   (org-get-outline-path t)\n                 (error nil)))))\n        (org-element-map ast 'keyword\n          (lambda (kw)\n            (when (string-equal (org-element-property :key kw) \"PROPERTY\")\n              (let* ((pos (org-element-property :begin kw))\n                     (path (get-path pos))\n                     (raw  (org-element-property :value kw))\n                     (parts (split-string raw \"[ \\t]+\" t))\n                     (key (upcase (car parts)))\n                     (val (mapconcat #'identity (cdr parts) \" \")))\n                (push (list :outline path :type 'keyword :key key :value val)\n                      results)))))\n        (org-element-map ast 'property-drawer\n          (lambda (drawer)\n            (let* ((pos (org-element-property :begin drawer))\n                   (path (get-path pos)))\n              (dolist (node (org-element-contents drawer))\n                (when (eq (org-element-type node) 'node-property)\n                  (let* ((key (upcase (org-element-property :key node)))\n                         (val (org-element-property :value node)))\n                    (push (list :type 'drawer :outline path :key key :value val)\n                          results))))))))\n      (nreverse results)))\n\n  (with-current-buffer \"org-test-properties.org\"\n    (my-org-element-list-properties-with-path))\n")))
+  (headline
+   (:standard-properties
+    [7755 7755 7791 96222 96222 0 (:title) nil nil nil nil 7793 96220 2 #<buffer
+          org-test-properties.org> nil nil #1]
+    :pre-blank 1 :raw-value "Output Parse Tree for AI Checko" :title
+    (#("Output Parse Tree for AI Checko" 0 31 (:parent #2))) :level 2 :priority
+    nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil)
+   (section
+    (:standard-properties
+     [7791 7791 7791 96222 96222 0 nil section nil nil nil 7791 96222 nil
+           #<buffer org-test-properties.org> nil nil #2])
+    (src-block
+     (:standard-properties
+      [7791 7791 nil nil 7928 1 nil planning nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3]
+      :language "emacs-lisp" :switches nil :parameters ":results code replace"
+      :number-lines nil :preserve-indent nil :retain-labels t :use-labels t
+      :label-fmt nil :value
+      "  (with-current-buffer \"org-test-properties.org\"\n    (org-element-parse-buffer))\n"))
+    (src-block
+     (:standard-properties
+      [7928 7939 nil nil 96222 1 nil nil nil nil nil nil nil nil #<buffer
+            org-test-properties.org> nil nil #3]
+      :language "emacs-lisp" :switches nil :parameters nil :number-lines nil
+      :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil :value
+      "(org-data\n (:standard-properties\n  [1 1 1 49415 49415 0 nil org-data nil nil nil 78 49415 nil #<buffer\n     org-test-properties.org> nil nil nil]\n  :pre-blank 0 :path\n  \"/home/hubisan/projects/coding/org-files-db/tests/data/org-test-properties.org\"\n  :DRAWER_PROP \"valid\" :KEYWORD_OVERWRITTEN_BY_DRAWER \"valid\" :CATEGORY\n  \"is_ignored_when_property_is_used\")\n (section\n  (:standard-properties\n   [1 1 1 536 536 0 nil first-section nil nil nil 1 536 nil #<buffer\n      org-test-properties.org> nil nil #0])\n  (property-drawer\n   (:standard-properties\n    [1 1 14 73 79 0 nil top-comment nil nil nil nil nil nil #<buffer\n       org-test-properties.org> nil nil #1])\n   (node-property\n    (:standard-properties\n     [14 14 nil nil 35 0 nil node-property nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #2]\n     :key \"drawer_prop\" :value \"valid\"))\n   (node-property\n    (:standard-properties\n     [35 35 nil nil 73 0 nil node-property nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #2]\n     :key \"keyword_overwritten_by_drawer\" :value \"valid\")))\n  (keyword\n   (:standard-properties\n    [79 79 nil nil 113 0 nil nil nil nil nil nil nil nil #<buffer\n        org-test-properties.org> nil nil #1]\n    :key \"TITLE\" :value \"Org Tests for Properties\"))\n  (keyword\n   (:standard-properties\n    [113 113 nil nil 132 0 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"STARTUP\" :value \"showall\"))\n  (keyword\n   (:standard-properties\n    [132 132 nil nil 187 0 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"TODO\" :value \"TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n)\"))\n  (keyword\n   (:standard-properties\n    [187 187 nil nil 232 0 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"CATEGORY\" :value \"is_ignored_when_property_is_used\"))\n  (keyword\n   (:standard-properties\n    [232 232 nil nil 282 0 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"PROPERTY\" :value \"keyword_property valid (if inherited)\"))\n  (keyword\n   (:standard-properties\n    [282 282 nil nil 367 0 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"PROPERTY\" :value\n    \"keyword_overwritten_by_drawer invalid (overwritten from property drawer)\"))\n  (keyword\n   (:standard-properties\n    [367 367 nil nil 452 0 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"PROPERTY\" :value\n    \"keyword_overwritten_by_second invalid (overwritten by second definition)\"))\n  (keyword\n   (:standard-properties\n    [452 452 nil nil 536 1 nil nil nil nil nil nil nil nil #<buffer\n         org-test-properties.org> nil nil #1]\n    :key \"PROPERTY\" :value\n    \"keyword_overwritten_by_second valid (overwritten by second definition)\")))\n (headline\n  (:standard-properties\n   [536 536 553 4187 4187 0 (:title) nil nil nil nil 555 4185 1 #<buffer\n        org-test-properties.org> nil nil #0]\n   :pre-blank 1 :raw-value \"Specification\" :title\n   (#(\"Specification\" 0 13 (:parent #1))) :level 1 :priority nil :tags nil\n   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\n   :commentedp nil)\n  (headline\n   (:standard-properties\n    [553 553 564 3022 3022 0 (:title) section nil nil nil 566 3020 2 #<buffer\n         org-test-properties.org> nil nil #1]\n    :pre-blank 1 :raw-value \"Manual\" :title (#(\"Manual\" 0 6 (:parent #2)))\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\n    :footnote-section-p nil :archivedp nil :commentedp nil)\n   (section\n    (:standard-properties\n     [564 564 564 3022 3022 0 nil section nil nil nil 564 3022 nil #<buffer\n          org-test-properties.org> nil nil #2])\n    (plain-list\n     (:standard-properties\n      [564 564 564 3021 3022 1 nil planning nil nil nil nil nil nil #<buffer\n           org-test-properties.org> nil\n           ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n            (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n            (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n            (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n            (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n            (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n            (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n            (2894 0 \"- \" nil nil nil 3021))\n           #3]\n      :type unordered)\n     (item\n      (:standard-properties\n       [564 564 566 2769 2770 1 (:tag) item nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil\n            ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n             (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n             (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n             (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n             (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n             (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n             (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n             (2894 0 \"- \" nil nil nil 3021))\n            #4]\n       :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n      (paragraph\n       (:standard-properties\n        [566 566 566 734 735 1 nil nil nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil nil #5])\n       (link\n        (:standard-properties\n         [566 nil 646 678 681 1 nil nil nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil nil #6]\n         :type \"https\" :type-explicit-p t :path\n         \"//www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html\"\n         :format bracket :raw-link\n         \"https://www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html\"\n         :application nil :search-option nil)\n        #(\"Property Syntax (The Org Manual)\" 0 32 (:parent #7)))\n       #(\"\\n  \" 0 3 (:parent #6))\n       (link\n        (:standard-properties\n         [684 nil 712 731 733 0 nil nil nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil nil #6]\n         :type \"info\" :type-explicit-p t :path \"org#Property Syntax\" :format\n         bracket :raw-link \"info:org#Property Syntax\" :application nil\n         :search-option nil)\n        #(\"org#Property Syntax\" 0 19 (:parent #7)))\n       #(\"\\n\" 0 1 (:parent #6)))\n      (plain-list\n       (:standard-properties\n        [735 735 735 2769 2769 0 nil nil nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil\n             ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n              (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n              (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n              (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n              (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n              (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n              (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n              (2894 0 \"- \" nil nil nil 3021))\n             #5]\n        :type unordered)\n       (item\n        (:standard-properties\n         [735 735 739 771 771 0 (:tag) item nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil\n              ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n               (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n               (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n               (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n               (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n               (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n               (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n               (2894 0 \"- \" nil nil nil 3021))\n              #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [739 739 739 771 771 0 nil nil nil nil nil nil nil nil #<buffer\n               org-test-properties.org> nil nil #7])\n         #(\"Properties are key-value pairs.\\n\" 0 32 (:parent #8))))\n       (item\n        (:standard-properties\n         [771 771 775 1059 1059 0 (:tag) item nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil\n              ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n               (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n               (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n               (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n               (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n               (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n               (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n               (2894 0 \"- \" nil nil nil 3021))\n              #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [775 775 775 1059 1059 0 nil nil nil nil nil nil nil nil #<buffer\n               org-test-properties.org> nil nil #7])\n         #(\"When they are associated with a single entry or with a tree they need to be inserted into a special drawer (see ,*note Drawers::) with the name ‘PROPERTIES’, which has to be located right below a headline, and its planning line (see *note Deadlines and Scheduling::) when applicable.\\n\"\n           0 284 (:parent #8))))\n       (item\n        (:standard-properties\n         [1059 1059 1063 1175 1175 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [1063 1063 1063 1175 1175 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"Each property is specified on a single line, with the key--surrounded by colons--first, and the value after it.\\n\"\n           0 112 (:parent #8))))\n       (item\n        (:standard-properties\n         [1175 1175 1179 1206 1206 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [1179 1179 1179 1206 1206 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"Keys are case-insensitive.\\n\" 0 27 (:parent #8))))\n       (item\n        (:standard-properties\n         [1206 1206 1210 1481 1481 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [1210 1210 1210 1481 1481 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"Properties can be inserted at the buffer level.  That means they\\n    apply before the first headline and can be inherited by all entries in a\\n    file.  Property blocks defined before the first headline must be at the\\n    top of the buffer with only comments above them.\\n\"\n           0 271 (:parent #8))))\n       (item\n        (:standard-properties\n         [1481 1481 1485 2240 2240 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [1485 1485 1485 1548 1548 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"Properties can also be defined using lines like (as keywords):\\n\" 0\n           63 (:parent #8)))\n        (src-block\n         (:standard-properties\n          [1548 1548 nil nil 1620 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7]\n          :language \"org\" :switches nil :parameters nil :number-lines nil\n          :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\n          :value \"      #+PROPERTY: NDisks_ALL 1 2 3 4\\n\"))\n        (plain-list\n         (:standard-properties\n          [1620 1620 1620 2240 2240 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil\n                ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                 (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                 (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                 (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                 (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                 (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                 (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                 (2894 0 \"- \" nil nil nil 3021))\n                #7]\n          :type unordered)\n         (item\n          (:standard-properties\n           [1620 1620 1626 2046 2046 0 (:tag) item nil nil nil nil nil nil\n                 #<buffer org-test-properties.org> nil\n                 ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                  (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                  (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                  (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                  (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                  (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                  (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                  (2894 0 \"- \" nil nil nil 3021))\n                 #8]\n           :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n          (paragraph\n           (:standard-properties\n            [1626 1626 1626 1783 1783 0 nil nil nil nil nil nil nil nil #<buffer\n                  org-test-properties.org> nil nil #9])\n           #(\"Those properties only show up if using with inheritance (not sure why). This probably explains it (\"\n             0 99 (:parent #10))\n           (link\n            (:standard-properties\n             [1725 nil 1756 1778 1780 0 nil nil nil nil nil nil nil nil #<buffer\n                   org-test-properties.org> nil nil #10]\n             :type \"info\" :type-explicit-p t :path \"org#In-buffer Settings\"\n             :format bracket :raw-link \"info:org#In-buffer Settings\"\n             :application nil :search-option nil)\n            #(\"org#In-buffer Settings\" 0 22 (:parent #11)))\n           #(\"):\\n\" 0 3 (:parent #10)))\n          (example-block\n           (:standard-properties\n            [1783 1783 nil nil 2046 0 nil nil nil nil nil nil nil nil #<buffer\n                  org-test-properties.org> nil nil #9]\n            :value\n            \"        ‘#+PROPERTY: Property_Name Value’\\n            This line sets a default inheritance value for entries in the\\n            current buffer, most useful for specifying the allowed values of a\\n            property.\\n\"\n            :switches nil :number-lines nil :preserve-indent nil :retain-labels\n            t :use-labels t :label-fmt nil)))\n         (item\n          (:standard-properties\n           [2046 2046 2052 2146 2146 0 (:tag) item nil nil nil nil nil nil\n                 #<buffer org-test-properties.org> nil\n                 ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                  (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                  (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                  (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                  (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                  (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                  (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                  (2894 0 \"- \" nil nil nil 3021))\n                 #8]\n           :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n          (paragraph\n           (:standard-properties\n            [2052 2052 2052 2146 2146 0 nil nil nil nil nil nil nil nil #<buffer\n                  org-test-properties.org> nil nil #9])\n           #(\"And they also work anywhere in the buffer, still only when using inheritance at buffer level.\\n\"\n             0 94 (:parent #10))))\n         (item\n          (:standard-properties\n           [2146 2146 2152 2240 2240 0 (:tag) item nil nil nil nil nil nil\n                 #<buffer org-test-properties.org> nil\n                 ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                  (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                  (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                  (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                  (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                  (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                  (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                  (2894 0 \"- \" nil nil nil 3021))\n                 #8]\n           :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n          (paragraph\n           (:standard-properties\n            [2152 2152 2152 2240 2240 0 nil nil nil nil nil nil nil nil #<buffer\n                  org-test-properties.org> nil nil #9])\n           #(\"I will add a field in the sql properties table to tag them as being set with a keyword.\\n\"\n             0 88 (:parent #10))))))\n       (item\n        (:standard-properties\n         [2240 2240 2244 2507 2507 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [2244 2244 2244 2413 2413 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"If you want to add to the value of an existing property, append a ‘+’ to the property name.  The following results in the property ‘var’ having the value ‘foo=1 bar=2’.\\n\"\n           0 169 (:parent #8)))\n        (src-block\n         (:standard-properties\n          [2413 2413 nil nil 2507 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7]\n          :language \"org\" :switches nil :parameters nil :number-lines nil\n          :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\n          :value \"      #+PROPERTY: var  foo=1\\n      #+PROPERTY: var+ bar=2\\n\")))\n       (item\n        (:standard-properties\n         [2507 2507 2511 2708 2708 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [2511 2511 2511 2708 2708 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"It is also possible to add to the values of inherited properties.\\n    The following results in the ‘Genres’ property having the value ‘Classic\\n    Baroque’ under the ‘Goldberg Variations’ subtree.\\n\"\n           0 197 (:parent #8))))\n       (item\n        (:standard-properties\n         [2708 2708 2712 2769 2769 0 (:tag) item nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil\n               ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n                (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n                (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n                (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n                (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n                (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n                (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n                (2894 0 \"- \" nil nil nil 3021))\n               #6]\n         :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n        (paragraph\n         (:standard-properties\n          [2712 2712 2712 2769 2769 0 nil nil nil nil nil nil nil nil #<buffer\n                org-test-properties.org> nil nil #7])\n         #(\"Note that a property can only have one entry per drawer.\\n\" 0 57\n           (:parent #8))))))\n     (item\n      (:standard-properties\n       [2770 2770 2772 2893 2894 1 (:tag) item nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil\n             ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n              (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n              (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n              (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n              (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n              (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n              (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n              (2894 0 \"- \" nil nil nil 3021))\n             #4]\n       :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n      (paragraph\n       (:standard-properties\n        [2772 2772 2772 2893 2893 0 nil nil nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil nil #5])\n       (link\n        (:standard-properties\n         [2772 nil 2855 2890 2892 0 nil nil nil nil nil nil nil nil #<buffer\n               org-test-properties.org> nil nil #6]\n         :type \"https\" :type-explicit-p t :path\n         \"//www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html\"\n         :format bracket :raw-link\n         \"https://www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html\"\n         :application nil :search-option nil)\n        #(\"Special Properties (The Org Manual)\" 0 35 (:parent #7)))\n       #(\"\\n\" 0 1 (:parent #6))))\n     (item\n      (:standard-properties\n       [2894 2894 2896 3021 3021 0 (:tag) item nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil\n             ((564 0 \"- \" nil nil nil 2770) (735 2 \"- \" nil nil nil 771)\n              (771 2 \"- \" nil nil nil 1059) (1059 2 \"- \" nil nil nil 1175)\n              (1175 2 \"- \" nil nil nil 1206) (1206 2 \"- \" nil nil nil 1481)\n              (1481 2 \"- \" nil nil nil 2240) (1620 4 \"- \" nil nil nil 2046)\n              (2046 4 \"- \" nil nil nil 2146) (2146 4 \"- \" nil nil nil 2240)\n              (2240 2 \"- \" nil nil nil 2507) (2507 2 \"- \" nil nil nil 2708)\n              (2708 2 \"- \" nil nil nil 2770) (2770 0 \"- \" nil nil nil 2894)\n              (2894 0 \"- \" nil nil nil 3021))\n             #4]\n       :bullet \"- \" :checkbox nil :counter nil :pre-blank 0 :tag nil)\n      (paragraph\n       (:standard-properties\n        [2896 2896 2896 3021 3021 0 nil nil nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil nil #5])\n       (link\n        (:standard-properties\n         [2896 nil 2981 3018 3020 0 nil nil nil nil nil nil nil nil #<buffer\n               org-test-properties.org> nil nil #6]\n         :type \"https\" :type-explicit-p t :path\n         \"//www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html\"\n         :format bracket :raw-link\n         \"https://www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html\"\n         :application nil :search-option nil)\n        #(\"Property Inheritance (The Org Manual)\" 0 37 (:parent #7)))\n       #(\"\\n\" 0 1 (:parent #6)))))))\n  (headline\n   (:standard-properties\n    [3022 3022 3046 4187 4187 0 (:title) nil nil nil nil 3048 4185 2 #<buffer\n          org-test-properties.org> nil nil #1]\n    :pre-blank 1 :raw-value \"Regular Expressions\" :title\n    (#(\"Regular Expressions\" 0 19 (:parent #2))) :level 2 :priority nil :tags\n    nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\n    :commentedp nil)\n   (section\n    (:standard-properties\n     [3046 3046 3046 4187 4187 0 nil section nil nil nil 3046 4187 nil #<buffer\n           org-test-properties.org> nil nil #2])\n    (src-block\n     (:standard-properties\n      [3046 3046 nil nil 4187 1 nil planning nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3]\n      :language \"lisp-interaction\" :switches nil :parameters nil :number-lines\n      nil :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\n      :value\n      \"  (defconst org-property-start-re \\\"^[ \\\\t]*:PROPERTIES:[ \\\\t]*$\\\"\\n    \\\"Regular expression matching the first line of a property drawer.\\\")\\n  \\\"^[ 	]*:PROPERTIES:[ 	]*$\\\"\\n\\n  (defconst org-property-end-re \\\"^[ \\\\t]*:END:[ \\\\t]*$\\\"\\n    \\\"Regular expression matching the last line of a property drawer.\\\")\\n  \\\"^[ 	]*:END:[ 	]*$\\\"\\n\\n  (defconst org-property-drawer-re\\n    (concat \\\"^[ \\\\t]*:PROPERTIES:[ \\\\t]*\\\\n\\\"\\n            \\\"\\\\\\\\(?:[ \\\\t]*:\\\\\\\\S-+:\\\\\\\\(?:[ \\\\t].*\\\\\\\\)?[ \\\\t]*\\\\n\\\\\\\\)*?\\\"\\n            \\\"[ \\\\t]*:END:[ \\\\t]*$\\\")\\n    \\\"Matches an entire property drawer.\\\")\\n  \\\"^[ 	]*:PROPERTIES:[ 	]*\\n  \\\\\\\\(?:[ 	]*:\\\\\\\\S-+:\\\\\\\\(?:[ 	].*\\\\\\\\)?[ 	]*\\n  \\\\\\\\)*?[ 	]*:END:[ 	]*$\\\"\\n\\n  (defconst org-property-re\\n    (org-re-property \\\"\\\\\\\\S-+\\\" 'literal t)\\n    \\\"Regular expression matching a property line.\\n  There are four matching groups:\\n  1: :PROPKEY: including the leading and trailing colon,\\n  2: PROPKEY without the leading and trailing colon,\\n  3: PROPVAL without leading or trailing spaces,\\n  4: the indentation of the current line,\\n  5: trailing whitespace.\\\")\\n  \\\"^\\\\\\\\(?4:[ 	]*\\\\\\\\)\\\\\\\\(?1::\\\\\\\\(?2:\\\\\\\\S-+\\\\\\\\):\\\\\\\\)\\\\\\\\(?:\\\\\\\\(?3:$\\\\\\\\)\\\\\\\\|[ 	]+\\\\\\\\(?3:.*?\\\\\\\\)\\\\\\\\)\\\\\\\\(?5:[ 	]*\\\\\\\\)$\\\"\\n\")))))\n (headline\n  (:standard-properties\n   [4187 4187 4196 5031 5031 0 (:title) nil nil nil nil 4198 5029 1 #<buffer\n         org-test-properties.org> nil nil #0]\n   :pre-blank 1 :raw-value \"Tests\" :title (#(\"Tests\" 0 5 (:parent #1))) :level 1\n   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p\n   nil :archivedp nil :commentedp nil)\n  (headline\n   (:standard-properties\n    [4196 4196 4245 4367 4367 0 (:title) section nil nil nil 4296 4365 2\n          #<buffer org-test-properties.org> nil nil #1]\n    :pre-blank 0 :raw-value \"Children Overwrite Parent Props (Inheritance)\"\n    :title\n    (#(\"Children Overwrite Parent Props (Inheritance)\" 0 45 (:parent #2)))\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\n    :footnote-section-p nil :archivedp nil :commentedp nil :PARENT-PROP\n    \"property on parent\")\n   (section\n    (:standard-properties\n     [4245 4245 4245 4297 4297 0 nil section nil nil nil 4245 4297 nil #<buffer\n           org-test-properties.org> nil nil #2])\n    (property-drawer\n     (:standard-properties\n      [4245 4245 4258 4291 4297 0 nil planning nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3])\n     (node-property\n      (:standard-properties\n       [4258 4258 nil nil 4291 0 nil node-property nil nil nil nil nil nil\n             #<buffer org-test-properties.org> nil nil #4]\n       :key \"parent-prop\" :value \"property on parent\"))))\n   (headline\n    (:standard-properties\n     [4297 4297 4307 4367 4367 0 (:title) nil nil nil nil nil nil 3 #<buffer\n           org-test-properties.org> nil nil #2]\n     :pre-blank 0 :raw-value \"Child\" :title (#(\"Child\" 0 5 (:parent #3))) :level\n     3 :priority nil :tags nil :todo-keyword nil :todo-type nil\n     :footnote-section-p nil :archivedp nil :commentedp nil :PARENT-PROP\n     \"valid (overwrites parent)\")\n    (section\n     (:standard-properties\n      [4307 4307 4307 4367 4367 0 nil section nil nil nil 4307 4367 nil #<buffer\n            org-test-properties.org> nil nil #3])\n     (property-drawer\n      (:standard-properties\n       [4307 4307 4320 4360 4367 1 nil planning nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil nil #4])\n      (node-property\n       (:standard-properties\n        [4320 4320 nil nil 4360 0 nil node-property nil nil nil nil nil nil\n              #<buffer org-test-properties.org> nil nil #5]\n        :key \"parent-prop\" :value \"valid (overwrites parent)\"))))))\n  (headline\n   (:standard-properties\n    [4367 4367 4395 4516 4516 0 (:title) nil nil nil nil 4397 4514 2 #<buffer\n          org-test-properties.org> nil nil #1]\n    :pre-blank 0 :raw-value \"Keywords Work Everywhere\" :title\n    (#(\"Keywords Work Everywhere\" 0 24 (:parent #2))) :level 2 :priority nil\n    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\n    :archivedp nil :commentedp nil)\n   (section\n    (:standard-properties\n     [4395 4395 4395 4516 4516 0 nil section nil nil nil 4395 4516 nil #<buffer\n           org-test-properties.org> nil nil #2])\n    (paragraph\n     (:standard-properties\n      [4395 4395 4395 4449 4449 0 nil planning nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3])\n     #(\"This will set the inherited property on buffer level,\\n\" 0 54\n       (:parent #4)))\n    (keyword\n     (:standard-properties\n      [4449 4449 nil nil 4516 1 nil nil nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3]\n      :key \"PROPERTY\" :value\n      \"keyword_prop_works_everywhere valid (at buffer level)\"))))\n  (headline\n   (:standard-properties\n    [4516 4516 4567 4633 4633 0 (:title) nil nil nil nil nil nil 2 #<buffer\n          org-test-properties.org> nil nil #1]\n    :pre-blank 0 :raw-value \"Second Property with Same Name Overwrites First\"\n    :title\n    (#(\"Second Property with Same Name Overwrites First\" 0 47 (:parent #2)))\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\n    :footnote-section-p nil :archivedp nil :commentedp nil :DEFINED_TWICE\n    \"valid\")\n   (section\n    (:standard-properties\n     [4567 4567 4567 4633 4633 0 nil section nil nil nil 4567 4633 nil #<buffer\n           org-test-properties.org> nil nil #2])\n    (property-drawer\n     (:standard-properties\n      [4567 4567 4580 4626 4633 1 nil planning nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3])\n     (node-property\n      (:standard-properties\n       [4580 4580 nil nil 4604 0 nil node-property nil nil nil nil nil nil\n             #<buffer org-test-properties.org> nil nil #4]\n       :key \"defined_twice\" :value \"invalid\"))\n     (node-property\n      (:standard-properties\n       [4604 4604 nil nil 4626 0 nil node-property nil nil nil nil nil nil\n             #<buffer org-test-properties.org> nil nil #4]\n       :key \"defined_twice\" :value \"valid\")))))\n  (headline\n   (:standard-properties\n    [4633 4633 4667 4894 4894 0 (:title) nil nil nil nil 4669 4892 2 #<buffer\n          org-test-properties.org> nil nil #1]\n    :pre-blank 1 :raw-value \"Add Value, separated by space\" :title\n    (#(\"Add Value, separated by space\" 0 29 (:parent #2))) :level 2 :priority\n    nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\n    :archivedp nil :commentedp nil)\n   (headline\n    (:standard-properties\n     [4667 4667 4706 4760 4760 0 (:title) section nil nil nil nil nil 3 #<buffer\n           org-test-properties.org> nil nil #2]\n     :pre-blank 0 :raw-value \"Adds Value to the first definition\" :title\n     (#(\"Adds Value to the first definition\" 0 34 (:parent #3))) :level 3\n     :priority nil :tags nil :todo-keyword nil :todo-type nil\n     :footnote-section-p nil :archivedp nil :commentedp nil :ADD-VALUE \"is\"\n     :ADD-VALUE+ \"valid\")\n    (section\n     (:standard-properties\n      [4706 4706 4706 4760 4760 0 nil section nil nil nil 4706 4760 nil #<buffer\n            org-test-properties.org> nil nil #3])\n     (property-drawer\n      (:standard-properties\n       [4706 4706 4719 4753 4760 1 nil planning nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil nil #4])\n      (node-property\n       (:standard-properties\n        [4719 4719 nil nil 4734 0 nil node-property nil nil nil nil nil nil\n              #<buffer org-test-properties.org> nil nil #5]\n        :key \"add-value\" :value \"is\"))\n      (node-property\n       (:standard-properties\n        [4734 4734 nil nil 4753 0 nil node-property nil nil nil nil nil nil\n              #<buffer org-test-properties.org> nil nil #5]\n        :key \"add-value+\" :value \"valid\")))))\n   (headline\n    (:standard-properties\n     [4760 4760 4789 4894 4894 0 (:title) nil nil nil nil 4832 4892 3 #<buffer\n           org-test-properties.org> nil nil #2]\n     :pre-blank 0 :raw-value \"Adds Value to the parent\" :title\n     (#(\"Adds Value to the parent\" 0 24 (:parent #3))) :level 3 :priority nil\n     :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\n     :archivedp nil :commentedp nil :ADD-VALUE-TO-PARENT \"is\")\n    (section\n     (:standard-properties\n      [4789 4789 4789 4834 4834 0 nil section nil nil nil 4789 4834 nil #<buffer\n            org-test-properties.org> nil nil #3])\n     (property-drawer\n      (:standard-properties\n       [4789 4789 4802 4827 4834 1 nil planning nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil nil #4])\n      (node-property\n       (:standard-properties\n        [4802 4802 nil nil 4827 0 nil node-property nil nil nil nil nil nil\n              #<buffer org-test-properties.org> nil nil #5]\n        :key \"add-value-to-parent\" :value \"is\"))))\n    (headline\n     (:standard-properties\n      [4834 4834 4845 4894 4894 0 (:title) nil nil nil nil nil nil 4 #<buffer\n            org-test-properties.org> nil nil #3]\n      :pre-blank 0 :raw-value \"Child\" :title (#(\"Child\" 0 5 (:parent #4)))\n      :level 4 :priority nil :tags nil :todo-keyword nil :todo-type nil\n      :footnote-section-p nil :archivedp nil :commentedp nil\n      :ADD-VALUE-TO-PARENT+ \"valid\")\n     (section\n      (:standard-properties\n       [4845 4845 4845 4894 4894 0 nil section nil nil nil 4845 4894 nil\n             #<buffer org-test-properties.org> nil nil #4])\n      (property-drawer\n       (:standard-properties\n        [4845 4845 4858 4887 4894 1 nil planning nil nil nil nil nil nil\n              #<buffer org-test-properties.org> nil nil #5])\n       (node-property\n        (:standard-properties\n         [4858 4858 nil nil 4887 0 nil node-property nil nil nil nil nil nil\n               #<buffer org-test-properties.org> nil nil #6]\n         :key \"add-value-to-parent+\" :value \"valid\")))))))\n  (headline\n   (:standard-properties\n    [4894 4894 4908 5031 5031 0 (:title) nil nil nil nil 4910 5029 2 #<buffer\n          org-test-properties.org> nil nil #1]\n    :pre-blank 1 :raw-value \"Malformed\" :title (#(\"Malformed\" 0 9 (:parent #2)))\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\n    :footnote-section-p nil :archivedp nil :commentedp nil)\n   (headline\n    (:standard-properties\n     [4908 4908 4930 5031 5031 0 (:title) section nil nil nil 4932 5029 3\n           #<buffer org-test-properties.org> nil nil #2]\n     :pre-blank 0 :raw-value \"Whitespace in Key\" :title\n     (#(\"Whitespace in Key\" 0 17 (:parent #3))) :level 3 :priority nil :tags nil\n     :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\n     :commentedp nil)\n    (section\n     (:standard-properties\n      [4930 4930 4930 5031 5031 0 nil section nil nil nil 4930 5031 nil #<buffer\n            org-test-properties.org> nil nil #3])\n     (drawer\n      (:standard-properties\n       [4930 4930 4943 5024 5031 1 nil planning nil nil nil nil nil nil #<buffer\n             org-test-properties.org> nil nil #4]\n       :drawer-name \"PROPERTIES\")\n      (paragraph\n       (:standard-properties\n        [4943 4943 4943 5024 5024 0 nil nil nil nil nil nil nil nil #<buffer\n              org-test-properties.org> nil nil #5])\n       #(\":props-before-work: valid\\n:key with whitespace: invalid\\n:props-after-work: valid\\n\"\n         0 81 (:parent #6))))))))\n (headline\n  (:standard-properties\n   [5031 5031 5058 49415 49415 0 (:title) nil nil nil nil 5060 49413 1 #<buffer\n         org-test-properties.org> nil nil #0]\n   :pre-blank 1 :raw-value \"Testing with Emacs Lisp\" :title\n   (#(\"Testing with Emacs Lisp\" 0 23 (:parent #1))) :level 1 :priority nil :tags\n   nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\n   :commentedp nil)\n  (section\n   (:standard-properties\n    [5058 5058 5058 6996 6996 0 nil section nil nil nil 5058 6996 nil #<buffer\n          org-test-properties.org> nil nil #1])\n   (src-block\n    (:standard-properties\n     [5058 5058 nil nil 6996 1 nil planning nil nil nil nil nil nil #<buffer\n           org-test-properties.org> nil nil #2]\n     :language \"lisp-interaction\" :switches nil :parameters nil :number-lines\n     nil :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\n     :value\n     \"  ;; Test Property with inheritance at point.\\n  (with-current-buffer \\\"org-test-properties.org\\\"\\n    (org-entry-get-with-inheritance \\\"add-value\\\"))\\n\\n  ;; Without inheritance.\\n  (with-current-buffer \\\"org-test-properties.org\\\"\\n    (org-entry-get (org-element-at-point) \\\"defined_twice\\\"))\\n\\n  (defun my-org-element-list-properties-with-path ()\\n    (let* ((ast (org-element-parse-buffer))\\n           (results '()))\\n      (cl-labels\\n          ((get-path (pos)\\n             (save-excursion\\n               (goto-char pos)\\n               (condition-case nil\\n                   (org-get-outline-path t)\\n                 (error nil)))))\\n        (org-element-map ast 'keyword\\n          (lambda (kw)\\n            (when (string-equal (org-element-property :key kw) \\\"PROPERTY\\\")\\n              (let* ((pos (org-element-property :begin kw))\\n                     (path (get-path pos))\\n                     (raw  (org-element-property :value kw))\\n                     (parts (split-string raw \\\"[ \\\\t]+\\\" t))\\n                     (key (upcase (car parts)))\\n                     (val (mapconcat #'identity (cdr parts) \\\" \\\")))\\n                (push (list :outline path :type 'keyword :key key :value val)\\n                      results)))))\\n        (org-element-map ast 'property-drawer\\n          (lambda (drawer)\\n            (let* ((pos (org-element-property :begin drawer))\\n                   (path (get-path pos)))\\n              (dolist (node (org-element-contents drawer))\\n                (when (eq (org-element-type node) 'node-property)\\n                  (let* ((key (upcase (org-element-property :key node)))\\n                         (val (org-element-property :value node)))\\n                    (push (list :type 'drawer :outline path :key key :value val)\\n                          results))))))))\\n      (nreverse results)))\\n\\n  (with-current-buffer \\\"org-test-properties.org\\\"\\n    (my-org-element-list-properties-with-path))\\n\")))\n  (headline\n   (:standard-properties\n    [6996 6996 7032 49415 49415 0 (:title) nil nil nil nil 7034 49413 2 #<buffer\n          org-test-properties.org> nil nil #1]\n    :pre-blank 1 :raw-value \"Output Parse Tree for AI Checko\" :title\n    (#(\"Output Parse Tree for AI Checko\" 0 31 (:parent #2))) :level 2 :priority\n    nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\n    :archivedp nil :commentedp nil)\n   (section\n    (:standard-properties\n     [7032 7032 7032 49415 49415 0 nil section nil nil nil 7032 49415 nil\n           #<buffer org-test-properties.org> nil nil #2])\n    (src-block\n     (:standard-properties\n      [7032 7032 nil nil 7169 1 nil planning nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3]\n      :language \"emacs-lisp\" :switches nil :parameters \":results code replace\"\n      :number-lines nil :preserve-indent nil :retain-labels t :use-labels t\n      :label-fmt nil :value\n      \"  (with-current-buffer \\\"org-test-properties.org\\\"\\n    (org-element-parse-buffer))\\n\"))\n    (src-block\n     (:standard-properties\n      [7169 7180 nil nil 49415 1 nil nil nil nil nil nil nil nil #<buffer\n            org-test-properties.org> nil nil #3]\n      :language \"emacs-lisp\" :switches nil :parameters nil :number-lines nil\n      :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil :value\n      \"(org-data\\n (:standard-properties\\n  [1 1 1 6909 6909 0 nil org-data nil nil nil 78 6909 nil #<buffer\\n     org-test-properties.org> nil nil nil]\\n  :pre-blank 0 :path\\n  \\\"/home/hubisan/projects/coding/org-files-db/tests/data/org-test-properties.org\\\"\\n  :DRAWER_PROP \\\"valid\\\" :KEYWORD_OVERWRITTEN_BY_DRAWER \\\"valid\\\" :CATEGORY\\n  \\\"is_ignored_when_property_is_used\\\")\\n (section\\n  (:standard-properties\\n   [1 1 1 368 368 0 nil first-section nil nil nil 1 368 nil #<buffer\\n      org-test-properties.org> nil nil #0])\\n  (property-drawer\\n   (:standard-properties\\n    [1 1 14 73 79 0 nil top-comment nil nil nil nil nil nil #<buffer\\n       org-test-properties.org> nil nil #1])\\n   (node-property\\n    (:standard-properties\\n     [14 14 nil nil 35 0 nil node-property nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #2]\\n     :key \\\"drawer_prop\\\" :value \\\"valid\\\"))\\n   (node-property\\n    (:standard-properties\\n     [35 35 nil nil 73 0 nil node-property nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #2]\\n     :key \\\"keyword_overwritten_by_drawer\\\" :value \\\"valid\\\")))\\n  (keyword\\n   (:standard-properties\\n    [79 79 nil nil 113 0 nil nil nil nil nil nil nil nil #<buffer\\n        org-test-properties.org> nil nil #1]\\n    :key \\\"TITLE\\\" :value \\\"Org Tests for Properties\\\"))\\n  (keyword\\n   (:standard-properties\\n    [113 113 nil nil 132 0 nil nil nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #1]\\n    :key \\\"STARTUP\\\" :value \\\"showall\\\"))\\n  (keyword\\n   (:standard-properties\\n    [132 132 nil nil 187 0 nil nil nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #1]\\n    :key \\\"TODO\\\" :value \\\"TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n)\\\"))\\n  (keyword\\n   (:standard-properties\\n    [187 187 nil nil 232 0 nil nil nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #1]\\n    :key \\\"CATEGORY\\\" :value \\\"is_ignored_when_property_is_used\\\"))\\n  (keyword\\n   (:standard-properties\\n    [232 232 nil nil 282 0 nil nil nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #1]\\n    :key \\\"PROPERTY\\\" :value \\\"keyword_property valid (if inherited)\\\"))\\n  (keyword\\n   (:standard-properties\\n    [282 282 nil nil 368 1 nil nil nil nil nil nil nil nil #<buffer\\n         org-test-properties.org> nil nil #1]\\n    :key \\\"PROPERTY\\\" :value\\n    \\\"keyword_overwritten_by_drawer invalid (overwritten from property drawer)\\\")))\\n (headline\\n  (:standard-properties\\n   [368 368 385 5986 5986 0 (:title) nil nil nil nil 387 5984 1 #<buffer\\n        org-test-properties.org> nil nil #0]\\n   :pre-blank 1 :raw-value \\\"Specification\\\" :title\\n   (#(\\\"Specification\\\" 0 13 (:parent #1))) :level 1 :priority nil :tags nil\\n   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\\n   :commentedp nil)\\n  (headline\\n   (:standard-properties\\n    [385 385 396 2854 2854 0 (:title) section nil nil nil 398 2852 2 #<buffer\\n         org-test-properties.org> nil nil #1]\\n    :pre-blank 1 :raw-value \\\"Manual\\\" :title (#(\\\"Manual\\\" 0 6 (:parent #2)))\\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\\n    :footnote-section-p nil :archivedp nil :commentedp nil)\\n   (section\\n    (:standard-properties\\n     [396 396 396 2854 2854 0 nil section nil nil nil 396 2854 nil #<buffer\\n          org-test-properties.org> nil nil #2])\\n    (plain-list\\n     (:standard-properties\\n      [396 396 396 2853 2854 1 nil planning nil nil nil nil nil nil #<buffer\\n           org-test-properties.org> nil\\n           ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n            (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n            (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n            (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n            (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n            (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n            (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n            (2726 0 \\\"- \\\" nil nil nil 2853))\\n           #3]\\n      :type unordered)\\n     (item\\n      (:standard-properties\\n       [396 396 398 2601 2602 1 (:tag) item nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil\\n            ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n             (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n             (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n             (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n             (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n             (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n             (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n             (2726 0 \\\"- \\\" nil nil nil 2853))\\n            #4]\\n       :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n      (paragraph\\n       (:standard-properties\\n        [398 398 398 566 567 1 nil nil nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil nil #5])\\n       (link\\n        (:standard-properties\\n         [398 nil 478 510 513 1 nil nil nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil nil #6]\\n         :type \\\"https\\\" :type-explicit-p t :path\\n         \\\"//www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html\\\"\\n         :format bracket :raw-link\\n         \\\"https://www.gnu.org/software/emacs/manual/html_node/org/Property-Syntax.html\\\"\\n         :application nil :search-option nil)\\n        #(\\\"Property Syntax (The Org Manual)\\\" 0 32 (:parent #7)))\\n       #(\\\"\\\\n  \\\" 0 3 (:parent #6))\\n       (link\\n        (:standard-properties\\n         [516 nil 544 563 565 0 nil nil nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil nil #6]\\n         :type \\\"info\\\" :type-explicit-p t :path \\\"org#Property Syntax\\\" :format\\n         bracket :raw-link \\\"info:org#Property Syntax\\\" :application nil\\n         :search-option nil)\\n        #(\\\"org#Property Syntax\\\" 0 19 (:parent #7)))\\n       #(\\\"\\\\n\\\" 0 1 (:parent #6)))\\n      (plain-list\\n       (:standard-properties\\n        [567 567 567 2601 2601 0 nil nil nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil\\n             ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n              (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n              (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n              (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n              (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n              (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n              (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n              (2726 0 \\\"- \\\" nil nil nil 2853))\\n             #5]\\n        :type unordered)\\n       (item\\n        (:standard-properties\\n         [567 567 571 603 603 0 (:tag) item nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil\\n              ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n               (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n               (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n               (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n               (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n               (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n               (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n               (2726 0 \\\"- \\\" nil nil nil 2853))\\n              #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [571 571 571 603 603 0 nil nil nil nil nil nil nil nil #<buffer\\n               org-test-properties.org> nil nil #7])\\n         #(\\\"Properties are key-value pairs.\\\\n\\\" 0 32 (:parent #8))))\\n       (item\\n        (:standard-properties\\n         [603 603 607 891 891 0 (:tag) item nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil\\n              ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n               (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n               (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n               (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n               (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n               (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n               (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n               (2726 0 \\\"- \\\" nil nil nil 2853))\\n              #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [607 607 607 891 891 0 nil nil nil nil nil nil nil nil #<buffer\\n               org-test-properties.org> nil nil #7])\\n         #(\\\"When they are associated with a single entry or with a tree they need to be inserted into a special drawer (see ,*note Drawers::) with the name ‘PROPERTIES’, which has to be located right below a headline, and its planning line (see *note Deadlines and Scheduling::) when applicable.\\\\n\\\"\\n           0 284 (:parent #8))))\\n       (item\\n        (:standard-properties\\n         [891 891 895 1007 1007 0 (:tag) item nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil\\n              ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n               (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n               (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n               (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n               (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n               (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n               (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n               (2726 0 \\\"- \\\" nil nil nil 2853))\\n              #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [895 895 895 1007 1007 0 nil nil nil nil nil nil nil nil #<buffer\\n               org-test-properties.org> nil nil #7])\\n         #(\\\"Each property is specified on a single line, with the key--surrounded by colons--first, and the value after it.\\\\n\\\"\\n           0 112 (:parent #8))))\\n       (item\\n        (:standard-properties\\n         [1007 1007 1011 1038 1038 0 (:tag) item nil nil nil nil nil nil\\n               #<buffer org-test-properties.org> nil\\n               ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                (2726 0 \\\"- \\\" nil nil nil 2853))\\n               #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [1011 1011 1011 1038 1038 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7])\\n         #(\\\"Keys are case-insensitive.\\\\n\\\" 0 27 (:parent #8))))\\n       (item\\n        (:standard-properties\\n         [1038 1038 1042 1313 1313 0 (:tag) item nil nil nil nil nil nil\\n               #<buffer org-test-properties.org> nil\\n               ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                (2726 0 \\\"- \\\" nil nil nil 2853))\\n               #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [1042 1042 1042 1313 1313 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7])\\n         #(\\\"Properties can be inserted at the buffer level.  That means they\\\\n    apply before the first headline and can be inherited by all entries in a\\\\n    file.  Property blocks defined before the first headline must be at the\\\\n    top of the buffer with only comments above them.\\\\n\\\"\\n           0 271 (:parent #8))))\\n       (item\\n        (:standard-properties\\n         [1313 1313 1317 2072 2072 0 (:tag) item nil nil nil nil nil nil\\n               #<buffer org-test-properties.org> nil\\n               ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                (2726 0 \\\"- \\\" nil nil nil 2853))\\n               #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [1317 1317 1317 1380 1380 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7])\\n         #(\\\"Properties can also be defined using lines like (as keywords):\\\\n\\\" 0\\n           63 (:parent #8)))\\n        (src-block\\n         (:standard-properties\\n          [1380 1380 nil nil 1452 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7]\\n          :language \\\"org\\\" :switches nil :parameters nil :number-lines nil\\n          :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\\n          :value \\\"      #+PROPERTY: NDisks_ALL 1 2 3 4\\\\n\\\"))\\n        (plain-list\\n         (:standard-properties\\n          [1452 1452 1452 2072 2072 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil\\n                ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                 (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                 (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                 (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                 (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                 (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                 (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                 (2726 0 \\\"- \\\" nil nil nil 2853))\\n                #7]\\n          :type unordered)\\n         (item\\n          (:standard-properties\\n           [1452 1452 1458 1878 1878 0 (:tag) item nil nil nil nil nil nil\\n                 #<buffer org-test-properties.org> nil\\n                 ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                  (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                  (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                  (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                  (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                  (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                  (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                  (2726 0 \\\"- \\\" nil nil nil 2853))\\n                 #8]\\n           :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n          (paragraph\\n           (:standard-properties\\n            [1458 1458 1458 1615 1615 0 nil nil nil nil nil nil nil nil #<buffer\\n                  org-test-properties.org> nil nil #9])\\n           #(\\\"Those properties only show up if using with inheritance (not sure why). This probably explains it (\\\"\\n             0 99 (:parent #10))\\n           (link\\n            (:standard-properties\\n             [1557 nil 1588 1610 1612 0 nil nil nil nil nil nil nil nil #<buffer\\n                   org-test-properties.org> nil nil #10]\\n             :type \\\"info\\\" :type-explicit-p t :path \\\"org#In-buffer Settings\\\"\\n             :format bracket :raw-link \\\"info:org#In-buffer Settings\\\"\\n             :application nil :search-option nil)\\n            #(\\\"org#In-buffer Settings\\\" 0 22 (:parent #11)))\\n           #(\\\"):\\\\n\\\" 0 3 (:parent #10)))\\n          (example-block\\n           (:standard-properties\\n            [1615 1615 nil nil 1878 0 nil nil nil nil nil nil nil nil #<buffer\\n                  org-test-properties.org> nil nil #9]\\n            :value\\n            \\\"        ‘#+PROPERTY: Property_Name Value’\\\\n            This line sets a default inheritance value for entries in the\\\\n            current buffer, most useful for specifying the allowed values of a\\\\n            property.\\\\n\\\"\\n            :switches nil :number-lines nil :preserve-indent nil :retain-labels\\n            t :use-labels t :label-fmt nil)))\\n         (item\\n          (:standard-properties\\n           [1878 1878 1884 1978 1978 0 (:tag) item nil nil nil nil nil nil\\n                 #<buffer org-test-properties.org> nil\\n                 ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                  (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                  (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                  (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                  (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                  (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                  (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                  (2726 0 \\\"- \\\" nil nil nil 2853))\\n                 #8]\\n           :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n          (paragraph\\n           (:standard-properties\\n            [1884 1884 1884 1978 1978 0 nil nil nil nil nil nil nil nil #<buffer\\n                  org-test-properties.org> nil nil #9])\\n           #(\\\"And they also work anywhere in the buffer, still only when using inheritance at buffer level.\\\\n\\\"\\n             0 94 (:parent #10))))\\n         (item\\n          (:standard-properties\\n           [1978 1978 1984 2072 2072 0 (:tag) item nil nil nil nil nil nil\\n                 #<buffer org-test-properties.org> nil\\n                 ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                  (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                  (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                  (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                  (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                  (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                  (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                  (2726 0 \\\"- \\\" nil nil nil 2853))\\n                 #8]\\n           :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n          (paragraph\\n           (:standard-properties\\n            [1984 1984 1984 2072 2072 0 nil nil nil nil nil nil nil nil #<buffer\\n                  org-test-properties.org> nil nil #9])\\n           #(\\\"I will add a field in the sql properties table to tag them as being set with a keyword.\\\\n\\\"\\n             0 88 (:parent #10))))))\\n       (item\\n        (:standard-properties\\n         [2072 2072 2076 2339 2339 0 (:tag) item nil nil nil nil nil nil\\n               #<buffer org-test-properties.org> nil\\n               ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                (2726 0 \\\"- \\\" nil nil nil 2853))\\n               #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [2076 2076 2076 2245 2245 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7])\\n         #(\\\"If you want to add to the value of an existing property, append a ‘+’ to the property name.  The following results in the property ‘var’ having the value ‘foo=1 bar=2’.\\\\n\\\"\\n           0 169 (:parent #8)))\\n        (src-block\\n         (:standard-properties\\n          [2245 2245 nil nil 2339 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7]\\n          :language \\\"org\\\" :switches nil :parameters nil :number-lines nil\\n          :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\\n          :value \\\"      #+PROPERTY: var  foo=1\\\\n      #+PROPERTY: var+ bar=2\\\\n\\\")))\\n       (item\\n        (:standard-properties\\n         [2339 2339 2343 2540 2540 0 (:tag) item nil nil nil nil nil nil\\n               #<buffer org-test-properties.org> nil\\n               ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                (2726 0 \\\"- \\\" nil nil nil 2853))\\n               #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [2343 2343 2343 2540 2540 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7])\\n         #(\\\"It is also possible to add to the values of inherited properties.\\\\n    The following results in the ‘Genres’ property having the value ‘Classic\\\\n    Baroque’ under the ‘Goldberg Variations’ subtree.\\\\n\\\"\\n           0 197 (:parent #8))))\\n       (item\\n        (:standard-properties\\n         [2540 2540 2544 2601 2601 0 (:tag) item nil nil nil nil nil nil\\n               #<buffer org-test-properties.org> nil\\n               ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n                (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n                (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n                (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n                (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n                (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n                (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n                (2726 0 \\\"- \\\" nil nil nil 2853))\\n               #6]\\n         :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n        (paragraph\\n         (:standard-properties\\n          [2544 2544 2544 2601 2601 0 nil nil nil nil nil nil nil nil #<buffer\\n                org-test-properties.org> nil nil #7])\\n         #(\\\"Note that a property can only have one entry per drawer.\\\\n\\\" 0 57\\n           (:parent #8))))))\\n     (item\\n      (:standard-properties\\n       [2602 2602 2604 2725 2726 1 (:tag) item nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil\\n             ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n              (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n              (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n              (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n              (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n              (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n              (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n              (2726 0 \\\"- \\\" nil nil nil 2853))\\n             #4]\\n       :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n      (paragraph\\n       (:standard-properties\\n        [2604 2604 2604 2725 2725 0 nil nil nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil nil #5])\\n       (link\\n        (:standard-properties\\n         [2604 nil 2687 2722 2724 0 nil nil nil nil nil nil nil nil #<buffer\\n               org-test-properties.org> nil nil #6]\\n         :type \\\"https\\\" :type-explicit-p t :path\\n         \\\"//www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html\\\"\\n         :format bracket :raw-link\\n         \\\"https://www.gnu.org/software/emacs/manual/html_node/org/Special-Properties.html\\\"\\n         :application nil :search-option nil)\\n        #(\\\"Special Properties (The Org Manual)\\\" 0 35 (:parent #7)))\\n       #(\\\"\\\\n\\\" 0 1 (:parent #6))))\\n     (item\\n      (:standard-properties\\n       [2726 2726 2728 2853 2853 0 (:tag) item nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil\\n             ((396 0 \\\"- \\\" nil nil nil 2602) (567 2 \\\"- \\\" nil nil nil 603)\\n              (603 2 \\\"- \\\" nil nil nil 891) (891 2 \\\"- \\\" nil nil nil 1007)\\n              (1007 2 \\\"- \\\" nil nil nil 1038) (1038 2 \\\"- \\\" nil nil nil 1313)\\n              (1313 2 \\\"- \\\" nil nil nil 2072) (1452 4 \\\"- \\\" nil nil nil 1878)\\n              (1878 4 \\\"- \\\" nil nil nil 1978) (1978 4 \\\"- \\\" nil nil nil 2072)\\n              (2072 2 \\\"- \\\" nil nil nil 2339) (2339 2 \\\"- \\\" nil nil nil 2540)\\n              (2540 2 \\\"- \\\" nil nil nil 2602) (2602 0 \\\"- \\\" nil nil nil 2726)\\n              (2726 0 \\\"- \\\" nil nil nil 2853))\\n             #4]\\n       :bullet \\\"- \\\" :checkbox nil :counter nil :pre-blank 0 :tag nil)\\n      (paragraph\\n       (:standard-properties\\n        [2728 2728 2728 2853 2853 0 nil nil nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil nil #5])\\n       (link\\n        (:standard-properties\\n         [2728 nil 2813 2850 2852 0 nil nil nil nil nil nil nil nil #<buffer\\n               org-test-properties.org> nil nil #6]\\n         :type \\\"https\\\" :type-explicit-p t :path\\n         \\\"//www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html\\\"\\n         :format bracket :raw-link\\n         \\\"https://www.gnu.org/software/emacs/manual/html_node/org/Property-Inheritance.html\\\"\\n         :application nil :search-option nil)\\n        #(\\\"Property Inheritance (The Org Manual)\\\" 0 37 (:parent #7)))\\n       #(\\\"\\\\n\\\" 0 1 (:parent #6)))))))\\n  (headline\\n   (:standard-properties\\n    [2854 2854 2878 4019 4019 0 (:title) nil nil nil nil 2880 4017 2 #<buffer\\n          org-test-properties.org> nil nil #1]\\n    :pre-blank 1 :raw-value \\\"Regular Expressions\\\" :title\\n    (#(\\\"Regular Expressions\\\" 0 19 (:parent #2))) :level 2 :priority nil :tags\\n    nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\\n    :commentedp nil)\\n   (section\\n    (:standard-properties\\n     [2878 2878 2878 4019 4019 0 nil section nil nil nil 2878 4019 nil #<buffer\\n           org-test-properties.org> nil nil #2])\\n    (src-block\\n     (:standard-properties\\n      [2878 2878 nil nil 4019 1 nil planning nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil nil #3]\\n      :language \\\"lisp-interaction\\\" :switches nil :parameters nil :number-lines\\n      nil :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\\n      :value\\n      \\\"  (defconst org-property-start-re \\\\\\\"^[ \\\\\\\\t]*:PROPERTIES:[ \\\\\\\\t]*$\\\\\\\"\\\\n    \\\\\\\"Regular expression matching the first line of a property drawer.\\\\\\\")\\\\n  \\\\\\\"^[ 	]*:PROPERTIES:[ 	]*$\\\\\\\"\\\\n\\\\n  (defconst org-property-end-re \\\\\\\"^[ \\\\\\\\t]*:END:[ \\\\\\\\t]*$\\\\\\\"\\\\n    \\\\\\\"Regular expression matching the last line of a property drawer.\\\\\\\")\\\\n  \\\\\\\"^[ 	]*:END:[ 	]*$\\\\\\\"\\\\n\\\\n  (defconst org-property-drawer-re\\\\n    (concat \\\\\\\"^[ \\\\\\\\t]*:PROPERTIES:[ \\\\\\\\t]*\\\\\\\\n\\\\\\\"\\\\n            \\\\\\\"\\\\\\\\\\\\\\\\(?:[ \\\\\\\\t]*:\\\\\\\\\\\\\\\\S-+:\\\\\\\\\\\\\\\\(?:[ \\\\\\\\t].*\\\\\\\\\\\\\\\\)?[ \\\\\\\\t]*\\\\\\\\n\\\\\\\\\\\\\\\\)*?\\\\\\\"\\\\n            \\\\\\\"[ \\\\\\\\t]*:END:[ \\\\\\\\t]*$\\\\\\\")\\\\n    \\\\\\\"Matches an entire property drawer.\\\\\\\")\\\\n  \\\\\\\"^[ 	]*:PROPERTIES:[ 	]*\\\\n  \\\\\\\\\\\\\\\\(?:[ 	]*:\\\\\\\\\\\\\\\\S-+:\\\\\\\\\\\\\\\\(?:[ 	].*\\\\\\\\\\\\\\\\)?[ 	]*\\\\n  \\\\\\\\\\\\\\\\)*?[ 	]*:END:[ 	]*$\\\\\\\"\\\\n\\\\n  (defconst org-property-re\\\\n    (org-re-property \\\\\\\"\\\\\\\\\\\\\\\\S-+\\\\\\\" 'literal t)\\\\n    \\\\\\\"Regular expression matching a property line.\\\\n  There are four matching groups:\\\\n  1: :PROPKEY: including the leading and trailing colon,\\\\n  2: PROPKEY without the leading and trailing colon,\\\\n  3: PROPVAL without leading or trailing spaces,\\\\n  4: the indentation of the current line,\\\\n  5: trailing whitespace.\\\\\\\")\\\\n  \\\\\\\"^\\\\\\\\\\\\\\\\(?4:[ 	]*\\\\\\\\\\\\\\\\)\\\\\\\\\\\\\\\\(?1::\\\\\\\\\\\\\\\\(?2:\\\\\\\\\\\\\\\\S-+\\\\\\\\\\\\\\\\):\\\\\\\\\\\\\\\\)\\\\\\\\\\\\\\\\(?:\\\\\\\\\\\\\\\\(?3:$\\\\\\\\\\\\\\\\)\\\\\\\\\\\\\\\\|[ 	]+\\\\\\\\\\\\\\\\(?3:.*?\\\\\\\\\\\\\\\\)\\\\\\\\\\\\\\\\)\\\\\\\\\\\\\\\\(?5:[ 	]*\\\\\\\\\\\\\\\\)$\\\\\\\"\\\\n\\\"))))\\n  (headline\\n   (:standard-properties\\n    [4019 4019 4047 5986 5986 0 (:title) nil nil nil nil 4049 5984 2 #<buffer\\n          org-test-properties.org> nil nil #1]\\n    :pre-blank 1 :raw-value \\\"Testing with Emacs Lisp\\\" :title\\n    (#(\\\"Testing with Emacs Lisp\\\" 0 23 (:parent #2))) :level 2 :priority nil\\n    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\\n    :archivedp nil :commentedp nil)\\n   (section\\n    (:standard-properties\\n     [4047 4047 4047 5986 5986 0 nil section nil nil nil 4047 5986 nil #<buffer\\n           org-test-properties.org> nil nil #2])\\n    (src-block\\n     (:standard-properties\\n      [4047 4047 nil nil 5986 2 nil planning nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil nil #3]\\n      :language \\\"lisp-interaction\\\" :switches nil :parameters nil :number-lines\\n      nil :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil\\n      :value\\n      \\\"  ;; Test Property with inheritance at point.\\\\n  (with-current-buffer \\\\\\\"org-test-properties.org\\\\\\\"\\\\n    (org-entry-get-with-inheritance \\\\\\\"add-value\\\\\\\"))\\\\n\\\\n  ;; Without inheritance.\\\\n  (with-current-buffer \\\\\\\"org-test-properties.org\\\\\\\"\\\\n    (org-entry-get (org-element-at-point) \\\\\\\"defined_twice\\\\\\\"))\\\\n\\\\n  (defun my-org-element-list-properties-with-path ()\\\\n    (let* ((ast (org-element-parse-buffer))\\\\n           (results '()))\\\\n      (cl-labels\\\\n          ((get-path (pos)\\\\n             (save-excursion\\\\n               (goto-char pos)\\\\n               (condition-case nil\\\\n                   (org-get-outline-path t)\\\\n                 (error nil)))))\\\\n        (org-element-map ast 'keyword\\\\n          (lambda (kw)\\\\n            (when (string-equal (org-element-property :key kw) \\\\\\\"PROPERTY\\\\\\\")\\\\n              (let* ((pos (org-element-property :begin kw))\\\\n                     (path (get-path pos))\\\\n                     (raw  (org-element-property :value kw))\\\\n                     (parts (split-string raw \\\\\\\"[ \\\\\\\\t]+\\\\\\\" t))\\\\n                     (key (upcase (car parts)))\\\\n                     (val (mapconcat #'identity (cdr parts) \\\\\\\" \\\\\\\")))\\\\n                (push (list :outline path :type 'keyword :key key :value val)\\\\n                      results)))))\\\\n        (org-element-map ast 'property-drawer\\\\n          (lambda (drawer)\\\\n            (let* ((pos (org-element-property :begin drawer))\\\\n                   (path (get-path pos)))\\\\n              (dolist (node (org-element-contents drawer))\\\\n                (when (eq (org-element-type node) 'node-property)\\\\n                  (let* ((key (upcase (org-element-property :key node)))\\\\n                         (val (org-element-property :value node)))\\\\n                    (push (list :type 'drawer :outline path :key key :value val)\\\\n                          results))))))))\\\\n      (nreverse results)))\\\\n\\\\n  (with-current-buffer \\\\\\\"org-test-properties.org\\\\\\\"\\\\n    (my-org-element-list-properties-with-path))\\\\n\\\")))))\\n (headline\\n  (:standard-properties\\n   [5986 5986 5995 6909 6909 0 (:title) nil nil nil nil 5997 6907 1 #<buffer\\n         org-test-properties.org> nil nil #0]\\n   :pre-blank 1 :raw-value \\\"Tests\\\" :title (#(\\\"Tests\\\" 0 5 (:parent #1))) :level 1\\n   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p\\n   nil :archivedp nil :commentedp nil)\\n  (headline\\n   (:standard-properties\\n    [5995 5995 6030 6152 6152 0 (:title) section nil nil nil 6081 6150 2\\n          #<buffer org-test-properties.org> nil nil #1]\\n    :pre-blank 0 :raw-value \\\"Children Overwrite Parent Props\\\" :title\\n    (#(\\\"Children Overwrite Parent Props\\\" 0 31 (:parent #2))) :level 2 :priority\\n    nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\\n    :archivedp nil :commentedp nil :PARENT-PROP \\\"property on parent\\\")\\n   (section\\n    (:standard-properties\\n     [6030 6030 6030 6082 6082 0 nil section nil nil nil 6030 6082 nil #<buffer\\n           org-test-properties.org> nil nil #2])\\n    (property-drawer\\n     (:standard-properties\\n      [6030 6030 6043 6076 6082 0 nil planning nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     (node-property\\n      (:standard-properties\\n       [6043 6043 nil nil 6076 0 nil node-property nil nil nil nil nil nil\\n             #<buffer org-test-properties.org> nil nil #4]\\n       :key \\\"parent-prop\\\" :value \\\"property on parent\\\"))))\\n   (headline\\n    (:standard-properties\\n     [6082 6082 6092 6152 6152 0 (:title) nil nil nil nil nil nil 3 #<buffer\\n           org-test-properties.org> nil nil #2]\\n     :pre-blank 0 :raw-value \\\"Child\\\" :title (#(\\\"Child\\\" 0 5 (:parent #3))) :level\\n     3 :priority nil :tags nil :todo-keyword nil :todo-type nil\\n     :footnote-section-p nil :archivedp nil :commentedp nil :PARENT-PROP\\n     \\\"valid (overwrites parent)\\\")\\n    (section\\n     (:standard-properties\\n      [6092 6092 6092 6152 6152 0 nil section nil nil nil 6092 6152 nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     (property-drawer\\n      (:standard-properties\\n       [6092 6092 6105 6145 6152 1 nil planning nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil nil #4])\\n      (node-property\\n       (:standard-properties\\n        [6105 6105 nil nil 6145 0 nil node-property nil nil nil nil nil nil\\n              #<buffer org-test-properties.org> nil nil #5]\\n        :key \\\"parent-prop\\\" :value \\\"valid (overwrites parent)\\\"))))))\\n  (headline\\n   (:standard-properties\\n    [6152 6152 6180 6301 6301 0 (:title) nil nil nil nil 6182 6299 2 #<buffer\\n          org-test-properties.org> nil nil #1]\\n    :pre-blank 0 :raw-value \\\"Keywords Work Everywhere\\\" :title\\n    (#(\\\"Keywords Work Everywhere\\\" 0 24 (:parent #2))) :level 2 :priority nil\\n    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\\n    :archivedp nil :commentedp nil)\\n   (section\\n    (:standard-properties\\n     [6180 6180 6180 6301 6301 0 nil section nil nil nil 6180 6301 nil #<buffer\\n           org-test-properties.org> nil nil #2])\\n    (paragraph\\n     (:standard-properties\\n      [6180 6180 6180 6234 6234 0 nil planning nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     #(\\\"This will set the inherited property on buffer level,\\\\n\\\" 0 54\\n       (:parent #4)))\\n    (keyword\\n     (:standard-properties\\n      [6234 6234 nil nil 6301 1 nil nil nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil nil #3]\\n      :key \\\"PROPERTY\\\" :value\\n      \\\"keyword_prop_works_everywhere valid (at buffer level)\\\"))))\\n  (headline\\n   (:standard-properties\\n    [6301 6301 6352 6413 6413 0 (:title) nil nil nil nil nil nil 2 #<buffer\\n          org-test-properties.org> nil nil #1]\\n    :pre-blank 0 :raw-value \\\"Second Property with Same Name Overwrites First\\\"\\n    :title\\n    (#(\\\"Second Property with Same Name Overwrites First\\\" 0 47 (:parent #2)))\\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\\n    :footnote-section-p nil :archivedp nil :commentedp nil :DEFINED_TWICE\\n    \\\"valid\\\")\\n   (section\\n    (:standard-properties\\n     [6352 6352 6352 6413 6413 0 nil section nil nil nil 6352 6413 nil #<buffer\\n           org-test-properties.org> nil nil #2])\\n    (property-drawer\\n     (:standard-properties\\n      [6352 6352 6365 6406 6413 1 nil planning nil nil nil nil nil nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     (node-property\\n      (:standard-properties\\n       [6365 6365 nil nil 6384 0 nil node-property nil nil nil nil nil nil\\n             #<buffer org-test-properties.org> nil nil #4]\\n       :key \\\"defined_twice\\\" :value \\\"is\\\"))\\n     (node-property\\n      (:standard-properties\\n       [6384 6384 nil nil 6406 0 nil node-property nil nil nil nil nil nil\\n             #<buffer org-test-properties.org> nil nil #4]\\n       :key \\\"defined_twice\\\" :value \\\"valid\\\")))))\\n  (headline\\n   (:standard-properties\\n    [6413 6413 6447 6635 6635 0 (:title) nil nil nil nil 6449 6633 2 #<buffer\\n          org-test-properties.org> nil nil #1]\\n    :pre-blank 1 :raw-value \\\"Add Value, separated by space\\\" :title\\n    (#(\\\"Add Value, separated by space\\\" 0 29 (:parent #2))) :level 2 :priority\\n    nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\\n    :archivedp nil :commentedp nil)\\n   (headline\\n    (:standard-properties\\n     [6447 6447 6486 6540 6540 0 (:title) section nil nil nil nil nil 3 #<buffer\\n           org-test-properties.org> nil nil #2]\\n     :pre-blank 0 :raw-value \\\"Adds Value to the first definition\\\" :title\\n     (#(\\\"Adds Value to the first definition\\\" 0 34 (:parent #3))) :level 3\\n     :priority nil :tags nil :todo-keyword nil :todo-type nil\\n     :footnote-section-p nil :archivedp nil :commentedp nil :ADD-VALUE \\\"is\\\"\\n     :ADD-VALUE+ \\\"valid\\\")\\n    (section\\n     (:standard-properties\\n      [6486 6486 6486 6540 6540 0 nil section nil nil nil 6486 6540 nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     (property-drawer\\n      (:standard-properties\\n       [6486 6486 6499 6533 6540 1 nil planning nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil nil #4])\\n      (node-property\\n       (:standard-properties\\n        [6499 6499 nil nil 6514 0 nil node-property nil nil nil nil nil nil\\n              #<buffer org-test-properties.org> nil nil #5]\\n        :key \\\"add-value\\\" :value \\\"is\\\"))\\n      (node-property\\n       (:standard-properties\\n        [6514 6514 nil nil 6533 0 nil node-property nil nil nil nil nil nil\\n              #<buffer org-test-properties.org> nil nil #5]\\n        :key \\\"add-value+\\\" :value \\\"valid\\\")))))\\n   (headline\\n    (:standard-properties\\n     [6540 6540 6569 6635 6635 0 (:title) nil nil nil nil 6621 6633 3 #<buffer\\n           org-test-properties.org> nil nil #2]\\n     :pre-blank 0 :raw-value \\\"Adds Value to the parent\\\" :title\\n     (#(\\\"Adds Value to the parent\\\" 0 24 (:parent #3))) :level 3 :priority nil\\n     :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil\\n     :archivedp nil :commentedp nil :ADD-VALUE \\\"is\\\" :ADD-VALUE+ \\\"valid\\\")\\n    (section\\n     (:standard-properties\\n      [6569 6569 6569 6623 6623 0 nil section nil nil nil 6569 6623 nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     (property-drawer\\n      (:standard-properties\\n       [6569 6569 6582 6616 6623 1 nil planning nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil nil #4])\\n      (node-property\\n       (:standard-properties\\n        [6582 6582 nil nil 6597 0 nil node-property nil nil nil nil nil nil\\n              #<buffer org-test-properties.org> nil nil #5]\\n        :key \\\"add-value\\\" :value \\\"is\\\"))\\n      (node-property\\n       (:standard-properties\\n        [6597 6597 nil nil 6616 0 nil node-property nil nil nil nil nil nil\\n              #<buffer org-test-properties.org> nil nil #5]\\n        :key \\\"add-value+\\\" :value \\\"valid\\\"))))\\n    (headline\\n     (:standard-properties\\n      [6623 6623 nil nil 6635 1 (:title) nil nil nil nil nil nil 4 #<buffer\\n            org-test-properties.org> nil nil #3]\\n      :pre-blank 0 :raw-value \\\"Child\\\" :title (#(\\\"Child\\\" 0 5 (:parent #4)))\\n      :level 4 :priority nil :tags nil :todo-keyword nil :todo-type nil\\n      :footnote-section-p nil :archivedp nil :commentedp nil))))\\n  (headline\\n   (:standard-properties\\n    [6635 6635 6649 6909 6909 0 (:title) nil nil nil nil 6651 6907 2 #<buffer\\n          org-test-properties.org> nil nil #1]\\n    :pre-blank 1 :raw-value \\\"Malformed\\\" :title (#(\\\"Malformed\\\" 0 9 (:parent #2)))\\n    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil\\n    :footnote-section-p nil :archivedp nil :commentedp nil)\\n   (headline\\n    (:standard-properties\\n     [6649 6649 6671 6909 6909 0 (:title) section nil nil nil 6673 6907 3\\n           #<buffer org-test-properties.org> nil nil #2]\\n     :pre-blank 0 :raw-value \\\"Whitespace in Key\\\" :title\\n     (#(\\\"Whitespace in Key\\\" 0 17 (:parent #3))) :level 3 :priority nil :tags nil\\n     :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil\\n     :commentedp nil)\\n    (section\\n     (:standard-properties\\n      [6671 6671 6671 6909 6909 0 nil section nil nil nil 6671 6909 nil #<buffer\\n            org-test-properties.org> nil nil #3])\\n     (drawer\\n      (:standard-properties\\n       [6671 6671 6684 6765 6772 1 nil planning nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil nil #4]\\n       :drawer-name \\\"PROPERTIES\\\")\\n      (paragraph\\n       (:standard-properties\\n        [6684 6684 6684 6765 6765 0 nil nil nil nil nil nil nil nil #<buffer\\n              org-test-properties.org> nil nil #5])\\n       #(\\\":props-before-work: valid\\\\n:key with whitespace: invalid\\\\n:props-after-work: valid\\\\n\\\"\\n         0 81 (:parent #6))))\\n     (src-block\\n      (:standard-properties\\n       [6772 6772 nil nil 6909 1 nil nil nil nil nil nil nil nil #<buffer\\n             org-test-properties.org> nil nil #4]\\n       :language \\\"emacs-lisp\\\" :switches nil :parameters \\\":results code replace\\\"\\n       :number-lines nil :preserve-indent nil :retain-labels t :use-labels t\\n       :label-fmt nil :value\\n       \\\"  (with-current-buffer \\\\\\\"org-test-properties.org\\\\\\\"\\\\n    (org-element-parse-buffer))\\\\n\\\")))))))\\n\"\n      :results (\"\")))))))\n"
+      :results ("")))))))
+#+end_src
+
