@@ -201,9 +201,9 @@ Those search options are stored in a separated field.
 - [[file:::10]]
 - [[file:::10][description: file:::10]]
 
-- id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10
-- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10]]
-- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10][description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10]]
+- id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10
+- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10]]
+- [[id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10][description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10]]
 
 - file:./org-test-links.org::#internal-link-to-custom-id
 - [[./org-test-links.org::#internal-link-to-custom-id]]

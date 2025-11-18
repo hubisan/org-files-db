@@ -3,6 +3,8 @@
 
 * Parser
 
+
+
 ** NEXT Parser Modularisieren
 
 Auch in Files splitten, schon nur damit einfacher mit AI.

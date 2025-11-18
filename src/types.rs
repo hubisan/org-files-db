@@ -1,90 +1,173 @@
+// ------------------------------------------------------------
+// Org-mode AST types (links, headings, blocks, properties…)
+// ------------------------------------------------------------
+
 use serde::Serialize;
 
-/// Ein einzelner Link im Body oder im Header.
+// ------------------------------------------------------------
+// Link type
+// ------------------------------------------------------------
+
+/// A single Org-mode link inside headings, properties or body text.
 #[derive(Debug, Clone, Serialize)]
 pub struct OrgLink {
-    /// Der unveränderte Original-Link-String.
-    /// z.B. "[[file:~/test.org][Test]]" oder "https://google.com"
+    /// The original link string as found in the file.
+    /// e.g. `[[file:~/test.org][Test]]`
+    /// or   `https://google.com`
     pub raw: String,
 
-    /// Link-Typ: "http", "https", "file", "id", "anchor", …
+    /// Link type such as: "http", "https", "file", "id", "anchor", …
     pub link_type: String,
 
-    /// Path wie er im Org-File steht (unverändert).
+    /// Path exactly as written in the Org file.
     pub path: String,
 
-    /// Absoluter Pfad (falls file-Link), aber:
-    /// - KEINE ~-Expansion
-    /// - OHNE canonicalize()
-    /// - relativ zum Org-File berechnet
+    /// Absolute path (for file links) but:
     pub path_absolute: Option<String>,
 
-    // If custom id or id then store the link to be able to link to the heading
-    // or file later on.
+    /// If this is an `id:` or `custom-id:` link, this stores the target
+    /// heading ID so that resolving is possible later.
     pub target_heading_id: Option<String>,
 
-    /// Search-Option (#anchor, *heading, Text…)
+    /// Search option such as: `#anchor`, `*heading`, or text search.
+    /// Like `./org-test-links.org::dedicated target`
     pub search_option: Option<String>,
 
-    /// Beschreibung bei [[tgt][desc]].
+    /// Description part of a bracket link: `[[link][description]]`
     pub description: Option<String>,
 
-    /// "plain" oder "bracket"
+    /// Either `"plain"` or `"bracket"`.
     pub format: String,
 
-    /// Absolute Byte-Position im Inputfile.
+    /// Byte position inside the input buffer.
     pub pos: usize,
 }
 
-/// Ein Org-Heading / Node im Outline.
+// ------------------------------------------------------------
+// Heading type
+// ------------------------------------------------------------
+
+/// A single Org-mode heading in the outline tree.
+///
+/// This structure contains both "raw" fields (directly from the file)
+/// and cleaned/normalized fields.
 #[derive(Debug, Clone, Serialize)]
 pub struct OrgHeading {
-    /// Stern-Level (* count)
+    /// Heading level = number of stars `*`.
     pub level: u8,
 
-    /// TODO-Keyword, falls erkannt.
+    /// TODO keyword if present: TODO / DONE / NEXT / …
     pub todo: Option<String>,
 
-    /// Priority (ohne Klammern), z. B. "A".
+    /// Priority cookie without brackets, e.g. `"A"`.
     pub priority: Option<String>,
 
-    /// Bereinigter Titel (ohne TODO, Priority, Stat-Cookie, Tags;
-    /// Links in desc/target umgewandelt).
+    /// Cleaned title:
+    /// - no stars
+    /// - no TODO keyword
+    /// - no priority
+    /// - no status cookies
+    /// - no tags
+    /// - links normalized (description or if none, the path)
     pub title: String,
 
-    /// Roher Titel ohne Stern/Tags/Cookie:
-    /// - Links bleiben 1:1 erhalten
-    /// - TODO & Priority bleiben enthalten
-    /// - Stat-Cookie entfernt
-    /// - Tag-Group am Ende entfernt
+    /// Raw title:
+    /// - no stars
+    /// - no tag group at the end
+    /// - TODO + priority kept
+    /// - status cookie removed
+    /// - links kept as-is
     pub title_raw: String,
 
-    /// Tags direkt am Heading (keine File-Level-Tags)
+    /// Tags directly attached to this heading.
     pub tags: Vec<String>,
 
-    /// Vererbte Tags (aus Parent + File-Level)
+    /// Tags inherited from ancestors and file-level tags.
     pub inherited_tags: Vec<String>,
 
-    /// Direkte Properties aus :PROPERTIES:-Drawer
+    /// Direct properties from this heading’s :PROPERTIES: drawer.
     pub properties: Vec<(String, String)>,
 
-    /// Vererbte Properties aus Parent + File-Level
+    /// Properties inherited from parents and file-level.
     pub inherited_properties: Vec<(String, String)>,
 
-    /// Planungstimestamps
+    /// Planning timestamps
     pub scheduled: Option<String>,
     pub deadline: Option<String>,
     pub closed: Option<String>,
 
-    /// Links im Body & im Titel (alle außer in SRC/RESULTS/PROPERTIES drawer)
+    /// Links detected in the body or title (outside ignored regions).
     pub links: Vec<OrgLink>,
 
-    /// Parent-ID im headings[]-Vektor
+    /// Index of parent inside the global headings vector.
     pub parent_id: Option<usize>,
 
-    /// Outline-Pfad der Eltern-Titel (ohne self).
+    /// Outline path of parent headings (titles only).
     pub outline: Vec<String>,
 
-    /// Ist dies der virtuelle Datei-Root ("level 0")?
+    /// Whether this heading is the virtual file-root (level 0).
     pub file: bool,
+}
+
+// ------------------------------------------------------------
+// Block types
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub enum BlockKind {
+    Src,
+    Example,
+    Export,
+    Comment,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Block {
+    pub kind: BlockKind,
+    pub content: Vec<String>,
+}
+
+// ------------------------------------------------------------
+// Simple property type (for standalone properties)
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Property {
+    pub key: String,
+    pub value: String,
+}
+
+// ------------------------------------------------------------
+// AST element enum
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub enum OrgElement {
+    Heading(OrgHeading),
+    Property(Property),
+    Link(OrgLink),
+    Block(Block),
+    Text(String),
+}
+
+// ------------------------------------------------------------
+// Entire document representation
+// ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OrgDocument {
+    pub elements: Vec<OrgElement>,
+}
+
+impl OrgDocument {
+    pub fn new() -> Self {
+        Self {
+            elements: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, element: OrgElement) {
+        self.elements.push(element);
+    }
 }
