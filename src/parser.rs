@@ -1,671 +1,167 @@
-// src/parser.rs
-//
-// FINAL VERSION — clean, fast, no body, full link parsing,
-// file-level tags + properties inherited, TODO system dynamic,
-// no keywords, no keyword-properties, correct title/title_raw logic,
-// absolute file-link paths with ~ expansion, and
-// *** Emacs-kompatible CHAR-OFFSETS statt Byte-Offsets ***
-// ---------------------------------------------------------------
+// ------------------------------------------------------------
+// Block types to skip completely
+// ------------------------------------------------------------
 
-use crate::config::{is_uppercase_word, TodoMode};
-use crate::types::{OrgHeading, OrgLink};
-use dirs;
-use once_cell::sync::Lazy;
-use regex::Regex;
-use std::path::{Component, Path, PathBuf};
+const SKIPPED_BLOCKS: &[&str] = &[
+    "SRC",
+    "EXAMPLE",
+    "EXPORT",
+    "COMMENT",
+];
 
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut components = path.components().peekable();
-    let mut ret = if let Some(c @ Component::RootDir) = components.peek().cloned() {
-        components.next();
-        PathBuf::from(c.as_os_str())
-    } else {
-        PathBuf::new()
-    };
+// ------------------------------------------------------------
+// Parser context
+// ------------------------------------------------------------
 
-    for component in components {
-        match component {
-            Component::Normal(c) => ret.push(c),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                ret.pop();
-            }
-            Component::RootDir => unreachable!(),
-            Component::Prefix(p) => ret.push(p.as_os_str()),
-        }
-    }
-    ret
+#[derive(Default)]
+pub struct Context {
+    // Normal block states
+    pub in_src: bool,
+    pub in_example: bool,
+    pub in_export: bool,
+    pub in_comment_block: bool,
+    pub drawer_stack: Vec<String>,
+    pub in_properties: bool,
+
+    // Fast-skip state
+    pub fast_skip: bool,
+    pub fast_skip_block_type: Option<String>,
+
+    // File-level content tracking
+    pub has_seen_heading: bool,
 }
 
-//
-// ─────────────────────────────────────────────
-//   HEADING REGEX (Minimal — keine TODO/PRIO/Tags/Cookie hier!)
-// ─────────────────────────────────────────────
-//
-static HEADING_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^(?P<stars>\*+)\s*(?P<title_raw>.*)$").unwrap());
+// ------------------------------------------------------------
+// Helper functions
+// ------------------------------------------------------------
 
-//
-// ─────────────────────────────────────────────
-//   FILE-LEVEL DIRECTIVES (case-insensitive)
-// ─────────────────────────────────────────────
-//
-static FILETITLE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#\+title:\s*(.*)$").unwrap());
-
-static FILETAGS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#\+filetags:\s*(.*)$").unwrap());
-
-static FILEPROP_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^#\+property:\s*([A-Za-z0-9_-]+)\s+(.*)$").unwrap());
-
-//
-// ─────────────────────────────────────────────
-//   DRAWERS (case-insensitive)
-// ─────────────────────────────────────────────
-//
-static DRAWER_START_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^:([A-Za-z0-9_-]+):\s*$").unwrap());
-
-static DRAWER_END_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^:end:\s*$").unwrap());
-
-// property key/value inside drawer (case-insensitive key match)
-static PROP_LINE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^\s*:([A-Za-z0-9_+-]+):\s*(.*?)\s*$").unwrap());
-
-//
-// ─────────────────────────────────────────────
-//   PLANNING
-// ─────────────────────────────────────────────
-//
-static PLAN_SCHEDULED: Lazy<Regex> = Lazy::new(|| Regex::new(r"SCHEDULED:\s*(<.*?>)").unwrap());
-
-static PLAN_DEADLINE: Lazy<Regex> = Lazy::new(|| Regex::new(r"DEADLINE:\s*(<.*?>)").unwrap());
-
-static PLAN_CLOSED: Lazy<Regex> = Lazy::new(|| Regex::new(r"CLOSED:\s*(<.*?>)").unwrap());
-
-//
-// ─────────────────────────────────────────────
-//   BLOCKS: GENERIC BEGIN/END + RESULTS
-// ─────────────────────────────────────────────
-//
-
-// #+BEGIN_<NAME> / #+END_<NAME>, case-insensitive
-static BEGIN_BLOCK_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^#\+begin_([A-Za-z0-9_-]+)").unwrap());
-
-static END_BLOCK_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^#\+end_([A-Za-z0-9_-]+)").unwrap());
-
-// #+RESULTS:, case-insensitive
-static RESULTS_BEGIN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#\+results:").unwrap());
-
-//
-// ─────────────────────────────────────────────
-//   LINK PARSER
-// ─────────────────────────────────────────────
-//
-
-// [[target][desc]] oder [[target]]
-static BRACKET_LINK_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\[\[([^\]\[]+)(?:\]\[([^\]]*))?\]\]").unwrap());
-
-// plain links (Org-mode compliant)
-static PLAIN_LINK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?x)
-        (
-            (?:https?|ftp|mailto|news|id|file):[^\s\]]+
-            | \#[A-Za-z0-9_\-]+
-        )
-    ",
-    )
-    .unwrap()
-});
-
-// Statistik-Cookie [0/3], [75%]
-static STAT_COOKIE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\s*\[(?:\d+/\d+|\d+%)\]\s*$").unwrap());
-
-// [[x][desc]] → desc
-static TITLE_LINK_DESC_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\[\[[^\]]+\]\[(.*?)\]\]").unwrap());
-
-// [[x]] → x
-static TITLE_LINK_TARGET_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[\[([^\]]+)\]\]").unwrap());
-
-//
-// ─────────────────────────────────────────────
-//   RELATIVE → ABSOLUTE PATH (WITH ~ expansion)
-// ─────────────────────────────────────────────
-//
-fn make_absolute_path(raw: &str, org_file: &str) -> Option<String> {
-    // 1) ~ expansion -> absoluter Home-Pfad
-    if let Some(stripped) = raw.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            let expanded = home.join(stripped);
-            return Some(normalize_path(&expanded).to_string_lossy().to_string());
-        }
-    }
-
-    let p = Path::new(raw);
-
-    // 2) already absolute?
-    if p.is_absolute() {
-        return Some(normalize_path(p).to_string_lossy().to_string());
-    }
-
-    // 3) base dir of the org file
-    let org_file_path = Path::new(org_file);
-    let absolute_org_path = if org_file_path.is_absolute() {
-        org_file_path.to_path_buf()
-    } else {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        cwd.join(org_file_path)
-    };
-
-    let org_dir = absolute_org_path.parent().unwrap_or_else(|| Path::new("/"));
-
-    // 4) relative → absolute (no canonicalize)
-    let combined = org_dir.join(raw);
-
-    Some(normalize_path(&combined).to_string_lossy().to_string())
+/// Returns `true` if the line is an Org-mode example line (`: `)
+/// or a comment line (`# `). Such lines are ignored entirely and
+/// should not participate in parsing.
+///
+/// # Examples
+/// ```
+/// assert!(ignore_line(": example line"));
+/// assert!(ignore_line("# comment line"));
+/// assert!(!ignore_line("Normal content"));
+/// ```
+pub fn ignore_line(line: &str) -> bool {
+    line.starts_with(": ") || line.starts_with("# ")
 }
 
-//
-// ─────────────────────────────────────────────
-//   LINK HELFER
-// ─────────────────────────────────────────────
-//
+/// Returns `true` if the line is an Org-mode heading.
+///
+/// A valid Org heading must:
+/// 1. start with a `*` as the very first character (no leading whitespace)
+/// 2. optionally contain additional `*` characters
+/// 3. be followed by a space character
+pub fn is_heading_line(line: &str) -> bool {
+    let mut chars = line.chars();
+    let mut star_count = 0;
 
-fn parse_target_and_search(target: &str) -> (String, Option<String>) {
-    if let Some(idx) = target.find("::") {
-        let (left, rest) = target.split_at(idx);
-        let right = &rest[2..];
-        return (left.to_string(), Some(right.to_string()));
-    }
-    (target.to_string(), None)
-}
-
-fn classify_link(path_raw: &str) -> (String, String) {
-    if path_raw.starts_with('#') {
-        ("anchor".to_string(), path_raw.to_string())
-    } else if let Some(idx) = path_raw.find(':') {
-        let (l_type, p_val) = path_raw.split_at(idx);
-        (l_type.to_string(), p_val[1..].to_string())
-    } else {
-        ("file".to_string(), path_raw.to_string())
-    }
-}
-
-//
-// ─────────────────────────────────────────────
-//   LINK SCANNING (Emacs CHAR-OFFSETS!)
-// ─────────────────────────────────────────────
-//
-fn scan_links(line: &str, offset_chars: usize, org_file: &str) -> Vec<OrgLink> {
-    let mut out = vec![];
-    let mut used = vec![];
-
-    // bracket links
-    for cap in BRACKET_LINK_RE.captures_iter(line) {
-        let m = cap.get(0).unwrap();
-        let byte_start = m.start();
-        let char_start = line[..byte_start].chars().count();
-        let pos = offset_chars + char_start;
-
-        used.push((m.start(), m.end()));
-
-        let raw_target = cap.get(1).unwrap().as_str().to_string();
-        let desc = cap.get(2).map(|m| m.as_str().to_string());
-        let (path_raw, search_option) = parse_target_and_search(&raw_target);
-
-        let (link_type, path) = classify_link(&path_raw);
-
-        let path_absolute = if link_type == "file" {
-            make_absolute_path(&path, org_file)
+    // Count consecutive '*'
+    while let Some(c) = chars.next() {
+        if c == '*' {
+            star_count += 1;
         } else {
-            None
-        };
-
-        out.push(OrgLink {
-            raw: m.as_str().to_string(),
-            link_type,
-            path,
-            path_absolute,
-            search_option,
-            description: desc,
-            format: "bracket".into(),
-            pos,
-        });
-    }
-
-    // plain links
-    for cap in PLAIN_LINK_RE.captures_iter(line) {
-        let m = cap.get(0).unwrap();
-
-        // skip overlaps mit bracket links
-        if used.iter().any(|(s, e)| m.start() >= *s && m.start() < *e) {
-            continue;
-        }
-
-        let byte_start = m.start();
-        let char_start = line[..byte_start].chars().count();
-        let pos = offset_chars + char_start;
-
-        let raw = m.as_str().to_string();
-        let (path_raw, search_option) = parse_target_and_search(&raw);
-        let (link_type, path) = classify_link(&path_raw);
-
-        let path_absolute = if link_type == "file" {
-            make_absolute_path(&path, org_file)
-        } else {
-            None
-        };
-
-        out.push(OrgLink {
-            raw: m.as_str().to_string(),
-            link_type,
-            path,
-            path_absolute,
-            search_option,
-            description: None,
-            format: "plain".into(),
-            pos,
-        });
-    }
-
-    out
-}
-
-//
-// ─────────────────────────────────────────────
-//   TITLE NORMALIZATION
-// ─────────────────────────────────────────────
-//
-fn normalize_title(raw: &str) -> String {
-    let mut t = raw.trim().to_string();
-
-    t = TITLE_LINK_DESC_RE.replace_all(&t, "$1").to_string();
-    t = TITLE_LINK_TARGET_RE.replace_all(&t, "$1").to_string();
-
-    t.trim().to_string()
-}
-
-//
-// ─────────────────────────────────────────────
-//   TODO + PRIORITY EXTRACTION
-// ─────────────────────────────────────────────
-//
-fn extract_todo(raw: &str, mode: &TodoMode) -> (Option<String>, String) {
-    let mut parts = raw.split_whitespace();
-    let first = parts.next().unwrap_or("").to_string();
-    let remaining = parts.collect::<Vec<_>>().join(" ");
-
-    match mode {
-        TodoMode::UserDefined(list) => {
-            if list.contains(&first) {
-                return (Some(first), remaining);
-            }
-            (None, raw.to_string())
-        }
-        TodoMode::AutoUppercase => {
-            if is_uppercase_word(&first) {
-                (Some(first), remaining)
-            } else {
-                (None, raw.to_string())
-            }
-        }
-    }
-}
-
-fn extract_priority(s: &str) -> (Option<String>, String) {
-    if let Some(rest) = s.strip_prefix("[#") {
-        if let Some(end) = rest.find(']') {
-            let prio = rest[..end].to_string();
-            let remaining = rest[end + 1..].trim().to_string();
-            return (Some(prio), remaining);
-        }
-    }
-    (None, s.to_string())
-}
-
-//
-// ─────────────────────────────────────────────
-//   TAG GROUP REMOVAL (:tag1:tag2:)
-// ─────────────────────────────────────────────
-//
-fn strip_taggroup(raw: &str) -> (String, Vec<String>) {
-    let s = raw.trim().to_string();
-    let mut tags = vec![];
-
-    if let Some(pos) = s.rfind(" :") {
-        let (before, maybe_tags) = s.split_at(pos + 1);
-        let trimmed = maybe_tags.trim();
-
-        if trimmed.starts_with(':') && trimmed.ends_with(':') {
-            for t in trimmed.split(':') {
-                if !t.trim().is_empty() {
-                    tags.push(t.trim().to_string());
-                }
-            }
-            return (before.trim().to_string(), tags);
-        }
-    }
-
-    (s, tags)
-}
-
-//
-// ─────────────────────────────────────────────
-//   COOKIE REMOVAL
-// ─────────────────────────────────────────────
-//
-fn strip_cookie(s: &str) -> String {
-    STAT_COOKIE_RE.replace(s, "").to_string().trim().to_string()
-}
-
-//
-// ─────────────────────────────────────────────
-//   MAIN PARSER ENTRY
-// ─────────────────────────────────────────────
-//
-pub fn parse_org_from_file(
-    path: &str,
-    todo_cli: Option<&str>,
-    todo_file: Option<&str>,
-) -> std::io::Result<Vec<OrgHeading>> {
-    let content = std::fs::read_to_string(path)?;
-    Ok(parse_org(&content, path, todo_cli, todo_file))
-}
-
-fn parse_file_metadata(input: &str) -> (Option<String>, Vec<String>, Vec<(String, String)>) {
-    let mut filetitle = None;
-    let mut filetags = vec![];
-    let mut fileprops = vec![];
-
-    for line in input.lines() {
-        if HEADING_RE.is_match(line) {
             break;
         }
-        if let Some(c) = FILETITLE_RE.captures(line) {
-            filetitle = Some(c[1].trim().to_string());
-            continue;
-        }
-        if let Some(c) = FILETAGS_RE.captures(line) {
-            for t in c[1].split(':') {
-                if !t.trim().is_empty() {
-                    filetags.push(t.trim().to_string());
-                }
+    }
+
+    // Must have at least one '*' and then a space
+    star_count > 0 && chars.next() == Some(' ')
+}
+
+/// Returns `true` if the parser should skip the current line because
+/// we are inside a block that should be ignored or this line starts
+/// such a block.
+///
+/// Blocks skipped entirely:
+/// - #+BEGIN_SRC … #+END_SRC
+/// - #+BEGIN_EXAMPLE … #+END_EXAMPLE
+/// - #+BEGIN_EXPORT … #+END_EXPORT
+/// - #+BEGIN_COMMENT … #+END_COMMENT
+pub fn should_fast_skip(line: &str, ctx: &mut Context) -> bool {
+    let trimmed = line.trim();
+
+    // Already skipping → check for END
+    if ctx.fast_skip {
+        if let Some(block) = &ctx.fast_skip_block_type {
+            let ends = trimmed
+                .strip_prefix("#+END_")
+                .map(|b| b.eq_ignore_ascii_case(block))
+                .unwrap_or(false);
+
+            if ends {
+                ctx.fast_skip = false;
+                ctx.fast_skip_block_type = None;
             }
-            continue;
         }
-        if let Some(c) = FILEPROP_RE.captures(line) {
-            fileprops.push((c[1].to_string(), c[2].to_string()));
-            continue;
+        return true;
+    }
+
+    // Check for BEGIN block
+    if let Some(rest) = trimmed.strip_prefix("#+BEGIN_") {
+        let block = rest.trim().to_ascii_uppercase();
+
+        if SKIPPED_BLOCKS.contains(&block.as_str()) {
+            ctx.fast_skip = true;
+            ctx.fast_skip_block_type = Some(block);
+            return true;
         }
     }
 
-    (filetitle, filetags, fileprops)
+    false
 }
 
-pub fn parse_org(
-    input: &str,
-    filename: &str,
-    todo_cli: Option<&str>,
-    todo_file: Option<&str>,
-) -> Vec<OrgHeading> {
-    // TODO rules
-    let todo_mode = crate::config::load_todo_keywords(todo_cli, todo_file);
+// ------------------------------------------------------------
+// Parser modules (your interfaces)
+// ------------------------------------------------------------
 
-    // FILE metadata
-    let (filetitle, filetags, fileprops) = parse_file_metadata(input);
+fn parse_heading(_line: &str) {}
+fn parse_heading_level_0(_line: &str) {}
+fn parse_properties(_line: &str) {}
+fn scan_links(_line: &str) {}
 
-    let default_title = Path::new(filename)
-        .file_stem()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+// ------------------------------------------------------------
+// Main Org parser
+// ------------------------------------------------------------
 
-    // ROOT heading
-    let mut headings = vec![];
-
-    headings.push(OrgHeading {
-        level: 0,
-        parent_id: None,
-        title_raw: filetitle.clone().unwrap_or_else(|| default_title.clone()),
-        title: filetitle.unwrap_or(default_title),
-        tags: filetags,
-        inherited_tags: vec![],
-        properties: fileprops,
-        inherited_properties: vec![],
-        scheduled: None,
-        deadline: None,
-        closed: None,
-        todo: None,
-        priority: None,
-        links: vec![],
-        outline: vec![],
-        file: true,
-    });
-
-    // parse loop
-    let mut body_headings = parse_body(input, filename, &todo_mode);
-    headings.append(&mut body_headings);
-
-    // INHERITANCE + PATH BUILDING
-    build_inheritance(&mut headings);
-
-    headings
-}
-
-fn parse_body(input: &str, filename: &str, todo_mode: &TodoMode) -> Vec<OrgHeading> {
-    let mut headings = vec![];
-    let mut current: Option<OrgHeading> = None;
-    let mut in_src = false;
-    let mut in_example = false;
-    let mut in_comment_block = false;
-    let mut drawer_stack: Vec<String> = vec![];
-    let mut temp_props = vec![];
-
-    // *** WICHTIG: file_pos ist jetzt ein CHAR-Offset (Emacs-kompatibel) ***
-    let mut file_pos: usize = 1; // Emacs-basierter Start, startet bei 1 und nicht 0
+/// Parses an Org-mode document line by line and dispatches
+/// to the appropriate parsing modules.
+pub fn parse_org(input: &str) {
+    let mut ctx = Context::default();
 
     for line in input.lines() {
-        let trimmed = line.trim();
-        let line_chars = line.chars().count();
-
-        // ─────────────────────────────
-        // BEGIN_/END_ blocks (case-insensitive)
-        // ─────────────────────────────
-        if let Some(c) = BEGIN_BLOCK_RE.captures(trimmed) {
-            let block = c[1].to_ascii_lowercase();
-            match block.as_str() {
-                "src" => in_src = true,
-                "example" => in_example = true,
-                "comment" => in_comment_block = true,
-                _ => {}
-            }
-            file_pos += line_chars + 1;
+        if ignore_line(line) {
             continue;
         }
 
-        if let Some(c) = END_BLOCK_RE.captures(trimmed) {
-            let block = c[1].to_ascii_lowercase();
-            match block.as_str() {
-                "src" => in_src = false,
-                "example" => in_example = false,
-                "comment" => in_comment_block = false,
-                _ => {}
-            }
-            file_pos += line_chars + 1;
+        ctx.maybe_end_fast_skip(line);
+        if ctx.fast_skip {
             continue;
         }
 
-        // Wenn wir in src/example/comment-block sind: alles ignorieren bis END_
-        if in_src || in_example || in_comment_block {
-            file_pos += line_chars + 1;
+        ctx.update(line);
+
+        if is_heading_line(line) {
+            ctx.has_seen_heading = true;
+            parse_heading(line);
             continue;
         }
 
-        // #+RESULTS: Zeile selbst → überspringen, aber Folgezeilen normal parsen
-        if RESULTS_BEGIN_RE.is_match(trimmed) {
-            file_pos += line_chars + 1;
+        if !ctx.has_seen_heading {
+            parse_heading_level_0(line);
             continue;
         }
 
-        // DRAWER start
-        if let Some(cap) = DRAWER_START_RE.captures(trimmed) {
-            drawer_stack.push(cap[1].to_ascii_uppercase());
-            file_pos += line_chars + 1;
+        if ctx.in_properties_drawer() {
+            parse_properties(line);
             continue;
         }
 
-        // DRAWER end
-        if DRAWER_END_RE.is_match(trimmed) {
-            if let Some(name) = drawer_stack.pop() {
-                if name == "PROPERTIES" {
-                    if let Some(h) = current.as_mut() {
-                        h.properties.extend(temp_props.clone());
-                    }
-                    temp_props.clear();
-                }
-            }
-            file_pos += line_chars + 1;
-            continue;
+        if ctx.allows_links(line) {
+            scan_links(line);
         }
-
-        // PROPERTIES drawer content
-        let in_properties = drawer_stack
-            .last()
-            .map(|d| d == "PROPERTIES")
-            .unwrap_or(false);
-
-        if in_properties {
-            if let Some(c) = PROP_LINE.captures(line) {
-                let key = c[1].trim_end_matches('+').to_string();
-                let val = c[2].to_string();
-                temp_props.push((key, val));
-            }
-            file_pos += line_chars + 1;
-            continue;
-        }
-
-        // Fixed-width: Zeile startet mit ":" und wir sind NICHT in einem Drawer
-        if trimmed.starts_with(':') && drawer_stack.is_empty() {
-            file_pos += line_chars + 1;
-            continue;
-        }
-
-        // Kommentar-Zeilen: "# ..." aber NICHT "#+..."
-        if trimmed.starts_with('#') && !trimmed.starts_with("#+") {
-            file_pos += line_chars + 1;
-            continue;
-        }
-
-        // HEADING
-        if let Some(cap) = HEADING_RE.captures(line) {
-            if let Some(h) = current.take() {
-                headings.push(h);
-            }
-
-            let level = cap["stars"].len() as u8;
-
-            let full = cap["title_raw"].trim();
-            let no_cookie = strip_cookie(full);
-            let (no_tags, tags) = strip_taggroup(&no_cookie);
-
-            let (todo, after_todo) = extract_todo(&no_tags, todo_mode);
-            let (priority, after_prio) = extract_priority(&after_todo);
-
-            let title_raw = after_prio.trim().to_string();
-            let title = normalize_title(&title_raw);
-
-            // Links im Heading: offset = file_pos (Char-Offset des Zeilenanfangs)
-            let links = scan_links(line, file_pos, filename);
-
-            current = Some(OrgHeading {
-                level,
-                todo,
-                priority,
-                title_raw,
-                title,
-                tags,
-                inherited_tags: vec![],
-                properties: vec![],
-                inherited_properties: vec![],
-                scheduled: None,
-                deadline: None,
-                closed: None,
-                links,
-                parent_id: None,
-                outline: vec![],
-                file: false,
-            });
-
-            file_pos += line_chars + 1;
-            continue;
-        }
-
-        // PLANNING
-        if let Some(h) = current.as_mut() {
-            if let Some(c) = PLAN_SCHEDULED.captures(line) {
-                h.scheduled = Some(c[1].to_string());
-            }
-            if let Some(c) = PLAN_DEADLINE.captures(line) {
-                h.deadline = Some(c[1].to_string());
-            }
-            if let Some(c) = PLAN_CLOSED.captures(line) {
-                h.closed = Some(c[1].to_string());
-            }
-        }
-
-        // BODY LINKS ONLY (body nicht gespeichert, aber Links schon)
-        if let Some(h) = current.as_mut() {
-            // Wir sind hier garantiert NICHT in src/example/comment/properties-blocken
-            h.links.extend(scan_links(line, file_pos, filename));
-        }
-
-        file_pos += line_chars + 1;
-    }
-
-    if let Some(h) = current {
-        headings.push(h);
-    }
-
-    headings
-}
-
-fn build_inheritance(headings: &mut [OrgHeading]) {
-    let mut stack = vec![0];
-
-    for i in 1..headings.len() {
-        let lvl = headings[i].level;
-
-        while let Some(&top) = stack.last() {
-            if headings[top].level < lvl {
-                break;
-            }
-            stack.pop();
-        }
-
-        if let Some(&p) = stack.last() {
-            let mut parent_outline = headings[p].outline.clone();
-            let parent_title = headings[p].title.clone();
-
-            let mut inh_tags = headings[p].inherited_tags.clone();
-            inh_tags.extend(headings[p].tags.clone());
-
-            let mut inh_props = headings[p].inherited_properties.clone();
-            inh_props.extend(headings[p].properties.clone());
-
-            let h = &mut headings[i];
-
-            h.parent_id = Some(p);
-            parent_outline.push(parent_title);
-            h.outline = parent_outline;
-            h.inherited_tags = inh_tags;
-            h.inherited_properties = inh_props;
-        }
-
-        stack.push(i);
     }
 }
