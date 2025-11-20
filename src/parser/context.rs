@@ -18,6 +18,8 @@ pub struct Context {
     /// Org: "Before the first headline, everything is file-level."
     pub before_first_heading: bool,
 
+	/// TRUE when a planning line (SCHEDULED:, DEADLINE:, CLOSED:) is possible.
+	/// Planning lines are only allowed directly after a headline."
     pub property_drawer_allowed: bool,
 
     pub planning_line_allowed: bool,

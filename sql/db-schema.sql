@@ -1,3 +1,8 @@
+/*
+  TODO
+  Recheck wit AI if this is the fastest system for querying.
+  It should be a datawarehouse as its sole purpose is querying.
+*/
 BEGIN TRANSACTION;
 
 PRAGMA foreign_keys = ON;
@@ -49,6 +54,7 @@ CREATE TABLE IF NOT EXISTS headings (
     is_archived           INTEGER NOT NULL DEFAULT 0,
     is_footnote_section   INTEGER NOT NULL DEFAULT 0,
 
+    -- TODO like in org :tag1:tag2:tag3: or as json?
     all_tags              TEXT,
 
     CONSTRAINT uq_headings_external_id UNIQUE (external_id),
@@ -60,42 +66,50 @@ CREATE TABLE IF NOT EXISTS headings (
         FOREIGN KEY (parent_id) REFERENCES headings(id) ON DELETE CASCADE
 );
 
---------------------------------------------------
--- HEADING_PATH
--- Materialized Path
---
--- Speichert den vollständigen Pfad eines Headings als
--- normalisierte Liste.
---
--- Beispiel:
---   Pfad: ["Meine Testdatei", "Hauptaufgabe", "Subtask"]
---
--- Wird gespeichert als:
---   heading_id | depth | title
---        5     |   0   | "Meine Testdatei"
---        5     |   1   | "Hauptaufgabe"
---        5     |   2   | "Subtask"        <-- self
---
--- Warum getrennt?
---   - Pfade müssen sortiert werden → depth notwendig
---   - Kein JSON-Parsing: viel schneller
---   - JOINs sind trivial (GROUP_CONCAT)
---   - parent_id allein würde rekursive SQL-CTEs erfordern (langsam)
--- is_self = 0 → ancestor
--- is_self = 1 → das Heading selbst
---------------------------------------------------
-CREATE TABLE IF NOT EXISTS heading_path (
-    heading_id  INTEGER NOT NULL,
-    depth       INTEGER NOT NULL,
-    title       TEXT NOT NULL,
-    is_self     INTEGER NOT NULL DEFAULT 0,
+/*
+--------------------------------------------------------------------------------
+TABLE: outline
 
-    CONSTRAINT fk_hp_heading
+PURPOSE:
+    The 'outline' table exists purely to speed up hierarchical queries by
+    materializing the structural relationships: parent linkage, depth,
+    materialized path, and breadcrumb titles (JSON).
+
+    If a file changes it is dropped and reparsed. Therefore `file_id` has ON
+    DELETE CASCADE, all headings and outline rows belonging to that file are
+    automatically removed.
+
+--------------------------------------------------------------------------------
+*/
+
+CREATE TABLE outline_path (
+    file_id           INTEGER NOT NULL,
+    heading_id        INTEGER NOT NULL,
+    parent_id         INTEGER,
+    -- Depth in the hierarchy: 0 = top-level, 1 = child, 2 = grandchild...
+    depth             INTEGER NOT NULL,
+
+    -- Zero-padded numeric hierarchical path.
+    -- Examples:
+    --   "0001"
+    --   "0001.0002"
+    --   "0001.0002.0001"
+    materialized_path TEXT NOT NULL,
+
+    -- JSON array containing breadcrumb titles from root to this heading
+    -- including this heading: ["Project","Phase 1","Analysis"]
+    breadcrumbs       TEXT NOT NULL,
+
+    CONSTRAINT fk_outline_file
+        FOREIGN KEY (file_id)
+        REFERENCES files (id)
+        ON DELETE CASCADE,
+    CONSTRAINT fk_outline_heading
         FOREIGN KEY (heading_id)
-            REFERENCES headings(id)
-            ON DELETE CASCADE,
-
-    PRIMARY KEY (heading_id, depth)
+        REFERENCES headings (id),
+    CONSTRAINT fk_outline_parent
+        FOREIGN KEY (parent_id)
+        REFERENCES headings (id)
 );
 
 --------------------------------------------------
@@ -245,16 +259,17 @@ CREATE INDEX IF NOT EXISTS idx_links_path
     ON links(path);
 
 CREATE INDEX IF NOT EXISTS idx_links_type
-    ON links(type);
+  ON links(type);
 
 -- HEADING PATH
-CREATE INDEX IF NOT EXISTS idx_hp_heading
-    ON heading_path(heading_id);
 
-CREATE INDEX IF NOT EXISTS idx_hp_depth
-    ON heading_path(depth);
-
-CREATE INDEX IF NOT EXISTS idx_hp_self
-    ON heading_path(is_self);
+CREATE INDEX IF NOT EXISTS idx_outline_file_id
+  ON outline(file_id);
+CREATE INDEX IF NOT EXISTS idx_outline_heading_id
+  ON outline(heading_id);
+CREATE INDEX IF NOT EXISTS idx_outline_parent_id
+  ON outline(parent_id);
+CREATE INDEX IF NOT EXISTS idx_outline_materialized_path
+  ON outline(materialized_path);
 
 COMMIT;

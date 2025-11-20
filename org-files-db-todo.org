@@ -1,7 +1,8 @@
 #+TITLE: Org-files-db 
-#+STARTUP: showall
+#+STARTUP: content
 
 * Parser
+
 ** NEXT Alle Regular Expression zusammentragen
 
 - Block
@@ -419,16 +420,6 @@ Gibt sonst ein riesen Durcheinander:
 
 ** Features
 *** DONE Link raw fehlt
-*** NEXT Link Parser Regular Expressions
-org-link-bracket-re: "\\[\\[\\(\\(?:[^][\\]\\|\\\\\\(?:\\\\\\\\\\)*[][]\\|\\\\+[^][]\\)+\\)]\\(?:\\[\\([^z-a]+?\\)]\\)?]"
-
-org-link-plain-re
-"\\(?:\\<\\(?:\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|news\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\)\\):\\(\\(?:[^][ 	\n()<>]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)+\\(?:[^[:punct:][:space:]\n]\\|[/-]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)\\)\\)"
-
-org-link-angle-re
-"<\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|news\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\):\\([^>\n]*\\(?:\n[ 	]*[^> 	\n][^>\n]*\\)*\\)>"
-
-
 *** TODO config
 wie kann man die Konfiguration am besten speichern? .conf datei oder .ini? Und wie lege ich Standardwerte fest? wie für das Attachment dir?
 Konf:
@@ -463,7 +454,8 @@ After links are stored, links to custom_id and id need to connected to the headi
   Benötigt eine Konfiguration
 *** TODO id links - scan the org-id file
 Sonst kann man die Pfade nicht rausfinden.
-
+*** TODO Broken Links > bereits im Parser prüfen
+Wohl eher sonst periodisch oder so.
 ** Testing
 Keine Unit-Tests, einfach Output mit erwartetem Output vergleichen.
 *** TODO Input [[https://github.com/novoid/github-orgmode-tests?tab=readme-ov-file][GitHub - novoid/github-orgmode-tests: This is a test project where you can explore how github interprets Org-mode files]]

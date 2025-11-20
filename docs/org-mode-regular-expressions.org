@@ -1,0 +1,208 @@
+* Regular Expressions
+
+** Helper Function
+
+#+name: show
+#+begin_src emacs-lisp :var sym='nil :results value
+  (if (get sym 'obsolete)
+      "obsolete"
+    (concat (car (string-split (documentation-property
+                                sym 'variable-documentation)
+                               "\n"))
+            "\n"
+            (symbol-value sym)))
+#+end_src
+
+** Heading
+
+- org-babel-result-regexp
+  #+CALL: show(sym='org-babel-result-regexp)
+
+  #+RESULTS:
+  : Regular expression used to match result lines.
+  : ^[	 ]*#\+results\(?:\[\(?:([[:digit:]]\{4\}\(?:-[[:digit:]]\{2\}\)\{2\} [[:digit:]]\{2\}\(?::[[:digit:]]\{2\}\)\{2\}) \)?\([[:xdigit:]]+\)]\)?:[	 ]*
+  
+- org-complex-heading-regexp-format
+  #+CALL: show(sym='org-complex-heading-regexp-format)
+
+  #+RESULTS:
+  : ^\(\*+\)\(?: +\(ANKI\|CANCEL\|DO\(?:ING\|NE\)\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|STORED\|TODO\|WAIT\)\)?\(?: +\(\[#.\]\)\)?\(?: +\(?:COMMENT +\)?\(?:\[[0-9%%/]+\] *\)*\(%s\)\(?: *\[[0-9%%/]+\]\)*\)\(?:[ 	]+\(:[[:alnum:]_@#%%:]+:\)\)?[ 	]*$
+
+
+** Tables
+
+- org-TBLFM-regexp
+  #+CALL: show(sym='org-TBLFM-regexp)
+
+  #+RESULTS:
+  : ^[ 	]*#\+TBLFM: 
+
+
+** Code Block
+
+- org-babel-result-regexp
+  #+CALL: show(sym='org-babel-result-regexp)
+
+  #+RESULTS:
+  : ^[	 ]*#\+results\(?:\[\(?:([[:digit:]]\{4\}\(?:-[[:digit:]]\{2\}\)\{2\} [[:digit:]]\{2\}\(?::[[:digit:]]\{2\}\)\{2\}) \)?\([[:xdigit:]]+\)]\)?:[	 ]*
+
+- org-babel-src-block-regexp
+  #+CALL: show(sym='org-babel-src-block-regexp)
+
+  #+RESULTS:
+  #+begin_example
+  ^\([ 	]*\)#\+begin_src\(?:[ 	]+\([^ 	
+  ]*\)\)?[ 	]*\([^":
+  ]*"[^"
+  ,*]*"[^":
+  ]*\|[^":
+  ]*\)\([^
+  ]*\)
+  \(\(?:.\|
+  \)*?
+  \)??[ 	]*#\+end_src
+  #+end_example
+
+** Links
+
+- org-link-bracket-re
+  #+CALL: show(sym='org-link-bracket-re)
+
+  #+RESULTS:
+  : \[\[\(\(?:[^][\]\|\\\(?:\\\\\)*[][]\|\\+[^][]\)+\)]\(?:\[\([^z-a]+?\)]\)?]
+
+** Timestamps
+
+- org-closed-time-regexp
+  #+CALL: show(sym='org-closed-time-regexp)
+
+  #+RESULTS:
+  : \<CLOSED: *\[\([^]]+\)\]
+
+- org-deadline-line-regexp
+  #+CALL: show(sym='org-deadline-line-regexp)
+
+  #+RESULTS:
+  : \<\(DEADLINE:\).*
+
+- org-deadline-regexp
+  #+CALL: show(sym='org-deadline-regexp)
+
+  #+RESULTS:
+  : \<DEADLINE:
+
+- org-deadline-time-hour-regexp
+  #+CALL: show(sym='org-deadline-time-hour-regexp)
+
+  #+RESULTS:
+  : \<DEADLINE: *<\([^>]+[0-9]\{1,2\}:[0-9]\{2\}[0-9+:hdwmy/ 	.-]*\)>
+
+- org-deadline-time-regexp
+  #+CALL: show(sym='org-deadline-time-regexp)
+
+  #+RESULTS:
+  : \<DEADLINE: *<\([^>]+\)>
+
+- org-element--timestamp-raw-value-regexp
+  #+CALL: show(sym='org-element--timestamp-raw-value-regexp)
+
+  #+RESULTS:
+  : \([<[]\(%%\)?.*?\)[]>]\(?:--\([[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\)\)?
+
+- org-element--timestamp-regexp
+  #+CALL: show(sym='org-element--timestamp-regexp)
+
+  #+RESULTS:
+  : [[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\|\(?:<%%\(?:([^>
+  : ]+)\)\([^
+  : >]*\)>\)
+
+** Kommentare
+
+- org-comment-regexp
+  #+CALL: show(sym='org-comment-regexp)
+
+  #+RESULTS:
+  : ^[	 ]*#\(?: \|$\)
+
+** Drawer
+
+- org-drawer-regexp
+  #+CALL: show(sym='org-drawer-regexp)
+
+  #+RESULTS:
+  : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
+
+* Regex to Check
+
+org-element-inline-src-block-regexp
+org-emphasis-regexp-components
+org-from-is-user-regexp
+org-heading-keyword-maybe-regexp-format
+org-heading-keyword-regexp-format
+org-heading-regexp
+org-keyword-regexp
+org-keyword-time-not-clock-regexp
+org-keyword-time-regexp
+org-latex-and-related-regexp
+org-latex-regexps
+org-link-elisp-skip-confirm-regexp
+org-link-from-user-regexp
+org-link-shell-skip-confirm-regexp
+org-list-two-spaces-after-bullet-regexp
+org-match-substring-regexp
+org-match-substring-with-braces-regexp
+org-maybe-keyword-time-regexp
+org-not-done-heading-regexp
+org-not-done-regexp
+org-old-auto-fill-inhibit-regexp
+org-outline-regexp
+org-outline-regexp-bol
+org-plain-time-extension-regexp
+org-plain-time-of-day-regexp
+org-priority-regexp
+org-radio-target-regexp
+org-scheduled-regexp
+org-scheduled-time-hour-regexp
+org-scheduled-time-regexp
+org-stamp-time-of-day-regexp
+org-table-TBLFM-begin-regexp
+org-table-any-border-regexp
+org-table-any-line-regexp
+org-table-auto-recalculate-regexp
+org-table-border-regexp
+org-table-calculate-mark-regexp
+org-table-column-name-regexp
+org-table-dataline-regexp
+org-table-hline-regexp
+org-table-line-regexp
+org-table-number-regexp
+org-table-range-regexp
+org-table-range-regexp2
+org-table-recalculate-regexp
+org-table-translate-regexp
+org-table1-hline-regexp
+org-target-link-regexp
+org-target-link-regexp-limit
+org-target-link-regexps
+org-target-regexp
+org-todo-line-regexp
+org-todo-line-tags-regexp
+org-todo-regexp
+org-tr-regexp
+org-tr-regexp-both
+org-ts--internal-regexp
+org-ts-regexp
+org-ts-regexp-both
+org-ts-regexp-inactive
+org-ts-regexp0
+org-ts-regexp1
+org-ts-regexp2
+org-ts-regexp3
+org-tsr-regexp
+org-tsr-regexp-both
+org-uuid-regexp
+org-yt-video-id-regexp
+orgtbl-exp-regexp
+orgtbl-line-start-regexp
+org-babel-name-regexp
