@@ -21,7 +21,6 @@
   "inline call"
 #+END_SRC
 
-
 ** Headings
 
 - org-complex-heading-regexp-format
@@ -467,7 +466,6 @@
   : \([-[:space:]('"{]\|^\)\(\([*/_+]\)\([^[:space:]]\|[^[:space:]].*?\(?:
   : .*?\)\{0,1\}[^[:space:]]\)\3\)\([-[:space:].,:!?;'")}\[]\|$\)
 
-
 - org-match-substring-regexp
   #+CALL: show(sym='org-match-substring-regexp)
 
@@ -552,7 +550,6 @@
   #+RESULTS:
   : Regexp matching opening or closing line of a drawer.
   : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
-
 
 ** Dynamic Blocks & Blocks
 
@@ -706,13 +703,6 @@
   : Match a reference that needs translation, for reference display.
   : \(@[-0-9I$]+\|[a-zA-Z]\{1,2\}\([0-9]+\|&\)\)
 
-- org-table--separator-space-pre
-  #+CALL: show(sym='org-table--separator-space-pre)
-
-  #+RESULTS:
-  : Space used in front of fields when aligning the table.
-  :  
-
 - orgtbl-line-start-regexp
   #+CALL: show(sym='orgtbl-line-start-regexp)
 
@@ -726,7 +716,6 @@
   #+RESULTS:
   : Regular expression matching exponentials as produced by calc.
   : ^\([-+]?[0-9][0-9.]*\)[eE]\([-+]?[0-9]+\)$
-
 
 ** Lists
 
@@ -883,7 +872,6 @@
     ./ob-core.el:2806:806  			   (format "{{{results(%s)}}}"
 #+END_EXAMPLE
 
-
 - not sure what this is for
   org-babel-inline-result-wrap
   #+CALL: show(sym='org-babel-inline-result-wrap)
@@ -967,7 +955,6 @@
   : Regexp matching a NAME keyword.
   : ^[ 	]*#\+\(?:\(?:TBL\)?NAME\):[ 	]*
 
-
 ** Other / Internal
 
 - org-element--cache-sensitive-re
@@ -990,10 +977,4 @@
   #+RESULTS:
   : Regexp possibly matching the beginning of an object.
   : \(?:[_^][-{(*+.,[:alnum:]]\)\|[*+/=_~][^[:space:]]\|\<\(?:attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\):\|\[\(?:cite[:/]\|fn:\|\(?:[0-9]\|\(?:%\|/[0-9]*\)\]\)\|\[\)\|@@\|{{{\|<\(?:%%\|<\|[0-9]\|\(?:attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\)\)\|\$\|\\\(?:[a-zA-Z[(]\|\\[ 	]*$\|_ +\)\|\(?:call\|src\)_
-
-- org-old-auto-fill-inhibit-regexp
-  #+CALL: show(sym='org-old-auto-fill-inhibit-regexp)
-
-  #+RESULTS:
-  : Local variable used by ‘orgtbl-mode’.
 

@@ -1,33 +1,595 @@
+#+STARTUP: content
+
 * Regular Expressions
 
 ** Helper Function
 
 #+name: show
 #+begin_src emacs-lisp :var sym='nil :results value
-  (if (get sym 'obsolete)
-      "obsolete"
-    (concat (car (string-split (documentation-property
-                                sym 'variable-documentation)
-                               "\n"))
-            "\n"
-            (symbol-value sym)))
+  (when sym
+        (if (get sym 'byte-obsolete-variable)
+            (format "OBSOLETE: %s" (helpful--format-obsolete-info sym nil))
+          (concat (car (string-split (documentation-property
+                                      sym 'variable-documentation)
+                                     "\n"))
+                  "\n"
+                  (symbol-value sym))))
 #+end_src
 
-** Heading
+#+RESULTS: show
 
-- org-babel-result-regexp
-  #+CALL: show(sym='org-babel-result-regexp)
+#+name: inline_call
+#+BEGIN_SRC emacs-lisp
+  "inline call"
+#+END_SRC
 
-  #+RESULTS:
-  : Regular expression used to match result lines.
-  : ^[	 ]*#\+results\(?:\[\(?:([[:digit:]]\{4\}\(?:-[[:digit:]]\{2\}\)\{2\} [[:digit:]]\{2\}\(?::[[:digit:]]\{2\}\)\{2\}) \)?\([[:xdigit:]]+\)]\)?:[	 ]*
-  
+
+** Headings
+
 - org-complex-heading-regexp-format
   #+CALL: show(sym='org-complex-heading-regexp-format)
 
   #+RESULTS:
+  : Printf format to make regexp to match an exact headline.
   : ^\(\*+\)\(?: +\(ANKI\|CANCEL\|DO\(?:ING\|NE\)\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|STORED\|TODO\|WAIT\)\)?\(?: +\(\[#.\]\)\)?\(?: +\(?:COMMENT +\)?\(?:\[[0-9%%/]+\] *\)*\(%s\)\(?: *\[[0-9%%/]+\]\)*\)\(?:[ 	]+\(:[[:alnum:]_@#%%:]+:\)\)?[ 	]*$
 
+- org-heading-regexp
+  #+CALL: show(sym='org-heading-regexp)
+
+  #+RESULTS:
+  : Matches a headline, putting stars and text into groups.
+  : ^\(\*+\)\(?: +\(.*?\)\)?[ 	]*$
+
+- org-heading-keyword-regexp-format
+  #+CALL: show(sym='org-heading-keyword-regexp-format)
+
+  #+RESULTS:
+  : Printf format for a regexp matching a headline with some keyword.
+  : ^\(\*+\)\(?: +%s\)\(?: +\(.*?\)\)?[ 	]*$
+
+- org-heading-keyword-maybe-regexp-format
+  #+CALL: show(sym='org-heading-keyword-maybe-regexp-format)
+
+  #+RESULTS:
+  : Printf format for a regexp matching a headline, possibly with some keyword.
+  : ^\(\*+\)\(?: +%s\)?\(?: +\(.*?\)\)?[ 	]*$
+
+- org-not-done-heading-regexp
+  #+CALL: show(sym='org-not-done-heading-regexp)
+
+  #+RESULTS:
+  : Matches a TODO headline that is not done.
+  : ^\(\*+\)\(?: +\(ANKI\|DOING\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|TODO\|WAIT\)\)\(?: +\(.*?\)\)?[ 	]*$
+
+- org-element-headline-re
+  #+CALL: show(sym='org-element-headline-re)
+
+  #+RESULTS:
+  : Regexp matching a headline.
+  : ^\*+ 
+
+- org-element--headline-comment-re
+  #+CALL: show(sym='org-element--headline-comment-re)
+
+  #+RESULTS:
+  : Regexp matching comment string in a headline.
+  : COMMENT\(?: \|$\)
+
+
+- org-todo-regexp
+  #+CALL: show(sym='org-todo-regexp)
+
+  #+RESULTS:
+  : Matches any of the TODO state keywords.
+  : \(ANKI\|CANCEL\|DO\(?:ING\|NE\)\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|STORED\|TODO\|WAIT\)
+
+- org-not-done-regexp
+  #+CALL: show(sym='org-not-done-regexp)
+
+  #+RESULTS:
+  : Matches any of the TODO state keywords except the last one.
+  : \(ANKI\|DOING\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|TODO\|WAIT\)
+  
+*** Heading Todo Keywords
+
+*** Heading Tags
+
+- org-tag-re
+  #+CALL: show(sym='org-tag-re)
+
+  #+RESULTS:
+  : Regexp matching a single tag.
+  : [[:alnum:]_@#%]+
+
+- org-tag-line-re
+  #+CALL: show(sym='org-tag-line-re)
+
+  #+RESULTS:
+  : Regexp matching tags in a headline.
+  : ^\*+ \(?:.*[ 	]\)?\(:\([[:alnum:]_@#%:]+\):\)[ 	]*$
+
+- org-tag-group-re
+  #+CALL: show(sym='org-tag-group-re)
+
+  #+RESULTS:
+  : Regexp matching the tag group at the end of a line, with leading spaces.
+  : [ 	]+\(:\([[:alnum:]_@#%:]+\):\)[ 	]*$
+
+** Keywords
+
+- org-keyword-regexp
+  #+CALL: show(sym='org-keyword-regexp)
+
+  #+RESULTS:
+  : Regular expression for keyword-lines.
+  : ^[ 	]*#\+\(\S-+?\):[ 	]*\(.*\)$
+
+** Planing Info (DEADLINE, SCHEDULED, CLOSED)
+
+- org-keyword-time-regexp
+  #+CALL: show(sym='org-keyword-time-regexp)
+
+  #+RESULTS:
+  : Matches any of the 4 keywords, together with the time stamp.
+  : \<\(\(?:CLO\(?:CK\|SED\)\|DEADLINE\|SCHEDULED\):\) *[[<]\([^]>]+\)[]>]
+
+- org-keyword-time-not-clock-regexp
+  #+CALL: show(sym='org-keyword-time-not-clock-regexp)
+
+  #+RESULTS:
+  : Matches any of the 3 keywords, together with the time stamp.
+  : \<\(\(?:CLOSED\|DEADLINE\|SCHEDULED\):\) *[[<]\([^]>]+\)[]>]
+
+- org-element-planning-keywords-re
+  #+CALL: show(sym='org-element-planning-keywords-re)
+
+  #+RESULTS:
+  : Regexp matching any planning line keyword.
+  : \(?:\(?:CLOSED\|DEADLINE\|SCHEDULED\):\)
+
+- org-planning-line-re
+  #+CALL: show(sym='org-planning-line-re)
+
+  #+RESULTS:
+  : Matches a line with planning info.
+  : ^[ 	]*\(\(?:CLOSED\|DEADLINE\|SCHEDULED\):\)
+
+- org-element-planning-line-re
+  #+CALL: show(sym='org-element-planning-line-re)
+
+  #+RESULTS:
+  : Regexp matching a planning line.
+  : \(?:^[	 ]*\(\(?:\(?:CLOSED\|DEADLINE\|SCHEDULED\):\)\)\)
+
+- org-closed-time-regexp
+  #+CALL: show(sym='org-closed-time-regexp)
+
+  #+RESULTS:
+  : Matches the CLOSED keyword together with a time stamp.
+  : \<CLOSED: *\[\([^]]+\)\]
+
+- org-deadline-regexp
+  #+CALL: show(sym='org-deadline-regexp)
+
+  #+RESULTS:
+  : Matches the DEADLINE keyword.
+  : \<DEADLINE:
+
+- org-deadline-line-regexp
+  #+CALL: show(sym='org-deadline-line-regexp)
+
+  #+RESULTS:
+  : Matches the DEADLINE keyword and the rest of the line.
+  : \<\(DEADLINE:\).*
+
+- org-deadline-time-regexp
+  #+CALL: show(sym='org-deadline-time-regexp)
+
+  #+RESULTS:
+  : Matches the DEADLINE keyword together with a time stamp.
+  : \<DEADLINE: *<\([^>]+\)>
+
+- org-deadline-time-hour-regexp
+  #+CALL: show(sym='org-deadline-time-hour-regexp)
+
+  #+RESULTS:
+  : Matches the DEADLINE keyword together with a time-and-hour stamp.
+  : \<DEADLINE: *<\([^>]+[0-9]\{1,2\}:[0-9]\{2\}[0-9+:hdwmy/ 	.-]*\)>
+
+- org-scheduled-regexp
+  #+CALL: show(sym='org-scheduled-regexp)
+
+  #+RESULTS:
+  : Matches the SCHEDULED keyword.
+  : \<SCHEDULED:
+
+- org-scheduled-time-regexp
+  #+CALL: show(sym='org-scheduled-time-regexp)
+
+  #+RESULTS:
+  : Matches the SCHEDULED keyword together with a time stamp.
+  : \<SCHEDULED: *<\([^>]+\)>
+
+- org-scheduled-time-hour-regexp
+  #+CALL: show(sym='org-scheduled-time-hour-regexp)
+
+  #+RESULTS:
+  : Matches the SCHEDULED keyword together with a time-and-hour stamp.
+  : \<SCHEDULED: *<\([^>]+[0-9]\{1,2\}:[0-9]\{2\}[0-9+:hdwmy/ 	.-]*\)>
+
+- org-plain-time-of-day-regexp
+  #+CALL: show(sym='org-plain-time-of-day-regexp)
+
+  #+RESULTS:
+  : Regular expression to match a plain time or time range.
+  : \(\<[012]?[0-9]\(\(:\([0-5][0-9]\([AaPp][Mm]\)?\)\)\|\([AaPp][Mm]\)\)\>\)\(--?\(\<[012]?[0-9]\(\(:\([0-5][0-9]\([AaPp][Mm]\)?\)\)\|\([AaPp][Mm]\)\)\>\)\)?
+
+- org-plain-time-extension-regexp
+  #+CALL: show(sym='org-plain-time-extension-regexp)
+
+  #+RESULTS:
+  : Regular expression to match a time range like 13:30+2:10 = 13:30-15:40.
+  : \(\<[012]?[0-9]\(\(:\([0-5][0-9]\([AaPp][Mm]\)?\)\)\|\([AaPp][Mm]\)\)\>\)\+\([0-9]+\)\(:\([0-5][0-9]\)\)?
+
+- org-stamp-time-of-day-regexp
+  #+CALL: show(sym='org-stamp-time-of-day-regexp)
+
+  #+RESULTS:
+  : Regular expression to match a timestamp time or time range.
+  : <\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\} +\sw+ +\)\([012][0-9]:[0-5][0-9]\)\(-\([012][0-9]:[0-5][0-9]\)\)?[^
+  : >]*?>\(--?<\1\([012][0-9]:[0-5][0-9]\)>\)?
+
+- org-repeat-re
+  #+CALL: show(sym='org-repeat-re)
+
+  #+RESULTS:
+  : Regular expression for specifying repeated events.
+  : <[0-9]\{4\}-[0-9][0-9]-[0-9][0-9] [^>
+  : ]*?\([.+]?\+[0-9]+[hdwmy]\(/[0-9]+[hdwmy]\)?\)
+
+- org-element--timestamp-raw-value-regexp
+  #+CALL: show(sym='org-element--timestamp-raw-value-regexp)
+
+  #+RESULTS:
+  : Regexp for matching raw value of a timestamp.
+  : \([<[]\(%%\)?.*?\)[]>]\(?:--\([[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\)\)?
+
+- org-element--timestamp-regexp
+  #+CALL: show(sym='org-element--timestamp-regexp)
+
+  #+RESULTS:
+  : Regexp matching any timestamp type object.
+  : [[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\|\(?:<%%\(?:([^>
+  : ]+)\)\([^
+  : >]*\)>\)
+
+- org-ts--internal-regexp
+  #+CALL: show(sym='org-ts--internal-regexp)
+
+  #+RESULTS:
+  : Regular expression matching the innards of a time stamp.
+  : [[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?
+
+- org-ts-regexp
+  #+CALL: show(sym='org-ts-regexp)
+
+  #+RESULTS:
+  : Regular expression for fast time stamp matching.
+  : <\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)>
+
+- org-ts-regexp0
+  #+CALL: show(sym='org-ts-regexp0)
+
+  #+RESULTS:
+  : Regular expression matching time strings for analysis.
+  : \(\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)\( +[^]+0-9>
+  :  -]+\)?\( +\([0-9]\{1,2\}\):\([0-9]\{2\}\)\)?\)
+
+- org-ts-regexp1
+  #+CALL: show(sym='org-ts-regexp1)
+
+  #+RESULTS:
+  : Regular expression matching time strings for analysis.
+  : \(\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)\(?: *\([^]+0-9>
+  :  -]+\)\)?\( \([0-9]\{1,2\}\):\([0-9]\{2\}\)\)?\)
+
+- org-ts-regexp2
+  #+CALL: show(sym='org-ts-regexp2)
+
+  #+RESULTS:
+  : Regular expression matching time stamps, with groups.
+  : <\(\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)\(?: *\([^]+0-9>
+  :  -]+\)\)?\( \([0-9]\{1,2\}\):\([0-9]\{2\}\)\)?\)[^>
+  : ]\{0,16\}>
+
+- org-ts-regexp3
+  #+CALL: show(sym='org-ts-regexp3)
+
+  #+RESULTS:
+  : Regular expression matching time stamps (also [..]), with groups.
+  : [[<]\(\([0-9]\{4\}\)-\([0-9]\{2\}\)-\([0-9]\{2\}\)\(?: *\([^]+0-9>
+  :  -]+\)\)?\( \([0-9]\{1,2\}\):\([0-9]\{2\}\)\)?\)[^]>
+  : ]\{0,16\}[]>]
+
+- org-ts-regexp-both
+  #+CALL: show(sym='org-ts-regexp-both)
+
+  #+RESULTS:
+  : Regular expression for fast time stamp matching.
+  : [[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]
+
+- org-ts-regexp-inactive
+  #+CALL: show(sym='org-ts-regexp-inactive)
+
+  #+RESULTS:
+  : Regular expression for fast inactive time stamp matching.
+  : \[\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)\]
+
+- org-tsr-regexp
+  #+CALL: show(sym='org-tsr-regexp)
+
+  #+RESULTS:
+  : Regular expression matching a time stamp or time stamp range.
+  : <\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)>\(--?-?<\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)>\)?
+
+- org-tsr-regexp-both
+  #+CALL: show(sym='org-tsr-regexp-both)
+
+  #+RESULTS:
+  : Regular expression matching a time stamp or time stamp range.
+  : [[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\(--?-?[[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\)?
+
+** Links
+
+- org-link-bracket-re
+  #+CALL: show(sym='org-link-bracket-re)
+
+  #+RESULTS:
+  : Matches a link in double brackets.
+  : \[\[\(\(?:[^][\]\|\\\(?:\\\\\)*[][]\|\\+[^][]\)+\)]\(?:\[\([^z-a]+?\)]\)?]
+
+- org-link-types-re
+  #+CALL: show(sym='org-link-types-re)
+
+  #+RESULTS:
+  : Matches a link that has a url-like prefix like "http:".
+  : \`\(attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\):
+
+- org-link-any-re
+  #+CALL: show(sym='org-link-any-re)
+
+  #+RESULTS:
+  #+begin_example
+  Regular expression matching any link.
+  \(\[\[\(\(?:[^][\]\|\\\(?:\\\\\)*[][]\|\\+[^][]\)+\)]\(?:\[\([^z-a]+?\)]\)?]\)\|\(<\(attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\):\([^>
+  ]*\(?:
+  [ 	]*[^> 	
+  ][^>
+  ]*\)*\)>\)\|\(\(?:\<\(?:\(attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\)\):\(\(?:[^][ 	
+  ()<>]\|[(<[]\(?:[^][ 	
+  ()<>]\|[(<[][^][ 	
+  ()<>]*[])>]\)*[])>]\)+\(?:[^[:punct:][:space:]
+  ]\|[/-]\|[(<[]\(?:[^][ 	
+  ()<>]\|[(<[][^][ 	
+  ()<>]*[])>]\)*[])>]\)\)\)\)
+  #+end_example
+
+- org-link-plain-re
+  #+CALL: show(sym='org-link-plain-re)
+
+  #+RESULTS:
+  : Matches plain link, without spaces.
+  : \(?:\<\(?:\(attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\)\):\(\(?:[^][ 	
+  : ()<>]\|[(<[]\(?:[^][ 	
+  : ()<>]\|[(<[][^][ 	
+  : ()<>]*[])>]\)*[])>]\)+\(?:[^[:punct:][:space:]
+  : ]\|[/-]\|[(<[]\(?:[^][ 	
+  : ()<>]\|[(<[][^][ 	
+  : ()<>]*[])>]\)*[])>]\)\)\)
+
+- org-link-angle-re
+  #+CALL: show(sym='org-link-angle-re)
+
+  #+RESULTS:
+  : Matches link with angular brackets, spaces are allowed.
+  : <\(attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\):\([^>
+  : ]*\(?:
+  : [ 	]*[^> 	
+  : ][^>
+  : ]*\)*\)>
+
+- org-target-link-regexp
+  #+CALL: show(sym='org-target-link-regexp)
+
+  #+RESULTS:
+  : Regular expression matching radio targets in plain text.
+
+- org-target-link-regexps
+  #+CALL: show(sym='org-target-link-regexps)
+
+  #+RESULTS:
+  : List of regular expressions matching radio targets in plain text.
+
+- org-target-regexp
+  #+CALL: show(sym='org-target-regexp)
+
+  #+RESULTS:
+  : Regular expression matching a link target.
+  : <<\([^<>
+  :  	]\|[^<>
+  :  	][^<>
+  : ]*[^<>
+  :  	]\)>>
+
+- org-radio-target-regexp
+  #+CALL: show(sym='org-radio-target-regexp)
+
+  #+RESULTS:
+  : Regular expression matching a radio target.
+  : <<<\([^<>
+  :  	]\|[^<>
+  :  	][^<>
+  : ]*[^<>
+  :  	]\)>>>
+
+- org-element-citation-key-re
+  #+CALL: show(sym='org-element-citation-key-re)
+
+  #+RESULTS:
+  : Regexp matching a citation key.
+  : @\([!#-+./:<>-@^-`{-~[:word:]-]+\)
+
+- org-element-citation-prefix-re
+  #+CALL: show(sym='org-element-citation-prefix-re)
+
+  #+RESULTS:
+  : Regexp matching a citation prefix.
+  : \[cite\(?:/\([/_[:alnum:]-]+\)\)?:[	
+  :  ]*
+
+** Emphasis & Markup
+
+- this needs to cover
+  ~~
+  ==
+
+- org-verbatim-re
+  #+CALL: show(sym='org-verbatim-re)
+
+  #+RESULTS:
+  : Regular expression for matching verbatim text.
+  : \([-[:space:]('"{]\|^\)\(\([=~]\)\([^[:space:]]\|[^[:space:]].*?\(?:
+  : .*?\)\{0,1\}[^[:space:]]\)\3\)\([-[:space:].,:!?;'")}\[]\|$\)
+
+- org-emph-re
+  #+CALL: show(sym='org-emph-re)
+
+  #+RESULTS:
+  : Regular expression for matching emphasis.
+  : \([-[:space:]('"{]\|^\)\(\([*/_+]\)\([^[:space:]]\|[^[:space:]].*?\(?:
+  : .*?\)\{0,1\}[^[:space:]]\)\3\)\([-[:space:].,:!?;'")}\[]\|$\)
+
+
+- org-match-substring-regexp
+  #+CALL: show(sym='org-match-substring-regexp)
+
+  #+RESULTS:
+  : The regular expression matching a sub- or superscript.
+  : \(\S-\)\([_^]\)\(\(?:{\([^{}]*?\|\(?:[^{}]*?{[^{}]*?}\)+[^{}]*?\|\(?:[^{}]*?{\(?:[^{}]*?{[^{}]*?}\)+[^{}]*?}\)+[^{}]*?\)}\)\|\(?:(\([^()]*?\|\(?:[^()]*?([^()]*?)\)+[^()]*?\|\(?:[^()]*?(\(?:[^()]*?([^()]*?)\)+[^()]*?)\)+[^()]*?\))\)\|\(?:\*\|[+-]?[[:alnum:].,\]*[[:alnum:]]\)\)
+
+- org-match-substring-with-braces-regexp
+  #+CALL: show(sym='org-match-substring-with-braces-regexp)
+
+  #+RESULTS:
+  : The regular expression matching a sub- or superscript, forcing braces.
+  : \(\S-\)\([_^]\)\({\([^{}]*?\|\(?:[^{}]*?{[^{}]*?}\)+[^{}]*?\|\(?:[^{}]*?{\(?:[^{}]*?{[^{}]*?}\)+[^{}]*?}\)+[^{}]*?\)}\)
+
+** Footnotes
+
+- org-footnote-re
+  #+CALL: show(sym='org-footnote-re)
+
+  #+RESULTS:
+  : Regular expression for matching footnotes.
+  : \[fn:\(?:\(?1:[-_[:word:]]+\)?\(:\)\|\(?1:[-_[:word:]]+\)\]\)
+
+- org-footnote-definition-re
+  #+CALL: show(sym='org-footnote-definition-re)
+
+  #+RESULTS:
+  : Regular expression matching the definition of a footnote.
+  : ^\[fn:\([-_[:word:]]+\)\]
+
+** Drawers
+
+- org-drawer-regexp
+  #+CALL: show(sym='org-drawer-regexp)
+
+  #+RESULTS:
+  : Matches first or last line of a hidden block.
+  : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
+
+- org-logbook-drawer-re
+  #+CALL: show(sym='org-logbook-drawer-re)
+
+  #+RESULTS:
+  : Matches an entire LOGBOOK drawer.
+  : ^[	 ]*:LOGBOOK:[	 ]*
+  : \(?:.*
+  : \)*?[	 ]*:END:[	 ]*$
+
+- org-clock-drawer-start-re
+  #+CALL: show(sym='org-clock-drawer-start-re)
+
+  #+RESULTS:
+  : Regular expression matching the first line of a clock drawer.
+  : ^[ 	]*:CLOCK:[ 	]*$
+
+- org-clock-drawer-end-re
+  #+CALL: show(sym='org-clock-drawer-end-re)
+
+  #+RESULTS:
+  : Regular expression matching the last line of a clock drawer.
+  : ^[ 	]*:END:[ 	]*$
+
+- org-clock-drawer-re
+  #+CALL: show(sym='org-clock-drawer-re)
+
+  #+RESULTS:
+  : Matches an entire clock drawer.
+  : \(^[ 	]*:CLOCK:[ 	]*$\)\(?:.\|
+  : \)*?\(^[ 	]*:END:[ 	]*$\)
+  : ?
+
+- org-clock-line-re
+  #+CALL: show(sym='org-clock-line-re)
+
+  #+RESULTS:
+  : Matches a line with clock info.
+  : ^[ 	]*CLOCK:
+
+- org-element-drawer-re
+  #+CALL: show(sym='org-element-drawer-re)
+
+  #+RESULTS:
+  : Regexp matching opening or closing line of a drawer.
+  : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
+
+
+** Dynamic Blocks & Blocks
+
+- org-dblock-start-re
+  #+CALL: show(sym='org-dblock-start-re)
+
+  #+RESULTS:
+  : Matches the start line of a dynamic block, with parameters.
+  : ^[ 	]*#\+\(?:BEGIN\|begin\):[ 	]+\(\S-+\)\([ 	]+\(.*\)\)?
+
+- org-dblock-end-re
+  #+CALL: show(sym='org-dblock-end-re)
+
+  #+RESULTS:
+  : Matches the end of a dynamic block.
+  : ^[ 	]*#\+\(?:END\|end\)\([: 	
+  : ]\|$\)
+
+- org-element-dynamic-block-open-re
+  #+CALL: show(sym='org-element-dynamic-block-open-re)
+
+  #+RESULTS:
+  : Regexp matching the opening line of a dynamic block.
+  : ^[	 ]*#\+BEGIN:[	 ]*\([[:word:]]+\)\(?:[	 ]+\(.+\)\)?
+
+- org-block-regexp
+  #+CALL: show(sym='org-block-regexp)
+
+  #+RESULTS:
+  : Regular expression for hiding blocks.
+  : ^[ 	]*#\+begin_?\([^ 
+  : ]+\)\(\([^
+  : ]+\)\)?
+  : \(\(?:.\|
+  : \)+?\)#\+end_?\1[ 	]*$
 
 ** Tables
 
@@ -35,15 +597,316 @@
   #+CALL: show(sym='org-TBLFM-regexp)
 
   #+RESULTS:
+  : Detect a #+TBLFM line.
   : ^[ 	]*#\+TBLFM: 
 
+- org-table-TBLFM-begin-regexp
+  : Inserted manually
+  : "^[ 	]*|.*\n[ 	]*#\\+TBLFM: "
 
-** Code Block
+- org-table-any-border-regexp
+  #+CALL: show(sym='org-table-any-border-regexp)
+
+  #+RESULTS:
+  : Detect the first line outside a table when searching from within it.
+  : ^[ 	]*[^|+ 	]
+
+- org-table-border-regexp
+  #+CALL: show(sym='org-table-border-regexp)
+
+  #+RESULTS:
+  : Regexp matching any line outside an Org table.
+  : ^[ 	]*[^| 	]
+
+- org-table-any-line-regexp
+  #+CALL: show(sym='org-table-any-line-regexp)
+
+  #+RESULTS:
+  : Detect an org-type or table-type table.
+  : ^[ 	]*\(|\|\+-[-+]\)
+
+- org-table-line-regexp
+  #+CALL: show(sym='org-table-line-regexp)
+
+  #+RESULTS:
+  : Detect an org-type table line.
+  : ^[ 	]*|
+
+- org-table-hline-regexp
+  #+CALL: show(sym='org-table-hline-regexp)
+
+  #+RESULTS:
+  : Detect an org-type table hline.
+  : ^[ 	]*|-
+
+- org-table1-hline-regexp
+  #+CALL: show(sym='org-table1-hline-regexp)
+
+  #+RESULTS:
+  : Detect a table-type table hline.
+  : ^[ 	]*\+-[-+]
+
+- org-table-dataline-regexp
+  #+CALL: show(sym='org-table-dataline-regexp)
+
+  #+RESULTS:
+  : Detect an org-type table line.
+  : ^[ 	]*|[^-]
+
+- org-table-number-regexp
+  #+CALL: show(sym='org-table-number-regexp)
+
+  #+RESULTS:
+  : Regular expression for recognizing numbers in table columns.
+  : ^\([<>]?[-+^.0-9]*[0-9][-+^.0-9eEdDx()%:]*\|[<>]?[-+]?0[xX][[:xdigit:].]+\|[<>]?[-+]?[0-9]+#[0-9a-zA-Z.]+\|nan\|[-+u]?inf\)$
+
+- org-table-range-regexp
+  #+CALL: show(sym='org-table-range-regexp)
+
+  #+RESULTS:
+  : Regular expression for matching ranges in formulas.
+  : @\([-+]?I*[-+]?[0-9]*\)\(\$[-+]?[0-9]+\)?\(\.\.@?\([-+]?I*[-+]?[0-9]*\)\(\$[-+]?[0-9]+\)?\)?
+
+- org-table-range-regexp2
+  #+CALL: show(sym='org-table-range-regexp2)
+
+  #+RESULTS:
+  : Match a range for reference display.
+  : \(@[-0-9I$&]+\|[a-zA-Z]\{1,2\}\([0-9]+\|&\)\|\$[a-zA-Z0-9]+\)\.\.\(@?[-0-9I$&]+\|[a-zA-Z]\{1,2\}\([0-9]+\|&\)\|\$[a-zA-Z0-9]+\)
+
+- org-table-recalculate-regexp
+  #+CALL: show(sym='org-table-recalculate-regexp)
+
+  #+RESULTS:
+  : Regexp matching a line marked for recalculation.
+  : ^[ 	]*| *[#*] *\(|\|$\)
+
+- org-table-auto-recalculate-regexp
+  #+CALL: show(sym='org-table-auto-recalculate-regexp)
+
+  #+RESULTS:
+  : Regexp matching a line marked for automatic recalculation.
+  : ^[ 	]*| *# *\(|\|$\)
+
+- org-table-calculate-mark-regexp
+  #+CALL: show(sym='org-table-calculate-mark-regexp)
+
+  #+RESULTS:
+  : Regexp matching a line marked for calculation.
+  : ^[ 	]*| *[!$^_#*] *\(|\|$\)
+
+- org-table-column-name-regexp
+  #+CALL: show(sym='org-table-column-name-regexp)
+
+  #+RESULTS:
+  : Regular expression matching the current column names.
+
+- org-table-translate-regexp
+  #+CALL: show(sym='org-table-translate-regexp)
+
+  #+RESULTS:
+  : Match a reference that needs translation, for reference display.
+  : \(@[-0-9I$]+\|[a-zA-Z]\{1,2\}\([0-9]+\|&\)\)
+
+- org-table--separator-space-pre
+  #+CALL: show(sym='org-table--separator-space-pre)
+
+  #+RESULTS:
+  : Space used in front of fields when aligning the table.
+  :  
+
+- orgtbl-line-start-regexp
+  #+CALL: show(sym='orgtbl-line-start-regexp)
+
+  #+RESULTS:
+  : Matches a line belonging to an orgtbl.
+  : [ 	]*\(|\|#\+\(tblfm\|orgtbl\|tblname\):\)
+
+- orgtbl-exp-regexp
+  #+CALL: show(sym='orgtbl-exp-regexp)
+
+  #+RESULTS:
+  : Regular expression matching exponentials as produced by calc.
+  : ^\([-+]?[0-9][0-9.]*\)[eE]\([-+]?[0-9]+\)$
+
+
+** Lists
+
+- org-list-two-spaces-after-bullet-regexp
+  #+CALL: show(sym='org-list-two-spaces-after-bullet-regexp)
+
+  #+RESULTS:
+  : A regular expression matching bullets that should have 2 spaces after them.
+
+- org-list-full-item-re
+  #+CALL: show(sym='org-list-full-item-re)
+
+  #+RESULTS:
+  : Matches a list item and puts everything into groups:
+  : ^[ 	]*\(\(?:[-+*]\|\(?:[0-9]+\|[A-Za-z]\)[.)]\)\(?:[ 	]+\|$\)\)\(?:\[@\(?:start:\)?\([0-9]+\|[A-Za-z]\)\][ 	]*\)?\(?:\(\[[ X-]\]\)\(?:[ 	]+\|$\)\)?\(?:\(.*\)[ 	]+::\(?:[ 	]+\|$\)\)?
+
+- org-list-end-re
+  #+CALL: show(sym='org-list-end-re)
+
+  #+RESULTS:
+  : Regex matching the end of a plain list.
+  : ^[ 	]*
+  : [ 	]*
+
+** Outline
+
+- org-outline-regexp
+  #+CALL: show(sym='org-outline-regexp)
+
+  #+RESULTS:
+  : Regexp to match Org headlines.
+  : \*+ 
+
+- org-outline-regexp-bol
+  #+CALL: show(sym='org-outline-regexp-bol)
+
+  #+RESULTS:
+  : Regexp to match Org headlines.
+  : ^\*+ 
+
+** LaTeX / ODT / HTML
+
+- Missing inline Exports with @@
+
+- org-latex-and-related-regexp
+  #+CALL: show(sym='org-latex-and-related-regexp)
+
+  #+RESULTS:
+  : Regular expression for highlighting LaTeX, entities and sub/superscript.
+
+- org-latex-regexps
+  : Manuell
+  #+BEGIN_EXAMPLE
+    (("begin"
+      "^[ 	]*\\(\\\\begin{\\([a-zA-Z0-9\\*]+\\)\\(?:.\\|\n\\)+?\\\\end{\\2}[ 	]*\n?\\)"
+      1 t)
+     ("$1"
+      "\\([^$]\\|^\\)\\(\\$[^ 	\n,;.$]\\$\\)\\(\\s.\\|\\s-\\|\\s(\\|\\s)\\|\\s\"\\|'\\|$\\)"
+      2 nil)
+     ("$"
+      "\\([^$]\\|^\\)\\(\\(\\$\\([^ 	\n,;.$][^$\n]*?\\(\n[^$\n]*?\\)\\{0,2\\}[^ 	\n,.$]\\)\\$\\)\\)\\(\\s.\\|\\s-\\|\\s(\\|\\s)\\|\\s\"\\|'\\|$\\)"
+      2 nil)
+     ("\\(" "\\\\(\\(?:.\\|\n\\)*?\\\\)" 0 nil)
+     ("\\[" "\\\\\\[\\(?:.\\|\n\\)*?\\\\\\]" 0 nil)
+     ("$$" "\\$\\$\\(?:.\\|\n\\)*?\\$\\$" 0 nil))
+    #+END_EXAMPLE
+
+- org-latex-math-environments-re
+  #+CALL: show(sym='org-latex-math-environments-re)
+
+  #+RESULTS:
+  : Regexp of LaTeX math environments.
+  : \`[ 	]*\\begin{\(?:align\(?:at\)?\|d\(?:array\|group\|isplaymath\|math\|series\)\|e\(?:mpheq\|q\(?:narray\|uation\)\)\|flalign\|gather\|m\(?:ath\|ultline\)\|subequations\|x\(?:x?alignat\)\)\*?}
+
+- org-odt-forbidden-char-re
+  #+CALL: show(sym='org-odt-forbidden-char-re)
+
+  #+RESULTS:
+  : Regexp matching forbidden XML1.0 characters.
+  : [^	
+  :  -퟿-�𐀀-􏿿]
+
+- org-odt-special-string-regexps
+  : Manuell
+  #+BEGIN_EXAMPLE
+    (("\\\\-" . "&#x00ad;\\1") ("---\\([^-]\\)" . "&#x2014;\\1")
+     ("--\\([^-]\\)" . "&#x2013;\\1") ("\\.\\.\\." . "&#x2026;"))
+  #+END_EXAMPLE
+
+- org-html-special-string-regexps
+  : Manuell
+  #+BEGIN_EXAMPLE
+    (("\\\\-" . "&#x00ad;") ("---\\([^-]\\)" . "&#x2014;\\1")
+     ("--\\([^-]\\)" . "&#x2013;\\1") ("\\.\\.\\." . "&#x2026;"))
+  #+END_EXAMPLE
+
+** UUID
+
+- org-uuid-regexp
+  #+CALL: show(sym='org-uuid-regexp)
+
+  #+RESULTS:
+  : Regular expression matching a universal unique identifier (UUID).
+  : \`[0-9a-f]\{8\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{4\}-[0-9a-f]\{12\}\'
+
+** Comments
+
+- org-comment-regexp
+  #+CALL: show(sym='org-comment-regexp)
+
+  #+RESULTS:
+  : Regular expression for comment lines.
+  : ^[	 ]*#\(?: \|$\)
+
+- Missing Comment Block
+  [[info:org#Comment Lines][org#Comment Lines]]
+
+** Babel
+
+- Lines with #+CALL
+
+  Found in Code:
+  #+BEGIN_EXAMPLE
+    File: ob-core.el
+    1408  49 	 (while (re-search-forward "call_\\S-\\|^[ \t]*#\\+CALL:" nil t)
+    1438  32 		 "\\(call\\|src\\)_\\|^[ \t]*#\\+\\(BEGIN_SRC\\|CALL:\\)" nil t)
+    1509  16 			 (mapconcat #'identity (sort (funcall rm (split-string v))
+    2022  55 	       ((memq type '(babel-call inline-babel-call)) ;#+CALL:
+
+    File: ob-exp.el
+     147  40 	  (regexp "\\(call\\|src\\)_\\|^[ \t]*#\\+\\(BEGIN_SRC\\|CALL:\\)")
+     195  11 			    ;; #+name: call_src
+#+END_EXAMPLE
+
+- Inline Call with inline results
+
+  call_inline_call() {{{results(=inline call=)}}}
+
+  Found in Code:
+  #+BEGIN_EXAMPLE
+    ./ob-core.el:2742:742  				   (format "{{{results(@@%s:"
+    ./ob-core.el:2750:750  				 "{{{results(=" "=)}}}"))
+    ./ob-core.el:2757:757  				  "{{{results(src_none{")
+    ./ob-core.el:2759:759  				  (format "{{{results(src_%s{" language))
+    ./ob-core.el:2762:762  				    (format "{{{results(src_%s[%s]{"
+    ./ob-core.el:2774:774  				 "{{{results(" ")}}}")))))
+    ./ob-core.el:2777:777  			     "{{{results(@@html:" "@@)}}}"))
+    ./ob-core.el:2780:780  			     "{{{results(@@latex:" "@@)}}}"))
+    ./ob-core.el:2784:784  			     "{{{results(src_org{" "})}}}"))
+    ./ob-core.el:2789:789  			       (format "{{{results(src_%s[%s]{" lang results-switches)
+    ./ob-core.el:2798:798  			     "{{{results(" ")}}}"))
+    ./ob-core.el:2800:800  		    (funcall wrap nil nil nil nil "{{{results(" ")}}}"))
+    ./ob-core.el:2804:804  			   ;; Hard code {{{results(...)}}} on top of
+    ./ob-core.el:2806:806  			   (format "{{{results(%s)}}}"
+#+END_EXAMPLE
+
+
+- not sure what this is for
+  org-babel-inline-result-wrap
+  #+CALL: show(sym='org-babel-inline-result-wrap)
+
+  #+RESULTS:
+  : Format string used to wrap inline results.
+  : =%s=
+
+- org-element-inline-src-block-regexp
+  #+CALL: show(sym='org-element-inline-src-block-regexp)
+
+  #+RESULTS:
+  : Regexp matching inline source blocks.
+  : \<src_\([^ 	
+  : [{]+\)[{[]
 
 - org-babel-result-regexp
   #+CALL: show(sym='org-babel-result-regexp)
 
   #+RESULTS:
+  : Regular expression used to match result lines.
   : ^[	 ]*#\+results\(?:\[\(?:([[:digit:]]\{4\}\(?:-[[:digit:]]\{2\}\)\{2\} [[:digit:]]\{2\}\(?::[[:digit:]]\{2\}\)\{2\}) \)?\([[:xdigit:]]+\)]\)?:[	 ]*
 
 - org-babel-src-block-regexp
@@ -51,6 +914,7 @@
 
   #+RESULTS:
   #+begin_example
+  Regexp used to identify code blocks.
   ^\([ 	]*\)#\+begin_src\(?:[ 	]+\([^ 	
   ]*\)\)?[ 	]*\([^":
   ]*"[^"
@@ -63,146 +927,74 @@
   \)??[ 	]*#\+end_src
   #+end_example
 
-** Links
-
-- org-link-bracket-re
-  #+CALL: show(sym='org-link-bracket-re)
+- org-babel-multi-line-header-regexp
+  #+CALL: show(sym='org-babel-multi-line-header-regexp)
 
   #+RESULTS:
-  : \[\[\(\(?:[^][\]\|\\\(?:\\\\\)*[][]\|\\+[^][]\)+\)]\(?:\[\([^z-a]+?\)]\)?]
+  : Regular expression used to match multi-line header arguments.
+  : ^[ 	]*#\+headers?:[ 	]*\([^
+  : ]*\)$
 
-** Timestamps
-
-- org-closed-time-regexp
-  #+CALL: show(sym='org-closed-time-regexp)
-
-  #+RESULTS:
-  : \<CLOSED: *\[\([^]]+\)\]
-
-- org-deadline-line-regexp
-  #+CALL: show(sym='org-deadline-line-regexp)
+- org-babel-result-w-name-regexp
+  #+CALL: show(sym='org-babel-result-w-name-regexp)
 
   #+RESULTS:
-  : \<\(DEADLINE:\).*
+  : Regexp matching a RESULTS keyword with a name.
+  : ^[	 ]*#\+results\(?:\[\(?:([[:digit:]]\{4\}\(?:-[[:digit:]]\{2\}\)\{2\} [[:digit:]]\{2\}\(?::[[:digit:]]\{2\}\)\{2\}) \)?\([[:xdigit:]]+\)]\)?:[	 ]*\(?9:[^ 	
+  : ]+\)
 
-- org-deadline-regexp
-  #+CALL: show(sym='org-deadline-regexp)
-
-  #+RESULTS:
-  : \<DEADLINE:
-
-- org-deadline-time-hour-regexp
-  #+CALL: show(sym='org-deadline-time-hour-regexp)
+- org-babel-comint-prompt-regexp-fallback
+  #+CALL: show(sym='org-babel-comint-prompt-regexp-fallback)
 
   #+RESULTS:
-  : \<DEADLINE: *<\([^>]+[0-9]\{1,2\}:[0-9]\{2\}[0-9+:hdwmy/ 	.-]*\)>
+  : Fallback regexp used to detect prompt.
 
-- org-deadline-time-regexp
-  #+CALL: show(sym='org-deadline-time-regexp)
-
-  #+RESULTS:
-  : \<DEADLINE: *<\([^>]+\)>
-
-- org-element--timestamp-raw-value-regexp
-  #+CALL: show(sym='org-element--timestamp-raw-value-regexp)
+- org-babel-comint-prompt-regexp-old
+  #+CALL: show(sym='org-babel-comint-prompt-regexp-old)
 
   #+RESULTS:
-  : \([<[]\(%%\)?.*?\)[]>]\(?:--\([[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\)\)?
+  : Fallback regexp used to detect prompt.
 
-- org-element--timestamp-regexp
-  #+CALL: show(sym='org-element--timestamp-regexp)
-
-  #+RESULTS:
-  : [[<]\([[:digit:]]\{4\}-[[:digit:]]\{2\}-[[:digit:]]\{2\}\(?: .*?\)?\)[]>]\|\(?:<%%\(?:([^>
-  : ]+)\)\([^
-  : >]*\)>\)
-
-** Kommentare
-
-- org-comment-regexp
-  #+CALL: show(sym='org-comment-regexp)
+- org-babel-src-name-regexp
+  #+CALL: show(sym='org-babel-src-name-regexp)
 
   #+RESULTS:
-  : ^[	 ]*#\(?: \|$\)
+  : Regular expression used to match a source name line.
+  : ^[ 	]*#\+name:[ 	]*
 
-** Drawer
-
-- org-drawer-regexp
-  #+CALL: show(sym='org-drawer-regexp)
+- org-babel-name-regexp
+  #+CALL: show(sym='org-babel-name-regexp)
 
   #+RESULTS:
-  : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
+  : Regexp matching a NAME keyword.
+  : ^[ 	]*#\+\(?:\(?:TBL\)?NAME\):[ 	]*
 
-* Regex to Check
 
-org-element-inline-src-block-regexp
-org-emphasis-regexp-components
-org-from-is-user-regexp
-org-heading-keyword-maybe-regexp-format
-org-heading-keyword-regexp-format
-org-heading-regexp
-org-keyword-regexp
-org-keyword-time-not-clock-regexp
-org-keyword-time-regexp
-org-latex-and-related-regexp
-org-latex-regexps
-org-link-elisp-skip-confirm-regexp
-org-link-from-user-regexp
-org-link-shell-skip-confirm-regexp
-org-list-two-spaces-after-bullet-regexp
-org-match-substring-regexp
-org-match-substring-with-braces-regexp
-org-maybe-keyword-time-regexp
-org-not-done-heading-regexp
-org-not-done-regexp
-org-old-auto-fill-inhibit-regexp
-org-outline-regexp
-org-outline-regexp-bol
-org-plain-time-extension-regexp
-org-plain-time-of-day-regexp
-org-priority-regexp
-org-radio-target-regexp
-org-scheduled-regexp
-org-scheduled-time-hour-regexp
-org-scheduled-time-regexp
-org-stamp-time-of-day-regexp
-org-table-TBLFM-begin-regexp
-org-table-any-border-regexp
-org-table-any-line-regexp
-org-table-auto-recalculate-regexp
-org-table-border-regexp
-org-table-calculate-mark-regexp
-org-table-column-name-regexp
-org-table-dataline-regexp
-org-table-hline-regexp
-org-table-line-regexp
-org-table-number-regexp
-org-table-range-regexp
-org-table-range-regexp2
-org-table-recalculate-regexp
-org-table-translate-regexp
-org-table1-hline-regexp
-org-target-link-regexp
-org-target-link-regexp-limit
-org-target-link-regexps
-org-target-regexp
-org-todo-line-regexp
-org-todo-line-tags-regexp
-org-todo-regexp
-org-tr-regexp
-org-tr-regexp-both
-org-ts--internal-regexp
-org-ts-regexp
-org-ts-regexp-both
-org-ts-regexp-inactive
-org-ts-regexp0
-org-ts-regexp1
-org-ts-regexp2
-org-ts-regexp3
-org-tsr-regexp
-org-tsr-regexp-both
-org-uuid-regexp
-org-yt-video-id-regexp
-orgtbl-exp-regexp
-orgtbl-line-start-regexp
-org-babel-name-regexp
+** Other / Internal
+
+- org-element--cache-sensitive-re
+  #+CALL: show(sym='org-element--cache-sensitive-re)
+
+  #+RESULTS:
+  : Regexp matching a sensitive line, structure wise.
+  : ^\*+ \|\\end{[A-Za-z0-9*]+}[ 	]*$\|^[ 	]*\(?:#\+END\(?:_\|:?[ 	]*$\)\|^[ 	]*\(\(?:[-+*]\|\(?:[0-9]+\|[A-Za-z]\)[.)]\)\(?:[ 	]+\|$\)\)\(?:\[@\(?:start:\)?\([0-9]+\|[A-Za-z]\)\][ 	]*\)?\(?:\(\[[ X-]\]\)\(?:[ 	]+\|$\)\)?\(?:\(.*\)[ 	]+::\(?:[ 	]+\|$\)\)?\|:\(?: \|$\)\|:\(?:\w\|[-_]\)+:[ 	]*$\)
+
+- org-element--current-element-re
+  #+CALL: show(sym='org-element--current-element-re)
+
+  #+RESULTS:
+  : Bulk regexp matching multiple elements in a single regexp.
+  : \(?:\(?1:^[ 	]*\\begin{[A-Za-z0-9*]+}\)\|\(?2:^[	 ]*:[_[:word:]-]+:[	 ]*$\)\|\(?3:[ 	]*:\( \|$\)\)\|\(?7:^[	 ]*#\+BEGIN:[	 ]*[[:word:]]\)\|\(?4:[ 	]*#\+\)\(?:BEGIN_\(?5:[^[:space:]]+\)\|\(?6:CALL:\)\|\(?8:[^[:space:]]+:\)\)\|\(?9:^\[fn:\([-_[:word:]]+\)\]\)\|\(?10:[ 	]*-----+[ 	]*$\)\|\(?11:%%(\)\)
+
+- org-element--object-regexp
+  #+CALL: show(sym='org-element--object-regexp)
+
+  #+RESULTS:
+  : Regexp possibly matching the beginning of an object.
+  : \(?:[_^][-{(*+.,[:alnum:]]\)\|[*+/=_~][^[:space:]]\|\<\(?:attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\):\|\[\(?:cite[:/]\|fn:\|\(?:[0-9]\|\(?:%\|/[0-9]*\)\]\)\|\[\)\|@@\|{{{\|<\(?:%%\|<\|[0-9]\|\(?:attachment\|docview\|elisp\|f\(?:ile\(?:\+\(?:\(?:emac\|sy\)s\)\)?\|tp\)\|h\(?:elp\(?:ful\)?\|ttps?\)\|i\(?:d\|nfo\)\|mailto\|n\(?:ews\|ov\)\|sh\(?:ell\|ortdoc\)\|yt\)\)\|\$\|\\\(?:[a-zA-Z[(]\|\\[ 	]*$\|_ +\)\|\(?:call\|src\)_
+
+- org-old-auto-fill-inhibit-regexp
+  #+CALL: show(sym='org-old-auto-fill-inhibit-regexp)
+
+  #+RESULTS:
+  : Local variable used by ‘orgtbl-mode’.
