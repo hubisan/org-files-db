@@ -1,0 +1,1414 @@
+#+TITLE: Org-mode Element Parser Functions
+#+STARTUP: content
+
+Reihenfolge gem. ~org-element--current-element~:
+
+1. mode == 'item'             → Item parser
+2. mode == 'table-row'        → Table-row parser
+3. mode == 'node-property'    → node property parser
+4. Headline?
+   (looking-at "^*+ ") and not inlinetask → headline parser
+5. Section (only if mode == section or first-section)
+6. Comments
+   (org-comment-regexp)
+7. Planning lines
+   (org-element-planning-line-re)
+8. Property drawer
+   (org-property-drawer-re)
+9. If not at beginning-of-line: paragraph
+10. CLOCK line
+    (org-element-clock-line-re)
+11. Inlinetask (if at-task?)
+12. Collect affiliated keywords first
+13. THEN:
+    If matches org-element--current-element-re:
+        13.1 LaTeX begin
+        13.2 Drawer
+        13.3 Fixed width
+        13.4 Special block / block types
+        13.5 CALL:
+        13.6 BEGIN:
+        13.7 Keyword
+        13.8 #+ unknown (paragraph)
+        13.9 Footnote definition
+        13.10 Horizontal rule
+        13.11 Diary sexp
+14. Table?
+15. List?
+16. Default: Paragraph
+
+
+* Current Element
+
+#+BEGIN_SRC emacs-lisp
+  (defsubst org-element--current-element (limit &optional granularity mode structure)
+    "Parse the element starting at point.
+
+  Return value is a list like (TYPE PROPS) where TYPE is the type
+  of the element and PROPS a plist of properties associated to the
+  element.
+
+  Possible types are defined in `org-element-all-elements'.
+
+  LIMIT bounds the search.
+
+  Optional argument GRANULARITY determines the depth of the
+  recursion.  Allowed values are `headline', `greater-element',
+  `element', `object' or nil.  When it is broader than `object' (or
+  nil), secondary values will not be parsed, since they only
+  contain objects.
+
+  Optional argument MODE, when non-nil, can be either
+  `first-section', `item', `node-property', `planning',
+  `property-drawer', `section', `table-row', or `top-comment'.
+
+
+  If STRUCTURE isn't provided but MODE is set to `item', it will be
+  computed.
+
+  This function assumes point is always at the beginning of the
+  element it has to parse."
+    (save-excursion
+      (let ((case-fold-search t)
+            ;; Determine if parsing depth allows for secondary strings
+            ;; parsing.  It only applies to elements referenced in
+            ;; `org-element-secondary-value-alist'.
+            (raw-secondary-p (and granularity (not (eq granularity 'object))))
+            result at-task?)
+        (setq
+         result
+         ;; Regexp matches below should avoid modifying match data,
+         ;; if possible.  Doing it unnecessarily degrades regexp
+         ;; matching performance an order of magnitude, which
+         ;; becomes important when parsing large buffers with huge
+         ;; amount of elements to be parsed.
+         ;;
+         ;; In general, the checks below should be as efficient as
+         ;; possible, especially early in the `cond' form.  (The
+         ;; early checks will contribute to all subsequent parsers as
+         ;; well).
+         (cond
+          ;; Item.
+          ((eq mode 'item) (org-element-item-parser limit structure raw-secondary-p))
+          ;; Table Row.
+          ((eq mode 'table-row) (org-element-table-row-parser limit))
+          ;; Node Property.
+          ((eq mode 'node-property) (org-element-node-property-parser limit))
+          ;; Headline.
+          ((and (looking-at-p "^\\*+ ")
+                (setq at-task? t)
+                (or (not (featurep 'org-inlinetask))
+                    (save-excursion
+                      (< (skip-chars-forward "*")
+                         (if org-odd-levels-only
+                             (1- (* org-inlinetask-min-level 2))
+                           org-inlinetask-min-level)))))
+           (org-element-headline-parser limit raw-secondary-p))
+          ;; Sections (must be checked after headline).
+          ((memq mode '(section first-section)) (org-element-section-parser nil))
+          ;; Comments.
+          ((looking-at-p org-comment-regexp) (org-element-comment-parser limit))
+          ;; Planning.
+          ((and (eq mode 'planning)
+                (eq ?* (char-after (line-beginning-position 0)))
+                (looking-at-p org-element-planning-line-re))
+           (org-element-planning-parser limit))
+          ;; Property drawer.
+          ((and (pcase mode
+                  (`planning (eq ?* (char-after (line-beginning-position 0))))
+                  ((or `property-drawer `top-comment) t)
+                  (_ nil))
+                (looking-at-p org-property-drawer-re))
+           (org-element-property-drawer-parser limit))
+          ;; When not at bol, point is at the beginning of an item or
+          ;; a footnote definition: next item is always a paragraph.
+          ((not (bolp)) (org-element-paragraph-parser limit (list (point))))
+          ;; Clock.
+          ((looking-at-p org-element-clock-line-re) (org-element-clock-parser limit))
+          ;; Inlinetask.
+          (at-task? (org-element-inlinetask-parser limit raw-secondary-p))
+          ;; From there, elements can have affiliated keywords.
+          ;; Note an edge case with a keyword followed by element that
+          ;; cannot have affiliated keywords attached (the above).
+          ;; `org-element--collect-affiliated-keywords' must have a
+          ;; special check to fall back to parsing proper keyword.
+          (t (let ((affiliated (org-element--collect-affiliated-keywords
+                                limit (memq granularity '(nil object)))))
+               (cond
+                ;; Jumping over affiliated keywords put point off-limits.
+                ;; Parse them as regular keywords.
+                ((and (cdr affiliated) (>= (point) limit))
+                 (goto-char (car affiliated))
+                 (org-element-keyword-parser limit nil))
+                ;; Do a single regexp match do reduce overheads for
+                ;; multiple regexp search invocations.
+                ((looking-at org-element--current-element-re)
+                 (cond
+                  ;; LaTeX Environment.
+                  ((match-beginning 1)
+                   (org-element-latex-environment-parser limit affiliated))
+                  ;; Drawer.
+                  ((match-beginning 2)
+                   (org-element-drawer-parser limit affiliated))
+                  ;; Fixed Width
+                  ((match-beginning 3)
+                   (org-element-fixed-width-parser limit affiliated))
+                  ;; Inline Comments, Blocks, Babel Calls, Dynamic Blocks and
+                  ;; Keywords.
+                  ((match-beginning 5)
+                   (funcall (pcase (upcase (match-string 5))
+                              ("CENTER"  #'org-element-center-block-parser)
+                              ("COMMENT" #'org-element-comment-block-parser)
+                              ("EXAMPLE" #'org-element-example-block-parser)
+                              ("EXPORT"  #'org-element-export-block-parser)
+                              ("QUOTE"   #'org-element-quote-block-parser)
+                              ("SRC"     #'org-element-src-block-parser)
+                              ("VERSE"   #'org-element-verse-block-parser)
+                              (_         #'org-element-special-block-parser))
+                            limit
+                            affiliated))
+                  ((match-beginning 6)
+                   (org-element-babel-call-parser limit affiliated))
+                  ((match-beginning 7)
+                   (forward-line 0)
+                   (org-element-dynamic-block-parser limit affiliated))
+                  ((match-beginning 8)
+                   (org-element-keyword-parser limit affiliated))
+                  ((match-beginning 4) ;; #+, not matching a specific element.
+                   (org-element-paragraph-parser limit affiliated))
+                  ;; Footnote Definition.
+                  ((match-beginning 9)
+                   (org-element-footnote-definition-parser limit affiliated))
+                  ;; Horizontal Rule.
+                  ((match-beginning 10)
+                   (org-element-horizontal-rule-parser limit affiliated))
+                  ;; Diary Sexp.
+                  ((match-beginning 11)
+                   (org-element-diary-sexp-parser limit affiliated))))
+                ;; Table.
+                ((or (looking-at-p "[ \t]*|")
+                     ;; There is no strict definition of a table.el
+                     ;; table.  Try to prevent false positive while being
+                     ;; quick.
+                     (let ((rule-regexp
+                            (rx (zero-or-more (any " \t"))
+                                "+"
+                                (one-or-more (one-or-more "-") "+")
+                                (zero-or-more (any " \t"))
+                                eol))
+                           (non-table.el-line
+                            (rx bol
+                                (zero-or-more (any " \t"))
+                                (or eol (not (any "+| \t")))))
+                           (next (line-beginning-position 2)))
+                       ;; Start with a full rule.
+                       (and
+                        (looking-at-p rule-regexp)
+                        (< next limit) ;no room for a table.el table
+                        (save-excursion
+                          (end-of-line)
+                          (cond
+                           ;; Must end with a full rule.
+                           ((not (re-search-forward non-table.el-line limit 'move))
+                            (if (bolp) (forward-line -1) (forward-line 0))
+                            (looking-at-p rule-regexp))
+                           ;; Ignore pseudo-tables with a single
+                           ;; rule.
+                           ((= next (line-beginning-position))
+                            nil)
+                           ;; Must end with a full rule.
+                           (t
+                            (forward-line -1)
+                            (looking-at-p rule-regexp)))))))
+                 (org-element-table-parser limit affiliated))
+                ;; List.
+                ((looking-at-p (org-item-re))
+                 (org-element-plain-list-parser
+                  limit affiliated
+                  (or structure (org-element--list-struct limit))))
+                ;; Default element: Paragraph.
+                (t (org-element-paragraph-parser limit affiliated)))))))
+        (when result
+          (org-element-put-property result :buffer (current-buffer))
+          (org-element-put-property result :mode mode)
+          (org-element-put-property result :granularity granularity))
+        result)))
+#+END_SRC
+
+* Heading
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-headline-parser (&optional _ raw-secondary-p)
+    "Parse a headline.
+
+  Return a new syntax node of `headline' type containing `:raw-value',
+  `:title', `:begin', `:end', `:pre-blank', `:contents-begin' and
+  `:contents-end', `:level', `:priority', `:tags', `:todo-keyword',
+  `:todo-type', `:scheduled', `:deadline', `:closed', `:archivedp',
+  `:commentedp' `:footnote-section-p', `:post-blank' and
+  `:post-affiliated' properties.
+
+  The plist also contains any property set in the property drawer,
+  with its name in upper cases and colons added at the
+  beginning (e.g., `:CUSTOM_ID').
+
+  When RAW-SECONDARY-P is non-nil, headline's title will not be
+  parsed as a secondary string, but as a plain string instead.
+
+  Assume point is at beginning of the headline."
+    (save-excursion
+      (let* ((deferred-title-prop
+              (if raw-secondary-p
+                  org-element--headline-parse-title-raw
+                org-element--headline-parse-title-parse))
+             (begin (point))
+             (true-level (skip-chars-forward "*"))
+             (end
+              (save-excursion
+                (if (re-search-forward (org-headline-re true-level) nil t)
+                    (line-beginning-position)
+                  (point-max))))
+             (contents-begin (save-excursion
+                               (forward-line)
+                               (skip-chars-forward " \r\t\n" end)
+                               (and (/= (point) end) (line-beginning-position))))
+             (contents-end (and contents-begin end))
+             (robust-begin
+              ;; If there is :pre-blank, we
+              ;; need to be careful about
+              ;; robust beginning.
+              (when contents-begin
+                (when (< (+ 2 contents-begin) contents-end)
+                  (+ 2 contents-begin))))
+             (robust-end (and robust-begin end)))
+        (org-element-create
+         'headline
+         (list
+          :begin begin
+          :end end
+          :pre-blank
+          (if (not contents-begin) 0
+            (1- (count-lines begin contents-begin)))
+          :contents-begin contents-begin
+          :contents-end contents-end
+          :robust-begin robust-begin
+          :robust-end robust-end
+          :true-level true-level
+          :buffer (current-buffer)
+          :raw-value deferred-title-prop
+          :title deferred-title-prop
+          :level deferred-title-prop
+          :priority deferred-title-prop
+          :tags deferred-title-prop
+          :todo-keyword deferred-title-prop
+          :todo-type deferred-title-prop
+          :post-blank
+          (if contents-end
+              ;; Trailing blank lines in org-data, headlines, and
+              ;; sections belong to the containing elements.
+              0
+            (1- (count-lines begin end)))
+          :footnote-section-p deferred-title-prop
+          :archivedp deferred-title-prop
+          :commentedp deferred-title-prop
+          :post-affiliated begin
+          :secondary (alist-get
+                      'headline
+                      org-element-secondary-value-alist)
+          :deferred org-element--headline-deferred)))))
+#+END_SRC
+
+** Statistics Cookie
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-statistics-cookie-parser ()
+    "Parse statistics cookie at point, if any.
+
+  When at a statistics cookie, return a new syntax node of
+  `statistics-cookie' type containing `:begin', `:end', `:value' and
+  `:post-blank' properties.  Otherwise, return nil.
+
+  Assume point is at the beginning of the statistics-cookie."
+    (save-excursion
+      (when (looking-at "\\[[0-9]*\\(%\\|/[0-9]*\\)\\]")
+        (let* ((begin (point))
+               (value (buffer-substring-no-properties
+                       (match-beginning 0) (match-end 0)))
+               (post-blank (progn (goto-char (match-end 0))
+                                  (skip-chars-forward " \t")))
+               (end (point)))
+          (org-element-create
+           'statistics-cookie
+           (list :begin begin
+                 :end end
+                 :value value
+                 :post-blank post-blank))))))
+#+END_SRC
+
+* Blocks
+
+This code might help.
+
+** Special Block
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-special-block-parser (limit affiliated)
+    "Parse a special block.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `special-block' type containing `:type',
+  `:parameters', `:begin', `:end', `:contents-begin', `:contents-end',
+  `:post-blank' and `:post-affiliated' properties.
+
+  Assume point is at the beginning of the block."
+    (let* ((case-fold-search t)
+           (type (progn (looking-at "[ \t]*#\\+BEGIN_\\(\\S-+\\)[ \t]*\\(.*\\)[ \t]*$")
+                        (org-element--get-cached-string
+                         (match-string-no-properties 1))))
+           (parameters (match-string-no-properties 2)))
+      (if (not (save-excursion
+               (re-search-forward
+                (format "^[ \t]*#\\+END_%s[ \t]*$" (regexp-quote type))
+                limit t)))
+          ;; Incomplete block: parse it as a paragraph.
+          (org-element-paragraph-parser limit affiliated)
+        (let ((block-end-line (match-beginning 0)))
+          (save-excursion
+            (let* ((begin (car affiliated))
+                   (post-affiliated (point))
+                   ;; Empty blocks have no contents.
+                   (contents-begin (progn (forward-line)
+                                          (and (< (point) block-end-line)
+                                               (point))))
+                   (contents-end (and contents-begin block-end-line))
+                   (pos-before-blank (progn (goto-char block-end-line)
+                                            (forward-line)
+                                            (point)))
+                   (end (progn (skip-chars-forward " \r\t\n" limit)
+                               (if (eobp) (point) (line-beginning-position)))))
+              (org-element-create
+               'special-block
+               (nconc
+                (list :type type
+                      :parameters (and (org-string-nw-p parameters)
+                                       (org-trim parameters))
+                      :begin begin
+                      :end end
+                      :contents-begin contents-begin
+                      :contents-end contents-end
+                      :post-blank (count-lines pos-before-blank end)
+                      :post-affiliated post-affiliated)
+                (cdr affiliated)))))))))
+#+END_SRC
+
+** Comment Block
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-comment-block-parser (limit affiliated)
+    "Parse an export block.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `comment-block' type containing `:begin',
+  `:end', `:value', `:post-blank' and `:post-affiliated' properties.
+
+  Assume point is at comment block beginning."
+    (let ((case-fold-search t))
+      (if (not (save-excursion
+                 (re-search-forward "^[ \t]*#\\+END_COMMENT[ \t]*$" limit t)))
+          ;; Incomplete block: parse it as a paragraph.
+          (org-element-paragraph-parser limit affiliated)
+        (let ((contents-end (match-beginning 0)))
+          (save-excursion
+            (let* ((begin (car affiliated))
+                   (post-affiliated (point))
+                   (contents-begin (progn (forward-line) (point)))
+                   (pos-before-blank (progn (goto-char contents-end)
+                                            (forward-line)
+                                            (point)))
+                   (end (progn (skip-chars-forward " \r\t\n" limit)
+                               (if (eobp) (point) (line-beginning-position))))
+                   (value
+                    (org-element-deferred-create
+                     t #'org-element--substring
+                     (- contents-begin begin)
+                     (- contents-end begin))))
+              (org-element-create
+               'comment-block
+               (nconc
+                (list :begin begin
+                      :end end
+                      :value value
+                      :post-blank (count-lines pos-before-blank end)
+                      :post-affiliated post-affiliated)
+                (cdr affiliated)))))))))
+#+END_SRC
+
+** Comment Block Inline
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-comment-parser (limit)
+    "Parse a comment.
+
+  LIMIT bounds the search.
+
+  Return a new syntax node of `comment' type containing `:begin',
+  `:end', `:value', `:post-blank', `:post-affiliated' properties.
+
+  Assume point is at comment beginning."
+    (save-excursion
+      (let* ((begin (point))
+             (value (prog2 (looking-at org-comment-regexp)
+                        (buffer-substring-no-properties
+                         (match-end 0) (line-end-position))
+                      (forward-line)))
+             (com-end
+              ;; Get comments ending.
+              (progn
+                (while (and (< (point) limit) (looking-at org-comment-regexp))
+                  ;; Accumulate lines without leading hash and first
+                  ;; whitespace.
+                  (setq value
+                        (concat value
+                                "\n"
+                                (buffer-substring-no-properties
+                                 (match-end 0) (line-end-position))))
+                  (forward-line))
+                (point)))
+             (end (progn (goto-char com-end)
+                         (skip-chars-forward " \r\t\n" limit)
+                         (if (eobp) (point) (line-beginning-position)))))
+        (org-element-create
+         'comment
+         (list :begin begin
+               :end end
+               :value value
+               :post-blank (count-lines com-end end)
+               :post-affiliated begin)))))
+#+END_SRC
+
+** Example Block
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-example-block-parser (limit affiliated)
+    "Parse an example block.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `example-block' type containing `:begin',
+  `:end', `:number-lines', `:preserve-indent', `:retain-labels',
+  `:use-labels', `:label-fmt', `:switches', `:value', `:post-blank' and
+  `:post-affiliated' properties."
+    (let ((case-fold-search t))
+      (if (not (save-excursion
+                 (re-search-forward "^[ \t]*#\\+END_EXAMPLE[ \t]*$" limit t)))
+          ;; Incomplete block: parse it as a paragraph.
+          (org-element-paragraph-parser limit affiliated)
+        (let ((contents-end (match-beginning 0)))
+          (save-excursion
+            (let* ((switches
+                    (progn
+                      (looking-at "^[ \t]*#\\+BEGIN_EXAMPLE\\(?: +\\(.*\\)\\)?")
+                      (match-string-no-properties 1)))
+                   ;; Switches analysis.
+                   (number-lines
+                    (and switches
+                         (string-match "\\([-+]\\)n\\(?: *\\([0-9]+\\)\\)?\\>"
+                                       switches)
+                         (cons
+                          (if (equal (match-string 1 switches) "-")
+                              'new
+                            'continued)
+                          (if (not (match-end 2)) 0
+                            ;; Subtract 1 to give number of lines before
+                            ;; first line.
+                            (1- (string-to-number (match-string 2 switches)))))))
+                   (preserve-indent
+                    (and switches (string-match-p "-i\\>" switches)))
+                   ;; Should labels be retained in (or stripped from) example
+                   ;; blocks?
+                   (retain-labels
+                    (or (not switches)
+                        (not (string-match-p "-r\\>" switches))
+                        (and number-lines (string-match-p "-k\\>" switches))))
+                   ;; What should code-references use - labels or
+                   ;; line-numbers?
+                   (use-labels
+                    (or (not switches)
+                        (and retain-labels
+                             (not (string-match-p "-k\\>" switches)))))
+                   (label-fmt
+                    (and switches
+                         (string-match "-l +\"\\([^\"\n]+\\)\"" switches)
+                         (match-string-no-properties 1 switches)))
+                   ;; Standard block parsing.
+                   (begin (car affiliated))
+                   (post-affiliated (point))
+                   (contents-begin (line-beginning-position 2))
+                   (value
+                    (org-element-deferred-create
+                     t #'org-element--unescape-substring
+                     (- contents-begin begin)
+                     (- contents-end begin)))
+                   (pos-before-blank (progn (goto-char contents-end)
+                                            (forward-line)
+                                            (point)))
+                   (end (progn (skip-chars-forward " \r\t\n" limit)
+                               (if (eobp) (point) (line-beginning-position)))))
+              (org-element-create
+               'example-block
+               (nconc
+                (list :begin begin
+                      :end end
+                      :value value
+                      :switches switches
+                      :number-lines number-lines
+                      :preserve-indent preserve-indent
+                      :retain-labels retain-labels
+                      :use-labels use-labels
+                      :label-fmt label-fmt
+                      :post-blank (count-lines pos-before-blank end)
+                      :post-affiliated post-affiliated)
+                (cdr affiliated)))))))))
+#+END_SRC
+
+** Example Block Inline
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-fixed-width-parser (limit affiliated)
+    "Parse a fixed-width section.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `fixed-width' type containing `:begin',
+  `:end', `:value', `:post-blank' and `:post-affiliated' properties.
+
+  Assume point is at the beginning of the fixed-width area."
+    (save-excursion
+      (let* ((begin (car affiliated))
+             (post-affiliated (point))
+             pos-before-blank
+             (end-area
+              (progn
+                (while (and (< (point) limit)
+                            (looking-at-p "[ \t]*:\\( \\|$\\)"))
+                  (forward-line))
+                (setq pos-before-blank (point))
+                (if (bolp) (line-end-position 0) (point))))
+             (end (progn (skip-chars-forward " \r\t\n" limit)
+                         (if (eobp) (point) (line-beginning-position)))))
+        (org-element-create
+         'fixed-width
+         (nconc
+          (list :begin begin
+                :end end
+                :value (replace-regexp-in-string
+                        "^[ \t]*: ?" ""
+                        (buffer-substring-no-properties post-affiliated
+                                                        end-area))
+                :post-blank (count-lines pos-before-blank end)
+                :post-affiliated post-affiliated)
+          (cdr affiliated))))))
+#+END_SRC
+
+** Source Code Block
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-src-block-parser (limit affiliated)
+    "Parse a source block.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `src-block' type containing `:language',
+  `:switches', `:parameters', `:begin', `:end', `:number-lines',
+  `:retain-labels', `:use-labels', `:label-fmt', `:preserve-indent',
+  `:value', `:post-blank' and `:post-affiliated' properties.
+
+  Assume point is at the beginning of the block."
+    (let ((case-fold-search t))
+      (if (not (save-excursion (re-search-forward "^[ \t]*#\\+END_SRC[ \t]*$"
+                                                  limit t)))
+          ;; Incomplete block: parse it as a paragraph.
+          (org-element-paragraph-parser limit affiliated)
+        (let ((contents-end (match-beginning 0)))
+          (save-excursion
+            (let* ((begin (car affiliated))
+                   (post-affiliated (point))
+                   ;; Get language as a string.
+                   (language
+                    (progn
+                      (looking-at
+                       "^[ \t]*#\\+BEGIN_SRC\
+  \\(?: +\\(\\S-+\\)\\)?\
+  \\(\\(?: +\\(?:-\\(?:l \".+\"\\|[ikr]\\)\\|[-+]n\\(?: *[0-9]+\\)?\\)\\)+\\)?\
+  \\(.*\\)[ \t]*$")
+                      (org-element--get-cached-string
+                       (match-string-no-properties 1))))
+                   ;; Get switches.
+                   (switches (match-string-no-properties 2))
+                   ;; Get parameters.
+                   (parameters (match-string-no-properties 3))
+                   ;; Switches analysis.
+                   (number-lines
+                    (and switches
+                         (string-match "\\([-+]\\)n\\(?: *\\([0-9]+\\)\\)?\\>"
+                                       switches)
+                         (cons
+                          (if (equal (match-string 1 switches) "-")
+                              'new
+                            'continued)
+                          (if (not (match-end 2)) 0
+                            ;; Subtract 1 to give number of lines before
+                            ;; first line.
+                            (1- (string-to-number (match-string 2 switches)))))))
+                   (preserve-indent (and switches
+                                         (string-match-p "-i\\>" switches)))
+                   (label-fmt
+                    (and switches
+                         (string-match "-l +\"\\([^\"\n]+\\)\"" switches)
+                         (match-string-no-properties 1 switches)))
+                   ;; Should labels be retained in (or stripped from)
+                   ;; source blocks?
+                   (retain-labels
+                    (or (not switches)
+                        (not (string-match-p "-r\\>" switches))
+                        (and number-lines (string-match-p "-k\\>" switches))))
+                   ;; What should code-references use - labels or
+                   ;; line-numbers?
+                   (use-labels
+                    (or (not switches)
+                        (and retain-labels
+                             (not (string-match-p "-k\\>" switches)))))
+                   ;; Retrieve code.
+                   (value
+                    (org-element-deferred-create
+                     t #'org-element--unescape-substring
+                     (- (line-beginning-position 2) begin)
+                     (- contents-end begin)))
+                   (pos-before-blank (progn (goto-char contents-end)
+                                            (forward-line)
+                                            (point)))
+                   ;; Get position after ending blank lines.
+                   (end (progn (skip-chars-forward " \r\t\n" limit)
+                               (if (eobp) (point) (line-beginning-position)))))
+              (org-element-create
+               'src-block
+               (nconc
+                (list :language language
+                      :switches (and (org-string-nw-p switches)
+                                     (org-trim switches))
+                      :parameters (and (org-string-nw-p parameters)
+                                       (org-trim parameters))
+                      :begin begin
+                      :end end
+                      :number-lines number-lines
+                      :preserve-indent preserve-indent
+                      :retain-labels retain-labels
+                      :use-labels use-labels
+                      :label-fmt label-fmt
+                      :value value
+                      :post-blank (count-lines pos-before-blank end)
+                      :post-affiliated post-affiliated)
+                (cdr affiliated)))))))))
+#+END_SRC
+
+** Source Code Block Inline
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-inline-babel-call-parser ()
+    "Parse inline babel call at point, if any.
+
+  When at an inline babel call, return a new syntax node of
+  `inline-babel-call' type containing `:call', `:inside-header',
+  `:arguments', `:end-header', `:begin', `:end', `:value' and
+  `:post-blank' as properties.  Otherwise, return nil.
+
+  Assume point is at the beginning of the babel call."
+    (save-excursion
+      (catch :no-object
+        (when (let ((case-fold-search nil))
+                (looking-at "\\<call_\\([^ \t\n[(]+\\)[([]"))
+          (goto-char (match-end 1))
+          (let* ((begin (match-beginning 0))
+                 (call (org-element--get-cached-string
+                        (match-string-no-properties 1)))
+                 (inside-header
+                  (let ((p (org-element--parse-paired-brackets ?\[)))
+                    (and (org-string-nw-p p)
+                         (replace-regexp-in-string "\n[ \t]*" " " (org-trim p)))))
+                 (arguments (org-string-nw-p
+                             (or (org-element--parse-paired-brackets ?\()
+                                 ;; Parenthesis are mandatory.
+                                 (throw :no-object nil))))
+                 (end-header
+                  (let ((p (org-element--parse-paired-brackets ?\[)))
+                    (and (org-string-nw-p p)
+                         (replace-regexp-in-string "\n[ \t]*" " " (org-trim p)))))
+                 (value
+                  (org-element-deferred-create
+                   t #'org-element--substring
+                   0 (- (point) begin)))
+                 (post-blank (skip-chars-forward " \t"))
+                 (end (point)))
+            (org-element-create
+             'inline-babel-call
+             (list :call call
+                   :inside-header inside-header
+                   :arguments arguments
+                   :end-header end-header
+                   :begin begin
+                   :end end
+                   :value value
+                   :post-blank post-blank)))))))
+#+END_SRC
+
+** Export Block
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-export-block-parser (limit affiliated)
+    "Parse an export block.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `export-block' type containing `:begin',
+  `:end', `:type', `:value', `:post-blank' and `:post-affiliated'
+  properties.
+
+  Assume point is at export-block beginning."
+    (let* ((case-fold-search t))
+      (if (not (save-excursion
+                 (re-search-forward "^[ \t]*#\\+END_EXPORT[ \t]*$" limit t)))
+          ;; Incomplete block: parse it as a paragraph.
+          (org-element-paragraph-parser limit affiliated)
+        (save-excursion
+          (let* ((contents-end (match-beginning 0))
+                 (backend
+                  (progn
+                    (looking-at
+                     "[ \t]*#\\+BEGIN_EXPORT\\(?:[ \t]+\\(\\S-+\\)\\)?[ \t]*$")
+                    (match-string-no-properties 1)))
+                 (begin (car affiliated))
+                 (post-affiliated (point))
+                 (contents-begin (progn (forward-line) (point)))
+                 (pos-before-blank (progn (goto-char contents-end)
+                                          (forward-line)
+                                          (point)))
+                 (end (progn (skip-chars-forward " \r\t\n" limit)
+                             (if (eobp) (point) (line-beginning-position))))
+                 (value
+                  (org-element-deferred-create
+                   t #'org-element--unescape-substring
+                   (- contents-begin begin)
+                   (- contents-end begin))))
+            (org-element-create
+             'export-block
+             (nconc
+              (list :type (and backend (upcase backend))
+                    :begin begin
+                    :end end
+                    :value value
+                    :post-blank (count-lines pos-before-blank end)
+                    :post-affiliated post-affiliated)
+              (cdr affiliated))))))))
+#+END_SRC
+
+** Export Block Inline
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-export-snippet-parser ()
+    "Parse export snippet at point.
+
+  When at an export snippet, return a new syntax node of
+  `export-snippet' type containing `:begin', `:end', `:back-end',
+  `:value' and `:post-blank' as properties.  Otherwise, return nil.
+
+  Assume point is at the beginning of the snippet."
+    (save-excursion
+      (when (looking-at "@@\\([-A-Za-z0-9]+\\):")
+        (goto-char (match-end 0))
+        (let* ((begin (match-beginning 0))
+               (contents-begin (match-end 0))
+               (backend (org-element--get-cached-string
+                         (match-string-no-properties 1)))
+               (contents-end
+                (when (re-search-forward "@@" nil t)
+                  (match-beginning 0)))
+               (value
+                (when contents-end
+                  (org-element-deferred-create
+                   t #'org-element--substring
+                   (- contents-begin begin)
+                   (- contents-end begin))))
+               (post-blank (skip-chars-forward " \t"))
+               (end (point)))
+          (when contents-end ; No match when no trailing "@@".
+            (org-element-create
+             'export-snippet
+             (list :back-end backend
+                   :value value
+                   :begin begin
+                   :end end
+                   :post-blank post-blank)))))))
+#+END_SRC
+
+* Keyword
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-keyword-parser (limit affiliated)
+    "Parse a keyword at point.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `keyword' type containing `:key',
+  `:value', `:begin', `:end', `:post-blank' and `:post-affiliated'
+  properties."
+    (save-excursion
+      ;; An orphaned affiliated keyword is considered as a regular
+      ;; keyword.  In this case AFFILIATED is nil, so we take care of
+      ;; this corner case.
+      (let ((begin (or (car affiliated) (point)))
+            (post-affiliated (point))
+            (key (progn (looking-at "[ \t]*#\\+\\(\\S-*\\):")
+                        (org-element--get-cached-string
+                         (upcase (match-string-no-properties 1)))))
+            (value (org-trim (buffer-substring-no-properties
+                              (match-end 0) (line-end-position))))
+            (pos-before-blank (progn (forward-line) (point)))
+            (end (progn (skip-chars-forward " \r\t\n" limit)
+                        (if (eobp) (point) (line-beginning-position)))))
+        (org-element-create
+         'keyword
+         (nconc
+          (list :key key
+                :value value
+                :begin begin
+                :end end
+                :post-blank (count-lines pos-before-blank end)
+                :post-affiliated post-affiliated)
+          (cdr affiliated))))))
+#+END_SRC
+
+* Drawer
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-drawer-parser (limit affiliated)
+    "Parse a drawer.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `drawer' type containing `:drawer-name',
+  `:begin', `:end', `:contents-begin', `:contents-end', `:post-blank'
+  and `:post-affiliated' properties.
+
+  Assume point is at beginning of drawer."
+    (let ((case-fold-search t))
+      (if (not (save-excursion
+                 (goto-char (min limit (line-end-position)))
+                 (re-search-forward "^[ \t]*:END:[ \t]*$" limit t)))
+          ;; Incomplete drawer: parse it as a paragraph.
+          (org-element-paragraph-parser limit affiliated)
+        (save-excursion
+          (let* ((drawer-end-line (match-beginning 0))
+                 (name
+                  (progn
+                    (looking-at org-element-drawer-re)
+                    (org-element--get-cached-string (match-string-no-properties 1))))
+                 (begin (car affiliated))
+                 (post-affiliated (point))
+                 ;; Empty drawers have no contents.
+                 (contents-begin (progn (forward-line)
+                                        (and (< (point) drawer-end-line)
+                                             (point))))
+                 (contents-end (and contents-begin drawer-end-line))
+                 (pos-before-blank (progn (goto-char drawer-end-line)
+                                          (forward-line)
+                                          (point)))
+                 (end (progn (skip-chars-forward " \r\t\n" limit)
+                             (if (eobp) (point) (line-beginning-position)))))
+            (org-element-create
+             'drawer
+             (nconc
+              (list :begin begin
+                    :end end
+                    :drawer-name name
+                    :contents-begin contents-begin
+                    :contents-end contents-end
+                    :post-blank (count-lines pos-before-blank end)
+                    :post-affiliated post-affiliated)
+              (cdr affiliated))))))))
+#+END_SRC
+
+* Property
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-property-drawer-parser (limit)
+    "Parse a property drawer.
+
+  LIMIT bounds the search.
+
+  Return a new syntax node of `property-drawer' type containing
+  `:begin', `:end', `:contents-begin', `:contents-end', `:post-blank'
+  and `:post-affiliated' properties.
+
+  Assume point is at the beginning of the property drawer."
+    (save-excursion
+      (let ((case-fold-search t)
+            (begin (point))
+            (contents-begin (line-beginning-position 2)))
+        (re-search-forward "^[ \t]*:END:[ \t]*$" limit t)
+        (let ((contents-end (and (> (match-beginning 0) contents-begin)
+                                 (match-beginning 0)))
+              (before-blank (progn (forward-line) (point)))
+              (end (progn (skip-chars-forward " \r\t\n" limit)
+                          (if (eobp) (point) (line-beginning-position)))))
+          (org-element-create
+           'property-drawer
+           (list :begin begin
+                 :end end
+                 :contents-begin (and contents-end contents-begin)
+                 :contents-end contents-end
+                 :post-blank (count-lines before-blank end)
+                 :post-affiliated begin))))))
+#+END_SRC
+
+* Planning
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-planning-parser (limit)
+    "Parse a planning.
+
+  LIMIT bounds the search.
+
+  Return a new syntax node of `planning' type containing `:closed',
+  `:deadline', `:scheduled', `:begin', `:end', `:post-blank' and
+  `:post-affiliated' properties."
+    (save-excursion
+      (let* ((case-fold-search nil)
+             (begin (point))
+             (post-blank (let ((before-blank (progn (forward-line) (point))))
+                           (skip-chars-forward " \r\t\n" limit)
+                           (skip-chars-backward " \t")
+                           (unless (bolp) (skip-chars-forward " \t"))
+                           (count-lines before-blank (point))))
+             (end (point))
+             closed deadline scheduled)
+        (goto-char begin)
+        (while (re-search-forward org-element-planning-keywords-re end t)
+          (skip-chars-forward " \t" end)
+          (let ((keyword (match-string 0))
+                (time (org-element-timestamp-parser)))
+            (cond
+             ((equal keyword org-element-closed-keyword) (setq closed time))
+             ((equal keyword org-element-deadline-keyword) (setq deadline time))
+             (t (setq scheduled time)))))
+        (org-element-create
+         'planning
+         (list :closed closed
+               :deadline deadline
+               :scheduled scheduled
+               :begin begin
+               :end end
+               :post-blank post-blank
+               :post-affiliated begin)))))
+#+END_SRC
+
+* Timestamp
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-timestamp-parser ()
+    "Parse time stamp at point, if any.
+
+  When at a time stamp, return a new syntax node of `timestamp' type
+  containing `:type', `:range-type', `:raw-value', `:year-start',
+  `:month-start', `:day-start', `:hour-start', `:minute-start',
+  `:year-end', `:month-end', `:day-end', `:hour-end', `:minute-end',
+  `:repeater-type', `:repeater-value', `:repeater-unit',
+  `:repeater-deadline-value', `:repeater-deadline-unit', `:warning-type',
+  `:warning-value', `:warning-unit', `:diary-sexp', `:begin', `:end' and
+  `:post-blank' properties.  Otherwise, return nil.
+
+  Assume point is at the beginning of the timestamp."
+    (when (looking-at-p org-element--timestamp-regexp)
+      (save-excursion
+        (let* ((begin (point))
+               (activep (eq (char-after) ?<))
+               (raw-value
+                (progn
+                  (looking-at org-element--timestamp-raw-value-regexp)
+                  (match-string-no-properties 0)))
+               (diaryp (match-beginning 2))
+               diary-sexp
+               (date-start (if diaryp
+                               ;; Only consider part after sexp for
+                               ;; diary timestamps.
+                               (save-match-data
+                                 (looking-at org-element--timestamp-regexp)
+                                 (setq diary-sexp
+                                       (buffer-substring-no-properties
+                                        (+ 3 (match-beginning 0))
+                                        (match-beginning 2)))
+                                 (match-string 2))
+                             (match-string-no-properties 1)))
+               (date-end (match-string-no-properties 3))
+               (post-blank (progn (goto-char (match-end 0))
+                                  (skip-chars-forward " \t")))
+               (end (point))
+               (time-range
+                (when (string-match
+                       "[012]?[0-9]:[0-5][0-9]\\(-\\([012]?[0-9]\\):\\([0-5][0-9]\\)\\)"
+                       date-start)
+                  (cons (string-to-number (match-string 2 date-start))
+                        (string-to-number (match-string 3 date-start)))))
+               (type (cond (diaryp 'diary)
+                           ((and activep (or date-end time-range)) 'active-range)
+                           (activep 'active)
+                           ((or date-end time-range) 'inactive-range)
+                           (t 'inactive)))
+               (range-type (cond
+                            (date-end 'daterange)
+                            (time-range 'timerange)
+                            (t nil)))
+               (repeater-props
+                (and (not diaryp)
+                     (string-match
+                      (rx
+                       (group-n 1 (or "+" "++" ".+"))
+                       (group-n 2 (+ digit))
+                       (group-n 3 (any "hdwmy"))
+                       (optional
+                        "/"
+                        (group-n 4 (+ digit))
+                        (group-n 5 (any "hdwmy"))))
+                      raw-value)
+                     (nconc
+                      (list
+                       :repeater-type
+                       (let ((type (match-string 1 raw-value)))
+                         (cond ((equal "++" type) 'catch-up)
+                               ((equal ".+" type) 'restart)
+                               (t 'cumulate)))
+                       :repeater-value (string-to-number (match-string 2 raw-value))
+                       :repeater-unit
+                       (pcase (string-to-char (match-string 3 raw-value))
+                         (?h 'hour) (?d 'day) (?w 'week) (?m 'month) (_ 'year)))
+
+                      (let ((repeater-deadline-value (match-string 4 raw-value))
+                            (repeater-deadline-unit (match-string 5 raw-value)))
+                        (when (and repeater-deadline-value repeater-deadline-unit)
+                          (list
+                           :repeater-deadline-value (string-to-number repeater-deadline-value)
+                           :repeater-deadline-unit
+                           (pcase (string-to-char repeater-deadline-unit)
+                             (?h 'hour) (?d 'day) (?w 'week) (?m 'month) (_ 'year))))))))
+               (warning-props
+                (and (not diaryp)
+                     (string-match "\\(-\\)?-\\([0-9]+\\)\\([hdwmy]\\)" raw-value)
+                     (list
+                      :warning-type (if (match-string 1 raw-value) 'first 'all)
+                      :warning-value (string-to-number (match-string 2 raw-value))
+                      :warning-unit
+                      (pcase (string-to-char (match-string 3 raw-value))
+                        (?h 'hour) (?d 'day) (?w 'week) (?m 'month) (_ 'year)))))
+               year-start month-start day-start hour-start minute-start year-end
+               month-end day-end hour-end minute-end)
+          ;; Parse date-start.
+          (unless diaryp
+            (let ((date (org-parse-time-string date-start t)))
+              (setq year-start (nth 5 date)
+                    month-start (nth 4 date)
+                    day-start (nth 3 date)
+                    hour-start (nth 2 date)
+                    minute-start (nth 1 date))))
+          ;; Compute date-end.  It can be provided directly in timestamp,
+          ;; or extracted from time range.  Otherwise, it defaults to the
+          ;; same values as date-start.
+          (unless diaryp
+            (let ((date (and date-end (org-parse-time-string date-end t))))
+              (setq year-end (or (nth 5 date) year-start)
+                    month-end (or (nth 4 date) month-start)
+                    day-end (or (nth 3 date) day-start)
+                    hour-end (or (nth 2 date) (car time-range) hour-start)
+                    minute-end (or (nth 1 date) (cdr time-range) minute-start))))
+          ;; Diary timestamp with time.
+          (when (and diaryp
+                     (string-match "\\([012]?[0-9]\\):\\([0-5][0-9]\\)\\(-\\([012]?[0-9]\\):\\([0-5][0-9]\\)\\)?" date-start))
+            (setq hour-start (match-string 1 date-start)
+                  minute-start (match-string 2 date-start)
+                  hour-end (match-string 4 date-start)
+                  minute-end (match-string 5 date-start))
+            (when hour-start (setq hour-start (string-to-number hour-start)))
+            (when minute-start (setq minute-start (string-to-number minute-start)))
+            (when hour-end (setq hour-end (string-to-number hour-end)))
+            (when minute-end (setq minute-end (string-to-number minute-end))))
+          (org-element-create
+           'timestamp
+           (nconc (list :type type
+                        :range-type range-type
+                        :raw-value raw-value
+                        :year-start year-start
+                        :month-start month-start
+                        :day-start day-start
+                        :hour-start hour-start
+                        :minute-start minute-start
+                        :year-end year-end
+                        :month-end month-end
+                        :day-end day-end
+                        :hour-end hour-end
+                        :minute-end minute-end
+                        :begin begin
+                        :end end
+                        :post-blank post-blank)
+                  (and diary-sexp (list :diary-sexp diary-sexp))
+                  repeater-props
+                  warning-props))))))
+#+END_SRC
+
+* Markup/Emphasis
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-code-parser ()
+    "Parse code object at point, if any.
+
+  When at a code object, return a new syntax node of `code' type
+  containing `:value', `:begin', `:end' and `:post-blank' properties.
+  Otherwise, return nil.
+
+  Assume point is at the first tilde marker."
+    (org-element--parse-generic-emphasis "~" 'code))
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-verbatim-parser ()
+    "Parse verbatim object at point, if any.
+
+  When at a verbatim object, return a new syntax node of `verbatim' type
+  containing `:value', `:begin', `:end' and `:post-blank' properties.
+  Otherwise, return nil.
+
+  Assume point is at the first equal sign marker."
+    (org-element--parse-generic-emphasis "=" 'verbatim))
+#+END_SRC
+
+* Links
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-link-parser ()
+    "Parse link at point, if any.
+
+  When at a link, return a new syntax node of `link' type containing
+  `:type', `:type-explicit-p', `:path', `:format', `:raw-link',
+  `:application', `:search-option', `:begin', `:end', `:contents-begin',
+  `:contents-end' and `:post-blank' as properties.  Otherwise, return nil.
+
+  Assume point is at the beginning of the link."
+    (catch 'no-object
+      (let ((begin (point))
+            end contents-begin contents-end link-end post-blank path type format
+            raw-link search-option application
+            (explicit-type-p nil))
+        (cond
+         ;; Type 1: Text targeted from a radio target.
+         ((and org-target-link-regexp
+               (save-excursion (or (bolp) (backward-char))
+                               (if org-target-link-regexps
+                                   (org--re-list-looking-at org-target-link-regexps)
+                                 (looking-at org-target-link-regexp))))
+          (setq type "radio")
+          (setq format 'plain)
+          (setq link-end (match-end 1))
+          (setq path (match-string-no-properties 1))
+          (setq contents-begin (match-beginning 1))
+          (setq contents-end (match-end 1)))
+         ;; Type 2: Standard link, i.e. [[https://orgmode.org][website]]
+         ((looking-at org-link-bracket-re)
+          (setq format 'bracket)
+          (setq contents-begin (match-beginning 2))
+          (setq contents-end (match-end 2))
+          (setq link-end (match-end 0))
+          ;; RAW-LINK is the original link.  Decode any encoding.
+          ;; Expand any abbreviation in it.
+          ;;
+          ;; Also treat any newline character and associated
+          ;; indentation as a single space character.  This is not
+          ;; compatible with RFC 3986, which requires ignoring
+          ;; them altogether.  However, doing so would require
+          ;; users to encode spaces on the fly when writing links
+          ;; (e.g., insert [[shell:ls%20*.org]] instead of
+          ;; [[shell:ls *.org]], which defeats Org's focus on
+          ;; simplicity.
+          (setq raw-link (org-link-expand-abbrev
+                          (org-link-unescape
+                           (replace-regexp-in-string
+                            "[ \t]*\n[ \t]*" " "
+                            (match-string-no-properties 1)))))
+          ;; Determine TYPE of link and set PATH accordingly.  According
+          ;; to RFC 3986, remove whitespaces from URI in external links.
+          ;; In internal ones, treat indentation as a single space.
+          (cond
+           ;; File type.
+           ((or (file-name-absolute-p raw-link)
+                (string-match-p "\\`\\.\\.?/" raw-link))
+            (setq type "file")
+            (setq path raw-link))
+           ;; Explicit type (http, irc, bbdb...).
+           ((string-match org-link-types-re raw-link)
+            (setq type (match-string-no-properties 1 raw-link))
+            (setq explicit-type-p t)
+            (setq path (substring raw-link (match-end 0))))
+           ;; Code-ref type: PATH is the name of the reference.
+           ((and (string-match-p "\\`(" raw-link)
+                 (string-match-p ")\\'" raw-link))
+            (setq type "coderef")
+            (setq path (substring raw-link 1 -1)))
+           ;; Custom-id type: PATH is the name of the custom id.
+           ((= (string-to-char raw-link) ?#)
+            (setq type "custom-id")
+            (setq path (substring raw-link 1)))
+           ;; Fuzzy type: Internal link either matches a target, an
+           ;; headline name or nothing.  PATH is the target or
+           ;; headline's name.
+           (t
+            (setq type "fuzzy")
+            (setq path raw-link))))
+         ;; Type 3: Plain link, e.g., https://orgmode.org
+         ((looking-at org-link-plain-re)
+          (setq format 'plain)
+          (setq raw-link (match-string-no-properties 0))
+          (setq type (match-string-no-properties 1))
+          (setq explicit-type-p t)
+          (setq link-end (match-end 0))
+          (setq path (match-string-no-properties 2)))
+         ;; Type 4: Angular link, e.g., <https://orgmode.org>.  Unlike to
+         ;; bracket links, follow RFC 3986 and remove any extra
+         ;; whitespace in URI.
+         ((looking-at org-link-angle-re)
+          (setq format 'angle)
+          (setq type (match-string-no-properties 1))
+          (setq explicit-type-p t)
+          (setq link-end (match-end 0))
+          (setq raw-link
+                (buffer-substring-no-properties
+                 (match-beginning 1) (match-end 2)))
+          (setq path (replace-regexp-in-string
+                      "[ \t]*\n[ \t]*" "" (match-string-no-properties 2))))
+         (t (throw 'no-object nil)))
+        ;; In any case, deduce end point after trailing white space from
+        ;; LINK-END variable.
+        (save-excursion
+          (setq post-blank
+                (progn (goto-char link-end) (skip-chars-forward " \t")))
+          (setq end (point)))
+        ;; Special "file"-type link processing.  Extract opening
+        ;; application and search option, if any.  Also normalize URI.
+        (when (string-match "\\`file\\(?:\\+\\(.+\\)\\)?\\'" type)
+          (setq application (match-string-no-properties 1 type))
+          (setq type "file")
+          (when (string-match "::\\(.*\\)\\'" path)
+            (setq search-option (match-string-no-properties 1 path))
+            (setq path (replace-match "" nil nil path)))
+          (setq path (replace-regexp-in-string "\\`///*\\(.:\\)?/" "\\1/" path)))
+        ;; Translate link, if `org-link-translation-function' is set.
+        (let ((trans (and (functionp org-link-translation-function)
+                          (funcall org-link-translation-function type path))))
+          (when trans
+            (setq type (car trans))
+            (setq explicit-type-p t)
+            (setq path (cdr trans))))
+        (org-element-create
+         'link
+         (list :type (org-element--get-cached-string type)
+               :type-explicit-p explicit-type-p
+               :path path
+               :format format
+               :raw-link (or raw-link path)
+               :application application
+               :search-option search-option
+               :begin begin
+               :end end
+               :contents-begin contents-begin
+               :contents-end contents-end
+               :post-blank post-blank)))))
+#+END_SRC
+
+* Table
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-table-parser (limit affiliated)
+    "Parse a table at point.
+
+  LIMIT bounds the search.  AFFILIATED is a list of which CAR is
+  the buffer position at the beginning of the first affiliated
+  keyword and CDR is a plist of affiliated keywords along with
+  their value.
+
+  Return a new syntax node of `table' type containing `:begin', `:end',
+  `:tblfm', `:type', `:contents-begin', `:contents-end', `:value',
+  `:post-blank' and `:post-affiliated' properties.
+
+  Assume point is at the beginning of the table."
+    (save-excursion
+      (let* ((case-fold-search t)
+             (table-begin (point))
+             (type (if (looking-at-p "[ \t]*|") 'org 'table.el))
+             (end-re (format "^[ \t]*\\($\\|[^| \t%s]\\)"
+                             (if (eq type 'org) "" "+")))
+             (begin (car affiliated))
+             (table-end
+              (if (re-search-forward end-re limit 'move)
+                  (goto-char (match-beginning 0))
+                (point)))
+             (tblfm (let (acc)
+                      (while (looking-at "[ \t]*#\\+TBLFM: +\\(.*\\)[ \t]*$")
+                        (push (match-string-no-properties 1) acc)
+                        (forward-line))
+                      acc))
+             (pos-before-blank (point))
+             (end (progn (skip-chars-forward " \r\t\n" limit)
+                         (if (eobp) (point) (line-beginning-position)))))
+        (org-element-create
+         'table
+         (nconc
+          (list :begin begin
+                :end end
+                :type type
+                :tblfm tblfm
+                ;; Only `org' tables have contents.  `table.el' tables
+                ;; use a `:value' property to store raw table as
+                ;; a string.
+                :contents-begin (and (eq type 'org) table-begin)
+                :contents-end (and (eq type 'org) table-end)
+                :value (and (eq type 'table.el)
+                            (org-element-deferred-create
+                             t #'org-element--substring
+                             (- table-begin begin)
+                             (- table-end begin)))
+                :post-blank (count-lines pos-before-blank end)
+                :post-affiliated table-begin)
+          (cdr affiliated))))))
+#+END_SRC
+

@@ -1,3 +1,4 @@
+#+TITLE: Org-mode Regular Expressions
 #+STARTUP: content
 
 * Regular Expressions
@@ -22,7 +23,6 @@
 #+BEGIN_SRC emacs-lisp
   "inline call"
 #+END_SRC
-
 
 ** Headings
 
@@ -54,13 +54,6 @@
   : Printf format for a regexp matching a headline, possibly with some keyword.
   : ^\(\*+\)\(?: +%s\)?\(?: +\(.*?\)\)?[ 	]*$
 
-- org-not-done-heading-regexp
-  #+CALL: show(sym='org-not-done-heading-regexp)
-
-  #+RESULTS:
-  : Matches a TODO headline that is not done.
-  : ^\(\*+\)\(?: +\(ANKI\|DOING\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|TODO\|WAIT\)\)\(?: +\(.*?\)\)?[ 	]*$
-
 - org-element-headline-re
   #+CALL: show(sym='org-element-headline-re)
 
@@ -75,6 +68,14 @@
   : Regexp matching comment string in a headline.
   : COMMENT\(?: \|$\)
 
+*** Heading Todo Keywords
+
+- org-not-done-heading-regexp
+  #+CALL: show(sym='org-not-done-heading-regexp)
+
+  #+RESULTS:
+  : Matches a TODO headline that is not done.
+  : ^\(\*+\)\(?: +\(ANKI\|DOING\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|TODO\|WAIT\)\)\(?: +\(.*?\)\)?[ 	]*$
 
 - org-todo-regexp
   #+CALL: show(sym='org-todo-regexp)
@@ -90,7 +91,14 @@
   : Matches any of the TODO state keywords except the last one.
   : \(ANKI\|DOING\|EASY\|GOOD\|HARD\|INBOX\|LEARN\|NEXT\|TODO\|WAIT\)
   
-*** Heading Todo Keywords
+*** Heading Priority
+
+- org-priority-regexp
+  #+CALL: show(sym='org-priority-regexp)
+
+  #+RESULTS:
+  : Regular expression matching the priority indicator.
+  : .*?\(\[#\([A-Z0-9]+\)\] ?\)
 
 *** Heading Tags
 
@@ -115,6 +123,12 @@
   : Regexp matching the tag group at the end of a line, with leading spaces.
   : [ 	]+\(:\([[:alnum:]_@#%:]+\):\)[ 	]*$
 
+- Found in code
+  #+BEGIN_EXAMPLE
+    ;; Ignore all forbidden characters in tags.
+    "[^[:alnum:]_@#%]+" ":"
+  #+END_EXAMPLE
+  
 ** Keywords
 
 - org-keyword-regexp
@@ -555,7 +569,6 @@
   : Regexp matching opening or closing line of a drawer.
   : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
 
-
 ** Dynamic Blocks & Blocks
 
 - org-dblock-start-re
@@ -728,7 +741,6 @@
   #+RESULTS:
   : Regular expression matching exponentials as produced by calc.
   : ^\([-+]?[0-9][0-9.]*\)[eE]\([-+]?[0-9]+\)$
-
 
 ** Lists
 
@@ -968,7 +980,6 @@
   #+RESULTS:
   : Regexp matching a NAME keyword.
   : ^[ 	]*#\+\(?:\(?:TBL\)?NAME\):[ 	]*
-
 
 ** Other / Internal
 
