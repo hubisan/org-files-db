@@ -15,6 +15,147 @@ src/
   types.rs           ← OrgLineType, AST-Knoten, Position, Range
   lib.rs             ← orchestration
 
+  hier der noch ein Vorschlag, dies mit dem ast ist wohl noch logisch:
+
+src/
+├── parser/
+│   ├── mod.rs
+│   ├── links.rs
+│   ├── headings.rs
+│   ├── properties.rs
+│   ├── keywords.rs
+├── ast.rs
+└── main.rs
+
+- mod ist der parser
+
+Mit state.rs kannst du:
+
+erkennen, wo du gerade bist
+entscheiden, welcher Parser angesprungen wird
+bestimmen, wo die Daten im AST landen (Heading-Hierarchie)
+
+
+
+* NEXT memchar verwenden
+ist extrem schnell um zeichen zu scannen
+
+* NEXT Prüfen für z. B. headings DFA
+Deterministic Finite Automaton - Finite State Machines (FSM)
+
+* mit ast version links.rs
+#+BEGIN_SRC rust-ts
+  use memchr::memchr;
+
+  const LINK_TYPES: [&str; 3] = ["https", "http", "file"];
+
+  #[derive(Debug)]
+  pub struct Link {
+      pub link_type: String,
+      pub path: String,
+      pub description: Option<String>,
+  }
+
+  /// Scannt eine Zeile EINMAL → Org-Links + Plain-Links
+  pub fn scan_links(line: &str) -> Vec<Link> {
+      let mut result = Vec::new();
+      let bytes = line.as_bytes();
+      let mut pos = 0usize;
+
+      while pos < bytes.len() {
+          // 1) ORG-Link?  [[...][...]]
+          if bytes[pos] == b'[' {
+              // Check auf "[["
+              if pos + 1 < bytes.len() && bytes[pos + 1] == b'[' {
+                  if let Some((link, consumed)) = scan_org_at(line, pos) {
+                      result.push(link);
+                      pos += consumed;
+                      continue;
+                  }
+              }
+          }
+
+          // 2) Plain link: type:path
+          if bytes[pos].is_ascii_alphabetic() {
+              if let Some((link, consumed)) = scan_plain_at(line, pos) {
+                  result.push(link);
+                  pos += consumed;
+                  continue;
+              }
+          }
+
+          pos += 1;
+      }
+
+      result
+  }
+
+  //
+  // ---------- ORG LINK SCAN -------------
+  //
+  fn scan_org_at(line: &str, start: usize) -> Option<(Link, usize)> {
+      let bytes = line.as_bytes();
+      let len = bytes.len();
+
+      // Suche "]["
+      let rest = &line[start..];
+      let mid_rel = rest.find("][")?;
+      let mid = start + mid_rel;
+
+      // Suche "]]"
+      let end_rel = rest.find("]]")?;
+      let end = start + end_rel;
+
+      // URL und Beschreibung
+      let url = &line[start + 2 .. mid];
+      let desc = &line[mid + 2 .. end];
+
+      // Typ + Pfad
+      let (typ, path) = url.split_once(':').unwrap_or(("unknown", url));
+
+      let link = Link {
+          link_type: typ.to_string(),
+          path: format!(":{}", path),
+          description: Some(desc.to_string()),
+      };
+
+      // Zurückgeben + wie viele Zeichen verbraucht wurden
+      Some((link, (end - start) + 2))
+  }
+
+  //
+  // ---------- PLAIN LINK SCAN -------------
+  //
+  fn scan_plain_at(line: &str, start: usize) -> Option<(Link, usize)> {
+      // Beschaffe das restliche Wort
+      let rest = &line[start..];
+
+      // Finde Colon
+      let cpos = rest.find(':')?;
+      let typ = &rest[..cpos];
+
+      if !LINK_TYPES.contains(&typ) {
+          return None;
+      }
+
+      // Pfad = bis zum nächsten whitespace
+      let after = &rest[cpos..];
+      let end = after.find(char::is_whitespace).unwrap_or(after.len());
+
+      let path = &after[..end];
+
+      let link = Link {
+          link_type: typ.to_string(),
+          path: path.to_string(),
+          description: None,
+      };
+
+      Some((link, cpos + end))
+  }
+
+#+END_SRC
+
+
 * classify.rs
 
 #+BEGIN_SRC rust-ts

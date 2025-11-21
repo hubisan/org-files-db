@@ -355,6 +355,20 @@
 
 ** Links
 
+- Escaping in Links
+  Found in Code
+  #+BEGIN_EXAMPLE
+    (defun org-link-escape (link)
+      "Backslash-escape sensitive characters in string LINK."
+      (replace-regexp-in-string
+       (rx (seq (group (zero-or-more "\\")) (group (or string-end (any "[]")))))
+       (lambda (m)
+         (concat (match-string 1 m)
+                 (match-string 1 m)
+                 (and (/= (match-beginning 2) (match-end 2)) "\\")))
+       link nil t 1))
+#+END_EXAMPLE
+
 - org-link-bracket-re
   #+CALL: show(sym='org-link-bracket-re)
 
