@@ -2,6 +2,63 @@
 #+STARTUP: content
 #+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
 
+* TODO Hmmmm
+
+Be careful, some blocks actually don't disable inner blocks. Probably: quote, center, justify
+
+#+BEGIN_QUOTE
+
+#+BEGIN_SRC emacs-lisp
+  "test"
+#+END_SRC
+
+#+RESULTS:
+: test
+
+#+END_QUOTE
+
+#+BEGIN_VERSE
+
+#+BEGIN_SRC emacs-lisp
+  "test"
+#+END_SRC
+
+#+END_VERSE
+
+#+BEGIN_CENTER
+
+#+BEGIN_SRC emacs-lisp
+  "test"
+#+END_SRC
+
+#+RESULTS:
+: test
+
+#+END_CENTER
+
+
+#+begin_justifyleft
+
+#+BEGIN_SRC emacs-lisp
+  "test"
+#+END_SRC
+
+#+RESULTS:
+: test
+
+#+end_justifyleft
+
+#+begin_doesnt_exist
+
+#+BEGIN_SRC emacs-lisp
+  "test"
+#+END_SRC
+
+#+RESULTS:
+: test
+
+#+end_doesnt_exist
+
 * Example Block
 
 ** Specification

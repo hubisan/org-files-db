@@ -3,418 +3,77 @@
 
 * Parser
 
-** NEXT Alle Regular Expression zusammentragen
-
-- Block
-- Property
-- Keywords
-- Links
-- Emphasis Marker
-- Inline html, latex, Export
-- COMMENT
-- etc.
-
-** NEXT Prop Drawer
-
-LOGIK:
-
-- Es braucht Hilfsfunktionen, welche prüfen, ob es sich um einen gültigen Block oder Property Drawer handelt. Diese suche einfach weiter, bis sie ein Ende finden. 
-- Eine Heading unterbricht das ganze in jedem Fall
-
-- PropDrawer wird ungültig sobald keine property oder eine Heading.  props provisorisch speichern und falls nciht gültig verwerfen.
-
-- BEGIN_SRC provisorisch weiterhin links scannen und nur verwerfen, falls keine Heading mehr folgt und auch kein END_SRC. Ah, nerft
-
-Muss man auch erkennen, so ist der Prop Drawer keiner:
-
-#+BEGIN_SRC org
-  :PROPERTIES:
-  :test:     me
-
-
-
-
-  :END:
-#+END_SRC
-
-#+BEGIN_SRC org
-  :PROPERTIES:
-  :test:     me
-
-  Daniel ....
-#+END_SRC
-
-Eine gültige Heading unterbricht, dass ganze immer:
-
-org-block-regexp is a variable defined in org.el.
-
-Value
-"^[ 	]*#\\+begin_?\\([^ \n]+\\)\\(\\([^\n]+\\)\\)?\n\\(\\(?:.\\|\n\\)+?\\)#\\+end_?\\1[ 	]*$"
-
-org-babel-src-block-regexp is a variable defined in ob-core.el.
-
-Value
-"^\\([ 	]*\\)#\\+begin_src\\(?:[ 	]+\\([^ \f	\n
-]*\\)\\)?[ 	]*\\([^\":\n]*\"[^\"\n*]*\"[^\":\n]*\\|[^\":\n]*\\)\\([^\n]*\\)\n\\(\\(?:.\\|\n\\)*?\n\\)??[ 	]*#\\+end_src"
-
-
-
-#+BEGIN_SRC org
-
-  ,#+BEGIN_SRC emacs-lisp
-  "dsfsdf"
-
-  sdfsdfsd
-
-  ,* dsfsdf
-
-  ,#+BEGIN_EXAMPLE
-
-  ,* 
-  ,#+END_EXAMPLE
-
-#+END_SRC
-
-#+BEGIN_SRC org
-  ,#+BEGIN_SRC emacs-lisp
-
-  ,#+BEGIN_EXAMPLE
-
-  sdfdfsdf
-
-  ,#+END_EXAMPLE
-#+END_SRC
-
-#+BEGIN_SRC org
-  ,#+BEGIN_SRC emacs-lisp
-
-  ,#+BEGIN_EXAMPLE
-
-  sdfdfsdf
-
-  ,#+END_EXAMPLE
-
-  ,#+END_SRC
-#+END_SRC
-
-** NEXT Übel > wenn dies fehlt, erkennt es org und gibt keinen Fehler
-
-#+BEGIN_SRC org
-  ,#+BEGIN_SRC emacs-lisp
-  "dsfsdf"
-
-  sdfsdfsd
-
-#+END_SRC
-
-
-** NEXT Keywords nur vor erste Headline parsen
-
-** NEXT Parser Modularisieren
-
-Auch in Files splitten, schon nur damit einfacher mit AI.
-
-Gibt sonst ein riesen Durcheinander:
-
-#+BEGIN_SRC rust-ts
-  // in context.rs:
-
-  #[derive(Default)]
-  pub struct Context {
-      /// Current active block (SRC, EXAMPLE, EXPORT, COMMENT)
-      pub block: Option<BlockType>,
-
-      /// True when inside :PROPERTIES: drawer
-      pub in_properties_drawer: bool,
-
-      /// Have we seen the first heading yet?
-      pub has_seen_heading: bool,
-
-      // ------------------------------------------------------------
-      // File-level + heading-level property drawer logic
-      // ------------------------------------------------------------
-
-      /// TRUE until the first heading is encountered.
-      /// Org: "Before the first headline, everything is file-level."
-      pub before_first_heading: bool,
-
-      pub property_drawer_allowed: bool,
-
-      pub planning_line_allowed: bool,
-  }
-
-  impl Context {
-      pub fn new() -> Self {
-          Context {
-              block: None,
-              in_properties_drawer: false,
-              has_seen_heading: false,
-
-              before_first_heading: true,
-              file_property_drawer_allowed: true,
-              heading_property_drawer_allowed: false,
-          }
-      }
-  }
-
-
-  // Kompletter Versuch von ChatGPT
-
-  // ------------------------------------------------------------
-  // Org Parser Context
-  // Tracks parser state: blocks, drawers, headings, and file-level rules.
-  // Fully Org-mode compliant.
-  // ------------------------------------------------------------
-
-  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-  pub enum BlockType {
-      Src,
-      Example,
-      Export,
-      Comment,
-  }
-
-  #[derive(Debug)]
-  pub struct Context {
-      // ------------------------------------------------------------
-      // BLOCK STATE
-      // ------------------------------------------------------------
-
-      /// Current active block (SRC / EXAMPLE / EXPORT / COMMENT)
-      pub block: Option<BlockType>,
-
-      /// True while inside a :PROPERTIES: ... :END: drawer
-      pub in_properties_drawer: bool,
-
-      // ------------------------------------------------------------
-      // HEADING STATE
-      // ------------------------------------------------------------
-
-      /// True after the first heading is seen
-      pub has_seen_heading: bool,
-
-      /// True until the first heading appears
-      pub before_first_heading: bool,
-
-      // ------------------------------------------------------------
-      // PROPERTY DRAWER RULES
-      // ------------------------------------------------------------
-
-      /// File-level PROPERTIES drawer is allowed only when:
-      /// - before first heading, and
-      /// - only comments/empty lines have occurred
-      pub file_property_drawer_allowed: bool,
-
-      /// After a heading (and optionally planning lines), exactly one
-      /// PROPERTIES drawer is allowed. Disabled once body text appears.
-      pub heading_property_drawer_allowed: bool,
-  }
-
-  impl Context {
-      // ------------------------------------------------------------
-      // Constructor
-      // ------------------------------------------------------------
-      pub fn new() -> Self {
-          Context {
-              block: None,
-              in_properties_drawer: false,
-
-              has_seen_heading: false,
-              before_first_heading: true,
-
-              file_property_drawer_allowed: true,
-              heading_property_drawer_allowed: false,
-          }
-      }
-
-      // ------------------------------------------------------------
-      // Public: Update state for each line
-      // ------------------------------------------------------------
-      /// Update the parser state based on the line:
-      /// - BEGIN_ blocks
-      /// - END_ blocks
-      /// - :PROPERTIES:
-      /// - :END:
-      pub fn update(&mut self, line: &str) {
-          let trimmed = line.trim();
-
-          if self.handle_begin_block(trimmed) { return; }
-          if self.handle_end_block(trimmed) { return; }
-
-          if self.handle_property_drawer_start(trimmed) { return; }
-          if self.handle_property_drawer_end(trimmed) { return; }
-      }
-
-      // ------------------------------------------------------------
-      // Block START detection
-      // ------------------------------------------------------------
-      fn handle_begin_block(&mut self, line: &str) -> bool {
-          if let Some(rest) = begins_with_ci(line, "#+BEGIN_") {
-              let kind = rest.trim().to_ascii_lowercase();
-
-              self.block = match kind.as_str() {
-                  "src"     => Some(BlockType::Src),
-                  "example" => Some(BlockType::Example),
-                  "export"  => Some(BlockType::Export),
-                  "comment" => Some(BlockType::Comment),
-                  _ => self.block,
-              };
-
-              return true;
-          }
-          false
-      }
-
-      // ------------------------------------------------------------
-      // Block END detection
-      // ------------------------------------------------------------
-      fn handle_end_block(&mut self, line: &str) -> bool {
-          if let Some(rest) = begins_with_ci(line, "#+END_") {
-              let kind = rest.trim().to_ascii_lowercase();
-
-              if let Some(active) = self.block {
-                  let matches = match (active, kind.as_str()) {
-                      (BlockType::Src,     "src")     => true,
-                      (BlockType::Example, "example") => true,
-                      (BlockType::Export,  "export")  => true,
-                      (BlockType::Comment, "comment") => true,
-                      _ => false,
-                  };
-
-                  if matches {
-                      self.block = None;
-                  }
-              }
-              return true;
-          }
-          false
-      }
-
-      // ------------------------------------------------------------
-      // PROPERTIES drawer START
-      // ------------------------------------------------------------
-      fn handle_property_drawer_start(&mut self, line: &str) -> bool {
-          if !line.eq_ignore_ascii_case(":PROPERTIES:") {
-              return false;
-          }
-
-          // Case 1: file-level drawer
-          if self.before_first_heading && self.file_property_drawer_allowed {
-              self.in_properties_drawer = true;
-              return true;
-          }
-
-          // Case 2: heading-level drawer
-          if self.heading_property_drawer_allowed {
-              self.in_properties_drawer = true;
-              return true;
-          }
-
-          // Invalid drawer → ignored
-          false
-      }
-
-      // ------------------------------------------------------------
-      // PROPERTIES drawer END
-      // ------------------------------------------------------------
-      fn handle_property_drawer_end(&mut self, line: &str) -> bool {
-          if !line.eq_ignore_ascii_case(":END:") {
-              return false;
-          }
-
-          if self.in_properties_drawer {
-              self.in_properties_drawer = false;
-              return true;
-          }
-
-          false
-      }
-
-      // ------------------------------------------------------------
-      // Utility: Are we currently inside a block where parsing is disabled?
-      // ------------------------------------------------------------
-      pub fn in_ignored_block(&self) -> bool {
-          matches!(
-              self.block,
-              Some(BlockType::Src | BlockType::Example | BlockType::Export | BlockType::Comment)
-          )
-      }
-
-      // ------------------------------------------------------------
-      // Utility: call when a heading is parsed
-      // ------------------------------------------------------------
-      pub fn note_heading_seen(&mut self) {
-          self.has_seen_heading = true;
-          self.before_first_heading = false;
-          self.heading_property_drawer_allowed = true; // drawer allowed right below heading
-      }
-
-      // ------------------------------------------------------------
-      // Utility: call when a planning line is parsed
-      // ------------------------------------------------------------
-      pub fn note_planning_line(&mut self) {
-          self.heading_property_drawer_allowed = true;
-      }
-
-      // ------------------------------------------------------------
-      // Utility: call when normal content appears after heading
-      // ------------------------------------------------------------
-      pub fn note_body_content(&mut self) {
-          // Planning drawer window closes
-          self.heading_property_drawer_allowed = false;
-      }
-  }
-
-  // ------------------------------------------------------------
-  // Fast case-insensitive prefix checker
-  // ------------------------------------------------------------
-  #[inline(always)]
-  fn begins_with_ci<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
-      let p = prefix.as_bytes();
-      let l = line.as_bytes();
-
-      if l.len() > p.len() && l[..p.len()].eq_ignore_ascii_case(p) {
-          Some(&line[p.len()..])
-      } else {
-          None
-      }
-  }
-
-
-  // im parser.rs
-
-  for (lineno, line) in lines.enumerate() {
-      context.update(line);
-
-      if context.is_heading_line(line) {
-          parse_heading(line);
-          continue;
-      }
-
-      if context.is_property_drawer_start(line) {
-          context.enter_property_drawer();
-          continue;
-      }
-
-      if context.in_properties_drawer {
-          parse_drawer_property(line);
-          continue;
-      }
-
-      if context.is_inline_property(line) {
-          parse_inline_property(line);
-          continue;
-      }
-
-      if context.allows_links() {
-          scan_links(line);
-      }
-
-      // weitere Module...
-  }
-
-
-#+END_SRC
+** lexer.rs
+
+- Parser Funktionen anschauen
+  [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
+
+1. Lexer (FSM)
+
+✔ Erkennt einzelne Zeilentypen
+✔ Erzeugt Tokens
+✘ Versteht keine Blockstruktur
+✘ Validiert keine Paare
+
+2. Parser
+
+✔ Nimmt Token-Strömung
+✔ Baut AST
+✔ Validiert Blockpaare
+✔ Fehler wenn END ohne BEGIN
+✔ Fehler wenn BEGIN ohne END
+✔ Fehler wenn falscher Blockname
+✔ Fehler bei unzulässiger Verschachtelung
+
+*** TODO Line Lexer
+
+- Regular Expresson
+  [[file:docs/org-regular-expressions.org][Org-mode Regular Expressions]]
+- Parser Funktionen anschauen
+  [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
+  Sicher wichtig als Start: ~org-element--current-element~
+  
+  1. mode == 'item'             → Item parser
+  2. mode == 'table-row'        → Table-row parser
+  3. mode == 'node-property'    → node property parser
+  4. Headline?
+  (looking-at "^*+ ") and not inlinetask → headline parser
+  1. Section (only if mode == section or first-section)
+  2. Comments
+  (org-comment-regexp)
+  1. Planning lines
+  (org-element-planning-line-re)
+  1. Property drawer
+  (org-property-drawer-re)
+  1. If not at beginning-of-line: paragraph
+  2. CLOCK line
+     (org-element-clock-line-re)
+  3. Inlinetask (if at-task?)
+  4. Collect affiliated keywords first
+  5. THEN:
+     If matches org-element--current-element-re:
+         13.1 LaTeX begin
+         13.2 Drawer
+         13.3 Fixed width
+         13.4 Special block / block types
+         13.5 CALL:
+         13.6 BEGIN:
+         13.7 Keyword
+         13.8 #+ unknown (paragraph)
+         13.9 Footnote definition
+         13.10 Horizontal rule
+         13.11 Diary sexp
+  6. Table?
+  7. List?
+  8. Default: Paragraph
+
+*** TODO Inline Lexer (Links only)
+
+Unbedingt memchr nutzen.
+
+- Parser Funktionen anschauen
+  [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
+  Sicher wichtig ~org-element--object-lex~
 
 ** Bugs
 
@@ -463,6 +122,152 @@ Keine Unit-Tests, einfach Output mit erwartetem Output vergleichen.
 *** TODO Test all kind of Links
 [[https://orgmode.org/guide/Hyperlinks.html][Hyperlinks (Org Mode Compact Guide)]]
 
+* Config.rs
+
+#+BEGIN_SRC markdown
+  Ja — **genau so** solltest du es machen.
+  Die beste Architektur ist:
+
+  # 🟢 **Rust-Parser hat EIGENE Konfigurations-Struktur (z. B. config.toml)**
+
+  und
+
+  # 🟣 **Emacs kann diese Konfiguration überschreiben / erweitern**
+
+  Damit bekommst du:
+
+  ,* ✔ volle Unabhängigkeit von Emacs
+  ,* ✔ Parser funktioniert standalone (CLI-Tool, Tests, Benchmarks, LSP, etc.)
+  ,* ✔ Gleichzeitig volle Flexibilität in Emacs
+  ,* ✔ Kein hartcodiertes Verhalten → Emacs kann alles überschreiben
+  ,* ✔ Robust und langfristig sauber
+
+  ---
+
+  # 🧩 Perfektes Setup: Zwei Ebenen von Konfiguration
+
+  ## **1. Rust-native Config**
+
+  (auch wenn Emacs nichts lädt)
+
+  Beispiel:
+
+  ```rust
+  struct Config {
+      link_types: Vec<String>,
+      allow_angled_links: bool,
+      block_whitelist: Vec<String>,
+      whitespace_normalization: bool,
+      todo_keywords: Vec<String>,
+  }
+  ```
+
+  Wird geladen aus:
+
+  ```
+  ~/.config/my-org-parser/config.toml
+  ```
+
+  oder default über:
+
+  ```rust
+  impl Default for Config { … }
+  ```
+
+  → Dein Parser kann komplett **standalone** laufen.
+
+  ---
+
+  ## **2. Emacs liefert „Runtime Overrides“**
+
+  Beispiel:
+
+  ```elisp
+  (org-rs-parse buffer-string
+                :link-types org-link-types
+                :todo-keywords org-todo-keywords
+                :normalize t)
+  ```
+
+  In Rust:
+
+  ```rust
+  fn parse_org(text: &str, overrides: ConfigOverrides) {
+      let mut cfg = Config::default();
+      cfg.apply(overrides);
+      parse_with_config(text, &cfg)
+  }
+  ```
+
+  ---
+
+  # 🧠 Warum diese Kombination ideal ist
+
+  ### ✔ Emacs-Anwender können ALLES konfigurieren
+
+  (z. B. zusätzliche link-types, custom blocks, exporter options)
+
+  ### ✔ Rust bleibt unabhängig
+
+  ,* Du kannst CLI-Tools bauen
+  ,* Tests schreiben
+  ,* Parser in anderen Editoren verwenden (Helix, Neovim, VS Code, Kate, etc.)
+
+  ### ✔ Emacs-Integration bleibt leicht
+
+  Emacs muss kein TOML parsen
+  → gibt einfach JSON oder Lisp-Listen an Rust
+
+  ---
+
+  # 🔥 Beispiel: CLI + Emacs Modul, gleiche Config
+
+  ## CLI
+
+  ```
+  myorg-parse myfile.org --config ~/.config/myorg/config.toml
+  ```
+
+  ## Emacs
+
+  ```
+  (org-rs-parse buffer-string :link-types org-link-types)
+  ```
+
+  → Rust benutzt denselben Codepfad.
+
+  ---
+
+  # 📦 Wie du die Overlays strukturierst
+
+  ```rust
+  struct ConfigOverrides {
+      link_types: Option<Vec<String>>,
+      todo_keywords: Option<Vec<String>>,
+      allow_angled_links: Option<bool>,
+      // usw.
+  }
+
+  impl Config {
+      fn apply(&mut self, o: ConfigOverrides) {
+          if let Some(x) = o.link_types { self.link_types = x; }
+          if let Some(x) = o.todo_keywords { self.todo_keywords = x; }
+          if let Some(x) = o.allow_angled_links { self.allow_angled_links = x; }
+      }
+  }
+  ```
+
+  ---
+
+  # 🎯 Fazit
+
+  ✔ **Ja — du kannst alle Emacs-Variablen direkt an Rust übergeben.**
+  ✔ **Ja — du solltest trotzdem eine config.toml behalten**, damit Rust standalone bleibt.
+  ✔ Beste Lösung: **Defaults in Rust**, **Overlays aus Emacs**.
+  ✔ Clean, robust, zukunftssicher.
+
+#+END_SRC
+
 * Types.rs
 ** TODO OrgHeading final definieren
 ** TODO OrgLink final definieren
@@ -509,7 +314,55 @@ Keine Unit-Tests, einfach Output mit erwartetem Output vergleichen.
 ** TODO Startup-Modus:
     - wenn DB leer → initial indexer
     - danach watcher starten
+      
+* Emacs Module
 
+Ohne die Crate einfach selbst.
+
+** *Option 3: JSON/S-Expression Return → Emacs Wrapper in Lisp*
+
+Dies ist die /einfachste/  Methode:
+
+Du exportierst nur *eine*  Rust-Funktion:
+
+#+begin_src c
+org_parse(text: String) -> String   // JSON-Result
+
+#+end_src
+
+Und in Elisp:
+
+#+begin_src c
+(let ((json (org-rs-parse buffer-contents)))
+  (json-parse-string json))
+
+#+end_src
+
+Das ist *super einfach*, *super stabil*, und *super performant* .
+
+Kein full Emacs-API Wrapping nötig.
+
+-----
+
+** 🎯 Empfohlene Strategie für deinen Parser
+
+Da dein Projekt ein *leistungsstarker Org-Parser in Rust*  werden soll:
+
+*** ✔ Parser in reinem Rust (nur Rust-Code)
+
+→ Lexer, Parser, AST: keine Emacs-Abhängigkeiten  
+→ schnelle Tests, Cargo, alles unabhängig
+
+*** ✔ Am Schluss: *ein dünner Emacs-Modul-Wrapper*
+
+→ 100–200 Zeilen max  
+→ JSON übergeben  
+→ Emacs baut daraus eigenes AST/Overlays/whatever
+
+*** ✔ Kein =emacs-module-rs=  notwendig
+
+→ optional, aber nicht nötig  
+→ hohe Flexibilität ohne Crate
 * Optimierung (optional)
 ** TODO SQLite Indizes optimieren
 ** TODO Prüfen welche Insert-Batches sinnvoll sind

@@ -46,7 +46,6 @@
   "\\(\\[\\[\\(\\(?:[^][\\]\\|\\\\\\(?:\\\\\\\\\\)*[][]\\|\\\\+[^][]\\)+\\)]\\(?:\\[\\([^z-a]+?\\)]\\)?]\\)\\|\\(<\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\):\\([^>\n]*\\(?:\n[ 	]*[^> 	\n][^>\n]*\\)*\\)>\\)\\|\\(\\(?:\\<\\(?:\\(attachment\\|docview\\|elisp\\|f\\(?:ile\\(?:\\+\\(?:\\(?:emac\\|sy\\)s\\)\\)?\\|tp\\)\\|h\\(?:elp\\(?:ful\\)?\\|ttps?\\)\\|i\\(?:d\\|nfo\\)\\|mailto\\|n\\(?:ews\\|ov\\)\\|sh\\(?:ell\\|ortdoc\\)\\|yt\\)\\):\\(\\(?:[^][ 	\n()<>]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)+\\(?:[^[:punct:][:space:]\n]\\|[/-]\\|[(<[]\\(?:[^][ 	\n()<>]\\|[(<[][^][ 	\n()<>]*[])>]\\)*[])>]\\)\\)\\)\\)"
 #+END_SRC
 
-
 * Internal Links 
 :PROPERTIES:
 :CUSTOM_ID: internal-link-to-custom-id
@@ -54,10 +53,14 @@
 
 Specification: [[https://orgmode.org/manual/Internal-Links.html][Internal Links (The Org Manual)]]
 
+Internal links are of type ~custom-id~ or ~fuzzy~.
+
 ** OK Internal Link to a Custom ID
 Stored and linked to the target heading.
 - [[#internal-link-to-custom-id]]
+  type is custom-id
 - [[#internal-link-to-custom-id][description: internal-link-to-custom-id]]
+  type is custom-id
 
 ** PARTLY Internal Link to a Heading by Name
 The link ist stored but not linked to the target heading.
@@ -96,6 +99,20 @@ radio target link
 Specification: [[https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html][External Links (The Org Manual)]]
 
 Built-in links are stored. External links can also be plain, as long as they start with the link type.
+
+This function gives the current defined link types, including custom ones that are defined in the current running instance of Emacs:
+
+#+BEGIN_SRC emacs-lisp :results code
+  (org-link-types)
+#+END_SRC
+
+#+RESULTS:
+#+begin_src emacs-lisp
+("helpful" "info" "docview" "attachment" "yt" "id" "file+sys" "file+emacs"
+           "shell" "news" "mailto" "https" "http" "ftp" "shortdoc" "help" "file"
+           "elisp")
+#+end_src
+
 
 ** OK File
 If a file link links to a heading in an org file which is tracked, it is linked to the target heading.
@@ -357,7 +374,7 @@ And the inline version:
 
 *** OK Keywords
 
-Those should be at file level. But for testings this works. Once again if setting a property links are tracked.
+Those should be at file level. But for testings this works.
 
 #+TITLE: https://orgmode.org
 #+AUTHOR: https://orgmode.org
@@ -412,6 +429,85 @@ Specification: [[https://www.gnu.org/software/emacs/manual/html_node/org/Drawers
 [[https://orgmode.org][link in a drawer]]
 :END:
 
+** OK Escape Chars
+
+Specification: [[https://www.gnu.org/software/emacs/manual/html_node/org/Link-Format.html][Link Format (The Org Manual)]]
+
+#+BEGIN_QUOTE
+Some ‘\’, ‘[’ and ‘]’ characters in the LINK part need to be “escaped”, i.e., preceded by another ‘\’ character.  More specifically,
+the following characters, and only them, must be escaped:
+
+  1. all ‘[’ and ‘]’ characters,
+  2. every ‘\’ character preceding either ‘]’ or ‘[’,
+  3. every ‘\’ character at the end of the link.
+
+   Functions inserting links (see *note Handling Links::) properly
+escape ambiguous characters.  You only need to bother about the rules
+above when inserting directly, or yanking, a URI within square brackets.
+When in doubt, you may use the function ‘org-link-escape’, which turns a
+link string into its escaped form.
+#+END_QUOTE
+
+- [[https://www.gnu.org\][Test]]
+  This results in a plain link as the \ needs to be escaped.
+
+- [[https://www.gnu.org\\][Test]]
+  [[https://www.gnu.org\]\[brackets need to be escaped \[\] in the path\]][test]]
+  Works if escaped properly.
+
+- [[https://www.gnu.org][[Test]]]]
+  [[https://www.gnu.org][[[[[[Test]]]]  
+  [[https://www.gnu.org][[][][]]]]
+  [[https://orgmode.org][test [[https://test.com]]no more link
+  In Description the escaping is not needed. As nested links are not allowed. Two brackets after another close the description.
+
+- [[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]
+  In the description escaping ist not required. 
+
+** OK Line Breaks in Links
+
+Line breaks are allowed in bracket links in the description and in the path:
+
+[[https://www.gnu.org
+][Link with new line]]
+Bracket links and the description can include new lines. 
+
+[[./org-test-links.org][]​]
+[description on new line]]
+Bracket links and the description can include new lines. 
+
+
+[[https://www.gnu.org
+][sdfdsf]]
+In the path a newline is represented as a space.
+
+[[https://www.gnu.org
+                 x    x][sdfdsf]]
+Indentation on the second line is ignored.
+
+- [[file:~/memento/][
+  sdfsdffsdsdfdfs
+sdfsdfsfd]]
+  [[file:~/memento/][
+  sdfsdffsdsdfdfs
+  sdfsdfsfd]]
+Indentation doesn't matter if it is in a list. In the description new lines and spaces are parsed as part of the description.
+
+- <https://orgmode.org
+  dsssd>  
+  Here a newline turns the link into a plain one. So angled link can't use line breaks.
+
+[
+[https://www.gnu.org][this is not working]] 
+[[https://www.gnu.org]
+[this is not working]] 
+This only works if it is already in the path or description when the new line starts. If not links turn into plain links.
+  
+[[~/memento/
+
+][sdfdsf]]
+Empty new line breaks the link.
+
 ** OK Unicode Characters
 
 To test if unicode characters are working and if the position is staying correct (bytes vs chars).
@@ -430,4 +526,502 @@ https://orgmode.org/🔥
 
 <https://orgmode.org/ 🔥>
 
+* Testing with Emacs Lisp
+
+#+BEGIN_SRC elisp :results value verbatim code
+  (defun my-org-element-list-links-with-path ()
+    "Return all Org links with outline path + description text."
+    (let* ((ast (org-element-parse-buffer))
+           (results '()))
+
+      (cl-labels
+          ((get-path (pos)
+             (save-excursion
+               (goto-char pos)
+               (condition-case nil
+                   (org-get-outline-path t)
+                 (error nil))))
+           (get-desc (lnk)
+             (let ((cb (org-element-property :contents-begin lnk))
+                   (ce (org-element-property :contents-end   lnk)))
+               (when (and cb ce)
+                 (buffer-substring-no-properties cb ce)))))
+
+        (org-element-map ast 'link
+          (lambda (lnk)
+            (let* ((pos   (org-element-property :begin lnk))
+                   (path  (get-path pos))
+                   (type  (org-element-property :type lnk))
+                   (raw   (org-element-property :raw-link lnk))
+                   (path2 (org-element-property :path lnk))
+                   (desc  (get-desc lnk)))
+              (push (list :outline path
+                          :type type
+                          :raw raw
+                          :path path2
+                          :desc desc)
+                    results)))))
+
+      (nreverse results)))
+
+  (with-current-buffer "org-test-links.org"
+    (my-org-element-list-links-with-path))
+#+END_SRC
+
+#+RESULTS:
+#+begin_src elisp
+"((:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Internal-Links.html\" :path
+           \"//orgmode.org/manual/Internal-Links.html\" :desc
+           \"Internal Links (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Radio-Targets.html\" :path
+           \"//orgmode.org/manual/Radio-Targets.html\" :desc
+           \"Radio Targets (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/External-Links.html\"
+           :desc \"External Links (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Adding-Hyperlink-Types.html\" :path
+           \"//orgmode.org/manual/Adding-Hyperlink-Types.html\" :desc
+           \"Adding Hyperlink Types (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Search-Options.html\" :path
+           \"//orgmode.org/manual/Search-Options.html\" :desc
+           \"Search Options (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Link-Abbreviations.html\" :path
+           \"//orgmode.org/manual/Link-Abbreviations.html\" :desc
+           \"Link Abbreviations (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Structure-of-Code-Blocks.html\" :path
+           \"//orgmode.org/manual/Structure-of-Code-Blocks.html\" :desc
+           \"Structure of Code Blocks (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Literal-Examples.html\" :path
+           \"//orgmode.org/manual/Literal-Examples.html\" :desc
+           \"Literal Examples (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Comment-Lines.html\" :path
+           \"//orgmode.org/manual/Comment-Lines.html\" :desc
+           \"Comment Lines (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Beamer-specific-syntax.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Beamer-specific-syntax.html\"
+           :desc \"Beamer specific syntax (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Paragraphs.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Paragraphs.html\"
+           :desc \"Paragraphs (The Org Manual)\")
+ (:outline (\"Specification\" \"Manual\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Drawers.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Drawers.html\"
+           :desc \"Drawers (The Org Manual)\")
+ (:outline (\"Internal Links\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Internal-Links.html\" :path
+           \"//orgmode.org/manual/Internal-Links.html\" :desc
+           \"Internal Links (The Org Manual)\")
+ (:outline (\"Internal Links\" \"Internal Link to a Custom ID\") :type \"custom-id\"
+           :raw \"#internal-link-to-custom-id\" :path \"internal-link-to-custom-id\"
+           :desc nil)
+ (:outline (\"Internal Links\" \"Internal Link to a Custom ID\") :type \"custom-id\"
+           :raw \"#internal-link-to-custom-id\" :path \"internal-link-to-custom-id\"
+           :desc \"description: internal-link-to-custom-id\")
+ (:outline (\"Internal Links\" \"Internal Link to a Heading by Name\") :type \"fuzzy\"
+           :raw \"*Internal Links\" :path \"*Internal Links\" :desc nil)
+ (:outline (\"Internal Links\" \"Internal Link to a Heading by Name\") :type \"fuzzy\"
+           :raw \"*Internal Links\" :path \"*Internal Links\" :desc
+           \"description: Internal Links with Heading Name\")
+ (:outline (\"Internal Links\" \"Internal Link to Dedicated Target\") :type \"fuzzy\"
+           :raw \"dedicated target\" :path \"dedicated target\" :desc nil)
+ (:outline (\"Internal Links\" \"Internal Link to Dedicated Target\") :type \"fuzzy\"
+           :raw \"dedicated target\" :path \"dedicated target\" :desc
+           \"description: dedicated target\")
+ (:outline (\"Internal Links\" \"Internal Link to Named Target\") :type \"fuzzy\" :raw
+           \"named target\" :path \"named target\" :desc nil)
+ (:outline (\"Internal Links\" \"Internal Link to Named Target\") :type \"fuzzy\" :raw
+           \"named target\" :path \"named target\" :desc \"description: named target\")
+ (:outline (\"Internal Links\" \"Internal Link with None from Above\") :type \"fuzzy\"
+           :raw \"no matching target\" :path \"no matching target\" :desc nil)
+ (:outline (\"Internal Links\" \"Internal Link with None from Above\") :type \"fuzzy\"
+           :raw \"no matching target\" :path \"no matching target\" :desc
+           \"description: no matching target\")
+ (:outline (\"Radio Targets\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Radio-Targets.html\" :path
+           \"//orgmode.org/manual/Radio-Targets.html\" :desc
+           \"Radio Targets (The Org Manual)\")
+ (:outline (\"Radio Targets\" \"Radio Target Links\") :type \"radio\" :raw
+           \"radio target link\" :path \"radio target link\" :desc
+           \"radio target link\")
+ (:outline (\"External Links\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/External-Links.html\"
+           :desc \"External Links (The Org Manual)\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc\" :path \"/etc\"
+           :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc\" :path \"/etc\"
+           :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc\" :path \"/etc\"
+           :desc \"description: /etc\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"/etc\" :path \"/etc\" :desc
+           nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file+sys:/etc\" :path
+           \"/etc\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file+emacs:/etc\" :path
+           \"/etc\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file+emacs:/etc\" :path
+           \"/etc\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file+sys:/etc\" :path
+           \"/etc\" :desc \"desription: file+sys:/etc\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc/\" :path
+           \"/etc/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc/\" :path
+           \"/etc/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc/\" :path
+           \"/etc/\" :desc \"description: /etc/\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"/etc/\" :path \"/etc/\"
+           :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc/host.conf\"
+           :path \"/etc/host.conf\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc/host.conf\"
+           :path \"/etc/host.conf\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:/etc/host.conf\"
+           :path \"/etc/host.conf\" :desc \"description: /etc/host.conf\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"/etc/host.conf\" :path
+           \"/etc/host.conf\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file+sys:/etc/host.conf\"
+           :path \"/etc/host.conf\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw
+           \"file+emacs:/etc/host.conf\" :path \"/etc/host.conf\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../\" :path \"../\"
+           :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../\" :path \"../\"
+           :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../\" :path \"../\"
+           :desc \"description: ../\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"../\" :path \"../\" :desc
+           nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../../sql\" :path
+           \"../../sql\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../../sql\" :path
+           \"../../sql\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../../sql\" :path
+           \"../../sql\" :desc \"description: ../../sql\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"../../sql\" :path
+           \"../../sql\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../../sql/\" :path
+           \"../../sql/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../../sql/\" :path
+           \"../../sql/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../../sql/\" :path
+           \"../../sql/\" :desc \"description: ../../sql/\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"../../sql/\" :path
+           \"../../sql/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../parser_test.rs\"
+           :path \"../parser_test.rs\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../parser_test.rs\"
+           :path \"../parser_test.rs\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:../parser_test.rs\"
+           :path \"../parser_test.rs\" :desc \"description: ../parser_test.rs\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"../parser_test.rs\" :path
+           \"../parser_test.rs\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw
+           \"file:./org-test-links.org\" :path \"./org-test-links.org\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw
+           \"file:./org-test-links.org\" :path \"./org-test-links.org\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw
+           \"file:./org-test-links.org\" :path \"./org-test-links.org\" :desc
+           \"description: ./org-test-links.org\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"./org-test-links.org\"
+           :path \"./org-test-links.org\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d\" :path
+           \"~/.emacs.d\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d\" :path
+           \"~/.emacs.d\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d\" :path
+           \"~/.emacs.d\" :desc \"description: file:~/.emacs.d\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d/\" :path
+           \"~/.emacs.d/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d/\" :path
+           \"~/.emacs.d/\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d/\" :path
+           \"~/.emacs.d/\" :desc \"description: file:~/.emacs.d/\")
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d/init.el\"
+           :path \"~/.emacs.d/init.el\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d/init.el\"
+           :path \"~/.emacs.d/init.el\" :desc nil)
+ (:outline (\"External Links\" \"File\") :type \"file\" :raw \"file:~/.emacs.d/init.el\"
+           :path \"~/.emacs.d/init.el\" :desc
+           \"description: file:~/.emacs.d/init.el\")
+ (:outline (\"External Links\" \"Attachment\") :type \"attachment\" :raw
+           \"attachment:projects.org\" :path \"projects.org\" :desc nil)
+ (:outline (\"External Links\" \"Attachment\") :type \"attachment\" :raw
+           \"attachment:projects.org\" :path \"projects.org\" :desc nil)
+ (:outline (\"External Links\" \"Attachment\") :type \"attachment\" :raw
+           \"attachment:projects.org\" :path \"projects.org\" :desc
+           \"description: attachment:projects.org\")
+ (:outline (\"External Links\" \"Docview\") :type \"docview\" :raw
+           \"docview:/etc/test.pdf\" :path \"/etc/test.pdf\" :desc nil)
+ (:outline (\"External Links\" \"Docview\") :type \"docview\" :raw
+           \"docview:/etc/test.pdf\" :path \"/etc/test.pdf\" :desc nil)
+ (:outline (\"External Links\" \"Docview\") :type \"docview\" :raw
+           \"docview:/etc/test.pdf\" :path \"/etc/test.pdf\" :desc
+           \"description: docview:/etc/test.pdf\")
+ (:outline (\"External Links\" \"ID\") :type \"id\" :raw
+           \"id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5\" :path
+           \"16ccfc6a-11ba-499f-8bc6-41be30daa3c5\" :desc nil)
+ (:outline (\"External Links\" \"ID\") :type \"id\" :raw
+           \"id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5\" :path
+           \"16ccfc6a-11ba-499f-8bc6-41be30daa3c5\" :desc nil)
+ (:outline (\"External Links\" \"ID\") :type \"id\" :raw
+           \"id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5\" :path
+           \"16ccfc6a-11ba-499f-8bc6-41be30daa3c5\" :desc
+           \"description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5\")
+ (:outline (\"External Links\" \"Others\") :type \"http\" :raw \"http://orgmode.org\"
+           :path \"//orgmode.org\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"https\" :raw \"https://orgmode.org\"
+           :path \"//orgmode.org\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"http\" :raw \"http://orgmode.org\"
+           :path \"//orgmode.org\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"http\" :raw \"http://orgmode.org\"
+           :path \"//orgmode.org\" :desc \"description: http://orgmode.org\")
+ (:outline (\"External Links\" \"Others\") :type \"https\" :raw \"https://orgmode.org\"
+           :path \"//orgmode.org\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"https\" :raw \"https://orgmode.org\"
+           :path \"//orgmode.org\" :desc \"description: https://orgmode.org\")
+ (:outline (\"External Links\" \"Others\") :type \"fuzzy\" :raw \"doi:10.1000/182\"
+           :path \"doi:10.1000/182\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"news\" :raw \"news:comp.emacs\" :path
+           \"comp.emacs\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"news\" :raw \"news:comp.emacs\" :path
+           \"comp.emacs\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"mailto\" :raw
+           \"mailto:emacs-orgmode@gnu.org\" :path \"emacs-orgmode@gnu.org\" :desc
+           nil)
+ (:outline (\"External Links\" \"Others\") :type \"mailto\" :raw
+           \"mailto:emacs-orgmode@gnu.org\" :path \"emacs-orgmode@gnu.org\" :desc
+           nil)
+ (:outline (\"External Links\" \"Others\") :type \"fuzzy\" :raw \"mhe:folder\" :path
+           \"mhe:folder\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"fuzzy\" :raw \"rmail:folder\" :path
+           \"rmail:folder\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"fuzzy\" :raw \"gnus:group\" :path
+           \"gnus:group\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"fuzzy\" :raw \"bbdb:B.*Harper\" :path
+           \"bbdb:B.*Harper\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"fuzzy\" :raw
+           \"irc:/irc.com/#emacs/bob\" :path \"irc:/irc.com/#emacs/bob\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"help\" :raw \"help:org-store-link\"
+           :path \"org-store-link\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"help\" :raw \"help:org-store-link\"
+           :path \"org-store-link\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"info\" :raw \"info:org#Link\" :path
+           \"org#Link\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"info\" :raw
+           \"info:org#External Link\" :path \"org#External Link\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"shell\" :raw \"shell:ls\" :path \"ls\"
+           :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"shell\" :raw \"shell:ls *.org  \"
+           :path \"ls *.org  \" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"elisp\" :raw \"elisp:org-todo\" :path
+           \"org-todo\" :desc nil)
+ (:outline (\"External Links\" \"Others\") :type \"elisp\" :raw
+           \"elisp:(find-file \\\"~/.emacs.d/init.el\\\")\" :path
+           \"(find-file \\\"~/.emacs.d/init.el\\\")\" :desc nil)
+ (:outline (\"Custom Link Types\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Adding-Hyperlink-Types.html\" :path
+           \"//orgmode.org/manual/Adding-Hyperlink-Types.html\" :desc
+           \"Adding Hyperlink Types (The Org Manual)\")
+ (:outline (\"Custom Link Types\") :type \"fuzzy\" :raw \"customlink:test\" :path
+           \"customlink:test\" :desc nil)
+ (:outline (\"Custom Link Types\") :type \"fuzzy\" :raw \"customlink:test\" :path
+           \"customlink:test\" :desc \"description: customlink:test\")
+ (:outline (\"Search Options\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Search-Options.html\" :path
+           \"//orgmode.org/manual/Search-Options.html\" :desc
+           \"Search Options (The Org Manual)\")
+ (:outline (\"Search Options\") :type \"file\" :raw \"file:./org-test-links.org::10\"
+           :path \"./org-test-links.org\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw \"./org-test-links.org::10\" :path
+           \"./org-test-links.org\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw \"./org-test-links.org::10\" :path
+           \"./org-test-links.org\" :desc \"desription: ./org-test-links.org::10\")
+ (:outline (\"Search Options\") :type \"file\" :raw \"file:::10\" :path \"\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw \"file:::10\" :path \"\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw \"file:::10\" :path \"\" :desc
+           \"description: file:::10\")
+ (:outline (\"Search Options\") :type \"id\" :raw
+           \"id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10\" :path
+           \"16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10\" :desc nil)
+ (:outline (\"Search Options\") :type \"id\" :raw
+           \"id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10\" :path
+           \"16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10\" :desc nil)
+ (:outline (\"Search Options\") :type \"id\" :raw
+           \"id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10\" :path
+           \"16ccfc6a-11ba-499f-8bc6-41be30daa3c5:10\" :desc
+           \"description: id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10\")
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"file:./org-test-links.org::#internal-link-to-custom-id\" :path
+           \"./org-test-links.org\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"./org-test-links.org::#internal-link-to-custom-id\" :path
+           \"./org-test-links.org\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"./org-test-links.org::#internal-link-to-custom-id\" :path
+           \"./org-test-links.org\" :desc
+           \"description: ./org-test-links.org::#internal-link-to-custom-id\")
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"./org-test-links.org::dedicated target\" :path \"./org-test-links.org\"
+           :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"./org-test-links.org::*Search Options\" :path \"./org-test-links.org\"
+           :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"file:./org-test-links.org::/*.External.*/\" :path
+           \"./org-test-links.org\" :desc nil)
+ (:outline (\"Search Options\") :type \"file\" :raw
+           \"./org-test-links.org::/*.Search.*/\" :path \"./org-test-links.org\"
+           :desc nil)
+ (:outline (\"Search Options\") :type \"docview\" :raw \"docview:papers/last.pdf::12\"
+           :path \"papers/last.pdf::12\" :desc nil)
+ (:outline (\"Search Options\") :type \"docview\" :raw \"docview:papers/last.pdf::12\"
+           :path \"papers/last.pdf::12\" :desc nil)
+ (:outline (\"Link Abbrevations\") :type \"https\" :raw
+           \"https://orgmode.org/manual/Link-Abbreviations.html\" :path
+           \"//orgmode.org/manual/Link-Abbreviations.html\" :desc
+           \"Link Abbreviations (The Org Manual)\")
+ (:outline (\"Links in Angle Brackets\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/External-Links.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/External-Links.html\"
+           :desc \"External Links (The Org Manual)\")
+ (:outline (\"Links in Angle Brackets\") :type \"file\" :raw
+           \"file:::*Links in Angle Brackets\" :path \"\" :desc nil)
+ (:outline (\"Links in Angle Brackets\") :type \"info\" :raw
+           \"info:org#External Link\" :path \"org#External Link\" :desc nil)
+ (:outline (\"Links in Angle Brackets\") :type \"shell\" :raw \"shell:ls *.org\" :path
+           \"ls *.org\" :desc nil)
+ (:outline (\"Links in Angle Brackets\") :type \"https\" :raw
+           \"https://orgmode.org/ spaces \" :path \"//orgmode.org/ spaces \" :desc
+           nil)
+ (:outline (\"Links in Angle Brackets\") :type \"https\" :raw
+           \"https://orgmode.org/ spaces \" :path \"//orgmode.org/ spaces \" :desc
+           nil)
+ (:outline
+  (\"Ignored Links\" \"Links to Ignore\" \"Code Blocks & Inline Code Blocks\") :type
+  \"https\" :raw \"https://orgmode.org/manual/Structure-of-Code-Blocks.html\" :path
+  \"//orgmode.org/manual/Structure-of-Code-Blocks.html\" :desc
+  \"Structure of Code Blocks (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Example Blocks & Example Lines\")
+           :type \"https\" :raw \"https://orgmode.org/manual/Literal-Examples.html\"
+           :path \"//orgmode.org/manual/Literal-Examples.html\" :desc
+           \"Literal Examples (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Comments & Comment Blocks\") :type
+           \"https\" :raw \"https://orgmode.org/manual/Comment-Lines.html\" :path
+           \"//orgmode.org/manual/Comment-Lines.html\" :desc
+           \"Comment Lines (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Export Blocks\") :type \"https\"
+           :raw \"https://orgmode.org/manual/Quoting-HTML-tags.html\" :path
+           \"//orgmode.org/manual/Quoting-HTML-tags.html\" :desc
+           \"Quoting HTML tags (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Export Blocks\") :type \"https\"
+           :raw \"https://orgmode.org/manual/Quoting-LaTeX-code.html\" :path
+           \"//orgmode.org/manual/Quoting-LaTeX-code.html\" :desc
+           \"Quoting LaTeX code (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Export Blocks\") :type \"https\"
+           :raw
+           \"https://www.gnu.org/software//emacs/manual/html_node/org/ASCII_002fLatin_002d1_002fUTF_002d8-export.html\"
+           :path
+           \"//www.gnu.org/software//emacs/manual/html_node/org/ASCII_002fLatin_002d1_002fUTF_002d8-export.html\"
+           :desc \"ASCII/Latin-1/UTF-8 export (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Export Blocks\") :type \"https\"
+           :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Beamer-specific-syntax.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Beamer-specific-syntax.html\"
+           :desc \"Beamer specific syntax (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Ignore\" \"Export Blocks\") :type \"https\"
+           :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Quoting-Texinfo-code.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Quoting-Texinfo-code.html\"
+           :desc \"Quoting Texinfo code (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"In Headings\" \"file:::10\") :type
+           \"file\" :raw \"file:::10\" :path \"\" :desc nil)
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"In Headings\" \"file:::10\") :type
+           \"file\" :raw \"file:::10\" :path \"\" :desc nil)
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"In Headings\" \"<file:::10>\") :type
+           \"file\" :raw \"file:::10\" :path \"\" :desc nil)
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Paragraphs\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Paragraphs.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Paragraphs.html\"
+           :desc \"Paragraphs (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Paragraphs\") :type \"https\" :raw
+           \"https://orgmode.org\" :path \"//orgmode.org\" :desc
+           \"link in verse block\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Paragraphs\") :type \"https\" :raw
+           \"https://orgmode.org\" :path \"//orgmode.org\" :desc
+           \"link in quote block\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Paragraphs\") :type \"https\" :raw
+           \"https://orgmode.org\" :path \"//orgmode.org\" :desc
+           \"link in a center block\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Paragraphs\") :type \"https\" :raw
+           \"https://orgmode.org\" :path \"//orgmode.org\" :desc
+           \"link in a center block\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Paragraphs\") :type \"https\" :raw
+           \"https://orgmode.org\" :path \"//orgmode.org\" :desc
+           \"link in a center block\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Drawers\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Drawers.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Drawers.html\"
+           :desc \"Drawers (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Links to Parse\" \"Drawers\") :type \"https\" :raw
+           \"https://orgmode.org\" :path \"//orgmode.org\" :desc \"link in a drawer\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org/software/emacs/manual/html_node/org/Link-Format.html\"
+           :path
+           \"//www.gnu.org/software/emacs/manual/html_node/org/Link-Format.html\"
+           :desc \"Link Format (The Org Manual)\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org\" :path \"//www.gnu.org\" :desc nil)
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org\\\\\" :path \"//www.gnu.org\\\\\" :desc \"Test\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org\" :path \"//www.gnu.org\" :desc \"[Test]​]​]​]​]​]​\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org\" :path \"//www.gnu.org\" :desc \"[[[[[Test]​\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org\" :path \"//www.gnu.org\" :desc \"[][][]​[]​]​\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"https\" :raw
+           \"https://www.gnu.org\" :path \"//www.gnu.org\" :desc \"[][][test]​[]​] ​\")
+ (:outline (\"Ignored Links\" \"Escape Chars\") :type \"file\" :raw \"./test.org\" :path
+           \"./test.org\" :desc \"]]\\n  [[file:./test.org][\")
+ (:outline
+  (\"Ignored Links\" \"Unicode Characters\"
+                   \"Übung 🚀 Ein Titel mit Umlaut und Emoji\")
+  :type \"https\" :raw \"https://orgmode.org/🔥\" :path \"//orgmode.org/🔥\" :desc nil)
+ (:outline
+  (\"Ignored Links\" \"Unicode Characters\"
+                   \"Übung 🚀 Ein Titel mit Umlaut und Emoji\")
+  :type \"file\" :raw \"file:sub/äöü.txt::target\" :path \"sub/äöü.txt\" :desc
+  \"A file link with Umlaut\")
+ (:outline
+  (\"Ignored Links\" \"Unicode Characters\"
+                   \"Übung 🚀 Ein Titel mit Umlaut und Emoji\")
+  :type \"https\" :raw \"https://orgmode.org/🔥\" :path \"//orgmode.org/🔥\" :desc nil)
+ (:outline
+  (\"Ignored Links\" \"Unicode Characters\"
+                   \"Übung 🚀 Ein Titel mit Umlaut und Emoji\")
+  :type \"https\" :raw \"https://orgmode.org/ 🔥\" :path \"//orgmode.org/ 🔥\" :desc
+  nil))
+"
+#+end_src
 

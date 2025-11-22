@@ -1,2 +1,73 @@
 #+TITLE: Rules for Parsing
 #+STARTUP: content
+
+* Links
+
+[[info:org#Link Format][org#Link Format]]
+
+8ung - so ist es ein plain link:
+[[https://www.google.ch\][description]]
+wenn ein Escape fehlt wird es zum Plain Link ohne Description
+
+\[[https://www.google.ch][Test]]
+
+wird zum plain link:
+<https://www.google
+.ch>
+
+[
+[https://www.google.ch]
+[description]]                     
+
+wird zum plain link:
+https://www.goog
+le.ch
+[[danielhubuamm\]]
+
+Plain link:
+[
+[file:.andr
+oid/][sdfdsf]]
+
+Dies geht, new line wird zu einem Leerzeichen im :path
+[[file:.andr
+oid/][sdfdsf]]
+
+Hmm, dies mit dem Escape ist eigenartig:
+
+#+BEGIN_SRC lisp-interaction
+  (org-link-escape "[")
+  "\\["
+  (org-link-escape "]")
+  "\\]"
+  (org-link-escape "\]")
+  "\\]"
+  (org-link-escape "\[")
+  "\\["
+#+END_SRC
+
+
+* Abweichend vom Standard
+
+Bei Zeilenumbrüche passiert eigenartiges. Org 
+
+#+BEGIN_SRC org
+  [
+  [https://www.google.ch]
+  [description]]                     
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp
+  (link
+   (:standard-properties [4
+                          ...
+                          #2]
+                         :type "https"
+                         :type-explicit-p t
+                         :path "//www.google.ch"
+                         :format plain
+                         :raw-link "https://www.google.ch"
+                         :application nil
+                         :search-option nil))
+#+END_SRC
+

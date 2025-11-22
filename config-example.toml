@@ -1,0 +1,39 @@
+[application]
+# Path to the SQLite database file
+db_path = "/var/data/my_project.db"
+# Interval in seconds for the indexer to automatically synchronize
+watch_directories = [
+  "~/Documents/Notes",
+  "/home/user/WorkProjects",
+
+]
+
+[parser]
+# List of valid 'TODO' keywords for status tracking.
+# Keywords are separated into 'open' (active) and 'closed' (completed) states.
+todo_keywords_open = [
+  "TODO",
+  "NEXT",
+  "WAITING",
+]
+todo_keywords_closed = [
+  "DONE",
+  "CANCELLED",
+]
+
+# Defines the list of prefixes for custom link types.
+# The parser will look for prefixes like "gdrive:" or "def:".
+# The prefixes themselves (e.g., gdrive, def) are listed here.
+custom_link_types = [
+  "gdrive",
+  "def",
+  "jira",
+]
+
+# ==============================================================================
+# DATABASE SETTINGS (Example)
+# ==============================================================================
+
+[database]
+# Optional: Timeout for the database connection in milliseconds
+timeout_ms = 500
