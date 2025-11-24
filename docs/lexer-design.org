@@ -2,7 +2,9 @@
 #+STARTUP: content
 
 This document describes the Finite State Machines (FSM) used in the Org-Mode
-parser. The parsing is divided into two stages:
+parser.
+
+The parsing is divided into two stages:
 
 1. Line Lexer - classifies each input line
 2. Inline Lexer - identifies inline structures used for links
@@ -12,30 +14,160 @@ parser. The parsing is divided into two stages:
 The Line Lexer classifies each line into one of several Org-Mode structural
 types, without performing deeper parsing.
 
-** Purpose
-
-- Fast, character-by-character line recognition
-- No backtracking
-- Decides the high-level type of each line
-- Inline parsing is handled separately
-
 ** Recognized Line Types
 
-- Headline: /^*+ /
-- Plain List Item: /^([+-]|\d+[.)]) /
-- Drawer Start: /^:[A-Z_]+:/
-- Drawer End: /^:END:/
-- Block Begin: /^#\+BEGIN_.*/
-- Block End: /^#\+END_.*/
-- Comment: /^# .*/
-- Directive: /^#\+.*/
-- Table Row: /^\|.*$/
-- Table Rule: /^\|[-+]+[|]?$/   (separator lines)
-- Table Formula (tblfm): /^#\+TBLFM:/
-- Empty Line
-- Paragraph (fallback)
+The lexer only recognizes lines that matter for the purpose of this parser.
 
-** Notes on Tables
+- Heading Line
+- Comment Line
+- Literal Example Line
+
+- Keywords
+- Block Begin
+- Block End
+- Table Rule
+- Table Formula
+- Planing Line
+- Empty Line
+
+** DONE Heading Line
+
+Lexer Output:
+- line type = Heading
+- level
+- raw_text
+- begin
+- end
+- line_number
+
+: ^\(\*+\)\(?: +\(.*?\)\)?[ \t]*$
+
+- The line must start with one or more ~*~ characters.
+- After the stars, at least one normal space is required.  
+  Tabs are not allowed at this position.
+- An optional title may follow.
+- Trailing spaces or tabs at the end of the line are allowed.
+
+Examples:
+
+#+BEGIN_SRC org
+  ,* Heading
+  ,***   TODO Something
+  ,**** Title 
+#+END_SRC
+
+** DONE Comment Line
+
+Lexer Output:
+- line type = comment
+- begin
+- end
+- line_number
+
+: ^[ \t]*#\(?: \|$\)
+
+- Optional leading spaces or tabs are allowed.
+- Followed by ~#~.
+- Immediately after ~#~ must be either:
+  - a single space, or
+  - end of line.
+
+Examples:
+
+#+BEGIN_SRC org
+  # Comment
+      # another comment
+  #
+  # 
+#+END_SRC
+
+** DONE Literal Example Line
+
+Lexer Output:
+- line type = example
+- begin
+- end
+- line_number
+
+: ^[ \t]*: \( \|$\)
+
+- A literal example (fixed-width) line starts with optional leading spaces or tabs.
+- Followed by a single colon `:`.
+- Immediately after the colon must be **either**:
+  - a single space (`: `), or
+  - end of line (`:`).
+
+Examples:
+
+#+BEGIN_SRC org
+  : literal line
+      : indented literal line
+  :
+  :
+#+END_SRC
+
+** TODO Keyword Line
+
+Lexer Output:
+- line type = keyword
+- name
+- value
+- begin
+- end
+- line_number
+
+kBlockBegin { name: "EXPORT", args: "html" }
+
+** TODO Block Begin Line
+
+Lexer Output:
+- line type = block begin
+- name (EXPORT)
+- type (html)
+- begin
+- end
+- line_number
+
+** TODO Block End Line
+
+Lexer Output:
+- line type = block end
+- name (EXPORT)
+- begin
+- end
+- line_number
+
+** TODO Planing Line
+
+org-element-planning-line-re
+
+Lexer Output:
+- line type = planing
+- name (EXPORT)
+- begin
+- end
+- line_number
+
+** TODO Table Formula Line
+
+All table rows (header rows and normal rows) are treated the same:
+
+- =table-row= → any line beginning with `|`
+- =table-rule= → separator lines made of `-|+` patterns
+- =tblfm= → table formula lines starting with `#+TBLFM:`
+
+Only inline links should be parsed inside table rows.
+
+Example:
+
+| Student  | Maths | Physics | Mean |
+|----------+-------+---------+------|
+| Bertrand |    13 |      09 |   11 |
+| Henri    |    15 |      14 |      |
+| Arnold   |    17 |      13 |      |
+#+TBLFM: @2$4=vmean($2..$3)
+
+** TODO Table Rule Line
 
 All table rows (header rows and normal rows) are treated the same:
 
@@ -94,45 +226,33 @@ States:
   digraph line_lexer {
       rankdir=LR;
 
-      START -> WS            [label="space/tab"];
-      START -> STAR          [label="'*'"];
-      STAR -> HEADLINE_SPACE [label="' '"];
-      HEADLINE_SPACE -> HEADLINE [label="default"];
+      START -> WS                    [label="space/tab"];
+      START -> STAR                  [label="'*'"];
+      STAR -> HEADLINE_SPACE         [label="' '"];
+      HEADLINE_SPACE -> HEADLINE     [label="default"];
 
-      START -> TABLE_ROW     [label="'|'"];
-      START -> LIST_START    [label="'-' '+' digit"];
+      START -> TABLE_ROW             [label="'|'"];
+      START -> LIST_START            [label="'-' '+' digit"];
 
-      START -> DIRECTIVE_SHARP [label="'#'"];
-      DIRECTIVE_SHARP -> TBLFM        [label="'+TBLFM:'"];
-      DIRECTIVE_SHARP -> BLOCK_BEGIN  [label="'+BEGIN_'"];
-      DIRECTIVE_SHARP -> BLOCK_END    [label="'+END_'"];
-      DIRECTIVE_SHARP -> COMMENT      [label="' '"];
-      DIRECTIVE_SHARP -> DIRECTIVE    [label="default"];
+      START -> DIRECTIVE_SHARP       [label="'#'"];
+      DIRECTIVE_SHARP -> TBLFM       [label="'+TBLFM:'"];
+      DIRECTIVE_SHARP -> BLOCK_BEGIN [label="'+BEGIN_'"];
+      DIRECTIVE_SHARP -> BLOCK_END   [label="'+END_'"];
+      DIRECTIVE_SHARP -> COMMENT     [label="' '"];
+      DIRECTIVE_SHARP -> DIRECTIVE   [label="default"];
 
-      START -> EMPTY         [label="'\\n'"];
-      START -> PARAGRAPH     [label="fallback"];
+      START -> EMPTY                 [label="'\\n'"];
+      START -> PARAGRAPH             [label="fallback"];
   }
+
 #+end_src
 
 #+RESULTS:
 [[file:./img/line_lexer_fsm.svg]]
 
-** Examples
-#+begin_example
-
-* Headline
-** Subheadline
-- List item
-| cell | value |
-|------+--------|
-| link [[https://gnu.org][GNU]] inside |
-#+TBLFM: @2$4=vmean($2..$3)
-#+END_SRC
-#+end_example
-
----
 
 * Inline Lexer (Inside Line)
+
 The Inline Lexer processes the content of a line, identifying structures such as
 links and markup.
 
