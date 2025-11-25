@@ -32,37 +32,50 @@ The lexer only recognizes lines that matter for the purpose of this parser.
 
 ** DONE Heading Line
 
-Lexer Output:
-- line type = Heading
-- level
-- raw_text
-- begin
-- end
-- line_number
+*** Rule
 
 : ^\(\*+\)\(?: +\(.*?\)\)?[ \t]*$
 
 - The line must start with one or more ~*~ characters.
 - After the stars, at least one normal space is required.  
-  Tabs are not allowed at this position.
-- An optional title may follow.
+  Tabs are not allowed in this position.
+- An optional title may follow, which may include:
+  - TODO keyword
+  - priority cookie (e.g. ~[#A]~)
+  - statistics cookie (e.g. ~[50%]~, ~[2/3]~)
+  - tags (e.g. ~:tag1:tag2:~)
 - Trailing spaces or tabs at the end of the line are allowed.
 
-Examples:
+*** Extraction
 
-#+BEGIN_SRC org
-  ,* Heading
-  ,***   TODO Something
-  ,**** Title 
-#+END_SRC
+- line type = heading :: The lexer classification for this line.
+- level :: The heading level, determined by counting the number of leading ~*~ characters.  
+- raw_text :: The unmodified text following the mandatory space after the stars, up to but not including any trailing whitespace. This includes TODO keyword, priority, statistics cookies, and tags exactly as written.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of this line  
+  (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+  
+*** Examples:
+
+- level: 1, raw_text: "Heading"
+  #+BEGIN_SRC org
+    ,* Heading
+  #+END_SRC
+
+- level: 3, raw_text: "TODO Something"
+  #+BEGIN_SRC org
+    ,***   TODO Something
+  #+END_SRC
+
+- level: 4, raw_text: "TODO [#A] Title [0/0] :tag1:tag2:"
+  #+BEGIN_SRC org
+    ,**** TODO [#A] Title [2/5] :tag1:tag2:
+  #+END_SRC
 
 ** DONE Comment Line
 
-Lexer Output:
-- line type = comment
-- begin
-- end
-- line_number
+*** Rule
 
 : ^[ \t]*#\(?: \|$\)
 
@@ -72,7 +85,15 @@ Lexer Output:
   - a single space, or
   - end of line.
 
-Examples:
+*** Extraction
+
+- line type = example line :: The lexer classification for this line.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of this line  
+  (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
 
 #+BEGIN_SRC org
   # Comment
@@ -83,11 +104,7 @@ Examples:
 
 ** DONE Literal Example Line
 
-Lexer Output:
-- line type = example
-- begin
-- end
-- line_number
+*** Rule
 
 : ^[ \t]*: \( \|$\)
 
@@ -97,7 +114,15 @@ Lexer Output:
   - a single space (`: `), or
   - end of line (`:`).
 
-Examples:
+*** Extraction
+
+- line type = example line :: The lexer classification for this line.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of this line  
+  (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
 
 #+BEGIN_SRC org
   : literal line
@@ -106,36 +131,156 @@ Examples:
   :
 #+END_SRC
 
-** TODO Keyword Line
+** DONE Keyword Line
 
-Lexer Output:
-- line type = keyword
-- name
-- value
-- begin
-- end
-- line_number
+*** Rule
 
-kBlockBegin { name: "EXPORT", args: "html" }
+: ^[ \t]*#\+\(\S-+?\):[ \t]*\(.*\)$
 
-** TODO Block Begin Line
+- A keyword line starts with optional leading spaces or tabs.
+- Followed by ~#+~.
+- The keyword name consists of one or more non-whitespace characters and ends with a colon ~:~.
+- After the colon, any amount of spaces or tabs may follow.
+- The rest of the line is taken as the keyword value (as-is).
+- Org converts the keyword name to uppercase, so the lexer should store it uppercased.
 
-Lexer Output:
-- line type = block begin
-- name (EXPORT)
-- type (html)
-- begin
-- end
-- line_number
+Notes:
 
-** TODO Block End Line
+- The value may be empty (e.g., ~#+KEY:~).
+- No deeper parsing is done at this stage; the entire trailing text is considered the value.
+- Whether a keyword is affiliated or standalone is handled later by the parser. For the Line Lexer, every ~#+KEY:~ line is simply a keyword line.
 
-Lexer Output:
-- line type = block end
-- name (EXPORT)
-- begin
-- end
-- line_number
+*** Extraction
+
+- line type = keyword :: The lexer classification for this line.
+- name :: The keyword name, taken from the text between `#+` and the colon. It is always stored uppercased (e.g., `TITLE`, `OPTIONS`, `HTML_HEAD`).
+- value :: The raw keyword value appearing after the colon. Leading spaces after the colon are trimmed. The value may be empty (e.g., `#+KEY:` → `value = ""`).
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of this line  
+  (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
+
+- name: "TITLE", value: "My Document"
+  #+BEGIN_SRC org
+    ,#+TITLE: My Document
+  #+END_SRC
+
+- name: "AUTHOR", value: "John Doe"
+  #+BEGIN_SRC org
+    ,#+AUTHOR:John Doe
+  #+END_SRC
+
+- name: "AUTHOR", value: "John Doe"
+  #+BEGIN_SRC org
+    ,#+AUTHOR:          John Doe
+  #+END_SRC
+
+- name: "AUTHOR", value:"" 
+  #+BEGIN_SRC org
+    ,#+AUTHOR:
+  #+END_SRC
+
+- name: "OPTIONS", value: "toc:nil num:t"
+  #+BEGIN_SRC org
+            ,#+options: toc:nil num:t
+  #+END_SRC
+
+** DONE Block Begin Line
+
+*** Rule
+
+A regular block begins with a line of the form:
+
+: ^[ \t]*#\+begin_?\([^ \t]+\)\(?:[ \t]+\(.*\)\)?[ \t]*$
+
+Properties of this syntax:
+
+- Optional leading spaces or tabs are allowed.
+- A block begin line starts with ~#+BEGIN_~, case-insensitive.
+- The block name consists of one or more non-whitespace characters.
+- After the block name, optional arguments may follow. Arguments are kept as raw text.
+- Trailing spaces or tabs at the end of the line are allowed.
+
+Notes:
+
+- The Line Lexer does not match or validate the corresponding ~#+END_~ line.
+- The lexer does not inspect or parse arguments syntax.
+
+*** Extraction
+
+- line type = block begin :: The lexer classification for this line.
+- name :: The block name appearing after ~#+BEGIN_~ (or ~#+begin_~),  
+  normalized to uppercase.
+- raw_args :: The full unparsed argument string appearing after the block name. This includes language, switches, and all header parameters verbatim.  
+  No semantic parsing is done at the line-lexer stage.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of the line (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
+
+- name: "SRC", raw_args: "rust"
+  #+BEGIN_SRC org
+    ,#+BEGIN_SRC rust
+  #+END_SRC
+
+- name: "SRC", raw_args: "emacs-lisp :results value table replace"
+  #+BEGIN_SRC org
+    ,#+BEGIN_SRC emacs-lisp :results value table replace
+  #+END_SRC
+
+- name: "EXAMPLE", raw_args: ""
+  #+BEGIN_SRC org
+    ,#+begin_example
+  #+END_SRC
+
+** DONE Block End Line
+
+*** Rule
+
+A regular block ends with a line of the form:
+
+: ^[ \t]*#\+end_?\([^ \t]+\)[ \t]*$
+
+Properties:
+
+- Optional leading spaces or tabs are allowed.
+- A block end line starts with ~#+END_~ or ~#+end_~, case-insensitive.
+- The block name consists of one or more non-whitespace characters.
+- Trailing spaces or tabs at the end of the line are allowed.
+
+Notes:
+
+- Only the end line is recognized — the Line Lexer does not verify
+  that the block name matches a preceding ~#+BEGIN_~ line.
+
+*** Extraction
+
+- line type = block end :: The lexer classification for this line.
+- name :: The block name appearing after ~#+END_~ (or ~#+end_~),  
+  normalized to uppercase.
+- begin :: The byte offset of the first character of the line.
+- end :: The byte offset immediately after the last character of the line.
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
+
+- name: "SRC"
+  #+BEGIN_SRC org
+    ,#+END_SRC
+  #+END_SRC
+
+- name: "EXPORT"
+  #+BEGIN_SRC org
+    ,#+end_export
+  #+END_SRC
+
+- name: "EXAMPLE"
+  #+BEGIN_SRC org
+    ,#+end_example
+  #+END_SRC
 
 ** TODO Planing Line
 
