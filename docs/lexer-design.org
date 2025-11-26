@@ -18,21 +18,21 @@ types, without performing deeper parsing.
 
 The lexer only recognizes lines that matter for the purpose of this parser.
 
-- Heading Line
-- Comment Line
-- Literal Example Line
-
+- Heading
+- Comment
+- Literal Example
 - Keywords
 - Block Begin
 - Block End
-- Table Rule
-- Table Formula
 - Planing Line
-- Empty Line
+- Table Formula
+- Table Rule
 
-** DONE Heading Line
+** Rules for Detecting Line Types
 
-*** Rule
+*** DONE Heading Line
+
+**** Rule
 
 A heading line introduces an outline node by starting with one or more asterisks.
 
@@ -52,7 +52,7 @@ Properties:
   - tags (e.g. ~:tag1:tag2:~)
 - Trailing spaces or tabs at the end of the line are allowed.
 
-*** Extraction
+**** Extraction
 
 - line type = heading :: The lexer classification for this line.
 - level :: The heading level, determined by counting the number of leading ~*~ characters.  
@@ -62,7 +62,7 @@ Properties:
   (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
   
-*** Examples:
+**** Examples:
 
 - level: 1, raw_text: "Heading"
   #+BEGIN_SRC org
@@ -79,9 +79,9 @@ Properties:
     ,**** TODO [#A] Title [2/5] :tag1:tag2:
   #+END_SRC
 
-** DONE Comment Line
+*** DONE Comment Line
 
-*** Rule
+**** Rule
 
 A comment line designates a line that is ignored by Org and begins with a hash mark.
 
@@ -97,7 +97,7 @@ Properties:
   - a single space, or
   - end of line.
 
-*** Extraction
+**** Extraction
 
 - line type = example line :: The lexer classification for this line.
 - begin :: The byte offset of the first character of the line (inclusive).
@@ -105,7 +105,7 @@ Properties:
   (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 #+BEGIN_SRC org
   # Comment
@@ -114,9 +114,9 @@ Properties:
   # 
 #+END_SRC
 
-** DONE Literal Example Line
+*** DONE Literal Example Line
 
-*** Rule
+**** Rule
 
 A literal example line introduces fixed-width text beginning with a colon.
 
@@ -132,7 +132,7 @@ Properties:
   - a single space (`: `), or
   - end of line (`:`).
 
-*** Extraction
+**** Extraction
 
 - line type = example line :: The lexer classification for this line.
 - begin :: The byte offset of the first character of the line (inclusive).
@@ -140,7 +140,7 @@ Properties:
   (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 #+BEGIN_SRC org
   : literal line
@@ -149,9 +149,9 @@ Properties:
   :
 #+END_SRC
 
-** DONE Keyword Line
+*** DONE Keyword Line
 
-*** Rule
+**** Rule
 
 A keyword line declares an Org-Mode keyword beginning with ~#+~ and followed by a name, a colon and optional value.
 
@@ -174,7 +174,7 @@ Notes:
 - No deeper parsing is done at this stage; the entire trailing text is considered the value.
 - Whether a keyword is affiliated or standalone is handled later by the parser. For the Line Lexer, every ~#+KEY:~ line is simply a keyword line.
 
-*** Extraction
+**** Extraction
 
 - line type = keyword :: The lexer classification for this line.
 - name :: The keyword name, taken from the text between `#+` and the colon. It is always stored uppercased (e.g., `TITLE`, `OPTIONS`, `HTML_HEAD`).
@@ -184,7 +184,7 @@ Notes:
   (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 - name: "TITLE", value: "My Document"
   #+BEGIN_SRC org
@@ -211,9 +211,9 @@ Notes:
             ,#+options: toc:nil num:t
   #+END_SRC
 
-** DONE Block Begin Line
+*** DONE Block Begin Line
 
-*** Rule
+**** Rule
 
 A regular block begins with a line of the form:
 
@@ -230,7 +230,7 @@ Notes:
 - The Line Lexer does not match or validate the corresponding ~#+END_~ line.
 - The lexer does not inspect or parse arguments syntax.
 
-*** Extraction
+**** Extraction
 
 - line type = block begin :: The lexer classification for this line.
 - name :: The block name appearing after ~#+BEGIN_~ (or ~#+begin_~),  
@@ -241,7 +241,7 @@ Notes:
 - end :: The byte offset immediately after the last character of the line (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 - name: "SRC", raw_args: "rust"
   #+BEGIN_SRC org
@@ -258,9 +258,9 @@ Notes:
     ,#+begin_example
   #+END_SRC
 
-** DONE Block End Line
+*** DONE Block End Line
 
-*** Rule
+**** Rule
 
 A regular block ends with a line of the form:
 
@@ -278,7 +278,7 @@ Notes:
 - Only the end line is recognized — the Line Lexer does not verify
   that the block name matches a preceding ~#+BEGIN_~ line.
 
-*** Extraction
+**** Extraction
 
 - line type = block end :: The lexer classification for this line.
 - name :: The block name appearing after ~#+END_~ (or ~#+end_~),  
@@ -287,7 +287,7 @@ Notes:
 - end :: The byte offset immediately after the last character of the line.
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 - name: "SRC"
   #+BEGIN_SRC org
@@ -304,9 +304,9 @@ Notes:
     ,#+end_example
   #+END_SRC
 
-** DONE Planning Line
+*** DONE Planning Line
 
-*** Rule
+**** Rule
 
 A planning line contains one or more planning keywords at the start of the line:
 
@@ -326,7 +326,7 @@ Properties:
 - The timestamps after the planning keyword. The line lexer does not interpret or parse them — it simply returns the entire line as raw text. Extracting individual timestamps is the job of the parser stage.
 - Multiple planning keywords may appear on the same line.
 
-*** Extraction
+**** Extraction
 
 - line type = planning :: The lexer classification for this line.
 - raw_text :: The entire line after trimming trailing whitespace.  
@@ -335,7 +335,7 @@ Properties:
 - end :: The byte offset immediately after the last character of the line (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 - raw_text: "CLOSED: [2024-11-05 Tue]"
   #+BEGIN_SRC org
@@ -357,9 +357,9 @@ Properties:
     DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed>
   #+END_SRC
 
-** DONE Table Formula Line
+*** DONE Table Formula Line
 
-*** Rule
+**** Rule
 
 A table formula line defines spreadsheet formulas associated with an Org table.
 
@@ -380,14 +380,14 @@ Notes:
 - A table formula line always starts with ~#+TBLFM:~, never with a pipe (~|~).
 - The lexer only needs to detect that it is a table formula line. Nothing has to be returned as those lines can be ignored.
 
-*** Extraction
+**** Extraction
 
 - line type = table formula :: The lexer classification for this line.
 - begin :: The byte offset of the first character of the line (inclusive).
 - end :: The byte offset immediately after the last character of the line (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 #+BEGIN_SRC org
   ,#+TBLFM: @2$4=vmean($2..$3)
@@ -395,9 +395,9 @@ Notes:
   ,  #+TBLFM: :: @3$2=vsum(@1$2..@2$2)::@>$3='(* @I @II)
 #+END_SRC
 
-** DONE Table Rule Line
+*** DONE Table Rule Line
 
-*** Rule
+**** Rule
 
 A table rule line is a horizontal separator inside a table.
 
@@ -422,14 +422,14 @@ Notes:
 - They separate header rows from body rows or cell groups.
 - The lexer does not return any structural details besides the classification.
 
-*** Extraction
+**** Extraction
 
 - line type = table rule :: The lexer classification for this line.
 - begin :: The byte offset of the first character of the line (inclusive).
 - end :: The byte offset immediately after the last character of the line (exclusive).
 - line_number :: The physical line number in the input buffer (starting at 1).
 
-*** Examples
+**** Examples
 
 #+BEGIN_SRC org
   |-----
@@ -439,7 +439,9 @@ Notes:
     +-----+-----+
 #+END_SRC
 
-** State Machine (Description)
+** FSM Finite State Machine
+
+*** Description
 
 States:
 
@@ -460,7 +462,7 @@ States:
 - PARAGRAPH
 - TBLFM
 
-** Transitions (Simplified Overview)
+*** Transitions (Simplified Overview)
 
 - START → WS : space/tab
 - START → STAR : '*'
@@ -473,7 +475,7 @@ States:
 - DIRECTIVE_SHARP → COMMENT : ' '
 - START → PARAGRAPH : fallback
 
-** Graphviz Diagram
+*** Graphviz Diagram
 
 #+begin_src dot :file ./img/line_lexer_fsm.svg :cmdline -Tsvg
   digraph line_lexer {
@@ -502,7 +504,6 @@ States:
 
 #+RESULTS:
 [[file:./img/line_lexer_fsm.svg]]
-
 
 * Inline Lexer (Inside Line)
 
