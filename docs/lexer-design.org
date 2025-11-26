@@ -34,7 +34,13 @@ The lexer only recognizes lines that matter for the purpose of this parser.
 
 *** Rule
 
+A heading line introduces an outline node by starting with one or more asterisks.
+
+Regular Expression:
+
 : ^\(\*+\)\(?: +\(.*?\)\)?[ \t]*$
+
+Properties:
 
 - The line must start with one or more ~*~ characters.
 - After the stars, at least one normal space is required.  
@@ -77,7 +83,13 @@ The lexer only recognizes lines that matter for the purpose of this parser.
 
 *** Rule
 
+A comment line designates a line that is ignored by Org and begins with a hash mark.
+
+Regular Expression:
+
 : ^[ \t]*#\(?: \|$\)
+
+Properties:
 
 - Optional leading spaces or tabs are allowed.
 - Followed by ~#~.
@@ -106,7 +118,13 @@ The lexer only recognizes lines that matter for the purpose of this parser.
 
 *** Rule
 
+A literal example line introduces fixed-width text beginning with a colon.
+
+Regular Expression:
+
 : ^[ \t]*: \( \|$\)
+
+Properties:
 
 - A literal example (fixed-width) line starts with optional leading spaces or tabs.
 - Followed by a single colon `:`.
@@ -135,7 +153,13 @@ The lexer only recognizes lines that matter for the purpose of this parser.
 
 *** Rule
 
+A keyword line declares an Org-Mode keyword beginning with ~#+~ and followed by a name, a colon and optional value.
+
+Regular Expression:
+
 : ^[ \t]*#\+\(\S-+?\):[ \t]*\(.*\)$
+
+Properties:
 
 - A keyword line starts with optional leading spaces or tabs.
 - Followed by ~#+~.
@@ -194,8 +218,6 @@ Notes:
 A regular block begins with a line of the form:
 
 : ^[ \t]*#\+begin_?\([^ \t]+\)\(?:[ \t]+\(.*\)\)?[ \t]*$
-
-Properties of this syntax:
 
 - Optional leading spaces or tabs are allowed.
 - A block begin line starts with ~#+BEGIN_~, case-insensitive.
@@ -282,54 +304,140 @@ Notes:
     ,#+end_example
   #+END_SRC
 
-** TODO Planing Line
+** DONE Planning Line
 
-org-element-planning-line-re
+*** Rule
 
-Lexer Output:
-- line type = planing
-- name (EXPORT)
-- begin
-- end
-- line_number
+A planning line contains one or more planning keywords at the start of the line:
 
-** TODO Table Formula Line
+- CLOSED:
+- DEADLINE:
+- SCHEDULED:
 
-All table rows (header rows and normal rows) are treated the same:
+Regular expression:
 
-- =table-row= → any line beginning with `|`
-- =table-rule= → separator lines made of `-|+` patterns
-- =tblfm= → table formula lines starting with `#+TBLFM:`
+: ^[ \t]*\(\(?:CLOSED\|DEADLINE\|SCHEDULED\):\)
 
-Only inline links should be parsed inside table rows.
+Properties:
 
-Example:
+- Optional leading spaces or tabs are allowed.
+- The line must begin with at least one planning keyword (~CLOSED~, ~DEADLINE~, ~SCHEDULED~).
+- A planning keyword is always followed by a colon (~CLOSED:~, ~DEADLINE:~, ~SCHEDULED:~).
+- The timestamps after the planning keyword. The line lexer does not interpret or parse them — it simply returns the entire line as raw text. Extracting individual timestamps is the job of the parser stage.
+- Multiple planning keywords may appear on the same line.
 
-| Student  | Maths | Physics | Mean |
-|----------+-------+---------+------|
-| Bertrand |    13 |      09 |   11 |
-| Henri    |    15 |      14 |      |
-| Arnold   |    17 |      13 |      |
-#+TBLFM: @2$4=vmean($2..$3)
+*** Extraction
 
-** TODO Table Rule Line
+- line type = planning :: The lexer classification for this line.
+- raw_text :: The entire line after trimming trailing whitespace.  
+  This includes all planning keywords and timestamps exactly as written.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of the line (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
 
-All table rows (header rows and normal rows) are treated the same:
+*** Examples
 
-- =table-row= → any line beginning with `|`
-- =table-rule= → separator lines made of `-|+` patterns
-- =tblfm= → table formula lines starting with `#+TBLFM:`
+- raw_text: "CLOSED: [2024-11-05 Tue]"
+  #+BEGIN_SRC org
+    CLOSED: [2024-11-05 Tue]
+  #+END_SRC
 
-Only inline links should be parsed inside table rows.
+- raw_text: "DEADLINE: <2024-11-10 Sun>"
+  #+BEGIN_SRC org
+    DEADLINE: <2024-11-10 Sun>
+  #+END_SRC
 
-Example:
+- raw_text: "SCHEDULED: <2025-01-01 Wed>"
+  #+BEGIN_SRC org
+        SCHEDULED: <2025-01-01 Wed>
+  #+END_SRC
 
-| Student  | Maths | Physics | Mean |
-|----------+-------+---------+------|
-| Bertrand |    13 |      09 |   11 |
-| Henri    |    15 |      14 |      |
-| Arnold   |    17 |      13 |      |
-#+TBLFM: @2$4=vmean($2..$3)
+- raw_text: "DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed>"
+  #+BEGIN_SRC org
+    DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed>
+  #+END_SRC
+
+** DONE Table Formula Line
+
+*** Rule
+
+A table formula line defines spreadsheet formulas associated with an Org table.
+
+Regular Expression:
+
+: ^[ \t]*#\+TBLFM:
+
+Properties:
+
+- Optional leading spaces or tabs are allowed.
+- The line must contain the keyword ~#+TBLFM:~ (case-insensitive).
+- Everything following the colon belongs to the formula expression.
+- The Line Lexer does **no** interpretation of the formula syntax;  
+  it simply returns the raw formula part of the line.
+
+Notes:
+
+- A table formula line always starts with ~#+TBLFM:~, never with a pipe (~|~).
+- The lexer only needs to detect that it is a table formula line. Nothing has to be returned as those lines can be ignored.
+
+*** Extraction
+
+- line type = table formula :: The lexer classification for this line.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of the line (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
+
+#+BEGIN_SRC org
+  ,#+TBLFM: @2$4=vmean($2..$3)
+  ,#+TBLFM: $3='(+ $1 $2)
+  ,  #+TBLFM: :: @3$2=vsum(@1$2..@2$2)::@>$3='(* @I @II)
+#+END_SRC
+
+** DONE Table Rule Line
+
+*** Rule
+
+A table rule line is a horizontal separator inside a table.
+
+Regular Expressions:
+
+- Org-style hline  
+  : ^[ \t]*|-
+
+- table.el-style hline  
+  : ^[ \t]*\+-[-+]
+
+Properties:
+
+- Optional leading spaces or tabs are allowed.
+- An Org table rule begins with a pipe (~|~) followed by one or more hyphens.
+- A `table.el` table rule begins with a `+` and consists of a combination  
+  of `+` and `-` characters.
+
+Notes:
+
+- Rule lines do not contain data cells.
+- They separate header rows from body rows or cell groups.
+- The lexer does not return any structural details besides the classification.
+
+*** Extraction
+
+- line type = table rule :: The lexer classification for this line.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of the line (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+*** Examples
+
+#+BEGIN_SRC org
+  |-----
+  |----+------|
+    |-----+----+---|
+  +---+---+---+
+    +-----+-----+
+#+END_SRC
 
 ** State Machine (Description)
 
