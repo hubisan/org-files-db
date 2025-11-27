@@ -583,6 +583,36 @@
   : Regexp matching opening or closing line of a drawer.
   : ^[	 ]*:\([_[:word:]-]+\):[	 ]*$
 
+- org-property-start-re
+  #+CALL: show(sym='org-property-start-re)
+
+  #+RESULTS:
+  : Regular expression matching the first line of a property drawer.
+  : ^[ 	]*:PROPERTIES:[ 	]*$
+  
+- org-property-end-re
+  #+CALL: show(sym='org-property-end-re)
+
+  #+RESULTS:
+  : Regular expression matching the last line of a property drawer.
+  : ^[ 	]*:END:[ 	]*$
+
+- org-property-drawer-re
+  #+CALL: show(sym='org-property-drawer-re)
+
+  #+RESULTS:
+  : Matches an entire property drawer.
+  : ^[ 	]*:PROPERTIES:[ 	]*
+  : \(?:[ 	]*:\S-+:\(?:[ 	].*\)?[ 	]*
+  : \)*?[ 	]*:END:[ 	]*$
+
+- org-property-re
+  #+CALL: show(sym='org-property-re)
+
+  #+RESULTS:
+  : Regular expression matching a property line.
+  : ^\(?4:[ 	]*\)\(?1::\(?2:\S-+\):\)\(?:\(?3:$\)\|[ 	]+\(?3:.*?\)\)\(?5:[ 	]*\)$
+
 ** Dynamic Blocks & Blocks
 
 - org-dblock-start-re

@@ -36,6 +36,8 @@ The lexer only recognizes lines that matter for the purpose of this parser.
 
 A heading line introduces an outline node by starting with one or more asterisks.
 
+: **** TODO [#A] Title [2/5] :tag1:tag2:
+
 Regular Expression:
 
 : ^\(\*+\)\(?: +\(.*?\)\)?[ \t]*$
@@ -85,6 +87,8 @@ Properties:
 
 A comment line designates a line that is ignored by Org and begins with a hash mark.
 
+: # a comment line
+
 Regular Expression:
 
 : ^[ \t]*#\(?: \|$\)
@@ -120,6 +124,8 @@ Properties:
 
 A literal example line introduces fixed-width text beginning with a colon.
 
+: This actually is a literal example.
+
 Regular Expression:
 
 : ^[ \t]*: \( \|$\)
@@ -154,6 +160,8 @@ Properties:
 **** Rule
 
 A keyword line declares an Org-Mode keyword beginning with ~#+~ and followed by a name, a colon and optional value.
+
+: #+TITLE: My Document
 
 Regular Expression:
 
@@ -211,13 +219,112 @@ Notes:
             ,#+options: toc:nil num:t
   #+END_SRC
 
+*** DONE Drawer End Line
+
+**** Rule
+
+A drawer end line closes a drawer block. It consists of the keyword ~:END:~ optionally preceded or followed by whitespace.
+
+Regular Expression:
+
+: ^[ \t]*:END:[ \t]*$
+
+Properties:
+
+- Optional leading spaces or tabs are allowed.
+- The line must contain exactly the drawer end marker ~:END:~.
+- Trailing spaces or tabs at the end of the line are allowed.
+
+Notes:
+
+- The lexer does not check whether a corresponding drawer-begin line exists.
+  Matching drawer structure is handled later by the parser.
+
+**** Extraction
+
+- line type = drawer end :: The lexer classification for this line.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of this line  
+  (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+**** Examples
+
+#+BEGIN_SRC org
+:END:
+#+END_SRC
+
+#+BEGIN_SRC org
+    :END:
+#+END_SRC
+
+*** DONE Drawer or Property Line
+
+**** Rule
+
+A line of the form ~:NAME:~ is lexically ambiguous in Org syntax. It may represent either the beginning of a drawer block or a property line. At the lexical stage, both forms share the exact same structure:
+
+: :NAME:
+
+Since the distinction depends on structural context (e.g. the presence of a matching ~:END:~ line later in the document), the Line Lexer does not attempt to classify such lines as drawer or property.  This decision is made later by the parser.
+
+Regular Expression:
+
+: ^[ \t]*:\([_[:word:]-]+\):[ \t]*$
+
+Properties:
+
+- Optional leading spaces or tabs are allowed.
+- The line must contain:
+  - an initial colon (~:~),
+  - a non-empty name consisting of letters, digits, underscore, or hyphen,
+  - a closing colon (~:~).
+- Trailing spaces or tabs at the end of the line are allowed.
+
+**** Extraction
+
+- line type = drawer-or-property :: A colon-definition line recognized by the lexer.
+- name :: The uppercased drawer or property name appearing between the two colons.
+- begin :: The byte offset of the first character of the line (inclusive).
+- end :: The byte offset immediately after the last character of the line  
+  (exclusive).
+- line_number :: The physical line number in the input buffer (starting at 1).
+
+**** Examples
+
+- name: "PROPERTIES"
+  #+BEGIN_SRC org
+    :PROPERTIES:
+  #+END_SRC
+
+- name: "LOGKBOOK"
+  #+BEGIN_SRC org
+    :logbook:
+  #+END_SRC
+
+- name: "ARCHIVE"
+  #+BEGIN_SRC org
+    :ARCHIVE:  a
+  #+END_SRC
+
+- name: "ARCHIVE"
+  #+BEGIN_SRC org
+    :ARCHIVE:
+  #+END_SRC
+
 *** DONE Block Begin Line
 
 **** Rule
 
-A regular block begins with a line of the form:
+A block containing a special environment like source code or examples ist started with a special begin line and ended with a special end line.
+
+: #+BEGIN_SRC rust
+
+Regular Expression:
 
 : ^[ \t]*#\+begin_?\([^ \t]+\)\(?:[ \t]+\(.*\)\)?[ \t]*$
+
+Properties:
 
 - Optional leading spaces or tabs are allowed.
 - A block begin line starts with ~#+BEGIN_~, case-insensitive.
@@ -262,7 +369,11 @@ Notes:
 
 **** Rule
 
-A regular block ends with a line of the form:
+A block containing a special environment like source code or examples ist started with a special begin line and ended with a special end line.
+
+: #+END_SRC
+
+Regular expression:
 
 : ^[ \t]*#\+end_?\([^ \t]+\)[ \t]*$
 
@@ -357,6 +468,42 @@ Properties:
     DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed>
   #+END_SRC
 
+*** DONE Clock Line
+
+**** Rule
+
+A clock line records timestamp information in Org-Mode and begins with the literal keyword ~CLOCK:~. It may occur inside drawers (commonly in `LOGBOOK` or `CLOCK` drawers) or standalone.
+
+Regular Expression:
+
+: ^[ \t]*CLOCK:
+
+Properties:
+
+- Optional leading spaces or tabs are allowed.
+- The keyword ~CLOCK:~ is case-insensitive.
+- Everything following ~CLOCK:~ is raw clock data.
+
+**** Extraction
+
+- line type = clock line :: The lexer classification for this line.
+- raw_text :: The full line content after trimming trailing whitespace.
+- begin :: Byte offset (inclusive).
+- end :: Byte offset (exclusive).
+- line_number :: Physical line number (1-based).
+
+**** Examples
+
+- raw_text: "[2024-01-02 Tue 22:33]--[2024-01-02 Tue 23:48] => 1:15"
+  #+BEGIN_SRC org
+    CLOCK: [2024-01-02 Tue 22:33]--[2024-01-02 Tue 23:48] => 1:15
+  #+END_SRC
+
+- raw_text: "[2024-01-05 Fri 13:05]"
+  #+BEGIN_SRC org
+      CLOCK: [2024-01-05 Fri 13:05]
+  #+END_SRC
+
 *** DONE Table Formula Line
 
 **** Rule
@@ -441,66 +588,139 @@ Notes:
 
 ** FSM Finite State Machine
 
-*** Description
+*** State Diagram
 
-States:
-
-- START
-- WS (leading whitespace)
-- STAR (headline stars)
-- HEADLINE_SPACE
-- TABLE_ROW
-- TABLE_RULE
-- LIST_START
-- DIRECTIVE_SHARP
-- BLOCK_BEGIN
-- BLOCK_END
-- DRAWER_START
-- DRAWER_END
-- COMMENT
-- EMPTY
-- PARAGRAPH
-- TBLFM
-
-*** Transitions (Simplified Overview)
-
-- START → WS : space/tab
-- START → STAR : '*'
-- START → TABLE_ROW : '|'
-- START → DIRECTIVE_SHARP : '#'
-- START → LIST_START : '-', '+', digit
-- DIRECTIVE_SHARP → TBLFM : '+TBLFM:'
-- DIRECTIVE_SHARP → BLOCK_BEGIN : '+BEGIN_'
-- DIRECTIVE_SHARP → BLOCK_END : '+END_'
-- DIRECTIVE_SHARP → COMMENT : ' '
-- START → PARAGRAPH : fallback
-
-*** Graphviz Diagram
-
-#+begin_src dot :file ./img/line_lexer_fsm.svg :cmdline -Tsvg
-  digraph line_lexer {
+#+BEGIN_SRC dot :file ./img/line_lexer_fsm.svg :cmdline -Tsvg
+  digraph OrgLexerDFA {
       rankdir=LR;
+      node [shape=circle, fontsize=12];
 
-      START -> WS                    [label="space/tab"];
-      START -> STAR                  [label="'*'"];
-      STAR -> HEADLINE_SPACE         [label="' '"];
-      HEADLINE_SPACE -> HEADLINE     [label="default"];
+      START [shape=circle];
+      OTHER [shape=doublecircle];
 
-      START -> TABLE_ROW             [label="'|'"];
-      START -> LIST_START            [label="'-' '+' digit"];
+      HEADING [shape=doublecircle];
+      COMMENT [shape=doublecircle];
+      LITERAL_EXAMPLE [shape=doublecircle];
+      KEYWORD [shape=doublecircle];
+      BLOCK_BEGIN [shape=doublecircle];
+      BLOCK_END [shape=doublecircle];
+      PLANNING [shape=doublecircle];
+      TABLE_FORMULA [shape=doublecircle];
+      TABLE_RULE [shape=doublecircle];
 
-      START -> DIRECTIVE_SHARP       [label="'#'"];
-      DIRECTIVE_SHARP -> TBLFM       [label="'+TBLFM:'"];
-      DIRECTIVE_SHARP -> BLOCK_BEGIN [label="'+BEGIN_'"];
-      DIRECTIVE_SHARP -> BLOCK_END   [label="'+END_'"];
-      DIRECTIVE_SHARP -> COMMENT     [label="' '"];
-      DIRECTIVE_SHARP -> DIRECTIVE   [label="default"];
+      DRAWER_START_PROPERTY [shape=doublecircle];
+      DRAWER_END [shape=doublecircle];
+      CLOCK_LINE [shape=doublecircle];
 
-      START -> EMPTY                 [label="'\\n'"];
-      START -> PARAGRAPH             [label="fallback"];
+      CHECK_HEADING [shape=circle];
+      WS_ALLOWED [shape=circle];
+      HASH_DISPATCH [shape=circle];
+      CHECK_LITERAL [shape=circle];
+
+      // colon granularity (fully implemented)
+      CHECK_COLON [shape=circle];
+      CHECK_COLON_E [shape=circle];
+      CHECK_COLON_EN [shape=circle];
+      CHECK_COLON_END [shape=circle];
+      CHECK_COLON_NAME [shape=circle];
+
+      // planning granularity (NOT fully expanded into all sub-states)
+      // NOTE: Full DFA for CLOSED:, DEADLINE:, SCHEDULED:, CLOCK:
+      // would require multiple additional states per word (C->CL->CLO->CLOS etc.).
+      // This diagram uses a compact placeholder representation.
+      CHECK_C [shape=circle];
+      CHECK_D [shape=circle];
+      CHECK_S [shape=circle];
+
+      CHECK_TABLE_RULE [shape=circle];
+
+      entry [shape=point];
+      entry -> START;
+
+      // START transitions
+      START -> CHECK_HEADING [label="*"];
+      START -> WS_ALLOWED [label="space/tab"];
+      START -> HASH_DISPATCH [label="#"];
+      START -> CHECK_LITERAL [label=":"];
+      START -> CHECK_C [label="C"];
+      START -> CHECK_D [label="D"];
+      START -> CHECK_S [label="S"];
+      START -> CHECK_TABLE_RULE [label="|"];
+      START -> CHECK_TABLE_RULE [label="+"];
+      START -> OTHER [label="other"];
+
+      // Whitespace allowed
+      WS_ALLOWED -> WS_ALLOWED [label="space/tab"];
+      WS_ALLOWED -> HASH_DISPATCH [label="#"];
+      WS_ALLOWED -> CHECK_LITERAL [label=":"];
+      WS_ALLOWED -> CHECK_C [label="C"];
+      WS_ALLOWED -> CHECK_D [label="D"];
+      WS_ALLOWED -> CHECK_S [label="S"];
+      WS_ALLOWED -> CHECK_TABLE_RULE [label="|"];
+      WS_ALLOWED -> CHECK_TABLE_RULE [label="+"];
+      WS_ALLOWED -> OTHER [label="other"];
+
+      // Heading
+      CHECK_HEADING -> CHECK_HEADING [label="*"];
+      CHECK_HEADING -> HEADING [label="space"];
+      CHECK_HEADING -> OTHER [label="other"];
+
+      // Literal example or colon-based dispatch
+      CHECK_LITERAL -> LITERAL_EXAMPLE [label="space/EOL"];
+      CHECK_LITERAL -> CHECK_COLON [label="other"];
+
+      // Colon-based drawer/property detection (fully implemented)
+      CHECK_COLON -> CHECK_COLON_E [label="E/e"];
+      CHECK_COLON -> CHECK_COLON_NAME [label="[A-Za-z0-9_-]"];
+      CHECK_COLON -> OTHER [label="other"];
+
+      CHECK_COLON_E -> CHECK_COLON_EN [label="N/n"];
+      CHECK_COLON_E -> CHECK_COLON_NAME [label="[A-Za-z0-9_-]"];
+      CHECK_COLON_E -> OTHER [label="other"];
+
+      CHECK_COLON_EN -> CHECK_COLON_END [label="D/d"];
+      CHECK_COLON_EN -> CHECK_COLON_NAME [label="[A-Za-z0-9_-]"];
+      CHECK_COLON_EN -> OTHER [label="other"];
+
+      CHECK_COLON_END -> DRAWER_END [label=":"];
+      CHECK_COLON_END -> CHECK_COLON_NAME [label="[A-Za-z0-9_-]"];
+      CHECK_COLON_END -> OTHER [label="other"];
+
+      CHECK_COLON_NAME -> CHECK_COLON_NAME [label="[A-Za-z0-9_-]"];
+      CHECK_COLON_NAME -> DRAWER_START_PROPERTY [label=":"];
+      CHECK_COLON_NAME -> OTHER [label="other"];
+
+      // Planning lines
+      // NOTE: Not fully expanded — in the Rust lexer,
+      // CLOSED:, DEADLINE:, SCHEDULED:, CLOCK: will be implemented
+      // as complete multi-state chains.
+      CHECK_C -> PLANNING [label="L"];       // CLOSED: (placeholder)
+      CHECK_C -> CLOCK_LINE [label="O"];     // CLOCK:  (placeholder)
+      CHECK_C -> OTHER [label="other"];
+
+      // NOTE: DEADLINE: not expanded into D->DE->DEA->... chain
+      CHECK_D -> PLANNING [label="E"];       // DEADLINE: (placeholder)
+      CHECK_D -> OTHER [label="other"];
+
+      // NOTE: SCHEDULED: not expanded into S->SC->SCH->...
+      CHECK_S -> PLANNING [label="C"];       // SCHEDULED: (placeholder)
+      CHECK_S -> OTHER [label="other"];
+
+      // Table rule (correct but compact)
+      CHECK_TABLE_RULE -> TABLE_RULE [label="-"];
+      CHECK_TABLE_RULE -> TABLE_RULE [label="+"];
+      CHECK_TABLE_RULE -> OTHER [label="other"];
+
+      // Hash dispatch
+      // NOTE: block-begin/end and keyword detection shown compactly.
+      HASH_DISPATCH -> COMMENT [label="space/EOL"];
+      HASH_DISPATCH -> TABLE_FORMULA [label="+T..."];   // compact placeholder
+      HASH_DISPATCH -> KEYWORD [label="+"];             // NAME:
+      HASH_DISPATCH -> BLOCK_BEGIN [label="+B"];        // BEGIN_ / begin_
+      HASH_DISPATCH -> BLOCK_END [label="+E"];          // END_ / end_
+      HASH_DISPATCH -> OTHER [label="other"];
   }
-
-#+end_src
+#+END_SRC
 
 #+RESULTS:
 [[file:./img/line_lexer_fsm.svg]]
