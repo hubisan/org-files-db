@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS headings (
 
     level                 INTEGER NOT NULL,
     line                  INTEGER NOT NULL,
-    pos                   INTEGER NOT NULL,
+    begin                 INTEGER NOT NULL,
 
     title                 TEXT,
     title_raw             TEXT,
@@ -168,13 +168,16 @@ CREATE TABLE IF NOT EXISTS links (
     -- Heading unter welcher sich der link befindet. Null
     -- wenn file level
     heading_id        INTEGER,
-    pos            INTEGER NOT NULL,
+    begin            INTEGER NOT NULL,
+    end            INTEGER NOT NULL,
+    line                  INTEGER NOT NULL,
 
     type           TEXT,
     path           TEXT NOT NULL,
 
     -- only for type file
     path_absolute  TEXT,
+    link_broken    BOOLEAN NOT NULL DEFAULT 0, -- 0=file/folder exists, 1=link is broken
     target_file_id        INTEGER,
     target_heading_id     INTEGER,
 
@@ -187,7 +190,7 @@ CREATE TABLE IF NOT EXISTS links (
     -- [[https://www.example.com][Example (->Inhaber)]]
     relation TEXT,
 
-    CONSTRAINT ck_links_format CHECK (format IN ('plain', 'bracket')),
+    CONSTRAINT ck_links_format CHECK (format IN ('plain', 'bracket', 'angle')),
 
     CONSTRAINT fk_links_file
         FOREIGN KEY (target_file_id) REFERENCES files(id) ON DELETE CASCADE,
@@ -203,7 +206,7 @@ CREATE TABLE IF NOT EXISTS links (
         FOREIGN KEY (target_heading_id) REFERENCES headings(id)
             ON DELETE SET NULL,
 
-    CONSTRAINT uq_links_file_pos UNIQUE (file_id, pos)
+    CONSTRAINT uq_links_file_pos UNIQUE (file_id, begin)
 );
 
 --------------------------------------------------

@@ -7,7 +7,7 @@ parser.
 The parsing is divided into two stages:
 
 1. Line Lexer - classifies each input line
-2. Inline Lexer - identifies inline structures used for links
+2. Inline Lexer/Parser - identifies inline structures used for links and citations
 
 * Line Lexer
 
@@ -728,79 +728,305 @@ Notes:
 * Inline Lexer (Inside Line)
 
 The Inline Lexer processes the content of a line, identifying structures such as
-links and markup.
+links and markup. 
 
-This document focuses on the Link Inline FSM.
+I only plan to add Links and Citations.
 
-** Purpose
-- Detects and extracts Org-Mode links ([[target][description]])
-- Handles escaped characters
-- Accepts nested or complex descriptions
-- Does not require backtracking
-- Works inside any line type (including table rows)
+** DONE Links (Org-Mode) — Lexer/Parser Spec (Bracket, Angle, Plain)
 
-** Link Recognition Rules
-- Link starts with =[[=
-- Link ends with =]]= (but =]= may appear inside)
-- Escape sequences: \[, \]
+*** Assumptions
 
-** States
-- START
-- OPEN1
-- OPEN2
-- TARGET
-- TARGET_END
-- DESC_OPEN
-- DESC
-- DESC_END
-- CLOSE1
-- CLOSE2
+- We recognize and store only:
+  - bracket links: =[[...]]= and =[[...][...]]=
+  - angle links: =<type:...>=
+  - plain links: =type:path= (no spaces)
+- We ignore radio targets / link targets like =<<...>>= and =<<<...>>>=.
+- Bracket links may use an *implicit* file type when the target looks like a file path:
+  - =[[./lexer-design.org]]=
+  - =[[~/.emacs.default]]=
+- Description parsing is permissive:
+  - In the DESCRIPTION part of a bracket link, any characters may appear (including unescaped =[]= and =]=),
+    and “nested-looking” bracket sequences are allowed.
+  - The bracket link ends only at the first valid closing delimiter =]]= (same-line, recommended).
+- Newlines inside links:
+  - Org may allow newlines inside a bracket link description in some situations, but this parser intentionally does NOT parse links across newlines.
+  - If a bracket/angle link would require crossing a newline to close, treat it as not-a-link and continue scanning.
 
-** Transitions (Simplified)
-- START → OPEN1 : '['
-- OPEN1 → OPEN2 : '['
-- OPEN2 → TARGET
-- TARGET → TARGET_END : ']'
-- TARGET_END → DESC_OPEN : '['
-- DESC_OPEN → DESC
-- DESC → DESC_END : ']'
-- DESC_END → CLOSE1 : ']'
-- CLOSE1 → CLOSE2 : ']'
-- CLOSE2 → START
+*** Custom Link Types (config)
 
-** Graphviz Diagram
-#+begin_src dot :file inline_link_fsm.svg :cmdline -Tsvg
-digraph inline_link {
-    rankdir=LR;
+In addition to built-in types, the parser accepts custom link prefixes from configuration:
 
-    START -> OPEN1        [label="'['"];
-    OPEN1 -> OPEN2        [label="'['"];
-    OPEN2 -> TARGET       [label="default"];
+: custom_link_types = [
+:   "gdrive",
+:   "def",
+:   "jira",
+: ]
 
-    TARGET -> TARGET_END  [label="']'"];
-    TARGET_END -> DESC_OPEN [label="'['"];
+This affects:
+- plain links: =gdrive:...=, =def:...=, =jira:...=
+- angle links: =<gdrive:...>=, ...
+- bracket links: =[[gdrive:...][...]]=, ...
 
-    DESC_OPEN -> DESC     [label="default"];
-    DESC -> DESC_END      [label="']'"];
-    DESC_END -> CLOSE1    [label="']'"];
-    CLOSE1 -> CLOSE2      [label="']'"];
-    CLOSE2 -> START       [label=""];
-}
-#+end_src
+*** Storage Mapping (DB columns)
 
-** Examples
-#+begin_example
-[[https://gnu.org][GNU]]
-[[file:~/path with spaces/][Test]]
-[[./test.org]]
-[[https://test.com][[]nested[] description[]]]
-| table | with a [[https://link.com][link]] |
-#+end_example
+Store one row per detected link token:
 
----
+- file_id :: current file row id (provided by caller)
+- heading_id :: current heading context id (resolved by outer parser, may be NULL)
+- begin :: byte offset of first character of the link token (inclusive)
+- end :: byte offset immediately after last character (exclusive)
+- line :: physical line number (1-based) where begin occurs
+- format :: =bracket= | =angle= | =plain=
+- type :: link type/scheme (e.g. =http=, =https=, =file=, =mailto=, =id=, ...), or =fuzzy=
+- path :: main path portion (NOT NULL; may be empty only for degenerate cases like =file:::find me=)
+- description :: bracket link description (optional; NULL if absent or for plain/angle)
+- search_option :: optional portion after =::= for file-like links
+- relation :: optional custom extraction from description (see “Relation”)
 
-* TODO
-- FSM for markup: bold, italic, verbatim, code
-- FSM for footnotes
-- FSM for entities
-- Automatic generation of DOT files from Rust
+Optional resolution fields (filled later):
+- path_absolute
+- target_file_id
+- target_heading_id
+
+*** Link Token Priority (recommended)
+
+Scan left-to-right:
+
+1) If current position starts with =[[=, try parse a Bracket Link.
+   - If parsing fails: advance by 1 byte and continue scanning.
+     This ensures sequences like =[[[]]][[[[[file:...= still find the first valid link at =[[file:...=.
+2) Else if current char is =<=, try parse an Angle Link.
+3) Else try parse a Plain Link (=type:path=).
+4) Otherwise advance by 1 byte.
+
+--------------------------------------------------------------------------------
+*** DONE Bracket Link (Org-Mode =[[...]]= / =[[...][...]]=)
+
+**** Rule
+
+A bracket link is an inline element that starts with =[[=. It always contains a target and may optionally contain a description.
+
+: [[TARGET]]
+: [[TARGET][DESCRIPTION]]
+
+**** Validity Rules (important)
+
+- Must start with exact =[[=.
+- Must close on the same line (recommended). If a newline is reached before a valid close, it is not a link.
+- TARGET rules (strict, Org-like):
+  - TARGET ends at the first unescaped delimiter:
+    - =]]= ends the link (no description)
+    - =][= starts the description
+  - Within TARGET, unescaped =[]= and unescaped =]= are NOT allowed.
+    - =\[]= and =\]= are allowed.
+    - This makes =[[[]]]= invalid (good for your “first valid link starts later” case).
+- DESCRIPTION rules (permissive, as requested):
+  - If =][= occurred, DESCRIPTION starts immediately after it.
+  - DESCRIPTION may contain anything (including unescaped =[]=, =]=, =][=, etc.).
+  - The link ends at the first unescaped closing delimiter =]]= (same line),
+    where =]]= means *two immediately adjacent* =]= characters.
+    - If any character occurs between the two closing brackets, it is NOT a closing delimiter.
+    - This matters for “invisible” characters like Zero Width Space (U+200B), which Org commonly
+      uses to break syntax while keeping the text visually unchanged.
+  - Do NOT treat “almost delimiters” like =] ]= or =] [= inside DESCRIPTION as invalid;
+    they are just normal description text unless they form an actual =]]= close.
+
+**** Escaping Rule (odd/even backslashes)
+
+When scanning for delimiter sequences (=]]= or =][=) and when deciding whether a =]= in TARGET is “real”:
+
+- Count consecutive backslashes immediately before the delimiter’s first =]= (or before the =]= character).
+- odd count  → escaped → treat as literal character(s)
+- even count → not escaped → delimiter / structural character
+
+Notes:
+- Org documents explicitly state that backslash escaping is required in the LINK part for some characters
+  (notably =\=, =[=, =]=). :contentReference[oaicite:2]{index=2}
+- For “breaking” Org syntax in general text, Org recommends using Zero Width Space (U+200B). :contentReference[oaicite:3]{index=3}
+  This is relevant for DESCRIPTION when it contains a literal =]]= sequence.
+
+**** Extraction
+
+- token type :: link
+- format :: =bracket=
+- raw_target :: TARGET text (no outer brackets), still escaped
+- raw_description :: DESCRIPTION text (optional)
+  - normalization (recommended):
+    - store description_raw exactly as in the buffer
+    - additionally store / compute description_norm where Unicode format characters used for “breaking”
+      (e.g. U+200B) are removed, so displayed text and stored text match better.
+- type :: derived from raw_target (see “Target decomposition”)
+- path :: derived from raw_target
+- search_option :: derived from path for file-like links
+- description :: raw_description (or processed text if you strip relation)
+- relation :: optional extracted relation
+- begin :: byte offset of the first =[=
+- end :: byte offset immediately after the final =]]= (exclusive)
+- line :: 1-based line number of begin
+
+**** Target Decomposition (type/path + implicit file type)
+
+Given raw_target:
+
+1) Explicit typed target: if raw_target matches =TYPE:REST= where TYPE is recognized (built-in or custom):
+   - type = TYPE
+   - path = REST
+2) Implicit file target inside bracket links:
+   - If raw_target starts with one of:
+     - =./=, =../=, =~/=, =/= (and optionally Windows drive forms)
+   then:
+   - type = =file=
+   - path = raw_target
+   Examples:
+   - =[[./lexer-design.org]]=
+   - =[[~/.emacs.default]]=
+3) Otherwise:
+   - type = =fuzzy=
+   - path = raw_target
+   Example:
+   - =[[lexer-design.org][sdf]]= → fuzzy (not file)
+
+**** Search Options for file-like links (=::=)
+
+Applies to type in {=file=, =attachment=, =id=} and implicit file.
+
+If path contains =::=, split at the first occurrence:
+- path = part before =::= (may be empty)
+- search_option = part after =::= (may be empty)
+
+Examples:
+: [[file:~/code/main.c::255]]
+: [[file:~/xx.org::*My Target]]
+: [[file:~/xx.org::#my-custom-id]]
+: [[file:~/xx.org::/regexp/]]
+: [[attachment:main.c::255]]
+: [[file:::find me]]
+
+**** Relation (custom extension)
+
+If DESCRIPTION contains a relation marker, store it separately.
+
+Recommended simple rule:
+- If DESCRIPTION contains =(->RELATION)= (typically near the end):
+  - relation = RELATION (trim spaces)
+  - description = DESCRIPTION with that marker removed (trim spaces)
+
+Example:
+: [[https://www.example.com][Example (->Inhaber)]]
+
+**** Examples
+
+- Target only (typed):
+: See [[file:notes.org]] for details.
+
+- Target only (implicit file type):
+: See [[./lexer-design.org]] for details.
+: See [[~/.emacs.default]] for details.
+
+- With description:
+: Open [[https://example.com][Example Site]] now.
+
+- Fuzzy (NOT a file):
+: [[lexer-design.org][sdf]]
+
+- Description with unescaped brackets and nested-looking sequences:
+: [[https://test.com][[]valid[] [[description[]]
+
+- Literal =]]= inside description without terminating the link (using an invisible breaker):
+  (U+200B between the two closing brackets — visually looks like =]]= but is not adjacent)
+: [[file:lexer-design.org][Description]​]​ more]]
+  → description contains a “]]” visually, link closes at the first *adjacent* =]]= later
+
+- “Garbage before a real link” (real link starts at =[[file:...=):
+: [[[]]][[[[[file:lexer-design.org][sd]]
+
+- Newline inside description (ignored by this parser; not parsed as a link):
+: [[file:lexer-design.org][s
+:      d]]
+
+**** Note on “weird characters” in DESCRIPTION (e.g., zero-width spaces)
+
+Some editors/terminals may display invisible Unicode characters (e.g., a zero-width space) near bracket sequences.
+The parser should treat them as normal characters:
+- They do not end a link unless they are part of the exact closing delimiter =]]=
+- If such a character appears between the two closing brackets, it breaks the delimiter and the link may not close.
+
+--------------------------------------------------------------------------------
+*** DONE Angle Link (Org-Mode =<type:...>=)
+
+**** Rule
+
+An angle link is delimited by =<= and =>=:
+
+: <TYPE:PATH>
+
+Spaces are allowed inside PATH. This parser requires the closing =>= on the same line.
+
+**** Validity Rules
+
+- Must start with =<=.
+- Must contain a recognized =TYPE:= prefix (built-in or custom).
+- Ends at the first =>= on the same line.
+- If newline/EOF occurs before =>=, it is not a link.
+
+**** Extraction
+
+- format :: =angle=
+- type :: TYPE
+- path :: PATH
+- description :: NULL
+- search_option :: optional =::= split for file-like types
+- begin/end/line :: as usual
+
+**** Examples
+
+: See <https://example.com/some path with spaces> now.
+: <file:~/code/main.c::255>
+: <jira:ABC-123>
+
+--------------------------------------------------------------------------------
+*** DONE Plain Link (Org-Mode =type:path= without spaces)
+
+**** Rule
+
+A plain typed link has a URL-like prefix and contains no whitespace:
+
+: TYPE:PATH
+
+**** Validity Rules (pragmatic)
+
+- No whitespace inside the token.
+- TYPE must be recognized (built-in or custom).
+- PATH continues until whitespace.
+
+**** Extraction
+
+- format :: =plain=
+- type :: TYPE
+- path :: PATH
+- description :: NULL
+- search_option :: optional =::= split for file-like types
+- begin/end/line :: as usual
+
+**** Examples
+
+: Visit https://example.com now.
+: file:./lexer-design.org::#my-custom-id
+: mailto:me@example.com
+: gdrive:1a2b3c4d
+
+--------------------------------------------------------------------------------
+*** DONE Known Types
+
+Built-in types (from your =org-link-types-re= snippet) include:
+- attachment, docview, elisp, file (including file+...), ftp
+- help, helpful, http, https
+- id, info, mailto
+- news, nov
+- shell, shortdoc, yt
+
+Custom types:
+- from =custom_link_types= configuration.
+
+--------------------------------------------------------------------------------
+

@@ -460,6 +460,8 @@
   : ]*[^<>
   :  	]\)>>>
 
+** Citations
+
 - org-element-citation-key-re
   #+CALL: show(sym='org-element-citation-key-re)
 
@@ -474,7 +476,7 @@
   : Regexp matching a citation prefix.
   : \[cite\(?:/\([/_[:alnum:]-]+\)\)?:[	
   :  ]*
-
+  
 ** Emphasis & Markup
 
 - this needs to cover

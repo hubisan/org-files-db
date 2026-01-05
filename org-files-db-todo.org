@@ -5,84 +5,59 @@
 
 ** lexer.rs
 
-- Parser Funktionen anschauen
-  [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
-
-1. Lexer (FSM)
-
-✔ Erkennt einzelne Zeilentypen
-✔ Erzeugt Tokens
-✘ Versteht keine Blockstruktur
-✘ Validiert keine Paare
-
-2. Parser
-
-✔ Nimmt Token-Strömung
-✔ Baut AST
-✔ Validiert Blockpaare
-✔ Fehler wenn END ohne BEGIN
-✔ Fehler wenn BEGIN ohne END
-✔ Fehler wenn falscher Blockname
-✔ Fehler bei unzulässiger Verschachtelung
-
 *** TODO Line Lexer
 
-- Regular Expresson
-  [[file:docs/org-regular-expressions.org][Org-mode Regular Expressions]]
-- Parser Funktionen anschauen
-  [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
-  Sicher wichtig als Start: ~org-element--current-element~
-  
-  1. mode == 'item'             → Item parser
-  2. mode == 'table-row'        → Table-row parser
-  3. mode == 'node-property'    → node property parser
-  4. Headline?
-  (looking-at "^*+ ") and not inlinetask → headline parser
-  1. Section (only if mode == section or first-section)
-  2. Comments
-  (org-comment-regexp)
-  1. Planning lines
-  (org-element-planning-line-re)
-  1. Property drawer
-  (org-property-drawer-re)
-  1. If not at beginning-of-line: paragraph
-  2. CLOCK line
-     (org-element-clock-line-re)
-  3. Inlinetask (if at-task?)
-  4. Collect affiliated keywords first
-  5. THEN:
-     If matches org-element--current-element-re:
-         13.1 LaTeX begin
-         13.2 Drawer
-         13.3 Fixed width
-         13.4 Special block / block types
-         13.5 CALL:
-         13.6 BEGIN:
-         13.7 Keyword
-         13.8 #+ unknown (paragraph)
-         13.9 Footnote definition
-         13.10 Horizontal rule
-         13.11 Diary sexp
-  6. Table?
-  7. List?
-  8. Default: Paragraph
+**** DONE FSM Definition
+**** TODO FSM Rust
 
-*** TODO Inline Lexer (Links only)
+*** TODO Link Parser
+
+**** TODO Link Parser Definition
+
+**** TODO Link Parser Rust
 
 Unbedingt memchr nutzen.
+
+- Fast scanning:
+  - Use memchr (or SIMD search) to jump to the next candidate start byte:
+    - =‘[’= for bracket links
+    - =‘<’= for angle links
+    - =‘:’= for plain typed links (then scan backwards/forwards to validate TYPE)
+- Bracket links:
+  - After seeing =[[=, scan forward for =]= candidates and check for =][= or =]]= while applying the odd/even backslash rule.
+  - Enforce “no unescaped [ or ] inside TARGET” to reject cases like =[[[]]]= early.
+- Always ensure progress on failure:
+  - If =[[= parse fails, advance by 1 byte (not 2) so later overlapping patterns can still be found.
 
 - Parser Funktionen anschauen
   [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
   Sicher wichtig ~org-element--object-lex~
 
-**** TODO Mimic Org-mode Unescape
+***** TODO Mimic Org-mode Unescape
+
+Damit dann der Link oder die Description sauber ist.
+(defun org-link-unescape (link)
+  "Remove escaping backslash characters from string LINK."
+  (replace-regexp-in-string
+   (rx (group (one-or-more "\\")) (or string-end (any "[]")))
+   (lambda (_)
+     (concat (make-string (/ (- (match-end 1) (match-beginning 1)) 2) ?\\)))
+   link nil t 1))
+
+da muss auch Folgendes eigenartiges rein:
+
+: ]] wird zu ]​]​ [[file:.gitignore][]​]​]]
+: [[ wird zu [[] [[file:.gitignore][[[]]
+: ][ wird zu ][] [[file:.gitignore][][]]
 
 ** Bugs
 
 ** Features
-*** DONE Link raw fehlt
+
 *** TODO config
+[[file:config-example.toml][~/projects/coding/org-files-db/config-example.toml]]
 wie kann man die Konfiguration am besten speichern? .conf datei oder .ini? Und wie lege ich Standardwerte fest? wie für das Attachment dir?
+Oder gleich in Emacs falls ein Emacs Module?
 Konf:
 - 
 - Dirs (recursive or not) und Dateien zum scannen
@@ -92,18 +67,7 @@ Konf:
 - link types
 - ...
 Write a funtion to dump all the current settings from Emacs to a conf file.
-*** TODO Relational Links - Link Relation
-Example würde von [[Daniel][Daniel (->Inhaber)]] 2023 gegründet.
-Für Parser: Relation erkennen " (->...)", entfernen und in Feld Relation verschieben.
-*** TODO Regulare Expression im Parser oben sammeln?
-Damit nicht so verstreut.
-*** TODO Code cleaning (parse_body modularisieren falls nötig)
 *** TODO Abgleich mit Felder der Datenbank
-*** TODO Headline pos und line fehlt
-*** TODO Category Keyword parsen
-Vielleicht doch besser alle Keywords parsen. Aber Category ist speziell.
-https://orgmode.org/manual/In_002dbuffer-Settings.html
-
 *** TODO Falls TODO Keywords in einem File spezifiziert sind, dies berücksichtigen
 [[info:org#Per-file keywords][org#Per-file keywords]]
 *** TODO Not sure where this belongs - link to heading id
@@ -117,158 +81,13 @@ After links are stored, links to custom_id and id need to connected to the headi
 Sonst kann man die Pfade nicht rausfinden.
 *** TODO Broken Links > bereits im Parser prüfen
 Wohl eher sonst periodisch oder so.
+Und dann auch immer beim reparsen, und in DB speichern.
 ** Testing
 Keine Unit-Tests, einfach Output mit erwartetem Output vergleichen.
 *** TODO Input [[https://github.com/novoid/github-orgmode-tests?tab=readme-ov-file][GitHub - novoid/github-orgmode-tests: This is a test project where you can explore how github interprets Org-mode files]]
 *** TODO Org Testdatei und erwarteter Output
 *** TODO Test all kind of Links
 [[https://orgmode.org/guide/Hyperlinks.html][Hyperlinks (Org Mode Compact Guide)]]
-
-* Config.rs
-
-#+BEGIN_SRC markdown
-  Ja — **genau so** solltest du es machen.
-  Die beste Architektur ist:
-
-  # 🟢 **Rust-Parser hat EIGENE Konfigurations-Struktur (z. B. config.toml)**
-
-  und
-
-  # 🟣 **Emacs kann diese Konfiguration überschreiben / erweitern**
-
-  Damit bekommst du:
-
-  ,* ✔ volle Unabhängigkeit von Emacs
-  ,* ✔ Parser funktioniert standalone (CLI-Tool, Tests, Benchmarks, LSP, etc.)
-  ,* ✔ Gleichzeitig volle Flexibilität in Emacs
-  ,* ✔ Kein hartcodiertes Verhalten → Emacs kann alles überschreiben
-  ,* ✔ Robust und langfristig sauber
-
-  ---
-
-  # 🧩 Perfektes Setup: Zwei Ebenen von Konfiguration
-
-  ## **1. Rust-native Config**
-
-  (auch wenn Emacs nichts lädt)
-
-  Beispiel:
-
-  ```rust
-  struct Config {
-      link_types: Vec<String>,
-      allow_angled_links: bool,
-      block_whitelist: Vec<String>,
-      whitespace_normalization: bool,
-      todo_keywords: Vec<String>,
-  }
-  ```
-
-  Wird geladen aus:
-
-  ```
-  ~/.config/my-org-parser/config.toml
-  ```
-
-  oder default über:
-
-  ```rust
-  impl Default for Config { … }
-  ```
-
-  → Dein Parser kann komplett **standalone** laufen.
-
-  ---
-
-  ## **2. Emacs liefert „Runtime Overrides“**
-
-  Beispiel:
-
-  ```elisp
-  (org-rs-parse buffer-string
-                :link-types org-link-types
-                :todo-keywords org-todo-keywords
-                :normalize t)
-  ```
-
-  In Rust:
-
-  ```rust
-  fn parse_org(text: &str, overrides: ConfigOverrides) {
-      let mut cfg = Config::default();
-      cfg.apply(overrides);
-      parse_with_config(text, &cfg)
-  }
-  ```
-
-  ---
-
-  # 🧠 Warum diese Kombination ideal ist
-
-  ### ✔ Emacs-Anwender können ALLES konfigurieren
-
-  (z. B. zusätzliche link-types, custom blocks, exporter options)
-
-  ### ✔ Rust bleibt unabhängig
-
-  ,* Du kannst CLI-Tools bauen
-  ,* Tests schreiben
-  ,* Parser in anderen Editoren verwenden (Helix, Neovim, VS Code, Kate, etc.)
-
-  ### ✔ Emacs-Integration bleibt leicht
-
-  Emacs muss kein TOML parsen
-  → gibt einfach JSON oder Lisp-Listen an Rust
-
-  ---
-
-  # 🔥 Beispiel: CLI + Emacs Modul, gleiche Config
-
-  ## CLI
-
-  ```
-  myorg-parse myfile.org --config ~/.config/myorg/config.toml
-  ```
-
-  ## Emacs
-
-  ```
-  (org-rs-parse buffer-string :link-types org-link-types)
-  ```
-
-  → Rust benutzt denselben Codepfad.
-
-  ---
-
-  # 📦 Wie du die Overlays strukturierst
-
-  ```rust
-  struct ConfigOverrides {
-      link_types: Option<Vec<String>>,
-      todo_keywords: Option<Vec<String>>,
-      allow_angled_links: Option<bool>,
-      // usw.
-  }
-
-  impl Config {
-      fn apply(&mut self, o: ConfigOverrides) {
-          if let Some(x) = o.link_types { self.link_types = x; }
-          if let Some(x) = o.todo_keywords { self.todo_keywords = x; }
-          if let Some(x) = o.allow_angled_links { self.allow_angled_links = x; }
-      }
-  }
-  ```
-
-  ---
-
-  # 🎯 Fazit
-
-  ✔ **Ja — du kannst alle Emacs-Variablen direkt an Rust übergeben.**
-  ✔ **Ja — du solltest trotzdem eine config.toml behalten**, damit Rust standalone bleibt.
-  ✔ Beste Lösung: **Defaults in Rust**, **Overlays aus Emacs**.
-  ✔ Clean, robust, zukunftssicher.
-
-#+END_SRC
 
 * Types.rs
 ** TODO OrgHeading final definieren
@@ -365,6 +184,7 @@ Da dein Projekt ein *leistungsstarker Org-Parser in Rust*  werden soll:
 
 → optional, aber nicht nötig  
 → hohe Flexibilität ohne Crate
+
 * Optimierung (optional)
 ** TODO SQLite Indizes optimieren
 ** TODO Prüfen welche Insert-Batches sinnvoll sind
