@@ -1,0 +1,1337 @@
+#+TITLE: TODO
+#+TODO: TODO(t) NEXT(n) WAIT(w) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+
+This repository uses AI agents to assist with development.
+
+Important files:
+
+- [[./AGENTS.org]]: AI agent instructions and workflow rules
+- [[./TODO.org]]: Active task index & statuses.
+- [[./AI-NOTES.org]]: Cross-task context (notes, blockers, decisions).
+- [[./CHANGELOG.org]]: Approved/completed user-visible changes.
+
+* Projektziel
+
+Rust org-mode parser der eine SQLite DB befüllt und ein CLI bietet, um Abfragen zu machen, inklusive JSON-API a la org-ql.
+
+Ziel ist ein klarer, in kleine Schritte aufgeteilter Entwicklungsplan, der mit AI-Agenten Punkt für Punkt abgearbeitet werden kann.
+
+Aktueller Stand:
+
+- FSM-Parser-Definition ist abgeschlossen.
+- Diese Definition muss nochmals geprüft werden.
+- Als wichtige Referenz für die Prüfung verwenden:
+  https://github.com/200ok-ch/org-parser/blob/master/resources/org.ebnf
+- Und diese, vielleicht kann ich gleich einen Parser verwenden:
+  - https://github.com/org-rs/org-rs
+  - https://github.com/hydrobeam/org-rust
+  - https://github.com/poiscript/orgize
+
+* Phase 0: Projektregeln und Scope
+
+** NEXT FSM-Parser-Definition gegen org.ebnf prüfen
+
+Ziel:
+
+- Die vorhandene FSM-Parser-Definition fachlich prüfen.
+- Referenz:
+  https://github.com/200ok-ch/org-parser/blob/master/resources/org.ebnf
+- Und diese, vielleicht kann ich gleich einen Parser verwenden?
+  - https://github.com/org-rs/org-rs
+  - https://github.com/hydrobeam/org-rust
+  - https://github.com/poiscript/orgize
+
+Vorgehen für AI:
+
+1. Vorhandene FSM-Definition lesen.
+2. org.ebnf als Referenz lesen.
+3. Unterschiede dokumentieren.
+4. Entscheiden:
+   - Was muss übernommen werden?
+   - Was wird bewusst nicht unterstützt?
+   - Was bleibt für später?
+5. Ergebnis in AI-NOTES.org dokumentieren.
+6. TODO.org mit Follow-up-Tasks aktualisieren.
+
+Akzeptanzkriterien:
+
+- Es gibt eine Liste unterstützter Org-Elemente.
+- Es gibt eine Liste bewusst nicht unterstützter Org-Elemente.
+- Es gibt eine Liste offener Parser-Fragen.
+- Die FSM-Definition ist entweder bestätigt oder konkrete Änderungen sind als Tasks erfasst.
+
+* Phase 1: Minimaler End-to-End-Slice
+
+Ziel dieser Phase:
+
+- Möglichst früh ein lauffähiges System haben.
+- Eine Org-Datei parsen.
+- Headings in SQLite speichern.
+- Über CLI JSON ausgeben.
+
+Noch nicht Ziel:
+
+- vollständiger Link Parser
+- Watcher
+- Emacs-Modul
+- Parallelisierung
+- perfekte Query-Sprache
+
+** TODO Minimal-Config definieren
+
+Ziel:
+
+- Genug Konfiguration, damit der erste Indexlauf funktioniert.
+
+Minimale Felder:
+
+- DB path
+- files oder dirs
+- recursive true/false
+- default TODO keywords
+
+Akzeptanzkriterien:
+
+- Config-Struktur ist in Rust definiert.
+- Defaults sind vorhanden.
+- config-example.toml enthält ein minimales Beispiel.
+- Fehlende optionale Werte führen nicht zu Panic.
+
+** TODO OrgHeading minimal definieren
+
+Ziel:
+
+- Datenstruktur für den ersten End-to-End-Slice definieren.
+
+Minimale Felder:
+
+- file_path
+- level
+- title
+- todo_keyword
+- tags
+- line_number
+- byte_start
+- byte_end
+
+Akzeptanzkriterien:
+
+- OrgHeading ist in types.rs definiert.
+- Struktur kann nach JSON serialisiert werden.
+- Struktur kann in SQLite gespeichert werden.
+
+** TODO SQLite öffnen und WAL aktivieren
+
+Ziel:
+
+- DB-Verbindung sauber aufbauen.
+
+Konfiguration:
+
+#+begin_src sql
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+#+end_src
+
+Akzeptanzkriterien:
+
+- db.rs enthält Funktion zum Öffnen der DB.
+- WAL-Modus wird aktiviert.
+- synchronous=NORMAL wird gesetzt.
+- Fehler werden sauber zurückgegeben.
+
+** TODO Minimales DB-Schema anlegen
+
+Ziel:
+
+- Erstes Schema für Dateien und Headings.
+
+Tabellen:
+
+- files
+- headings
+
+Akzeptanzkriterien:
+
+- Schema wird idempotent angelegt.
+- files.path ist eindeutig.
+- headings referenziert files.
+- Nötige Indizes für erste Queries existieren.
+
+** TODO Minimale DB-Funktionen implementieren
+
+Funktionen:
+
+- upsert file
+- delete headings for file
+- insert headings
+- replace parsed file in transaction
+
+Akzeptanzkriterien:
+
+- Eine Datei kann vollständig ersetzt werden.
+- Alte Headings derselben Datei werden entfernt.
+- Neue Headings werden in einer Transaction geschrieben.
+
+** TODO Heading Parser minimal implementieren
+
+Ziel:
+
+- Headings aus Org-Dateien erkennen.
+
+Erkennen:
+
+- Level anhand führender Sterne
+- TODO Keyword
+- Titel
+- Tags am Zeilenende
+- Line number
+- Byte positions
+
+Akzeptanzkriterien:
+
+- Parser erkennt einfache Headings.
+- Parser ignoriert normale Textzeilen.
+- Parser liefert Vec<OrgHeading>.
+- Parser hängt bei ungültigen Zeilen nicht.
+
+** TODO Eine Datei indexieren
+
+Ziel:
+
+- Eine einzelne Org-Datei parsen und in DB schreiben.
+
+Akzeptanzkriterien:
+
+- indexer.rs enthält Funktion index_file.
+- Datei wird gelesen.
+- Headings werden geparst.
+- DB wird aktualisiert.
+- Fehler enthalten Dateipfad und Ursache.
+
+** TODO CLI rebuild minimal implementieren
+
+Ziel:
+
+- Ersten CLI-Befehl bereitstellen.
+
+Beispiel:
+
+#+begin_src sh
+org-files-db rebuild --config config-example.toml
+#+end_src
+
+Akzeptanzkriterien:
+
+- CLI kann Config laden.
+- CLI kann alle konfigurierten Dateien indexieren.
+- CLI gibt eine kurze Zusammenfassung aus:
+  - Dateien
+  - Headings
+  - Fehler
+
+** TODO CLI JSON-Ausgabe für Headings implementieren
+
+Ziel:
+
+- Headings aus DB als JSON ausgeben.
+
+Beispiel:
+
+#+begin_src sh
+org-files-db headings --json
+#+end_src
+
+Akzeptanzkriterien:
+
+- CLI gibt valides JSON aus.
+- JSON enthält file_path, level, title, todo_keyword, tags und line_number.
+- Ausgabe ist stabil genug für erste Emacs-Experimente.
+
+** TODO Minimalen End-to-End-Slice prüfen
+
+Prüfung:
+
+1. Config laden.
+2. Eine Org-Datei parsen.
+3. DB anlegen.
+4. Headings speichern.
+5. Headings als JSON ausgeben.
+
+Akzeptanzkriterien:
+
+- Ablauf funktioniert lokal.
+- Fehler und Einschränkungen sind in AI-NOTES.org dokumentiert.
+- Nächste Tasks sind angepasst.
+
+* Phase 2: Parser v0.1 vervollständigen
+
+** TODO FSM Rust implementieren
+
+Ziel:
+
+- Bestehende FSM-Definition in Rust-Code überführen oder vorhandenen Minimalparser durch FSM ersetzen.
+
+Akzeptanzkriterien:
+
+- lexer.rs enthält FSM-Implementierung.
+- Parser kann Headings erkennen.
+- Parser liefert strukturierte Events oder Zwischenergebnisse.
+- Tests oder Vergleichsoutputs existieren.
+
+** TODO Parser-Events definieren
+
+Ziel:
+
+- Saubere Grenze zwischen Lexer/FSM und Parser.
+
+Mögliche Events:
+
+- HeadingStart
+- KeywordLine
+- PlanningLine
+- PropertyLine
+- TextLine
+- LinkCandidate optional später
+
+Akzeptanzkriterien:
+
+- Event-Typen sind in Rust definiert.
+- Parser kann daraus OrgHeading bauen.
+- Design ist in AI-NOTES.org dokumentiert.
+
+** TODO Per-file TODO Keywords berücksichtigen
+
+Referenz:
+
+- [[info:org#Per-file keywords][org#Per-file keywords]]
+
+Beispiel:
+
+#+begin_src org
+#+TODO: TODO(t) NEXT(n) WAIT(w) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+#+end_src
+
+Akzeptanzkriterien:
+
+- Parser erkennt #+TODO Zeilen.
+- Heading Parser nutzt per-file TODO Keywords.
+- Default-Konfiguration greift, wenn keine #+TODO-Zeile vorhanden ist.
+- DONE/CANCEL und andere Done-States werden unterscheidbar gespeichert.
+
+** TODO Tags robuster parsen
+
+Ziel:
+
+- Org-mode Tags am Ende von Headings zuverlässig erkennen.
+
+Akzeptanzkriterien:
+
+- Mehrere Tags werden erkannt.
+- Titel wird ohne Tags gespeichert.
+- Edge Cases sind dokumentiert.
+- Vergleichsoutput existiert.
+
+** TODO Parent-child-Struktur berechnen
+
+Ziel:
+
+- Headings hierarchisch verbinden.
+
+Akzeptanzkriterien:
+
+- Jedes Heading hat optional parent.
+- Parent wird anhand von Level berechnet.
+- Root-Headings haben keinen Parent.
+- DB kann parent_heading_id speichern.
+
+** TODO Planning Lines parsen
+
+Ziel:
+
+- SCHEDULED, DEADLINE und CLOSED erfassen.
+
+Akzeptanzkriterien:
+
+- Planning-Zeilen direkt unter Headings werden erkannt.
+- Werte werden im OrgHeading oder in eigener Struktur gespeichert.
+- JSON-Ausgabe enthält Planning-Daten optional.
+
+** TODO Properties Drawer parsen
+
+Ziel:
+
+- Properties unter Headings erkennen.
+
+Wichtig für:
+
+- ID
+- CUSTOM_ID
+
+Akzeptanzkriterien:
+
+- :PROPERTIES: Drawer wird erkannt.
+- :END: beendet Drawer.
+- ID und CUSTOM_ID werden extrahiert.
+- Weitere Properties können optional als Map gespeichert werden.
+
+** TODO OrgHeading finalisieren
+
+Ziel:
+
+- OrgHeading nach Parser v0.1 vollständig definieren.
+
+Felder prüfen:
+
+- id intern
+- file_id oder file_path
+- level
+- title raw
+- title clean
+- todo_keyword
+- todo_state type optional
+- priority optional
+- tags
+- planning
+- properties
+- begin byte
+- end byte
+- line number
+- parent heading optional
+- org id optional
+- custom_id optional
+
+Akzeptanzkriterien:
+
+- OrgHeading ist final für v0.1.
+- DB-Schema passt dazu.
+- JSON-Ausgabe passt dazu.
+- Änderungen sind dokumentiert.
+
+** TODO DB-Schema für Parser v0.1 erweitern
+
+Ziel:
+
+- Neue Parser-Felder speichern.
+
+Mögliche Erweiterungen:
+
+- parent_heading_id
+- todo_state
+- scheduled
+- deadline
+- closed
+- org_id
+- custom_id
+- raw_title
+- clean_title
+
+Akzeptanzkriterien:
+
+- Migration oder idempotentes Schema ist aktualisiert.
+- Bestehender Minimal-Slice funktioniert weiter.
+- JSON-Ausgabe enthält neue Felder.
+
+** TODO Parser v0.1 prüfen
+
+Prüfung:
+
+- Headings
+- TODO Keywords
+- Per-file TODO
+- Tags
+- Parent-child
+- Planning
+- Properties
+- ID
+- CUSTOM_ID
+
+Akzeptanzkriterien:
+
+- Vergleichsoutputs existieren.
+- Offene Abweichungen zu Org-mode sind dokumentiert.
+- Backlog enthält bewusst verschobene Themen.
+
+* Phase 3: Link Parser
+
+** TODO Link Parser Scope definieren
+
+Ziel:
+
+- Festlegen, welche Link-Arten in v0.1 unterstützt werden.
+
+Unterstützen:
+
+- Bracket links: [[target][description]]
+- Bracket links ohne description: [[target]]
+- Angle links: <...>
+- Plain typed links: type:target
+
+Akzeptanzkriterien:
+
+- Unterstützte Link-Arten sind dokumentiert.
+- Nicht unterstützte Link-Arten sind dokumentiert.
+- Edge Cases sind als Tests notiert.
+
+** TODO OrgLink minimal definieren
+
+Felder:
+
+- source_file
+- source_heading optional
+- link_type
+- target_raw
+- target
+- description_raw optional
+- description optional
+- line_number
+- byte_start
+- byte_end
+
+Akzeptanzkriterien:
+
+- OrgLink ist in types.rs definiert.
+- OrgLink kann nach JSON serialisiert werden.
+- OrgLink kann in SQLite gespeichert werden.
+
+** TODO Link Parser Definition schreiben
+
+Ziel:
+
+- Link-Parsing exakt definieren, bevor Rust-Code geschrieben wird.
+
+Akzeptanzkriterien:
+
+- Definition beschreibt gültige und ungültige Links.
+- Escaping-Regeln sind dokumentiert.
+- Fehlerfälle sind dokumentiert.
+- Testfälle sind vorbereitet.
+
+** TODO memchr-basierten Link Parser implementieren
+
+Wichtig:
+
+- Unbedingt memchr nutzen.
+
+Vorgehen:
+
+- Fast scanning:
+  - Use memchr or SIMD search to jump to the next candidate start byte:
+    - =[= for bracket links
+    - =<= for angle links
+    - =:= for plain typed links, then scan backwards/forwards to validate TYPE
+
+- Bracket links:
+  - After seeing =[[=, scan forward for =]= candidates and check for =][= or =]]= while applying the odd/even backslash rule.
+  - Enforce “no unescaped [ or ] inside TARGET” to reject cases like =[[[]]]= early.
+
+- Always ensure progress on failure:
+  - If =[[= parse fails, advance by 1 byte, not 2, so later overlapping patterns can still be found.
+
+Akzeptanzkriterien:
+
+- Link Parser erkennt gültige Links.
+- Ungültige Links werden sauber übersprungen.
+- Parser bleibt nie hängen.
+- memchr wird verwendet.
+- Tests decken Bracket, Angle und Plain Links ab.
+
+** TODO Org-mode Link Unescape nachbilden
+
+Ziel:
+
+- Link und Description sollen sauber unescaped werden.
+
+Org-mode Referenz:
+
+#+begin_src elisp
+(defun org-link-unescape (link)
+  "Remove escaping backslash characters from string LINK."
+  (replace-regexp-in-string
+   (rx (group (one-or-more "\\")) (or string-end (any "[]")))
+   (lambda (_)
+     (concat (make-string (/ (- (match-end 1) (match-beginning 1)) 2) ?\\)))
+   link nil t 1))
+#+end_src
+
+Sonderfälle:
+
+#+begin_example
+]] wird zu ]] [[file:.gitignore][]]]
+[[ wird zu [[] [[file:.gitignore][[[]]
+][ wird zu ][] [[file:.gitignore][][]]
+#+end_example
+
+Akzeptanzkriterien:
+
+- Rust-Funktion bildet Org-mode-Verhalten nach.
+- Sonderfälle sind als Tests dokumentiert.
+- Verhalten ist in AI-NOTES.org erklärt.
+
+** TODO Parser-Funktionen aus Org-mode anschauen
+
+Referenz:
+
+- [[file:docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
+- Wichtig vermutlich:
+  ~org-element--object-lex~
+
+Akzeptanzkriterien:
+
+- Relevante Erkenntnisse sind in AI-NOTES.org notiert.
+- Link Parser Definition wurde bei Bedarf angepasst.
+- Keine blinde Komplettkopie von Org-mode Verhalten ohne Scope-Entscheid.
+
+** TODO Links in DB speichern
+
+Ziel:
+
+- Erkannte Links zusammen mit Headings speichern.
+
+Akzeptanzkriterien:
+
+- Tabelle links existiert.
+- Links referenzieren file.
+- Links referenzieren optional source heading.
+- Beim Reparse einer Datei werden alte Links ersetzt.
+- JSON-Ausgabe für Links funktioniert.
+
+** TODO CLI JSON-Ausgabe für Links implementieren
+
+Beispiel:
+
+#+begin_src sh
+org-files-db links --json
+#+end_src
+
+Akzeptanzkriterien:
+
+- CLI gibt Links als valides JSON aus.
+- Ausgabe enthält source_file, line_number, link_type, target und description.
+- Fehlerformat ist konsistent.
+
+** TODO Link Parser prüfen
+
+Prüfung:
+
+- Bracket links
+- Bracket links ohne Description
+- Angle links
+- Plain typed links
+- Escaping
+- ungültige Links
+- Overlapping failure cases
+
+Akzeptanzkriterien:
+
+- Vergleichsoutputs existieren.
+- Bekannte Abweichungen sind dokumentiert.
+- Parser bleibt performant.
+
+* Phase 4: Query und JSON-API
+
+** TODO JSON-Schema für Headings definieren
+
+Ziel:
+
+- Stabile JSON-Ausgabe für externe Tools.
+
+Akzeptanzkriterien:
+
+- Felder sind dokumentiert.
+- Optionale Felder sind klar markiert.
+- Beispielausgabe existiert.
+
+** TODO JSON-Schema für Links definieren
+
+Ziel:
+
+- Stabile JSON-Ausgabe für Links.
+
+Akzeptanzkriterien:
+
+- Felder sind dokumentiert.
+- Optionale Felder sind klar markiert.
+- Beispielausgabe existiert.
+
+** TODO Fehlerformat für JSON-API definieren
+
+Ziel:
+
+- Maschinenlesbare Fehler.
+
+Akzeptanzkriterien:
+
+- Fehler enthalten code, message und optional details.
+- CLI nutzt dasselbe Fehlerformat bei --json.
+- Exit Codes sind dokumentiert.
+
+** TODO Query-Modell a la org-ql definieren
+
+Start-Scope:
+
+- todo keyword
+- title contains
+- tags contains
+- file path
+- link type
+- link target contains
+
+Beispiele:
+
+#+begin_example
+(todo TODO)
+(todo NEXT)
+(tags "project")
+(title-contains "parser")
+(link-type "file")
+#+end_example
+
+Akzeptanzkriterien:
+
+- Query-Syntax ist dokumentiert.
+- Parser oder JSON-Query-Format ist festgelegt.
+- SQL-Übersetzung ist beschrieben.
+- Ungültige Queries liefern verständliche Fehler.
+
+** TODO Query Parser implementieren
+
+Ziel:
+
+- Query-Ausdruck in internes Query-Modell übersetzen.
+
+Akzeptanzkriterien:
+
+- Unterstützte Query-Ausdrücke werden erkannt.
+- Ungültige Queries erzeugen Fehler.
+- Tests oder Vergleichsoutputs existieren.
+
+** TODO Query nach SQL übersetzen
+
+Ziel:
+
+- Query-Modell effizient auf SQLite abbilden.
+
+Akzeptanzkriterien:
+
+- SQL nutzt Parameterbindung.
+- Keine String-Injection.
+- Typische Queries funktionieren.
+- EXPLAIN QUERY PLAN wurde für wichtige Queries geprüft.
+
+** TODO CLI query implementieren
+
+Beispiel:
+
+#+begin_src sh
+org-files-db query --json '(todo "NEXT")'
+#+end_src
+
+Akzeptanzkriterien:
+
+- CLI nimmt Query entgegen.
+- CLI gibt JSON aus.
+- Fehler sind verständlich.
+- Query nutzt DB statt neu zu parsen.
+
+** TODO Query/API prüfen
+
+Akzeptanzkriterien:
+
+- Headings können gefiltert werden.
+- Links können gefiltert werden.
+- JSON-Format ist stabil.
+- Dokumentation ist ausreichend für erste Nutzer.
+
+* Phase 5: Link Resolution
+
+** TODO Link Resolution Design definieren
+
+Ziel:
+
+- Trennen zwischen Link Parsing und Link Resolution.
+
+Grundsatz:
+
+- Parser speichert Links.
+- Resolver verbindet Links später mit Dateien, Headings oder Broken-Link-Status.
+
+Akzeptanzkriterien:
+
+- Design ist in AI-NOTES.org dokumentiert.
+- DB-Felder für Resolution sind geklärt.
+- Resolver ist als eigene Komponente geplant.
+
+** TODO File-Link-Typen definieren
+
+Ziel:
+
+- Link-Typen wie file, docview und attachment sauber behandeln.
+
+Notizen:
+
+- docview ist ähnlich wie file, öffnet aber z. B. PDFs.
+- attachment benötigt Konfiguration.
+- file muss den Pfad speichern.
+
+Akzeptanzkriterien:
+
+- Unterstützte Link-Typen sind dokumentiert.
+- Pfadauflösung ist beschrieben.
+- attachment directory wird über Config behandelt.
+
+** TODO id links über org-id file auflösen
+
+Ziel:
+
+- org-id Locations einlesen, damit id: Links auf Dateien/Headings aufgelöst werden können.
+
+Akzeptanzkriterien:
+
+- Config enthält org-id location.
+- Resolver kann org-id file lesen.
+- id links können resolved werden.
+
+** TODO CUSTOM_ID und ID Links zu Headings verbinden
+
+Ziel:
+
+- Links zu CUSTOM_ID und ID mit Headings in der DB verbinden.
+
+Akzeptanzkriterien:
+
+- Resolver findet passende Headings.
+- DB speichert resolved_heading_id.
+- Mehrdeutigkeiten werden dokumentiert oder als Fehler gespeichert.
+
+** TODO Broken Links prüfen und speichern
+
+Ziel:
+
+- Broken links erkennen und in der DB speichern.
+
+Vermutung:
+
+- Besser nach dem Parsing als eigener Resolve/Validation-Schritt.
+
+Akzeptanzkriterien:
+
+- Broken-Link-Status wird in DB gespeichert.
+- CLI kann broken links ausgeben.
+- Entscheidung ist in AI-NOTES.org dokumentiert.
+
+** TODO Link Resolution prüfen
+
+Akzeptanzkriterien:
+
+- file links werden aufgelöst.
+- id links werden aufgelöst.
+- CUSTOM_ID Links werden aufgelöst.
+- Broken links werden erkannt.
+- Fehlerfälle sind dokumentiert.
+
+* Phase 6: Robuster Initial-Indexer
+
+** TODO find_org_files rekursiv implementieren
+
+Ziel:
+
+- Org-Dateien aus Config finden.
+
+Akzeptanzkriterien:
+
+- Rekursive Suche funktioniert.
+- Nicht-rekursive Suche funktioniert.
+- Ignore-Regeln werden berücksichtigt.
+- Nur gewünschte Dateitypen werden aufgenommen.
+
+** TODO build_initial_index implementieren
+
+Ablauf:
+
+1. Alle Dateien finden.
+2. Dateien parsen.
+3. Ergebnisse in DB schreiben.
+4. Link Resolution optional ausführen.
+5. Zusammenfassung ausgeben.
+
+Akzeptanzkriterien:
+
+- Initialer Indexlauf schreibt files, headings und links.
+- Fehler pro Datei brechen nicht zwingend den ganzen Lauf ab.
+- Am Ende gibt es eine Zusammenfassung.
+
+** TODO Fehlerbehandlung pro Datei verbessern
+
+Akzeptanzkriterien:
+
+- Fehler enthalten Dateipfad.
+- Fehler werden gesammelt.
+- Erfolgreiche Dateien werden trotzdem indexiert.
+- CLI zeigt Zusammenfassung.
+
+** TODO Logging und Fortschritt anzeigen
+
+Akzeptanzkriterien:
+
+- Anzahl Dateien
+- aktuelle Datei optional
+- Fehlerliste
+- Dauer
+- Anzahl Headings
+- Anzahl Links
+
+** TODO Transaction-Batching prüfen
+
+Ziel:
+
+- Große Org-Verzeichnisse effizient indexieren.
+
+Akzeptanzkriterien:
+
+- Batch-Größe ist konfigurierbar oder sinnvoll festgelegt.
+- Insert-Performance ist messbar besser als Einzelinserts.
+- Verhalten ist dokumentiert.
+
+** TODO Prüfen welche Insert-Batches sinnvoll sind
+
+Ziel:
+
+- Benchmark oder realistische Testdaten nutzen.
+
+Akzeptanzkriterien:
+
+- Vergleich verschiedener Batch-Größen.
+- Empfehlung in AI-NOTES.org.
+
+** TODO SQLite Indizes optimieren
+
+Mögliche Indizes:
+
+- files.path
+- headings.file_id
+- headings.todo_keyword
+- headings.title
+- headings.parent_heading_id
+- headings.org_id
+- headings.custom_id
+- links.file_id
+- links.source_heading_id
+- links.link_type
+- links.target
+- links.resolved_heading_id
+
+Akzeptanzkriterien:
+
+- Typische Abfragen sind definiert.
+- Indizes passen zu diesen Abfragen.
+- EXPLAIN QUERY PLAN wurde für wichtige Queries geprüft.
+
+** TODO Parallelisierung einbauen
+
+Vorschlag:
+
+- Rayon verwenden.
+- Dateien parallel parsen.
+- DB-Schreibstrategie bewusst wählen:
+  - Variante A: jede Datei eigene DB-Connection, WAL macht es möglich
+  - Variante B: parallel parsen, seriell schreiben
+
+Akzeptanzkriterien:
+
+- Entscheidung ist dokumentiert.
+- Parallelisierung ist optional abschaltbar.
+- Fehlerbehandlung ist robust.
+- Keine DB-Locks bei normalen Indexläufen.
+
+** TODO Initial-Indexer prüfen
+
+Akzeptanzkriterien:
+
+- Rebuild funktioniert mit realem Org-Verzeichnis.
+- Performance ist akzeptabel.
+- Fehler werden sinnvoll berichtet.
+- DB bleibt konsistent.
+
+* Phase 7: Config vollständig ausbauen
+
+** TODO Config finalisieren
+
+Fragen:
+
+- Wie wird die Konfiguration gespeichert?
+- Wie werden Standardwerte festgelegt?
+- Wie wird das Attachment-Verzeichnis definiert?
+- Wie passt das zu Emacs?
+
+Vorschlag:
+
+- TOML verwenden.
+- config-example.toml pflegen.
+- Defaults in Rust definieren.
+- Optional später: Emacs kann Config dumpen.
+
+Konfigurationsfelder:
+
+- dirs zum Scannen
+- recursive true/false
+- einzelne Dateien zum Scannen
+- org todo keywords
+- org-id location
+- attachment directory relative oder absolute
+- link types
+- DB path
+- ignore patterns
+- watcher enabled
+- debounce duration
+
+Akzeptanzkriterien:
+
+- Config-Struktur ist vollständig.
+- config-example.toml ist aktuell.
+- Defaults sind dokumentiert.
+- Fehlende Config-Datei führt zu sinnvollen Defaults oder verständlicher Fehlermeldung.
+
+** TODO Config-Validierung implementieren
+
+Akzeptanzkriterien:
+
+- Ungültige Pfade werden verständlich gemeldet.
+- Relative Pfade werden konsistent aufgelöst.
+- Attachment directory wird geprüft.
+- DB path wird geprüft oder erzeugt.
+
+** TODO Funktion zum Dump aktueller Emacs Settings in Config-Datei planen
+
+Ziel:
+
+- Emacs kann relevante Org-Einstellungen in eine TOML-Datei exportieren.
+
+Akzeptanzkriterien:
+
+- Liste relevanter Emacs-Variablen ist dokumentiert.
+- Elisp-Funktion ist grob skizziert.
+- Rust Config kann diese Datei lesen.
+
+* Phase 8: Watcher für inkrementelle Updates
+
+** TODO File-Watcher einbauen
+
+Crate:
+
+- notify
+
+Akzeptanzkriterien:
+
+- Watcher beobachtet konfigurierte Verzeichnisse.
+- Create, Modify und Delete werden erkannt.
+- Watcher kann über Config aktiviert/deaktiviert werden.
+
+** TODO Events verarbeiten
+
+Ablauf:
+
+- Create → parse + in DB einfügen
+- Modify → parse + updaten
+- Delete → aus DB löschen
+
+Akzeptanzkriterien:
+
+- DB bleibt nach Änderungen konsistent.
+- Gelöschte Dateien entfernen Headings und Links.
+- Fehler werden geloggt.
+
+** TODO Debounce einbauen
+
+Ziel:
+
+- Mehrere Events zu einem zusammenfassen.
+
+Akzeptanzkriterien:
+
+- Schnelle Mehrfachänderungen führen nur zu einem Reparse.
+- Debounce-Dauer ist konfigurierbar.
+- Event-Stürme blockieren die Anwendung nicht dauerhaft.
+
+** TODO Reparse einzelner Dateien robust machen
+
+Akzeptanzkriterien:
+
+- Einzeldatei-Reparse nutzt dieselbe DB-Replace-Logik wie Initial-Index.
+- Links werden ebenfalls ersetzt.
+- Resolution wird für betroffene Links aktualisiert oder später erneut ausgeführt.
+
+** TODO Watcher mit realem Org-Verzeichnis testen
+
+Akzeptanzkriterien:
+
+- Create getestet.
+- Modify getestet.
+- Delete getestet.
+- Ergebnis in AI-NOTES.org dokumentiert.
+- Bugs als Tasks erfasst.
+
+* Phase 9: Emacs Integration
+
+** TODO Emacs-Integration Strategie festlegen
+
+Aktuelle Empfehlung:
+
+Option 3: JSON/S-Expression Return → Emacs Wrapper in Lisp
+
+Dies ist die einfachste Methode:
+
+#+begin_src c
+org_parse(text: String) -> String   // JSON-Result
+#+end_src
+
+Und in Elisp:
+
+#+begin_src elisp
+(let ((json (org-rs-parse buffer-contents)))
+  (json-parse-string json))
+#+end_src
+
+Vorteile:
+
+- Sehr einfach
+- Stabil
+- Performant
+- Kein großes Emacs-API-Wrapping nötig
+
+** TODO Parser in reinem Rust halten
+
+Ziel:
+
+- Lexer, Parser und AST ohne Emacs-Abhängigkeiten entwickeln.
+
+Akzeptanzkriterien:
+
+- Parser-Crate kompiliert unabhängig von Emacs.
+- Tests laufen mit Cargo.
+- Emacs-Anbindung ist nur Wrapper.
+
+** TODO Dünnen Emacs-Modul-Wrapper planen
+
+Ziel:
+
+- Am Schluss ein dünner Wrapper mit 100–200 Zeilen.
+
+Akzeptanzkriterien:
+
+- Kein emacs-module-rs notwendig.
+- Optional kann emacs-module-rs später evaluiert werden.
+- JSON ist die stabile Übergabegrenze.
+
+** TODO Elisp Wrapper für CLI JSON bauen
+
+Ziel:
+
+- Erste Emacs-Nutzung ohne natives Modul ermöglichen.
+
+Akzeptanzkriterien:
+
+- Elisp kann org-files-db query aufrufen.
+- JSON wird mit json-parse-string gelesen.
+- Ergebnisse können in Emacs angezeigt werden.
+
+** TODO Emacs Config Dump implementieren
+
+Ziel:
+
+- Emacs schreibt relevante Org-Einstellungen in Config-Datei.
+
+Akzeptanzkriterien:
+
+- TODO Keywords werden exportiert.
+- org-id location wird exportiert.
+- attachment directory wird exportiert.
+- Link-Typen werden exportiert, soweit sinnvoll.
+
+* Phase 10: Testing
+
+** TODO Teststrategie definieren
+
+Notiz:
+
+- Keine Unit-Tests als Hauptstrategie.
+- Einfach Output mit erwartetem Output vergleichen.
+
+Akzeptanzkriterien:
+
+- Testformat ist definiert.
+- Input-Dateien liegen unter tests/fixtures.
+- Erwartete JSON-Ausgaben liegen daneben.
+- Test runner vergleicht Parser-Ausgabe mit erwarteter Ausgabe.
+
+** TODO Minimalen Parser-Test anlegen
+
+Akzeptanzkriterien:
+
+- Eine minimale Org-Datei deckt Headings, TODOs und Tags ab.
+- Erwarteter Output ist als JSON gespeichert.
+- Test runner kann Vergleich ausführen.
+
+** TODO Link-Testdateien anlegen
+
+Akzeptanzkriterien:
+
+- Bracket links
+- Angle links
+- Plain links
+- Escaped brackets
+- Ungültige Links
+- Overlapping/failure progress cases
+
+** TODO Test all kind of Links
+
+Referenz:
+
+- [[https://orgmode.org/guide/Hyperlinks.html][Hyperlinks (Org Mode Compact Guide)]]
+
+Akzeptanzkriterien:
+
+- Relevante Link-Arten aus der Org-Dokumentation sind abgedeckt.
+- Abweichungen sind dokumentiert.
+- Tests sind reproduzierbar.
+
+** TODO Input aus github-orgmode-tests prüfen
+
+Referenz:
+
+- [[https://github.com/novoid/github-orgmode-tests?tab=readme-ov-file][GitHub - novoid/github-orgmode-tests: This is a test project where you can explore how github interprets Org-mode files]]
+
+Akzeptanzkriterien:
+
+- Relevante Testfälle sind ausgewählt.
+- Nicht relevante Export/GitHub-spezifische Fälle sind ausgeschlossen.
+- Ergebnis ist dokumentiert.
+
+** TODO Regression-Test für DB-Rebuild
+
+Akzeptanzkriterien:
+
+- Rebuild erzeugt erwartete DB-Inhalte.
+- Wiederholter Rebuild dupliziert keine Daten.
+- Gelöschte Headings verschwinden aus DB.
+
+** TODO Regression-Test für Watcher
+
+Akzeptanzkriterien:
+
+- Datei erstellen.
+- Datei ändern.
+- Datei löschen.
+- DB-Zustand stimmt nach jedem Schritt.
+
+* Phase 11: Dokumentation
+
+** TODO README minimal schreiben
+
+Zeitpunkt:
+
+- Nach erfolgreichem Minimal-End-to-End-Slice.
+
+Inhalt:
+
+- Was ist org-files-db?
+- Warum Rust?
+- Was wird indexiert?
+- Wie wird DB erzeugt?
+- Wie gibt man Headings als JSON aus?
+
+** TODO API-Dokumentation schreiben
+
+Zeitpunkt:
+
+- Nach stabiler JSON-API.
+
+Inhalt:
+
+- CLI Commands
+- JSON-Output
+- Query-Syntax
+- Exit Codes
+- Fehlerformat
+
+** TODO Beispiel-Code für User schreiben
+
+Beispiele:
+
+- CLI rebuild
+- CLI query
+- Emacs Lisp JSON parse
+- Config-Beispiel
+
+** TODO Architektur-Dokumentation schreiben
+
+Inhalt:
+
+- Parser
+- Types
+- DB
+- Indexer
+- Watcher
+- Resolver
+- CLI
+- Emacs Integration
+
+** TODO CHANGELOG aktualisieren
+
+Regel:
+
+- Nur abgeschlossene, user-visible Änderungen eintragen.
+
+Akzeptanzkriterien:
+
+- Neue CLI-Kommandos sind erwähnt.
+- Neue JSON-Felder sind erwähnt.
+- Breaking Changes sind klar markiert.
+
+* Backlog
+
+** TODO Priority Parsing
+
+Ziel:
+
+- Org priority wie [#A] erkennen.
+
+** TODO Tabellen parsen
+
+Ziel:
+
+- Org Tabellen später als eigene Struktur erfassen.
+
+** TODO Babel-Blöcke parsen
+
+Ziel:
+
+- Source-Blöcke später erfassen.
+
+** TODO Vollständiger Org AST
+
+Ziel:
+
+- Langfristig vollständigeres Org-Modell ermöglichen.
+
+** TODO Erweiterte org-ql Query-Sprache
+
+Ziel:
+
+- Mehr org-ql ähnliche Operatoren unterstützen.
+
+** TODO FTS5 für Volltextsuche prüfen
+
+Ziel:
+
+- Schnelle Suche über Heading-Titel und Inhalte ermöglichen.
+
+** TODO Normalisierte Tags-Tabelle prüfen
+
+Ziel:
+
+- Bessere Tag-Queries und Indizes.
+
+* Abgeschlossen
+
+** DONE FSM Definition

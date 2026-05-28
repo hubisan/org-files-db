@@ -1,12 +1,13 @@
 #+STARTUP: showall
+* Org
 
-* Org-files-db                                                   :noexport_2:
+[[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]] [[https://github.com/hubisan/woerterbuch/actions/workflows/tests.yml][https://github.com/hubisan/woerterbuch/actions/workflows/tests.yml/badge.svg]]
 
-[[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]]
+** AI Agent Instructions
 
-=Org-files-db= stores data from Org-mode files — headings, tags, properties, links, timestamps (scheduled, deadline, closed), and keywords — in a SQLite database.
+This repository contains AI-specific development instructions in [[./AGENTS.org]] =AGENTS.org=. AI agents must read =AGENTS.org= before making changes.
 
-The package parses the files asynchronously (non-blocking) and automatically detects changes to keep the database up to date. You can track individual files or directories (recursively).
+** Features
 
 -----
 
@@ -16,7 +17,6 @@ The package parses the files asynchronously (non-blocking) and automatically det
 - [[#usage][Usage]]
 - [[#customization][Customization]]
 - [[#key-bindings][Key Bindings]]
-- [[#sqlite-database-schema][SQLite Database Schema]]
 - [[#changelog][Changelog]]
 - [[#contributing][Contributing]]
 
@@ -30,106 +30,24 @@ The package parses the files asynchronously (non-blocking) and automatically det
 :CUSTOM_ID: usage
 :END:
 
-<Usage description>
-
 ** Customization
 :PROPERTIES:
 :CUSTOM_ID: customization
 :END:
-
-*** Variables
-
-Set the following variables to change the behaviour of the package:
-
-| Variable | Default | Description |
-|----------+---------+-------------|
-|          |         |             |
-
-*** Faces
-
-The following faces are defined:
-
-| Face | Description |
-|------+-------------|
-|      |             |
-|      |             |
 
 ** Key Bindings
 :PROPERTIES:
 :CUSTOM_ID: key-bindings
 :END:
 
-<whatever needs to be said about that>
-
-| Key | Action | Description |
-|-----+--------+-------------|
-|     |        |             |
-
-*** Hydra
-
-<if there is any hydra>
-
-** SQLite Database Schema
+** Changelog
 :PROPERTIES:
-:CUSTOM_ID: sqlite-database-schema
+:CUSTOM_ID: changelog
 :END:
-
-The schema is documented in [[file:docs/sqlite-database-schema.org][sqlite-database-schema.org]].
-
-** Files Structure
-
-The package is split into the following files:
-
-- ~org-files-db.el~ — Entry point and main API; loads and coordinates all submodules.  
-- ~org-files-db-core.el~ — Core utilities, shared functions, and customization.  
-- ~org-files-db-watch.el~ — Watches for added, changed, or deleted Org files.  
-- ~org-files-db-async.el~ — Runs time-consuming operations (such as scans or database updates) asynchronously in separate Emacs processes.  
-- ~org-files-db-indexer.el~ — Handles changes: calls the parser and updates the database accordingly.  
-- ~org-files-db-parse.el~ — Parses Org files (titles, tags, TODOs, timestamps, etc.) using org-element.  
-- ~org-files-db-database.el~ — Manages persistent storage of metadata in SQLite.  
-
-** Path Components Terminology
-
-To avoid confusion between Emacs and general file-system terminology, this
-project uses the following conventions for file-related terms:
-
-- =filename=  
-  The full path of a file, absolute or relative.  
-  In Emacs Lisp, "filename" typically refers to the *entire path*, not just the
-  name part. Examples: =~/org/notes.org=, =./todo.org=, =~/org/persons/=, =~/org/notes=.
-- =directory=  
-  Path of a directory. It may, but does not have to, end with a "/". Examples: =~/org/=, =/home/user/notes/=, =~/org=.
-- =basename=  
-  The filename without its directory part. Examples: =notes.org=, =index.org=.
-- =extension=  
-  The file extension, without the leading dot. Examples: =org=, =txt=.  
-- =path=  
-  The full path for either a file or a directory path, absolute or relative. Examples: =~/org/notes.org=, =/var/tmp/=, =/home/user/org/notes.org=, =../org=.
-- =absolute path=  
-  The absolute path of a file or directory. The home directory may be abbreviated as "~". Examples: =/home/user/org/notes.org=, =~/org/notes.org=
-- =relative path=  
-  A path of a file or directory relative to a base directory. Examples: =../archive/todo.org=, =./notes.org=, =../../archive=
-- =truename=  
-  The canonical absolute path of a file or directory, with all symbolic links
-  resolved. Examples: =/home/user/org/notes.org= and =/mnt/data/shared.org=.
 
 ** Contributing
 :PROPERTIES:
 :CUSTOM_ID: contributing
 :END:
 
-Use the issue tracker to reports bugs, suggest improvements or propose new
-features. If you want to contribute please open a pull request after having
-opened a new issue.
-
-This project is maintained on a “best-effort” basis.
-
-In any case please check out the [[./CONTRIBUTING.org][contributing guidelines]] beforehand.
-
-** Changelog
-:PROPERTIES:
-:CUSTOM_ID: changelog
-:END:
-
-See the [[./CHANGELOG.org][changelog]].
-
+** Licence
