@@ -1,2 +1,5 @@
 /target
 dump.json
+
+# Project update temp folder
+.project-update-tmp/
