@@ -1,5 +1,6 @@
 #+TITLE: TODO
-#+TODO: TODO(t) NEXT(n) WAIT(w) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+#+STARTUP: showall
 
 This repository uses AI agents to assist with development.
 
@@ -16,7 +17,7 @@ Rust org-mode parser (`org-files-db`), der mittels `orgize` Org-Dateien einliest
 
 * Phase 0: Grammatik-Validierung & Edge-Cases (FSM / EBNF / ORGIZE)
 
-** NEXT Orgize-Parser gegen EBNF und Edge-Cases prüfen
+** PLAN Orgize-Parser gegen EBNF und Edge-Cases prüfen
 Ziel: 
 Sicherstellen, dass `orgize` für unsere Zwecke stabil ist, und bekannte Parsing-Fehler isolieren/dokumentieren, um sie upstream zu melden.
    

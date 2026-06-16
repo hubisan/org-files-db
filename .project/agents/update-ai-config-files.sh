@@ -3,14 +3,14 @@
 # -----------------------------------------------------------------------------
 # update-ai-config-files.sh
 #
-# Copies the contents of `.project/` from an external Git repository into the
+# Copies the Org-mode AI config files from an external Git repository into the
 # current repository's `.project/` directory.
 #
 # The script:
 #   - detects the root of the current Git repository
 #   - clones the external repository into a temporary local folder
 #   - copies everything from:
-#       external-repo/.project/ -> current-repo/.project/
+#       external-repo/org-mode/.project/ -> current-repo/.project/
 #   - overwrites existing files with the same names
 #   - keeps other existing files in `.project/` untouched
 #   - removes the temporary clone afterwards
@@ -28,6 +28,7 @@ TMP=".project-update-tmp"
 TARGET=".project"
 REPO_URL="https://github.com/hubisan/ai-agents-config.git"
 BRANCH="main"
+SOURCE="org-mode/.project"
 
 cleanup() {
   rm -rf "$TMP"
@@ -38,6 +39,7 @@ trap cleanup EXIT
 echo "Updating AI config files"
 echo "Repository: $REPO_URL"
 echo "Branch:     $BRANCH"
+echo "Source:     $SOURCE"
 echo "Target:     $TARGET"
 echo
 
@@ -47,9 +49,14 @@ mkdir -p "$TARGET"
 echo "Fetching latest files..."
 git clone -q --depth=1 --branch "$BRANCH" "$REPO_URL" "$TMP"
 
+if [ ! -d "$TMP/$SOURCE" ]; then
+  echo "Error: Source directory not found: $SOURCE"
+  exit 1
+fi
+
 echo "Copying files..."
 RSYNC_OUTPUT="$(
-  rsync -a --itemize-changes "$TMP/.project/" "$TARGET/" \
+  rsync -a --itemize-changes "$TMP/$SOURCE/" "$TARGET/" \
     | awk '
       /^[^.]/{ print "  " $2 }
     '
