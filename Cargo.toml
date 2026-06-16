@@ -1,0 +1,12 @@
+[package]
+name = "org-files-db"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "org_files_db"
+path = "src/lib.rs"
+
+[[bin]]
+name = "org-files-db"
+path = "src/main.rs"

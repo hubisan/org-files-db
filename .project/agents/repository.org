@@ -2,6 +2,12 @@
 
 * Preferred checks
 
+Run local checks before merging the current branch:
+
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
 * Project structure
 
 * Coding style

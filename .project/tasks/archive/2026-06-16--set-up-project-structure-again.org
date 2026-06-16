@@ -1,0 +1,33 @@
+#+TITLE: Set up project structure again
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.4.0
+#+TASK_STARTED: [2026-06-16 Tue 21:14]
+#+TASK_COMPLETED: [2026-06-16 Tue 21:41]
+
+* Build
+
+** Approach
+Recreate the Rust crate from scratch with the target module layout from =todo.org=, keep =main.rs= thin, and place parser-owned data structures behind an internal abstraction so the rest of the codebase does not depend on Orgize-specific types.
+
+** Changed files
+- Create a fresh Cargo crate baseline with =Cargo.toml= and =src/=
+- Add parser model, diagnostics, and adapter modules
+- Add placeholder config, indexer, db, query, and cli modules
+- Replace top-level =mod.rs= entry files with the modern =src/<module>.rs= pattern for clarity
+- Update =README.org= to reference the correct local agent instructions and describe the current architecture baseline
+
+** Checks performed
+- =cargo fmt=
+- =cargo fmt --all --check=
+- =cargo test=
+- =cargo clippy --all-targets --all-features -- -D warnings=
+
+** Test results
+=cargo fmt --all --check=, =cargo test=, and =cargo clippy --all-targets --all-features -- -D warnings= passed. Current scaffold contains no unit tests yet; both crate targets compile and the doctest run is clean.
+
+** Blockers
+None
+
+** Follow-ups
+- Add the real Orgize-backed adapter once dependency work is explicitly scheduled
+- Fill in DB, query, and CLI behavior in later phase tasks

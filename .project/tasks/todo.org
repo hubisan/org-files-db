@@ -134,74 +134,6 @@ Instead:
 - if useful, prepare an upstream issue for Orgize
 - perform DB inserts only with normalized data
 
-* NEXT Set up project structure again
-
-The project structure needs to be set up again. The old draft is no longer current because the parser strategy changed: Orgize is not used directly as the central project architecture, but only as an exchangeable adapter behind our own parser abstraction.
-
-Moved some files to [[../../old-files/]]. They have important research in them and this might be useful later on. Don't delete those files.
-
-Please read this file completely so you understand what the project is supposed to achieve, then adjust the structure accordingly.
-
-Old context:
-
-- [[file:../../docs/test.org][Project Structure & Module Descriptions]]
-
-Target structure:
-
-#+begin_src text
-src/
-  lib.rs
-  main.rs
-
-  config/
-    mod.rs
-
-  parser/
-    mod.rs
-    model.rs
-    diagnostics.rs
-    orgize_adapter.rs
-
-  indexer/
-    mod.rs
-
-  db/
-    mod.rs
-    schema.rs
-    writer.rs
-    reader.rs
-
-  query/
-    mod.rs
-
-  cli/
-    mod.rs
-#+end_src
-
-Important architecture rules:
-
-- `parser/orgize_adapter.rs` may use Orgize directly.
-- All other modules work only with our own types from `parser/model.rs`.
-- Known parser deviations are documented as diagnostics or fixture regression cases.
-- DB inserts must not be produced directly from Orgize AST nodes.
-- The indexer orchestrates parser and DB, but contains no Orgize-specific logic.
-
-Non-goals for this first step:
-
-- No complete parser implementation.
-- No DB, query, watcher, or link implementation.
-- Do not pull Phase 0 or Phase 1 tasks forward, unless strictly required for a compilable module structure.
-- No direct coupling to Orgize outside `src/parser/orgize_adapter.rs`.
-- If old tests refer to removed APIs, migrate them, remove them, or document them as follow-up work. The goal is a consistent, compilable baseline.
-
-Acceptance criteria:
-
-- The new module structure exists.
-- `lib.rs` exports the core modules.
-- `main.rs` stays thin and only calls CLI code.
-- The Orgize dependency is limited to the parser adapter.
-- Existing old structure is either migrated or deliberately removed.
-
 * Phase 0: Foundation and parser risks
 
 Goal of this phase:
@@ -1126,3 +1058,9 @@ Possible benchmarks:
 - query latency
 - rebuild time
 - incremental update
+  
+* Completed
+
+* DONE [2026-06-16 21:41] Set up project structure again
+
+[[./archive/2026-06-16--set-up-project-structure-again.org]]
