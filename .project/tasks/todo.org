@@ -134,6 +134,10 @@ Instead:
 - if useful, prepare an upstream issue for Orgize
 - perform DB inserts only with normalized data
 
+** DONE [2026-06-16 Tue 21:41] Set up project structure again
+
+[[./archive/2026-06-16--set-up-project-structure-again.org]]
+
 * Phase 0: Foundation and parser risks
 
 Goal of this phase:
@@ -142,6 +146,14 @@ Create a stable foundation without getting stuck in full grammar validation befo
 The most important insight is: Orgize is probably good enough for a first end-to-end slice, but not safe enough to couple the project tightly to it.
 
 Therefore, an adapter layer is built first and protected with representative fixtures.
+
+** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
+
+[[./archive/2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
+
+** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
+
+[[./2026-06-16--evaluate-minimal-orgize-adapter.org]]
 
 ** PLAN Structure test fixtures for parser regressions
 
@@ -1016,14 +1028,3 @@ Possible benchmarks:
   
 * Completed
 
-** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
-
-[[./2026-06-16--evaluate-minimal-orgize-adapter.org]]
-
-** DONE [2026-06-16 Tue 21:41] Set up project structure again
-
-[[./archive/2026-06-16--set-up-project-structure-again.org]]
-
-** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
-
-[[./archive/2026-06-16--define-parser-abstraction-and-internal-data-model.org]]

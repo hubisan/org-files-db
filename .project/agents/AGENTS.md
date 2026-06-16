@@ -1,6 +1,6 @@
 # AI Agent Instructions
 
-Version: 0.9.0
+Version: 0.11.0
 
 Read this file before changing this repository. Repo-specific rules are in [./repository.org](./repository.org).
 
@@ -58,5 +58,12 @@ Read in order before starting: `AGENTS.md` → `../tasks/todo.org` → `./reposi
 2. Implement changes. Update relevant docs/README. Run tests and linters. Update `CHANGELOG.org` if notable.
 3. Write a `* Build` section in the task file: date, status, summary, changed files, checks performed, test results, blockers, open questions.
 4. Set task to `REVIEW` and notify the user.
-5. **After user approval:** Set task to `DONE`, update the heading to include the completion date (e.g. `* DONE [YYYY-MM-DD HH:MM] <title>`), add `#+TASK_COMPLETED: [YYYY-MM-DD Day HH:MM]`, move task file to `../tasks/archive/`, update the link in `todo.org`, and move the entry under `* Completed`.
-   If not approved: set to `CONTINUE`, address review comments, repeat from step 2.
+5. **After user approval:** 
+   - Set the task to `DONE`.
+   - Update the task heading in `todo.org` to include the completion date, e. g. `* DONE [YYYY-MM-DD HH:MM] <title>`.
+   - Add `#+TASK_COMPLETED: [YYYY-MM-DD Day HH:MM]` near the top of the task file.
+   - Move the full task description/body from the `todo.org` entry into the task file under a `* Original Task` section, if it is not already preserved there. In `todo.org`, keep only the completed task heading and the link to the archived task file. Do not keep the full task body in `todo.org`.
+   - Move the task file to `../tasks/archive/`.
+   - Update the task link in `todo.org` so it points to the archived task file.
+
+   **If not approved:** set to `CONTINUE`, address review comments, repeat from step 2.

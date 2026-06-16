@@ -1,8 +1,15 @@
 #+TITLE: <Short Task Title>
 #+STARTUP: showall
-#+TEMPLATE_VERSION: 0.4.0
+#+TEMPLATE_VERSION: 0.5.0
 #+TASK_STARTED:
 #+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+<full original task body from todo.org>
 
 * Planning
 
