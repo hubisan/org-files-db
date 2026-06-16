@@ -7,73 +7,90 @@ This repository uses AI agents to assist with development.
 Important files:
 
 - [[../agents/AGENTS.md]]: AI agent instructions and workflow rules.
-- [[./todo.org]]: Active task index & statuses.
-- [[../agents/ai-notes.org]]: Cross-task context (notes, blockers, decisions).
-- [[../../CHANGELOG.org]]: Approved/completed user-visible changes.
+- [[./todo.org]]: Active task index and statuses.
+- [[../agents/ai-notes.org]]: Cross-task context, notes, blockers, and decisions.
+- [[../../CHANGELOG.org]]: Approved and completed user-visible changes.
 
-* Projektziel
+* AI/Codex working mode
 
-`org-files-db` ist eine Rust-Backend-Library mit optionalem CLI, die Org-mode-Dateien einliest, relevante Org-Strukturen extrahiert und in eine SQLite-Datenbank überträgt.
+Task Statuses according to AGENTS.md:
 
-Das Ziel ist eine robuste, schnelle und später erweiterbare Index-Pipeline für Org-Dateien:
+- ~TODO~: Not ready — do not start.
+- ~PLAN~: AI writes plan, then sets to ~REVIEW~.
+- ~BUILD~: AI starts build (plan approved), then sets to ~REVIEW~.
+- ~NEXT~: Ready for AI — read task file for instructions, then set to ~REVIEW~.
+- ~CONTINUE~: Resume using user's review comments, then set to ~REVIEW~.
+- ~REVIEW~: Done by AI, awaiting user review.
+- ~CANCEL~: Abandoned — do not work on these.
+- ~DONE~: Completed and approved.
 
-- Org-Dateien parsen
-- Headings, TODO-Status, Prioritäten, Tags, Properties, Planning-Daten und Links extrahieren
-- Daten normalisiert in SQLite speichern
-- schnelle Suche und JSON-Ausgabe über ein `clap`-CLI bereitstellen
-- später eine org-ql-artige Query-Sprache auf SQLite/FTS5 abbilden
+Tests and checks are part of every task. Every task with status ~PLAN~, ~BUILD~, ~NEXT~, or ~CONTINUE~ must document suitable tests, checks, or a justified reason why testing is not applicable.
 
-`orgize` wird initial als Parser-Backend verwendet, gilt aber nicht als dauerhaft sichere oder alleinige Parsing-Wahrheit. Das Projekt muss deshalb eine eigene stabile Parser-Abstraktion und ein eigenes internes Datenmodell verwenden.
+Phase 9 is the final consolidation of the test and regression base, not the first point at which testing happens.
 
-Orgize-spezifische Typen dürfen nicht in DB-, Query-, Indexer- oder CLI-Schichten leaken.
+* Project goal
 
-Grundsatz:
+~org-files-db~ is a Rust backend library with an optional CLI. It reads Org-mode files, extracts relevant Org structures, and writes them to a SQLite database.
+
+The goal is a robust, fast, and later extensible indexing pipeline for Org files:
+
+- parse Org files
+- extract headings, TODO states, priorities, tags, properties, planning data, and links
+- store the data in a normalized SQLite database
+- provide fast search and JSON output through a ~clap~ CLI
+- later map an org-ql-like query language to SQLite/FTS5
+
+~orgize~ is initially used as the parser backend, but it must not be treated as a permanently safe or single source of parsing truth. Therefore, the project must use its own stable parser abstraction and its own internal data model.
+
+Orgize-specific types must not leak into the DB, query, indexer, or CLI layers.
+
+Principle:
 
 #+begin_src text
 Orgize / Parser Backend
-  -> eigenes ParsedOrgDocument / ParsedHeading Modell
-  -> Normalisierung / Diagnostics
-  -> SQLite Import
-  -> Query / CLI / JSON API
+  -> own ParsedOrgDocument / ParsedHeading model
+  -> normalization / diagnostics
+  -> SQLite import
+  -> query / CLI / JSON API
 #+end_src
 
-So bleibt später möglich:
+This keeps the following options open later:
 
-- Orgize weiterzuverwenden, wenn es für unsere Zwecke stabil genug ist
-- bekannte Orgize-Bugs lokal zu umgehen
-- Parser-Bugs mit reproduzierbaren Fixtures upstream zu melden
-- bei Bedarf auf einen Fork, Tree-sitter, einen eigenen Parser oder einen Emacs-basierten Import zu wechseln
+- continue using Orgize if it is stable enough for our purposes
+- work around known Orgize bugs locally
+- report parser bugs upstream with reproducible fixtures
+- switch to a fork, Tree-sitter, a custom parser, or an Emacs-based import if needed
 
-Nicht-Ziele für den Anfang:
+Non-goals for the beginning:
 
-- kein vollständiger eigener Org-mode-Parser im MVP
-- keine vollständige org-ql-Kompatibilität im MVP
-- keine direkte Abhängigkeit der DB-Schicht von Orgize oder rowan
-- keine Optimierung auf Maximal-Performance, bevor die Pipeline korrekt funktioniert
+- no complete custom Org-mode parser in the MVP
+- no full org-ql compatibility in the MVP
+- no direct dependency from the DB layer on Orgize or rowan
+- no optimization for maximum performance before the pipeline is correct
 
-* Architekturentscheidungen
+* Architecture decisions
 
-** Entscheidung: Orgize nur als Adapter verwenden
+** Decision: use Orgize only as an adapter
 
-`orgize` wird als erstes Parser-Backend verwendet, aber nur in einem klar begrenzten Adapter-Modul.
+~orgize~ is used as the first parser backend, but only inside a clearly bounded adapter module.
 
-Erlaubt:
+Allowed:
 
 #+begin_src text
 src/parser/orgize_adapter.rs
 #+end_src
 
-Nicht erlaubt:
+Not allowed:
 
-- Orgize-Typen in `db/`
-- Orgize-Typen in `query/`
-- Orgize-Typen in `cli/`
-- direkte DB-Inserts aus Orgize-AST-Knoten
-- direkte Abhängigkeit auf `syntax()` / rowan ausserhalb des Adapters
+- Orgize types in ~db/~
+- Orgize types in ~query/~
+- Orgize types in ~cli/~
+- direct DB inserts from Orgize AST nodes
+- direct dependency on ~syntax()~ / rowan outside the adapter
 
-** Entscheidung: eigenes internes Parser-Modell
+** Decision: own internal parser model
 
-Die interne Projekt-API basiert auf eigenen Typen:
+The internal project API is based on our own types:
 
 #+begin_src rust
 pub trait OrgParser {
@@ -105,29 +122,31 @@ pub struct ParsedHeading {
 }
 #+end_src
 
-** Entscheidung: Parser-Probleme werden sichtbar gemacht
+** Decision: parser problems must be visible
 
-Bekannte oder vermutete Parser-Probleme werden nicht stillschweigend ignoriert.
+Known or suspected parser problems must not be silently ignored.
 
-Stattdessen:
+Instead:
 
-- `ParseDiagnostic` erfassen
-- Fixture-Test hinzufügen
-- Verhalten dokumentieren
-- falls sinnvoll: Upstream-Issue für Orgize vorbereiten
-- DB-Insert nur mit normalisierten Daten ausführen
+- record a `ParseDiagnostic`
+- add a fixture test
+- document the behavior
+- if useful, prepare an upstream issue for Orgize
+- perform DB inserts only with normalized data
 
-* NEXT Projekt neu aufsetzen
+* NEXT Set up project structure again
 
-Die Projektstruktur muss neu aufgesetzt werden. Der alte Entwurf ist nicht mehr aktuell, weil die Parser-Strategie angepasst wurde: Orgize wird nicht direkt als zentrale Projektarchitektur verwendet, sondern nur als austauschbarer Adapter hinter einer eigenen Parser-Abstraktion.
+The project structure needs to be set up again. The old draft is no longer current because the parser strategy changed: Orgize is not used directly as the central project architecture, but only as an exchangeable adapter behind our own parser abstraction.
 
-Bitte lies diese Datei vollständig, damit du verstehst, was das Projekt erreichen soll, und passe danach die Struktur entsprechend an.
+Moved some files to [[../../old-files/]]. They have important research in them and this might be useful later on. Don't delete those files.
 
-Alter Kontext:
+Please read this file completely so you understand what the project is supposed to achieve, then adjust the structure accordingly.
+
+Old context:
 
 - [[file:../../docs/test.org][Project Structure & Module Descriptions]]
 
-Zielstruktur:
+Target structure:
 
 #+begin_src text
 src/
@@ -159,69 +178,77 @@ src/
     mod.rs
 #+end_src
 
-Wichtige Architekturregeln:
+Important architecture rules:
 
-- `parser/orgize_adapter.rs` darf Orgize direkt verwenden.
-- Alle anderen Module arbeiten nur mit eigenen Typen aus `parser/model.rs`.
-- Bekannte Parser-Abweichungen werden als Diagnostics oder Fixture-Regressionsfälle dokumentiert.
-- DB-Inserts dürfen nicht direkt aus Orgize-AST-Knoten entstehen.
-- Der Indexer orchestriert Parser und DB, enthält aber keine Orgize-spezifische Logik.
+- `parser/orgize_adapter.rs` may use Orgize directly.
+- All other modules work only with our own types from `parser/model.rs`.
+- Known parser deviations are documented as diagnostics or fixture regression cases.
+- DB inserts must not be produced directly from Orgize AST nodes.
+- The indexer orchestrates parser and DB, but contains no Orgize-specific logic.
 
-Akzeptanzkriterien:
+Non-goals for this first step:
 
-- Neue Modulstruktur ist angelegt.
-- `lib.rs` exportiert die Kernmodule.
-- `main.rs` bleibt dünn und ruft nur CLI-Code auf.
-- Orgize-Abhängigkeit ist auf den Parser-Adapter begrenzt.
-- Bestehende alte Struktur ist entweder migriert oder bewusst entfernt.
+- No complete parser implementation.
+- No DB, query, watcher, or link implementation.
+- Do not pull Phase 0 or Phase 1 tasks forward, unless strictly required for a compilable module structure.
+- No direct coupling to Orgize outside `src/parser/orgize_adapter.rs`.
+- If old tests refer to removed APIs, migrate them, remove them, or document them as follow-up work. The goal is a consistent, compilable baseline.
 
-* Phase 0: Fundament & Parser-Risiken
+Acceptance criteria:
 
-Ziel dieser Phase:
-Ein stabiles Fundament schaffen, ohne sich vor dem MVP in vollständiger Grammatik-Validierung zu verlieren.
+- The new module structure exists.
+- `lib.rs` exports the core modules.
+- `main.rs` stays thin and only calls CLI code.
+- The Orgize dependency is limited to the parser adapter.
+- Existing old structure is either migrated or deliberately removed.
 
-Die wichtigste Erkenntnis ist: Orgize ist wahrscheinlich gut genug für einen ersten End-to-End-Slice, aber nicht sicher genug, um das Projekt hart daran zu koppeln.
+* Phase 0: Foundation and parser risks
 
-Deshalb wird zuerst eine Adapter-Schicht gebaut und mit repräsentativen Fixtures abgesichert.
+Goal of this phase:
+Create a stable foundation without getting stuck in full grammar validation before the MVP.
 
-** TODO Parser-Abstraktion und internes Datenmodell definieren
+The most important insight is: Orgize is probably good enough for a first end-to-end slice, but not safe enough to couple the project tightly to it.
 
-Ziel:
-Eine stabile interne Schnittstelle schaffen, damit Orgize austauschbar bleibt.
+Therefore, an adapter layer is built first and protected with representative fixtures.
 
-Aufgaben:
+** TODO Define parser abstraction and internal data model
 
-1. `OrgParser`-Trait definieren.
-2. `ParsedOrgDocument` definieren.
-3. `ParsedHeading` definieren.
-4. `ParsedPlanning` definieren.
-5. `ParseDiagnostic` definieren.
-6. Tests vorbereiten, die später mehrere Parser-Backends gegen dieselben Fixtures laufen lassen können.
+Goal:
+Create a stable internal interface so Orgize remains exchangeable.
 
-Akzeptanzkriterien:
+Tasks:
 
-- Es gibt ein eigenes Parser-Modell.
-- Orgize-Typen tauchen nicht ausserhalb des Orgize-Adapters auf.
-- Parser-Warnungen können als Diagnostics gesammelt werden.
-- Parser-Tests können erwartete extrahierte Daten prüfen.
+1. Define the `OrgParser` trait.
+2. Define `ParsedOrgDocument`.
+3. Define `ParsedHeading`.
+4. Define `ParsedPlanning`.
+5. Define `ParseDiagnostic`.
+6. Prepare tests that can later run multiple parser backends against the same fixtures.
 
-** TODO Orgize-Adapter minimal evaluieren
+Acceptance criteria:
 
-Ziel:
-Prüfen, ob Orgize die für den MVP benötigten Daten zuverlässig genug liefert.
+- There is an internal parser model.
+- Orgize types do not appear outside the Orgize adapter.
+- Parser warnings can be collected as diagnostics.
+- Parser tests can check expected extracted data.
 
-MVP-relevante Daten:
+** TODO Evaluate minimal Orgize adapter
 
-- Heading-Level
-- Titel
-- TODO-Keyword
-- Priorität
-- Tags
-- Byte-Positionen
-- Zeilennummer, falls zuverlässig verfügbar oder berechenbar
-- Parent/Child-Struktur, falls direkt möglich, sonst später berechnen
+Goal:
+Check whether Orgize provides the data needed for the MVP reliably enough.
 
-Referenzen:
+MVP-relevant data:
+
+- heading level
+- title
+- TODO keyword
+- priority
+- tags
+- byte positions
+- line number, if reliably available or computable
+- parent/child structure, if directly possible, otherwise computed later
+
+References:
 
 - https://github.com/200ok-ch/org-parser/blob/master/resources/org.ebnf
 - [[file:../../docs/lexer-design.org][Lexer Design]]
@@ -229,29 +256,29 @@ Referenzen:
 - [[file:../../docs/org-regular-expressions.org][Org-mode Regular Expressions]]
 - [[file:../../tests/data/][tests/data]]
 
-Vorgehen für AI:
+Instructions for AI:
 
-1. Öffentliche Orgize-API prüfen.
-2. Prüfen, welche Informationen stabil über öffentliche Methoden verfügbar sind.
-3. Nur falls nötig `syntax()` / rowan-AST inspizieren.
-4. `syntax()` / rowan nicht als stabile Projekt-API behandeln.
-5. Bestehende Testdaten aus `tests/data` berücksichtigen.
-6. Gefundene Abweichungen als `ParseDiagnostic` oder Regressionstest dokumentieren.
-7. Noch keinen vollständigen eigenen Parser bauen.
+1. Check the public Orgize API.
+2. Check which information is available through stable public methods.
+3. Inspect `syntax()` / rowan AST only if necessary.
+4. Do not treat `syntax()` / rowan as a stable project API.
+5. Take existing test data from `tests/data` into account.
+6. Document discovered deviations as `ParseDiagnostic` entries or regression tests.
+7. Do not build a complete custom parser yet.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Orgize-Adapter kann mindestens Headings, Titel, TODO, Priorität und Tags extrahieren.
-- Bekannte Probleme sind dokumentiert.
-- Es gibt mindestens einen Fixture-Test für den Adapter.
-- DB- und Query-Schicht hängen nicht direkt von Orgize ab.
+- The Orgize adapter can extract at least headings, titles, TODO keywords, priorities, and tags.
+- Known problems are documented.
+- There is at least one fixture test for the adapter.
+- The DB and query layers do not depend directly on Orgize.
 
-** TODO Test-Fixtures für Parser-Regressionen strukturieren
+** TODO Structure test fixtures for parser regressions
 
-Ziel:
-Die vorhandenen Dateien in [[file:../../tests/data/][tests/data]] so strukturieren, dass sie als Regressionstests für Parser-Verhalten dienen können.
+Goal:
+Structure the existing files in [[file:../../tests/data/][tests/data]] so they can serve as regression tests for parser behavior.
 
-Vorschlag:
+Suggested structure:
 
 #+begin_src text
 tests/data/
@@ -264,76 +291,76 @@ tests/data/
   edge-cases/
 #+end_src
 
-Jede Fixture sollte nach Möglichkeit enthalten:
+Each fixture should contain, where possible:
 
-- eine Org-Datei
-- erwartete extrahierte Minimaldaten
-- Kommentar, ob es ein Orgize-Bug, ein Org-Spezialfall oder ein bewusst nicht unterstützter Fall ist
+- an Org file
+- expected extracted minimal data
+- a comment indicating whether this is an Orgize bug, an Org special case, or a deliberately unsupported case
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Bestehende Testdaten sind sinnvoll gruppiert.
-- Mindestens ein Heading-Fixture existiert.
-- Mindestens ein Priority-Fixture existiert.
-- Mindestens ein Link-Edge-Case-Fixture existiert.
-- Fixtures können später automatisiert geprüft werden.
+- Existing test data is grouped meaningfully.
+- At least one heading fixture exists.
+- At least one priority fixture exists.
+- At least one link edge-case fixture exists.
+- Fixtures can later be checked automatically.
 
-** TODO Parser-Risiko-Liste anlegen
+** TODO Create parser risk list
 
-Ziel:
-Bekannte oder vermutete Parser-Risiken zentral festhalten.
+Goal:
+Keep known or suspected parser risks in one central place.
 
-Mögliche Datei:
+Possible file:
 
 #+begin_src text
 docs/parser-risks.org
 #+end_src
 
-Zu dokumentieren:
+Document:
 
-- Orgize-Version
-- bekannte Bugs
-- unsichere API-Stellen
-- Workarounds
-- betroffene Fixtures
-- Entscheidung: akzeptieren, umgehen, upstream melden oder später ersetzen
+- Orgize version
+- known bugs
+- unstable API areas
+- workarounds
+- affected fixtures
+- decision: accept, work around, report upstream, or replace later
 
-* Phase 1: Minimaler End-to-End-Slice
+* Phase 1: Minimal end-to-end slice
 
-Ziel dieser Phase:
-Möglichst früh ein lauffähiges System haben, ohne sich an Orgize zu stark zu koppeln.
+Goal of this phase:
+Get a runnable system as early as possible without coupling too tightly to Orgize.
 
-Eine Org-Datei wird über den Parser-Adapter eingelesen, in das eigene interne Modell übersetzt, in SQLite gespeichert und über ein `clap`-CLI als JSON ausgegeben.
+One Org file is read through the parser adapter, translated into our own internal model, stored in SQLite, and output as JSON through a `clap` CLI.
 
 Pipeline:
 
 #+begin_src text
 config
-  -> files finden
-  -> Parser Backend ausführen
-  -> ParsedOrgDocument validieren/normalisieren
-  -> SQLite aktualisieren
-  -> CLI JSON ausgeben
+  -> find files
+  -> run parser backend
+  -> validate / normalize ParsedOrgDocument
+  -> update SQLite
+  -> output CLI JSON
 #+end_src
 
-** TODO Minimal-Config definieren
+** TODO Define minimal config
 
-Minimale Felder:
+Minimal fields:
 
 - `db_path`
 - `files` (`Vec<PathBuf>`)
 - `dirs` (`Vec<PathBuf>`)
 - `recursive` (`bool`)
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Config kann aus einer Datei geladen werden.
-- Relative und absolute Pfade sind klar behandelt.
-- Fehlende Dateien oder Verzeichnisse erzeugen verständliche Fehler.
+- Config can be loaded from a file.
+- Relative and absolute paths are handled clearly.
+- Missing files or directories produce understandable errors.
 
-** TODO `ParsedHeading` / `OrgHeading` minimal definieren
+** TODO Define minimal `ParsedHeading` / `OrgHeading`
 
-Minimale Felder:
+Minimal fields:
 
 - `file_path`
 - `level`
@@ -345,16 +372,16 @@ Minimale Felder:
 - `byte_start`
 - `byte_end`
 
-Hinweis:
-Dieses Modell ist projektintern. Es darf nicht direkt aus Orgize-Typen bestehen.
+Note:
+This model is internal to the project. It must not consist directly of Orgize types.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Modell ist serialisierbar für JSON-Ausgabe.
-- Modell ist unabhängig vom Parser-Backend.
-- Modell enthält genug Daten für DB-Insert und CLI-Ausgabe.
+- The model is serializable for JSON output.
+- The model is independent of the parser backend.
+- The model contains enough data for DB insert and CLI output.
 
-** TODO SQLite öffnen und WAL aktivieren
+** TODO Open SQLite and enable WAL
 
 Pragmas:
 
@@ -363,22 +390,22 @@ PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
 #+end_src
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- SQLite-Verbindung wird zentral geöffnet.
-- WAL ist aktiviert.
-- Fehler beim Öffnen oder Initialisieren werden sauber gemeldet.
+- SQLite connection is opened centrally.
+- WAL is enabled.
+- Errors while opening or initializing are reported cleanly.
 
-** TODO Minimales DB-Schema anlegen
+** TODO Create minimal DB schema
 
-Tabellen für `files` und `headings`, inklusive Spalte für `priority`.
+Create tables for `files` and `headings`, including a column for `priority`.
 
-Vorhandene Entwürfe prüfen und an das neue Parser-Modell anpassen:
+Review existing drafts and adapt them to the new parser model:
 
-- [[file:sql/db-schema.sql][sql/db-schema.sql]]
-- [[file:docs/sqlite-database-schema.org][docs/sqlite-database-schema.org]]
+- [[file:../../sql/db-schema.sql][sql/db-schema.sql]]
+- [[file:../../old-files/docs/sqlite-database-schema.org][docs/sqlite-database-schema.org]]
 
-Minimales Schema:
+Minimal schema:
 
 - `files`
   - `id`
@@ -400,180 +427,180 @@ Minimales Schema:
   - `byte_start`
   - `byte_end`
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Schema kann idempotent angelegt werden.
-- `files.path` ist eindeutig.
-- Headings können pro Datei gelöscht und neu geschrieben werden.
-- Schema ist mit späterer Parent/Child-Erweiterung kompatibel.
+- Schema can be created idempotently.
+- `files.path` is unique.
+- Headings can be deleted and rewritten per file.
+- Schema is compatible with a later parent/child extension.
 
-** TODO Minimale DB-Functions implementieren
+** TODO Implement minimal DB functions
 
-Funktionen:
+Functions:
 
 - `upsert_file`
 - `delete_headings_for_file`
 - `insert_headings`
 - `list_headings`
 
-Alle Inserts für eine Datei sollen innerhalb einer Transaction laufen.
+All inserts for one file should run inside a transaction.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Rebuild derselben Datei erzeugt keine doppelten Headings.
-- Fehler während Insert führen zu Rollback.
-- `list_headings` kann Daten für CLI-JSON ausgeben.
+- Rebuilding the same file does not create duplicate headings.
+- Errors during insert cause rollback.
+- `list_headings` can output data for CLI JSON.
 
-** TODO Orgize-Adapter für Headings & Priorities umsetzen
+** TODO Implement Orgize adapter for headings and priorities
 
-Ziel:
-`orgize` nur innerhalb des Parser-Adapters verwenden und daraus eigene `ParsedHeading`-Werte erzeugen.
+Goal:
+Use `orgize` only inside the parser adapter and produce our own `ParsedHeading` values from it.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Treiber nutzt `ParseConfig` mit Schweizer Standard-Keywords:
-  - offene Zustände: `TODO`, `NEXT`, `WAIT`, `CONTINUE`
-  - abgeschlossene Zustände: `DONE`, `CANCEL`
-- Extrahiert Level, Titel, Tags, Positionsdaten und Priorität.
-- Nutzt `headline.priority()` nur innerhalb des Adapters.
-- Gibt eigene `ParsedHeading`-Werte zurück.
-- Bekannte Parser-Probleme werden als `ParseDiagnostic` dokumentiert, nicht stillschweigend ignoriert.
-- Ein Fixture-Test prüft mindestens TODO, Priority und Tags.
+- Driver uses `ParseConfig` with Swiss default keywords:
+  - open states: `TODO`, `NEXT`, `WAIT`, `CONTINUE`
+  - closed states: `DONE`, `CANCEL`
+- Extracts level, title, tags, position data, and priority.
+- Uses `headline.priority()` only inside the adapter.
+- Returns our own `ParsedHeading` values.
+- Known parser problems are documented as `ParseDiagnostic` entries, not silently ignored.
+- A fixture test checks at least TODO, priority, and tags.
 
-** TODO Indexer für vollständigen Rebuild implementieren
+** TODO Implement indexer for full rebuild
 
-Ziel:
-Parser und DB-Schicht über eine klare Indexer-Schicht verbinden.
+Goal:
+Connect parser and DB layer through a clear indexer layer.
 
-Aufgaben:
+Tasks:
 
-1. Config laden.
-2. Org-Dateien ermitteln.
-3. Dateiinhalt lesen.
-4. Parser ausführen.
-5. Diagnostics sammeln.
-6. Datei in DB upserten.
-7. Alte Headings für Datei löschen.
-8. Neue Headings in Transaction einfügen.
+1. Load config.
+2. Discover Org files.
+3. Read file content.
+4. Run parser.
+5. Collect diagnostics.
+6. Upsert file into DB.
+7. Delete old headings for the file.
+8. Insert new headings in a transaction.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Rebuild verarbeitet mindestens eine Datei vollständig.
-- Diagnostics werden im CLI sichtbar oder später abrufbar gemacht.
-- Fehlerhafte Datei stoppt entweder sauber oder wird dokumentiert übersprungen.
-- Verhalten ist bewusst entschieden und getestet.
+- Rebuild processes at least one file completely.
+- Diagnostics are visible in the CLI or can be retrieved later.
+- A faulty file either stops cleanly or is skipped with documented behavior.
+- Behavior is deliberately decided and tested.
 
-** TODO CLI mit Clap aufsetzen
+** TODO Set up CLI with Clap
 
-Befehle:
+Commands:
 
 #+begin_src shell
 orgfdb rebuild --config <path>
 orgfdb headings --json
 #+end_src
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- `rebuild` baut die DB aus der Config neu auf.
-- `headings --json` gibt gespeicherte Headings aus.
-- Fehler sind verständlich.
-- JSON ist stabil genug für erste Emacs-/Script-Experimente.
+- `rebuild` rebuilds the DB from the config.
+- `headings --json` outputs stored headings.
+- Errors are understandable.
+- JSON is stable enough for first Emacs/script experiments.
 
-** TODO Minimalen End-to-End-Slice prüfen
+** TODO Verify minimal end-to-end slice
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Eine Test-Org-Datei kann eingelesen werden.
-- Headings werden in SQLite gespeichert.
-- `orgfdb headings --json` gibt die gespeicherten Headings aus.
-- Orgize-spezifische Typen erscheinen nicht in DB-, Query-, Indexer- oder CLI-Modulen.
-- Mindestens ein Parser-Fixture-Test prüft den Orgize-Adapter gegen erwartete Heading-Daten.
+- A test Org file can be read.
+- Headings are stored in SQLite.
+- `orgfdb headings --json` outputs the stored headings.
+- Orgize-specific types do not appear in DB, query, indexer, or CLI modules.
+- At least one parser fixture test checks the Orgize adapter against expected heading data.
 
-* Phase 2: Parser-Datenmodell v0.1 vervollständigen
+* Phase 2: Complete parser data model v0.1
 
-Ziel dieser Phase:
-Das Datenmodell so erweitern, dass echte Org-Workflows sinnvoll abgebildet werden, ohne bereits die vollständige Query-Engine zu bauen.
+Goal of this phase:
+Extend the data model enough to represent real Org workflows meaningfully, without already building the full query engine.
 
-** TODO Per-file TODO Keywords berücksichtigen
+** TODO Respect per-file TODO keywords
 
-Ziel:
-`#+TODO:` Zeilen auslesen und dynamisch an die `ParseConfig` von `orgize` übergeben.
+Goal:
+Read `#+TODO:` lines and pass them dynamically to Orgize `ParseConfig`.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Dateiweite TODO-Keywords überschreiben oder erweitern die Default-Keywords.
-- Schweizer Standard-Keywords bleiben Default.
-- Test mit eigener `#+TODO:` Zeile existiert.
+- File-level TODO keywords override or extend the default keywords.
+- Swiss default keywords remain the default.
+- A test with a custom `#+TODO:` line exists.
 
-** TODO Parent-Child-Struktur berechnen
+** TODO Compute parent-child structure
 
-Ziel:
-`parent_heading_id` beim Iterieren berechnen und in DB speichern.
+Goal:
+Compute `parent_heading_id` while iterating and store it in the DB.
 
-Hinweis:
-Wenn Orgize keine stabile Parent-Struktur liefert, wird die Hierarchie aus Heading-Leveln mit einem Stack berechnet.
+Note:
+If Orgize does not provide a stable parent structure, the hierarchy is computed from heading levels using a stack.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Parent/Child-Beziehung ist korrekt für verschachtelte Headings.
-- Root-Headings haben keinen Parent.
-- Test mit mindestens drei Ebenen existiert.
+- Parent/child relationships are correct for nested headings.
+- Root headings have no parent.
+- A test with at least three levels exists.
 
-** TODO Planning Lines parsen
+** TODO Parse planning lines
 
-Ziel:
-`SCHEDULED`, `DEADLINE` und `CLOSED` extrahieren.
+Goal:
+Extract `SCHEDULED`, `DEADLINE`, and `CLOSED`.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Planning-Daten werden im Parser-Modell abgebildet.
-- DB-Schema unterstützt Planning-Daten.
-- JSON-Ausgabe enthält Planning-Daten.
-- Tests für alle drei Planning-Typen existieren.
+- Planning data is represented in the parser model.
+- DB schema supports planning data.
+- JSON output includes planning data.
+- Tests exist for all three planning types.
 
-** TODO Properties Drawer parsen
+** TODO Parse properties drawer
 
-Ziel:
-`:PROPERTIES:` extrahieren, insbesondere:
+Goal:
+Extract `:PROPERTIES:`, especially:
 
 - `ID`
 - `CUSTOM_ID`
-- weitere Properties als Key/Value
+- additional properties as key/value pairs
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Properties werden pro Heading zugeordnet.
-- `ID` und `CUSTOM_ID` sind direkt abfragbar.
-- Weitere Properties bleiben erhalten.
-- Test mit mehreren Properties existiert.
+- Properties are assigned to the correct heading.
+- `ID` and `CUSTOM_ID` are directly queryable.
+- Additional properties are preserved.
+- A test with multiple properties exists.
 
-** TODO DB-Schema und JSON-API für v0.1 finalisieren
+** TODO Finalize DB schema and JSON API for v0.1
 
-Ziel:
-Das Schema für die erste stabile interne Version festlegen.
+Goal:
+Define the schema for the first stable internal version.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- `files`, `headings`, `properties` und ggf. `planning` sind definiert.
-- Migration oder Schema-Versionierung ist entschieden.
-- JSON-Ausgabe ist dokumentiert.
-- README enthält ein minimales Beispiel.
+- `files`, `headings`, `properties`, and possibly `planning` are defined.
+- Migration or schema versioning is decided.
+- JSON output is documented.
+- README contains a minimal example.
 
-* Phase 3: Link Extractor
+* Phase 3: Link extractor
 
-Ziel dieser Phase:
-Org-Links extrahieren und in SQLite abbilden. Link-Resolution kommt später.
+Goal of this phase:
+Extract Org links and represent them in SQLite. Link resolution comes later.
 
-Referenz:
+Reference:
 
-- [[file:tests/data/org-test-links.org][Org Tests for Links]]
+- [[file:../../tests/data/org-test-links.org][Org Tests for Links]]
 
-** TODO OrgLink definieren und DB-Tabelle erstellen
+** TODO Define OrgLink and create DB table
 
-Ziel:
-Internes Link-Modell definieren.
+Goal:
+Define an internal link model.
 
-Mögliche Felder:
+Possible fields:
 
 - `file_id`
 - `heading_id`
@@ -584,47 +611,47 @@ Mögliche Felder:
 - `byte_start`
 - `byte_end`
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Link-Modell ist unabhängig von Orgize.
-- DB-Tabelle ist angelegt.
-- Links können pro Datei gelöscht und neu eingefügt werden.
+- Link model is independent of Orgize.
+- DB table is created.
+- Links can be deleted and reinserted per file.
 
-** TODO Bracket-Links extrahieren
+** TODO Extract bracket links
 
-Ziel:
-Org-Bracket-Links extrahieren:
+Goal:
+Extract Org bracket links:
 
 #+begin_src org
 [[target][description]]
 [[target]]
 #+end_src
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Target wird extrahiert.
-- Description wird extrahiert, falls vorhanden.
-- Positionen werden gespeichert.
-- Klammer-Maskierung / Link-Unescaping wird als eigenes Thema behandelt.
-- Edge-Cases sind als Fixtures vorhanden.
+- Target is extracted.
+- Description is extracted, if present.
+- Positions are stored.
+- Bracket escaping / link unescaping is handled as a separate topic.
+- Edge cases exist as fixtures.
 
-** TODO Link-Unescaping und bekannte Orgize-Abweichungen behandeln
+** TODO Handle link unescaping and known Orgize deviations
 
-Ziel:
-`org-link-unescape`-ähnliche Logik prüfen und dort ergänzen, wo Orgize unvollständige oder fehlerhafte Daten liefert.
+Goal:
+Check and supplement `org-link-unescape`-like logic where Orgize provides incomplete or wrong data.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Bekannte Link-Maskierungsfälle sind dokumentiert.
-- Workaround ist im Adapter oder Normalizer gekapselt.
-- Fixture-Test deckt den Spezialfall ab.
+- Known link escaping cases are documented.
+- Workaround is encapsulated in the adapter or normalizer.
+- Fixture test covers the special case.
 
-** TODO Plain Links & Custom-Protokolle integrieren
+** TODO Integrate plain links and custom protocols
 
-Ziel:
-Plain Links aus Text-Knoten erkennen.
+Goal:
+Detect plain links from text nodes.
 
-Relevante Protokolle:
+Relevant protocols:
 
 - `http`
 - `https`
@@ -633,75 +660,75 @@ Relevante Protokolle:
 - `attachment`
 - `id`
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Plain Links werden erkannt.
-- False Positives sind in Fixtures dokumentiert.
-- Custom-Protokolle sind konfigurierbar oder klar begrenzt.
+- Plain links are detected.
+- False positives are documented in fixtures.
+- Custom protocols are configurable or clearly limited.
 
-** TODO Link-Spezialsyntax für Beziehungen prüfen
+** TODO Check special link syntax for relationships
 
-Beispiel:
+Example:
 
 #+begin_src org
-[[https://www.example.com][Example (->Inhaber)]]
+[[https://www.example.com][Example (->Owner)]]
 #+end_src
 
-Ziel:
-Prüfen, ob aus Link-Beschreibungen optionale Beziehungen extrahiert werden sollen.
+Goal:
+Check whether optional relationships should be extracted from link descriptions.
 
-Hinweis:
-Dies ist Projektlogik, nicht Org-mode-Standard. Deshalb zuerst als optionales Feature behandeln.
+Note:
+This is project logic, not Org-mode standard. Therefore, treat it as an optional feature first.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Entscheidung dokumentiert: MVP, später oder nicht unterstützen.
-- Falls unterstützt: Beziehung wird separat gespeichert.
-- Normale Link-Beschreibungen bleiben unverändert erhalten.
+- Decision is documented: MVP, later, or not supported.
+- If supported: relationship is stored separately.
+- Normal link descriptions remain preserved unchanged.
 
-** TODO CLI-Befehl `links` bereitstellen
+** TODO Provide CLI command `links`
 
-Befehl:
+Command:
 
 #+begin_src shell
 orgfdb links --json
 #+end_src
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Links werden als JSON ausgegeben.
-- Filter nach Datei oder Heading ist optional vorbereitet.
+- Links are output as JSON.
+- Filtering by file or heading is optionally prepared.
 
-* Phase 4: Link Resolution
+* Phase 4: Link resolution
 
-Ziel dieser Phase:
-Links auf bekannte Dateien, Headings, IDs und CUSTOM_IDs auflösen.
+Goal of this phase:
+Resolve links to known files, headings, IDs, and CUSTOM_IDs.
 
-** TODO ID und CUSTOM_ID Links auflösen
+** TODO Resolve ID and CUSTOM_ID links
 
-Ziel:
-`id:` Links über DB-Abgleich mit Headings verknüpfen.
+Goal:
+Resolve `id:` links by matching them against headings in the DB.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- `id:` Links werden auf `resolved_heading_id` gesetzt, falls möglich.
-- Broken Links werden markiert.
-- Mehrdeutige IDs werden als Diagnostic gemeldet.
+- `id:` links are assigned `resolved_heading_id` where possible.
+- Broken links are marked.
+- Ambiguous IDs are reported as diagnostics.
 
-** TODO File- und Attachment-Links auflösen
+** TODO Resolve file and attachment links
 
-Ziel:
-`file:` und `attachment:` Links auf bekannte Dateien abbilden.
+Goal:
+Map `file:` and `attachment:` links to known files.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Relative Pfade werden relativ zur Quelldatei interpretiert.
-- Bekannte Dateien werden mit `target_file_id` verknüpft.
-- Nicht gefundene Dateien werden als broken markiert.
+- Relative paths are interpreted relative to the source file.
+- Known files are linked through `target_file_id`.
+- Missing files are marked as broken.
 
-** TODO Link Target in DB abbilden
+** TODO Represent link target in DB
 
-Geplante Felder:
+Planned fields:
 
 - `target_file_id`
 - `target_heading_id`
@@ -709,345 +736,350 @@ Geplante Felder:
 - `broken`
 - `diagnostic`
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Auflösung ist wiederholbar.
-- Rebuild erzeugt konsistente Link-Ziele.
-- Broken Links können später abgefragt werden.
+- Resolution is repeatable.
+- Rebuild produces consistent link targets.
+- Broken links can later be queried.
 
-* Phase 5: Query-Engine & Volltextsuche
+* Phase 5: Query engine and full-text search
 
-Ziel dieser Phase:
-Eine einfache, sichere Query-Schicht bauen, die später org-ql-ähnlich erweitert werden kann.
+Goal of this phase:
+Build a simple, safe query layer that can later be extended toward org-ql-like behavior.
 
-** TODO SQLite FTS5 für Volltextsuche aktivieren
+** TODO Enable SQLite FTS5 for full-text search
 
-Ziel:
-Eine virtuelle FTS5-Tabelle in SQLite anlegen, die mit Heading-Titeln und später Fliesstexten gefüttert wird.
+Goal:
+Create a virtual FTS5 table in SQLite that is fed with heading titles and later body text.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- FTS5-Tabelle wird angelegt.
-- Heading-Titel werden indexiert.
-- Rebuild aktualisiert FTS konsistent.
-- Einfache Suche über Titel funktioniert.
+- FTS5 table is created.
+- Heading titles are indexed.
+- Rebuild updates FTS consistently.
+- Simple title search works.
 
-** TODO Query-Modell v0 definieren
+** TODO Define query model v0
 
-Unterstützte Operatoren im ersten Schritt:
+Initially supported operators:
 
 #+begin_src lisp
 (todo "NEXT")
 (tags "tag")
-(title-contains "suchbegriff")
+(title-contains "search term")
 (link-type "file")
 (has-property "ID")
 #+end_src
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Query-AST ist definiert.
-- Nicht unterstützte Operatoren erzeugen verständliche Fehler.
-- Query-Modell ist unabhängig von CLI und SQL.
+- Query AST is defined.
+- Unsupported operators produce understandable errors.
+- Query model is independent of CLI and SQL.
 
-** TODO Query Parser & SQL-Übersetzer bauen
+** TODO Build query parser and SQL translator
 
-Ziel:
-Query-String parsen und sicher mittels Parameterbindung in SQL übersetzen.
+Goal:
+Parse query strings and translate them safely to SQL using bound parameters.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Keine String-Konkatenation mit User-Input in SQL.
-- Parameterbindung wird verwendet.
-- Fehlerhafte Query-Syntax erzeugt verständliche Fehlermeldung.
-- Tests für alle unterstützten Operatoren existieren.
+- No string concatenation with user input in SQL.
+- Bound parameters are used.
+- Invalid query syntax produces understandable error messages.
+- Tests exist for all supported operators.
 
-** TODO CLI-Befehl `query` implementieren
+** TODO Implement CLI command `query`
 
-Beispiel:
+Example:
 
 #+begin_src shell
 orgfdb query --json '(todo "NEXT")'
 #+end_src
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Query gibt JSON aus.
-- Query nutzt DB-Schicht, nicht Parser.
-- Einfache Kombinationen können später ergänzt werden.
+- Query outputs JSON.
+- Query uses the DB layer, not the parser.
+- Simple combinations can be added later.
 
-* Phase 6: Robuster Initial-Indexer
+* Phase 6: Robust initial indexer
 
-Ziel dieser Phase:
-Aus dem MVP-Rebuild einen robusten Indexer machen.
+Goal of this phase:
+Turn the MVP rebuild into a robust indexer.
 
-** TODO Rekursive Dateisuche (`find_org_files`)
+** TODO Recursive file discovery (`find_org_files`)
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Rekursive Suche funktioniert.
-- Ignorierte Verzeichnisse können konfiguriert werden.
-- Symlink-Verhalten ist entschieden.
-- Nur `.org` Dateien werden standardmässig erfasst.
+- Recursive search works.
+- Ignored directories can be configured.
+- Symlink behavior is decided.
+- Only `.org` files are collected by default.
 
-** TODO Change Detection einbauen
+** TODO Add change detection
 
-Ziel:
-Unveränderte Dateien nicht unnötig neu parsen.
+Goal:
+Avoid reparsing unchanged files unnecessarily.
 
-Mögliche Signale:
+Possible signals:
 
 - mtime
 - size
 - content_hash
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Unveränderte Dateien werden übersprungen.
-- Geänderte Dateien werden neu geparst.
-- Gelöschte Dateien werden aus DB entfernt oder als missing markiert.
+- Unchanged files are skipped.
+- Changed files are parsed again.
+- Deleted files are removed from the DB or marked as missing.
 
-** TODO Transaction-Batching optimieren
+** TODO Optimize transaction batching
 
-Ziel:
-Mehrere Dateien effizient indexieren, ohne Datenbank-Konsistenz zu verlieren.
+Goal:
+Index multiple files efficiently without losing database consistency.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Batch-Grösse ist konfigurierbar oder sinnvoll festgelegt.
-- Fehlerstrategie ist definiert.
-- DB bleibt auch bei Abbruch konsistent.
+- Batch size is configurable or sensibly fixed.
+- Error strategy is defined.
+- DB remains consistent even on interruption.
 
-** TODO Parallelisierung mit Rayon prüfen
+** TODO Evaluate parallelization with Rayon
 
-Ziel:
-Parsing parallelisieren, DB-Schreiben kontrolliert seriell oder gebatcht ausführen.
+Goal:
+Parallelize parsing while keeping DB writes controlled, either serial or batched.
 
-Hinweis:
-Performance-Ziel erst nach Benchmark festlegen. Das frühere Ziel "5'000 Dateien in < 1 Sekunde" ist als hartes Anfangsziel zu riskant und sollte erst nach Messungen konkretisiert werden.
+Note:
+Define performance targets only after benchmarking. The earlier target "5,000 files in < 1 second" is too risky as a hard initial target and should only be made concrete after measurements.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Benchmark-Basis existiert.
-- Parsing und DB-Schreiben sind sauber getrennt.
-- Keine Race Conditions beim Schreiben.
+- Benchmark baseline exists.
+- Parsing and DB writing are cleanly separated.
+- There are no race conditions while writing.
 
-** TODO SQLite-Indizes optimieren
+** TODO Optimize SQLite indexes
 
-Ziel:
-Häufige Queries beschleunigen.
+Goal:
+Speed up common queries.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Wichtige Indizes sind definiert.
-- `EXPLAIN QUERY PLAN` wurde für typische Queries geprüft.
-- Ergebnisse sind dokumentiert.
+- Important indexes are defined.
+- `EXPLAIN QUERY PLAN` was checked for typical queries.
+- Results are documented.
 
-* Phase 7: Watcher für inkrementelle Updates
+* Phase 7: Watcher for incremental updates
 
-Ziel dieser Phase:
-Dateiänderungen erkennen und selektiv neu indexieren.
+Goal of this phase:
+Detect file changes and index selectively.
 
-** TODO File-Watcher via `notify` integrieren
+** TODO Integrate file watcher via `notify`
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Änderungen an Org-Dateien werden erkannt.
-- Neue Dateien werden erkannt.
-- Gelöschte Dateien werden erkannt.
+- Changes to Org files are detected.
+- New files are detected.
+- Deleted files are detected.
 
-** TODO Debounce-Mechanismus implementieren
+** TODO Implement debounce mechanism
 
-Ziel:
-Editor-Save-Events zusammenfassen.
+Goal:
+Combine editor save events.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Mehrere schnelle Events führen zu einem Reparse.
-- Debounce-Zeit ist konfigurierbar oder sinnvoll festgelegt.
+- Multiple quick events lead to one reparse.
+- Debounce duration is configurable or sensibly fixed.
 
-** TODO Selektiver Reparse
+** TODO Selective reparse
 
-Ziel:
-Bei Änderung exakt die betroffene Datei via Parser-Adapter neu parsen und in der DB via Transaction ersetzen.
+Goal:
+When a file changes, reparse exactly the affected file through the parser adapter and replace it in the DB through a transaction.
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Nur betroffene Datei wird neu indexiert.
-- Alte Headings/Links der Datei werden ersetzt.
-- Link Resolution wird danach für betroffene Ziele aktualisiert oder als späterer Schritt markiert.
+- Only the affected file is reindexed.
+- Old headings and links for the file are replaced.
+- Link resolution is then updated for affected targets or explicitly marked as later work.
 
-* Phase 8: Emacs Integration
+* Phase 8: Emacs integration
 
-Ziel dieser Phase:
-Die SQLite-/CLI-Schicht aus Emacs nutzbar machen.
+Goal of this phase:
+Make the SQLite/CLI layer usable from Emacs.
 
-** TODO Elisp-Wrapper für CLI-Kommunikation schreiben
+** TODO Write Elisp wrapper for CLI communication
 
-Akzeptanzkriterien:
+Acceptance criteria:
 
-- Emacs kann `orgfdb query --json` aufrufen.
-- JSON wird in Elisp gelesen.
-- Ergebnisse können als Liste angezeigt werden.
+- Emacs can call `orgfdb query --json`.
+- JSON is read in Elisp.
+- Results can be displayed as a list.
 
-** TODO Interaktive Emacs-Kommandos planen
+** TODO Plan interactive Emacs commands
 
-Mögliche Kommandos:
+Possible commands:
 
-- Suche nach Heading
-- Suche nach TODO-State
-- Suche nach Tag
-- Broken Links anzeigen
+- search by heading
+- search by TODO state
+- search by tag
+- show broken links
 
-** TODO Dünnen Emacs-Modul-Wrapper prüfen
+** TODO Evaluate thin Emacs module wrapper
 
-Hinweis:
-Optional. Erst prüfen, wenn CLI stabil ist.
+Note:
+Optional. Check only after the CLI is stable.
 
-* Phase 9: Testing & Regression
+* Phase 9: Testing and regression
 
-Ziel dieser Phase:
-Parser-, DB- und Query-Verhalten dauerhaft absichern.
+Goal of this phase:
+Finally consolidate the test and regression base, close gaps, and make it maintainable long term.
 
-Diese Phase läuft teilweise parallel zu allen anderen Phasen. Neue Features sollen jeweils eigene Tests und Fixtures erhalten.
+Important:
+Testing is not a late special block. Every `PLAN`, `BUILD`, `NEXT`, and `CONTINUE` task must include suitable checks, tests, or a justified reason why testing is not applicable.
 
-** TODO Org-Dateien zum Testen definieren
+New features should each receive their own tests, fixtures, or documented manual checks.
 
-Müssen enthalten:
+Phase 9 is the final bundling, hardening, and extension of the test strategy across parser, DB, query, and watcher behavior.
 
-- Sachen, welche geparst werden sollen
-- Sachen, welche bewusst nicht geparst werden sollen
-- Edge-Cases, die als normaler Text erhalten bleiben sollen
-- bekannte Orgize-Probleme
-- Vergleichsfälle für Emacs `org-element-parse-buffer`
+** TODO Define Org files for testing
 
-Mögliche Quellen prüfen:
+Must contain:
 
-- eigene `tests/data`
-- ausgewählte Orgize-Testfälle
-- eigene reale Org-Dateien, falls anonymisierbar
+- things that should be parsed
+- things that deliberately should not be parsed
+- edge cases that should remain normal text
+- known Orgize problems
+- comparison cases for Emacs `org-element-parse-buffer`
 
-** TODO Snapshot-Tests für Parser-Ausgabe aufsetzen
+Possible sources to check:
 
-Ziel:
-Parser-Ausgabe stabil vergleichen.
+- own `../../old-files/tests/data`
+- selected Orgize test cases
+- own real Org files, if they can be anonymized
 
-Akzeptanzkriterien:
+** TODO Set up snapshot tests for parser output
 
-- Fixture wird geparst.
-- `ParsedOrgDocument` wird als Snapshot geprüft.
-- Unterschiede sind reviewbar.
-- Bekannte Parser-Abweichungen sind dokumentiert.
+Goal:
+Compare parser output in a stable way.
 
-** TODO Vergleich mit Emacs `org-element-parse-buffer` prüfen
+Acceptance criteria:
 
-Ziel:
-Für ausgewählte Fixtures prüfen, wie Emacs Org-mode dieselben Daten interpretiert.
+- Fixture is parsed.
+- `ParsedOrgDocument` is checked as a snapshot.
+- Differences are reviewable.
+- Known parser deviations are documented.
 
-Hinweis:
-Dies ist eine Referenzprüfung, aber kein Blocker für den MVP.
+** TODO Compare with Emacs `org-element-parse-buffer`
 
-Akzeptanzkriterien:
+Goal:
+For selected fixtures, check how Emacs Org-mode interprets the same data.
 
-- Mindestens ein Vergleichsfixture existiert.
-- Unterschiede zwischen Orgize und Emacs sind dokumentiert.
-- Relevanz für DB-Import ist bewertet.
+Note:
+This is a reference check, but not a blocker for the MVP.
 
-** TODO DB-Integritätstests
+Acceptance criteria:
 
-Akzeptanzkriterien:
+- At least one comparison fixture exists.
+- Differences between Orgize and Emacs are documented.
+- Relevance for DB import is evaluated.
 
-- Rebuild ist idempotent.
-- Datei-Update ersetzt alte Daten.
-- Transaktionsfehler hinterlassen keine halben Inserts.
-- Foreign Keys sind aktiv und getestet.
+** TODO DB integrity tests
 
-** TODO Query-Tests
+Acceptance criteria:
 
-Akzeptanzkriterien:
+- Rebuild is idempotent.
+- File update replaces old data.
+- Transaction errors do not leave partial inserts.
+- Foreign keys are active and tested.
 
-- Jeder unterstützte Query-Operator hat Tests.
-- Ungültige Queries haben Tests.
-- SQL-Injection-nahe Inputs werden sicher behandelt.
+** TODO Query tests
 
-** TODO Watcher-Tests
+Acceptance criteria:
 
-Akzeptanzkriterien:
+- Every supported query operator has tests.
+- Invalid queries have tests.
+- SQL-injection-like inputs are handled safely.
 
-- Modify wird erkannt.
-- Create wird erkannt.
-- Delete wird erkannt.
-- Debounce funktioniert.
+** TODO Watcher tests
 
-* Phase 10: Dokumentation
+Acceptance criteria:
 
-Ziel dieser Phase:
-Projekt benutzbar und wartbar dokumentieren.
+- Modify is detected.
+- Create is detected.
+- Delete is detected.
+- Debounce works.
 
-** TODO README schreiben
+* Phase 10: Documentation
 
-Inhalte:
+Goal of this phase:
+Document the project so it is usable and maintainable.
 
-- Was ist `org-files-db`
-- Installation
-- Minimalbeispiel
-- Config-Beispiel
-- CLI-Beispiele
-- aktueller Status
-- bekannte Einschränkungen
+** TODO Write README
 
-** TODO Architektur-Doku schreiben
+Contents:
 
-Mögliche Datei:
+- what `org-files-db` is
+- installation
+- minimal example
+- config example
+- CLI examples
+- current status
+- known limitations
+
+** TODO Write architecture documentation
+
+Possible file:
 
 #+begin_src text
 docs/architecture.org
 #+end_src
 
-Inhalte:
+Contents:
 
-- Parser-Adapter-Prinzip
-- internes Datenmodell
-- Indexer-Pipeline
-- DB-Schema
-- Query-Schicht
-- Warum Orgize gekapselt wird
+- parser adapter principle
+- internal data model
+- indexer pipeline
+- DB schema
+- query layer
+- why Orgize is encapsulated
 
-** TODO API-Spezifikation schreiben
+** TODO Write API specification
 
-Inhalte:
+Contents:
 
-- JSON-Ausgabe für `headings`
-- JSON-Ausgabe für `links`
-- JSON-Ausgabe für `query`
-- Fehlerformat
+- JSON output for `headings`
+- JSON output for `links`
+- JSON output for `query`
+- error format
 
-** TODO Parser-Risiken dokumentieren
+** TODO Document parser risks
 
-Mögliche Datei:
+Possible file:
 
 #+begin_src text
 docs/parser-risks.org
 #+end_src
 
-Inhalte:
+Contents:
 
-- Orgize-Status
-- bekannte Bugs
-- Workarounds
-- Fixtures
-- offene Entscheidungen
+- Orgize status
+- known bugs
+- workarounds
+- fixtures
+- open decisions
 
-** TODO CHANGELOG pflegen
+** TODO Maintain CHANGELOG
 
-Regel:
-User-visible Änderungen werden erst nach Review in [[../../CHANGELOG.org][CHANGELOG.org]] dokumentiert.
+Rule:
+User-visible changes are documented in [[../../CHANGELOG.org][CHANGELOG.org]] only after review.
 
 * Backlog
 
-** TODO Erweiterte org-ql Query-Sprache
+** TODO Extended org-ql query language
 
-Mögliche Operatoren:
+Possible operators:
 
 #+begin_src lisp
 (and ...)
@@ -1061,49 +1093,36 @@ Mögliche Operatoren:
 (descendant ...)
 #+end_src
 
-** TODO Normalisierte Tags-Tabelle prüfen
+** TODO Evaluate normalized tags table
 
-Ziel:
-Komplexere Tag-Abfragen effizienter machen.
+Goal:
+Make more complex tag queries more efficient.
 
-** TODO Fliesstext pro Heading indexieren
+** TODO Index body text per heading
 
-Ziel:
-Nicht nur Heading-Titel, sondern auch Body-Text via FTS5 durchsuchbar machen.
+Goal:
+Make not only heading titles searchable through FTS5, but also body text.
 
-** TODO Parser-Backend austauschbar machen
+** TODO Make parser backend exchangeable
 
-Mögliche Backends:
+Possible backends:
 
 - Orgize
-- eigener Parser
+- custom parser
 - Tree-sitter
-- Emacs-basierter Import
+- Emacs-based import
 
-** TODO Upstream Issues für Orgize vorbereiten
+** TODO Prepare upstream issues for Orgize
 
-Nur für reproduzierbare, minimale Fixtures.
+Only for reproducible, minimal fixtures.
 
-** TODO Benchmarks definieren
+** TODO Define benchmarks
 
-Mögliche Benchmarks:
+Possible benchmarks:
 
-- 100 Dateien
-- 1'000 Dateien
-- 5'000 Dateien
-- Query-Latenz
-- Rebuild-Zeit
-- inkrementelles Update
-
-* Agent-Hinweise
-
-Vor substantieller Arbeit:
-
-1. Prüfen, ob die Aufgabe im Status `NEXT` oder `CONTINUE` ist, ausser der User weist explizit anders an.
-2. Prüfen, ob die Aufgabe aus [[./todo.org][todo.org]] ersichtlich ist.
-3. Relevante Repository-Instruktionen aus [[../agents/AGENTS.md][AGENTS.md]] lesen.
-4. Relevante Projektkontexte lesen.
-5. Nicht direkt mit Orgize-Typen ausserhalb des Parser-Adapters arbeiten.
-6. Keine DB-Schema-Änderungen ohne Prüfung der vorhandenen Schema-Dokumentation.
-7. Bei Parser-Unklarheiten Fixture hinzufügen statt Verhalten nur im Code zu verstecken.
-8. Bei user-visible Änderungen CHANGELOG-Eintrag vorbereiten.
+- 100 files
+- 1,000 files
+- 5,000 files
+- query latency
+- rebuild time
+- incremental update
