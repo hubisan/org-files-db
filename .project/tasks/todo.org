@@ -184,7 +184,7 @@ Die wichtigste Erkenntnis ist: Orgize ist wahrscheinlich gut genug für einen er
 
 Deshalb wird zuerst eine Adapter-Schicht gebaut und mit repräsentativen Fixtures abgesichert.
 
-** PLAN Parser-Abstraktion und internes Datenmodell definieren
+** TODO Parser-Abstraktion und internes Datenmodell definieren
 
 Ziel:
 Eine stabile interne Schnittstelle schaffen, damit Orgize austauschbar bleibt.
@@ -205,7 +205,7 @@ Akzeptanzkriterien:
 - Parser-Warnungen können als Diagnostics gesammelt werden.
 - Parser-Tests können erwartete extrahierte Daten prüfen.
 
-** PLAN Orgize-Adapter minimal evaluieren
+** TODO Orgize-Adapter minimal evaluieren
 
 Ziel:
 Prüfen, ob Orgize die für den MVP benötigten Daten zuverlässig genug liefert.
