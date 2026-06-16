@@ -18,10 +18,6 @@ impl OrgParser for OrgizeAdapter {
         path: &Path,
         _content: &str,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
-        Ok(ParsedOrgDocument {
-            file_path: path.to_path_buf(),
-            headings: Vec::new(),
-            diagnostics: Vec::new(),
-        })
+        Ok(ParsedOrgDocument::new(path))
     }
 }

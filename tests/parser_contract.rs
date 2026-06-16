@@ -1,0 +1,197 @@
+use std::path::{Path, PathBuf};
+
+use org_files_db::parser::{
+    DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParsedDocumentMetadata,
+    ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning, ParsedProperty,
+};
+
+struct ParserFixture {
+    path: PathBuf,
+    content: &'static str,
+    expected_title: Option<&'static str>,
+    expected_heading_titles: Vec<&'static str>,
+    expected_priorities: Vec<Option<char>>,
+    expected_tags: Vec<Vec<&'static str>>,
+    expected_diagnostics: usize,
+}
+
+fn assert_fixture<P>(parser: &P, fixture: &ParserFixture)
+where
+    P: OrgParser,
+{
+    let document = parser
+        .parse_document(&fixture.path, fixture.content)
+        .expect("fixture parser should succeed");
+
+    assert_eq!(
+        document.metadata.title.as_deref(),
+        fixture.expected_title,
+        "unexpected document title"
+    );
+    assert_eq!(
+        document.headings.len(),
+        fixture.expected_heading_titles.len(),
+        "unexpected heading count"
+    );
+    assert_eq!(
+        document.diagnostics.len(),
+        fixture.expected_diagnostics,
+        "unexpected diagnostics count"
+    );
+
+    for (index, heading) in document.headings.iter().enumerate() {
+        assert_eq!(
+            heading.title, fixture.expected_heading_titles[index],
+            "unexpected heading title at index {index}"
+        );
+        assert_eq!(
+            heading.priority, fixture.expected_priorities[index],
+            "unexpected priority at index {index}"
+        );
+
+        let expected_tags: Vec<String> = fixture.expected_tags[index]
+            .iter()
+            .map(|tag| (*tag).to_string())
+            .collect();
+        assert_eq!(
+            heading.tags, expected_tags,
+            "unexpected tags at index {index}"
+        );
+    }
+}
+
+struct StubFixtureParser;
+
+impl OrgParser for StubFixtureParser {
+    fn parse_document(
+        &self,
+        path: &Path,
+        content: &str,
+    ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+        let mut document = ParsedOrgDocument::new(path);
+
+        if let Some(title) = content
+            .lines()
+            .find_map(|line| line.strip_prefix("#+TITLE: "))
+            .map(str::to_string)
+        {
+            document.metadata.title = Some(title);
+        }
+
+        let mut heading = ParsedHeading::new(1, "Inbox", 14, content.len());
+        heading.title_raw = "TODO [#A] Inbox :rust:parser:".to_string();
+        heading.todo_keyword = Some("TODO".to_string());
+        heading.priority = Some('A');
+        heading.tags = vec!["rust".to_string(), "parser".to_string()];
+        heading.properties = vec![ParsedProperty {
+            key: "CUSTOM_ID".to_string(),
+            value: "parser-inbox".to_string(),
+            inherited: false,
+        }];
+        heading.planning = ParsedPlanning {
+            scheduled: Some("<2026-06-16 Tue>".to_string()),
+            deadline: None,
+            closed: None,
+        };
+        heading.line_number = Some(2);
+        heading.is_root = true;
+
+        document.metadata.keywords.push(ParsedKeyword {
+            key: "TITLE".to_string(),
+            value: document.metadata.title.clone(),
+        });
+        document.headings.push(heading);
+        document.diagnostics.push(
+            ParseDiagnostic::warning("fixture parser ignores body content")
+                .with_file_path(path)
+                .with_line_number(2)
+                .with_byte_range(14, content.len()),
+        );
+
+        Ok(document)
+    }
+}
+
+#[test]
+fn parsed_org_document_supports_schema_near_metadata() {
+    let mut document = ParsedOrgDocument::new("notes/project.org");
+    document.metadata = ParsedDocumentMetadata {
+        title: Some("Project Notes".to_string()),
+        keywords: vec![ParsedKeyword {
+            key: "FILETAGS".to_string(),
+            value: Some(":project:rust:".to_string()),
+        }],
+    };
+
+    let mut heading = ParsedHeading::new(2, "Parser model", 32, 58);
+    heading.title_raw = "TODO [#B] Parser model".to_string();
+    heading.todo_keyword = Some("TODO".to_string());
+    heading.priority = Some('B');
+    heading.tags = vec!["project".to_string(), "rust".to_string()];
+    heading.properties = vec![ParsedProperty {
+        key: "OWNER".to_string(),
+        value: "hubisan".to_string(),
+        inherited: false,
+    }];
+    heading.planning = ParsedPlanning {
+        scheduled: Some("<2026-06-17 Wed>".to_string()),
+        deadline: Some("<2026-06-20 Sat>".to_string()),
+        closed: None,
+    };
+    heading.parent_index = Some(0);
+    heading.is_archived = true;
+
+    document.headings.push(heading.clone());
+
+    assert_eq!(document.file_path, PathBuf::from("notes/project.org"));
+    assert_eq!(document.metadata.title.as_deref(), Some("Project Notes"));
+    assert_eq!(document.metadata.keywords.len(), 1);
+    assert_eq!(document.headings[0], heading);
+    assert_eq!(
+        document.headings[0].planning.deadline.as_deref(),
+        Some("<2026-06-20 Sat>")
+    );
+}
+
+#[test]
+fn diagnostics_can_be_collected_on_successful_parse() {
+    let fixture = ParserFixture {
+        path: PathBuf::from("tests/data/parser/headings/basic.org"),
+        content: include_str!("data/parser/headings/basic.org"),
+        expected_title: Some("Parser Fixture"),
+        expected_heading_titles: vec!["Inbox"],
+        expected_priorities: vec![Some('A')],
+        expected_tags: vec![vec!["rust", "parser"]],
+        expected_diagnostics: 1,
+    };
+
+    assert_fixture(&StubFixtureParser, &fixture);
+}
+
+#[test]
+fn diagnostics_builders_preserve_location_information() {
+    let diagnostic = ParseDiagnostic::error("unsupported planning syntax")
+        .with_file_path("notes/project.org")
+        .with_line_number(7)
+        .with_byte_range(120, 140);
+
+    assert_eq!(diagnostic.severity, DiagnosticSeverity::Error);
+    assert_eq!(
+        diagnostic.file_path,
+        Some(PathBuf::from("notes/project.org"))
+    );
+    assert_eq!(diagnostic.line_number, Some(7));
+    assert_eq!(diagnostic.byte_range, Some((120, 140)));
+}
+
+#[test]
+fn orgize_adapter_returns_internal_document_type() {
+    let document = OrgizeAdapter::new()
+        .parse_document(Path::new("notes/project.org"), "* Heading")
+        .expect("adapter placeholder should succeed");
+
+    assert_eq!(document.file_path, PathBuf::from("notes/project.org"));
+    assert!(document.metadata.title.is_none());
+    assert!(document.headings.is_empty());
+    assert!(document.diagnostics.is_empty());
+}

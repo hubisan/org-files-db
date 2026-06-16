@@ -2,7 +2,7 @@
 #+STARTUP: showall
 #+TEMPLATE_VERSION: 0.4.0
 #+TASK_STARTED: [2026-06-16 Tue 22:05]
-#+TASK_COMPLETED:
+#+TASK_COMPLETED: [2026-06-16 Tue 22:14]
 
 * Planning
 
@@ -57,3 +57,28 @@ Links are explicitly treated as a future extension point. This task should docum
 - Tests that verify diagnostics can be attached to a successful parsed document
 - Tests that assert parser-facing APIs use internal model types rather than Orgize types outside the adapter
 - Fixture-oriented parser tests that compare extracted heading data, TODO keywords, priorities, tags, planning fields, and diagnostics
+
+* Build
+
+** Approach
+Refine the existing parser scaffold instead of replacing it. Keep the parser boundary centered on ~OrgParser~, expand the internal model with schema-aware parser-owned types, document deferred link handling as a follow-up concern, and add backend-agnostic parser tests that validate internal extracted data rather than parser implementation details.
+
+** Changed files
+- Refined ~src/parser.rs~ exports to expose the parser-owned model types used outside the adapter
+- Expanded ~src/parser/model.rs~ with schema-aware parser-owned document metadata, keywords, properties, raw heading text, and parser-near heading flags
+- Expanded ~src/parser/diagnostics.rs~ with location helpers and byte-range support for testable parser deviations
+- Kept ~src/parser/orgize_adapter.rs~ thin and aligned it with the refined internal document model
+- Added backend-agnostic parser contract tests in ~tests/parser_contract.rs~ and an initial fixture file in ~tests/data/parser/headings/basic.org~
+** Checks performed
+- ~cargo fmt~
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+** Test results
+- All local checks passed
+- ~cargo test~ passed with 4 parser contract tests covering model construction, successful parse diagnostics, diagnostic location helpers, and the adapter's internal return type
+** Blockers
+None
+** Follow-ups
+- Evaluate whether file-level metadata beyond ~title~ and ~keywords~ is parser-near enough to add now or should wait for end-to-end ingestion work
+- Model links in a dedicated follow-up task after the Orgize adapter evaluation clarifies what can be extracted reliably

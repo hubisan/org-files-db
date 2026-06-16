@@ -143,29 +143,6 @@ The most important insight is: Orgize is probably good enough for a first end-to
 
 Therefore, an adapter layer is built first and protected with representative fixtures.
 
-** BUILD Define parser abstraction and internal data model
-
-[[./2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
-
-Goal:
-Create a stable internal interface so Orgize remains exchangeable.
-
-Tasks:
-
-1. Define the `OrgParser` trait.
-2. Define `ParsedOrgDocument`.
-3. Define `ParsedHeading`.
-4. Define `ParsedPlanning`.
-5. Define `ParseDiagnostic`.
-6. Prepare tests that can later run multiple parser backends against the same fixtures.
-
-Acceptance criteria:
-
-- There is an internal parser model.
-- Orgize types do not appear outside the Orgize adapter.
-- Parser warnings can be collected as diagnostics.
-- Parser tests can check expected extracted data.
-
 ** TODO Evaluate minimal Orgize adapter
 
 Goal:
@@ -1066,3 +1043,7 @@ Possible benchmarks:
 ** DONE [2026-06-16 Tue 21:41] Set up project structure again
 
 [[./archive/2026-06-16--set-up-project-structure-again.org]]
+
+** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
+
+[[./archive/2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
