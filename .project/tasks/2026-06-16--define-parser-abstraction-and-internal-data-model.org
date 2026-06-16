@@ -1,0 +1,59 @@
+#+TITLE: Define parser abstraction and internal data model
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.4.0
+#+TASK_STARTED: [2026-06-16 Tue 22:05]
+#+TASK_COMPLETED:
+
+* Planning
+
+** Problem summary
+The project needs a stable internal parser interface so Orgize remains replaceable. The current parser scaffold already defines basic types, but this task must turn that draft into a deliberate architecture baseline that other layers can rely on without importing Orgize types.
+
+** Goals
+- Define a stable ~OrgParser~ trait as the parser boundary
+- Define internal parser-owned types for documents, headings, planning data, and diagnostics
+- Keep the model schema-aware enough to map cleanly to the current SQL draft later
+- Ensure warnings and parser deviations can be collected without silently losing information
+- Prepare test structure so multiple parser backends can later be checked against the same fixtures
+
+** Non-goals
+- No full Org-mode parser implementation
+- No DB, query, or CLI implementation work
+- No link extraction implementation in this task
+- No requirement to mirror ~sql/db-schema.sql~ 1:1 in the parser model
+- No direct parser-to-DB coupling
+
+** Architecture
+~src/parser/orgize_adapter.rs~ remains the only module allowed to know Orgize directly. All other modules must work with internal parser-owned types from ~src/parser/model.rs~ and parser-owned diagnostics from ~src/parser/diagnostics.rs~.
+
+The parser contract should return a ~ParsedOrgDocument~ on successful parse, including non-fatal warnings in ~diagnostics~. Only fatal parse failures should be returned as ~Err(...)~. This keeps parser backends interchangeable while still surfacing parser limitations.
+
+The internal model should remain simple, but it should be shaped with the SQL draft in mind. ~ParsedHeading~ should carry core heading data such as level, title, raw title, TODO keyword, priority, tags, properties, planning, byte offsets, line number, parent linkage, and parser-near flags such as archival state when they are clearly derivable. ~ParsedOrgDocument~ should own file path, headings, diagnostics, and optionally lightweight file-level metadata if it is parser-near and low-cost to add.
+
+Links are explicitly treated as a future extension point. This task should document that direction, but not force a premature ~ParsedLink~ design before the parser adapter task clarifies what Orgize can reliably provide.
+
+** Execution plan
+1. Review the existing parser scaffold and reduce inconsistencies instead of redesigning from scratch.
+2. Tighten ~OrgParser~ so successful parses return a document with collected diagnostics, while fatal errors stay separate.
+3. Refine ~ParsedOrgDocument~, ~ParsedHeading~, and ~ParsedPlanning~ so they align with the intent of ~sql/db-schema.sql~ without importing DB concerns into the parser layer.
+4. Refine ~ParseDiagnostic~ so warnings and parser deviations are testable and useful to downstream code.
+5. Document which fields are part of the stable parser core now and which concerns remain later extensions.
+6. Add parser-focused tests and/or fixture scaffolding that compare internal extracted data instead of Orgize AST details.
+7. Move the task to ~REVIEW~ after the planning document is complete.
+
+** Risks & assumptions
+- The SQL schema is a draft and should inform the parser model, not dictate it mechanically.
+- The core of this task is files and headings, but tags, properties, and planning should already fit naturally into the model because later storage depends on them.
+- Links, outline materialization, and persistence details should remain follow-up work unless implementation reveals a strong reason to reserve a concrete internal type now.
+- File-level metadata should only be added in this task if it is clearly parser-near and does not create speculative complexity.
+- The repository is currently on branch ~rust~ instead of ~main~. No branch creation is required, but this is an unexpected branch state relative to the default workflow.
+
+** Open questions
+- Whether file-level metadata beyond ~file_path~ should be added immediately depends on how clearly it is parser-derived during implementation.
+- Link modelling is intentionally deferred unless the Orgize adapter evaluation shows a concrete shape that should be reserved early.
+
+** Proposed checks
+- Unit tests for constructing and comparing parser model types
+- Tests that verify diagnostics can be attached to a successful parsed document
+- Tests that assert parser-facing APIs use internal model types rather than Orgize types outside the adapter
+- Fixture-oriented parser tests that compare extracted heading data, TODO keywords, priorities, tags, planning fields, and diagnostics

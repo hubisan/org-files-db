@@ -143,7 +143,9 @@ The most important insight is: Orgize is probably good enough for a first end-to
 
 Therefore, an adapter layer is built first and protected with representative fixtures.
 
-** PLAN Define parser abstraction and internal data model
+** BUILD Define parser abstraction and internal data model
+
+[[./2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
 
 Goal:
 Create a stable internal interface so Orgize remains exchangeable.
