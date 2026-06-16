@@ -1,1 +1,13 @@
-Makefile linguist-generated=true
+Makefile linguist-detectable=false
+
+# Should not affect language stats
+.project/** linguist-vendored
+
+# Treat generated or fixture HTML as vendored so it does not affect language stats
+tests/fixtures/** linguist-vendored
+
+# Documentation
+docs/** linguist-documentation
+
+# Make sure Rust is counted normally
+*.rs linguist-language=Rust

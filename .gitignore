@@ -1,5 +1,26 @@
 /target
-dump.json
+.env
+.DS_Store
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*:Zone.Identifier
 
 # Project update temp folder
 .project-update-tmp/
+
+# VS Code Stuff
+.vorg.db
+
+# Build / Cache
+dist/
+build/
+.cache/
+.tmp/
+tmp/
+temp/
+coverage/
