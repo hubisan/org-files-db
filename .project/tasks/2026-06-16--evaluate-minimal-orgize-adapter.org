@@ -1,0 +1,99 @@
+#+TITLE: Evaluate minimal Orgize adapter
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.4.0
+#+TASK_STARTED: [2026-06-16 Tue 22:23]
+#+TASK_COMPLETED: [2026-06-16 Tue 23:15]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal:
+Check whether Orgize provides the data needed for the MVP reliably enough.
+
+MVP-relevant data:
+
+- heading level
+- title
+- TODO keyword
+- priority
+- tags
+- byte positions
+- line number, if reliably available or computable
+- parent/child structure, if directly possible, otherwise computed later
+
+References:
+
+- https://github.com/200ok-ch/org-parser/blob/master/resources/org.ebnf
+- [[file:../../docs/reference/org.ebnf][Local copy of org.ebnf]]
+- [[file:../../docs/lexer-design.org][Lexer Design]]
+- [[file:../../docs/org-element-parser-funtions.org][Org-mode Element Parser Functions]]
+- [[file:../../docs/org-regular-expressions.org][Org-mode Regular Expressions]]
+- [[file:../../tests/data/][tests/data]]
+
+Notes discovered during review:
+
+- The multi-line planning example
+  #+begin_src org
+  * Each on one Line
+  SCHEDULED: <2023-11-10>
+  DEADLINE: <2023-11-12>
+  CLOSED: [2023-11-10 Fri 14:00]
+  #+end_src
+  should currently be treated as matching Emacs ~org-element-parse-buffer~ behavior: only ~SCHEDULED~ lands in the planning node, while ~DEADLINE~ and ~CLOSED~ are parsed afterwards as paragraph content.
+- The single-line planning form
+  #+begin_src org
+  * Test
+  DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
+  #+end_src
+  is explicitly allowed and should become a positive adapter regression test.
+- Plain links such as ~https://www.example.com~ need explicit regression coverage because Orgize currently appears not to expose them like bracket/file links.
+
+Instructions for AI:
+
+1. Check the public Orgize API.
+2. Check which information is available through stable public methods.
+3. Inspect `syntax()` / rowan AST only if necessary.
+4. Do not treat `syntax()` / rowan as a stable project API.
+5. Take existing test data from `tests/data` into account.
+6. Document discovered deviations as `ParseDiagnostic` entries or regression tests.
+7. Do not build a complete custom parser yet.
+
+Acceptance criteria:
+
+- The Orgize adapter can extract at least headings, titles, TODO keywords, priorities, and tags.
+- Known problems are documented.
+- There is at least one fixture test for the adapter.
+- The DB and query layers do not depend directly on Orgize.
+
+* Build
+
+** Approach
+Implement the first real ~OrgizeAdapter~ against the existing internal parser model. Prefer stable public Orgize APIs for heading extraction, title handling, TODO keywords, priorities, and tags, and only use contained adapter-local fallbacks if MVP-critical data cannot be recovered otherwise. Add real Orgize-backed fixture tests using copied active test data rather than the archived draft files directly.
+
+** Changed files
+- Added ~orgize = "0.10.0-alpha.10"~ in ~Cargo.toml~ as the parser-backend dependency
+- Replaced the placeholder adapter in ~src/parser/orgize_adapter.rs~ with real Orgize-backed extraction for document title, top-level keywords, headings, TODO keywords, priorities, tags, byte positions, computed line numbers, parent indices, archival state, and provisional planning/property handling
+- Added active Orgize-backed fixtures in ~tests/data/headings/orgize-headings.org~ and ~tests/data/headings/orgize-priority-tags.org~, including one fixture copied from the archived old heading draft
+- Added real adapter tests in ~tests/orgize_adapter.rs~ and updated ~tests/parser_contract.rs~ to reflect the new non-placeholder adapter behavior
+- Added ~docs/reference/org.ebnf~ as a local upstream grammar reference for later parser work
+** Checks performed
+- ~cargo fmt~
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+** Test results
+- All local checks passed
+- ~cargo test~ passed with 6 tests total: 2 Orgize-backed adapter tests and 4 parser contract tests
+- The copied old heading fixture confirmed that heading extraction, title extraction, TODO keywords, priorities, tags, byte offsets, and parent computation work
+- Review follow-up: Emacs ~org-element-parse-buffer~ output indicates the copied multi-line planning example is parsed with only ~SCHEDULED~ in the planning node while ~DEADLINE~ and ~CLOSED~ fall into a following paragraph. The adapter tests should therefore treat this as current Org/Emacs-compatible behavior, not as an Orgize-specific failure.
+- Follow-up note: the single-line planning form ~DEADLINE: <...> SCHEDULED: <...> CLOSED: <...>~ is valid and should be added later as a positive regression fixture.
+- Follow-up note: plain links like ~https://www.example.com~ need dedicated regression coverage because Orgize currently appears weaker there than for bracket/file links.
+** Blockers
+None
+** Follow-ups
+- Document the observed multi-line planning behavior more centrally in the later parser-risk task, together with the matching Emacs ~org-element~ example, so it is tracked as parser semantics rather than prematurely treated as an Orgize bug
+- Decide in follow-up tasks whether property extraction should keep using the current local-only adapter mapping or be held back until inheritance semantics are specified
+- Extend fixture coverage to links, properties, tags, and parser edge-cases using the archived files as source material
+- Use ~docs/reference/org.ebnf~, ~old-files/docs/lexer-design.org~, ~old-files/tests/data/org-test-links.org~, and ~old-files/tests/data/org-test-properties.org~ as primary references for the next parser-regression tasks

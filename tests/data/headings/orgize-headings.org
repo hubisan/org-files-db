@@ -1,12 +1,12 @@
 #+TITLE: Org Tests for Headings
 #+STARTUP: showall
-#+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n) 
+#+TODO: TODO(t) | OK(o) PARTLY(p) NOT_IMPLEMENTING(n)
 
 * Priortiy
 
 * Planning Info
 
-** Each on one Line - is not valid
+** Each on one Line
 SCHEDULED: <2023-11-10>
 DEADLINE: <2023-11-12>
 CLOSED: [2023-11-10 Fri 14:00]

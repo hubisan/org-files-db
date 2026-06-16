@@ -1,0 +1,70 @@
+use std::path::Path;
+
+use org_files_db::parser::{OrgParser, OrgizeAdapter};
+
+#[test]
+fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
+    let content = include_str!("data/headings/orgize-headings.org");
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("tests/data/headings/orgize-headings.org"),
+            content,
+        )
+        .expect("orgize adapter should parse old heading fixture");
+
+    assert_eq!(
+        document.metadata.title.as_deref(),
+        Some("Org Tests for Headings")
+    );
+    assert_eq!(document.headings.len(), 3);
+
+    assert_eq!(document.headings[0].title, "Priortiy");
+    assert_eq!(document.headings[0].level, 1);
+    assert!(document.headings[0].is_root);
+    assert_eq!(document.headings[0].line_number, Some(5));
+    assert!(document.headings[0].byte_end > document.headings[0].byte_start);
+
+    assert_eq!(document.headings[1].title, "Planning Info");
+    assert_eq!(document.headings[1].level, 1);
+    assert_eq!(document.headings[2].title, "Each on one Line");
+    assert_eq!(document.headings[2].level, 2);
+    assert_eq!(document.headings[2].parent_index, Some(1));
+    assert!(document.headings[2].planning.scheduled.is_some());
+    assert!(document.headings[2].planning.deadline.is_none());
+    assert!(document.headings[2].planning.closed.is_none());
+    assert!(document.diagnostics.is_empty());
+}
+
+#[test]
+fn orgize_adapter_extracts_todo_priority_and_tags() {
+    let content = include_str!("data/headings/orgize-priority-tags.org");
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("tests/data/headings/orgize-priority-tags.org"),
+            content,
+        )
+        .expect("orgize adapter should parse todo/priority/tag fixture");
+
+    assert_eq!(
+        document.metadata.title.as_deref(),
+        Some("Orgize Priority Fixture")
+    );
+    assert_eq!(document.headings.len(), 2);
+
+    let first = &document.headings[0];
+    assert_eq!(first.title, "Inbox");
+    assert_eq!(first.todo_keyword.as_deref(), Some("TODO"));
+    assert_eq!(first.priority, Some('A'));
+    assert_eq!(first.tags, vec!["rust".to_string(), "parser".to_string()]);
+    assert!(first.is_root);
+    assert_eq!(first.parent_index, None);
+
+    let second = &document.headings[1];
+    assert_eq!(second.title, "Child");
+    assert_eq!(second.parent_index, Some(0));
+    assert_eq!(second.todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(second.priority, Some('B'));
+    assert_eq!(second.tags, vec!["child".to_string()]);
+
+    assert!(document.diagnostics.is_empty());
+}

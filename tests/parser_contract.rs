@@ -192,6 +192,8 @@ fn orgize_adapter_returns_internal_document_type() {
 
     assert_eq!(document.file_path, PathBuf::from("notes/project.org"));
     assert!(document.metadata.title.is_none());
-    assert!(document.headings.is_empty());
+    assert_eq!(document.headings.len(), 1);
+    assert_eq!(document.headings[0].title, "Heading");
+    assert!(document.headings[0].is_root);
     assert!(document.diagnostics.is_empty());
 }

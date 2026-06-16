@@ -3,6 +3,9 @@ name = "org-files-db"
 version = "0.1.0"
 edition = "2021"
 
+[dependencies]
+orgize = "0.10.0-alpha.10"
+
 [lib]
 name = "org_files_db"
 path = "src/lib.rs"
