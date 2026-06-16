@@ -1,4 +1,5 @@
 #+TITLE: Project Structure & Module Descriptions
+#+STARTUP: showall
 
 [2026-05-27 Wed] Verifiziert
 
