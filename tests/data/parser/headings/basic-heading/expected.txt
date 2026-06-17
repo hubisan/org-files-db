@@ -1,9 +1,12 @@
 # classification: org-special-case
 # note: Positive baseline for simple headline extraction.
 document.title=Basic Heading Fixture
-heading_count=1
+heading_count=2
 diagnostic_count=0
-heading.0.level=1
-heading.0.title=Inbox
+heading.0.level=0
+heading.0.title=headings/basic-heading
 heading.0.is_root=true
-heading.0.line_number=2
+heading.1.level=1
+heading.1.title=Inbox
+heading.1.line_number=2
+heading.1.parent_index=0

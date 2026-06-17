@@ -355,26 +355,9 @@ config
 
 [[./archive/2026-06-18--implement-minimal-db-functions.org]]
 
-** BUILD Implement Orgize adapter for headings and priorities
+** DONE Implement Orgize adapter for headings and priorities
 
-Goal:
-Use ~orgize~ only inside the parser adapter and produce our own ~ParsedHeading~ values from it.
-
-Acceptance criteria:
-
-- Driver uses ~ParseConfig~ generated from ~ParseOptions~.
-- Org-mode default TODO keywords are used only as fallback defaults:
-  - open: ~TODO~
-  - closed: ~DONE~
-- Configured project defaults can replace Org-mode defaults.
-- File-local ~#+TODO:~ lines can replace configured defaults for the file.
-- Extracts level, title, raw title, tags, position data, and priority.
-- Extracts TODO keyword and resolves TODO type as open or closed.
-- Creates or supports a synthetic level 0 heading in the normalized output.
-- Uses ~headline.priority()~ only inside the adapter.
-- Returns our own ~ParsedHeading~ values.
-- Known parser problems are documented as ~ParseDiagnostic~ entries, not silently ignored.
-- A fixture test checks at least TODO, priority, tags, and byte offsets.
+[[./archive/2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
 
 ** TODO Implement indexer for full rebuild
 

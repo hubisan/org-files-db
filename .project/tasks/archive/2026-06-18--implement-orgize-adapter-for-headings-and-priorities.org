@@ -1,0 +1,132 @@
+#+TITLE: Implement Orgize adapter for headings and priorities
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 00:35]
+#+TASK_COMPLETED: [2026-06-18 Thu 00:47]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Implement Orgize adapter for headings and priorities
+
+Task: Implement Orgize adapter for headings and priorities.
+
+Status: BUILD.
+
+Goal:
+Use ~orgize~ only inside the parser adapter and produce the project’s own parsed heading/document model.
+
+Scope:
+
+- Implement or complete the Orgize adapter for headings.
+- Convert Orgize headlines into the project’s own ~ParsedHeading~ / parsed document types.
+- Extract level, title, raw title, tags, byte/line position data, priority, TODO keyword, and TODO type.
+- Use Org-mode defaults only as fallback: open ~TODO~, closed ~DONE~.
+- Respect configured project TODO defaults.
+- Respect file-local ~#+TODO:~ lines as overriding configured defaults for that file.
+- Create or support a synthetic level 0 heading in the normalized output.
+- Keep all Orgize-specific types inside the adapter.
+- Represent known parser problems as ~ParseDiagnostic~ entries instead of silently ignoring them.
+
+Non-goals:
+
+- Do not implement the full indexer.
+- Do not write to SQLite.
+- Do not implement CLI commands.
+- Do not redesign the parser model unless a small adjustment is required.
+- Do not expand into body parsing, links, properties, timestamps, or full Org grammar unless already needed for heading extraction.
+- Do not perform broad refactors.
+
+* Planning
+
+** Problem summary
+
+The existing adapter already extracts basic headline data, but it still misses two accepted normalization rules for this phase: synthetic level 0 headings and file-local ~#+TODO:~ overriding the configured TODO keyword defaults.
+
+** Goals
+
+- Keep Orgize usage contained inside the adapter.
+- Normalize headings into the shared parser model with a synthetic level 0 node.
+- Resolve TODO keyword and TODO type using file-local TODO declarations first, then configured defaults, then Org-mode defaults.
+- Update fixture coverage for the new normalized output shape.
+
+** Non-goals
+
+- No DB or indexer work.
+- No broader parser-model expansion.
+
+** Architecture
+
+Extend ~src/parser/orgize_adapter.rs~ only. Derive an active TODO keyword configuration from file-level keywords before collecting headlines, prepend a synthetic level 0 heading to the output, and keep all fallback parsing logic adapter-local.
+
+** Execution plan
+
+- Add an adapter-local parser for file-local ~#+TODO:~ sequences.
+- Insert the synthetic level 0 heading before real headings.
+- Recompute top-level parent indices so they attach to level 0.
+- Update parser tests and regression fixture expectations.
+
+** Risks & assumptions
+
+- The parser model still stores file-level keywords on document metadata, so level 0 support in this task is structural rather than a full file-scope payload migration.
+- File-local TODO parsing will intentionally support the current documented sequence style without trying to cover the full Org grammar.
+
+** Open questions
+
+- None at the moment.
+
+** Proposed checks
+
+- ~make ci~
+
+* Build
+
+** Approach
+
+Keep all Orgize-specific handling inside ~src/parser/orgize_adapter.rs~, derive the active TODO keyword set from file-local ~#+TODO:~ lines before headline normalization, and prepend a synthetic level 0 heading so regular top-level headings attach to the file-scope node.
+
+** Changed files
+
+- ~src/parser/orgize_adapter.rs~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_contract.rs~
+- ~tests/data/parser/file-scope/file-keywords-and-preamble/expected.txt~
+- ~tests/data/parser/headings/basic-heading/expected.txt~
+- ~tests/data/parser/headings/nested-planning-lines/expected.txt~
+- ~tests/data/parser/links/plain-and-bracket-links/expected.txt~
+- ~tests/data/parser/planning/one-line-planning/expected.txt~
+- ~tests/data/parser/priorities/todo-priority-tags/expected.txt~
+- ~tests/data/parser/properties/drawer-after-planning/expected.txt~
+- ~tests/data/parser/todo-keywords/custom-sequence/expected.txt~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test~
+- ~make ci~
+
+** Test results
+
+- Passed: ~cargo test~
+- Passed: ~make ci~
+- Added or updated coverage for:
+  - TODO keyword extraction
+  - TODO type resolution
+  - priority extraction
+  - tags
+  - byte offsets / source positions
+  - file-local ~#+TODO:~ overriding configured defaults
+  - synthetic level 0 heading normalization
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- File-scope metadata is still represented on document metadata in the current parser model; later tasks can decide whether to mirror more of that payload explicitly onto the level 0 node.
+- Link, body, timestamp, and broader file-scope extraction remain outside this task.

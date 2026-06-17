@@ -1,9 +1,13 @@
 # classification: org-special-case
 # note: Positive property-drawer placement case derived from the legacy property fixture.
 document.title=Property Drawer After Planning
-heading_count=1
+heading_count=2
 diagnostic_count=1
-heading.0.level=1
-heading.0.title=Task
-heading.0.property_count=1
-heading.0.planning.deadline=<2025-11-19 Wed>
+heading.0.level=0
+heading.0.title=properties/drawer-after-planning
+heading.0.is_root=true
+heading.1.level=1
+heading.1.title=Task
+heading.1.property_count=1
+heading.1.parent_index=0
+heading.1.planning.deadline=<2025-11-19 Wed>

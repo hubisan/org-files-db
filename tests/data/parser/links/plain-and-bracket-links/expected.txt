@@ -1,10 +1,14 @@
 # classification: deliberately-unsupported
 # note: Link extraction is not part of the current internal parser model; keep this fixture ready for future link assertions.
 document.title=Link Edge Cases
-heading_count=2
+heading_count=3
 diagnostic_count=1
-heading.0.level=1
-heading.0.title=Links
-heading.1.level=2
-heading.1.title=Local Target
-heading.1.property_count=1
+heading.0.level=0
+heading.0.title=links/plain-and-bracket-links
+heading.0.is_root=true
+heading.1.level=1
+heading.1.title=Links
+heading.1.parent_index=0
+heading.2.level=2
+heading.2.title=Local Target
+heading.2.property_count=1

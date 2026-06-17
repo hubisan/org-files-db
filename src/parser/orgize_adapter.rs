@@ -37,14 +37,18 @@ impl OrgParser for OrgizeAdapter {
             })
             .collect();
 
+        let active_todo_keywords = file_local_todo_keywords(&parsed.metadata.keywords)
+            .unwrap_or_else(|| options.todo_keywords.clone());
+        parsed.headings.push(level_zero_heading(path, content));
+
         collect_headlines(
             document.headlines(),
             path,
             content,
-            options,
+            &active_todo_keywords,
             &mut parsed.headings,
             &mut parsed.diagnostics,
-            None,
+            Some(0),
         );
 
         Ok(parsed)
@@ -55,7 +59,7 @@ fn collect_headlines(
     headlines: impl Iterator<Item = Headline>,
     path: &Path,
     content: &str,
-    options: &ParseOptions,
+    todo_keywords: &TodoKeywordConfig,
     output: &mut Vec<ParsedHeading>,
     diagnostics: &mut Vec<ParseDiagnostic>,
     parent_index: Option<usize>,
@@ -76,7 +80,7 @@ fn collect_headlines(
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
         if parsed.todo_keyword.is_none() {
             if let Some((keyword, normalized_title)) =
-                infer_todo_keyword(&original_title_raw, &options.todo_keywords)
+                infer_todo_keyword(&original_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
                 parsed.title = normalized_title;
@@ -85,7 +89,7 @@ fn collect_headlines(
         parsed.todo_type = parsed
             .todo_keyword
             .as_deref()
-            .and_then(|keyword| todo_type_for_keyword(keyword, &options.todo_keywords));
+            .and_then(|keyword| todo_type_for_keyword(keyword, todo_keywords));
         parsed.priority = headline.priority().and_then(|token| token.chars().next());
         parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
         parsed.line_number = Some(line_number_for_offset(content, start));
@@ -113,6 +117,7 @@ fn collect_headlines(
                 ParseDiagnostic::warning(
                     "Orgize adapter property extraction is currently local-only and does not handle inheritance",
                 )
+                .with_file_path(path)
                 .with_line_number(line_number_for_offset(content, start))
                 .with_byte_range(
                     usize::from(properties.start()),
@@ -128,12 +133,21 @@ fn collect_headlines(
             headline.headlines(),
             path,
             content,
-            options,
+            todo_keywords,
             output,
             diagnostics,
             Some(current_index),
         );
     }
+}
+
+fn level_zero_heading(path: &Path, content: &str) -> ParsedHeading {
+    let path_title = path.display().to_string();
+    let mut heading = ParsedHeading::new(path, 0, path_title.clone(), 0, content.len());
+    heading.title_raw = path_title;
+    heading.line_number = Some(1);
+    heading.is_root = true;
+    heading
 }
 
 fn line_number_for_offset(content: &str, offset: usize) -> u32 {
@@ -163,6 +177,49 @@ fn infer_todo_keyword(
     }
 
     None
+}
+
+fn file_local_todo_keywords(keywords: &[ParsedKeyword]) -> Option<TodoKeywordConfig> {
+    let todo_value = keywords
+        .iter()
+        .find(|keyword| keyword.key.eq_ignore_ascii_case("TODO"))
+        .and_then(|keyword| keyword.value.as_deref())?;
+
+    let mut open = Vec::new();
+    let mut closed = Vec::new();
+    let mut in_closed_section = false;
+
+    for token in todo_value.split_whitespace() {
+        if token == "|" {
+            in_closed_section = true;
+            continue;
+        }
+
+        let parsed = parse_todo_keyword_token(token)?;
+        if in_closed_section {
+            closed.push(parsed);
+        } else {
+            open.push(parsed);
+        }
+    }
+
+    if open.is_empty() && closed.is_empty() {
+        None
+    } else {
+        Some(TodoKeywordConfig { open, closed })
+    }
+}
+
+fn parse_todo_keyword_token(token: &str) -> Option<super::model::TodoKeyword> {
+    if let Some((name, suffix)) = token.split_once('(') {
+        let fast_key = suffix.strip_suffix(')')?.chars().next()?;
+        Some(super::model::TodoKeyword::with_fast_key(
+            name.trim(),
+            fast_key,
+        ))
+    } else {
+        Some(super::model::TodoKeyword::new(token.trim()))
+    }
 }
 
 fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Option<TodoType> {
