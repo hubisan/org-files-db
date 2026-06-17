@@ -1,0 +1,117 @@
+#+TITLE: Define minimal ParsedHeading
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-17 Wed 13:29]
+#+TASK_COMPLETED: [2026-06-17 Wed 13:53]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD Define minimal `ParsedHeading` / `OrgHeading`
+Before changing files, briefly inspect the existing repository structure, parser model/module, TODO keyword model, ParseOptions, Cargo.toml, serialization setup, and relevant tests. Follow existing project conventions. Do not write a long plan.
+
+Implement the task "Define minimal ParsedHeading / OrgHeading".
+
+Scope:
+Create or update the internal parser-backend-independent heading model used by the project. The model must be suitable for parser adapter output, later DB insertion, and stable CLI JSON output.
+
+Required fields:
+
+* `file_path`
+* `level`
+* `title`
+* `title_raw`
+* `todo_keyword`
+* `todo_type`
+* `priority`
+* `tags`
+* `line_number`
+* `byte_start`
+* `byte_end`
+* `parent_index`
+
+Requirements:
+
+* The model must be serializable for JSON output.
+* The model must not contain Orgize types or any parser-backend-specific types.
+* The model must contain enough data for later DB insert and CLI output.
+* The model must be able to represent a synthetic level 0 file heading.
+* Use the byte offset field names `byte_start` and `byte_end`; do not use older names like `begin` or `end`.
+* Reuse the existing TODO keyword / TODO type model if one exists from the previous task.
+* Keep the implementation small and focused.
+
+Non-goals:
+
+* Do not implement the full Orgize heading extraction task.
+* Do not implement DB schema or DB insert functions.
+* Do not implement the indexer.
+* Do not implement CLI commands.
+* Do not refactor unrelated parser, config, or database code.
+* Do not add Orgize-specific logic outside the Orgize adapter.
+
+Tests:
+
+* Add or update tests that the heading model serializes to JSON with the expected field names.
+* Add or update tests that a synthetic level 0 heading can be represented.
+* Add or update tests that byte offsets use `byte_start` and `byte_end`.
+* Add or update tests that the model remains parser-backend-independent and does not expose Orgize-specific types, where practical.
+
+After implementation:
+
+* Run the relevant tests.
+* Report changed files.
+* Report any deliberate model decisions, especially field types and how `todo_type`, `priority`, `tags`, and `parent_index` are represented.
+* Report any deferred work for the later Orgize adapter, DB, or CLI tasks.
+* Do not mark the task DONE unless repository instructions explicitly require it after user approval.
+
+* Planning
+
+Not applicable. The task entered BUILD directly from ~todo.org~.
+
+* Build
+
+** Approach
+
+Extend the shared parser-owned heading model with the missing stable fields for later DB and JSON use: ~file_path~ and ~todo_type~. Keep the model backend-independent, derive JSON serialization with ~serde~, reuse the existing TODO keyword model by adding a small shared ~TodoType~ enum, and only teach the Orgize adapter enough to populate the new model fields without broad parser refactoring.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~Cargo.lock~
+- ~src/parser/model.rs~
+- ~src/parser/diagnostics.rs~
+- ~src/parser.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~tests/parser_contract.rs~
+- ~tests/orgize_adapter.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-17--define-minimal-parsed-heading.org~
+
+** Checks performed
+
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- All checks passed.
+- Added or updated tests for:
+  - JSON serialization field names on ~ParsedHeading~
+  - synthetic level 0 heading representation
+  - byte offset field names ~byte_start~ / ~byte_end~
+  - TODO type propagation in the Orgize adapter
+
+** Blockers
+
+- Repository remains on branch ~rust~, which is an unexpected state under the workspace rules and was left unchanged.
+- The worktree still contains an unrelated user change in ~.project/tasks/todo.org~ outside this task flow; it was preserved.
+
+** Follow-ups
+
+- ~todo_type~ is represented as a small shared enum with ~Open~ and ~Closed~.
+- ~priority~ remains ~Option<char>~, ~tags~ remains ~Vec<String>~, and ~parent_index~ remains ~Option<usize>~ to match the current parser-facing shape.
+- File-local ~#+TODO:~ parsing remains deferred; the adapter currently derives ~todo_type~ from parser output plus configured/project defaults passed through ~ParseOptions~.
+- DB insertion, CLI JSON output formatting, and any richer heading/body normalization remain for later tasks.

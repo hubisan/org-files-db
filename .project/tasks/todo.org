@@ -335,33 +335,9 @@ config
 
 [[./archive/2026-06-17--define-configurable-todo-keyword-model.org]]
 
-** TODO Define minimal `ParsedHeading` / `OrgHeading`
+** DONE [2026-06-17 Wed 13:53] Define minimal `ParsedHeading` / `OrgHeading`
 
-Minimal fields:
-
-- ~file_path~
-- ~level~
-- ~title~
-- ~title_raw~
-- ~todo_keyword~
-- ~todo_type~
-- ~priority~
-- ~tags~
-- ~line_number~
-- ~byte_start~
-- ~byte_end~
-- ~parent_index~
-
-Note:
-This model is internal to the project. It must not consist directly of Orgize types.
-
-Acceptance criteria:
-
-- The model is serializable for JSON output.
-- The model is independent of the parser backend.
-- The model contains enough data for DB insert and CLI output.
-- The model can represent a synthetic level 0 file heading.
-- Byte offsets are named ~byte_start~ and ~byte_end~, not ~begin~ and ~end~.
+[[./archive/2026-06-17--define-minimal-parsed-heading.org]]
 
 ** TODO Open SQLite and enable WAL
 

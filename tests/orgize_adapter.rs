@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use org_files_db::parser::{
-    OrgParser, OrgizeAdapter, ParseOptions, TodoKeyword, TodoKeywordConfig,
+    OrgParser, OrgizeAdapter, ParseOptions, TodoKeyword, TodoKeywordConfig, TodoType,
 };
 
 #[test]
@@ -22,6 +22,10 @@ fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
     assert_eq!(document.headings.len(), 3);
 
     assert_eq!(document.headings[0].title, "Priortiy");
+    assert_eq!(
+        document.headings[0].file_path,
+        Path::new("tests/data/parser/headings/nested-planning-lines/fixture.org")
+    );
     assert_eq!(document.headings[0].level, 1);
     assert!(document.headings[0].is_root);
     assert_eq!(document.headings[0].line_number, Some(5));
@@ -58,6 +62,7 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
     let first = &document.headings[0];
     assert_eq!(first.title, "Inbox");
     assert_eq!(first.todo_keyword.as_deref(), Some("TODO"));
+    assert_eq!(first.todo_type, Some(TodoType::Open));
     assert_eq!(first.priority, Some('A'));
     assert_eq!(first.tags, vec!["rust".to_string(), "parser".to_string()]);
     assert!(first.is_root);
@@ -67,6 +72,7 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
     assert_eq!(second.title, "Child");
     assert_eq!(second.parent_index, Some(0));
     assert_eq!(second.todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(second.todo_type, Some(TodoType::Closed));
     assert_eq!(second.priority, Some('B'));
     assert_eq!(second.tags, vec!["child".to_string()]);
 
@@ -89,7 +95,9 @@ fn orgize_adapter_uses_configured_project_todo_keywords() {
 
     assert_eq!(document.headings.len(), 2);
     assert_eq!(document.headings[0].todo_keyword.as_deref(), Some("PLAN"));
+    assert_eq!(document.headings[0].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[0].title, "Parser fixture");
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(document.headings[1].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[1].title, "Implemented");
 }

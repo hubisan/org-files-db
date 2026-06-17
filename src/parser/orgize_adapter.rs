@@ -5,7 +5,7 @@ use orgize::{ast::Headline, rowan::ast::AstNode, Org};
 use super::diagnostics::ParseDiagnostic;
 use super::model::{
     OrgParser, ParseOptions, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty,
-    TodoKeywordConfig,
+    TodoKeywordConfig, TodoType,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -39,6 +39,7 @@ impl OrgParser for OrgizeAdapter {
 
         collect_headlines(
             document.headlines(),
+            path,
             content,
             options,
             &mut parsed.headings,
@@ -52,6 +53,7 @@ impl OrgParser for OrgizeAdapter {
 
 fn collect_headlines(
     headlines: impl Iterator<Item = Headline>,
+    path: &Path,
     content: &str,
     options: &ParseOptions,
     output: &mut Vec<ParsedHeading>,
@@ -64,6 +66,7 @@ fn collect_headlines(
 
         let original_title_raw = headline.title_raw().trim_end().to_string();
         let mut parsed = ParsedHeading::new(
+            path,
             headline.level() as u8,
             original_title_raw.trim().to_string(),
             start,
@@ -79,6 +82,10 @@ fn collect_headlines(
                 parsed.title = normalized_title;
             }
         }
+        parsed.todo_type = parsed
+            .todo_keyword
+            .as_deref()
+            .and_then(|keyword| todo_type_for_keyword(keyword, &options.todo_keywords));
         parsed.priority = headline.priority().and_then(|token| token.chars().next());
         parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
         parsed.line_number = Some(line_number_for_offset(content, start));
@@ -119,6 +126,7 @@ fn collect_headlines(
 
         collect_headlines(
             headline.headlines(),
+            path,
             content,
             options,
             output,
@@ -155,4 +163,22 @@ fn infer_todo_keyword(
     }
 
     None
+}
+
+fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Option<TodoType> {
+    if todo_keywords
+        .open
+        .iter()
+        .any(|candidate| candidate.name == keyword)
+    {
+        Some(TodoType::Open)
+    } else if todo_keywords
+        .closed
+        .iter()
+        .any(|candidate| candidate.name == keyword)
+    {
+        Some(TodoType::Closed)
+    } else {
+        None
+    }
 }

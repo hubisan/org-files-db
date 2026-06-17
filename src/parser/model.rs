@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use super::diagnostics::ParseDiagnostic;
 
 pub trait OrgParser {
@@ -16,7 +18,7 @@ pub struct ParseOptions {
     pub todo_keywords: TodoKeywordConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TodoKeywordConfig {
     pub open: Vec<TodoKeyword>,
     pub closed: Vec<TodoKeyword>,
@@ -37,7 +39,7 @@ impl Default for TodoKeywordConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TodoKeyword {
     pub name: String,
     pub fast_key: Option<char>,
@@ -59,7 +61,7 @@ impl TodoKeyword {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedOrgDocument {
     pub file_path: PathBuf,
     pub metadata: ParsedDocumentMetadata,
@@ -78,24 +80,26 @@ impl ParsedOrgDocument {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ParsedDocumentMetadata {
     pub title: Option<String>,
     pub keywords: Vec<ParsedKeyword>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedKeyword {
     pub key: String,
     pub value: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedHeading {
+    pub file_path: PathBuf,
     pub level: u8,
     pub title: String,
     pub title_raw: String,
     pub todo_keyword: Option<String>,
+    pub todo_type: Option<TodoType>,
     pub priority: Option<char>,
     pub tags: Vec<String>,
     pub properties: Vec<ParsedProperty>,
@@ -109,13 +113,21 @@ pub struct ParsedHeading {
 }
 
 impl ParsedHeading {
-    pub fn new(level: u8, title: impl Into<String>, byte_start: usize, byte_end: usize) -> Self {
+    pub fn new(
+        file_path: impl Into<PathBuf>,
+        level: u8,
+        title: impl Into<String>,
+        byte_start: usize,
+        byte_end: usize,
+    ) -> Self {
         let title = title.into();
         Self {
+            file_path: file_path.into(),
             level,
             title_raw: title.clone(),
             title,
             todo_keyword: None,
+            todo_type: None,
             priority: None,
             tags: Vec::new(),
             properties: Vec::new(),
@@ -130,14 +142,20 @@ impl ParsedHeading {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum TodoType {
+    Open,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedProperty {
     pub key: String,
     pub value: String,
     pub inherited: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ParsedPlanning {
     pub scheduled: Option<String>,
     pub deadline: Option<String>,

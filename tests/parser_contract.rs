@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use org_files_db::parser::{
     DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParseOptions,
     ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning,
-    ParsedProperty, TodoKeyword, TodoKeywordConfig,
+    ParsedProperty, TodoKeyword, TodoKeywordConfig, TodoType,
 };
 
 struct ParserFixture {
@@ -80,9 +80,10 @@ impl OrgParser for StubFixtureParser {
             document.metadata.title = Some(title);
         }
 
-        let mut heading = ParsedHeading::new(1, "Inbox", 14, content.len());
+        let mut heading = ParsedHeading::new(path, 1, "Inbox", 14, content.len());
         heading.title_raw = "TODO [#A] Inbox :rust:parser:".to_string();
         heading.todo_keyword = Some("TODO".to_string());
+        heading.todo_type = Some(TodoType::Open);
         heading.priority = Some('A');
         heading.tags = vec!["rust".to_string(), "parser".to_string()];
         heading.properties = vec![ParsedProperty {
@@ -125,9 +126,10 @@ fn parsed_org_document_supports_schema_near_metadata() {
         }],
     };
 
-    let mut heading = ParsedHeading::new(2, "Parser model", 32, 58);
+    let mut heading = ParsedHeading::new("notes/project.org", 2, "Parser model", 32, 58);
     heading.title_raw = "TODO [#B] Parser model".to_string();
     heading.todo_keyword = Some("TODO".to_string());
+    heading.todo_type = Some(TodoType::Open);
     heading.priority = Some('B');
     heading.tags = vec!["project".to_string(), "rust".to_string()];
     heading.properties = vec![ParsedProperty {
@@ -146,6 +148,10 @@ fn parsed_org_document_supports_schema_near_metadata() {
     document.headings.push(heading.clone());
 
     assert_eq!(document.file_path, PathBuf::from("notes/project.org"));
+    assert_eq!(
+        document.headings[0].file_path,
+        PathBuf::from("notes/project.org")
+    );
     assert_eq!(document.metadata.title.as_deref(), Some("Project Notes"));
     assert_eq!(document.metadata.keywords.len(), 1);
     assert_eq!(document.headings[0], heading);
@@ -215,4 +221,41 @@ fn parse_options_default_to_org_mode_todo_keywords() {
             closed: vec![TodoKeyword::new("DONE")],
         }
     );
+}
+
+#[test]
+fn parsed_heading_serializes_with_expected_field_names() {
+    let mut heading = ParsedHeading::new("notes/project.org", 0, "Project", 0, 12);
+    heading.title_raw = "Project".to_string();
+    heading.todo_keyword = Some("TODO".to_string());
+    heading.todo_type = Some(TodoType::Open);
+    heading.priority = Some('A');
+    heading.tags = vec!["project".to_string(), "root".to_string()];
+    heading.line_number = Some(1);
+    heading.is_root = true;
+
+    let json = serde_json::to_value(&heading).expect("heading should serialize");
+
+    assert_eq!(json["file_path"], "notes/project.org");
+    assert_eq!(json["level"], 0);
+    assert_eq!(json["title"], "Project");
+    assert_eq!(json["title_raw"], "Project");
+    assert_eq!(json["todo_keyword"], "TODO");
+    assert_eq!(json["todo_type"], "Open");
+    assert_eq!(json["priority"], "A");
+    assert_eq!(json["tags"], serde_json::json!(["project", "root"]));
+    assert_eq!(json["line_number"], 1);
+    assert_eq!(json["byte_start"], 0);
+    assert_eq!(json["byte_end"], 12);
+    assert!(json.get("begin").is_none());
+    assert!(json.get("end").is_none());
+}
+
+#[test]
+fn parsed_heading_can_represent_synthetic_level_zero_heading() {
+    let heading = ParsedHeading::new("notes/project.org", 0, "notes/project.org", 0, 0);
+
+    assert_eq!(heading.level, 0);
+    assert_eq!(heading.parent_index, None);
+    assert_eq!(heading.file_path, PathBuf::from("notes/project.org"));
 }
