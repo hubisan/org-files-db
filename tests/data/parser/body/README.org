@@ -1,0 +1,5 @@
+#+TITLE: Body Fixture Placeholder
+
+This directory is reserved for future body-extraction regression fixtures.
+
+The parser risk register currently tracks body extraction boundaries as an open parser-contract decision. Add concrete fixtures here before implementing heading-body extraction.

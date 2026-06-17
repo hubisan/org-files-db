@@ -1,0 +1,186 @@
+#+TITLE: Create parser risk list
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-17 Wed 11:25]
+#+TASK_COMPLETED: [2026-06-17 Wed 11:46]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** PLAN Create parser risk list
+
+Goal:
+Keep known or suspected parser risks in one central place.
+
+Possible file:
+
+#+begin_src text
+docs/parser-risks.org
+#+end_src
+
+Document:
+
+- Orgize version
+- known bugs
+- unstable API areas
+- workarounds
+- affected fixtures
+- decision: accept, work around, report upstream, or replace later
+
+Known items to record once this task is tackled:
+
+- Multi-line planning behavior where Emacs ~org-element-parse-buffer~ keeps only ~SCHEDULED~ in the planning node for the reviewed example
+- Plain links like ~https://www.example.com~ if Orgize still does not expose them as expected
+- Parsing and preserving file-level ~#+TODO:~ keyword declarations
+- File-level properties and tags mapped to the synthetic level 0 heading
+- Correct byte offsets for Emacs jump integration
+- Body extraction boundaries, especially whether child subtrees are excluded
+- Optional FTS5 behavior and fallback behavior when disabled
+
+* Planning
+
+** Problem summary
+
+The parser work now has active regression fixtures, an Orgize-backed adapter, and several documented behavior gaps. These risks are currently spread across ~todo.org~, archived task files, fixture comments, and adapter tests. The project needs one durable document that records parser-backend and parser-contract risks in a form that can drive future implementation decisions without re-discovering the same context.
+
+** Goals
+
+- Create ~docs/parser-risks.org~ as the single central parser-risk register.
+- Cover both current Orgize-specific observations and project-owned parser contract gaps.
+- Cross-link each risk to active evidence where available, especially regression fixtures and earlier task notes.
+- Make the later ~Document parser risks~ backlog item effectively a maintenance/follow-up concern instead of a separate documentation effort.
+
+** Non-goals
+
+- No parser implementation changes.
+- No adapter behavior changes.
+- No DB, query, CLI, or FTS feature changes beyond documenting parser-adjacent assumptions.
+- No general pipeline risk register; scope stays at parser backend and parser contract level.
+
+** Architecture
+
+The document should reflect the existing architecture decision that Orgize is isolated behind ~src/parser/orgize_adapter.rs~ and that the rest of the system depends on project-owned parser types. The risk register therefore needs to distinguish:
+
+- backend extraction gaps or unstable Orgize behavior
+- parser-contract gaps in the project's own internal model
+- compatibility semantics that currently match Emacs/Org behavior and should not be mislabeled as backend bugs
+
+Planned structure for ~docs/parser-risks.org~:
+
+- ~#+TITLE: Parser Risks~
+- short purpose statement explaining why the adapter boundary exists and why the register is maintained
+- ~* Scope and Status~
+  - current backend: Orgize
+  - current crate version from ~Cargo.toml~: ~0.10.0-alpha.10~
+  - meaning of risk states and decisions
+- ~* Risk Register~
+  - one subsection per risk with the same fields:
+    - ~Risk~
+    - ~Current status~
+    - ~Observed behavior~
+    - ~Why it matters~
+    - ~Current decision~
+    - ~Workaround / containment~
+    - ~Fixtures / tests~
+    - ~Follow-up~
+- ~* Decision Rules~
+  - when to accept behavior as current contract
+  - when to add an adapter-local workaround
+  - when to report upstream
+  - when to consider backend replacement
+- ~* Maintenance~
+  - how new risky fixtures feed the register
+  - when fixture expectation changes must update the risk document
+
+** Execution plan
+
+1. Create ~.project/tasks/2026-06-17--create-parser-risk-list.org~ from the template and preserve the full original task body.
+2. Link the task file from ~.project/tasks/todo.org~ under the task heading.
+3. Write the final risk-register document in ~docs/parser-risks.org~ during the later ~BUILD~ phase, not in this ~PLAN~ task.
+4. In that future build, seed the register with the following initial risk entries:
+   - Multi-line planning behavior
+     - classify as parser semantics / compatibility risk
+     - record that the reviewed example currently matches Emacs ~org-element-parse-buffer~ behavior: only ~SCHEDULED~ remains in the planning node
+     - reference ~tests/data/parser/headings/nested-planning-lines/~ and the archived adapter-evaluation task
+   - Plain links such as ~https://www.example.com~
+     - classify as backend extraction gap
+     - note that the current parser model does not yet expose links and the fixture is preparatory
+     - reference ~tests/data/parser/links/plain-and-bracket-links/~
+   - File-local ~#+TODO:~ handling
+     - classify as contract gap
+     - record that declarations are parsed as keywords but current heading normalization does not apply custom sequences
+     - reference ~tests/data/parser/todo-keywords/custom-sequence/~
+   - File-scope / synthetic level 0 heading
+     - classify as planned model gap
+     - record that architecture requires it but current parser output does not model it yet
+     - fold file-level properties and tags into the same entry unless separate ownership becomes necessary during writing
+     - reference ~tests/data/parser/file-scope/file-keywords-and-preamble/~
+   - Byte offset reliability
+     - record UTF-8 byte offsets as the chosen editor-jump coordinate
+     - note that dedicated coverage still needs to go beyond current heading fixtures
+   - Body extraction boundaries
+     - classify as open parser contract decision
+     - record the unresolved rule for excluding child subtrees and defining heading-body boundaries
+   - FTS5 fallback behavior
+     - keep scope parser-adjacent only: document how body/title extraction assumptions affect later indexing
+     - avoid expanding the file into a general query/indexer risk list
+5. Cross-link every seeded entry to existing evidence where possible:
+   - active parser fixtures in ~tests/data/parser/~
+   - ~.project/tasks/archive/2026-06-16--evaluate-minimal-orgize-adapter.org~
+   - architecture decisions near the top of ~.project/tasks/todo.org~
+6. Set the task state in ~.project/tasks/todo.org~ from ~PLAN~ to ~REVIEW~ after this planning document is complete.
+
+** Risks & assumptions
+
+- Scope is intentionally ~parser + parser contract~, not full pipeline risk management.
+- The later backlog item ~Document parser risks~ should be treated as covered in substance by this task once ~docs/parser-risks.org~ is built; future work should maintain or refine the same document rather than create a competing one.
+- Risks must be documented in English to match the repository documentation language.
+- The risk register should describe observed current behavior, desired contract, containment, and next decisions without inventing parser behavior that the repo has not yet established.
+- The repository is currently on branch ~rust~, which is an unexpected state under the workspace rules; this is noted here and not changed implicitly.
+
+** Open questions
+
+No blocking product or implementation questions remain for the planning phase. The main remaining work is execution in the later ~BUILD~ phase.
+
+** Proposed checks
+
+- Verify that ~docs/parser-risks.org~ exists after the future ~BUILD~ task and reads as the single parser-risk register.
+- Verify that each currently known risk from this task appears in the document.
+- Verify that each risk entry has either a concrete current decision or an explicit open follow-up.
+- Verify that active risky or deliberately unsupported fixtures are referenced from the matching entries where applicable.
+- Verify that the task workflow transitions correctly: ~PLAN~ -> ~REVIEW~ for this task, then later ~BUILD~ -> ~REVIEW~ when the document is actually written.
+
+* Build
+
+** Approach
+
+Create ~docs/parser-risks.org~ as the single parser-risk register using the planned structure from this task. Seed it with the currently known Orgize and parser-contract risks, link each risk to active fixtures or existing task evidence, and keep the scope limited to parser backend and parser contract concerns. Add one lightweight placeholder directory note for future body fixtures so the open body-boundary risk points to a concrete location in the active fixture tree.
+
+** Changed files
+
+- ~docs/parser-risks.org~
+- ~tests/data/parser/body/README.org~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- All checks passed.
+- No parser implementation changed in this task; the checks confirm the documentation and workflow updates did not regress the existing codebase.
+
+** Blockers
+
+- Repository remains on branch ~rust~, which is an unexpected state under the workspace rules and was left unchanged.
+
+** Follow-ups
+
+- Tighten the file-local TODO risk entry when per-file TODO normalization is implemented.
+- Add dedicated body fixtures under ~tests/data/parser/body/~ before body extraction work begins.
+- Revisit the file-scope and FTS5 parser-adjacent risk entries once the synthetic level 0 heading is implemented.

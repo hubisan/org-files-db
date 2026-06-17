@@ -303,35 +303,9 @@ Therefore, an adapter layer is built first and protected with representative fix
 
 [[./archive/2026-06-17--structure-parser-regression-fixtures.org]]
 
-** BUILD Create parser risk list
+** DONE [2026-06-17 Wed 11:46] Create parser risk list
 
-[[./2026-06-17--create-parser-risk-list.org]]
-
-Goal:
-Keep known or suspected parser risks in one central place.
-
-Possible file:
-
-#+begin_src text
-docs/parser-risks.org
-#+end_src
-
-Document:
-
-- Orgize version
-- known bugs
-- unstable API areas
-- workarounds
-- affected fixtures
-- decision: accept, work around, report upstream, or replace later
-
-Known items to record once this task is tackled:
-
-- Multi-line planning behavior where Emacs ~org-element-parse-buffer~ keeps only ~SCHEDULED~ in the planning node for the reviewed example
-- Plain links like ~https://www.example.com~ if Orgize still does not expose them as expected
-- Parsing and preserving file-level ~#+TODO:~ keyword declarations
-- File-level properties and tags mapped to the synthetic level 0 heading
-- Correct byte offsets for Emacs jump integration
+[[./archive/2026-06-17--create-parser-risk-list.org]]
 - Body extraction boundaries, especially whether child subtrees are excluded
 - Optional FTS5 behavior and fallback behavior when disabled
 - The local ~docs/reference/org.ebnf~ copy and the old lexer/regexp notes as parser reference material

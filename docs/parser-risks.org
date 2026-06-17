@@ -1,0 +1,143 @@
+#+TITLE: Parser Risks
+#+STARTUP: showall
+
+This document tracks parser-backend and parser-contract risks for ~org-files-db~.
+
+The project keeps ~Orgize~ isolated behind ~src/parser/orgize_adapter.rs~ so parser-specific instability, compatibility gaps, and project-owned normalization decisions stay visible and replaceable. This register is the central place to record those risks, the current containment strategy, and the next decision for each item.
+
+* Scope and Status
+
+This register covers parser backend behavior and parser-contract risks. It does not serve as a general indexer, query, CLI, or database risk register unless a risk is directly caused by parser output or parser-model decisions.
+
+- Current parser backend: ~Orgize~
+- Current Orgize crate version: ~0.10.0-alpha.10~
+- Current adapter boundary: ~src/parser/orgize_adapter.rs~
+
+Status labels used in this file:
+
+- ~accepted contract~: current behavior is accepted for now, even if it is surprising, because it matches Org / Emacs semantics or is otherwise good enough for the current phase
+- ~backend extraction gap~: the parser backend does not currently expose the data the project needs in the desired shape
+- ~contract gap~: the project parser model or normalization contract is not complete yet
+- ~planned model gap~: the architecture already requires the behavior or shape, but the model has not been implemented yet
+- ~open decision~: a project-owned parser contract decision is still unresolved
+
+Decision labels used in this file:
+
+- ~accept~
+- ~work around locally~
+- ~report upstream~
+- ~replace later~
+
+* Risk Register
+
+** Multi-line planning behavior
+
+- Risk: Multi-line planning immediately below a heading does not retain every planning field in the current reviewed example.
+- Current status: ~accepted contract~
+- Observed behavior: In the reviewed example with separate ~SCHEDULED~, ~DEADLINE~, and ~CLOSED~ lines, Emacs ~org-element-parse-buffer~ currently keeps only ~SCHEDULED~ in the planning node. The current adapter follows that same effective behavior for the active fixture.
+- Why it matters: This looks like a parser bug at first glance, but treating it as an Orgize defect would be misleading if the current Org / Emacs parse tree behaves the same way. The project needs to distinguish compatibility semantics from real backend regressions.
+- Current decision: ~accept~ for now as parser semantics / compatibility behavior, not as a confirmed Orgize bug.
+- Workaround / containment: Keep the current expectation explicit in the regression fixture and document the semantic surprise here so later planning-field work does not “fix” it accidentally.
+- Fixtures / tests:
+  - [[file:../tests/data/parser/headings/nested-planning-lines/fixture.org][nested-planning-lines fixture]]
+  - [[file:../tests/data/parser/headings/nested-planning-lines/expected.txt][nested-planning-lines expectation]]
+  - [[file:../.project/tasks/archive/2026-06-16--evaluate-minimal-orgize-adapter.org][Evaluate minimal Orgize adapter]]
+- Follow-up: Re-check this item only if upstream Org / Emacs semantics or Orgize behavior changes, or if the project adopts a documented normalization layer that intentionally differs from raw parser behavior.
+
+** Plain links
+
+- Risk: Plain links such as ~https://www.example.com~ are not yet exposed through the project parser model and appear weaker in the current Orgize-backed path than bracketed or file-style links.
+- Current status: ~backend extraction gap~
+- Observed behavior: The active link fixture is currently preparatory only. The parser model does not yet expose links, and the earlier adapter evaluation noted that plain links need explicit regression coverage because Orgize appears not to surface them like bracket/file links.
+- Why it matters: Link extraction is part of the intended project scope. If plain links are missing or inconsistent, later DB import and query behavior will silently under-report document structure.
+- Current decision: ~work around locally~ once the link model is implemented, unless upstream fixes make the workaround unnecessary.
+- Workaround / containment: Keep a dedicated parser fixture ready before link extraction work begins. Treat plain links as a known gap rather than assuming current backend behavior is sufficient.
+- Fixtures / tests:
+  - [[file:../tests/data/parser/links/plain-and-bracket-links/fixture.org][plain-and-bracket-links fixture]]
+  - [[file:../tests/data/parser/links/plain-and-bracket-links/expected.txt][plain-and-bracket-links expectation]]
+  - [[file:../.project/tasks/archive/2026-06-16--evaluate-minimal-orgize-adapter.org][Evaluate minimal Orgize adapter]]
+- Follow-up: When the project introduces a ~ParsedLink~ model, decide whether Orgize is sufficient with adapter-local supplementation or whether a narrower upstream issue is warranted.
+
+** File-local TODO keyword handling
+
+- Risk: File-local ~#+TODO:~ declarations are captured as keywords, but current heading normalization does not yet apply custom TODO sequences when deriving heading state.
+- Current status: ~contract gap~
+- Observed behavior: The active fixture shows that ~document.keyword.TODO~ is preserved, while the heading title still contains the raw custom keyword text and does not normalize it into heading TODO state as intended by the architecture decisions.
+- Why it matters: TODO interpretation is a core parser contract. Without per-file TODO normalization, heading state, DB import, and later queries will disagree with Org-mode semantics for customized files.
+- Current decision: ~work around locally~ in the parser layer during future TODO normalization work.
+- Workaround / containment: Preserve the file-local declaration in metadata today, keep the fixture deliberately marked as unsupported, and do not pretend that Orgize defaults are the project contract.
+- Fixtures / tests:
+  - [[file:../tests/data/parser/todo-keywords/custom-sequence/fixture.org][custom-sequence fixture]]
+  - [[file:../tests/data/parser/todo-keywords/custom-sequence/expected.txt][custom-sequence expectation]]
+  - [[file:../.project/tasks/todo.org][Architecture decisions in todo.org]]
+- Follow-up: Implement per-file TODO normalization in the parser contract, then tighten the fixture so the custom sequence is reflected in normalized heading data.
+
+** File-scope / synthetic level 0 heading
+
+- Risk: The project architecture requires a synthetic level 0 heading for file-scope data, but the current parser output does not model it yet.
+- Current status: ~planned model gap~
+- Observed behavior: File-level keywords can already be stored in metadata, but pre-heading content, file tags, category, file-level TODO declarations, and future file-level links are not yet represented through the synthetic level 0 heading described in the architecture decisions.
+- Why it matters: File-level scope is a deliberate project contract, not an optional convenience. Without it, file-wide data has no consistent structural home and later import/query layers will need ad hoc exceptions.
+- Current decision: ~work around locally~ only through temporary metadata storage; full resolution requires implementing the planned model.
+- Workaround / containment: Keep file-level metadata in ~ParsedDocumentMetadata~ where available and maintain explicit fixtures that describe the missing level 0 behavior.
+- Fixtures / tests:
+  - [[file:../tests/data/parser/file-scope/file-keywords-and-preamble/fixture.org][file-keywords-and-preamble fixture]]
+  - [[file:../tests/data/parser/file-scope/file-keywords-and-preamble/expected.txt][file-keywords-and-preamble expectation]]
+  - [[file:../.project/tasks/todo.org][Architecture decisions in todo.org]]
+- Follow-up: Implement the synthetic level 0 heading and move file-level properties, tags, TODO declarations, links, and pre-heading text into that contract.
+
+** Byte offset reliability
+
+- Risk: UTF-8 byte offsets are the chosen editor-jump coordinates, but coverage is still too narrow to treat them as fully trustworthy across parser edge cases.
+- Current status: ~open decision~
+- Observed behavior: The adapter currently computes byte offsets and line numbers for headings, and existing heading tests verify that offsets are present and ordered. Broader edge cases such as file-scope content, links, body spans, and future level 0 nodes are not yet covered.
+- Why it matters: Editor integration depends on correct byte offsets. Incorrect offsets would break jump-to-source behavior even if the rest of the parsed data looks plausible.
+- Current decision: ~accept~ the current approach of UTF-8 byte offsets as the primary coordinate system, but treat coverage as incomplete.
+- Workaround / containment: Keep byte offsets as the canonical contract and add explicit regression coverage whenever new parser structures are introduced.
+- Fixtures / tests:
+  - [[file:../tests/orgize_adapter.rs][Orgize adapter tests]]
+  - [[file:../tests/data/parser/headings/basic-heading/fixture.org][basic-heading fixture]]
+  - [[file:../tests/data/parser/priorities/todo-priority-tags/fixture.org][todo-priority-tags fixture]]
+- Follow-up: Extend coverage to file-scope nodes, body extraction, links, and any future parser structures that will be used for editor navigation.
+
+** Body extraction boundaries
+
+- Risk: The parser contract does not yet define where a heading body starts and ends, especially whether child subtrees are excluded from parent body text.
+- Current status: ~open decision~
+- Observed behavior: The current internal model does not yet expose heading body content, and no active fixture defines the exact boundary semantics the project wants.
+- Why it matters: Body extraction directly affects DB import, search indexing, and user-visible search results. A vague or shifting body contract will create inconsistent behavior across indexing and query layers.
+- Current decision: ~accept~ that this is still an unresolved parser-contract decision and do not infer behavior from partial backend output yet.
+- Workaround / containment: Delay body extraction implementation until the boundary rules are explicitly documented and covered by fixtures.
+- Fixtures / tests:
+  - no dedicated active body fixture yet
+  - parser fixture structure already reserves body-oriented expansion via [[file:../tests/data/parser/README.org][tests/data/parser/README.org]]
+  - [[file:../tests/data/parser/body/README.org][body fixture placeholder]]
+  - [[file:../.project/tasks/todo.org][Architecture decisions in todo.org]]
+- Follow-up: Add dedicated body fixtures before implementing body extraction, including parent/child subtree cases and file-scope preamble behavior.
+
+** FTS5 parser-adjacent assumptions
+
+- Risk: Later FTS5 behavior depends on parser decisions about title and body extraction, but those parser-side assumptions are not fully settled yet.
+- Current status: ~open decision~
+- Observed behavior: The project already decided that FTS5 is optional and that body indexing is separately configurable, but parser-side body and file-scope semantics are still incomplete.
+- Why it matters: Search behavior should not accidentally define the parser contract. Parser output must be stable enough that later indexing logic can consume it consistently whether FTS5 is enabled or disabled.
+- Current decision: ~accept~ the current separation of concerns and keep this register limited to parser-adjacent assumptions rather than broader query/indexer behavior.
+- Workaround / containment: Treat FTS5 concerns here only when they depend on parser output shape such as title/body availability, not as a general search-feature backlog.
+- Fixtures / tests:
+  - [[file:../.project/tasks/todo.org][Architecture decisions in todo.org]]
+  - future body and file-scope fixtures will be the primary evidence
+- Follow-up: Revisit this entry when body extraction and level 0/file-scope modeling are implemented so the parser-side contract for indexing input becomes explicit.
+
+* Decision Rules
+
+- Accept behavior as the current contract when it matches documented Org / Emacs semantics closely enough for the current project phase, even if it is surprising.
+- Add an adapter-local workaround when the project needs behavior that the backend does not expose reliably, but the gap can be contained inside ~src/parser/orgize_adapter.rs~ without leaking backend-specific types or rules.
+- Report upstream when the backend behavior appears incorrect relative to Org / Emacs semantics and a small reproducible fixture exists.
+- Consider backend replacement later when multiple important parser gaps accumulate, adapter-local workarounds become complex or brittle, or the backend API proves too unstable for the intended parser contract.
+
+* Maintenance
+
+- Every new parser regression fixture marked as risky, unsupported, or deliberately unsupported should either reference an existing entry here or trigger a new entry.
+- When adapter behavior changes in a risk-relevant way, update both the fixture expectations and this file in the same task.
+- When a risk is resolved, keep the historical context short but update the entry so future work does not re-open the same uncertainty accidentally.
+- Do not create a second parser-risk document elsewhere in the repository. Extend this file instead.
