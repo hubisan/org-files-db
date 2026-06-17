@@ -1,0 +1,90 @@
+#+TITLE: Implement minimal DB schema migration
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 00:14]
+#+TASK_COMPLETED: [2026-06-18 Thu 00:22]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Implement minimal DB schema migration
+
+Goal:
+Create the first executable SQLite schema from the reviewed design.
+
+Initial tables may include:
+
+- ~files~
+- ~headings~
+- ~todo_keywords~
+- ~keywords~
+- ~properties~
+- ~tags~
+- ~links~
+- ~heading_bodies~
+- ~outline_path~
+
+Optional tables/features:
+
+- ~heading_fts~ when FTS5 is enabled, or always if the project deliberately chooses to always create it
+- ~timestamps~
+- ~timestamp_repeaters~
+
+Acceptance criteria:
+
+- Schema is created from a single SQL file or migration entry.
+- Schema version is set through ~PRAGMA user_version~.
+- Schema creation is idempotent for fresh databases.
+- Invalid schema creation fails clearly.
+- The migration behavior when FTS5 is disabled is documented.
+- A simple test opens an in-memory DB and applies the schema with FTS5 disabled.
+- A simple test opens an in-memory DB and applies the schema with FTS5 enabled, if the current SQLite build supports FTS5.
+
+* Planning
+
+Not applicable. The task entered BUILD directly from ~todo.org~ and was implemented by verifying the already-added schema migration work against the acceptance criteria.
+
+* Build
+
+** Approach
+
+Inspect the existing schema migration implementation first, verify it against the acceptance criteria, and only add documentation if something is missing. The implementation was already present and did not require code changes.
+
+** Changed files
+
+- ~.project/tasks/2026-06-18--implement-minimal-db-schema-migration.org~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- Passed: ~cargo fmt --all~
+- Passed: ~cargo test~
+- Passed: ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Summary
+
+The task was already satisfied by the current implementation:
+
+- one authoritative SQL source exists in ~sql/schema.sql~
+- schema versioning is applied through ~PRAGMA user_version~
+- schema creation is idempotent for fresh databases
+- FTS5-disabled behavior is clear in ~src/db/schema.rs~ and covered by tests
+- in-memory schema application is tested for FTS-disabled and, if supported, FTS-enabled cases
+
+No schema changes or new tests were needed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- DB writer functions and higher-level migration chains remain intentionally deferred.

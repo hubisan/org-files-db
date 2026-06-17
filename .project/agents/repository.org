@@ -2,12 +2,8 @@
 
 * Preferred checks
 
-Run local checks before merging the current branch:
+Before setting a task to ~REVIEW~, run:
 
-- ~cargo fmt --all --check~
-- ~cargo test~
-- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~make ci~
 
-* Project structure
-
-* Coding style
+If not all checks can be run, explain why in the task file.

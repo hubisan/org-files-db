@@ -347,41 +347,11 @@ config
 
 [[./archive/2026-06-17--review-and-improve-sqlite-schema.org]]
 
-** BUILD Implement minimal DB schema migration
+** DONE [2026-06-18 Thu 00:21] Implement minimal DB schema migration
 
-Goal:
-Create the first executable SQLite schema from the reviewed design.
-
-Initial tables may include:
-
-- ~files~
-- ~headings~
-- ~todo_keywords~
-- ~keywords~
-- ~properties~
-- ~tags~
-- ~links~
-- ~heading_bodies~
-- ~outline_path~
-
-Optional tables/features:
-
-- ~heading_fts~ when FTS5 is enabled, or always if the project deliberately chooses to always create it
-- ~timestamps~
-- ~timestamp_repeaters~
-
-Acceptance criteria:
-
-- Schema is created from a single SQL file or migration entry.
-- Schema version is set through ~PRAGMA user_version~.
-- Schema creation is idempotent for fresh databases.
-- Invalid schema creation fails clearly.
-- The migration behavior when FTS5 is disabled is documented.
-- A simple test opens an in-memory DB and applies the schema with FTS5 disabled.
-- A simple test opens an in-memory DB and applies the schema with FTS5 enabled, if the current SQLite build supports FTS5.
+[[./archive/2026-06-18--implement-minimal-db-schema-migration.org]]
 
 ** TODO Implement minimal DB functions
-Probably can use BUILD directly.
 
 Functions:
 
