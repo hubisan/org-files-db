@@ -35,10 +35,11 @@ Phase 9 is the final consolidation of the test and regression base, not the firs
 The goal is a robust, fast, and later extensible indexing pipeline for Org files:
 
 - parse Org files
-- extract headings, TODO states, priorities, tags, properties, planning data, and links
+- extract headings, TODO states, priorities, tags, properties, planning data, timestamps, links, and body text
 - store the data in a normalized SQLite database
 - provide fast search and JSON output through a ~clap~ CLI
-- later map an org-ql-like query language to SQLite/FTS5
+- optionally support SQLite FTS5 for heading title and body search
+- later map an org-ql-like query language to SQLite/FTS5 where enabled
 
 ~orgize~ is initially used as the parser backend, but it must not be treated as a permanently safe or single source of parsing truth. Therefore, the project must use its own stable parser abstraction and its own internal data model.
 
@@ -48,7 +49,7 @@ Principle:
 
 #+begin_src text
 Orgize / Parser Backend
-  -> own ParsedOrgDocument / ParsedHeading model
+  -> own ParsedOrgDocument / ParsedHeading / ParsedLink / ParsedTimestamp model
   -> normalization / diagnostics
   -> SQLite import
   -> query / CLI / JSON API
@@ -67,6 +68,7 @@ Non-goals for the beginning:
 - no full org-ql compatibility in the MVP
 - no direct dependency from the DB layer on Orgize or rowan
 - no optimization for maximum performance before the pipeline is correct
+- no data-warehouse style over-engineering before SQLite query behavior has been measured
 
 * Architecture decisions
 
@@ -90,7 +92,11 @@ Not allowed:
 
 ** Decision: own internal parser model
 
-The internal project API is based on our own types:
+The internal project API is based on our own types.
+
+The parser model must be rich enough for DB import, JSON output, editor jumps, and later query support, but it must not expose Orgize-specific structures.
+
+Sketch:
 
 #+begin_src rust
 pub trait OrgParser {
@@ -98,29 +104,168 @@ pub trait OrgParser {
         &self,
         path: &Path,
         content: &str,
+        options: &ParseOptions,
     ) -> Result<ParsedOrgDocument>;
+}
+
+pub struct ParseOptions {
+    pub todo_keywords: TodoKeywordConfig,
+}
+
+pub struct TodoKeywordConfig {
+    pub open: Vec<TodoKeyword>,
+    pub closed: Vec<TodoKeyword>,
+}
+
+pub struct TodoKeyword {
+    pub name: String,
+    pub shortcut: Option<char>,
 }
 
 pub struct ParsedOrgDocument {
     pub file_path: PathBuf,
     pub headings: Vec<ParsedHeading>,
+    pub links: Vec<ParsedLink>,
     pub diagnostics: Vec<ParseDiagnostic>,
 }
 
 pub struct ParsedHeading {
     pub level: u8,
     pub title: String,
+    pub title_raw: Option<String>,
     pub todo_keyword: Option<String>,
+    pub todo_type: Option<TodoType>,
     pub priority: Option<char>,
-    pub tags: Vec<String>,
-    pub properties: Vec<(String, String)>,
+    pub tags: Vec<ParsedTag>,
+    pub properties: Vec<ParsedProperty>,
     pub planning: ParsedPlanning,
     pub line_number: Option<u32>,
     pub byte_start: usize,
     pub byte_end: usize,
+    pub body: Option<ParsedBody>,
     pub parent_index: Option<usize>,
 }
 #+end_src
+
+** Decision: level 0 heading represents file-level scope
+
+Every indexed Org file gets one synthetic level 0 heading.
+
+The level 0 heading represents the file-level scope and allows file-wide elements to be represented in the same hierarchy as regular headings.
+
+Examples of data attached to the level 0 heading:
+
+- file-level keywords such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~
+- file-level TODO keyword declarations such as ~#+TODO~
+- file-level properties such as ~#+PROPERTY~
+- file-level category from ~#+CATEGORY~
+- file tags from ~#+FILETAGS~
+- links outside regular headings
+- body text before the first regular heading, if stored
+- FTS content for file-level text, if FTS is enabled and file-level text is stored
+
+Regular Org headings start at level 1.
+
+Top-level Org headings should normally have the level 0 heading as parent.
+
+** Decision: byte offsets are the primary editor jump positions
+
+The parser and DB use UTF-8 byte offsets:
+
+#+begin_src text
+byte_start
+byte_end
+#+end_src
+
+These replace older names such as ~begin~ and ~end~.
+
+~byte_start~ is the main position used by Emacs or other editor integrations to jump to a heading or link.
+
+~line_number~ may still be stored for debugging, display, and fallback behavior.
+
+** Decision: default TODO keywords follow Org-mode
+
+The project default TODO keyword set follows Org-mode's default behavior:
+
+- open states: ~TODO~
+- closed states: ~DONE~
+
+Custom project defaults can be configured.
+
+File-local ~#+TODO:~ lines override the configured default keyword set for that file.
+
+Orgize defaults must not be used as project-level defaults outside the Orgize adapter.
+
+Example:
+
+#+begin_src org
+#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+
+* PLAN AI/Codex working mode
+#+end_src
+
+Expected interpretation:
+
+#+begin_src text
+todo_keyword = PLAN
+todo_type    = open
+title        = AI/Codex working mode
+#+end_src
+
+** Decision: FTS5 is optional and configurable
+
+SQLite FTS5 support is optional.
+
+The indexer and query layer must work when FTS5 is disabled.
+
+Configuration controls:
+
+#+begin_src text
+search.fts5_enabled
+search.index_body_text
+#+end_src
+
+Rules:
+
+- If ~search.fts5_enabled = false~, the system must not require FTS5 to rebuild or query non-FTS data.
+- If ~search.fts5_enabled = true~, ~heading_fts~ is created and maintained by the indexer.
+- Body indexing is controlled separately through ~search.index_body_text~.
+- Title/body search commands must report a clear error or use documented fallback behavior when FTS5 is disabled.
+- The implementation must document whether ~heading_fts~ is always created but only populated when enabled, or only created when FTS5 is enabled.
+
+Recommended initial defaults:
+
+#+begin_src text
+search.fts5_enabled = true
+search.index_body_text = false
+#+end_src
+
+Rationale:
+Title search is useful and cheap. Body text can significantly increase database size, so body indexing should be explicitly enabled.
+
+** Decision: SQLite schema uses core tables and derived/cache tables
+
+Core tables store source-derived normalized data:
+
+- ~files~
+- ~headings~
+- ~todo_keywords~
+- ~keywords~
+- ~properties~
+- ~tags~
+- ~timestamps~
+- ~timestamp_repeaters~
+- ~links~
+- ~heading_bodies~
+
+Derived/cache tables can be rebuilt:
+
+- ~outline_path~
+- ~heading_fts~
+
+~outline_path~ is used for fast hierarchical queries.
+
+~heading_fts~ is used for SQLite FTS5 full-text search over heading titles and optionally body text, only when FTS5 is enabled.
 
 ** Decision: parser problems must be visible
 
@@ -128,7 +273,7 @@ Known or suspected parser problems must not be silently ignored.
 
 Instead:
 
-- record a `ParseDiagnostic`
+- record a ~ParseDiagnostic~
 - add a fixture test
 - document the behavior
 - if useful, prepare an upstream issue for Orgize
@@ -170,6 +315,9 @@ tests/data/
   properties/
   priorities/
   tags/
+  timestamps/
+  body/
+  todo-keywords/
   edge-cases/
 #+end_src
 
@@ -196,6 +344,8 @@ Acceptance criteria:
 - At least one heading fixture exists.
 - At least one priority fixture exists.
 - At least one link edge-case fixture exists.
+- At least one custom ~#+TODO:~ fixture exists.
+- At least one level 0 / file-scope fixture exists.
 - Fixtures can later be checked automatically.
 
 ** TODO Create parser risk list
@@ -222,6 +372,11 @@ Known items to record once this task is tackled:
 
 - Multi-line planning behavior where Emacs ~org-element-parse-buffer~ keeps only ~SCHEDULED~ in the planning node for the reviewed example
 - Plain links like ~https://www.example.com~ if Orgize still does not expose them as expected
+- Parsing and preserving file-level ~#+TODO:~ keyword declarations
+- File-level properties and tags mapped to the synthetic level 0 heading
+- Correct byte offsets for Emacs jump integration
+- Body extraction boundaries, especially whether child subtrees are excluded
+- Optional FTS5 behavior and fallback behavior when disabled
 - The local ~docs/reference/org.ebnf~ copy and the old lexer/regexp notes as parser reference material
 
 * Phase 1: Minimal end-to-end slice
@@ -229,13 +384,15 @@ Known items to record once this task is tackled:
 Goal of this phase:
 Get a runnable system as early as possible without coupling too tightly to Orgize.
 
-One Org file is read through the parser adapter, translated into our own internal model, stored in SQLite, and output as JSON through a `clap` CLI.
+One Org file is read through the parser adapter, translated into our own internal model, stored in SQLite, and output as JSON through a ~clap~ CLI.
 
 Pipeline:
 
 #+begin_src text
 config
   -> find files
+  -> read file
+  -> read/derive TODO keyword config
   -> run parser backend
   -> validate / normalize ParsedOrgDocument
   -> update SQLite
@@ -246,30 +403,61 @@ config
 
 Minimal fields:
 
-- `db_path`
-- `files` (`Vec<PathBuf>`)
-- `dirs` (`Vec<PathBuf>`)
-- `recursive` (`bool`)
+- ~db_path~
+- ~files~ (~Vec<PathBuf>~)
+- ~dirs~ (~Vec<PathBuf>~)
+- ~recursive~ (~bool~)
+- ~todo.default_open_keywords~ (~Vec<String>~, default: ~["TODO"]~)
+- ~todo.default_closed_keywords~ (~Vec<String>~, default: ~["DONE"]~)
+- ~search.fts5_enabled~ (~bool~, recommended initial default: ~true~)
+- ~search.index_body_text~ (~bool~, recommended initial default: ~false~)
 
 Acceptance criteria:
 
 - Config can be loaded from a file.
 - Relative and absolute paths are handled clearly.
 - Missing files or directories produce understandable errors.
+- Org-mode TODO keywords ~TODO~ and ~DONE~ are available as defaults.
+- Custom project-level TODO defaults can be configured.
+- File-local ~#+TODO:~ lines override configured defaults for that file.
+- FTS5 can be enabled or disabled through config.
+- Body text indexing can be enabled or disabled separately from FTS5 itself.
+- Config does not leak parser-backend-specific details.
+
+** TODO Define configurable TODO keyword model
+
+Goal:
+Represent TODO keyword configuration independently from Orgize.
+
+Acceptance criteria:
+
+- Open and closed TODO states are represented separately.
+- Org-mode defaults are:
+  - open: ~TODO~
+  - closed: ~DONE~
+- Fast selection keys like ~TODO(t)~ are preserved if available.
+- Project-level default keywords can be configured.
+- Parser adapter receives TODO keywords through ~ParseOptions~.
+- Orgize-specific TODO config does not leak outside the adapter.
+- Tests cover Org-mode defaults.
+- Tests cover custom project defaults.
 
 ** TODO Define minimal `ParsedHeading` / `OrgHeading`
 
 Minimal fields:
 
-- `file_path`
-- `level`
-- `title`
-- `todo_keyword`
-- `priority`
-- `tags`
-- `line_number`
-- `byte_start`
-- `byte_end`
+- ~file_path~
+- ~level~
+- ~title~
+- ~title_raw~
+- ~todo_keyword~
+- ~todo_type~
+- ~priority~
+- ~tags~
+- ~line_number~
+- ~byte_start~
+- ~byte_end~
+- ~parent_index~
 
 Note:
 This model is internal to the project. It must not consist directly of Orgize types.
@@ -279,92 +467,169 @@ Acceptance criteria:
 - The model is serializable for JSON output.
 - The model is independent of the parser backend.
 - The model contains enough data for DB insert and CLI output.
+- The model can represent a synthetic level 0 file heading.
+- Byte offsets are named ~byte_start~ and ~byte_end~, not ~begin~ and ~end~.
 
 ** TODO Open SQLite and enable WAL
 
 Pragmas:
 
 #+begin_src sql
+PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
+PRAGMA user_version = 1;
 #+end_src
 
 Acceptance criteria:
 
 - SQLite connection is opened centrally.
+- Foreign keys are enabled.
 - WAL is enabled.
+- Schema version is set through ~PRAGMA user_version~.
 - Errors while opening or initializing are reported cleanly.
 
-** TODO Create minimal DB schema
+** TODO Review and improve SQLite schema
 
-Create tables for `files` and `headings`, including a column for `priority`.
+Goal:
+Review the existing SQLite schema and adapt it to the current parser model, indexing pipeline, level 0 file scope, materialized outline paths, optional FTS5, and body indexing requirements.
 
-Review existing drafts and adapt them to the new parser model:
+Source material:
 
 - [[file:../../sql/db-schema.sql][sql/db-schema.sql]]
+- [[file:../../sql/schema.sql][sql/schema.sql]]
 - [[file:../../old-files/docs/sqlite-database-schema.org][docs/sqlite-database-schema.org]]
+- Current internal parser model in AGENTS.md / todo.org
 
-Minimal schema:
+Design decisions to apply:
 
-- `files`
-  - `id`
-  - `path`
-  - `mtime`
-  - `size`
-  - `content_hash`
-  - `indexed_at`
-
-- `headings`
-  - `id`
-  - `file_id`
-  - `level`
-  - `title`
-  - `todo_keyword`
-  - `priority`
-  - `tags_json`
-  - `line_number`
-  - `byte_start`
-  - `byte_end`
+- Every file gets one synthetic level 0 heading.
+- File-level keywords, properties, FILETAGS, and file-level links attach to the level 0 heading.
+- Regular Org headings start at level 1.
+- ~byte_start~ and ~byte_end~ replace older names such as ~begin~ and ~end~.
+- ~files.path~ is unique.
+- ~mtime_ns~, ~size~, and optional ~content_hash~ are used for change detection.
+- ~content_hash~ should not hardcode the algorithm name such as MD5 in the column name.
+- TODO keyword definitions are stored in ~todo_keywords~.
+- Heading TODO values are stored in ~headings.todo_keyword~ and optionally denormalized in ~headings.todo_type~.
+- Default TODO keywords follow Org-mode: open ~TODO~, closed ~DONE~.
+- Configured project-level TODO defaults can override Org-mode defaults.
+- File-local ~#+TODO:~ lines override configured defaults for that file.
+- Tags are normalized in ~tags~ and may also be cached as ~headings.all_tags_json~.
+- Keywords and properties are separate tables, but both reference ~heading_id~.
+- File-level properties from ~#+PROPERTY~ are stored as properties of the level 0 heading.
+- File-level ~#+CATEGORY~ may be stored as a property of the level 0 heading.
+- Planning timestamps may be stored directly on ~headings~ as ~scheduled_raw~, ~scheduled_ts~, ~deadline_raw~, ~deadline_ts~, ~closed_raw~, and ~closed_ts~.
+- Rich timestamp data can be represented in ~timestamps~ and ~timestamp_repeaters~.
+- Links use source ~file_id~ and ~heading_id~, plus optional resolution fields.
+- Link target references use ~ON DELETE SET NULL~ where deleting a target should not delete the source link.
+- ~outline_path~ is a derived/cache table with one row per heading.
+- ~heading_fts~ is optional and controlled by configuration.
+- The implementation must decide whether ~heading_fts~ is always created but only populated when enabled, or only created when FTS5 is enabled.
+- Body text storage and body text indexing are separate decisions.
+- ~search.index_body_text~ controls whether body text is inserted into FTS.
 
 Acceptance criteria:
 
+- Schema matches the own internal parser model, not Orgize-specific structures.
 - Schema can be created idempotently.
-- `files.path` is unique.
+- Foreign keys are enabled and use deliberate ~ON DELETE~ behavior.
+- The schema creates exactly one level 0 heading per file.
 - Headings can be deleted and rewritten per file.
-- Schema is compatible with a later parent/child extension.
+- Dependent rows are deleted through cascading foreign keys where appropriate.
+- Required indexes for common lookups are defined.
+- Schema supports parent/child headings and materialized outline paths.
+- Schema supports TODO keyword configuration through ~todo_keywords~.
+- Schema supports properties, tags, timestamps, links, and body text.
+- Optional FTS5 behavior is documented.
+- Rebuild works when FTS5 is disabled.
+- If FTS5 is enabled, FTS synchronization strategy is documented as indexer-maintained.
+- A minimal DB integrity test is planned or implemented.
+- Known issues in the previous schema are fixed:
+  - ~outline_path~ table name matches its indexes.
+  - keyword/property source checks validate the correct column.
+  - link foreign keys distinguish source file/heading from resolved target file/heading.
+
+** TODO Implement minimal DB schema migration
+
+Goal:
+Create the first executable SQLite schema from the reviewed design.
+
+Initial tables may include:
+
+- ~files~
+- ~headings~
+- ~todo_keywords~
+- ~keywords~
+- ~properties~
+- ~tags~
+- ~links~
+- ~heading_bodies~
+- ~outline_path~
+
+Optional tables/features:
+
+- ~heading_fts~ when FTS5 is enabled, or always if the project deliberately chooses to always create it
+- ~timestamps~
+- ~timestamp_repeaters~
+
+Acceptance criteria:
+
+- Schema is created from a single SQL file or migration entry.
+- Schema version is set through ~PRAGMA user_version~.
+- Schema creation is idempotent for fresh databases.
+- Invalid schema creation fails clearly.
+- The migration behavior when FTS5 is disabled is documented.
+- A simple test opens an in-memory DB and applies the schema with FTS5 disabled.
+- A simple test opens an in-memory DB and applies the schema with FTS5 enabled, if the current SQLite build supports FTS5.
 
 ** TODO Implement minimal DB functions
 
 Functions:
 
-- `upsert_file`
-- `delete_headings_for_file`
-- `insert_headings`
-- `list_headings`
+- ~upsert_file~
+- ~delete_file_data~
+- ~insert_level0_heading~
+- ~insert_headings~
+- ~insert_todo_keywords~
+- ~insert_tags~
+- ~insert_keywords~
+- ~insert_properties~
+- ~insert_outline_path~
+- ~insert_heading_fts~ when FTS5 is enabled
+- ~list_headings~
 
 All inserts for one file should run inside a transaction.
 
 Acceptance criteria:
 
 - Rebuilding the same file does not create duplicate headings.
+- Deleting/rebuilding one file removes stale headings, tags, properties, links, outline rows, body rows, and FTS rows for that file where applicable.
 - Errors during insert cause rollback.
-- `list_headings` can output data for CLI JSON.
+- ~list_headings~ can output data for CLI JSON.
+- Level 0 heading exists for each indexed file.
+- FTS insert/update functions are no-ops or unavailable with clear errors when FTS5 is disabled.
 
 ** TODO Implement Orgize adapter for headings and priorities
 
 Goal:
-Use `orgize` only inside the parser adapter and produce our own `ParsedHeading` values from it.
+Use ~orgize~ only inside the parser adapter and produce our own ~ParsedHeading~ values from it.
 
 Acceptance criteria:
 
-- Driver uses `ParseConfig` with Swiss default keywords:
-  - open states: `TODO`, `NEXT`, `WAIT`, `CONTINUE`
-  - closed states: `DONE`, `CANCEL`
-- Extracts level, title, tags, position data, and priority.
-- Uses `headline.priority()` only inside the adapter.
-- Returns our own `ParsedHeading` values.
-- Known parser problems are documented as `ParseDiagnostic` entries, not silently ignored.
-- A fixture test checks at least TODO, priority, and tags.
+- Driver uses ~ParseConfig~ generated from ~ParseOptions~.
+- Org-mode default TODO keywords are used only as fallback defaults:
+  - open: ~TODO~
+  - closed: ~DONE~
+- Configured project defaults can replace Org-mode defaults.
+- File-local ~#+TODO:~ lines can replace configured defaults for the file.
+- Extracts level, title, raw title, tags, position data, and priority.
+- Extracts TODO keyword and resolves TODO type as open or closed.
+- Creates or supports a synthetic level 0 heading in the normalized output.
+- Uses ~headline.priority()~ only inside the adapter.
+- Returns our own ~ParsedHeading~ values.
+- Known parser problems are documented as ~ParseDiagnostic~ entries, not silently ignored.
+- A fixture test checks at least TODO, priority, tags, and byte offsets.
 
 ** TODO Implement indexer for full rebuild
 
@@ -376,11 +641,17 @@ Tasks:
 1. Load config.
 2. Discover Org files.
 3. Read file content.
-4. Run parser.
-5. Collect diagnostics.
-6. Upsert file into DB.
-7. Delete old headings for the file.
-8. Insert new headings in a transaction.
+4. Extract file-local TODO keyword config if present.
+5. Run parser through parser adapter.
+6. Normalize parser output, including level 0 heading.
+7. Collect diagnostics.
+8. Upsert file metadata into DB.
+9. Delete old data for the file.
+10. Insert level 0 heading and regular headings.
+11. Insert TODO keyword definitions.
+12. Insert tags, keywords, properties, planning fields, body text, and outline rows where available.
+13. Insert FTS rows only if ~search.fts5_enabled~ is enabled.
+14. Insert body text into FTS only if ~search.index_body_text~ is enabled.
 
 Acceptance criteria:
 
@@ -388,6 +659,10 @@ Acceptance criteria:
 - Diagnostics are visible in the CLI or can be retrieved later.
 - A faulty file either stops cleanly or is skipped with documented behavior.
 - Behavior is deliberately decided and tested.
+- Rebuild is idempotent for the same file.
+- Outline cache rows are consistent after rebuild.
+- Rebuild works when FTS5 is disabled.
+- FTS rows are consistent after rebuild when FTS5 is enabled.
 
 ** TODO Set up CLI with Clap
 
@@ -400,20 +675,27 @@ orgfdb headings --json
 
 Acceptance criteria:
 
-- `rebuild` rebuilds the DB from the config.
-- `headings --json` outputs stored headings.
+- ~rebuild~ rebuilds the DB from the config.
+- ~headings --json~ outputs stored headings.
+- Output includes level 0 headings only if explicitly requested or documented.
 - Errors are understandable.
 - JSON is stable enough for first Emacs/script experiments.
+- CLI behavior is clear when FTS5-dependent commands are used while FTS5 is disabled.
 
 ** TODO Verify minimal end-to-end slice
 
 Acceptance criteria:
 
 - A test Org file can be read.
-- Headings are stored in SQLite.
-- `orgfdb headings --json` outputs the stored headings.
+- A level 0 heading is created for the file.
+- Regular headings are stored in SQLite.
+- TODO keywords are interpreted using Org-mode defaults, configured project defaults, or file-local ~#+TODO:~.
+- ~orgfdb headings --json~ outputs the stored headings.
 - Orgize-specific types do not appear in DB, query, indexer, or CLI modules.
 - At least one parser fixture test checks the Orgize adapter against expected heading data.
+- At least one DB test verifies that rebuilding the same file does not duplicate rows.
+- End-to-end rebuild works with FTS5 disabled.
+- End-to-end rebuild works with FTS5 enabled if supported by the SQLite build.
 
 * Phase 2: Complete parser data model v0.1
 
@@ -423,67 +705,223 @@ Extend the data model enough to represent real Org workflows meaningfully, witho
 ** TODO Respect per-file TODO keywords
 
 Goal:
-Read `#+TODO:` lines and pass them dynamically to Orgize `ParseConfig`.
+Read Org-mode ~#+TODO:~ lines and use them when parsing headings.
+
+Example:
+
+#+begin_src org
+#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+
+* PLAN AI/Codex working mode
+#+end_src
 
 Acceptance criteria:
 
-- File-level TODO keywords override or extend the default keywords.
-- Swiss default keywords remain the default.
-- A test with a custom `#+TODO:` line exists.
+- File-level ~#+TODO:~ keywords replace the configured default keyword set for that file.
+- If no configured defaults exist, Org-mode defaults are used:
+  - open: ~TODO~
+  - closed: ~DONE~
+- Keywords before ~|~ are treated as open states.
+- Keywords after ~|~ are treated as closed states.
+- Fast selection keys like ~TODO(t)~ are parsed and preserved.
+- A heading like ~* PLAN AI/Codex working mode~ is parsed with:
+  - ~todo_keyword = "PLAN"~
+  - ~todo_type = "open"~
+  - ~title = "AI/Codex working mode"~
+- Parsed TODO keyword definitions can be stored in ~todo_keywords~.
+- A test with a custom ~#+TODO:~ line exists.
+- A test verifies Org-mode fallback defaults.
 
 ** TODO Compute parent-child structure
 
 Goal:
-Compute `parent_heading_id` while iterating and store it in the DB.
+Compute ~parent_id~ while iterating and store it in the DB.
 
 Note:
 If Orgize does not provide a stable parent structure, the hierarchy is computed from heading levels using a stack.
 
+The synthetic level 0 file heading is the parent of all top-level Org headings.
+
 Acceptance criteria:
 
 - Parent/child relationships are correct for nested headings.
-- Root headings have no parent.
+- Every file has exactly one level 0 heading.
+- Root Org headings have the level 0 heading as parent.
+- Level 0 heading has no parent.
 - A test with at least three levels exists.
+
+** TODO Store materialized outline path
+
+Goal:
+Build the ~outline_path~ derived/cache table for fast hierarchy queries.
+
+The table stores:
+
+- ~heading_id~
+- ~file_id~
+- ~parent_id~
+- ~depth~
+- ~materialized_path~
+- ~breadcrumbs_json~
+
+Example materialized paths:
+
+#+begin_src text
+0000
+0000.0001
+0000.0001.0002
+0000.0001.0002.0001
+#+end_src
+
+Acceptance criteria:
+
+- One ~outline_path~ row exists per heading.
+- Level 0 heading has depth 0.
+- Top-level Org headings have depth 1.
+- ~materialized_path~ is stable for one rebuild.
+- ~breadcrumbs_json~ contains titles from level 0 to the current heading.
+- Subtree queries can use ~file_id~ and ~materialized_path~.
+- A test verifies expected paths for nested headings.
 
 ** TODO Parse planning lines
 
 Goal:
-Extract `SCHEDULED`, `DEADLINE`, and `CLOSED`.
+Extract ~SCHEDULED~, ~DEADLINE~, and ~CLOSED~.
 
 Acceptance criteria:
 
 - Planning data is represented in the parser model.
-- DB schema supports planning data.
+- DB schema supports direct planning fields on ~headings~:
+  - ~scheduled_raw~
+  - ~scheduled_ts~
+  - ~deadline_raw~
+  - ~deadline_ts~
+  - ~closed_raw~
+  - ~closed_ts~
+- Raw Org timestamp values are preserved where possible.
 - JSON output includes planning data.
 - Tests exist for all three planning types.
+- The one-line planning case is covered:
+  #+begin_src org
+  * Test
+  DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
+  #+end_src
 
-** TODO Parse properties drawer
+** TODO Parse properties drawer and file-level properties
 
 Goal:
-Extract `:PROPERTIES:`, especially:
+Extract properties from heading drawers and file-level property declarations.
 
-- `ID`
-- `CUSTOM_ID`
-- additional properties as key/value pairs
+Sources:
+
+- heading property drawers:
+  #+begin_src org
+  * Task
+  :PROPERTIES:
+  :ID: abc
+  :CUSTOM_ID: task
+  :END:
+  #+end_src
+
+- file-level property keywords:
+  #+begin_src org
+  #+PROPERTY: Effort_ALL 0:10 0:30 1:00
+  #+CATEGORY: project
+  #+end_src
 
 Acceptance criteria:
 
 - Properties are assigned to the correct heading.
-- `ID` and `CUSTOM_ID` are directly queryable.
+- File-level properties are assigned to the synthetic level 0 heading.
+- File-level ~#+CATEGORY~ can be stored as a property on the level 0 heading.
+- ~ID~ and ~CUSTOM_ID~ are directly queryable through indexes.
 - Additional properties are preserved.
+- Inherited/effective properties are represented or explicitly deferred.
 - A test with multiple properties exists.
+- A test with file-level properties exists.
+
+** TODO Parse file-level keywords
+
+Goal:
+Extract Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, and ~#+EXPORT_FILE_NAME~.
+
+Note:
+File-level keywords are stored in the ~keywords~ table and attached to the level 0 heading.
+
+Acceptance criteria:
+
+- File-level keywords are attached to the level 0 heading.
+- Keyword name and raw value are preserved.
+- ~#+TODO:~ may be stored as raw keyword and additionally normalized into ~todo_keywords~.
+- A test with ~#+TITLE~ and ~#+STARTUP~ exists.
+
+** TODO Parse tags and FILETAGS
+
+Goal:
+Extract direct, inherited, and file-level tags.
+
+Acceptance criteria:
+
+- Heading tags are stored in normalized ~tags~ rows.
+- ~#+FILETAGS:~ are stored as tags on the level 0 heading.
+- ~headings.all_tags_json~ is either populated as a cache or explicitly deferred.
+- Inherited tags are marked with ~inherited = 1~.
+- A test with direct and inherited tags exists.
+- A test with file-level tags exists.
+
+** TODO Store body text per heading
+
+Goal:
+Store the body text that belongs to each heading so it can later be indexed through SQLite FTS5 if FTS5 and body indexing are enabled.
+
+Acceptance criteria:
+
+- Body text is assigned to the correct heading.
+- Body text storage is configurable or explicitly documented as always stored.
+- Body text excludes child heading subtrees unless explicitly decided otherwise.
+- Body byte ranges are stored as ~body_byte_start~ and ~body_byte_end~.
+- File-level text before the first regular heading is assigned to the level 0 heading or explicitly ignored with documented reasoning.
+- Body storage can be disabled or omitted if not needed.
+- Body text is inserted into FTS only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- A fixture test verifies heading body extraction.
+
+** TODO Parse rich timestamps
+
+Goal:
+Represent timestamps beyond the simple planning fields on headings.
+
+Examples:
+
+- active timestamps
+- inactive timestamps
+- date ranges
+- time ranges
+- repeaters
+- warning delays
+- timestamps in body text
+
+Acceptance criteria:
+
+- Parser model can represent timestamp role, raw value, normalized start/end timestamps, activity type, range type, and byte ranges.
+- DB tables ~timestamps~ and ~timestamp_repeaters~ can store extracted values.
+- Planning timestamps can either be mirrored into ~timestamps~ or only stored on headings; the decision is documented.
+- Tests cover at least one active timestamp, one inactive timestamp, and one repeater.
 
 ** TODO Finalize DB schema and JSON API for v0.1
 
 Goal:
-Define the schema for the first stable internal version.
+Define the schema and JSON output for the first stable internal version.
 
 Acceptance criteria:
 
-- `files`, `headings`, `properties`, and possibly `planning` are defined.
-- Migration or schema versioning is decided.
-- JSON output is documented.
+- ~files~, ~headings~, ~todo_keywords~, ~keywords~, ~properties~, ~tags~, ~timestamps~, ~timestamp_repeaters~, ~links~, ~heading_bodies~, and ~outline_path~ are defined or explicitly deferred.
+- ~heading_fts~ is defined as optional and controlled by ~search.fts5_enabled~.
+- Schema versioning behavior is decided.
+- Level 0 heading behavior is documented.
+- Optional FTS5 behavior is documented.
+- JSON output for headings documents whether level 0 headings are included by default.
 - README contains a minimal example.
+- DB schema documentation references the actual schema file.
 
 * Phase 3: Link extractor
 
@@ -501,20 +939,28 @@ Define an internal link model.
 
 Possible fields:
 
-- `file_id`
-- `heading_id`
-- `link_type`
-- `raw`
-- `target`
-- `description`
-- `byte_start`
-- `byte_end`
+- ~file_id~
+- ~heading_id~
+- ~link_type~
+- ~raw_link~
+- ~target~
+- ~target_absolute~
+- ~description~
+- ~format~
+- ~search_option~
+- ~relation~
+- ~byte_start~
+- ~byte_end~
+- ~line_number~
 
 Acceptance criteria:
 
 - Link model is independent of Orgize.
 - DB table is created.
 - Links can be deleted and reinserted per file.
+- Links outside regular headings are attached to the level 0 heading.
+- Link source fields are separated from resolved target fields.
+- Link target foreign keys use deliberate ~ON DELETE SET NULL~ behavior.
 
 ** TODO Extract bracket links
 
@@ -530,14 +976,16 @@ Acceptance criteria:
 
 - Target is extracted.
 - Description is extracted, if present.
-- Positions are stored.
+- Raw link is preserved.
+- Format is stored as ~bracket~.
+- Positions are stored as ~byte_start~ and ~byte_end~.
 - Bracket escaping / link unescaping is handled as a separate topic.
 - Edge cases exist as fixtures.
 
 ** TODO Handle link unescaping and known Orgize deviations
 
 Goal:
-Check and supplement `org-link-unescape`-like logic where Orgize provides incomplete or wrong data.
+Check and supplement ~org-link-unescape~-like logic where Orgize provides incomplete or wrong data.
 
 Acceptance criteria:
 
@@ -552,18 +1000,45 @@ Detect plain links from text nodes.
 
 Relevant protocols:
 
-- `http`
-- `https`
-- `file`
-- `docview`
-- `attachment`
-- `id`
+- ~http~
+- ~https~
+- ~file~
+- ~docview~
+- ~attachment~
+- ~id~
+- ~custom-id~
 
 Acceptance criteria:
 
 - Plain links are detected.
+- Format is stored as ~plain~.
 - False positives are documented in fixtures.
 - Custom protocols are configurable or clearly limited.
+
+** TODO Extract file link search options
+
+Goal:
+Extract search options from file links.
+
+Example:
+
+#+begin_src org
+[[file:~/example/example.org::255]]
+#+end_src
+
+Expected:
+
+#+begin_src text
+target        = ~/example/example.org
+search_option = 255
+#+end_src
+
+Acceptance criteria:
+
+- Search options after ~::~ are extracted.
+- Raw link remains preserved.
+- Relative and absolute file targets remain distinguishable.
+- Tests cover numeric and text search options.
 
 ** TODO Check special link syntax for relationships
 
@@ -582,8 +1057,9 @@ This is project logic, not Org-mode standard. Therefore, treat it as an optional
 Acceptance criteria:
 
 - Decision is documented: MVP, later, or not supported.
-- If supported: relationship is stored separately.
+- If supported: relationship is stored separately in ~links.relation~.
 - Normal link descriptions remain preserved unchanged.
+- A fixture documents the behavior.
 
 ** TODO Provide CLI command `links`
 
@@ -597,6 +1073,7 @@ Acceptance criteria:
 
 - Links are output as JSON.
 - Filtering by file or heading is optionally prepared.
+- Level 0/file-level links can be included or excluded deliberately.
 
 * Phase 4: Link resolution
 
@@ -606,57 +1083,79 @@ Resolve links to known files, headings, IDs, and CUSTOM_IDs.
 ** TODO Resolve ID and CUSTOM_ID links
 
 Goal:
-Resolve `id:` links by matching them against headings in the DB.
+Resolve ~id:~ and custom-id links by matching them against properties in the DB.
 
 Acceptance criteria:
 
-- `id:` links are assigned `resolved_heading_id` where possible.
+- ~id:~ links are assigned ~resolved_heading_id~ where possible.
+- ~CUSTOM_ID~ links are assigned ~resolved_heading_id~ where possible.
 - Broken links are marked.
 - Ambiguous IDs are reported as diagnostics.
+- Properties indexes for ~ID~ and ~CUSTOM_ID~ are used or checked.
 
 ** TODO Resolve file and attachment links
 
 Goal:
-Map `file:` and `attachment:` links to known files.
+Map ~file:~ and ~attachment:~ links to known files.
 
 Acceptance criteria:
 
 - Relative paths are interpreted relative to the source file.
-- Known files are linked through `target_file_id`.
+- Known files are linked through ~resolved_file_id~.
 - Missing files are marked as broken.
+- Link rows are not deleted when a target file disappears; target references are set to NULL or marked broken.
 
 ** TODO Represent link target in DB
 
 Planned fields:
 
-- `target_file_id`
-- `target_heading_id`
-- `resolved`
-- `broken`
-- `diagnostic`
+- ~resolved_file_id~
+- ~resolved_heading_id~
+- ~resolved~
+- ~broken~
+- ~diagnostic~
 
 Acceptance criteria:
 
 - Resolution is repeatable.
 - Rebuild produces consistent link targets.
 - Broken links can later be queried.
+- Target deletion behavior is tested.
 
-* Phase 5: Query engine and full-text search
+* Phase 5: Query engine and optional full-text search
 
 Goal of this phase:
 Build a simple, safe query layer that can later be extended toward org-ql-like behavior.
 
-** TODO Enable SQLite FTS5 for full-text search
+FTS5 is optional and must only be required when FTS-specific functionality is enabled.
+
+** TODO Enable optional SQLite FTS5 for full-text search
 
 Goal:
-Create a virtual FTS5 table in SQLite that is fed with heading titles and later body text.
+Create and maintain a virtual FTS5 table for heading title and optional body search when FTS5 is enabled in configuration.
+
+Planned table if enabled:
+
+#+begin_src sql
+CREATE VIRTUAL TABLE heading_fts
+USING fts5(
+    title,
+    body,
+    tokenize = 'unicode61'
+);
+#+end_src
 
 Acceptance criteria:
 
-- FTS5 table is created.
-- Heading titles are indexed.
-- Rebuild updates FTS consistently.
-- Simple title search works.
+- FTS5 support is configurable through ~search.fts5_enabled~.
+- If FTS5 is disabled, rebuild works without creating or writing ~heading_fts~, unless the project explicitly documents that the table is always created but unused.
+- If FTS5 is enabled, ~heading_fts~ is created and maintained.
+- ~heading_fts.rowid~ matches ~headings.id~.
+- Heading titles are indexed when FTS5 is enabled.
+- Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- Search can match title-only, body-only, or both when enabled.
+- Body indexing can be disabled even when FTS5 is enabled.
+- Search/query commands handle disabled FTS5 clearly.
 
 ** TODO Define query model v0
 
@@ -664,10 +1163,17 @@ Initially supported operators:
 
 #+begin_src lisp
 (todo "NEXT")
+(todo-type "open")
 (tags "tag")
 (title-contains "search term")
+(text-contains "search term")
 (link-type "file")
 (has-property "ID")
+(property "KEY" "VALUE")
+(deadline ...)
+(scheduled ...)
+(ancestor ...)
+(descendant ...)
 #+end_src
 
 Acceptance criteria:
@@ -675,6 +1181,9 @@ Acceptance criteria:
 - Query AST is defined.
 - Unsupported operators produce understandable errors.
 - Query model is independent of CLI and SQL.
+- Query model can use ~outline_path~ for hierarchy queries.
+- Query model can use FTS5 for title/body search when FTS5 is enabled.
+- Query model has documented fallback/error behavior for FTS-dependent operators when FTS5 is disabled.
 
 ** TODO Build query parser and SQL translator
 
@@ -687,6 +1196,9 @@ Acceptance criteria:
 - Bound parameters are used.
 - Invalid query syntax produces understandable error messages.
 - Tests exist for all supported operators.
+- FTS5 MATCH queries are handled safely and deliberately.
+- FTS-dependent SQL is generated only when FTS5 is enabled.
+- Hierarchy queries use ~outline_path~ where appropriate.
 
 ** TODO Implement CLI command `query`
 
@@ -694,6 +1206,7 @@ Example:
 
 #+begin_src shell
 orgfdb query --json '(todo "NEXT")'
+orgfdb query --json '(text-contains "sqlite")'
 #+end_src
 
 Acceptance criteria:
@@ -701,6 +1214,27 @@ Acceptance criteria:
 - Query outputs JSON.
 - Query uses the DB layer, not the parser.
 - Simple combinations can be added later.
+- Query results include enough location data for editor jumps.
+- If a query requires FTS5 while FTS5 is disabled, the CLI returns a clear error.
+
+** TODO Provide CLI command `search`
+
+Goal:
+Provide a simple FTS-focused command before or alongside the full query language.
+
+Example:
+
+#+begin_src shell
+orgfdb search --json sqlite
+#+end_src
+
+Acceptance criteria:
+
+- Search uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
+- If FTS5 is disabled, the command returns a clear error or documented fallback.
+- Results include heading id, file path, title, and byte_start.
+- Search can optionally include body matches when ~search.index_body_text~ is enabled.
+- Output is usable from Emacs.
 
 * Phase 6: Robust initial indexer
 
@@ -714,23 +1248,25 @@ Acceptance criteria:
 - Recursive search works.
 - Ignored directories can be configured.
 - Symlink behavior is decided.
-- Only `.org` files are collected by default.
+- Only ~.org~ files are collected by default.
 
 ** TODO Add change detection
 
 Goal:
 Avoid reparsing unchanged files unnecessarily.
 
-Possible signals:
+Signals:
 
-- mtime
-- size
-- content_hash
+- ~mtime_ns~
+- ~size~
+- ~content_hash~
 
 Acceptance criteria:
 
 - Unchanged files are skipped.
 - Changed files are parsed again.
+- ~mtime_ns~ and ~size~ are used as a fast check.
+- ~content_hash~ is used when stronger verification is needed.
 - Deleted files are removed from the DB or marked as missing.
 
 ** TODO Optimize transaction batching
@@ -743,6 +1279,8 @@ Acceptance criteria:
 - Batch size is configurable or sensibly fixed.
 - Error strategy is defined.
 - DB remains consistent even on interruption.
+- Derived/cache tables are kept consistent with core rows.
+- Optional FTS rows are kept consistent only when FTS5 is enabled.
 
 ** TODO Evaluate parallelization with Rayon
 
@@ -757,6 +1295,7 @@ Acceptance criteria:
 - Benchmark baseline exists.
 - Parsing and DB writing are cleanly separated.
 - There are no race conditions while writing.
+- DB writes remain transactional and deterministic.
 
 ** TODO Optimize SQLite indexes
 
@@ -766,8 +1305,26 @@ Speed up common queries.
 Acceptance criteria:
 
 - Important indexes are defined.
-- `EXPLAIN QUERY PLAN` was checked for typical queries.
+- ~EXPLAIN QUERY PLAN~ was checked for typical queries.
+- Typical queries include TODO, tags, properties, links, planning, outline/subtree lookups, and FTS if enabled.
 - Results are documented.
+
+** TODO Evaluate SQLite query performance
+
+Goal:
+Check whether the current SQLite schema is fast enough for the intended query workload.
+
+Note:
+The project is query-oriented, but a separate data warehouse is probably unnecessary unless measurements show a real bottleneck.
+
+Acceptance criteria:
+
+- Benchmark data set is defined.
+- Common queries are measured.
+- FTS query performance is measured when FTS5 is enabled.
+- Materialized path subtree queries are measured.
+- Findings are documented.
+- Schema changes are based on measurements, not assumptions.
 
 * Phase 7: Watcher for incremental updates
 
@@ -800,8 +1357,11 @@ When a file changes, reparse exactly the affected file through the parser adapte
 Acceptance criteria:
 
 - Only the affected file is reindexed.
-- Old headings and links for the file are replaced.
+- Old headings, TODO keywords, tags, keywords, properties, timestamps, links, bodies, outline rows, and FTS rows for the file are replaced where applicable.
 - Link resolution is then updated for affected targets or explicitly marked as later work.
+- Level 0 heading is recreated consistently.
+- Selective reparse works when FTS5 is disabled.
+- Selective reparse updates FTS rows when FTS5 is enabled.
 
 * Phase 8: Emacs integration
 
@@ -812,18 +1372,37 @@ Make the SQLite/CLI layer usable from Emacs.
 
 Acceptance criteria:
 
-- Emacs can call `orgfdb query --json`.
+- Emacs can call ~orgfdb query --json~.
+- Emacs can call ~orgfdb search --json~ when FTS5 is enabled.
 - JSON is read in Elisp.
 - Results can be displayed as a list.
+- Result entries include file path and ~byte_start~.
+- Disabled FTS5 is handled gracefully in Emacs-facing commands.
+
+** TODO Implement Emacs jump to result
+
+Goal:
+Use DB byte offsets to jump to headings or links from Emacs.
+
+Acceptance criteria:
+
+- Emacs can open the file from a query/search result.
+- Emacs can jump to ~byte_start~.
+- UTF-8 byte offsets are handled correctly.
+- Fallback behavior using ~line_number~ is documented.
 
 ** TODO Plan interactive Emacs commands
 
 Possible commands:
 
 - search by heading
+- full-text search title/body when FTS5 is enabled
 - search by TODO state
+- search by TODO type
 - search by tag
+- search by property
 - show broken links
+- jump to ancestor/descendant result
 
 ** TODO Evaluate thin Emacs module wrapper
 
@@ -836,7 +1415,7 @@ Goal of this phase:
 Finally consolidate the test and regression base, close gaps, and make it maintainable long term.
 
 Important:
-Testing is not a late special block. Every `PLAN`, `BUILD`, `NEXT`, and `CONTINUE` task must include suitable checks, tests, or a justified reason why testing is not applicable.
+Testing is not a late special block. Every ~PLAN~, ~BUILD~, ~NEXT~, and ~CONTINUE~ task must include suitable checks, tests, or a justified reason why testing is not applicable.
 
 New features should each receive their own tests, fixtures, or documented manual checks.
 
@@ -850,11 +1429,19 @@ Must contain:
 - things that deliberately should not be parsed
 - edge cases that should remain normal text
 - known Orgize problems
-- comparison cases for Emacs `org-element-parse-buffer`
+- comparison cases for Emacs ~org-element-parse-buffer~
+- custom ~#+TODO:~ keyword declarations
+- Org-mode default TODO behavior
+- file-level properties and keywords
+- FILETAGS
+- body text before and inside headings
+- links outside regular headings
+- nested headings for materialized paths
+- timestamps with repeaters
 
 Possible sources to check:
 
-- own `../../old-files/tests/data`
+- own ~../../old-files/tests/data~
 - selected Orgize test cases
 - own real Org files, if they can be anonymized
 
@@ -866,9 +1453,10 @@ Compare parser output in a stable way.
 Acceptance criteria:
 
 - Fixture is parsed.
-- `ParsedOrgDocument` is checked as a snapshot.
+- ~ParsedOrgDocument~ is checked as a snapshot.
 - Differences are reviewable.
 - Known parser deviations are documented.
+- Snapshot includes byte offsets where stable enough.
 
 ** TODO Compare with Emacs `org-element-parse-buffer`
 
@@ -883,6 +1471,20 @@ Acceptance criteria:
 - At least one comparison fixture exists.
 - Differences between Orgize and Emacs are documented.
 - Relevance for DB import is evaluated.
+- Planning and link cases are included.
+- Org-mode default TODO behavior is checked.
+
+** TODO DB schema tests
+
+Acceptance criteria:
+
+- Schema can be applied to an in-memory SQLite DB.
+- Foreign keys are active.
+- Level 0 uniqueness per file is enforced.
+- Invalid rows fail with useful constraints.
+- FTS-disabled schema behavior is tested.
+- FTS-enabled schema behavior is tested if supported by SQLite.
+- Outline path table references valid headings.
 
 ** TODO DB integrity tests
 
@@ -892,6 +1494,10 @@ Acceptance criteria:
 - File update replaces old data.
 - Transaction errors do not leave partial inserts.
 - Foreign keys are active and tested.
+- Cascading deletion removes dependent rows.
+- Target deletion does not incorrectly delete source links.
+- Rebuild works with FTS5 disabled.
+- Rebuild updates FTS rows correctly when FTS5 is enabled.
 
 ** TODO Query tests
 
@@ -900,6 +1506,9 @@ Acceptance criteria:
 - Every supported query operator has tests.
 - Invalid queries have tests.
 - SQL-injection-like inputs are handled safely.
+- FTS5 queries are tested when FTS5 is enabled.
+- FTS-dependent operators return clear errors when FTS5 is disabled.
+- Outline path ancestor/descendant queries are tested.
 
 ** TODO Watcher tests
 
@@ -909,6 +1518,21 @@ Acceptance criteria:
 - Create is detected.
 - Delete is detected.
 - Debounce works.
+- Selective reparse updates core and derived/cache tables.
+- Selective reparse works with FTS5 disabled.
+- Selective reparse updates FTS rows when FTS5 is enabled.
+
+** TODO Emacs offset tests
+
+Goal:
+Verify that stored byte offsets are usable for editor jumps.
+
+Acceptance criteria:
+
+- Test files include UTF-8 content.
+- ~byte_start~ points to the expected heading/link location.
+- Line number fallback is documented.
+- Emacs behavior is checked manually or through an automated fixture if practical.
 
 * Phase 10: Documentation
 
@@ -919,13 +1543,14 @@ Document the project so it is usable and maintainable.
 
 Contents:
 
-- what `org-files-db` is
+- what ~org-files-db~ is
 - installation
 - minimal example
 - config example
 - CLI examples
 - current status
 - known limitations
+- optional FTS5 behavior
 
 ** TODO Write architecture documentation
 
@@ -939,19 +1564,66 @@ Contents:
 
 - parser adapter principle
 - internal data model
+- level 0 file heading
+- configurable TODO keyword model
+- Org-mode TODO defaults
+- optional FTS5 model
 - indexer pipeline
 - DB schema
+- core tables vs derived/cache tables
 - query layer
 - why Orgize is encapsulated
+
+** TODO Write SQLite schema documentation
+
+Possible file:
+
+#+begin_src text
+docs/sqlite-database-schema.org
+#+end_src
+
+Contents:
+
+- PRAGMA settings
+- ~files~
+- ~headings~
+- level 0 heading behavior
+- ~todo_keywords~
+- ~keywords~
+- ~properties~
+- ~tags~
+- ~timestamps~
+- ~timestamp_repeaters~
+- ~links~
+- ~heading_bodies~
+- ~outline_path~
+- optional ~heading_fts~
+- indexes
+- rebuild strategy
+- FTS synchronization strategy
+- behavior when FTS5 is disabled
+
+Acceptance criteria:
+
+- Documentation references the actual schema file.
+- Column explanations are clear enough for future Codex tasks.
+- Level 0 file scope is explicitly documented.
+- Byte offsets and Emacs jump behavior are documented.
+- Org-mode TODO defaults are documented.
+- Optional FTS5 behavior is documented.
 
 ** TODO Write API specification
 
 Contents:
 
-- JSON output for `headings`
-- JSON output for `links`
-- JSON output for `query`
+- JSON output for ~headings~
+- JSON output for ~links~
+- JSON output for ~query~
+- JSON output for ~search~
 - error format
+- whether level 0 headings are included by default
+- byte offset fields for editor integrations
+- behavior of FTS-dependent APIs when FTS5 is disabled
 
 ** TODO Document parser risks
 
@@ -968,6 +1640,12 @@ Contents:
 - workarounds
 - fixtures
 - open decisions
+- file-level TODO keyword handling
+- Org-mode default TODO behavior
+- file-level properties and tags
+- body extraction boundaries
+- byte offset reliability
+- optional FTS5 assumptions
 
 ** TODO Maintain CHANGELOG
 
@@ -988,19 +1666,13 @@ Possible operators:
 (property "KEY" "VALUE")
 (deadline ...)
 (scheduled ...)
+(closed ...)
 (ancestor ...)
 (descendant ...)
+(has-link ...)
+(link-target ...)
+(text ...)
 #+end_src
-
-** TODO Evaluate normalized tags table
-
-Goal:
-Make more complex tag queries more efficient.
-
-** TODO Index body text per heading
-
-Goal:
-Make not only heading titles searchable through FTS5, but also body text.
 
 ** TODO Make parser backend exchangeable
 
@@ -1025,6 +1697,31 @@ Possible benchmarks:
 - query latency
 - rebuild time
 - incremental update
-  
-* Completed
+- FTS search latency when FTS5 is enabled
+- subtree query latency
 
+** TODO Evaluate external-content FTS5
+
+Goal:
+Check whether SQLite FTS5 external-content tables are worth using instead of manually maintained FTS rows.
+
+Note:
+Manual FTS maintenance is preferred initially because the indexer already controls full rebuilds per file.
+
+Acceptance criteria:
+
+- External-content FTS5 behavior is compared with manually maintained FTS rows.
+- Complexity and migration impact are documented.
+- Recommendation is based on measured or clearly reasoned trade-offs.
+
+** TODO Evaluate normalized vs cached tag output
+
+Goal:
+Decide whether ~headings.all_tags_json~ remains as a cache in addition to normalized ~tags~ rows.
+
+** TODO Evaluate richer property inheritance model
+
+Goal:
+Decide how inherited/effective properties should be represented once real query needs are clearer.
+
+* Completed
