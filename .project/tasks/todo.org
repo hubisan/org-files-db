@@ -303,7 +303,9 @@ Therefore, an adapter layer is built first and protected with representative fix
 
 [[./archive/2026-06-17--structure-parser-regression-fixtures.org]]
 
-** TODO Create parser risk list
+** BUILD Create parser risk list
+
+[[./2026-06-17--create-parser-risk-list.org]]
 
 Goal:
 Keep known or suspected parser risks in one central place.
@@ -1584,13 +1586,19 @@ Contents:
 - byte offset fields for editor integrations
 - behavior of FTS-dependent APIs when FTS5 is disabled
 
-** TODO Document parser risks
+** TODO Maintain parser risk register
 
 Possible file:
 
 #+begin_src text
 docs/parser-risks.org
 #+end_src
+
+Purpose:
+
+Maintain and extend the central parser risk register once it exists.
+
+This is follow-up work after ~Create parser risk list~ has established the initial document. Do not create a second competing parser-risk document.
 
 Contents:
 
