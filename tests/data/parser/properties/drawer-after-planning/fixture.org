@@ -1,0 +1,6 @@
+#+TITLE: Property Drawer After Planning
+* Task
+DEADLINE: <2025-11-19 Wed>
+:PROPERTIES:
+:after-deadline: valid
+:END:

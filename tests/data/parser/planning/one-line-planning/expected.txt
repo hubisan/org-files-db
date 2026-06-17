@@ -1,0 +1,10 @@
+# classification: org-special-case
+# note: Positive regression for one-line planning extraction.
+document.title=One Line Planning Fixture
+heading_count=1
+diagnostic_count=0
+heading.0.level=1
+heading.0.title=Test
+heading.0.planning.deadline=<2024-12-01 Sun>
+heading.0.planning.scheduled=<2024-11-20 Wed>
+heading.0.planning.closed=<2024-11-20 Wed>

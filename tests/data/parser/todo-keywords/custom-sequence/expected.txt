@@ -1,0 +1,12 @@
+# classification: deliberately-unsupported
+# note: File-local TODO keyword declarations are present, but the current adapter does not yet normalize custom TODO states in headline titles.
+document.title=Custom TODO Fixture
+document.keyword.TODO=PLAN(p) BUILD(b) REVIEW(r) | DONE(d) CANCEL(c)
+heading_count=2
+diagnostic_count=0
+heading.0.level=1
+heading.0.title=PLAN Parser fixture
+heading.1.level=2
+heading.1.title=Implemented
+heading.1.todo_keyword=DONE
+heading.1.parent_index=0

@@ -1,0 +1,4 @@
+#+TITLE: Custom TODO Fixture
+#+TODO: PLAN(p) BUILD(b) REVIEW(r) | DONE(d) CANCEL(c)
+* PLAN Parser fixture
+** DONE Implemented

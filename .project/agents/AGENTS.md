@@ -1,6 +1,6 @@
 # AI Agent Instructions
 
-Version: 0.11.0
+Version: 0.13.0
 
 Read this file before changing this repository. Repo-specific rules are in [./repository.org](./repository.org).
 
@@ -30,6 +30,7 @@ Read in order before starting: `AGENTS.md` → `../tasks/todo.org` → `./reposi
 
 - **Language:** Match user's language in chat. English for code, comments, docs, commits, and files.
 - **Org-mode syntax:** Bold: `*bold*` | Inline code: `~name~` | Lists: `-` | No manual line breaks.
+- **Org source blocks:** Insert a comma right before lines starting with `*`, `,*`, `#+`, or `,#+`, since these could otherwise be parsed as outline nodes or other special syntax. 
 - **Model Suitability:** Assess if the current model is appropriate. Pause and ask the user if a stronger model is needed for complexity/safety, or if a cheaper/faster model suffices.
 - **Commits:** Small, focused changes only. No unrelated refactoring. Do not commit, amend, squash, or merge unless explicitly asked.
 - **When unsure:** Do not invent assumptions. Record uncertainty in the task file (or `ai-notes.org` for repo-wide concerns) and ask the user.

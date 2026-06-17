@@ -1,0 +1,7 @@
+#+TITLE: File Scope Fixture
+#+FILETAGS: :project:parser:
+#+CATEGORY: parser-regressions
+
+Intro paragraph before the first headline.
+
+* Heading

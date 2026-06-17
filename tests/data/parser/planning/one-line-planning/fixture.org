@@ -1,0 +1,3 @@
+#+TITLE: One Line Planning Fixture
+* Test
+DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>

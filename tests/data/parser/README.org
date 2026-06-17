@@ -1,0 +1,24 @@
+#+TITLE: Parser Regression Fixtures
+
+This directory contains parser regression fixtures grouped by behavior.
+
+Each fixture lives in its own directory and uses the same file names:
+
+- ~fixture.org~: Org input document
+- ~expected.txt~: minimal machine-readable expectations
+
+The ~expected.txt~ format is intentionally simple:
+
+- comment lines start with ~#~
+- data lines use ~key=value~
+- unsupported or future expectations stay in comments until the parser model exposes them
+
+Current categories:
+
+- ~headings~
+- ~links~
+- ~planning~
+- ~properties~
+- ~priorities~
+- ~todo-keywords~
+- ~file-scope~

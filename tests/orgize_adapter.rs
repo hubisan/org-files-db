@@ -4,10 +4,10 @@ use org_files_db::parser::{OrgParser, OrgizeAdapter};
 
 #[test]
 fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
-    let content = include_str!("data/headings/orgize-headings.org");
+    let content = include_str!("data/parser/headings/nested-planning-lines/fixture.org");
     let document = OrgizeAdapter::new()
         .parse_document(
-            Path::new("tests/data/headings/orgize-headings.org"),
+            Path::new("tests/data/parser/headings/nested-planning-lines/fixture.org"),
             content,
         )
         .expect("orgize adapter should parse old heading fixture");
@@ -37,10 +37,10 @@ fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
 
 #[test]
 fn orgize_adapter_extracts_todo_priority_and_tags() {
-    let content = include_str!("data/headings/orgize-priority-tags.org");
+    let content = include_str!("data/parser/priorities/todo-priority-tags/fixture.org");
     let document = OrgizeAdapter::new()
         .parse_document(
-            Path::new("tests/data/headings/orgize-priority-tags.org"),
+            Path::new("tests/data/parser/priorities/todo-priority-tags/fixture.org"),
             content,
         )
         .expect("orgize adapter should parse todo/priority/tag fixture");

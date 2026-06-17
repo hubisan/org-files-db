@@ -1,0 +1,9 @@
+# classification: deliberately-unsupported
+# note: The future parser model should expose a synthetic level-0/file-scope node for pre-heading text and file-level metadata.
+document.title=File Scope Fixture
+document.keyword.FILETAGS=:project:parser:
+document.keyword.CATEGORY=parser-regressions
+heading_count=1
+diagnostic_count=0
+heading.0.level=1
+heading.0.title=Heading

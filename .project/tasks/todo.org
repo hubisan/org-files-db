@@ -198,11 +198,10 @@ Orgize defaults must not be used as project-level defaults outside the Orgize ad
 
 Example:
 
-#+begin_src org
-#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
-
-* AI/Codex working mode
-#+end_src
+#+BEGIN_SRC org
+  ,#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+  ,* AI/Codex working mode
+#+END_SRC
 
 Expected interpretation:
 
@@ -300,53 +299,9 @@ Therefore, an adapter layer is built first and protected with representative fix
 
 [[./archive/2026-06-16--evaluate-minimal-orgize-adapter.org]]
 
-** BUILD Structure test fixtures for parser regressions
+** DONE [2026-06-17 Wed 11:14] Structure test fixtures for parser regressions
 
-Goal:
-Structure the existing files in [[file:../../tests/data/][tests/data]] so they can serve as regression tests for parser behavior.
-
-Suggested structure:
-
-#+begin_src text
-tests/data/
-  headings/
-  links/
-  planning/
-  properties/
-  priorities/
-  tags/
-  timestamps/
-  body/
-  todo-keywords/
-  edge-cases/
-#+end_src
-
-Each fixture should contain, where possible:
-
-- an Org file
-- expected extracted minimal data
-- a comment indicating whether this is an Orgize bug, an Org special case, or a deliberately unsupported case
-
-Important source material for this task:
-
-- [[file:../../old-files/docs/lexer-design.org][Lexer Design]] for classification examples
-- [[file:../../old-files/tests/data/org-test-links.org][org-test-links.org]] for link and plain-link edge-cases
-- [[file:../../old-files/tests/data/org-test-properties.org][org-test-properties.org]] for planning/property placement examples
-- The one-line planning case should become a positive fixture:
-  #+begin_src org
-  * Test
-  DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
-  #+end_src
-
-Acceptance criteria:
-
-- Existing test data is grouped meaningfully.
-- At least one heading fixture exists.
-- At least one priority fixture exists.
-- At least one link edge-case fixture exists.
-- At least one custom ~#+TODO:~ fixture exists.
-- At least one level 0 / file-scope fixture exists.
-- Fixtures can later be checked automatically.
+[[./archive/2026-06-17--structure-parser-regression-fixtures.org]]
 
 ** TODO Create parser risk list
 
@@ -712,9 +667,8 @@ Read Org-mode ~#+TODO:~ lines and use them when parsing headings.
 Example:
 
 #+begin_src org
-#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
-
-* PLAN AI/Codex working mode
+  ,#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+  ,* PLAN AI/Codex working mode
 #+end_src
 
 Acceptance criteria:
@@ -806,11 +760,11 @@ Acceptance criteria:
 - Tests exist for all three planning types.
 - The one-line planning case is covered:
   #+begin_src org
-  * Test
-  DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
+    ,* Test
+    DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
   #+end_src
 
-** TODO Parse properties drawer and file-level properties
+** TODO COMMENT Parse properties drawer and file-level properties
 
 Goal:
 Extract properties from heading drawers and file-level property declarations.
@@ -819,17 +773,17 @@ Sources:
 
 - heading property drawers:
   #+begin_src org
-  * Task
-  :PROPERTIES:
-  :ID: abc
-  :CUSTOM_ID: task
-  :END:
+    ,* Task
+    :PROPERTIES:
+    :ID: abc
+    :CUSTOM_ID: task
+    :END:
   #+end_src
 
 - file-level property keywords:
   #+begin_src org
-  #+PROPERTY: Effort_ALL 0:10 0:30 1:00
-  #+CATEGORY: project
+    ,#+PROPERTY: Effort_ALL 0:10 0:30 1:00
+    ,#+CATEGORY: project
   #+end_src
 
 Acceptance criteria:
@@ -972,8 +926,8 @@ Goal:
 Extract Org bracket links:
 
 #+begin_src org
-[[target][description]]
-[[target]]
+  [[target][description]]
+  [[target]]
 #+end_src
 
 Acceptance criteria:

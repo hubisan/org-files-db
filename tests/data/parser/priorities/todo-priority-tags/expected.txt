@@ -1,0 +1,17 @@
+# classification: org-special-case
+# note: Positive combined TODO, priority, tag, and nesting fixture.
+document.title=Orgize Priority Fixture
+heading_count=2
+diagnostic_count=0
+heading.0.level=1
+heading.0.title=Inbox
+heading.0.todo_keyword=TODO
+heading.0.priority=A
+heading.0.tags=rust,parser
+heading.0.is_root=true
+heading.1.level=2
+heading.1.title=Child
+heading.1.todo_keyword=DONE
+heading.1.priority=B
+heading.1.tags=child
+heading.1.parent_index=0

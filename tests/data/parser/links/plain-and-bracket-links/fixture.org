@@ -1,0 +1,9 @@
+#+TITLE: Link Edge Cases
+* Links
+Plain link with punctuation: https://orgmode.org.
+Bracket link: [[https://orgmode.org][Org mode]]
+Internal custom-id link: [[#local-target]]
+** Local Target
+:PROPERTIES:
+:CUSTOM_ID: local-target
+:END:

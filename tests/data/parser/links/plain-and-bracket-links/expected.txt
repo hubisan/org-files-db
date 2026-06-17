@@ -1,0 +1,10 @@
+# classification: deliberately-unsupported
+# note: Link extraction is not part of the current internal parser model; keep this fixture ready for future link assertions.
+document.title=Link Edge Cases
+heading_count=2
+diagnostic_count=1
+heading.0.level=1
+heading.0.title=Links
+heading.1.level=2
+heading.1.title=Local Target
+heading.1.property_count=1

@@ -156,9 +156,9 @@ fn parsed_org_document_supports_schema_near_metadata() {
 #[test]
 fn diagnostics_can_be_collected_on_successful_parse() {
     let fixture = ParserFixture {
-        path: PathBuf::from("tests/data/parser/headings/basic.org"),
-        content: include_str!("data/parser/headings/basic.org"),
-        expected_title: Some("Parser Fixture"),
+        path: PathBuf::from("tests/data/parser/headings/basic-heading/fixture.org"),
+        content: include_str!("data/parser/headings/basic-heading/fixture.org"),
+        expected_title: Some("Basic Heading Fixture"),
         expected_heading_titles: vec!["Inbox"],
         expected_priorities: vec![Some('A')],
         expected_tags: vec![vec!["rust", "parser"]],
