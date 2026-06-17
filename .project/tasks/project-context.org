@@ -1,0 +1,261 @@
+#+TITLE: org-files-db Project Context
+
+This file contains stable project context, goals, architecture decisions, and non-goals.
+
+Active tasks live in [[./todo.org]].
+Later phases and backlog live in [[./roadmap.org]].
+
+* Project goal
+
+~org-files-db~ is a Rust backend library with an optional CLI. It reads Org-mode files, extracts relevant Org structures, and writes them to a SQLite database.
+
+The goal is a robust, fast, and later extensible indexing pipeline for Org files:
+
+- parse Org files
+- extract headings, TODO states, priorities, tags, properties, planning data, timestamps, links, and body text
+- store the data in a normalized SQLite database
+- provide fast search and JSON output through a ~clap~ CLI
+- optionally support SQLite FTS5 for heading title and body search
+- later map an org-ql-like query language to SQLite/FTS5 where enabled
+
+~orgize~ is initially used as the parser backend, but it must not be treated as a permanently safe or single source of parsing truth. Therefore, the project must use its own stable parser abstraction and its own internal data model.
+
+Orgize-specific types must not leak into the DB, query, indexer, or CLI layers.
+
+Principle:
+
+#+begin_src text
+Orgize / Parser Backend
+  -> own ParsedOrgDocument / ParsedHeading / ParsedLink / ParsedTimestamp model
+  -> normalization / diagnostics
+  -> SQLite import
+  -> query / CLI / JSON API
+#+end_src
+
+This keeps the following options open later:
+
+- continue using Orgize if it is stable enough for our purposes
+- work around known Orgize bugs locally
+- report parser bugs upstream with reproducible fixtures
+- switch to a fork, Tree-sitter, a custom parser, or an Emacs-based import if needed
+
+Non-goals for the beginning:
+
+- no complete custom Org-mode parser in the MVP
+- no full org-ql compatibility in the MVP
+- no direct dependency from the DB layer on Orgize or rowan
+- no optimization for maximum performance before the pipeline is correct
+- no data-warehouse style over-engineering before SQLite query behavior has been measured
+
+* Architecture decisions
+
+** Decision: use Orgize only as an adapter
+
+~orgize~ is used as the first parser backend, but only inside a clearly bounded adapter module.
+
+Allowed:
+
+#+begin_src text
+src/parser/orgize_adapter.rs
+#+end_src
+
+Not allowed:
+
+- Orgize types in ~db/~
+- Orgize types in ~query/~
+- Orgize types in ~cli/~
+- direct DB inserts from Orgize AST nodes
+- direct dependency on ~syntax()~ / rowan outside the adapter
+
+** Decision: own internal parser model
+
+The internal project API is based on our own types.
+
+The parser model must be rich enough for DB import, JSON output, editor jumps, and later query support, but it must not expose Orgize-specific structures.
+
+Sketch:
+
+#+begin_src rust
+pub trait OrgParser {
+    fn parse_document(
+        &self,
+        path: &Path,
+        content: &str,
+        options: &ParseOptions,
+    ) -> Result<ParsedOrgDocument>;
+}
+
+pub struct ParseOptions {
+    pub todo_keywords: TodoKeywordConfig,
+}
+
+pub struct TodoKeywordConfig {
+    pub open: Vec<TodoKeyword>,
+    pub closed: Vec<TodoKeyword>,
+}
+
+pub struct TodoKeyword {
+    pub name: String,
+    pub shortcut: Option<char>,
+}
+
+pub struct ParsedOrgDocument {
+    pub file_path: PathBuf,
+    pub headings: Vec<ParsedHeading>,
+    pub links: Vec<ParsedLink>,
+    pub diagnostics: Vec<ParseDiagnostic>,
+}
+
+pub struct ParsedHeading {
+    pub level: u8,
+    pub title: String,
+    pub title_raw: Option<String>,
+    pub todo_keyword: Option<String>,
+    pub todo_type: Option<TodoType>,
+    pub priority: Option<char>,
+    pub tags: Vec<ParsedTag>,
+    pub properties: Vec<ParsedProperty>,
+    pub planning: ParsedPlanning,
+    pub line_number: Option<u32>,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub body: Option<ParsedBody>,
+    pub parent_index: Option<usize>,
+}
+#+end_src
+
+** Decision: level 0 heading represents file-level scope
+
+Every indexed Org file gets one synthetic level 0 heading.
+
+The level 0 heading represents the file-level scope and allows file-wide elements to be represented in the same hierarchy as regular headings.
+
+Examples of data attached to the level 0 heading:
+
+- file-level keywords such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~
+- file-level TODO keyword declarations such as ~#+TODO~
+- file-level properties such as ~#+PROPERTY~
+- file-level category from ~#+CATEGORY~
+- file tags from ~#+FILETAGS~
+- links outside regular headings
+- body text before the first regular heading, if stored
+- FTS content for file-level text, if FTS is enabled and file-level text is stored
+
+Regular Org headings start at level 1.
+
+Top-level Org headings should normally have the level 0 heading as parent.
+
+** Decision: byte offsets are the primary editor jump positions
+
+The parser and DB use UTF-8 byte offsets:
+
+#+begin_src text
+byte_start
+byte_end
+#+end_src
+
+These replace older names such as ~begin~ and ~end~.
+
+~byte_start~ is the main position used by Emacs or other editor integrations to jump to a heading or link.
+
+~line_number~ may still be stored for debugging, display, and fallback behavior.
+
+** Decision: default TODO keywords follow Org-mode
+
+The project default TODO keyword set follows Org-mode's default behavior:
+
+- open states: ~TODO~
+- closed states: ~DONE~
+
+Custom project defaults can be configured.
+
+File-local ~#+TODO:~ lines override the configured default keyword set for that file.
+
+Orgize defaults must not be used as project-level defaults outside the Orgize adapter.
+
+Example:
+
+#+BEGIN_SRC org
+  ,#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+  ,* AI/Codex working mode
+#+END_SRC
+
+Expected interpretation:
+
+#+begin_src text
+todo_keyword = PLAN
+todo_type    = open
+title        = AI/Codex working mode
+#+end_src
+
+** Decision: FTS5 is optional and configurable
+
+SQLite FTS5 support is optional.
+
+The indexer and query layer must work when FTS5 is disabled.
+
+Configuration controls:
+
+#+begin_src text
+search.fts5_enabled
+search.index_body_text
+#+end_src
+
+Rules:
+
+- If ~search.fts5_enabled = false~, the system must not require FTS5 to rebuild or query non-FTS data.
+- If ~search.fts5_enabled = true~, ~heading_fts~ is created and maintained by the indexer.
+- Body indexing is controlled separately through ~search.index_body_text~.
+- Title/body search commands must report a clear error or use documented fallback behavior when FTS5 is disabled.
+- The implementation must document whether ~heading_fts~ is always created but only populated when enabled, or only created when FTS5 is enabled.
+
+Recommended initial defaults:
+
+#+begin_src text
+search.fts5_enabled = true
+search.index_body_text = false
+#+end_src
+
+Rationale:
+Title search is useful and cheap. Body text can significantly increase database size, so body indexing should be explicitly enabled.
+
+** Decision: SQLite schema uses core tables and derived/cache tables
+
+Core tables store source-derived normalized data:
+
+- ~files~
+- ~headings~
+- ~todo_keywords~
+- ~keywords~
+- ~properties~
+- ~tags~
+- ~timestamps~
+- ~timestamp_repeaters~
+- ~links~
+- ~heading_bodies~
+
+Derived/cache tables can be rebuilt:
+
+- ~outline_path~
+- ~heading_fts~
+
+~outline_path~ is used for fast hierarchical queries.
+
+~heading_fts~ is used for SQLite FTS5 full-text search over heading titles and optionally body text, only when FTS5 is enabled.
+
+** Decision: parser problems must be visible
+
+Known or suspected parser problems must not be silently ignored.
+
+Instead:
+
+- record a ~ParseDiagnostic~
+- add a fixture test
+- document the behavior
+- if useful, prepare an upstream issue for Orgize
+- perform DB inserts only with normalized data
+
+** DONE [2026-06-16 Tue 21:41] Set up project structure again
+
+[[./archive/2026-06-16--set-up-project-structure-again.org]]
+

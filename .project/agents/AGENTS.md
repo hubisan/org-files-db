@@ -1,6 +1,6 @@
 # AI Agent Instructions
 
-Version: 0.15.0
+Version: 0.16.0
 
 All paths are relative to this file. 
 
@@ -9,7 +9,6 @@ All paths are relative to this file.
 Read in order before starting: `AGENTS.md` → `../tasks/todo.org` → `./repository.org`
 
 - `./repository.org`: Repo-specific rules.
-- `./ai-notes.org`: Cross-task context & decisions.
 - `../tasks/todo.org`: Active task index.
 - `../tasks/` & `../tasks/archive/`: Active and archived task files.
 - `../tasks/template.org`: Template for new task files.
@@ -35,7 +34,7 @@ Read in order before starting: `AGENTS.md` → `../tasks/todo.org` → `./reposi
 - Small, focused changes only. No unrelated refactors.
 - Do not git commit, amend, squash, merge, or change dependencies unless explicitly asked.
 - Never modify secrets, `.env`, production configs, deployment credentials, `AGENTS.md`, or task templates unless explicitly instructed.
-- When unsure, record uncertainty in the task file or `ai-notes.org` and ask the user.
+- Ask the user only for unclear scope, risky choices, or irreversible changes; otherwise make a small documented assumption and continue.
 
 ## Workflow
 
