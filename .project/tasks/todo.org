@@ -201,7 +201,7 @@ Example:
 #+begin_src org
 #+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
 
-* PLAN AI/Codex working mode
+* AI/Codex working mode
 #+end_src
 
 Expected interpretation:
@@ -298,9 +298,9 @@ Therefore, an adapter layer is built first and protected with representative fix
 
 ** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
 
-[[./2026-06-16--evaluate-minimal-orgize-adapter.org]]
+[[./archive/2026-06-16--evaluate-minimal-orgize-adapter.org]]
 
-** PLAN Structure test fixtures for parser regressions
+** BUILD Structure test fixtures for parser regressions
 
 Goal:
 Structure the existing files in [[file:../../tests/data/][tests/data]] so they can serve as regression tests for parser behavior.
@@ -584,6 +584,7 @@ Acceptance criteria:
 - A simple test opens an in-memory DB and applies the schema with FTS5 enabled, if the current SQLite build supports FTS5.
 
 ** TODO Implement minimal DB functions
+Probably can use BUILD directly.
 
 Functions:
 
@@ -605,6 +606,7 @@ Acceptance criteria:
 
 - Rebuilding the same file does not create duplicate headings.
 - Deleting/rebuilding one file removes stale headings, tags, properties, links, outline rows, body rows, and FTS rows for that file where applicable.
+- Explicit cleanup logic for virtual FTS tables is implemented in ~delete_file_data~, as SQLite FTS5 ignores ~ON DELETE CASCADE~.
 - Errors during insert cause rollback.
 - ~list_headings~ can output data for CLI JSON.
 - Level 0 heading exists for each indexed file.
@@ -779,6 +781,7 @@ Acceptance criteria:
 - Level 0 heading has depth 0.
 - Top-level Org headings have depth 1.
 - ~materialized_path~ is stable for one rebuild.
+- Zero-padding is explicitly defined and enforced (e.g., exactly 4 digits per level to support up to 9999 children).
 - ~breadcrumbs_json~ contains titles from level 0 to the current heading.
 - Subtree queries can use ~file_id~ and ~materialized_path~.
 - A test verifies expected paths for nested headings.
@@ -836,6 +839,7 @@ Acceptance criteria:
 - File-level ~#+CATEGORY~ can be stored as a property on the level 0 heading.
 - ~ID~ and ~CUSTOM_ID~ are directly queryable through indexes.
 - Additional properties are preserved.
+- Keys are normalized (e.g., converted to uppercase) before DB insertion to handle Org-mode's case-insensitivity.
 - Inherited/effective properties are represented or explicitly deferred.
 - A test with multiple properties exists.
 - A test with file-level properties exists.
@@ -1267,6 +1271,7 @@ Acceptance criteria:
 - Changed files are parsed again.
 - ~mtime_ns~ and ~size~ are used as a fast check.
 - ~content_hash~ is used when stronger verification is needed.
+- Explicitly document what goes into ~content_hash~ (e.g., pure file content bytes, excluding metadata) to ensure stable deduplication. Tending to use file contents only.
 - Deleted files are removed from the DB or marked as missing.
 
 ** TODO Optimize transaction batching
