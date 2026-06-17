@@ -306,9 +306,6 @@ Therefore, an adapter layer is built first and protected with representative fix
 ** DONE [2026-06-17 Wed 11:46] Create parser risk list
 
 [[./archive/2026-06-17--create-parser-risk-list.org]]
-- Body extraction boundaries, especially whether child subtrees are excluded
-- Optional FTS5 behavior and fallback behavior when disabled
-- The local ~docs/reference/org.ebnf~ copy and the old lexer/regexp notes as parser reference material
 
 * Phase 1: Minimal end-to-end slice
 
