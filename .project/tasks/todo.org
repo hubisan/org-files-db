@@ -351,35 +351,11 @@ config
 
 [[./archive/2026-06-18--implement-minimal-db-schema-migration.org]]
 
-** TODO Implement minimal DB functions
+** DONE [2026-06-18 Thu 00:36] Implement minimal DB functions
 
-Functions:
+[[./archive/2026-06-18--implement-minimal-db-functions.org]]
 
-- ~upsert_file~
-- ~delete_file_data~
-- ~insert_level0_heading~
-- ~insert_headings~
-- ~insert_todo_keywords~
-- ~insert_tags~
-- ~insert_keywords~
-- ~insert_properties~
-- ~insert_outline_path~
-- ~insert_heading_fts~ when FTS5 is enabled
-- ~list_headings~
-
-All inserts for one file should run inside a transaction.
-
-Acceptance criteria:
-
-- Rebuilding the same file does not create duplicate headings.
-- Deleting/rebuilding one file removes stale headings, tags, properties, links, outline rows, body rows, and FTS rows for that file where applicable.
-- Explicit cleanup logic for virtual FTS tables is implemented in ~delete_file_data~, as SQLite FTS5 ignores ~ON DELETE CASCADE~.
-- Errors during insert cause rollback.
-- ~list_headings~ can output data for CLI JSON.
-- Level 0 heading exists for each indexed file.
-- FTS insert/update functions are no-ops or unavailable with clear errors when FTS5 is disabled.
-
-** TODO Implement Orgize adapter for headings and priorities
+** BUILD Implement Orgize adapter for headings and priorities
 
 Goal:
 Use ~orgize~ only inside the parser adapter and produce our own ~ParsedHeading~ values from it.

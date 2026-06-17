@@ -10,9 +10,12 @@ pub mod reader;
 pub mod schema;
 pub mod writer;
 
-pub use reader::DbReader;
+pub use reader::{DbReadError, DbReader, HeadingListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition};
-pub use writer::DbWriter;
+pub use writer::{
+    DbWriteError, DbWriter, FileRecordInput, HeadingFtsRecord, HeadingRecord, KeywordRecord,
+    OutlinePathRecord, PropertyRecord, TagRecord, TodoKeywordRecord,
+};
 
 pub const IN_MEMORY_DATABASE: &str = ":memory:";
 

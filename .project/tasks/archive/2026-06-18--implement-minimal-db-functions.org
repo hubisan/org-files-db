@@ -1,0 +1,138 @@
+#+TITLE: Implement minimal DB functions
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 00:32]
+#+TASK_COMPLETED: [2026-06-18 Thu 00:36]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Implement minimal DB functions
+
+Task: Implement minimal DB functions.
+
+Status: BUILD.
+
+Goal:
+Implement the minimal DB reader/writer functions needed by the upcoming indexer and CLI, using the existing SQLite schema and project conventions.
+
+Scope:
+Implement or complete these DB functions, following existing naming and error conventions:
+
+- ~upsert_file~
+- ~delete_file_data~
+- ~insert_level0_heading~
+- ~insert_headings~
+- ~insert_todo_keywords~
+- ~insert_tags~
+- ~insert_keywords~
+- ~insert_properties~
+- ~insert_outline_path~
+- ~insert_heading_fts~ when FTS5 is enabled
+- ~list_headings~
+
+Requirements:
+
+- All inserts for one file must run inside a transaction where appropriate.
+- Rebuilding the same file must not create duplicate headings.
+- ~delete_file_data~ must remove stale headings, tags, keywords, properties, links, outline rows, body rows, and FTS rows for the selected file where applicable.
+- Implement explicit cleanup for ~heading_fts~, because SQLite FTS5 virtual tables do not participate in ~ON DELETE CASCADE~.
+- Errors during insert must cause rollback.
+- ~list_headings~ must return enough stable data for future CLI JSON output.
+- Level 0 heading support must match the schema: exactly one synthetic level 0 heading per file.
+- If FTS5 is disabled or unavailable, FTS insert behavior must be a no-op or return a clear project error, consistent with existing conventions.
+
+Non-goals:
+
+- Do not change the schema unless a small fix is required by a failing test.
+- Do not implement the parser adapter.
+- Do not implement the full indexer.
+- Do not implement the CLI.
+- Do not add rich timestamp tables, triggers, migration chains, or broad abstractions.
+- Do not refactor unrelated modules.
+- Do not expand into neighboring tasks.
+
+* Planning
+
+** Problem summary
+
+The SQLite schema exists, but ~DbReader~ and ~DbWriter~ are still placeholders. The next slice needs a small DB API that can safely replace file-owned rows, manage optional FTS state, and expose stable heading rows for future JSON output.
+
+** Goals
+
+- Add the requested DB writer functions against the current schema.
+- Keep one-file rebuild operations transactional.
+- Add a minimal heading reader surface for future CLI work.
+- Cover rebuild, cleanup, rollback, and FTS behavior with tests.
+
+** Non-goals
+
+- No schema redesign.
+- No parser, indexer, or CLI implementation.
+- No migration chain or trigger work.
+
+** Architecture
+
+Implement focused data row structs in ~src/db/writer.rs~ and ~src/db/reader.rs~, keep SQL close to these modules, and use a transaction-scoped rebuild helper so rollback behavior is owned by the DB layer instead of individual callers.
+
+** Execution plan
+
+- Implement writer row types and insert/delete helpers.
+- Add one transactional replace helper for per-file rebuilds and rollback coverage.
+- Implement ~list_headings~ with a stable projection that joins file path data.
+- Add unit tests for stale-row cleanup, rebuild idempotence, rollback, and FTS enabled/disabled behavior.
+
+** Risks & assumptions
+
+- Current parser model does not yet expose every schema table, so the writer API will use DB-facing row structs rather than forcing parser coupling.
+- FTS-disabled behavior will be implemented as a no-op if ~heading_fts~ is absent.
+
+** Open questions
+
+- None at the moment.
+
+** Proposed checks
+
+- ~make ci~
+
+* Build
+
+** Approach
+
+Implement focused DB-facing row types and writer helpers in ~src/db/writer.rs~, add a small transactional rebuild helper for one-file updates and rollback safety, and implement ~list_headings~ in ~src/db/reader.rs~ with a stable projection suitable for later CLI JSON output.
+
+** Changed files
+
+- ~src/db.rs~
+- ~src/db/reader.rs~
+- ~src/db/writer.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--implement-minimal-db-functions.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test~
+- ~make ci~
+
+** Test results
+
+- Passed: ~cargo test~
+- Passed: ~make ci~
+- Added coverage for:
+  - idempotent rebuild of a single file
+  - stale dependent row cleanup while keeping the ~files~ row
+  - rollback on failed rebuild inside a transaction
+  - stable ~list_headings~ output for future CLI JSON
+  - FTS insert no-op behavior when FTS is disabled
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- The DB API now exposes row-oriented helper types for the upcoming indexer. Parser-to-DB mapping and link/body insertion remain future tasks.
+- ~insert_heading_fts~ currently becomes a no-op when ~heading_fts~ is absent or FTS5 is unavailable, which matches the accepted disabled behavior for this phase.
