@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::parser::{OrgParser, ParseDiagnostic, ParsedOrgDocument};
+use crate::parser::{OrgParser, ParseDiagnostic, ParseOptions, ParsedOrgDocument};
 
 #[derive(Debug)]
 pub struct Indexer<P> {
@@ -15,7 +15,12 @@ where
         Self { parser }
     }
 
-    pub fn parse(&self, path: &Path, content: &str) -> Result<ParsedOrgDocument, ParseDiagnostic> {
-        self.parser.parse_document(path, content)
+    pub fn parse(
+        &self,
+        path: &Path,
+        content: &str,
+        options: &ParseOptions,
+    ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+        self.parser.parse_document(path, content, options)
     }
 }

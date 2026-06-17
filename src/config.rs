@@ -6,6 +6,8 @@ use std::{
 
 use serde::Deserialize;
 
+use crate::parser::{ParseOptions, TodoKeyword, TodoKeywordConfig};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub db_path: PathBuf,
@@ -69,10 +71,16 @@ impl Config {
             todo: TodoConfig {
                 default_open_keywords: todo
                     .default_open_keywords
-                    .unwrap_or_else(default_open_keywords),
+                    .unwrap_or_else(default_open_keyword_specs)
+                    .into_iter()
+                    .map(parse_todo_keyword_spec)
+                    .collect(),
                 default_closed_keywords: todo
                     .default_closed_keywords
-                    .unwrap_or_else(default_closed_keywords),
+                    .unwrap_or_else(default_closed_keyword_specs)
+                    .into_iter()
+                    .map(parse_todo_keyword_spec)
+                    .collect(),
             },
             search: SearchConfig {
                 fts5_enabled: search.fts5_enabled.unwrap_or(true),
@@ -80,12 +88,27 @@ impl Config {
             },
         })
     }
+
+    pub fn parse_options(&self) -> ParseOptions {
+        ParseOptions {
+            todo_keywords: self.todo.to_keyword_config(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TodoConfig {
-    pub default_open_keywords: Vec<String>,
-    pub default_closed_keywords: Vec<String>,
+    pub default_open_keywords: Vec<TodoKeyword>,
+    pub default_closed_keywords: Vec<TodoKeyword>,
+}
+
+impl TodoConfig {
+    pub fn to_keyword_config(&self) -> TodoKeywordConfig {
+        TodoKeywordConfig {
+            open: self.default_open_keywords.clone(),
+            closed: self.default_closed_keywords.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,12 +235,45 @@ fn default_db_path() -> PathBuf {
     PathBuf::from("org-files-db.sqlite")
 }
 
-fn default_open_keywords() -> Vec<String> {
+fn default_open_keyword_specs() -> Vec<String> {
     vec!["TODO".to_string()]
 }
 
-fn default_closed_keywords() -> Vec<String> {
+fn default_closed_keyword_specs() -> Vec<String> {
     vec!["DONE".to_string()]
+}
+
+fn default_open_keywords() -> Vec<TodoKeyword> {
+    default_open_keyword_specs()
+        .into_iter()
+        .map(parse_todo_keyword_spec)
+        .collect()
+}
+
+fn default_closed_keywords() -> Vec<TodoKeyword> {
+    default_closed_keyword_specs()
+        .into_iter()
+        .map(parse_todo_keyword_spec)
+        .collect()
+}
+
+fn parse_todo_keyword_spec(spec: String) -> TodoKeyword {
+    if let Some((name, fast_key)) = split_todo_keyword_spec(&spec) {
+        TodoKeyword::with_fast_key(name, fast_key)
+    } else {
+        TodoKeyword::new(spec)
+    }
+}
+
+fn split_todo_keyword_spec(spec: &str) -> Option<(&str, char)> {
+    let open_paren = spec.rfind('(')?;
+    let close_paren = spec.rfind(')')?;
+    if close_paren != spec.len() - 1 || open_paren + 2 != close_paren {
+        return None;
+    }
+
+    let fast_key = spec[open_paren + 1..close_paren].chars().next()?;
+    Some((&spec[..open_paren], fast_key))
 }
 
 // Relative paths in the config are resolved relative to the config file location.
@@ -251,6 +307,7 @@ fn validate_dir_paths(dirs: &[PathBuf]) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod tests {
     use super::{Config, ConfigError};
+    use crate::parser::{ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -324,8 +381,14 @@ db_path = "db.sqlite"
 
         let config = Config::load_from_file(&config_path).expect("config should load");
 
-        assert_eq!(config.todo.default_open_keywords, vec!["TODO"]);
-        assert_eq!(config.todo.default_closed_keywords, vec!["DONE"]);
+        assert_eq!(
+            config.todo.default_open_keywords,
+            vec![TodoKeyword::new("TODO")]
+        );
+        assert_eq!(
+            config.todo.default_closed_keywords,
+            vec![TodoKeyword::new("DONE")]
+        );
     }
 
     #[test]
@@ -348,9 +411,47 @@ default_closed_keywords = ["DONE", "CANCEL"]
 
         assert_eq!(
             config.todo.default_open_keywords,
-            vec!["PLAN", "BUILD", "REVIEW"]
+            vec![
+                TodoKeyword::new("PLAN"),
+                TodoKeyword::new("BUILD"),
+                TodoKeyword::new("REVIEW"),
+            ]
         );
-        assert_eq!(config.todo.default_closed_keywords, vec!["DONE", "CANCEL"]);
+        assert_eq!(
+            config.todo.default_closed_keywords,
+            vec![TodoKeyword::new("DONE"), TodoKeyword::new("CANCEL")]
+        );
+    }
+
+    #[test]
+    fn fast_selection_keys_are_preserved() {
+        let test_dir = TestDir::new("todo-fast-keys");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[todo]
+default_open_keywords = ["TODO(t)", "NEXT(n)"]
+default_closed_keywords = ["DONE(d)"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.todo.default_open_keywords,
+            vec![
+                TodoKeyword::with_fast_key("TODO", 't'),
+                TodoKeyword::with_fast_key("NEXT", 'n'),
+            ]
+        );
+        assert_eq!(
+            config.todo.default_closed_keywords,
+            vec![TodoKeyword::with_fast_key("DONE", 'd')]
+        );
     }
 
     #[test]
@@ -447,5 +548,38 @@ index_body_text = true
 
         assert!(!config.search.fts5_enabled);
         assert!(config.search.index_body_text);
+    }
+
+    #[test]
+    fn parse_options_carry_configured_todo_keywords() {
+        let test_dir = TestDir::new("parse-options");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[todo]
+default_open_keywords = ["PLAN(p)", "BUILD(b)"]
+default_closed_keywords = ["DONE(d)"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        let options = config.parse_options();
+
+        assert_eq!(
+            options,
+            ParseOptions {
+                todo_keywords: TodoKeywordConfig {
+                    open: vec![
+                        TodoKeyword::with_fast_key("PLAN", 'p'),
+                        TodoKeyword::with_fast_key("BUILD", 'b'),
+                    ],
+                    closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+                },
+            }
+        );
     }
 }

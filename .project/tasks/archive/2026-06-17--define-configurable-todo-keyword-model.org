@@ -1,0 +1,98 @@
+#+TITLE: Define configurable TODO keyword model
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-17 Wed 13:10]
+#+TASK_COMPLETED: [2026-06-17 Wed 13:24]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD Define configurable TODO keyword model
+
+Implement the task "Define configurable TODO keyword model".
+
+Scope:
+Create a parser-backend-independent TODO keyword model that can represent open and closed TODO states separately and can be passed to the parser adapter through ParseOptions.
+
+Requirements:
+- Represent open and closed TODO states separately.
+- Provide Org-mode defaults:
+  - open: TODO
+  - closed: DONE
+- Preserve fast selection keys like TODO(t) if available.
+- Support project-level default TODO keywords from config.
+- Ensure the parser adapter receives TODO keyword configuration through ParseOptions.
+- Keep Orgize-specific TODO configuration inside the Orgize adapter only.
+- Do not leak Orgize-specific types or config structures into config, DB, indexer, CLI, or shared parser model code.
+
+Non-goals:
+- Do not implement full file-local #+TODO parsing unless a minimal helper already exists and is clearly in scope.
+- Do not implement the Orgize headings/priorities adapter task.
+- Do not implement DB schema changes.
+- Do not implement indexer integration beyond what is required to pass TODO keywords through existing ParseOptions.
+- Do not refactor unrelated parser or config code.
+
+Tests:
+- Add or update tests for Org-mode default TODO keywords.
+- Add or update tests for custom project defaults.
+- Add tests that fast selection keys are preserved if the model parses or stores them.
+- Add tests that ParseOptions can carry the configured TODO keyword model without exposing Orgize-specific types.
+
+After implementation:
+- Run the relevant tests.
+- Report changed files.
+- Report any deliberate model decisions, especially how fast selection keys are represented.
+- Report any deferred items, especially file-local #+TODO parsing if not implemented here.
+- Do not mark the task DONE unless repository instructions explicitly require it after user approval.
+
+* Planning
+
+Not applicable. The task entered BUILD directly from ~todo.org~.
+
+* Build
+
+** Approach
+
+Add a parser-backend-independent TODO keyword model in the shared parser layer, including ~ParseOptions~, ~TodoKeywordConfig~, and ~TodoKeyword~. Bridge configured defaults from the config module into ~ParseOptions~, keep fast selection keys as an optional single-character field on each keyword, and let the Orgize adapter consume the configured TODO keywords without exposing Orgize-specific config outside the adapter.
+
+** Changed files
+
+- ~src/parser/model.rs~
+- ~src/parser.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~src/config.rs~
+- ~tests/parser_contract.rs~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_fixtures.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-17--define-configurable-todo-keyword-model.org~
+
+** Checks performed
+
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- All checks passed.
+- Added or updated tests for:
+  - Org-mode default TODO keywords
+  - custom project TODO defaults
+  - fast selection key preservation
+  - ~ParseOptions~ carrying configured TODO keywords
+  - Orgize adapter consumption of configured project TODO keywords
+
+** Blockers
+
+- Repository remains on branch ~rust~, which is an unexpected state under the workspace rules and was left unchanged.
+- The worktree still contains an unrelated user change in ~.project/tasks/todo.org~ outside this task flow; it was preserved.
+
+** Follow-ups
+
+- Fast selection keys are represented as ~Option<char>~ on each ~TodoKeyword~.
+- Project config still reads keyword specs from strings such as ~TODO(t)~ and converts them into the shared TODO keyword model.
+- File-local ~#+TODO:~ parsing is still deferred; this task only passes project-level defaults through ~ParseOptions~.

@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use org_files_db::parser::{
-    DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParsedDocumentMetadata,
-    ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning, ParsedProperty,
+    DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParseOptions,
+    ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning,
+    ParsedProperty, TodoKeyword, TodoKeywordConfig,
 };
 
 struct ParserFixture {
@@ -20,7 +21,7 @@ where
     P: OrgParser,
 {
     let document = parser
-        .parse_document(&fixture.path, fixture.content)
+        .parse_document(&fixture.path, fixture.content, &ParseOptions::default())
         .expect("fixture parser should succeed");
 
     assert_eq!(
@@ -67,6 +68,7 @@ impl OrgParser for StubFixtureParser {
         &self,
         path: &Path,
         content: &str,
+        _options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
         let mut document = ParsedOrgDocument::new(path);
 
@@ -187,7 +189,11 @@ fn diagnostics_builders_preserve_location_information() {
 #[test]
 fn orgize_adapter_returns_internal_document_type() {
     let document = OrgizeAdapter::new()
-        .parse_document(Path::new("notes/project.org"), "* Heading")
+        .parse_document(
+            Path::new("notes/project.org"),
+            "* Heading",
+            &ParseOptions::default(),
+        )
         .expect("adapter placeholder should succeed");
 
     assert_eq!(document.file_path, PathBuf::from("notes/project.org"));
@@ -196,4 +202,17 @@ fn orgize_adapter_returns_internal_document_type() {
     assert_eq!(document.headings[0].title, "Heading");
     assert!(document.headings[0].is_root);
     assert!(document.diagnostics.is_empty());
+}
+
+#[test]
+fn parse_options_default_to_org_mode_todo_keywords() {
+    let options = ParseOptions::default();
+
+    assert_eq!(
+        options.todo_keywords,
+        TodoKeywordConfig {
+            open: vec![TodoKeyword::new("TODO")],
+            closed: vec![TodoKeyword::new("DONE")],
+        }
+    );
 }

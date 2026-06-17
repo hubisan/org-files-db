@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use org_files_db::parser::{OrgParser, OrgizeAdapter};
+use org_files_db::parser::{
+    OrgParser, OrgizeAdapter, ParseOptions, TodoKeyword, TodoKeywordConfig,
+};
 
 #[test]
 fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
@@ -9,6 +11,7 @@ fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
         .parse_document(
             Path::new("tests/data/parser/headings/nested-planning-lines/fixture.org"),
             content,
+            &ParseOptions::default(),
         )
         .expect("orgize adapter should parse old heading fixture");
 
@@ -42,6 +45,7 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
         .parse_document(
             Path::new("tests/data/parser/priorities/todo-priority-tags/fixture.org"),
             content,
+            &ParseOptions::default(),
         )
         .expect("orgize adapter should parse todo/priority/tag fixture");
 
@@ -67,4 +71,25 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
     assert_eq!(second.tags, vec!["child".to_string()]);
 
     assert!(document.diagnostics.is_empty());
+}
+
+#[test]
+fn orgize_adapter_uses_configured_project_todo_keywords() {
+    let content = "* PLAN Parser fixture\n** DONE Implemented\n";
+    let options = ParseOptions {
+        todo_keywords: TodoKeywordConfig {
+            open: vec![TodoKeyword::with_fast_key("PLAN", 'p')],
+            closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+        },
+    };
+
+    let document = OrgizeAdapter::new()
+        .parse_document(Path::new("notes/custom-todo.org"), content, &options)
+        .expect("orgize adapter should parse configured todo keywords");
+
+    assert_eq!(document.headings.len(), 2);
+    assert_eq!(document.headings[0].todo_keyword.as_deref(), Some("PLAN"));
+    assert_eq!(document.headings[0].title, "Parser fixture");
+    assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(document.headings[1].title, "Implemented");
 }

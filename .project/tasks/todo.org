@@ -331,23 +331,9 @@ config
 
 [[./archive/2026-06-17--define-minimal-config.org]]
 
-** TODO Define configurable TODO keyword model
+** DONE [2026-06-17 Wed 13:24] Define configurable TODO keyword model
 
-Goal:
-Represent TODO keyword configuration independently from Orgize.
-
-Acceptance criteria:
-
-- Open and closed TODO states are represented separately.
-- Org-mode defaults are:
-  - open: ~TODO~
-  - closed: ~DONE~
-- Fast selection keys like ~TODO(t)~ are preserved if available.
-- Project-level default keywords can be configured.
-- Parser adapter receives TODO keywords through ~ParseOptions~.
-- Orgize-specific TODO config does not leak outside the adapter.
-- Tests cover Org-mode defaults.
-- Tests cover custom project defaults.
+[[./archive/2026-06-17--define-configurable-todo-keyword-model.org]]
 
 ** TODO Define minimal `ParsedHeading` / `OrgHeading`
 

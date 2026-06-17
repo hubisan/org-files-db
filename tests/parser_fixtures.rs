@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use org_files_db::parser::{OrgParser, OrgizeAdapter};
+use org_files_db::parser::{OrgParser, OrgizeAdapter, ParseOptions};
 
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/parser")
@@ -73,6 +73,7 @@ fn assert_expectations(path: &Path, expectations: &HashMap<String, String>) {
                     .expect("fixture path should be relative"),
             ),
             &content,
+            &ParseOptions::default(),
         )
         .unwrap_or_else(|err| {
             panic!(

@@ -7,7 +7,56 @@ pub trait OrgParser {
         &self,
         path: &Path,
         content: &str,
+        options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic>;
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    pub todo_keywords: TodoKeywordConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TodoKeywordConfig {
+    pub open: Vec<TodoKeyword>,
+    pub closed: Vec<TodoKeyword>,
+}
+
+impl TodoKeywordConfig {
+    pub fn all_keywords(&self) -> impl Iterator<Item = &TodoKeyword> {
+        self.open.iter().chain(self.closed.iter())
+    }
+}
+
+impl Default for TodoKeywordConfig {
+    fn default() -> Self {
+        Self {
+            open: vec![TodoKeyword::new("TODO")],
+            closed: vec![TodoKeyword::new("DONE")],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TodoKeyword {
+    pub name: String,
+    pub fast_key: Option<char>,
+}
+
+impl TodoKeyword {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            fast_key: None,
+        }
+    }
+
+    pub fn with_fast_key(name: impl Into<String>, fast_key: char) -> Self {
+        Self {
+            name: name.into(),
+            fast_key: Some(fast_key),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

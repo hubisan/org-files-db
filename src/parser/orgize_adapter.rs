@@ -3,7 +3,10 @@ use std::path::Path;
 use orgize::{ast::Headline, rowan::ast::AstNode, Org};
 
 use super::diagnostics::ParseDiagnostic;
-use super::model::{OrgParser, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty};
+use super::model::{
+    OrgParser, ParseOptions, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty,
+    TodoKeywordConfig,
+};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OrgizeAdapter;
@@ -19,6 +22,7 @@ impl OrgParser for OrgizeAdapter {
         &self,
         path: &Path,
         content: &str,
+        options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
         let org = Org::parse(content);
         let document = org.document();
@@ -36,6 +40,7 @@ impl OrgParser for OrgizeAdapter {
         collect_headlines(
             document.headlines(),
             content,
+            options,
             &mut parsed.headings,
             &mut parsed.diagnostics,
             None,
@@ -48,6 +53,7 @@ impl OrgParser for OrgizeAdapter {
 fn collect_headlines(
     headlines: impl Iterator<Item = Headline>,
     content: &str,
+    options: &ParseOptions,
     output: &mut Vec<ParsedHeading>,
     diagnostics: &mut Vec<ParseDiagnostic>,
     parent_index: Option<usize>,
@@ -56,14 +62,23 @@ fn collect_headlines(
         let start = usize::from(headline.start());
         let end = usize::from(headline.end());
 
+        let original_title_raw = headline.title_raw().trim_end().to_string();
         let mut parsed = ParsedHeading::new(
             headline.level() as u8,
-            headline.title_raw().trim().to_string(),
+            original_title_raw.trim().to_string(),
             start,
             end,
         );
-        parsed.title_raw = headline.title_raw().trim_end().to_string();
+        parsed.title_raw = original_title_raw.clone();
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
+        if parsed.todo_keyword.is_none() {
+            if let Some((keyword, normalized_title)) =
+                infer_todo_keyword(&original_title_raw, &options.todo_keywords)
+            {
+                parsed.todo_keyword = Some(keyword);
+                parsed.title = normalized_title;
+            }
+        }
         parsed.priority = headline.priority().and_then(|token| token.chars().next());
         parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
         parsed.line_number = Some(line_number_for_offset(content, start));
@@ -105,6 +120,7 @@ fn collect_headlines(
         collect_headlines(
             headline.headlines(),
             content,
+            options,
             output,
             diagnostics,
             Some(current_index),
@@ -118,4 +134,25 @@ fn line_number_for_offset(content: &str, offset: usize) -> u32 {
         .filter(|byte| *byte == b'\n')
         .count() as u32
         + 1
+}
+
+fn infer_todo_keyword(
+    title_raw: &str,
+    todo_keywords: &TodoKeywordConfig,
+) -> Option<(String, String)> {
+    for keyword in todo_keywords.all_keywords() {
+        let remainder = title_raw.strip_prefix(&keyword.name)?;
+        if remainder.is_empty() {
+            continue;
+        }
+
+        let stripped = remainder.trim_start();
+        if stripped.len() == remainder.len() {
+            continue;
+        }
+
+        return Some((keyword.name.clone(), stripped.to_string()));
+    }
+
+    None
 }
