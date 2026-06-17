@@ -1,0 +1,120 @@
+#+TITLE: Review and improve SQLite schema
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-17 Wed 23:59]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Review and improve SQLite schema
+
+Goal:
+Review the existing SQLite schema and adapt it to the current parser model, indexing pipeline, level 0 file scope, materialized outline paths, optional FTS5, and body indexing requirements.
+
+Source material:
+
+- [[file:../../sql/db-schema.sql][sql/db-schema.sql]]
+- [[file:../../sql/schema.sql][sql/schema.sql]]
+- [[file:../../old-files/docs/sqlite-database-schema.org][docs/sqlite-database-schema.org]]
+- Current internal parser model in AGENTS.md / todo.org
+
+Design decisions to apply:
+
+- Every file gets one synthetic level 0 heading.
+- File-level keywords, properties, FILETAGS, and file-level links attach to the level 0 heading.
+- Regular Org headings start at level 1.
+- ~byte_start~ and ~byte_end~ replace older names such as ~begin~ and ~end~.
+- ~files.path~ is unique.
+- ~mtime_ns~, ~size~, and optional ~content_hash~ are used for change detection.
+- ~content_hash~ should not hardcode the algorithm name such as MD5 in the column name.
+- TODO keyword definitions are stored in ~todo_keywords~.
+- Heading TODO values are stored in ~headings.todo_keyword~ and optionally denormalized in ~headings.todo_type~.
+- Default TODO keywords follow Org-mode: open ~TODO~, closed ~DONE~.
+- Configured project-level TODO defaults can override Org-mode defaults.
+- File-local ~#+TODO:~ lines override configured defaults for that file.
+- Tags are normalized in ~tags~ and may also be cached as ~headings.all_tags_json~.
+- Keywords and properties are separate tables, but both reference ~heading_id~.
+- File-level properties from ~#+PROPERTY~ are stored as properties of the level 0 heading.
+- File-level ~#+CATEGORY~ may be stored as a property of the level 0 heading.
+- Planning timestamps may be stored directly on ~headings~ as ~scheduled_raw~, ~scheduled_ts~, ~deadline_raw~, ~deadline_ts~, ~closed_raw~, and ~closed_ts~.
+- Rich timestamp data can be represented in ~timestamps~ and ~timestamp_repeaters~.
+- Links use source ~file_id~ and ~heading_id~, plus optional resolution fields.
+- Link target references use ~ON DELETE SET NULL~ where deleting a target should not delete the source link.
+- ~outline_path~ is a derived/cache table with one row per heading.
+- ~heading_fts~ is optional and controlled by configuration.
+- The implementation must decide whether ~heading_fts~ is always created but only populated when enabled, or only created when FTS5 is enabled.
+- Body text storage and body text indexing are separate decisions.
+- ~search.index_body_text~ controls whether body text is inserted into FTS.
+
+Acceptance criteria:
+
+- Schema matches the own internal parser model, not Orgize-specific structures.
+- Schema can be created idempotently.
+- Foreign keys are enabled and use deliberate ~ON DELETE~ behavior.
+- The schema creates exactly one level 0 heading per file.
+- Headings can be deleted and rewritten per file.
+- Dependent rows are deleted through cascading foreign keys where appropriate.
+- Required indexes for common lookups are defined.
+- Schema supports parent/child headings and materialized outline paths.
+- Schema supports TODO keyword configuration through ~todo_keywords~.
+- Schema supports properties, tags, timestamps, links, and body text.
+- Optional FTS5 behavior is documented.
+- Rebuild works when FTS5 is disabled.
+- If FTS5 is enabled, FTS synchronization strategy is documented as indexer-maintained.
+- A minimal DB integrity test is planned or implemented.
+- Known issues in the previous schema are fixed:
+  - ~outline_path~ table name matches its indexes.
+  - keyword/property source checks validate the correct column.
+  - link foreign keys distinguish source file/heading from resolved target file/heading.
+
+
+* Planning
+
+Completed in the prior plan review. Implementation followed the approved narrowed schema plan.
+
+* Build
+
+** Approach
+
+Create ~sql/schema.sql~ as the executable schema, add a small schema renderer/applier in ~src/db/schema.rs~, keep FTS conditional based on both requested config and SQLite runtime support, and extend the central DB tests in ~src/db.rs~ to cover integrity rules and rebuild behavior.
+
+** Changed files
+
+- ~sql/schema.sql~
+- ~src/db.rs~
+- ~src/db/schema.rs~
+- ~.project/tasks/2026-06-17--review-and-improve-sqlite-schema.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- Passed: full test suite via ~cargo test~
+- Passed: ~cargo clippy --all-targets --all-features -- -D warnings~
+- Confirmed:
+  - schema applies idempotently without FTS
+  - FTS table is created when FTS5 support is present
+  - ~files.path~ uniqueness is enforced
+  - level 0 heading uniqueness and parent constraints are enforced
+  - deleting a source file cascades its dependent rows
+  - deleting resolved targets preserves source links and clears resolved references
+  - per-file rebuild can clear file-owned rows while keeping the ~files~ row
+  - ~heading_bodies~ works without FTS
+  - title-only FTS rows can be inserted
+
+** Blockers
+
+- None in code.
+- ~.project/tasks/todo.org~ already had uncommitted changes in the worktree, so it was left untouched to avoid overwriting user-owned edits.
+
+** Follow-ups
+
+- Rich timestamp tables remain deferred.
+- Indexer-side FTS synchronization and per-file rebuild helpers remain future work.
