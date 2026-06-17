@@ -1,0 +1,103 @@
+#+TITLE: Open SQLite and enable WAL
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-17 Wed 16:55]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Open SQLite and enable WAL
+
+Before changing files, briefly inspect the existing repository structure, Cargo.toml, existing error handling conventions, config module, and any database-related modules or tests. Follow existing project conventions. Do not write a long plan.
+
+Implement the task ~Open SQLite and enable WAL~.
+
+Scope:
+Create the central SQLite connection/opening code needed for the Phase 1 end-to-end slice.
+
+Requirements:
+
+- SQLite connection must be opened centrally through a small DB module or the existing DB module if one already exists.
+- Apply these pragmas when opening/initializing the connection:
+
+  #+begin_src sql
+  PRAGMA foreign_keys = ON;
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA user_version = 1;
+  #+end_src
+
+- Errors while opening or initializing the database must be reported clearly using the existing project error style.
+- The implementation should be suitable for later schema migration and DB insert tasks.
+- Keep the code small and focused.
+
+Non-goals:
+
+- Do not design or implement the full SQLite schema.
+- Do not implement migrations beyond setting ~user_version = 1~.
+- Do not implement DB insert/query functions.
+- Do not implement FTS5 tables.
+- Do not implement the indexer or CLI commands.
+- Do not refactor unrelated parser/config code.
+- Do not commit changes.
+
+Tests:
+
+- Add or update a test that opens an in-memory SQLite database through the central DB opening function.
+- Verify that foreign keys are enabled.
+- Verify that ~user_version~ is set to ~1~.
+- Verify ~synchronous~ is set to ~NORMAL~ if practical with the SQLite library.
+- Verify WAL behavior for a file-backed temporary database if in-memory databases cannot use WAL reliably.
+- Add a negative/error-path test only if it can be done simply and reliably.
+
+After implementation:
+
+- Run the relevant tests.
+- Report changed files.
+- Report any deliberate decisions, especially how in-memory databases are handled with WAL.
+- Report any deferred work for schema migrations or DB functions.
+- Do not mark the task DONE unless repository instructions explicitly require it after user approval.
+
+* Planning
+
+Not applicable. The task entered BUILD directly from ~todo.org~.
+
+* Build
+
+** Approach
+
+Add a small central SQLite opener in ~src/db.rs~, reuse the existing ~SchemaDefinition~ version for ~PRAGMA user_version~, keep error reporting consistent with the config module, and cover the pragmatic WAL split between in-memory and file-backed connections with focused unit tests.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~src/db.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-17--open-sqlite-and-enable-wal.org~
+
+** Checks performed
+
+- ~cargo fmt --all --check~
+- ~cargo test~
+
+** Test results
+
+- Passed: all unit, integration, and doc tests via ~cargo test~
+- Confirmed:
+  - in-memory database opens through the central DB module
+  - ~foreign_keys = ON~
+  - ~user_version = 1~
+  - ~synchronous = NORMAL~ (SQLite reports numeric value ~1~)
+  - file-backed temporary database reports ~journal_mode = wal~
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- In-memory SQLite cannot provide WAL semantics the same way file-backed databases do. The implementation currently applies the same pragma batch to both targets, and SQLite accepts the in-memory initialization path used by the tests. WAL behavior is therefore only asserted for file-backed databases, which matches the task requirement.
+- Schema migrations and higher-level DB read/write functions remain deferred to later tasks.

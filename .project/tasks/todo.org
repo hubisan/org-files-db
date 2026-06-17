@@ -339,24 +339,9 @@ config
 
 [[./archive/2026-06-17--define-minimal-parsed-heading.org]]
 
-** TODO Open SQLite and enable WAL
+** DONE [2026-06-17 Wed 23:00] Open SQLite and enable WAL
 
-Pragmas:
-
-#+begin_src sql
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-PRAGMA user_version = 1;
-#+end_src
-
-Acceptance criteria:
-
-- SQLite connection is opened centrally.
-- Foreign keys are enabled.
-- WAL is enabled.
-- Schema version is set through ~PRAGMA user_version~.
-- Errors while opening or initializing are reported cleanly.
+[[./archive/2026-06-17--open-sqlite-and-enable-wal.org]]
 
 ** TODO Review and improve SQLite schema
 

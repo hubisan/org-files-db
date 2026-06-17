@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 orgize = "0.10.0-alpha.10"
+rusqlite = "0.32"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
