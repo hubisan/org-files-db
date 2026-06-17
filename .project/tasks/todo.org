@@ -327,30 +327,9 @@ config
   -> output CLI JSON
 #+end_src
 
-** TODO Define minimal config
+** DONE [2026-06-17 Wed 12:56] Define minimal config
 
-Minimal fields:
-
-- ~db_path~
-- ~files~ (~Vec<PathBuf>~)
-- ~dirs~ (~Vec<PathBuf>~)
-- ~recursive~ (~bool~)
-- ~todo.default_open_keywords~ (~Vec<String>~, default: ~["TODO"]~)
-- ~todo.default_closed_keywords~ (~Vec<String>~, default: ~["DONE"]~)
-- ~search.fts5_enabled~ (~bool~, recommended initial default: ~true~)
-- ~search.index_body_text~ (~bool~, recommended initial default: ~false~)
-
-Acceptance criteria:
-
-- Config can be loaded from a file.
-- Relative and absolute paths are handled clearly.
-- Missing files or directories produce understandable errors.
-- Org-mode TODO keywords ~TODO~ and ~DONE~ are available as defaults.
-- Custom project-level TODO defaults can be configured.
-- File-local ~#+TODO:~ lines override configured defaults for that file.
-- FTS5 can be enabled or disabled through config.
-- Body text indexing can be enabled or disabled separately from FTS5 itself.
-- Config does not leak parser-backend-specific details.
+[[./archive/2026-06-17--define-minimal-config.org]]
 
 ** TODO Define configurable TODO keyword model
 

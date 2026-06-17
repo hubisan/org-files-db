@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 orgize = "0.10.0-alpha.10"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
 
 [lib]
 name = "org_files_db"

@@ -1,0 +1,113 @@
+#+TITLE: Define minimal config
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-17 Wed 12:00]
+#+TASK_COMPLETED: [2026-06-17 Wed 12:56]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD Define minimal config
+
+Implement the task **Define minimal config**.
+
+Scope:
+Create the minimal project configuration model and config loading behavior needed for the Phase 1 end-to-end slice.
+
+Implement only what is needed for this task. Do not implement the indexer, DB schema, CLI commands, parser adapter changes, or file discovery beyond what is necessary to validate config paths.
+
+Required config fields:
+
+* `db_path`
+* `files: Vec<PathBuf>`
+* `dirs: Vec<PathBuf>`
+* `recursive: bool`
+* `todo.default_open_keywords: Vec<String>` with default `["TODO"]`
+* `todo.default_closed_keywords: Vec<String>` with default `["DONE"]`
+* `search.fts5_enabled: bool` with initial default `true`
+* `search.index_body_text: bool` with initial default `false`
+
+Requirements:
+
+1. Add a parser-backend-independent config module/type.
+2. Config must be loadable from a file.
+3. Use clear defaults for omitted optional fields.
+4. Handle relative and absolute paths deliberately.
+
+   * Relative paths in the config should be resolved relative to the config file location, unless the repository already has a different established convention.
+   * Document the chosen behavior in code comments or docs.
+5. Missing files or directories must produce understandable errors.
+6. Org-mode TODO defaults must be available:
+
+   * open: `TODO`
+   * closed: `DONE`
+7. Custom project-level TODO defaults must be configurable.
+8. Add a minimal model for configured TODO defaults, but do not implement the full TODO keyword model task yet.
+9. Config must include FTS5 enable/disable and body text indexing settings.
+10. `search.index_body_text` must be independent from `search.fts5_enabled`, but validation should reject or clearly report impossible/unsupported combinations if the implementation chooses that behavior.
+11. Config must not expose Orgize-specific or parser-backend-specific details.
+12. Add tests for:
+
+    * loading a minimal config
+    * default TODO keywords
+    * custom TODO keywords
+    * relative path resolution
+    * missing file or directory errors
+    * FTS5/body-indexing config values
+
+Keep the implementation small and focused. Prefer simple, explicit types over premature abstraction.
+
+After implementation:
+
+* Run the relevant tests.
+* Report changed files.
+* Report any deliberate config format decisions.
+* Do not mark the task DONE yourself unless the repository instructions explicitly require it after user approval.
+
+* Planning
+
+Not applicable. The task entered BUILD directly from ~todo.org~.
+
+* Build
+
+** Approach
+
+Replace the placeholder config with a parser-backend-independent TOML config model and a small file loader. Resolve relative paths against the config file directory, validate configured input files and directories eagerly, and keep TODO defaults and search settings explicit in simple nested structs.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~src/config.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-17--define-minimal-config.org~
+
+** Checks performed
+
+- ~cargo fmt --all --check~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- All checks passed.
+- Added focused config tests for:
+  - minimal config loading
+  - default TODO keywords
+  - custom TODO keywords
+  - relative path resolution
+  - missing file errors
+  - missing directory errors
+  - FTS5 and body-indexing values
+
+** Blockers
+
+- Repository remains on branch ~rust~, which is an unexpected state under the workspace rules and was left unchanged.
+- The worktree already contained unrelated user changes in ~CHANGELOG.org~ and ~.project/tasks/todo.org~; they were preserved.
+
+** Follow-ups
+
+- Config file format choice: TOML.
+- Relative paths in config values are resolved relative to the config file location.
+- ~search.index_body_text~ remains independent from ~search.fts5_enabled~ in this task; no combination is rejected yet because later indexing behavior is not implemented.
