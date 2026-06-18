@@ -101,40 +101,9 @@ config
 
 [[./archive/2026-06-18--set-up-cli-with-clap.org]]
 
-** BUILD Implement a small CLI follow-up for level-0/root heading output.
+** DONE Implement a small CLI follow-up for level-0/root heading output.
 
-Context:
-The current Clap CLI supports `orgfdb headings --json` and excludes the synthetic level-0 file/root row by default. The DB should continue storing that row.
-
-Task:
-Add an explicit option to include the synthetic root heading in JSON output:
-
-    orgfdb headings --json --include-root
-
-Requirements:
-- Keep the default behavior unchanged: `orgfdb headings --json` excludes level-0/root headings.
-- Add `--include-root` to the `headings` command.
-- When `--include-root` is present, include level-0/root rows in the JSON output.
-- Use existing project conventions, types, and tests.
-- Do not rename existing commands.
-- Do not change DB schema, indexer behavior, parser behavior, or stored data.
-- Do not add unrelated CLI options.
-- Keep the change small and focused.
-
-Tests:
-- Add or update focused CLI tests to cover:
-  - default `headings --json` excludes root rows
-  - `headings --json --include-root` includes root rows
-  - argument parsing for `--include-root`
-- Run:
-  - `cargo fmt --all`
-  - `cargo test`
-  - `cargo clippy --all-targets --all-features -- -D warnings`
-
-Completion report:
-- Summarize changed files.
-- State the final level-0/root behavior explicitly.
-- State checks run.
+[[./archive/2026-06-18--feat-cli-implement-include-root.org]]
 
 ** TODO Verify minimal end-to-end slice
 

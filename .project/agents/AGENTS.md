@@ -1,6 +1,6 @@
 # AI Agent Instructions
 
-Version: 0.16.0
+Version: 0.17.0
 
 All paths are relative to this file. 
 
@@ -58,10 +58,13 @@ User approves by setting `BUILD`, or requests revisions with `CONTINUE`.
 ### 3. BUILD Mode (status: `BUILD`)
 
 1. Read the active task file first. Follow `* Planning` if present.
-2. Implement only the active task scope.
-3. Run relevant tests and linters; update docs/README/`CHANGELOG.org` only if needed.
-4. Write `* Build` in the task file, following the task template.
-5. Set the task to `REVIEW` and notify the user. Stop.
+2. Read `./repository.org` for repo-specific rules.
+3. Implement only the active task scope.
+4. Run relevant tests and linters; 
+5. Update docs/README/CHANGELOG.md only if needed.
+6. Write `* Build` in the task file, following the task template.
+7. Set the task to `REVIEW`.
+8. Notify the user and stop. Suggested Conventional Commit message with optional body.
 
 ### 4. After Review 
 

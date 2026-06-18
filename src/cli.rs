@@ -32,6 +32,8 @@ enum Command {
     Headings {
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        include_root: bool,
     },
 }
 
@@ -57,8 +59,8 @@ where
             print_diagnostics(&report);
             Ok(())
         }
-        Command::Headings { json } => {
-            let rows = headings_json_rows(json)?;
+        Command::Headings { json, include_root } => {
+            let rows = headings_json_rows(json, include_root)?;
             let stdout = io::stdout();
             let mut handle = stdout.lock();
             serde_json::to_writer_pretty(&mut handle, &rows).map_err(CliError::Json)?;
@@ -74,20 +76,25 @@ pub fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport
         .map_err(CliError::Indexer)
 }
 
-fn headings_json_rows(json: bool) -> Result<Vec<HeadingListRow>, CliError> {
+fn headings_json_rows(json: bool, include_root: bool) -> Result<Vec<HeadingListRow>, CliError> {
     if !json {
         return Err(CliError::MissingJsonFlag);
     }
 
     let connection = open_headings_database()?;
-    headings_rows_for_json(&connection)
+    headings_rows_for_json(&connection, include_root)
 }
 
-fn headings_rows_for_json(connection: &Connection) -> Result<Vec<HeadingListRow>, CliError> {
+fn headings_rows_for_json(
+    connection: &Connection,
+    include_root: bool,
+) -> Result<Vec<HeadingListRow>, CliError> {
     // Keep CLI JSON focused on user-authored headings; the synthetic level 0 file row
     // stays available in the DB for rebuild and outline bookkeeping.
     let mut rows = DbReader::list_headings(connection).map_err(CliError::DbRead)?;
-    rows.retain(|row| row.level > 0);
+    if !include_root {
+        rows.retain(|row| row.level > 0);
+    }
     Ok(rows)
 }
 
@@ -196,7 +203,21 @@ mod tests {
             .expect("headings args should parse");
 
         match cli.command {
-            super::Command::Headings { json } => assert!(json),
+            super::Command::Headings { json, include_root } => {
+                assert!(json);
+                assert!(!include_root);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["orgfdb", "headings", "--json", "--include-root"])
+            .expect("headings include-root args should parse");
+
+        match cli.command {
+            super::Command::Headings { json, include_root } => {
+                assert!(json);
+                assert!(include_root);
+            }
             other => panic!("unexpected command: {other:?}"),
         }
     }
@@ -271,7 +292,7 @@ mod tests {
         })
         .expect("rebuild should succeed");
 
-        let rows = super::headings_rows_for_json(&connection).expect("rows should load");
+        let rows = super::headings_rows_for_json(&connection, false).expect("rows should load");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].level, 1);
 
@@ -279,6 +300,82 @@ mod tests {
         let array = json.as_array().expect("rows should serialize as an array");
         assert_eq!(array.len(), 1);
         assert_eq!(array[0]["level"], 1);
+    }
+
+    #[test]
+    fn headings_json_can_include_level_zero_rows() {
+        let schema = SchemaDefinition::new(1, false);
+        let mut connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        let file = FileRecordInput {
+            path: PathBuf::from("/tmp/project.org"),
+            mtime_ns: 10,
+            size: 100,
+            content_hash: None,
+            indexed_at: None,
+        };
+
+        DbWriter::rebuild_file(&mut connection, &file, |tx, file_id| {
+            let level0_id = DbWriter::insert_level0_heading(
+                tx,
+                &HeadingRecord {
+                    id: None,
+                    file_id,
+                    parent_id: None,
+                    level: 0,
+                    line_number: None,
+                    byte_start: -1,
+                    byte_end: 100,
+                    title: "/tmp/project.org".to_string(),
+                    title_raw: "/tmp/project.org".to_string(),
+                    todo_keyword: None,
+                    todo_type: None,
+                    priority: None,
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[]".to_string(),
+                },
+            )?;
+            DbWriter::insert_headings(
+                tx,
+                &[HeadingRecord {
+                    id: None,
+                    file_id,
+                    parent_id: Some(level0_id),
+                    level: 1,
+                    line_number: Some(2),
+                    byte_start: 10,
+                    byte_end: 25,
+                    title: "Inbox".to_string(),
+                    title_raw: "Inbox".to_string(),
+                    todo_keyword: Some("TODO".to_string()),
+                    todo_type: Some("open".to_string()),
+                    priority: Some('A'),
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[\"rust\"]".to_string(),
+                }],
+            )?;
+            Ok(())
+        })
+        .expect("rebuild should succeed");
+
+        let rows = super::headings_rows_for_json(&connection, true).expect("rows should load");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].level, 0);
+        assert_eq!(rows[1].level, 1);
     }
 
     #[test]
