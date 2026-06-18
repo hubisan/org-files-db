@@ -1,0 +1,132 @@
+#+TITLE: Implement indexer for full rebuild
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 09:55]
+#+TASK_COMPLETED: [2026-06-18 Thu 11:29]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal:
+Connect parser and DB layer through a clear indexer layer.
+
+Tasks:
+
+- Load config.
+- Discover Org files.
+- Read file content.
+- Extract file-local TODO keyword config if present.
+- Run parser through parser adapter.
+- Normalize parser output, including level 0 heading.
+- Collect diagnostics.
+- Upsert file metadata into DB.
+- Delete old data for the file.
+- Insert level 0 heading and regular headings.
+- Insert TODO keyword definitions.
+- Insert tags, keywords, properties, planning fields, body text, and outline rows where available.
+- Insert FTS rows only if ~search.fts5_enabled~ is enabled.
+- Insert body text into FTS only if ~search.index_body_text~ is enabled.
+
+Acceptance criteria:
+
+- Rebuild processes at least one file completely.
+- Diagnostics are visible in the CLI or can be retrieved later.
+- A faulty file either stops cleanly or is skipped with documented behavior.
+- Behavior is deliberately decided and tested.
+- Rebuild is idempotent for the same file.
+- Outline cache rows are consistent after rebuild.
+- Rebuild works with FTS5 disabled.
+- FTS rows are consistent after rebuild when FTS5 is enabled.
+
+* Planning
+
+** Problem summary
+
+Implement a narrow Phase 1 indexer that loads config, discovers Org files, parses them through the existing adapter, normalizes the result, and rebuilds per-file DB rows using the existing schema and writer APIs.
+
+** Goals
+
+- Add a project-owned indexer API for full rebuild from config.
+- Keep rebuild idempotent per file.
+- Preserve current layering: config -> parser adapter -> internal model -> DB writer.
+- Collect diagnostics in an indexer-owned result type.
+
+** Non-goals
+
+- No CLI wiring yet.
+- No new query APIs.
+- No broad parser expansion beyond what the current model already exposes.
+- No schema redesign unless required for this slice.
+
+** Architecture
+
+- Use the existing config loader and parse options.
+- Discover files from explicit paths and configured directories with a small stdlib walker.
+- Parse each file with the injected parser.
+- Normalize documents into DB rows, including a synthetic level 0 heading when missing or malformed.
+- Rebuild each file through ~DbWriter::rebuild_file~.
+- Stop cleanly on the first faulty file. This matches the existing ~Result~-based error style and keeps Phase 1 behavior explicit.
+
+** Execution plan
+
+- Create the task record and link it from ~todo.org~.
+- Expand ~src/indexer.rs~ into a full rebuild layer and add focused supporting types.
+- Add or extend DB writer helpers only where the indexer needs an existing schema row type that is currently missing.
+- Add focused indexer tests for rebuild, replacement, outline consistency, FTS behavior, and fault handling.
+- Run relevant tests, then ~make ci~ if available.
+
+** Risks & assumptions
+
+- The parser model currently does not expose body text or links, so those inserts remain intentionally deferred.
+- FTS tests must stay portable when the local SQLite build lacks FTS5.
+
+** Open questions
+
+- None at implementation start.
+
+** Proposed checks
+
+- ~cargo test indexer~
+- ~cargo test~
+- ~make ci~
+
+* Build
+
+** Approach
+
+- Expanded ~src/indexer.rs~ from a parser pass-through into a narrow full-rebuild layer.
+- Kept the parser/DB boundary intact by normalizing internal parsed documents into existing DB row shapes.
+- Reused parser TODO keyword handling by extracting file-local TODO parsing into shared parser model code.
+- Chose stop-on-first-fault behavior and tested it through the generic indexer parser interface.
+
+** Changed files
+
+- ~src/indexer.rs~
+- ~src/parser/model.rs~
+- ~src/parser.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--implement-indexer-for-full-rebuild.org~
+
+** Checks performed
+
+- ~cargo test indexer~
+- ~cargo test~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- New indexer tests pass for rebuild from config, idempotent rebuild, stale row replacement, level 0 heading insertion, outline consistency, FTS disabled, FTS enabled when supported, and faulty-file handling.
+- Full repository test and CI checks passed locally.
+
+** Blockers
+
+- None for this task scope.
+
+** Follow-ups
+
+- Body text and link indexing remain deferred because the current parser model does not expose those values yet.
+- CLI wiring for ~rebuild~ remains deferred to the next task.

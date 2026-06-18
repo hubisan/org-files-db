@@ -39,10 +39,50 @@ impl Default for TodoKeywordConfig {
     }
 }
 
+pub fn file_local_todo_keyword_config(keywords: &[ParsedKeyword]) -> Option<TodoKeywordConfig> {
+    let todo_value = keywords
+        .iter()
+        .find(|keyword| keyword.key.eq_ignore_ascii_case("TODO"))
+        .and_then(|keyword| keyword.value.as_deref())?;
+
+    let mut open = Vec::new();
+    let mut closed = Vec::new();
+    let mut in_closed_section = false;
+
+    for token in todo_value.split_whitespace() {
+        if token == "|" {
+            in_closed_section = true;
+            continue;
+        }
+
+        let parsed = parse_todo_keyword_token(token)?;
+        if in_closed_section {
+            closed.push(parsed);
+        } else {
+            open.push(parsed);
+        }
+    }
+
+    if open.is_empty() && closed.is_empty() {
+        None
+    } else {
+        Some(TodoKeywordConfig { open, closed })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TodoKeyword {
     pub name: String,
     pub fast_key: Option<char>,
+}
+
+fn parse_todo_keyword_token(token: &str) -> Option<TodoKeyword> {
+    if let Some((name, suffix)) = token.split_once('(') {
+        let fast_key = suffix.strip_suffix(')')?.chars().next()?;
+        Some(TodoKeyword::with_fast_key(name.trim(), fast_key))
+    } else {
+        Some(TodoKeyword::new(token.trim()))
+    }
 }
 
 impl TodoKeyword {

@@ -89,44 +89,13 @@ config
 
 [[./archive/2026-06-18--implement-minimal-db-functions.org]]
 
-** DONE Implement Orgize adapter for headings and priorities
+** DONE [2026-06-18 Thu 11:28] Implement Orgize adapter for headings and priorities
 
 [[./archive/2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
 
-** TODO Implement indexer for full rebuild
+** DONE [2026-06-18 Thu 11:28] Implement indexer for full rebuild
 
-Geht direkt mit BUILD
-
-Goal:
-Connect parser and DB layer through a clear indexer layer.
-
-Tasks:
-
-1. Load config.
-2. Discover Org files.
-3. Read file content.
-4. Extract file-local TODO keyword config if present.
-5. Run parser through parser adapter.
-6. Normalize parser output, including level 0 heading.
-7. Collect diagnostics.
-8. Upsert file metadata into DB.
-9. Delete old data for the file.
-10. Insert level 0 heading and regular headings.
-11. Insert TODO keyword definitions.
-12. Insert tags, keywords, properties, planning fields, body text, and outline rows where available.
-13. Insert FTS rows only if ~search.fts5_enabled~ is enabled.
-14. Insert body text into FTS only if ~search.index_body_text~ is enabled.
-
-Acceptance criteria:
-
-- Rebuild processes at least one file completely.
-- Diagnostics are visible in the CLI or can be retrieved later.
-- A faulty file either stops cleanly or is skipped with documented behavior.
-- Behavior is deliberately decided and tested.
-- Rebuild is idempotent for the same file.
-- Outline cache rows are consistent after rebuild.
-- Rebuild works when FTS5 is disabled.
-- FTS rows are consistent after rebuild when FTS5 is enabled.
+[[./archive/2026-06-18--implement-indexer-for-full-rebuild.org]]
 
 ** TODO Set up CLI with Clap
 

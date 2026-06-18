@@ -4,8 +4,8 @@ use orgize::{ast::Headline, rowan::ast::AstNode, Org};
 
 use super::diagnostics::ParseDiagnostic;
 use super::model::{
-    OrgParser, ParseOptions, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty,
-    TodoKeywordConfig, TodoType,
+    file_local_todo_keyword_config, OrgParser, ParseOptions, ParsedHeading, ParsedKeyword,
+    ParsedOrgDocument, ParsedProperty, TodoKeywordConfig, TodoType,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -37,7 +37,7 @@ impl OrgParser for OrgizeAdapter {
             })
             .collect();
 
-        let active_todo_keywords = file_local_todo_keywords(&parsed.metadata.keywords)
+        let active_todo_keywords = file_local_todo_keyword_config(&parsed.metadata.keywords)
             .unwrap_or_else(|| options.todo_keywords.clone());
         parsed.headings.push(level_zero_heading(path, content));
 
@@ -177,49 +177,6 @@ fn infer_todo_keyword(
     }
 
     None
-}
-
-fn file_local_todo_keywords(keywords: &[ParsedKeyword]) -> Option<TodoKeywordConfig> {
-    let todo_value = keywords
-        .iter()
-        .find(|keyword| keyword.key.eq_ignore_ascii_case("TODO"))
-        .and_then(|keyword| keyword.value.as_deref())?;
-
-    let mut open = Vec::new();
-    let mut closed = Vec::new();
-    let mut in_closed_section = false;
-
-    for token in todo_value.split_whitespace() {
-        if token == "|" {
-            in_closed_section = true;
-            continue;
-        }
-
-        let parsed = parse_todo_keyword_token(token)?;
-        if in_closed_section {
-            closed.push(parsed);
-        } else {
-            open.push(parsed);
-        }
-    }
-
-    if open.is_empty() && closed.is_empty() {
-        None
-    } else {
-        Some(TodoKeywordConfig { open, closed })
-    }
-}
-
-fn parse_todo_keyword_token(token: &str) -> Option<super::model::TodoKeyword> {
-    if let Some((name, suffix)) = token.split_once('(') {
-        let fast_key = suffix.strip_suffix(')')?.chars().next()?;
-        Some(super::model::TodoKeyword::with_fast_key(
-            name.trim(),
-            fast_key,
-        ))
-    } else {
-        Some(super::model::TodoKeyword::new(token.trim()))
-    }
 }
 
 fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Option<TodoType> {

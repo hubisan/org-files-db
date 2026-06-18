@@ -4,7 +4,8 @@ pub mod orgize_adapter;
 
 pub use diagnostics::{DiagnosticSeverity, ParseDiagnostic};
 pub use model::{
-    OrgParser, ParseOptions, ParsedDocumentMetadata, ParsedHeading, ParsedKeyword,
-    ParsedOrgDocument, ParsedPlanning, ParsedProperty, TodoKeyword, TodoKeywordConfig, TodoType,
+    file_local_todo_keyword_config, OrgParser, ParseOptions, ParsedDocumentMetadata, ParsedHeading,
+    ParsedKeyword, ParsedOrgDocument, ParsedPlanning, ParsedProperty, TodoKeyword,
+    TodoKeywordConfig, TodoType,
 };
 pub use orgize_adapter::OrgizeAdapter;
