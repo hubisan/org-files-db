@@ -411,10 +411,12 @@ fn index_document(
         ));
     }
 
+    let effective_tags = effective_tags_for_document(document);
     let level0_heading = &document.headings[0];
     let level0_id = DbWriter::insert_level0_heading(
         connection,
-        &heading_record(file_id, None, level0_heading).map_err(db_write_invalid_input)?,
+        &heading_record(file_id, None, level0_heading, &effective_tags[0])
+            .map_err(db_write_invalid_input)?,
     )?;
 
     let mut heading_ids = vec![level0_id];
@@ -442,12 +444,16 @@ fn index_document(
         let parent_id = heading_ids.get(parent_index).copied().ok_or_else(|| {
             DbWriteError::InvalidInput("heading parent_index must reference an earlier heading")
         })?;
-        let heading_id =
-            DbWriter::insert_headings(
-                connection,
-                &[heading_record(file_id, Some(parent_id), heading)
-                    .map_err(db_write_invalid_input)?],
-            )?[0];
+        let heading_id = DbWriter::insert_headings(
+            connection,
+            &[heading_record(
+                file_id,
+                Some(parent_id),
+                heading,
+                &effective_tags[heading_index],
+            )
+            .map_err(db_write_invalid_input)?],
+        )?[0];
 
         if heading_ids.len() != heading_index {
             return Err(DbWriteError::InvalidInput(
@@ -545,6 +551,7 @@ fn heading_record(
     file_id: i64,
     parent_id: Option<i64>,
     heading: &ParsedHeading,
+    effective_tags: &[String],
 ) -> Result<HeadingRecord, &'static str> {
     let todo_type = heading.todo_type.as_ref().map(|value| match value {
         TodoType::Open => "open".to_string(),
@@ -576,9 +583,36 @@ fn heading_record(
         closed_ts: None,
         archivedp: heading.is_archived,
         footnote_section_p: false,
-        all_tags_json: serde_json::to_string(&heading.tags)
+        all_tags_json: serde_json::to_string(effective_tags)
             .map_err(|_| "tag serialization failed")?,
     })
+}
+
+fn effective_tags_for_document(document: &ParsedOrgDocument) -> Vec<Vec<String>> {
+    let mut effective_tags: Vec<Vec<String>> = Vec::with_capacity(document.headings.len());
+
+    for heading in &document.headings {
+        let inherited = heading
+            .parent_index
+            .and_then(|index| effective_tags.get(index))
+            .cloned()
+            .unwrap_or_default();
+        effective_tags.push(merge_effective_tags(&inherited, &heading.tags));
+    }
+
+    effective_tags
+}
+
+fn merge_effective_tags(inherited: &[String], local: &[String]) -> Vec<String> {
+    let mut merged = Vec::with_capacity(inherited.len() + local.len());
+
+    for tag in inherited.iter().chain(local.iter()) {
+        if !merged.iter().any(|existing| existing == tag) {
+            merged.push(tag.clone());
+        }
+    }
+
+    merged
 }
 
 fn todo_keyword_rows(file_id: i64, todo_keywords: &TodoKeywordConfig) -> Vec<TodoKeywordRecord> {
@@ -959,6 +993,107 @@ index_body_text = false
                     Some("c".to_string()),
                     4
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn child_heading_inherits_parent_tags_in_all_tags_json() {
+        let test_dir = TestDir::new("inherited-tags");
+        let org_path = test_dir.path().join("tags.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(&org_path, "* TODO me :test:\n** again :me:\n");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].all_tags_json, "[\"test\"]");
+        assert_eq!(headings[2].all_tags_json, "[\"test\",\"me\"]");
+
+        let tag_rows: Vec<(String, i64)> = query_rows(
+            &connection,
+            "SELECT tag, inherited FROM tags ORDER BY heading_id, tag",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        assert_eq!(
+            tag_rows,
+            vec![("test".to_string(), 0), ("me".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn duplicate_inherited_tags_are_not_repeated_in_all_tags_json() {
+        let test_dir = TestDir::new("duplicate-inherited-tags");
+        let org_path = test_dir.path().join("tags.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(
+            &org_path,
+            "* Parent :outer:shared:\n** Child :shared:inner:\n*** Grandchild :outer:leaf:\n",
+        );
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].all_tags_json, "[\"outer\",\"shared\"]");
+        assert_eq!(
+            headings[2].all_tags_json,
+            "[\"outer\",\"shared\",\"inner\"]"
+        );
+        assert_eq!(
+            headings[3].all_tags_json,
+            "[\"outer\",\"shared\",\"inner\",\"leaf\"]"
+        );
+
+        let tag_rows: Vec<(String, i64)> = query_rows(
+            &connection,
+            "SELECT tag, inherited FROM tags ORDER BY heading_id, tag",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        assert_eq!(
+            tag_rows,
+            vec![
+                ("outer".to_string(), 0),
+                ("shared".to_string(), 0),
+                ("inner".to_string(), 0),
+                ("shared".to_string(), 0),
+                ("leaf".to_string(), 0),
+                ("outer".to_string(), 0),
             ]
         );
     }

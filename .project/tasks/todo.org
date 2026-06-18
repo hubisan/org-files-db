@@ -121,62 +121,125 @@ config
 
 [[./archive/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
 
-** TODO Compute inherited tags for `all_tags_json`
+** DONE Compute inherited tags for `all_tags_json`
+
+[[./archive/2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
+
+** TODO Support simplified file-local TODO keyword lines
 
 Goal:
-Make `all_tags_json` match its documented schema semantics.
+Support the Org file-local TODO keyword line forms needed for keyword
+recognition, without modeling full Org TODO semantics.
+
+This is a follow up of: [[file:archive/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
 
 Context:
-The schema documents `all_tags_json` as all tags visible on a heading, including inherited tags. Current output only contains local heading tags.
+Org allows file-local TODO keyword definitions using `#+TODO:`,
+`#+SEQ_TODO:`, and `#+TYP_TODO:`. These lines may appear anywhere in the file
+and apply file-wide.
+
+For now, org-files-db does not model fast-selection keys and does not
+distinguish `SEQ_TODO` from `TYP_TODO` semantically. All supported local TODO
+keyword lines are treated as equivalent keyword definition lines for heading
+TODO detection.
+
+Design decisions:
+
+- Treat `#+TODO:`, `#+SEQ_TODO:`, and `#+TYP_TODO:` as equivalent.
+- Collect all supported local TODO keyword lines from anywhere in the file.
+- Apply the collected local keyword set globally to the whole file.
+- If at least one local TODO keyword line exists, override project/default TODO
+  keywords for that file.
+- Do not implement position-dependent TODO keyword semantics.
+- Do not model fast-selection metadata.
+- Strip fast-selection suffixes such as `(t)`, `(w@)`, or `(c)` for keyword
+  matching and otherwise ignore them.
+- Do not distinguish sequence and type TODO semantics.
+- Do not change the DB schema.
+- Do not change CLI JSON field names.
+
+Required behavior:
+
+- Keywords before `|` are open TODO keywords.
+- Keywords after `|` are closed TODO keywords.
+- If no `|` exists, treat the last keyword on that line as closed and preceding
+  keywords as open.
+- If the left side before `|` is empty, all keywords after `|` are closed.
+- If the right side after `|` is empty, all keywords before `|` are open.
+- Recognized TODO keywords are removed from normalized/display title fields
+  according to the existing title semantics.
+- Unrecognized keywords remain part of the title.
 
 Example:
 
 #+begin_src org
-  ,* TODO me :test:
-  ,** again :me:
+,#+TODO: this
+
+,* this sdfdsf
+
+,#+TODO: | that
+
+,* that sdfdsf
 #+end_src
 
-Current output for `again`:
+Expected behavior:
 
-#+begin_src json
-{
-  "title": "again",
-  "all_tags_json": "[\"me\"]"
-}
+- `this` is recognized as an open TODO keyword.
+- `that` is recognized as a closed TODO keyword.
+- Both apply globally to the whole file.
+
+Larger fixture:
+
+#+begin_src org
+,#+TITLE: Testing local keywords
+,#+TODO: one(t) two(n) | three(d) four(w@)
+,#+TODO: FIVE SIX |
+,#+TYP_TODO: seven | eight
+,#+SEQ_TODO: nine | ten
+,#+TODO: | eleven(c)
+,#+STARTUP: showall
+
+,* TODO invalid keyword, even though it is a default it is overwritten
+,* DONE invalid keyword, even though it is a default it is overwritten
+
+,* one valid, type open
+,* two valid, type open
+,* three valid, type closed
+,* four valid, type closed
+,* FIVE valid, type open
+,* SIX valid, type open
+,* seven valid, type open
+,* eight valid, type closed
+,* nine valid, type open
+,* ten valid, type closed
+,* eleven valid, type closed
 #+end_src
 
-Expected output:
+Expected behavior for the larger fixture:
 
-#+begin_src json
-{
-  "title": "again",
-  "all_tags_json": "[\"test\", \"me\"]"
-}
-#+end_src
-
-Required behavior:
-
-- Keep normalized local tag rows in the `tags` table.
-- Compute `all_tags_json` as the visible/effective tag set for each heading.
-- Include inherited tags from ancestor headings.
-- Include local tags from the heading itself.
-- Avoid duplicate tags in `all_tags_json`.
-- Preserve a stable deterministic order:
-  - ancestor tags from outermost to innermost
-  - then local tags
-  - or document and test another deterministic order
-- Do not change the DB schema unless unavoidable.
-- Do not change parser-specific public types unless needed.
-- Do not implement inherited properties in this task.
+- `one`, `two`, `FIVE`, `SIX`, `seven`, and `nine` are recognized as open TODO
+  keywords.
+- `three`, `four`, `eight`, `ten`, and `eleven` are recognized as closed TODO
+  keywords.
+- `TODO` and `DONE` are not recognized because file-local keywords override
+  defaults and they are not listed locally.
+- Recognized TODO keywords are removed from normalized/display title fields.
+- Unrecognized default keywords remain part of the title.
 
 Acceptance criteria:
 
-- A child heading inherits parent tags in `all_tags_json`.
-- A heading with both inherited and local tags includes both.
-- Duplicate tags are not repeated.
-- Local tag rows in `tags` still represent local heading tags only.
-- Existing tag tests still pass.
-- Add focused parser/indexer/query tests for inherited tag behavior.
+- Multiple file-local TODO keyword lines are accumulated.
+- `#+TODO:`, `#+SEQ_TODO:`, and `#+TYP_TODO:` are supported.
+- Local TODO keyword lines appearing after headings still apply globally.
+- Empty left side before `|` is supported.
+- Empty right side after `|` is supported.
+- Fast-selection suffixes are stripped for matching.
+- Fast-selection metadata is otherwise ignored.
+- Defaults are overridden when local TODO lines exist.
+- Existing default/project TODO keyword behavior still works when no local TODO
+  lines exist.
+- Existing title normalization behavior is preserved.
+- Focused tests cover the behavior above.
 
 ** TODO Normalize resolved config paths syntactically
 

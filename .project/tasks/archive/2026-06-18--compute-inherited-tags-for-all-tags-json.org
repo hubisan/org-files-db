@@ -1,0 +1,96 @@
+#+TITLE: Compute inherited tags for `all_tags_json`
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 18:05]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Compute inherited tags for `all_tags_json`
+
+[[./2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
+
+Goal:
+Make `all_tags_json` match its documented schema semantics.
+
+Context:
+The schema documents `all_tags_json` as all tags visible on a heading, including inherited tags. Current output only contains local heading tags.
+
+Example:
+
+#+begin_src org
+  ,* TODO me :test:
+  ,** again :me:
+#+end_src
+
+Current output for `again`:
+
+#+begin_src json
+{
+  "title": "again",
+  "all_tags_json": "[\"me\"]"
+}
+#+end_src
+
+Expected output:
+
+#+begin_src json
+{
+  "title": "again",
+  "all_tags_json": "[\"test\", \"me\"]"
+}
+#+end_src
+
+Required behavior:
+
+- Keep normalized local tag rows in the `tags` table.
+- Compute `all_tags_json` as the visible/effective tag set for each heading.
+- Include inherited tags from ancestor headings.
+- Include local tags from the heading itself.
+- Avoid duplicate tags in `all_tags_json`.
+- Preserve a stable deterministic order:
+  - ancestor tags from outermost to innermost
+  - then local tags
+  - or document and test another deterministic order
+- Do not change the DB schema unless unavoidable.
+- Do not change parser-specific public types unless needed.
+- Do not implement inherited properties in this task.
+
+Acceptance criteria:
+
+- A child heading inherits parent tags in `all_tags_json`.
+- A heading with both inherited and local tags includes both.
+- Duplicate tags are not repeated.
+- Local tag rows in `tags` still represent local heading tags only.
+- Existing tag tests still pass.
+- Add focused parser/indexer/query tests for inherited tag behavior.
+
+* Build
+
+** Approach
+- Compute effective tags in the indexer from normalized parent/child heading order.
+- Keep parser output and local tag rows unchanged.
+
+** Changed files
+- ~src/indexer.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--compute-inherited-tags-for-all-tags-json.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test child_heading_inherits_parent_tags_in_all_tags_json -- --nocapture~
+- ~cargo test duplicate_inherited_tags_are_not_repeated_in_all_tags_json -- --nocapture~
+- ~make ci~
+
+** Test results
+- All focused and full-suite checks passed.
+- Added rebuild/indexer tests for inherited tags, mixed inherited/local tags, duplicate removal, and local tag row preservation.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Effective tag computation remains in the indexer only; parser output and DB schema were left unchanged.
