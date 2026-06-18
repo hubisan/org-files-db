@@ -24,3 +24,7 @@ build/
 tmp/
 temp/
 coverage/
+
+
+# User stuff
+.project/local/
