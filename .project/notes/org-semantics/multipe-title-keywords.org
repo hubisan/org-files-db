@@ -1,4 +1,5 @@
 #+TITLE: Multiple Title Keywords
+#+STARTUP: showall
 
 [[info:org#Export Settings][org#Export Settings]]
 

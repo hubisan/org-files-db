@@ -133,6 +133,8 @@ recognition, without modeling full Org TODO semantics.
 
 This is a follow up of: [[file:archive/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
 
+Checkout the org semantics: [[file:../notes/org-semantics/file-local-todo-keywords.org][File-local TODO Keywords]]
+
 Context:
 Org allows file-local TODO keyword definitions using `#+TODO:`,
 `#+SEQ_TODO:`, and `#+TYP_TODO:`. These lines may appear anywhere in the file
@@ -246,6 +248,8 @@ Acceptance criteria:
 Goal:
 Handle Org's file-wide title semantics when multiple `#+TITLE:` keywords appear
 in a file.
+
+Checkout the org semantics: [[file:../notes/org-semantics/multipe-title-keywords.org][Multiple Title Keywords.]]
 
 Context:
 Org supports long titles by allowing multiple `#+TITLE:` lines. These lines may
