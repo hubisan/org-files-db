@@ -208,6 +208,69 @@ fn orgize_adapter_handles_manual_file_local_todo_fixture_with_empty_title() {
 }
 
 #[test]
+fn orgize_adapter_supports_simplified_file_local_todo_keyword_lines() {
+    let content = include_str!("data/parser/todo-keywords/simplified-file-local-lines/fixture.org");
+    let options = ParseOptions {
+        todo_keywords: TodoKeywordConfig {
+            open: vec![TodoKeyword::with_fast_key("TODO", 't')],
+            closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+        },
+    };
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("tests/data/parser/todo-keywords/simplified-file-local-lines/fixture.org"),
+            content,
+            &options,
+        )
+        .expect("simplified file-local todo lines should parse");
+
+    assert_eq!(document.headings.len(), 14);
+
+    assert_eq!(document.headings[1].todo_keyword, None);
+    assert_eq!(document.headings[1].todo_type, None);
+    assert_eq!(
+        document.headings[1].title,
+        "TODO invalid keyword, even though it is a default it is overwritten"
+    );
+    assert_eq!(
+        document.headings[1].title_raw,
+        "TODO invalid keyword, even though it is a default it is overwritten"
+    );
+
+    assert_eq!(document.headings[2].todo_keyword, None);
+    assert_eq!(document.headings[2].todo_type, None);
+    assert_eq!(
+        document.headings[2].title,
+        "DONE invalid keyword, even though it is a default it is overwritten"
+    );
+
+    let expected = [
+        (3, "one", TodoType::Open, "valid, type open"),
+        (4, "two", TodoType::Open, "valid, type open"),
+        (5, "three", TodoType::Closed, "valid, type closed"),
+        (6, "four", TodoType::Closed, "valid, type closed"),
+        (7, "FIVE", TodoType::Open, "valid, type open"),
+        (8, "SIX", TodoType::Open, "valid, type open"),
+        (9, "seven", TodoType::Open, "valid, type open"),
+        (10, "eight", TodoType::Closed, "valid, type closed"),
+        (11, "nine", TodoType::Open, "valid, type open"),
+        (12, "ten", TodoType::Closed, "valid, type closed"),
+        (13, "eleven", TodoType::Closed, "valid, type closed"),
+    ];
+
+    for (index, keyword, todo_type, expected_title) in expected {
+        assert_eq!(
+            document.headings[index].todo_keyword.as_deref(),
+            Some(keyword)
+        );
+        assert_eq!(document.headings[index].todo_type, Some(todo_type));
+        assert_eq!(document.headings[index].title, expected_title);
+        assert_eq!(document.headings[index].title_raw, expected_title);
+    }
+}
+
+#[test]
 fn orgize_adapter_normalizes_described_link_titles() {
     let document = OrgizeAdapter::new()
         .parse_document(

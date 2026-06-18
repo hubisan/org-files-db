@@ -40,6 +40,7 @@ impl OrgParser for OrgizeAdapter {
                 value: Some(keyword.value().trim().to_string()).filter(|value| !value.is_empty()),
             })
             .collect();
+        merge_file_local_todo_keywords_from_content(&mut parsed.metadata.keywords, content);
 
         let active_todo_keywords = file_local_todo_keyword_config(&parsed.metadata.keywords)
             .unwrap_or_else(|| options.todo_keywords.clone());
@@ -77,14 +78,29 @@ fn collect_headlines(
         let end = usize::from(headline.end());
 
         let original_title_raw = headline.title_raw().trim_end().to_string();
+        let source_title_raw = source_title_raw_from_content_line(content, start);
         let normalized_title = normalize_title_elements(headline.title());
         let mut parsed =
             ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
         parsed.title_raw = original_title_raw.trim().to_string();
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
+        if parsed
+            .todo_keyword
+            .as_deref()
+            .filter(|keyword| !todo_keyword_is_active(keyword, todo_keywords))
+            .is_some()
+        {
+            parsed.todo_keyword = None;
+            parsed.title_raw = source_title_raw.clone();
+            parsed.title = normalize_title_preserving_leading_keyword(&source_title_raw);
+        }
         if parsed.todo_keyword.is_none() {
+            if source_title_raw != original_title_raw.trim() {
+                parsed.title_raw = source_title_raw.clone();
+                parsed.title = normalize_title_preserving_leading_keyword(&source_title_raw);
+            }
             if let Some((keyword, stripped_title_raw)) =
-                infer_todo_keyword(&original_title_raw, todo_keywords)
+                infer_todo_keyword(&source_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
                 parsed.title_raw = stripped_title_raw.clone();
@@ -180,6 +196,18 @@ fn normalize_title_from_raw(title_raw: &str) -> String {
         .unwrap_or_else(|| title_raw.trim().to_string())
 }
 
+fn normalize_title_preserving_leading_keyword(title_raw: &str) -> String {
+    const SENTINEL: &str = "ORG_FILES_DB_SENTINEL ";
+    let parsed = Org::parse(format!("* {SENTINEL}{title_raw}\n"));
+    parsed
+        .document()
+        .headlines()
+        .next()
+        .map(|headline| normalize_title_elements(headline.title()))
+        .and_then(|title| title.strip_prefix(SENTINEL).map(str::to_string))
+        .unwrap_or_else(|| title_raw.trim().to_string())
+}
+
 fn normalize_title_elements(elements: impl Iterator<Item = SyntaxElement>) -> String {
     let mut normalized = String::new();
 
@@ -242,6 +270,35 @@ fn is_supported_title_markup(kind: SyntaxKind) -> bool {
     )
 }
 
+fn merge_file_local_todo_keywords_from_content(keywords: &mut Vec<ParsedKeyword>, content: &str) {
+    keywords.retain(|keyword| !is_file_local_todo_keyword_name(&keyword.key));
+    keywords.extend(file_local_todo_keywords_from_content(content));
+}
+
+fn file_local_todo_keywords_from_content(content: &str) -> Vec<ParsedKeyword> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let remainder = line.strip_prefix("#+")?;
+            let (key, value) = remainder.split_once(':')?;
+            if !is_file_local_todo_keyword_name(key) {
+                return None;
+            }
+
+            Some(ParsedKeyword {
+                key: key.to_string(),
+                value: Some(value.trim().to_string()).filter(|value| !value.is_empty()),
+            })
+        })
+        .collect()
+}
+
+fn is_file_local_todo_keyword_name(key: &str) -> bool {
+    key.eq_ignore_ascii_case("TODO")
+        || key.eq_ignore_ascii_case("SEQ_TODO")
+        || key.eq_ignore_ascii_case("TYP_TODO")
+}
+
 fn line_number_for_offset(content: &str, offset: usize) -> u32 {
     content[..offset]
         .bytes()
@@ -289,4 +346,45 @@ fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Op
     } else {
         None
     }
+}
+
+fn todo_keyword_is_active(keyword: &str, todo_keywords: &TodoKeywordConfig) -> bool {
+    todo_keywords
+        .all_keywords()
+        .any(|candidate| candidate.name == keyword)
+}
+
+fn source_title_raw_from_content_line(content: &str, start: usize) -> String {
+    let line_start = content[..start]
+        .rfind('\n')
+        .map(|offset| offset + 1)
+        .unwrap_or(0);
+    let line_end = content[start..]
+        .find('\n')
+        .map(|offset| start + offset)
+        .unwrap_or(content.len());
+    let line = &content[line_start..line_end];
+    let without_stars = line.trim_start_matches('*').trim_start();
+    strip_trailing_org_tags(without_stars).trim().to_string()
+}
+
+fn strip_trailing_org_tags(value: &str) -> &str {
+    let trimmed = value.trim_end();
+    let mut parts = trimmed.rsplitn(2, char::is_whitespace);
+    let last = parts.next().unwrap_or(trimmed);
+
+    if is_org_tag_block(last) {
+        parts.next().unwrap_or("").trim_end()
+    } else {
+        trimmed
+    }
+}
+
+fn is_org_tag_block(value: &str) -> bool {
+    value.starts_with(':')
+        && value.ends_with(':')
+        && value.len() > 2
+        && value[1..value.len() - 1]
+            .split(':')
+            .all(|segment| !segment.is_empty())
 }

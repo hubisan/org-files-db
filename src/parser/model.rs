@@ -40,27 +40,23 @@ impl Default for TodoKeywordConfig {
 }
 
 pub fn file_local_todo_keyword_config(keywords: &[ParsedKeyword]) -> Option<TodoKeywordConfig> {
-    let todo_value = keywords
-        .iter()
-        .find(|keyword| keyword.key.eq_ignore_ascii_case("TODO"))
-        .and_then(|keyword| keyword.value.as_deref())?;
-
     let mut open = Vec::new();
     let mut closed = Vec::new();
-    let mut in_closed_section = false;
 
-    for token in todo_value.split_whitespace() {
-        if token == "|" {
-            in_closed_section = true;
+    for keyword in keywords.iter().filter(|keyword| {
+        keyword.key.eq_ignore_ascii_case("TODO")
+            || keyword.key.eq_ignore_ascii_case("SEQ_TODO")
+            || keyword.key.eq_ignore_ascii_case("TYP_TODO")
+    }) {
+        let Some(value) = keyword.value.as_deref() else {
             continue;
-        }
+        };
+        let Some(line_config) = parse_file_local_todo_keyword_line(value) else {
+            continue;
+        };
 
-        let parsed = parse_todo_keyword_token(token)?;
-        if in_closed_section {
-            closed.push(parsed);
-        } else {
-            open.push(parsed);
-        }
+        open.extend(line_config.open);
+        closed.extend(line_config.closed);
     }
 
     if open.is_empty() && closed.is_empty() {
@@ -78,11 +74,54 @@ pub struct TodoKeyword {
 
 fn parse_todo_keyword_token(token: &str) -> Option<TodoKeyword> {
     if let Some((name, suffix)) = token.split_once('(') {
-        let fast_key = suffix.strip_suffix(')')?.chars().next()?;
-        Some(TodoKeyword::with_fast_key(name.trim(), fast_key))
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+
+        let fast_key = suffix
+            .strip_suffix(')')
+            .and_then(|value| value.chars().next());
+        if let Some(fast_key) = fast_key {
+            Some(TodoKeyword::with_fast_key(name, fast_key))
+        } else {
+            Some(TodoKeyword::new(name))
+        }
     } else {
-        Some(TodoKeyword::new(token.trim()))
+        let name = token.trim();
+        if name.is_empty() {
+            None
+        } else {
+            Some(TodoKeyword::new(name))
+        }
     }
+}
+
+fn parse_file_local_todo_keyword_line(value: &str) -> Option<TodoKeywordConfig> {
+    let tokens: Vec<&str> = value.split_whitespace().collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let mut open = Vec::new();
+    let mut closed = Vec::new();
+
+    if let Some(separator_index) = tokens.iter().position(|token| *token == "|") {
+        for token in &tokens[..separator_index] {
+            open.push(parse_todo_keyword_token(token)?);
+        }
+        for token in &tokens[separator_index + 1..] {
+            closed.push(parse_todo_keyword_token(token)?);
+        }
+    } else {
+        let (closed_token, open_tokens) = tokens.split_last()?;
+        for token in open_tokens {
+            open.push(parse_todo_keyword_token(token)?);
+        }
+        closed.push(parse_todo_keyword_token(closed_token)?);
+    }
+
+    Some(TodoKeywordConfig { open, closed })
 }
 
 impl TodoKeyword {

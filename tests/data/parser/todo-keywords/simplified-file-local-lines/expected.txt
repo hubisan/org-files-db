@@ -1,0 +1,35 @@
+# classification: org-special-case
+# note: Simplified file-local TODO keyword lines accumulate globally and override defaults.
+document.title=Testing local keywords
+document.keyword.TODO=one(t) two(n) | three(d) four(w@)
+document.keyword.TYP_TODO=seven | eight
+document.keyword.SEQ_TODO=nine | ten
+heading_count=14
+diagnostic_count=0
+heading.0.level=0
+heading.0.title=Testing local keywords
+heading.0.is_root=true
+heading.1.title=TODO invalid keyword, even though it is a default it is overwritten
+heading.2.title=DONE invalid keyword, even though it is a default it is overwritten
+heading.3.title=valid, type open
+heading.3.todo_keyword=one
+heading.4.title=valid, type open
+heading.4.todo_keyword=two
+heading.5.title=valid, type closed
+heading.5.todo_keyword=three
+heading.6.title=valid, type closed
+heading.6.todo_keyword=four
+heading.7.title=valid, type open
+heading.7.todo_keyword=FIVE
+heading.8.title=valid, type open
+heading.8.todo_keyword=SIX
+heading.9.title=valid, type open
+heading.9.todo_keyword=seven
+heading.10.title=valid, type closed
+heading.10.todo_keyword=eight
+heading.11.title=valid, type open
+heading.11.todo_keyword=nine
+heading.12.title=valid, type closed
+heading.12.todo_keyword=ten
+heading.13.title=valid, type closed
+heading.13.todo_keyword=eleven

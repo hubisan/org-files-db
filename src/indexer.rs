@@ -998,6 +998,85 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_supports_simplified_file_local_todo_keyword_lines() {
+        let test_dir = TestDir::new("simplified-file-local-todo");
+        let org_path = test_dir.path().join("test.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &org_path,
+            include_str!(
+                "../tests/data/parser/todo-keywords/simplified-file-local-lines/fixture.org"
+            ),
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["test.org"]
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+
+        assert_eq!(headings.len(), 14);
+        assert_eq!(
+            headings[1].title,
+            "TODO invalid keyword, even though it is a default it is overwritten"
+        );
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[2].todo_keyword, None);
+
+        let expected_rows = vec![
+            ("one", "open", Some("t"), 0),
+            ("two", "open", Some("n"), 1),
+            ("FIVE", "open", None, 2),
+            ("SIX", "open", None, 3),
+            ("seven", "open", None, 4),
+            ("nine", "open", None, 5),
+            ("three", "closed", Some("d"), 6),
+            ("four", "closed", Some("w"), 7),
+            ("eight", "closed", None, 8),
+            ("ten", "closed", None, 9),
+            ("eleven", "closed", Some("c"), 10),
+        ];
+
+        let todo_rows: Vec<(String, String, Option<String>, i64)> = query_rows(
+            &connection,
+            "SELECT keyword, state_type, shortcut, sequence_no FROM todo_keywords ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            expected_rows
+                .into_iter()
+                .map(|(keyword, state_type, shortcut, sequence_no)| {
+                    (
+                        keyword.to_string(),
+                        state_type.to_string(),
+                        shortcut.map(str::to_string),
+                        sequence_no,
+                    )
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn child_heading_inherits_parent_tags_in_all_tags_json() {
         let test_dir = TestDir::new("inherited-tags");
         let org_path = test_dir.path().join("tags.org");

@@ -1,0 +1,24 @@
+#+TITLE: Testing local keywords
+#+TODO: one(t) two(n) | three(d) four(w@)
+#+TODO: FIVE SIX |
+#+TYP_TODO: seven | eight
+#+STARTUP: showall
+
+* TODO invalid keyword, even though it is a default it is overwritten
+* DONE invalid keyword, even though it is a default it is overwritten
+
+* one valid, type open
+* two valid, type open
+* three valid, type closed
+* four valid, type closed
+* FIVE valid, type open
+* SIX valid, type open
+* seven valid, type open
+* eight valid, type closed
+
+#+SEQ_TODO: nine | ten
+#+TODO: | eleven(c)
+
+* nine valid, type open
+* ten valid, type closed
+* eleven valid, type closed
