@@ -97,25 +97,44 @@ config
 
 [[./archive/2026-06-18--implement-indexer-for-full-rebuild.org]]
 
-** BUILD Set up CLI with Clap
+** DONE Set up CLI with Clap
 
-Geht direkt mit BUILD
+[[./archive/2026-06-18--set-up-cli-with-clap.org]]
 
-Commands:
+** BUILD Implement a small CLI follow-up for level-0/root heading output.
 
-#+begin_src shell
-orgfdb rebuild --config <path>
-orgfdb headings --json
-#+end_src
+Context:
+The current Clap CLI supports `orgfdb headings --json` and excludes the synthetic level-0 file/root row by default. The DB should continue storing that row.
 
-Acceptance criteria:
+Task:
+Add an explicit option to include the synthetic root heading in JSON output:
 
-- ~rebuild~ rebuilds the DB from the config.
-- ~headings --json~ outputs stored headings.
-- Output includes level 0 headings only if explicitly requested or documented.
-- Errors are understandable.
-- JSON is stable enough for first Emacs/script experiments.
-- CLI behavior is clear when FTS5-dependent commands are used while FTS5 is disabled.
+    orgfdb headings --json --include-root
+
+Requirements:
+- Keep the default behavior unchanged: `orgfdb headings --json` excludes level-0/root headings.
+- Add `--include-root` to the `headings` command.
+- When `--include-root` is present, include level-0/root rows in the JSON output.
+- Use existing project conventions, types, and tests.
+- Do not rename existing commands.
+- Do not change DB schema, indexer behavior, parser behavior, or stored data.
+- Do not add unrelated CLI options.
+- Keep the change small and focused.
+
+Tests:
+- Add or update focused CLI tests to cover:
+  - default `headings --json` excludes root rows
+  - `headings --json --include-root` includes root rows
+  - argument parsing for `--include-root`
+- Run:
+  - `cargo fmt --all`
+  - `cargo test`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+
+Completion report:
+- Summarize changed files.
+- State the final level-0/root behavior explicitly.
+- State checks run.
 
 ** TODO Verify minimal end-to-end slice
 

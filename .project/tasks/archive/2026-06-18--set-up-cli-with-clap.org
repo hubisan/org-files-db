@@ -1,0 +1,157 @@
+#+TITLE: Set up CLI with Clap
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 10:00]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the task: "Set up CLI with Clap".
+
+Context:
+This is Phase 1 of org-files-db / orgfdb. The existing project already has config loading, file discovery, parser adapter, SQLite setup/migrations, DB functions, and an indexer for full rebuild. The CLI should wire these existing pieces together without redesigning them.
+
+Commands to support:
+
+#+begin_src shell
+orgfdb rebuild --config <path>
+orgfdb headings --json
+#+end_src
+
+Scope:
+
+- Add a Clap-based CLI.
+- Implement ~rebuild --config <path>~ so it loads the config and runs the existing full rebuild/indexer pipeline.
+- Implement ~headings --json~ so it outputs stored headings from the SQLite DB as JSON to stdout.
+- Use existing project modules, types, error conventions, and naming style.
+- Before editing, briefly inspect relevant repo structure, ~Cargo.toml~, existing modules, tests, error types, and conventions. Do not write a long plan.
+
+Non-goals:
+
+- Do not redesign the parser adapter.
+- Do not redesign the DB schema.
+- Do not implement unrelated commands.
+- Do not add search commands unless they already exist and only need wiring.
+- Do not perform large refactors.
+- Do not expose Orgize-specific types in CLI, DB, query, or indexer APIs.
+- Do not change existing behavior except where needed for the CLI.
+
+Requirements:
+
+- The binary should be named/usable as ~orgfdb~.
+- ~rebuild --config <path>~ must rebuild the DB from the provided config.
+- ~headings --json~ must print stored headings as JSON to stdout.
+- JSON should be stable enough for first Emacs/script experiments.
+- Decide the level-0 behavior narrowly:
+
+  - Either exclude level-0 headings by default and document that behavior,
+  - or include them only through an explicit option if that is simple and fits existing conventions.
+- Errors should be understandable for CLI users. Prefer clear context over raw low-level errors.
+- CLI behavior must be clear when FTS5-dependent functionality is unavailable or disabled. Since this task only defines ~rebuild~ and ~headings --json~, do not invent FTS5-dependent commands. If rebuild encounters an existing FTS5-disabled path, report it clearly according to existing config/indexer behavior.
+
+Tests:
+
+- Add or update focused tests where practical.
+- Prefer testing argument parsing and JSON output shape without requiring broad end-to-end fixtures unless existing test helpers make it easy.
+- Ensure existing tests still pass.
+- Run the relevant Rust checks/tests, for example:
+
+  - ~cargo fmt~
+  - ~cargo test~
+  - ~cargo clippy~ if it is already part of the project workflow or cheap to run
+
+Completion report:
+
+- Summarize files changed.
+- Explain the final CLI behavior.
+- Mention level-0 heading behavior explicitly.
+- Mention what tests/checks were run.
+- Mention any limitations or follow-up tasks, but do not implement neighboring tasks.
+
+* Planning
+
+** Problem summary
+
+Wire the existing indexer and DB reader into a Clap CLI with two commands, while keeping the CLI surface minimal and the output stable.
+
+** Goals
+
+- Add a real ~orgfdb~ binary entry point.
+- Support ~rebuild --config <path>~ using the existing indexer pipeline.
+- Support ~headings --json~ with stable JSON output.
+- Make level-0 handling explicit and predictable.
+
+** Non-goals
+
+- No new query features.
+- No schema or parser redesign.
+- No large architecture changes.
+
+** Architecture
+
+- Keep Clap parsing in ~src/cli.rs~.
+- Delegate rebuild work to ~Indexer::rebuild_from_config_path~.
+- Read headings from the current SQLite DB and serialize the existing row model.
+- Exclude level-0 headings by default for ~headings --json~ to keep the CLI output focused on user-authored headings.
+
+** Execution plan
+
+- Add Clap to dependencies.
+- Implement the CLI command model and error handling.
+- Add a small DB-read helper for JSON output if needed.
+- Update the binary name to ~orgfdb~.
+- Add focused tests for argument parsing, rebuild wiring, and heading JSON shape.
+- Run formatting, tests, and clippy.
+
+** Risks & assumptions
+
+- ~headings --json~ will use the default DB path unless a later task introduces explicit DB selection.
+- JSON shape should reuse existing serializable DB row types rather than inventing a new schema.
+
+** Open questions
+
+- None at implementation start.
+
+** Proposed checks
+
+- ~cargo fmt~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+* Build
+
+** Approach
+
+- Added a Clap-based ~orgfdb~ entry point with ~rebuild~ and ~headings~ subcommands.
+- Kept rebuild wiring thin by delegating directly to the existing indexer and config loader.
+- Made ~headings --json~ read the default SQLite database path and filter out synthetic level 0 rows.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~src/cli.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--set-up-cli-with-clap.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+** Test results
+
+- CLI parsing tests pass.
+- CLI JSON filtering tests pass.
+- Existing indexer, parser, and DB tests still pass.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- ~headings --json~ currently reads from the default DB path; a later task can add explicit DB selection or config-aware lookup if needed.
