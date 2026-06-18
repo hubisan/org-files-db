@@ -1,0 +1,364 @@
+#+TITLE: File-local TODO Keywords
+#+STARTUP: showall
+
+* Org Info
+
+[[info:org#In-buffer Settings][org#In-buffer Settings]]
+
+#+BEGIN_QUOTE
+‘#+TODO:’, ‘#+SEQ_TODO:’, ‘#+TYP_TODO:’
+     These lines set the TODO keywords and their interpretation in the
+     current file.  The corresponding variable is ‘org-todo-keywords’.
+#+END_QUOTE
+
+[[info:org#Per-file keywords][org#Per-file keywords]]
+
+#+BEGIN_QUOTE
+It can be very useful to use different aspects of the TODO mechanism in
+different files.  For file-local settings, you need to add special lines
+to the file which set the keywords and interpretation for that file
+only.  For example, to set one of the two examples discussed above, you
+need one of the following lines, starting in column zero anywhere in the
+file:
+
+     ,#+TODO: TODO FEEDBACK VERIFY | DONE CANCELED
+
+   You may also write ‘#+SEQ_TODO’ to be explicit about the
+interpretation, but it means the same as ‘#+TODO’, or
+
+     ,#+TYP_TODO: Fred Sara Lucy Mike | DONE
+
+   A setup for using several sets in parallel would be:
+
+     ,#+TODO: TODO(t) | DONE(d)
+     ,#+TODO: REPORT(r) BUG(b) KNOWNCAUSE(k) | FIXED(f)
+     ,#+TODO: | CANCELED(c)
+
+   To make sure you are using the correct keyword, type ‘#+’ into the
+buffer and then use ‘M-<TAB>’ to complete it (see *note Completion::).
+
+   Remember that the keywords after the vertical bar--or the last
+keyword if no bar is there--must always mean that the item is DONE,
+although you may use a different word.  After changing one of these
+lines, use ‘C-c C-c’ with point still in the line to make the changes
+known to Org mode(1).
+
+Local keywords overwrite all others.
+#+END_QUOTE
+
+* Example
+
+#+name: example
+#+BEGIN_SRC org
+  ,#+TITLE: Fixture: simplified file-local TODO keywords
+  ,#+STARTUP: showall
+  ,#+TODO: one(t) two(n) | three(d) four(w@)
+  ,#+TODO: FIVE SIX |
+  ,#+TYP_TODO: seven | eight
+  ,#+SEQ_TODO: nine | ten
+
+  ,* TODO default keyword should stay in title
+  Default TODO is not valid because file-local TODO lines override defaults.
+
+  ,* DONE default done keyword should stay in title
+  Default DONE is not valid because file-local TODO lines override defaults.
+
+  ,* one open keyword with fast key
+  ,* two another open keyword with fast key
+  ,* three closed keyword with fast key
+  ,* four closed keyword with extended fast key
+
+  ,* FIVE open keyword from empty-done-side line
+  ,* SIX another open keyword from empty-done-side line
+
+  ,* seven open keyword from TYP_TODO
+  ,* eight closed keyword from TYP_TODO
+
+  ,* nine open keyword from SEQ_TODO
+  ,* ten closed keyword from SEQ_TODO
+
+  ,#+TODO: | eleven(c)
+
+  ,* eleven closed keyword from later TODO line
+
+  ,#+TODO: late_open | late_done
+
+  ,* late_open open keyword from line defined later in file
+  ,* late_done closed keyword from line defined later in file
+
+  ,* TODO still not valid after later local lines
+  ,* DONE still not valid after later local lines
+#+END_SRC
+
+* Org parse
+
+#+begin_src emacs-lisp :results value code
+  (org-sbe "init")
+  (orgfdb-parse-named-org-src-block "example")
+#+end_src
+
+#+RESULTS:
+#+begin_src emacs-lisp
+(org-data
+ (:standard-properties
+  [1 1 1 1138 1138 0 nil org-data nil nil nil 3 1138 nil #<killed buffer> nil
+     nil nil]
+  :pre-blank 0 :path nil :CATEGORY nil)
+ (section
+  (:standard-properties
+   [1 1 1 185 185 0 nil first-section nil nil nil 1 185 nil #<killed buffer> nil
+      nil #0])
+  (keyword
+   (:standard-properties
+    [1 1 nil nil 55 0 nil top-comment nil nil nil nil nil nil #<killed buffer>
+       nil nil #1]
+    :key "TITLE" :value "Fixture: simplified file-local TODO keywords"))
+  (keyword
+   (:standard-properties
+    [55 55 nil nil 74 0 nil nil nil nil nil nil nil nil #<killed buffer> nil nil
+        #1]
+    :key "STARTUP" :value "showall"))
+  (keyword
+   (:standard-properties
+    [74 74 nil nil 116 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+        nil #1]
+    :key "TODO" :value "one(t) two(n) | three(d) four(w@)"))
+  (keyword
+   (:standard-properties
+    [116 116 nil nil 135 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+         nil #1]
+    :key "TODO" :value "FIVE SIX |"))
+  (keyword
+   (:standard-properties
+    [135 135 nil nil 161 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+         nil #1]
+    :key "TYP_TODO" :value "seven | eight"))
+  (keyword
+   (:standard-properties
+    [161 161 nil nil 185 1 nil nil nil nil nil nil nil nil #<killed buffer> nil
+         nil #1]
+    :key "SEQ_TODO" :value "nine | ten")))
+ (headline
+  (:standard-properties
+   [185 185 229 305 305 0 (:title) nil nil nil nil 231 303 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "default keyword should stay in title" :title
+   (#("default keyword should stay in title" 0 36 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword "TODO" :todo-type todo
+   :footnote-section-p nil :archivedp nil :commentedp nil)
+  (section
+   (:standard-properties
+    [229 229 229 305 305 0 nil section nil nil nil 229 305 nil #<killed buffer>
+         nil nil #1])
+   (paragraph
+    (:standard-properties
+     [229 229 229 304 305 1 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2])
+    #("Default TODO is not valid because file-local TODO lines override defaults.\n"
+      0 75 (:parent #3)))))
+ (headline
+  (:standard-properties
+   [305 305 354 430 430 0 (:title) nil nil nil nil 356 428 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "default done keyword should stay in title" :title
+   (#("default done keyword should stay in title" 0 41 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword "DONE" :todo-type done
+   :footnote-section-p nil :archivedp nil :commentedp nil)
+  (section
+   (:standard-properties
+    [354 354 354 430 430 0 nil section nil nil nil 354 430 nil #<killed buffer>
+         nil nil #1])
+   (paragraph
+    (:standard-properties
+     [354 354 354 429 430 1 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2])
+    #("Default DONE is not valid because file-local TODO lines override defaults.\n"
+      0 75 (:parent #3)))))
+ (headline
+  (:standard-properties
+   [430 430 nil nil 463 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "one open keyword with fast key" :title
+   (#("one open keyword with fast key" 0 30 (:parent #1))) :level 1 :priority
+   nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+   :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [463 463 nil nil 504 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "two another open keyword with fast key" :title
+   (#("two another open keyword with fast key" 0 38 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+   nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [504 504 nil nil 541 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "three closed keyword with fast key" :title
+   (#("three closed keyword with fast key" 0 34 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+   nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [541 541 nil nil 587 1 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "four closed keyword with extended fast key" :title
+   (#("four closed keyword with extended fast key" 0 42 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+   nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [587 587 nil nil 633 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "FIVE open keyword from empty-done-side line" :title
+   (#("FIVE open keyword from empty-done-side line" 0 43 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+   nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [633 633 nil nil 687 1 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "SIX another open keyword from empty-done-side line"
+   :title
+   (#("SIX another open keyword from empty-done-side line" 0 50 (:parent #1)))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [687 687 nil nil 722 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "seven open keyword from TYP_TODO" :title
+   (#("seven open keyword from TYP" 0 27 (:parent #1))
+    (subscript
+     (:standard-properties
+      [716 nil 717 721 721 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :use-brackets-p nil)
+     #("TODO" 0 4 (:parent #4))))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [722 722 nil nil 760 1 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "eight closed keyword from TYP_TODO" :title
+   (#("eight closed keyword from TYP" 0 29 (:parent #1))
+    (subscript
+     (:standard-properties
+      [753 nil 754 758 758 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :use-brackets-p nil)
+     #("TODO" 0 4 (:parent #4))))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [760 760 nil nil 794 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "nine open keyword from SEQ_TODO" :title
+   (#("nine open keyword from SEQ" 0 26 (:parent #1))
+    (subscript
+     (:standard-properties
+      [788 nil 789 793 793 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :use-brackets-p nil)
+     #("TODO" 0 4 (:parent #4))))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [794 794 830 851 851 0 (:title) nil nil nil nil 832 849 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "ten closed keyword from SEQ_TODO" :title
+   (#("ten closed keyword from SEQ" 0 27 (:parent #1))
+    (subscript
+     (:standard-properties
+      [823 nil 824 828 828 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :use-brackets-p nil)
+     #("TODO" 0 4 (:parent #4))))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil)
+  (section
+   (:standard-properties
+    [830 830 830 851 851 0 nil section nil nil nil 830 851 nil #<killed buffer>
+         nil nil #1])
+   (keyword
+    (:standard-properties
+     [830 830 nil nil 851 1 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2]
+     :key "TODO" :value "| eleven(c)"))))
+ (headline
+  (:standard-properties
+   [851 851 897 928 928 0 (:title) nil nil nil nil 899 926 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "eleven closed keyword from later TODO line" :title
+   (#("eleven closed keyword from later TODO line" 0 42 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+   nil :archivedp nil :commentedp nil)
+  (section
+   (:standard-properties
+    [897 897 897 928 928 0 nil section nil nil nil 897 928 nil #<killed buffer>
+         nil nil #1])
+   (keyword
+    (:standard-properties
+     [897 897 nil nil 928 1 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2]
+     :key "TODO" :value "late_open | late_done"))))
+ (headline
+  (:standard-properties
+   [928 928 nil nil 985 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value
+   "late_open open keyword from line defined later in file" :title
+   (#("late" 0 4 (:parent #1))
+    (subscript
+     (:standard-properties
+      [934 nil 935 939 940 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :use-brackets-p nil)
+     #("open" 0 4 (:parent #4)))
+    #("open keyword from line defined later in file" 0 44 (:parent #1)))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [985 985 nil nil 1045 1 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value
+   "late_done closed keyword from line defined later in file" :title
+   (#("late" 0 4 (:parent #1))
+    (subscript
+     (:standard-properties
+      [991 nil 992 996 997 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :use-brackets-p nil)
+     #("done" 0 4 (:parent #4)))
+    #("closed keyword from line defined later in file" 0 46 (:parent #1)))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [1045 1045 nil nil 1092 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+         nil nil #0]
+   :pre-blank 0 :raw-value "still not valid after later local lines" :title
+   (#("still not valid after later local lines" 0 39 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword "TODO" :todo-type todo
+   :footnote-section-p nil :archivedp nil :commentedp nil))
+ (headline
+  (:standard-properties
+   [1092 1092 nil nil 1138 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+         nil nil #0]
+   :pre-blank 0 :raw-value "still not valid after later local lines" :title
+   (#("still not valid after later local lines" 0 39 (:parent #1))) :level 1
+   :priority nil :tags nil :todo-keyword "DONE" :todo-type done
+   :footnote-section-p nil :archivedp nil :commentedp nil)))
+#+end_src
+
+* Setup
+
+#+name: init
+#+begin_src emacs-lisp :results silent
+(load-file "./tools/orgfdb-org-inspect.el")
+#+end_src
+

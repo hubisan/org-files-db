@@ -1,0 +1,13 @@
+#+TITLE: Explore DB
+#+MY_VISUAL_FILL: off
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+SELECT * FROM files LIMIT 5;
+#+END_SRC
+
+#+RESULTS:
+| id | path                                   |            mtime_ns | size | content_hash | indexed_at |
+|----+----------------------------------------+---------------------+------+--------------+------------|
+|  1 | ././files/file-local-todo-keywords.org | 1781808483955605322 | 1188 | N/A          | 1781809601 |
+|  2 | ././files/inherited-heading-tags.org   | 1781808923034914634 |  904 | N/A          | 1781809601 |
+|  3 | ././files/multipe-title-keywords.org   | 1781809115964142153 |  254 | N/A          | 1781809601 |

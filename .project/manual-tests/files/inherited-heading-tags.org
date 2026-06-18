@@ -1,0 +1,35 @@
+#+TITLE: Inherited heading tags
+#+STARTUP: showall
+
+* parent with one tag :parent:
+Parent body.
+
+** child inherits parent tag
+Child should have all_tags_json = ["parent"].
+
+** child with local tag :child:
+Child should have all_tags_json = ["parent", "child"].
+
+*** grandchild inherits both
+Grandchild should have all_tags_json = ["parent", "child"].
+
+*** grandchild with duplicate local tag :parent:
+Duplicate local tag should not be repeated.
+Expected all_tags_json = ["parent", "child"].
+
+* second parent :second:
+Second parent starts a separate tag inheritance branch.
+
+** second child with local tag :child:
+Expected all_tags_json = ["second", "child"].
+
+*** second grandchild with extra tag :extra:
+Expected all_tags_json = ["second", "child", "extra"].
+
+* untagged parent
+
+** child with only local tag :local:
+Expected all_tags_json = ["local"].
+
+** child without tags
+Expected all_tags_json = [].

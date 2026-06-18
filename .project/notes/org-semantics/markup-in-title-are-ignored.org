@@ -1,13 +1,11 @@
 #+TITLE: Markup in #+TITLE is ignored
 #+STARTUP: showall
-#+PROPERTY: header-args:emacs-lisp :results value pp
-#+PROPERTY: header-args:emacs-lisp+ :noweb yes
 
 Markup like emphasis markers and links in #+TITLE are ignored. Orgice handles this correctly and we will behave the same way as well.
 
 * Example
 
-#+name: emphasis-example
+#+name: example
 #+begin_src org
   ,#+TITLE: Invalid *bold* /italic/ _underlined_ =verbatim= ~code~ +strike-through+ [[file:test.org]]
 
@@ -16,9 +14,9 @@ Markup like emphasis markers and links in #+TITLE are ignored. Orgice handles th
 
 * Org parse
 
-#+begin_src emacs-lisp
-<<init>>
-(orgfdb-parse-named-org-src-block "emphasis-example")
+#+begin_src emacs-lisp :results value code
+  (org-sbe "init")
+  (orgfdb-parse-named-org-src-block "example")
 #+end_src
 
 #+RESULTS:

@@ -1,0 +1,119 @@
+#+TITLE: Multiple Title Keywords
+
+[[info:org#Export Settings][org#Export Settings]]
+
+‘TITLE’
+     Org displays this title.  For long titles, use multiple ‘#+TITLE’
+     lines.
+
+* Example
+
+#+name: example
+#+begin_src org
+  ,#+TITLE: Title can span
+  ,#+TITLE: multiple lines, 
+  ,#+AUTHOR: Hubisan
+
+  See [[file:../../notes/org-semantics/multipe-title-keywords.org]]
+
+  ,* Unfortunately Everywhere
+
+  ,#+TITLE: even here
+
+  This can be proven by using ~org-latex-export-as-latex~:
+
+  ,#+BEGIN_SRC latex
+    \title{Title can span multiple lines, even here}
+  ,#+END_SRC
+#+end_src
+
+* Org parse
+
+#+begin_src emacs-lisp :results value code
+  (org-sbe "init")
+  (orgfdb-parse-named-org-src-block "example")
+#+end_src
+
+#+RESULTS:
+#+begin_src emacs-lisp
+(org-data
+ (:standard-properties
+  [1 1 1 321 321 0 nil org-data nil nil nil 3 321 nil #<killed buffer> nil nil
+     nil]
+  :pre-blank 0 :path nil :CATEGORY nil)
+ (section
+  (:standard-properties
+   [1 1 1 137 137 0 nil first-section nil nil nil 1 137 nil #<killed buffer> nil
+      nil #0])
+  (keyword
+   (:standard-properties
+    [1 1 nil nil 25 0 nil top-comment nil nil nil nil nil nil #<killed buffer>
+       nil nil #1]
+    :key "TITLE" :value "Title can span"))
+  (keyword
+   (:standard-properties
+    [25 25 nil nil 51 0 nil nil nil nil nil nil nil nil #<killed buffer> nil nil
+        #1]
+    :key "TITLE" :value "multiple lines,"))
+  (keyword
+   (:standard-properties
+    [51 51 nil nil 70 1 nil nil nil nil nil nil nil nil #<killed buffer> nil nil
+        #1]
+    :key "AUTHOR" :value "Hubisan"))
+  (paragraph
+   (:standard-properties
+    [70 70 70 136 137 1 nil nil nil nil nil nil nil nil #<killed buffer> nil nil
+        #1])
+   #("See " 0 4 (:parent #2))
+   (link
+    (:standard-properties
+     [74 nil nil nil 135 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+         nil #2]
+     :type "file" :type-explicit-p t :path
+     "../../notes/org-semantics/multipe-title-keywords.org" :format bracket
+     :raw-link "file:../../notes/org-semantics/multipe-title-keywords.org"
+     :application nil :search-option nil))
+   #("\n" 0 1 (:parent #2))))
+ (headline
+  (:standard-properties
+   [137 137 165 321 321 0 (:title) nil nil nil nil 167 319 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "Unfortunately Everywhere" :title
+   (#("Unfortunately Everywhere" 0 24 (:parent #1))) :level 1 :priority nil
+   :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp
+   nil :commentedp nil)
+  (section
+   (:standard-properties
+    [165 165 165 321 321 0 nil section nil nil nil 165 321 nil #<killed buffer>
+         nil nil #1])
+   (keyword
+    (:standard-properties
+     [165 165 nil nil 185 1 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2]
+     :key "TITLE" :value "even here"))
+   (paragraph
+    (:standard-properties
+     [185 185 185 242 243 1 nil nil nil nil nil nil nil nil #<killed buffer> nil
+          nil #2])
+    #("This can be proven by using " 0 28 (:parent #3))
+    (code
+     (:standard-properties
+      [213 nil nil nil 240 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #3]
+      :value "org-latex-export-as-latex"))
+    #(":\n" 0 2 (:parent #3)))
+   (src-block
+    (:standard-properties
+     [243 243 nil nil 321 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+          nil #2]
+     :language "latex" :switches nil :parameters nil :number-lines nil
+     :preserve-indent nil :retain-labels t :use-labels t :label-fmt nil :value
+     "  \\title{Title can span multiple lines, even here}\n")))))
+#+end_src
+
+* Setup
+
+#+name: init
+#+begin_src emacs-lisp :results silent
+(load-file "./tools/orgfdb-org-inspect.el")
+#+end_src

@@ -1,0 +1,15 @@
+#+TITLE: Title can span
+#+TITLE: multiple lines, 
+#+AUTHOR: Hubisan
+
+See [[file:../../notes/org-semantics/multipe-title-keywords.org]]
+
+* Unfortunately Everywhere
+
+#+TITLE: even here
+
+This can be proven by using ~org-latex-export-as-latex~:
+
+#+BEGIN_SRC latex
+  \title{Title can span multiple lines, even here}
+#+END_SRC

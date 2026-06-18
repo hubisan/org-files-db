@@ -1,0 +1,31 @@
+#+TITLE: Manual Tests
+#+STARTUP: showall
+
+* Paths
+
+#+name: cargo-manifest
+: ../../Cargo.toml
+
+#+name: config-path
+: ./Config.toml
+
+#+name: headings-json-with-root
+: ./data/headings-with-root.json
+
+* Commands
+
+Run rebuild. This rebuilds the database.
+
+#+begin_src shell :noweb yes
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- rebuild --config <<config-path()>>
+#+end_src
+
+#+RESULTS:
+
+Write headings JSON including the root heading.
+
+#+begin_src shell :noweb yes
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- headings --json --include-root --config <<config-path()>> > <<headings-json-with-root()>>
+#+end_src
+
+#+RESULTS:
