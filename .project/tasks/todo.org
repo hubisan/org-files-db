@@ -97,7 +97,7 @@ config
 
 [[./archive/2026-06-18--implement-indexer-for-full-rebuild.org]]
 
-** TODO Set up CLI with Clap
+** BUILD Set up CLI with Clap
 
 Geht direkt mit BUILD
 
