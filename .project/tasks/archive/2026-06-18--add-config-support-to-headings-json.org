@@ -1,0 +1,83 @@
+#+TITLE: Add `--config` support to `headings --json`
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 10:00]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the task: "Add `--config` support to `headings --json`".
+
+Context:
+`rebuild --config <path>` already loads the config and writes to the configured `db_path`.
+`headings --json` currently reads from the default database path, so users may need to `cd` into the config directory before running it.
+
+Scope:
+
+- Add `--config <path>` to the `headings` command.
+- When `--config` is provided, load the config and use `config.db_path` to open/read the SQLite database.
+- Keep existing `orgfdb headings --json` behavior unchanged when `--config` is not provided.
+- Follow existing CLI, config-loading, DB-query, and error-handling conventions.
+- Before editing, briefly inspect relevant CLI/config/query modules and tests. Do not write a long plan.
+
+Required behavior:
+
+- `orgfdb headings --json --config /path/to/config.toml` reads from the configured `db_path`.
+- Relative `db_path` values must keep the existing config semantics, resolving relative to the config file location.
+- Existing `orgfdb headings --json` still reads from the default DB path as before.
+- Do not run rebuild from `headings`.
+- Do not change DB schema.
+- Do not change JSON field names or output shape.
+- Do not implement unrelated CLI options.
+
+Tests:
+
+- Add or update focused CLI tests for argument parsing with `headings --json --config <path>`.
+- Add or update a focused test proving the configured DB path is used when `--config` is provided.
+- Keep existing `headings --json` behavior covered.
+- Run repository checks, preferring commands from `repository.org` if present, for example `cargo fmt --all` and `make ci`.
+
+Completion report:
+
+- Summarize files changed.
+- State final behavior for `headings --json`.
+- State final behavior for `headings --json --config <path>`.
+- Mention that `headings` does not run rebuild.
+- State tests/checks run.
+- Suggest a Conventional Commit message.
+
+* Build
+
+** Approach
+
+- Added an optional ~--config~ flag to the existing ~headings~ subcommand.
+- Reused the config loader to resolve the database path when the flag is present.
+- Kept the default no-config behavior unchanged and left rebuild out of the headings code path.
+
+** Changed files
+
+- ~src/cli.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--add-config-support-to-headings-json.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- Argument parsing tests cover ~headings --json~ with and without ~--config~.
+- A focused CLI test proves the configured DB path is used when ~--config~ is present.
+- Existing CLI, config, indexer, and DB tests still pass.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

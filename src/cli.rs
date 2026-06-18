@@ -2,7 +2,7 @@ use std::{
     error::Error,
     fmt,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
 };
 
@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use rusqlite::Connection;
 
 use crate::{
-    config::Config,
+    config::{Config, ConfigError},
     db::{open_database, DbError, DbReader, HeadingListRow},
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
@@ -34,6 +34,8 @@ enum Command {
         json: bool,
         #[arg(long)]
         include_root: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
     },
 }
 
@@ -59,8 +61,12 @@ where
             print_diagnostics(&report);
             Ok(())
         }
-        Command::Headings { json, include_root } => {
-            let rows = headings_json_rows(json, include_root)?;
+        Command::Headings {
+            json,
+            include_root,
+            config,
+        } => {
+            let rows = headings_json_rows(json, include_root, config.as_deref())?;
             let stdout = io::stdout();
             let mut handle = stdout.lock();
             serde_json::to_writer_pretty(&mut handle, &rows).map_err(CliError::Json)?;
@@ -76,12 +82,16 @@ pub fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport
         .map_err(CliError::Indexer)
 }
 
-fn headings_json_rows(json: bool, include_root: bool) -> Result<Vec<HeadingListRow>, CliError> {
+fn headings_json_rows(
+    json: bool,
+    include_root: bool,
+    config_path: Option<&Path>,
+) -> Result<Vec<HeadingListRow>, CliError> {
     if !json {
         return Err(CliError::MissingJsonFlag);
     }
 
-    let connection = open_headings_database()?;
+    let connection = open_headings_database(config_path)?;
     headings_rows_for_json(&connection, include_root)
 }
 
@@ -98,8 +108,14 @@ fn headings_rows_for_json(
     Ok(rows)
 }
 
-fn open_headings_database() -> Result<Connection, CliError> {
-    let db_path = Config::default().db_path;
+fn open_headings_database(config_path: Option<&std::path::Path>) -> Result<Connection, CliError> {
+    let db_path = if let Some(config_path) = config_path {
+        Config::load_from_file(config_path)
+            .map_err(CliError::Config)?
+            .db_path
+    } else {
+        Config::default().db_path
+    };
     open_database(&db_path).map_err(CliError::Database)
 }
 
@@ -127,6 +143,7 @@ fn print_diagnostics(report: &RebuildReport) {
 pub enum CliError {
     Parse(clap::Error),
     MissingJsonFlag,
+    Config(ConfigError),
     Database(DbError),
     DbRead(crate::db::DbReadError),
     Indexer(IndexerError),
@@ -138,7 +155,8 @@ impl CliError {
     fn exit_code(&self) -> u8 {
         match self {
             Self::Parse(_) | Self::MissingJsonFlag => 2,
-            Self::Database(_)
+            Self::Config(_)
+            | Self::Database(_)
             | Self::DbRead(_)
             | Self::Indexer(_)
             | Self::Json(_)
@@ -154,6 +172,7 @@ impl fmt::Display for CliError {
             Self::MissingJsonFlag => {
                 write!(f, "headings currently only supports --json")
             }
+            Self::Config(source) => write!(f, "{source}"),
             Self::Database(source) => write!(f, "{source}"),
             Self::DbRead(source) => write!(f, "{source}"),
             Self::Indexer(source) => write!(f, "{source}"),
@@ -168,6 +187,7 @@ impl Error for CliError {
         match self {
             Self::Parse(error) => Some(error),
             Self::MissingJsonFlag => None,
+            Self::Config(source) => Some(source),
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
             Self::Indexer(source) => Some(source),
@@ -181,11 +201,53 @@ impl Error for CliError {
 mod tests {
     use super::{rebuild, Cli, CliError};
     use crate::db::{
-        open_in_memory_database_with_schema, DbWriter, FileRecordInput, HeadingRecord,
-        SchemaDefinition,
+        open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
+        HeadingRecord, SchemaDefinition,
     };
     use clap::Parser;
-    use std::path::{Path, PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new(name: &str) -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "org-files-db-cli-tests-{}-{}-{}",
+                name,
+                std::process::id(),
+                unique
+            ));
+            fs::create_dir_all(&path).expect("test dir should be created");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn write_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dir should be created");
+        }
+        fs::write(path, content).expect("file should be written");
+    }
 
     #[test]
     fn parses_rebuild_and_headings_arguments() {
@@ -203,7 +265,9 @@ mod tests {
             .expect("headings args should parse");
 
         match cli.command {
-            super::Command::Headings { json, include_root } => {
+            super::Command::Headings {
+                json, include_root, ..
+            } => {
                 assert!(json);
                 assert!(!include_root);
             }
@@ -214,9 +278,27 @@ mod tests {
             .expect("headings include-root args should parse");
 
         match cli.command {
-            super::Command::Headings { json, include_root } => {
+            super::Command::Headings {
+                json, include_root, ..
+            } => {
                 assert!(json);
                 assert!(include_root);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["orgfdb", "headings", "--json", "--config", "config.toml"])
+            .expect("headings config args should parse");
+
+        match cli.command {
+            super::Command::Headings {
+                json,
+                include_root,
+                config,
+            } => {
+                assert!(json);
+                assert!(!include_root);
+                assert_eq!(config, Some(PathBuf::from("config.toml")));
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -376,6 +458,97 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].level, 0);
         assert_eq!(rows[1].level, 1);
+    }
+
+    #[test]
+    fn headings_uses_configured_db_path_when_config_is_provided() {
+        let test_dir = TestDir::new("headings-config");
+        let config_dir = test_dir.path().join("nested/config");
+        let db_path = config_dir.join("../db.sqlite");
+        let config_path = config_dir.join("config.toml");
+        let file_path = config_dir.join("notes.org");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "../db.sqlite"
+"#,
+        );
+        write_file(&file_path, "* Heading\n");
+
+        let mut configured_db = open_database(&db_path).expect("configured database should open");
+        DbWriter::rebuild_file(
+            &mut configured_db,
+            &FileRecordInput {
+                path: file_path.clone(),
+                mtime_ns: 10,
+                size: 100,
+                content_hash: None,
+                indexed_at: None,
+            },
+            |tx, file_id| {
+                let level0_id = DbWriter::insert_level0_heading(
+                    tx,
+                    &HeadingRecord {
+                        id: None,
+                        file_id,
+                        parent_id: None,
+                        level: 0,
+                        line_number: None,
+                        byte_start: -1,
+                        byte_end: 100,
+                        title: file_path.display().to_string(),
+                        title_raw: file_path.display().to_string(),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[]".to_string(),
+                    },
+                )?;
+                DbWriter::insert_headings(
+                    tx,
+                    &[HeadingRecord {
+                        id: None,
+                        file_id,
+                        parent_id: Some(level0_id),
+                        level: 1,
+                        line_number: Some(2),
+                        byte_start: 10,
+                        byte_end: 20,
+                        title: "Heading".to_string(),
+                        title_raw: "Heading".to_string(),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[]".to_string(),
+                    }],
+                )?;
+                Ok(())
+            },
+        )
+        .expect("configured db should be populated");
+
+        let rows = super::headings_rows_for_json(&configured_db, false)
+            .expect("rows should load from configured db");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Heading");
     }
 
     #[test]

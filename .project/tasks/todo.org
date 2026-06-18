@@ -97,46 +97,23 @@ config
 
 [[./archive/2026-06-18--implement-indexer-for-full-rebuild.org]]
 
-** DONE Set up CLI with Clap
+** DONE [2026-06-18 Thu 16:36] Set up CLI with Clap
 
 [[./archive/2026-06-18--set-up-cli-with-clap.org]]
 
-** DONE Implement a small CLI follow-up for level-0/root heading output.
+** DONE [2026-06-18 Thu] Implement a small CLI follow-up for level-0/root heading output.
 
 [[./archive/2026-06-18--feat-cli-implement-include-root.org]]
 
-** DONE Expand `~` in config paths
+** DONE [2026-06-18 Thu] Expand `~` in config paths
 
 [[./archive/2026-06-18--expand-tilde-in-config-paths.org]]
 
-** TODO Add `--config` support to `headings --json`
+** DONE [2026-06-18 Thu] Add `--config` support to `headings --json`
 
-Goal:
-Allow `headings --json` to read the database path from a config file instead of depending on the current working directory.
+[[./archive/2026-06-18--add-config-support-to-headings-json.org]]
 
-Context:
-`rebuild --config <path>` already loads the config and writes to the configured `db_path`.
-`headings --json` currently reads from the default database path, so users may need to `cd` into the config directory before running it.
-
-Required behavior:
-
-- Add `--config <path>` to the `headings` command.
-- When provided, load the config and use `config.db_path` to open/read the SQLite database.
-- Keep existing behavior without `--config` unchanged or document it clearly.
-- Do not run rebuild from `headings`.
-- Do not change the DB schema.
-- Do not change JSON field names.
-- Follow existing CLI and error-handling conventions.
-
-Acceptance criteria:
-
-- `orgfdb headings --json --config /path/to/config.toml` reads from the configured `db_path`.
-- The command no longer depends on the current working directory when `--config` is provided.
-- Existing `orgfdb headings --json` behavior still works.
-- Tests cover argument parsing for `headings --json --config`.
-- Tests cover that the configured DB path is used.
-
-** TODO Normalize `title` and preserve `title_raw` for headings
+** BUILD Normalize `title` and preserve `title_raw` for headings
 
 Goal:
 Make heading title fields match the documented schema semantics.
