@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use orgize::{ast::Headline, rowan::ast::AstNode, Org};
+use orgize::{
+    ast::{Headline, Link},
+    rowan::{ast::AstNode, NodeOrToken},
+    Org, SyntaxElement, SyntaxKind, SyntaxNode,
+};
 
 use super::diagnostics::ParseDiagnostic;
 use super::model::{
@@ -39,7 +43,11 @@ impl OrgParser for OrgizeAdapter {
 
         let active_todo_keywords = file_local_todo_keyword_config(&parsed.metadata.keywords)
             .unwrap_or_else(|| options.todo_keywords.clone());
-        parsed.headings.push(level_zero_heading(path, content));
+        parsed.headings.push(level_zero_heading(
+            path,
+            content,
+            parsed.metadata.title.as_deref(),
+        ));
 
         collect_headlines(
             document.headlines(),
@@ -69,21 +77,18 @@ fn collect_headlines(
         let end = usize::from(headline.end());
 
         let original_title_raw = headline.title_raw().trim_end().to_string();
-        let mut parsed = ParsedHeading::new(
-            path,
-            headline.level() as u8,
-            original_title_raw.trim().to_string(),
-            start,
-            end,
-        );
-        parsed.title_raw = original_title_raw.clone();
+        let normalized_title = normalize_title_elements(headline.title());
+        let mut parsed =
+            ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
+        parsed.title_raw = original_title_raw.trim().to_string();
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
         if parsed.todo_keyword.is_none() {
-            if let Some((keyword, normalized_title)) =
+            if let Some((keyword, stripped_title_raw)) =
                 infer_todo_keyword(&original_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
-                parsed.title = normalized_title;
+                parsed.title_raw = stripped_title_raw.clone();
+                parsed.title = normalize_title_from_raw(&stripped_title_raw);
             }
         }
         parsed.todo_type = parsed
@@ -141,13 +146,100 @@ fn collect_headlines(
     }
 }
 
-fn level_zero_heading(path: &Path, content: &str) -> ParsedHeading {
-    let path_title = path.display().to_string();
-    let mut heading = ParsedHeading::new(path, 0, path_title.clone(), 0, content.len());
-    heading.title_raw = path_title;
+fn level_zero_heading(path: &Path, content: &str, document_title: Option<&str>) -> ParsedHeading {
+    let title = synthetic_level_zero_title(path, document_title);
+    let mut heading = ParsedHeading::new(path, 0, title.clone(), 0, content.len());
+    heading.title_raw = title;
     heading.line_number = Some(1);
     heading.is_root = true;
     heading
+}
+
+fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> String {
+    if let Some(title) = document_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+    {
+        return title.to_string();
+    }
+
+    path.file_stem()
+        .or_else(|| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+fn normalize_title_from_raw(title_raw: &str) -> String {
+    let parsed = Org::parse(format!("* {title_raw}\n"));
+    parsed
+        .document()
+        .headlines()
+        .next()
+        .map(|headline| normalize_title_elements(headline.title()))
+        .unwrap_or_else(|| title_raw.trim().to_string())
+}
+
+fn normalize_title_elements(elements: impl Iterator<Item = SyntaxElement>) -> String {
+    let mut normalized = String::new();
+
+    for element in elements {
+        push_normalized_element(&mut normalized, element);
+    }
+
+    normalized.trim().to_string()
+}
+
+fn push_normalized_element(output: &mut String, element: SyntaxElement) {
+    match element {
+        NodeOrToken::Node(node) => match node.kind() {
+            SyntaxKind::LINK => {
+                if let Some(link) = Link::cast(node.clone()) {
+                    if link.has_description() {
+                        output.push_str(&normalize_title_elements(link.description()));
+                    } else {
+                        output.push_str(link.path().to_string().trim());
+                    }
+                } else {
+                    push_normalized_children(output, &node);
+                }
+            }
+            kind if is_supported_title_markup(kind) => {
+                push_markup_contents(output, &node);
+            }
+            _ => push_normalized_children(output, &node),
+        },
+        NodeOrToken::Token(token) => output.push_str(token.text()),
+    }
+}
+
+fn push_normalized_children(output: &mut String, node: &SyntaxNode) {
+    for child in node.children_with_tokens() {
+        push_normalized_element(output, child);
+    }
+}
+
+fn push_markup_contents(output: &mut String, node: &SyntaxNode) {
+    let children: Vec<_> = node.children_with_tokens().collect();
+    let child_count = children.len();
+
+    for (index, child) in children.into_iter().enumerate() {
+        if index == 0 || index + 1 == child_count {
+            continue;
+        }
+        push_normalized_element(output, child);
+    }
+}
+
+fn is_supported_title_markup(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::BOLD
+            | SyntaxKind::ITALIC
+            | SyntaxKind::UNDERLINE
+            | SyntaxKind::VERBATIM
+            | SyntaxKind::CODE
+    )
 }
 
 fn line_number_for_offset(content: &str, offset: usize) -> u32 {

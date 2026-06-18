@@ -22,10 +22,8 @@ fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
     assert_eq!(document.headings.len(), 4);
 
     assert_eq!(document.headings[0].level, 0);
-    assert_eq!(
-        document.headings[0].title,
-        "tests/data/parser/headings/nested-planning-lines/fixture.org"
-    );
+    assert_eq!(document.headings[0].title, "Org Tests for Headings");
+    assert_eq!(document.headings[0].title_raw, "Org Tests for Headings");
     assert_eq!(document.headings[0].byte_start, 0);
     assert_eq!(document.headings[0].byte_end, content.len());
     assert!(document.headings[0].is_root);
@@ -72,10 +70,8 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
 
     let level0 = &document.headings[0];
     assert_eq!(level0.level, 0);
-    assert_eq!(
-        level0.title,
-        "tests/data/parser/priorities/todo-priority-tags/fixture.org"
-    );
+    assert_eq!(level0.title, "Orgize Priority Fixture");
+    assert_eq!(level0.title_raw, "Orgize Priority Fixture");
 
     let first = &document.headings[1];
     assert_eq!(first.title, "Inbox");
@@ -115,6 +111,7 @@ fn orgize_adapter_uses_configured_project_todo_keywords() {
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].title, "Parser fixture");
+    assert_eq!(document.headings[1].title_raw, "Parser fixture");
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].title, "Implemented");
@@ -142,7 +139,107 @@ fn orgize_adapter_prefers_file_local_todo_keywords_over_configured_defaults() {
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].title, "Parser fixture");
+    assert_eq!(document.headings[1].title_raw, "Parser fixture");
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].title, "Implemented");
+}
+
+#[test]
+fn orgize_adapter_normalizes_described_link_titles() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/links.org"),
+            "* [[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]\n",
+            &ParseOptions::default(),
+        )
+        .expect("described link heading should parse");
+
+    assert_eq!(document.headings[1].title, "Thomas Krebs - Hausarzt");
+    assert_eq!(
+        document.headings[1].title_raw,
+        "[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]"
+    );
+}
+
+#[test]
+fn orgize_adapter_normalizes_undescribed_link_titles() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/links.org"),
+            "* [[file:natural/hausarzt-krebs-thomas.org]]\n",
+            &ParseOptions::default(),
+        )
+        .expect("undescribed link heading should parse");
+
+    assert_eq!(
+        document.headings[1].title,
+        "file:natural/hausarzt-krebs-thomas.org"
+    );
+    assert_eq!(
+        document.headings[1].title_raw,
+        "[[file:natural/hausarzt-krebs-thomas.org]]"
+    );
+}
+
+#[test]
+fn orgize_adapter_removes_basic_markup_from_display_title() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/markup.org"),
+            "* *bold* /italic/ _underline_ =code= ~verbatim~\n",
+            &ParseOptions::default(),
+        )
+        .expect("markup heading should parse");
+
+    assert_eq!(
+        document.headings[1].title,
+        "bold italic underline code verbatim"
+    );
+    assert_eq!(
+        document.headings[1].title_raw,
+        "*bold* /italic/ _underline_ =code= ~verbatim~"
+    );
+}
+
+#[test]
+fn orgize_adapter_leaves_plain_heading_titles_unchanged() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/plain.org"),
+            "* Plain Heading\n",
+            &ParseOptions::default(),
+        )
+        .expect("plain heading should parse");
+
+    assert_eq!(document.headings[1].title, "Plain Heading");
+    assert_eq!(document.headings[1].title_raw, "Plain Heading");
+}
+
+#[test]
+fn orgize_adapter_uses_document_title_for_synthetic_level_zero_heading() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/project.org"),
+            "#+TITLE: Project Dashboard\n* Heading\n",
+            &ParseOptions::default(),
+        )
+        .expect("document title should parse");
+
+    assert_eq!(document.headings[0].title, "Project Dashboard");
+    assert_eq!(document.headings[0].title_raw, "Project Dashboard");
+}
+
+#[test]
+fn orgize_adapter_falls_back_to_file_stem_for_synthetic_level_zero_heading() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/project.org"),
+            "* Heading\n",
+            &ParseOptions::default(),
+        )
+        .expect("document without title should parse");
+
+    assert_eq!(document.headings[0].title, "project");
+    assert_eq!(document.headings[0].title_raw, "project");
 }

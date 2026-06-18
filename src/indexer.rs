@@ -334,6 +334,7 @@ fn normalize_document(
     content: &str,
 ) -> ParsedOrgDocument {
     let mut normalized = document;
+    let level_zero_title = synthetic_level_zero_title(path, normalized.metadata.title.as_deref());
     let needs_level_zero = normalized
         .headings
         .first()
@@ -344,9 +345,10 @@ fn normalize_document(
         for heading in &mut normalized.headings {
             heading.parent_index = heading.parent_index.map(|index| index + 1);
         }
-        normalized
-            .headings
-            .insert(0, synthetic_level_zero_heading(path, content));
+        normalized.headings.insert(
+            0,
+            synthetic_level_zero_heading(path, content, &level_zero_title),
+        );
     } else {
         let level_zero = &mut normalized.headings[0];
         level_zero.file_path = path.to_path_buf();
@@ -355,7 +357,7 @@ fn normalize_document(
         level_zero.byte_start = 0;
         level_zero.byte_end = content.len();
         level_zero.line_number = Some(1);
-        level_zero.title = path.display().to_string();
+        level_zero.title = level_zero_title;
         level_zero.title_raw = level_zero.title.clone();
         level_zero.is_root = true;
     }
@@ -372,13 +374,27 @@ fn normalize_document(
     normalized
 }
 
-fn synthetic_level_zero_heading(path: &Path, content: &str) -> ParsedHeading {
-    let path_title = path.display().to_string();
-    let mut heading = ParsedHeading::new(path, 0, path_title.clone(), 0, content.len());
-    heading.title_raw = path_title;
+fn synthetic_level_zero_heading(path: &Path, content: &str, title: &str) -> ParsedHeading {
+    let mut heading = ParsedHeading::new(path, 0, title.to_string(), 0, content.len());
+    heading.title_raw = title.to_string();
     heading.line_number = Some(1);
     heading.is_root = true;
     heading
+}
+
+fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> String {
+    if let Some(title) = document_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+    {
+        return title.to_string();
+    }
+
+    path.file_stem()
+        .or_else(|| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 fn index_document(
@@ -746,7 +762,7 @@ index_body_text = false
         let headings = DbReader::list_headings(&connection).expect("headings should load");
         assert_eq!(headings.len(), 2);
         assert_eq!(headings[0].level, 0);
-        assert_eq!(headings[0].title, org_path.display().to_string());
+        assert_eq!(headings[0].title, "Project Notes");
         assert_eq!(headings[1].title, "Inbox");
         assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
@@ -904,20 +920,16 @@ index_body_text = false
         assert_eq!(
             first_outline,
             vec![
-                (
-                    0,
-                    "0000".to_string(),
-                    format!("[\"{}\"]", org_path.display())
-                ),
+                (0, "0000".to_string(), "[\"outline\"]".to_string()),
                 (
                     1,
                     "0000.0001".to_string(),
-                    format!("[\"{}\",\"Parent\"]", org_path.display())
+                    "[\"outline\",\"Parent\"]".to_string()
                 ),
                 (
                     2,
                     "0000.0001.0002".to_string(),
-                    format!("[\"{}\",\"Parent\",\"Child\"]", org_path.display())
+                    "[\"outline\",\"Parent\",\"Child\"]".to_string()
                 ),
             ]
         );

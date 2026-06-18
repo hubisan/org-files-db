@@ -1,0 +1,94 @@
+#+TITLE: Markup in #+TITLE is ignored
+#+STARTUP: showall
+#+PROPERTY: header-args:emacs-lisp :results value pp
+#+PROPERTY: header-args:emacs-lisp+ :noweb yes
+
+Markup like emphasis markers and links in #+TITLE are ignored. Orgice handles this correctly and we will behave the same way as well.
+
+* Example
+
+#+name: emphasis-example
+#+begin_src org
+  ,#+TITLE: Invalid *bold* /italic/ _underlined_ =verbatim= ~code~ +strike-through+ [[file:test.org]]
+
+  ,* Valid *bold* /italic/ _underlined_ =verbatim= ~code~ +strike-through+ [[file:test.org]]
+#+end_src
+
+* Org parse
+
+#+begin_src emacs-lisp
+<<init>>
+(orgfdb-parse-named-org-src-block "emphasis-example")
+#+end_src
+
+#+RESULTS:
+#+begin_src emacs-lisp
+(org-data
+ (:standard-properties
+  [1 1 1 190 190 0 nil org-data nil nil nil 3 190 nil #<killed buffer> nil nil
+     nil]
+  :pre-blank 0 :path nil :CATEGORY nil)
+ (section
+  (:standard-properties
+   [1 1 1 101 101 0 nil first-section nil nil nil 1 101 nil #<killed buffer> nil
+      nil #0])
+  (keyword
+   (:standard-properties
+    [1 1 nil nil 101 1 nil top-comment nil nil nil nil nil nil #<killed buffer>
+       nil nil #1]
+    :key "TITLE" :value
+    "Invalid *bold* /italic/ _underlined_ =verbatim= ~code~ +strike-through+ [[file:test.org]]")))
+ (headline
+  (:standard-properties
+   [101 101 nil nil 190 0 (:title) nil nil nil nil nil nil 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value
+   "Valid *bold* /italic/ _underlined_ =verbatim= ~code~ +strike-through+ [[file:test.org]]"
+   :title
+   (#("Valid " 0 6 (:parent #1))
+    (bold
+     (:standard-properties
+      [109 nil 110 114 116 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1])
+     #("bold" 0 4 (:parent #4)))
+    (italic
+     (:standard-properties
+      [116 nil 117 123 125 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1])
+     #("italic" 0 6 (:parent #4)))
+    (underline
+     (:standard-properties
+      [125 nil 126 136 138 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1])
+     #("underlined" 0 10 (:parent #4)))
+    (verbatim
+     (:standard-properties
+      [138 nil nil nil 149 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :value "verbatim"))
+    (code
+     (:standard-properties
+      [149 nil nil nil 156 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :value "code"))
+    (strike-through
+     (:standard-properties
+      [156 nil 157 171 173 1 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1])
+     #("strike-through" 0 14 (:parent #4)))
+    (link
+     (:standard-properties
+      [173 nil nil nil 190 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #1]
+      :type "file" :type-explicit-p t :path "test.org" :format bracket :raw-link
+      "file:test.org" :application nil :search-option nil)))
+   :level 1 :priority nil :tags nil :todo-keyword nil :todo-type nil
+   :footnote-section-p nil :archivedp nil :commentedp nil)))
+#+end_src
+
+* Setup
+
+#+name: init
+#+begin_src emacs-lisp :results silent
+(load-file "./tools/orgfdb-org-inspect.el")
+#+end_src

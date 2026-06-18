@@ -1,0 +1,150 @@
+#+TITLE: Normalize `title` and preserve `title_raw` for headings
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 17:10]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Normalize `title` and preserve `title_raw` for headings
+
+[[./archive/2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org]]
+
+Goal:
+Make heading title fields match the documented schema semantics.
+
+Context:
+The schema documents two different title fields:
+
+- `title` is the normalized display title.
+- `title_raw` preserves more of the original Org heading syntax after TODO keyword extraction.
+
+Current behavior still returns Org markup in `title` for some headings, for example described links:
+
+#+begin_src json
+{
+  "title": "[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]",
+  "title_raw": "[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]"
+}
+#+end_src
+
+For display/search/query use, `title` should contain the human-readable title.
+
+Required behavior:
+
+- Keep `title_raw` as the raw heading title text after TODO keyword extraction.
+- Normalize `title` for display use.
+- For described Org links in heading titles:
+  - `[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]`
+    becomes `Thomas Krebs - Hausarzt` in `title`.
+- For Org links without description:
+  - use the link target/text in `title`.
+  - `[[file:natural/hausarzt-krebs-thomas.org]]`
+    becomes `file:natural/hausarzt-krebs-thomas.org` in `title`.
+- Remove supported basic Org markup from `title`, including at least:
+  - bold
+  - italic
+  - underline
+  - verbatim/code markup if supported by the existing parser representation
+- Keep non-markup plain text unchanged.
+- Preserve existing TODO keyword, TODO type, priority, tag, line number, byte range, and parent/outline behavior.
+- Do not change the DB schema.
+- Do not change CLI JSON field names.
+- Do not add broad Org rendering support beyond heading title normalization.
+
+Level-0 behavior:
+
+- For synthetic level-0 file headings, set `title` according to the documented rule:
+  - use `#+TITLE:` when present
+  - otherwise use the file name without path and normally without the `.org` extension
+- `title_raw` for level-0 headings should be documented/implemented consistently:
+  - either match `title`
+  - or preserve the raw source used to derive it
+- Do not use the full file path as `title` for level-0 headings; the full path is already available through the `files` table.
+
+Acceptance criteria:
+
+- A heading with a described Org link has normalized `title` and raw `title_raw`.
+- A heading with an Org link without description has a normalized `title` based on the link target/text.
+- A heading with basic emphasis markup has markup removed from `title` while `title_raw` preserves the source text.
+- Plain headings remain unchanged.
+- Level-0 headings use `#+TITLE:` when present.
+- Level-0 headings fall back to the file stem when no `#+TITLE:` exists.
+- Existing parser adapter tests still pass.
+- Add focused parser/indexer tests for the new title behavior.
+- No DB schema changes are made.
+
+* Planning
+
+** Problem summary
+Heading titles still expose Org markup in ~title~, and synthetic level-0 headings still use the full file path.
+
+** Goals
+- Normalize regular heading ~title~ values in the parser layer.
+- Keep ~title_raw~ as the raw post-TODO title.
+- Align level-0 title behavior with the schema comments.
+
+** Non-goals
+- No schema changes.
+- No CLI shape changes.
+- No broader Org rendering work.
+
+** Architecture
+Keep the change in the existing parser adapter and indexer normalization path, with focused regression updates.
+
+** Execution plan
+- Add a task record.
+- Update title normalization and synthetic root-title handling.
+- Refresh focused parser/indexer fixture expectations and tests.
+- Run repo checks.
+
+** Risks & assumptions
+- Title normalization stays intentionally limited to links and basic inline markup already represented by Orgize.
+
+** Open questions
+None.
+
+** Proposed checks
+- ~cargo fmt --all~
+- ~make ci~
+
+* Build
+
+** Approach
+- Implemented heading title normalization in the Orgize adapter where heading titles are first produced.
+- Kept ~title_raw~ as the raw title after TODO keyword extraction, including the non-standard TODO inference path.
+- Updated synthetic level-0 title handling in both parser and indexer normalization to use ~#+TITLE:~ first and file stem otherwise.
+
+** Changed files
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_contract.rs~
+- ~tests/data/parser/file-scope/file-keywords-and-preamble/expected.txt~
+- ~tests/data/parser/headings/basic-heading/expected.txt~
+- ~tests/data/parser/headings/nested-planning-lines/expected.txt~
+- ~tests/data/parser/links/plain-and-bracket-links/expected.txt~
+- ~tests/data/parser/planning/one-line-planning/expected.txt~
+- ~tests/data/parser/priorities/todo-priority-tags/expected.txt~
+- ~tests/data/parser/properties/drawer-after-planning/expected.txt~
+- ~tests/data/parser/todo-keywords/custom-sequence/expected.txt~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+- All checks passed.
+- Added focused parser-adapter tests for described links, undescribed links, basic inline markup removal, plain titles, and synthetic level-0 title behavior.
+- Updated parser fixture expectations and indexer/root-title assertions to match the documented schema semantics.
+
+** Blockers
+None.
+
+** Follow-ups
+- Title normalization intentionally remains limited to basic inline markup and Org links represented directly by Orgize in headline titles.
