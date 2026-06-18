@@ -1,0 +1,89 @@
+#+TITLE: Respect file-local TODO keyword config in parser/indexer pipeline
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 16:47]
+#+TASK_COMPLETED:
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** Respect file-local TODO keyword config in parser/indexer pipeline
+
+[[./archive/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
+
+Goal:
+Ensure file-local `#+TODO:` keyword definitions are used when parsing headings.
+
+Context:
+A file with this setup:
+
+#+begin_src org
+  ,#+TODO: TODO(t) NEXT(n) PLAN(p) | DONE(d) CANCEL(c)
+
+  ,* PLAN me
+  ,* DONE me
+#+end_src
+
+currently produces headings where `PLAN` is not recognized as a TODO keyword:
+
+#+begin_src json
+{
+  "title": "PLAN me",
+  "todo_keyword": null,
+  "todo_type": null
+}
+#+end_src
+
+Expected behavior:
+`PLAN` should be recognized as an open TODO keyword and removed from the display/raw title fields according to the existing title semantics.
+
+Required behavior:
+
+- Read file-local `#+TODO:` keyword definitions before or during parsing.
+- Use file-local TODO keywords for that file when identifying heading TODO keywords.
+- File-local TODO config should override or extend the configured project/default TODO keywords according to the existing project decision. If no decision exists, prefer file-local override for that file.
+- Recognize open keywords before `|` and closed keywords after `|`.
+- Preserve fast-selection keys such as `(p)`, `(d)` where the internal model supports them.
+- Keep existing default/configured TODO keyword behavior working.
+- Do not change DB schema.
+- Do not change CLI JSON field names.
+- Do not implement unrelated Org keyword parsing.
+
+Acceptance criteria:
+
+- With `#+TODO: TODO(t) NEXT(n) PLAN(p) | DONE(d) CANCEL(c)`, `* PLAN me` has `todo_keyword = "PLAN"` and an open TODO type.
+- With the same config, `* DONE me` has `todo_keyword = "DONE"` and a closed TODO type.
+- The displayed/raw title for those headings no longer includes the TODO keyword.
+- A heading `* REVIEW Mist` is handled according to the file-local config:
+  - if `REVIEW` is not in `#+TODO:`, it is not treated as a TODO keyword
+  - if a project/default config includes `REVIEW`, document whether file-local config overrides or extends it
+- File-local TODO parsing is covered by parser adapter or indexer tests.
+- End-to-end rebuild plus `headings --json` returns TODO keyword/type values for file-local TODO keywords.
+
+* Build
+
+** Approach
+- Use the existing file-local TODO keyword hook in the parser adapter and indexer pipeline.
+- Add regression coverage for file-local override behavior at both parser and rebuild/DB levels.
+
+** Changed files
+- ~src/indexer.rs~
+- ~tests/orgize_adapter.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+- All checks passed.
+- File-local TODO definitions now override configured defaults for the file, including the open/closed split and preserved fast-selection keys.
+
+** Blockers
+- None.
+
+** Follow-ups
+- No additional Org keyword parsing was added.

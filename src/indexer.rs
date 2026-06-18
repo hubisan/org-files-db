@@ -820,6 +820,150 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_respects_file_local_todo_keywords_as_overrides() {
+        let test_dir = TestDir::new("file-local-todo");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("todo.org");
+
+        write_file(
+            &org_path,
+            "#+TITLE: TODO Overrides\n#+TODO: PLAN(p) | DONE(d)\n* PLAN me\n* DONE me\n* REVIEW Mist\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[todo]
+default_open_keywords = ["REVIEW(r)", "TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+
+        assert_eq!(headings.len(), 4);
+        assert_eq!(headings[0].title, "TODO Overrides");
+        assert_eq!(headings[1].title, "me");
+        assert_eq!(headings[1].title_raw, "me");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
+        assert_eq!(headings[2].title, "me");
+        assert_eq!(headings[2].title_raw, "me");
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
+        assert_eq!(headings[2].todo_type.as_deref(), Some("closed"));
+        assert_eq!(headings[3].title, "REVIEW Mist");
+        assert_eq!(headings[3].title_raw, "REVIEW Mist");
+        assert_eq!(headings[3].todo_keyword, None);
+        assert_eq!(headings[3].todo_type, None);
+    }
+
+    #[test]
+    fn rebuild_handles_manual_file_local_todo_fixture() {
+        let test_dir = TestDir::new("manual-file-local-todo");
+        let org_path = test_dir.path().join("test.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &org_path,
+            "#+TITLE:\n#+STARTUP: showall\n#+TODO: TODO(t) NEXT(n) PLAN(p) | DONE(d) CANCEL(c)\n\n* REVIEW *Mist*\n\n* PLAN me\n\n* TODO me                                                              :test:\n\n** again                                                                :me:\n\n* DONE me\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["test.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+
+        assert_eq!(headings.len(), 6);
+        assert_eq!(headings[0].title, "test");
+        assert_eq!(headings[1].title, "REVIEW Mist");
+        assert_eq!(headings[1].title_raw, "REVIEW *Mist*");
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].todo_type, None);
+        assert_eq!(headings[2].title, "me");
+        assert_eq!(headings[2].title_raw, "me");
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(headings[2].todo_type.as_deref(), Some("open"));
+        assert_eq!(headings[3].title, "me");
+        assert_eq!(headings[3].title_raw, "me");
+        assert_eq!(headings[3].todo_keyword.as_deref(), Some("TODO"));
+        assert_eq!(headings[3].todo_type.as_deref(), Some("open"));
+        assert_eq!(headings[4].title, "again");
+        assert_eq!(headings[5].title, "me");
+        assert_eq!(headings[5].title_raw, "me");
+        assert_eq!(headings[5].todo_keyword.as_deref(), Some("DONE"));
+        assert_eq!(headings[5].todo_type.as_deref(), Some("closed"));
+
+        let todo_rows: Vec<(String, String, Option<String>, i64)> = query_rows(
+            &connection,
+            "SELECT keyword, state_type, shortcut, sequence_no FROM todo_keywords ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                (
+                    "TODO".to_string(),
+                    "open".to_string(),
+                    Some("t".to_string()),
+                    0
+                ),
+                (
+                    "NEXT".to_string(),
+                    "open".to_string(),
+                    Some("n".to_string()),
+                    1
+                ),
+                (
+                    "PLAN".to_string(),
+                    "open".to_string(),
+                    Some("p".to_string()),
+                    2
+                ),
+                (
+                    "DONE".to_string(),
+                    "closed".to_string(),
+                    Some("d".to_string()),
+                    3
+                ),
+                (
+                    "CANCEL".to_string(),
+                    "closed".to_string(),
+                    Some("c".to_string()),
+                    4
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows() {
         let test_dir = TestDir::new("idempotent");
         let org_path = test_dir.path().join("notes.org");

@@ -255,7 +255,9 @@ fn infer_todo_keyword(
     todo_keywords: &TodoKeywordConfig,
 ) -> Option<(String, String)> {
     for keyword in todo_keywords.all_keywords() {
-        let remainder = title_raw.strip_prefix(&keyword.name)?;
+        let Some(remainder) = title_raw.strip_prefix(&keyword.name) else {
+            continue;
+        };
         if remainder.is_empty() {
             continue;
         }

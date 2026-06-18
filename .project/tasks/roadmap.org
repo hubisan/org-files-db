@@ -9,34 +9,6 @@ Do not work directly from this file. Active tasks are tracked in [[./todo.org]].
 Goal of this phase:
 Extend the data model enough to represent real Org workflows meaningfully, without already building the full query engine.
 
-** TODO Respect per-file TODO keywords
-
-Goal:
-Read Org-mode ~#+TODO:~ lines and use them when parsing headings.
-
-Example:
-
-#+begin_src org
-  ,#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
-  ,* PLAN AI/Codex working mode
-#+end_src
-
-Acceptance criteria:
-
-- File-level ~#+TODO:~ keywords replace the configured default keyword set for that file.
-- If no configured defaults exist, Org-mode defaults are used:
-  - open: ~TODO~
-  - closed: ~DONE~
-- Keywords before ~|~ are treated as open states.
-- Keywords after ~|~ are treated as closed states.
-- Fast selection keys like ~TODO(t)~ are parsed and preserved.
-- A heading like ~* PLAN AI/Codex working mode~ is parsed with:
-  - ~todo_keyword = "PLAN"~
-  - ~todo_type = "open"~
-  - ~title = "AI/Codex working mode"~
-- Parsed TODO keyword definitions can be stored in ~todo_keywords~.
-- A test with a custom ~#+TODO:~ line exists.
-- A test verifies Org-mode fallback defaults.
 
 ** TODO Compute parent-child structure
 
@@ -114,7 +86,7 @@ Acceptance criteria:
     DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
   #+end_src
 
-** TODO COMMENT Parse properties drawer and file-level properties
+** TODO Parse properties drawer and file-level properties
 
 Goal:
 Extract properties from heading drawers and file-level property declarations.
@@ -214,6 +186,38 @@ Acceptance criteria:
 - DB tables ~timestamps~ and ~timestamp_repeaters~ can store extracted values.
 - Planning timestamps can either be mirrored into ~timestamps~ or only stored on headings; the decision is documented.
 - Tests cover at least one active timestamp, one inactive timestamp, and one repeater.
+
+** TODO Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
+
+Goal:
+Decide whether `org-files-db` should support directory-local Org TODO keyword
+defaults by safely parsing `.dir-locals.el`.
+
+Possible supported subset:
+
+#+begin_src emacs-lisp
+((org-mode . ((org-todo-keywords . ((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d)" "CANCEL(c)"))))))
+#+end_src
+
+Rules:
+
+- Parse only data, do not evaluate Emacs Lisp.
+- Support only `org-mode` / `nil` entries.
+- Support only `org-todo-keywords`.
+- Support `sequence` first; optionally `type` later.
+- Treat keywords before `|` as open and after `|` as closed.
+- Preserve fast-selection keys when supported.
+- Ignore or warn on unsupported forms.
+- Define precedence separately:
+  1. file-local `#+TODO:`
+  2. nearest supported `.dir-locals.el`
+  3. `config.toml`
+  4. built-in defaults
+
+Non-goal:
+- Do not execute `.dir-locals.el`.
+- Do not support arbitrary Emacs directory-local variables.
+
 
 ** TODO Finalize DB schema and JSON API for v0.1
 

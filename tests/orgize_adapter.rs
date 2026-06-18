@@ -146,6 +146,68 @@ fn orgize_adapter_prefers_file_local_todo_keywords_over_configured_defaults() {
 }
 
 #[test]
+fn orgize_adapter_treats_file_local_todo_keywords_as_overrides() {
+    let content = "#+TODO: PLAN(p) | DONE(d)\n* PLAN me\n* DONE me\n* REVIEW Mist\n";
+    let options = ParseOptions {
+        todo_keywords: TodoKeywordConfig {
+            open: vec![TodoKeyword::with_fast_key("REVIEW", 'r')],
+            closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+        },
+    };
+
+    let document = OrgizeAdapter::new()
+        .parse_document(Path::new("notes/override.org"), content, &options)
+        .expect("orgize adapter should respect file-local todo keywords");
+
+    assert_eq!(document.headings.len(), 4);
+    assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
+    assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[1].title, "me");
+    assert_eq!(document.headings[1].title_raw, "me");
+    assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
+    assert_eq!(document.headings[2].title, "me");
+    assert_eq!(document.headings[2].title_raw, "me");
+    assert_eq!(document.headings[3].todo_keyword, None);
+    assert_eq!(document.headings[3].todo_type, None);
+    assert_eq!(document.headings[3].title, "REVIEW Mist");
+    assert_eq!(document.headings[3].title_raw, "REVIEW Mist");
+}
+
+#[test]
+fn orgize_adapter_handles_manual_file_local_todo_fixture_with_empty_title() {
+    let content = "#+TITLE:\n#+STARTUP: showall\n#+TODO: TODO(t) NEXT(n) PLAN(p) | DONE(d) CANCEL(c)\n\n* REVIEW *Mist*\n\n* PLAN me\n\n* TODO me                                                              :test:\n\n** again                                                                :me:\n\n* DONE me\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/manual-fixture.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("manual fixture should parse");
+
+    assert_eq!(document.metadata.title.as_deref(), Some(""));
+    assert_eq!(document.headings.len(), 6);
+    assert_eq!(document.headings[1].title, "REVIEW Mist");
+    assert_eq!(document.headings[1].title_raw, "REVIEW *Mist*");
+    assert_eq!(document.headings[1].todo_keyword, None);
+    assert_eq!(document.headings[1].todo_type, None);
+    assert_eq!(document.headings[2].title, "me");
+    assert_eq!(document.headings[2].title_raw, "me");
+    assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("PLAN"));
+    assert_eq!(document.headings[2].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[3].title, "me");
+    assert_eq!(document.headings[3].title_raw, "me");
+    assert_eq!(document.headings[3].todo_keyword.as_deref(), Some("TODO"));
+    assert_eq!(document.headings[3].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[4].title, "again");
+    assert_eq!(document.headings[5].title, "me");
+    assert_eq!(document.headings[5].title_raw, "me");
+    assert_eq!(document.headings[5].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(document.headings[5].todo_type, Some(TodoType::Closed));
+}
+
+#[test]
 fn orgize_adapter_normalizes_described_link_titles() {
     let document = OrgizeAdapter::new()
         .parse_document(

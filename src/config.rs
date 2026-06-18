@@ -112,6 +112,10 @@ pub struct TodoConfig {
 
 impl TodoConfig {
     pub fn to_keyword_config(&self) -> TodoKeywordConfig {
+        if self.default_open_keywords.is_empty() && self.default_closed_keywords.is_empty() {
+            return TodoKeywordConfig::default();
+        }
+
         TodoKeywordConfig {
             open: self.default_open_keywords.clone(),
             closed: self.default_closed_keywords.clone(),
@@ -646,6 +650,35 @@ default_closed_keywords = ["DONE(d)"]
                         TodoKeyword::with_fast_key("BUILD", 'b'),
                     ],
                     closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn empty_configured_todo_keywords_fall_back_to_org_defaults() {
+        let test_dir = TestDir::new("empty-todo-config");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[todo]
+default_open_keywords = []
+default_closed_keywords = []
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.parse_options(),
+            ParseOptions {
+                todo_keywords: TodoKeywordConfig {
+                    open: vec![TodoKeyword::new("TODO")],
+                    closed: vec![TodoKeyword::new("DONE")],
                 },
             }
         );
