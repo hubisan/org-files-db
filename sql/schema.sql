@@ -3,13 +3,46 @@
 
   Notes:
 
-  - Every file gets exactly one synthetic level 0 heading.
+  - Every Org file gets exactly one synthetic level 0 heading.
   - File-level keywords, properties, file tags, and file-level links attach to
     the level 0 heading.
-  - Rich timestamp tables are deferred for now.
+  - Regular Org headings start at level 1.
+  - byte_start and byte_end are UTF-8 byte offsets into the original file.
+    byte_start is the main position used by editor integrations such as Emacs
+    to jump to a heading or link location.
+  - outline_path and heading_fts are derived/index tables. They can be rebuilt
+    from the core tables when a file is reparsed.
+  - Rich timestamp tables are deferred for now. Planning timestamps such as
+    SCHEDULED, DEADLINE, and CLOSED are stored directly on headings for fast
+    common queries.
   - heading_fts is created conditionally by replacing the marker block below.
+  - The schema is optimized for querying and full rebuilds per changed file.
 */
 
+--------------------------------------------------
+-- FILES
+--------------------------------------------------
+/*
+  Each row represents one indexed Org file.
+
+  path:
+    Absolute normalized path. Must be unique.
+
+  mtime_ns:
+    Last modification time in nanoseconds since Unix epoch.
+    This avoids ambiguity from filesystems with subsecond precision.
+
+  size:
+    File size in bytes. Used with mtime_ns as a fast change-detection signal.
+
+  content_hash:
+    Optional content hash. Used as a safer change-detection signal when needed.
+    The column name does not specify MD5/SHA/BLAKE3 so the algorithm can change
+    without a schema rename.
+
+  indexed_at:
+    Unix timestamp in seconds for when this file was last indexed.
+*/
 CREATE TABLE IF NOT EXISTS files (
     id              INTEGER PRIMARY KEY,
     path            TEXT NOT NULL UNIQUE,
@@ -19,6 +52,93 @@ CREATE TABLE IF NOT EXISTS files (
     indexed_at      INTEGER
 );
 
+--------------------------------------------------
+-- HEADINGS
+--------------------------------------------------
+/*
+  Each row represents either a real Org heading or the synthetic file-level
+  heading.
+
+  Level 0 heading:
+
+    A level 0 heading is created for every file. It represents the file-level
+    scope. This allows file-wide elements such as keywords, file tags,
+    properties, file-level links, and file-level full-text content to be stored
+    in the same hierarchy as regular headings.
+
+    For each file, exactly one level 0 heading should exist.
+
+    For the level 0 heading, title/title_raw represent the file display title,
+    not the full file path. Prefer the file-level #+TITLE value when present.
+    If no #+TITLE exists, use the file name without its directory path and,
+    for normal Org files, without the .org extension. The full file path is
+    available through the files table.
+
+  level:
+    0 = synthetic file-level heading
+    1 = top-level Org heading
+    2 = child heading
+    etc.
+
+  parent_id:
+    Parent heading. NULL for the level 0 heading. Top-level Org headings should
+    normally have the level 0 heading as parent.
+
+  line_number:
+    Source line number for the heading when available. For the level 0 heading,
+    this normally points at the beginning of the file or the file-level title
+    keyword if the implementation chooses to associate it with #+TITLE.
+
+  byte_start / byte_end:
+    UTF-8 byte offsets into the original file.
+    For regular headings, byte_start points to the beginning of the heading.
+    For the level 0 heading, byte_start should normally be 0 and byte_end should
+    normally be the file length.
+
+  title:
+    Normalized display title.
+
+    For regular headings this excludes TODO keyword, priority, tags, statistic
+    cookies, and markup details where normalization is supported. Links should
+    be converted to text, using the description if present, otherwise the link
+    itself.
+
+    For the level 0 heading this is the normalized file display title. Prefer
+    #+TITLE when present. Otherwise use the file name without path and normally
+    without the .org extension.
+
+  title_raw:
+    Raw heading title text, excluding the TODO keyword but preserving more of
+    the original Org syntax.
+
+    For the level 0 heading this should match the raw #+TITLE value when a
+    #+TITLE keyword is present. Otherwise it should use the same file-name
+    fallback as title.
+
+  todo_keyword:
+    The TODO state found on the heading, for example TODO, NEXT, PLAN, DONE.
+
+  todo_type:
+    open or closed, resolved from the active TODO keyword configuration.
+
+  priority:
+    Org priority marker without brackets, for example A, B, or C.
+
+  scheduled_raw / deadline_raw / closed_raw:
+    Original Org planning timestamp strings when present.
+
+  scheduled_ts / deadline_ts / closed_ts:
+    Normalized Unix timestamps in seconds when the corresponding planning
+    timestamp can be normalized. NULL when absent or not normalized.
+
+  archivedp / footnote_section_p:
+    Stored as 0/1 integers.
+
+  all_tags_json:
+    JSON array of all tags visible on this heading, including inherited tags.
+    This is a query/output convenience cache. The normalized tag rows are stored
+    in tags.
+*/
 CREATE TABLE IF NOT EXISTS headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -55,10 +175,54 @@ CREATE TABLE IF NOT EXISTS headings (
     UNIQUE (file_id, byte_start)
 );
 
+/*
+  Enforce exactly one synthetic level 0 heading per file.
+
+  SQLite partial unique indexes are used because normal headings may have many
+  rows per file, but level 0 must be unique.
+*/
 CREATE UNIQUE INDEX IF NOT EXISTS uq_headings_file_level0
     ON headings(file_id)
     WHERE level = 0;
 
+--------------------------------------------------
+-- TODO KEYWORDS
+--------------------------------------------------
+/*
+  Each row represents a TODO keyword that is active for one file.
+
+  These rows are derived from file-local #+TODO lines if present, otherwise from
+  the configured project defaults.
+
+  Example:
+
+    #+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+
+  Stored as:
+
+    TODO      open    t
+    NEXT      open    n
+    PLAN      open    p
+    BUILD     open    b
+    REVIEW    open    r
+    CONTINUE  open    C
+    DONE      closed  d
+    CANCEL    closed  c
+
+  This table explains how headings.todo_keyword was interpreted.
+
+  keyword:
+    TODO keyword text, for example TODO or DONE.
+
+  state_type:
+    open or closed.
+
+  shortcut:
+    Optional fast selection key from Org TODO syntax. One character when set.
+
+  sequence_no:
+    Order of the keyword within the active TODO keyword configuration.
+*/
 CREATE TABLE IF NOT EXISTS todo_keywords (
     file_id         INTEGER NOT NULL,
     keyword         TEXT NOT NULL,
@@ -71,6 +235,32 @@ CREATE TABLE IF NOT EXISTS todo_keywords (
     PRIMARY KEY (file_id, keyword)
 );
 
+--------------------------------------------------
+-- KEYWORDS
+--------------------------------------------------
+/*
+  Each row represents an Org keyword line.
+
+  File-level keywords such as #+TITLE, #+AUTHOR, #+STARTUP, #+OPTIONS and
+  #+EXPORT_FILE_NAME are attached to the level 0 heading.
+
+  Keywords that are semantically relevant to parser behavior, especially
+  #+TODO, may also be represented in specialized tables such as todo_keywords.
+  The raw keyword can still be stored here for inspection/debugging.
+
+  heading_id:
+    Usually the level 0 heading for file-level keywords.
+
+  keyword:
+    Keyword name without #+ and without trailing colon, for example TITLE,
+    STARTUP, TODO, OPTIONS.
+
+  value:
+    Raw keyword value after the colon.
+
+  line_number:
+    Source line number for the keyword when available.
+*/
 CREATE TABLE IF NOT EXISTS keywords (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -83,6 +273,43 @@ CREATE TABLE IF NOT EXISTS keywords (
     UNIQUE (heading_id, keyword, line_number)
 );
 
+--------------------------------------------------
+-- PROPERTIES
+--------------------------------------------------
+/*
+  Each row represents a property associated with a heading.
+
+  File-level properties:
+
+    File-level properties defined with #+PROPERTY are stored as properties of
+    the level 0 heading.
+
+    A file-level #+CATEGORY can also be stored as a property of the level 0
+    heading so that categories can be queried uniformly from level 1 onward.
+
+  Heading properties:
+
+    Properties from :PROPERTIES: drawers are attached to the corresponding
+    regular heading.
+
+  key:
+    Property key/name.
+
+  value:
+    Property value. NULL if present without a value.
+
+  source:
+    property_keyword = file-level #+PROPERTY
+    property_drawer = heading :PROPERTIES: drawer
+    category_keyword = file-level #+CATEGORY
+
+  inherited:
+    0 = directly defined on this heading
+    1 = inherited/effective value
+
+  line_number:
+    Source line number for the property when available.
+*/
 CREATE TABLE IF NOT EXISTS properties (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -99,6 +326,21 @@ CREATE TABLE IF NOT EXISTS properties (
     UNIQUE (heading_id, key, source, inherited)
 );
 
+--------------------------------------------------
+-- TAGS
+--------------------------------------------------
+/*
+  Each row represents a tag associated with a heading.
+
+  FILETAGS are stored as tags on the level 0 heading.
+
+  tag:
+    Tag name without surrounding colons.
+
+  inherited:
+    0 = directly defined on this heading
+    1 = inherited/effective tag
+*/
 CREATE TABLE IF NOT EXISTS tags (
     heading_id      INTEGER NOT NULL,
     tag             TEXT NOT NULL,
@@ -109,6 +351,75 @@ CREATE TABLE IF NOT EXISTS tags (
     PRIMARY KEY (heading_id, tag, inherited)
 );
 
+--------------------------------------------------
+-- LINKS
+--------------------------------------------------
+/*
+  Each row represents one Org link.
+
+  heading_id:
+    The heading that contains the link. Links outside regular headings are
+    attached to the level 0 heading.
+
+  byte_start / byte_end:
+    UTF-8 byte offsets into the original file. byte_start can be used by Emacs
+    or other editor integrations to jump to the link.
+
+  line_number:
+    Source line number for the link when available.
+
+  link_type:
+    Link type/protocol, for example file, https, http, id, custom-id,
+    attachment. May be NULL for links where the parser has not classified the
+    type yet.
+
+  target:
+    Link target/path without description.
+    Examples:
+      [[https://www.example.com][Example]] -> https://www.example.com
+      [[file:example.org]]                 -> example.org
+      [[file:./example.org]]               -> ./example.org
+
+  target_absolute:
+    Absolute path for file links when resolvable.
+
+  raw_link:
+    Original link target with protocol syntax where applicable.
+    Examples:
+      [[https://www.example.com][Example]] -> https://www.example.com
+      [[file:example.org][Example]]      -> file:example.org
+      [[example.org]]                    -> example.org
+
+  description:
+    Optional link description.
+    Example:
+      [[https://www.example.com][Example]] -> Example
+
+  format:
+    plain, bracket, or angle.
+
+  search_option:
+    Search option after :: in file links.
+    Example:
+      [[file:~/example.org::255]] -> 255
+
+  relation:
+    Optional project-specific relation extracted from the description.
+    Example:
+      [[https://www.example.com][Example (->Owner)]] -> Owner
+
+  resolved_file_id / resolved_heading_id:
+    Resolution targets if the link can be resolved to known indexed data.
+
+  resolved:
+    1 if the link target was resolved to indexed data, otherwise 0.
+
+  broken:
+    1 if the link target is known to be broken, otherwise 0.
+
+  diagnostic:
+    Optional diagnostic explaining resolution or parse issues for this link.
+*/
 CREATE TABLE IF NOT EXISTS links (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -144,6 +455,29 @@ CREATE TABLE IF NOT EXISTS links (
     UNIQUE (file_id, byte_start)
 );
 
+--------------------------------------------------
+-- HEADING BODIES
+--------------------------------------------------
+/*
+  Body text belonging to a heading.
+
+  This table exists so heading body text can be optional and so the headings
+  table stays compact.
+
+  For the level 0 heading, body_text may contain file-level text before the
+  first regular heading, or it may be empty depending on the parser decision.
+
+  For regular headings, body_text should normally exclude child subtrees unless
+  the parser model explicitly decides otherwise.
+
+  heading_fts can index this body text.
+
+  body_text:
+    Plain or normalized body text according to the parser/indexer model.
+
+  body_byte_start / body_byte_end:
+    UTF-8 byte offsets for the body range when available.
+*/
 CREATE TABLE IF NOT EXISTS heading_bodies (
     heading_id          INTEGER PRIMARY KEY,
     body_text           TEXT NOT NULL,
@@ -154,6 +488,48 @@ CREATE TABLE IF NOT EXISTS heading_bodies (
         ON DELETE CASCADE
 );
 
+--------------------------------------------------
+-- OUTLINE PATH
+--------------------------------------------------
+/*
+  Derived/cache table for fast hierarchical queries.
+
+  This table materializes structural relationships that can be recomputed from
+  headings.
+
+  heading_id:
+    One outline_path row per heading.
+
+  file_id:
+    File that owns the heading.
+
+  parent_id:
+    Parent heading. NULL for the level 0 heading.
+
+  depth:
+    0 for the level 0 file heading.
+    1 for top-level Org headings.
+    2 for child headings.
+    etc.
+
+  materialized_path:
+    Zero-padded numeric hierarchical path.
+
+    Examples:
+      0000
+      0000.0001
+      0000.0001.0002
+      0000.0001.0002.0001
+
+  breadcrumbs_json:
+    JSON array containing breadcrumb titles from the level 0 heading to this
+    heading.
+
+    Example:
+      ["todo", "Project", "Phase 1", "Analysis"]
+
+  This table should be rebuilt when headings for a file are rebuilt.
+*/
 CREATE TABLE IF NOT EXISTS outline_path (
     heading_id          INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -172,15 +548,48 @@ CREATE TABLE IF NOT EXISTS outline_path (
         ON DELETE SET NULL
 );
 
+--------------------------------------------------
+-- FULL TEXT SEARCH
+--------------------------------------------------
+/*
+  FTS5 table for heading title and body search.
+
+  This is a manually maintained FTS table.
+
+  The indexer should insert/update/delete rows together with headings and
+  heading_bodies during rebuild.
+
+  rowid:
+    Must match headings.id.
+
+  title:
+    Normalized heading title.
+
+  body:
+    Heading body text, if available.
+
+  Note:
+    SQLite virtual tables cannot enforce normal foreign keys here. The indexer
+    is responsible for keeping heading_fts in sync with headings.
+
+  This schema file keeps FTS optional. The marker below is replaced with the
+  CREATE VIRTUAL TABLE statement only when FTS5 is enabled.
+*/
 -- heading_fts placeholder
 /*__HEADING_FTS__*/;
 
+--------------------------------------------------
+-- INDEXES: FILES
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_files_mtime_size
     ON files(mtime_ns, size);
 
 CREATE INDEX IF NOT EXISTS idx_files_hash
     ON files(content_hash);
 
+--------------------------------------------------
+-- INDEXES: HEADINGS
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_headings_parent_id
     ON headings(parent_id);
 
@@ -199,15 +608,24 @@ CREATE INDEX IF NOT EXISTS idx_headings_deadline
 CREATE INDEX IF NOT EXISTS idx_headings_closed
     ON headings(closed_ts);
 
+--------------------------------------------------
+-- INDEXES: TODO KEYWORDS
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_todo_keywords_file_state
     ON todo_keywords(file_id, state_type);
 
+--------------------------------------------------
+-- INDEXES: KEYWORDS
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_keywords_heading
     ON keywords(heading_id);
 
 CREATE INDEX IF NOT EXISTS idx_keywords_keyword
     ON keywords(keyword);
 
+--------------------------------------------------
+-- INDEXES: PROPERTIES
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_properties_heading
     ON properties(heading_id);
 
@@ -222,12 +640,18 @@ CREATE INDEX IF NOT EXISTS idx_properties_custom_id
     ON properties(value)
     WHERE key = 'CUSTOM_ID';
 
+--------------------------------------------------
+-- INDEXES: TAGS
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_tags_tag
     ON tags(tag);
 
 CREATE INDEX IF NOT EXISTS idx_tags_heading
     ON tags(heading_id);
 
+--------------------------------------------------
+-- INDEXES: LINKS
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_links_heading
     ON links(heading_id);
 
@@ -240,6 +664,9 @@ CREATE INDEX IF NOT EXISTS idx_links_resolved_file
 CREATE INDEX IF NOT EXISTS idx_links_resolved_heading
     ON links(resolved_heading_id);
 
+--------------------------------------------------
+-- INDEXES: OUTLINE PATH
+--------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_outline_file_materialized_path
     ON outline_path(file_id, materialized_path);
 
