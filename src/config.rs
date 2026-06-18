@@ -33,6 +33,14 @@ impl Config {
     }
 
     fn from_raw(path: &Path, raw: RawConfig) -> Result<Self, ConfigError> {
+        Self::from_raw_with_home_dir(path, raw, current_home_dir().as_deref())
+    }
+
+    fn from_raw_with_home_dir(
+        path: &Path,
+        raw: RawConfig,
+        home_dir: Option<&Path>,
+    ) -> Result<Self, ConfigError> {
         let RawConfig {
             db_path: raw_db_path,
             files: raw_files,
@@ -42,15 +50,15 @@ impl Config {
             search,
         } = raw;
         let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-        let db_path = resolve_path(base_dir, raw_db_path);
+        let db_path = resolve_path(base_dir, raw_db_path, home_dir)?;
         let files = raw_files
             .into_iter()
-            .map(|file| resolve_path(base_dir, file))
-            .collect::<Vec<_>>();
+            .map(|file| resolve_path(base_dir, file, home_dir))
+            .collect::<Result<Vec<_>, _>>()?;
         let dirs = raw_dirs
             .into_iter()
-            .map(|dir| resolve_path(base_dir, dir))
-            .collect::<Vec<_>>();
+            .map(|dir| resolve_path(base_dir, dir, home_dir))
+            .collect::<Result<Vec<_>, _>>()?;
         let todo = todo.unwrap_or(RawTodoConfig {
             default_open_keywords: None,
             default_closed_keywords: None,
@@ -164,6 +172,9 @@ pub enum ConfigError {
     MissingDirectory {
         path: PathBuf,
     },
+    MissingHomeDirectory {
+        path: PathBuf,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -191,6 +202,11 @@ impl fmt::Display for ConfigError {
             Self::MissingDirectory { path } => {
                 write!(f, "configured directory does not exist: {}", path.display())
             }
+            Self::MissingHomeDirectory { path } => write!(
+                f,
+                "failed to expand config path {}: home directory could not be determined",
+                path.display()
+            ),
         }
     }
 }
@@ -200,7 +216,9 @@ impl Error for ConfigError {
         match self {
             Self::ReadFile { source, .. } => Some(source),
             Self::ParseToml { source, .. } => Some(source),
-            Self::MissingFile { .. } | Self::MissingDirectory { .. } => None,
+            Self::MissingFile { .. }
+            | Self::MissingDirectory { .. }
+            | Self::MissingHomeDirectory { .. } => None,
         }
     }
 }
@@ -277,12 +295,62 @@ fn split_todo_keyword_spec(spec: &str) -> Option<(&str, char)> {
 }
 
 // Relative paths in the config are resolved relative to the config file location.
-// This keeps config files portable when a project is moved as a directory tree.
-fn resolve_path(base_dir: &Path, path: PathBuf) -> PathBuf {
+// A leading ~ resolves to the current user's home directory before that fallback.
+fn resolve_path(
+    base_dir: &Path,
+    path: PathBuf,
+    home_dir: Option<&Path>,
+) -> Result<PathBuf, ConfigError> {
     if path.is_absolute() {
-        path
-    } else {
-        base_dir.join(path)
+        return Ok(path);
+    }
+
+    if let Some(expanded) = expand_home_directory(&path, home_dir)? {
+        return Ok(expanded);
+    }
+
+    Ok(base_dir.join(path))
+}
+
+fn expand_home_directory(
+    path: &Path,
+    home_dir: Option<&Path>,
+) -> Result<Option<PathBuf>, ConfigError> {
+    let mut components = path.components();
+    let Some(std::path::Component::Normal(first_component)) = components.next() else {
+        return Ok(None);
+    };
+
+    if first_component != "~" {
+        return Ok(None);
+    }
+
+    let home_dir = home_dir.ok_or_else(|| ConfigError::MissingHomeDirectory {
+        path: path.to_path_buf(),
+    })?;
+    let mut resolved = home_dir.to_path_buf();
+
+    for component in components {
+        resolved.push(component.as_os_str());
+    }
+
+    Ok(Some(resolved))
+}
+
+fn current_home_dir() -> Option<PathBuf> {
+    if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(home));
+    }
+
+    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(profile));
+    }
+
+    let home_drive = std::env::var_os("HOMEDRIVE").filter(|value| !value.is_empty());
+    let home_path = std::env::var_os("HOMEPATH").filter(|value| !value.is_empty());
+    match (home_drive, home_path) {
+        (Some(drive), Some(path)) => Some(PathBuf::from(drive).join(path)),
+        _ => None,
     }
 }
 
@@ -306,7 +374,7 @@ fn validate_dir_paths(dirs: &[PathBuf]) -> Result<(), ConfigError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, ConfigError};
+    use super::{Config, ConfigError, RawConfig, RawSearchConfig, RawTodoConfig};
     use crate::parser::{ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
         fs,
@@ -581,5 +649,130 @@ default_closed_keywords = ["DONE(d)"]
                 },
             }
         );
+    }
+
+    #[test]
+    fn expands_leading_tilde_in_db_path() {
+        let test_dir = TestDir::new("tilde-db");
+        let config_path = test_dir.path().join("config.toml");
+        let home_dir = test_dir.path().join("home");
+        fs::create_dir_all(&home_dir).expect("home dir should be created");
+
+        let config = Config::from_raw_with_home_dir(
+            &config_path,
+            raw_config("~/org-files-db.sqlite", Vec::new(), Vec::new()),
+            Some(home_dir.as_path()),
+        )
+        .expect("config should load");
+
+        assert_eq!(config.db_path, home_dir.join("org-files-db.sqlite"));
+    }
+
+    #[test]
+    fn expands_leading_tilde_in_files() {
+        let test_dir = TestDir::new("tilde-files");
+        let config_path = test_dir.path().join("config.toml");
+        let home_dir = test_dir.path().join("home");
+        let notes_dir = home_dir.join("notes");
+        let file_path = notes_dir.join("test.org");
+
+        fs::create_dir_all(&notes_dir).expect("notes dir should be created");
+        write_file(&file_path, "* Note");
+
+        let config = Config::from_raw_with_home_dir(
+            &config_path,
+            raw_config(
+                "db.sqlite",
+                vec!["~/notes/test.org".to_string()],
+                Vec::new(),
+            ),
+            Some(home_dir.as_path()),
+        )
+        .expect("config should load");
+
+        assert_eq!(config.files, vec![file_path]);
+    }
+
+    #[test]
+    fn expands_leading_tilde_in_dirs() {
+        let test_dir = TestDir::new("tilde-dirs");
+        let config_path = test_dir.path().join("config.toml");
+        let home_dir = test_dir.path().join("home");
+        let notes_dir = home_dir.join("notes");
+
+        fs::create_dir_all(&notes_dir).expect("notes dir should be created");
+
+        let config = Config::from_raw_with_home_dir(
+            &config_path,
+            raw_config("db.sqlite", Vec::new(), vec!["~/notes".to_string()]),
+            Some(home_dir.as_path()),
+        )
+        .expect("config should load");
+
+        assert_eq!(config.dirs, vec![notes_dir]);
+    }
+
+    #[test]
+    fn does_not_expand_non_leading_tilde() {
+        let test_dir = TestDir::new("tilde-not-leading");
+        let config_dir = test_dir.path().join("nested");
+        let config_path = config_dir.join("config.toml");
+        let file_path = config_dir.join("notes/~draft.org");
+        let dir_path = config_dir.join("notes/~drafts");
+
+        write_file(&file_path, "* Note");
+        fs::create_dir_all(&dir_path).expect("dir path should be created");
+
+        let config = Config::from_raw_with_home_dir(
+            &config_path,
+            raw_config(
+                "../db.sqlite",
+                vec!["notes/~draft.org".to_string()],
+                vec!["notes/~drafts".to_string()],
+            ),
+            None,
+        )
+        .expect("config should load");
+
+        assert_eq!(config.db_path, config_dir.join("../db.sqlite"));
+        assert_eq!(config.files, vec![file_path]);
+        assert_eq!(config.dirs, vec![dir_path]);
+    }
+
+    #[test]
+    fn reports_missing_home_directory_for_leading_tilde() {
+        let test_dir = TestDir::new("tilde-missing-home");
+        let config_path = test_dir.path().join("config.toml");
+
+        let error = Config::from_raw_with_home_dir(
+            &config_path,
+            raw_config("~/org-files-db.sqlite", Vec::new(), Vec::new()),
+            None,
+        )
+        .expect_err("config should fail");
+
+        match error {
+            ConfigError::MissingHomeDirectory { path } => {
+                assert_eq!(path, PathBuf::from("~/org-files-db.sqlite"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    fn raw_config(db_path: &str, files: Vec<String>, dirs: Vec<String>) -> RawConfig {
+        RawConfig {
+            db_path: PathBuf::from(db_path),
+            files: files.into_iter().map(PathBuf::from).collect(),
+            dirs: dirs.into_iter().map(PathBuf::from).collect(),
+            recursive: false,
+            todo: Some(RawTodoConfig {
+                default_open_keywords: None,
+                default_closed_keywords: None,
+            }),
+            search: Some(RawSearchConfig {
+                fts5_enabled: None,
+                index_body_text: None,
+            }),
+        }
     }
 }

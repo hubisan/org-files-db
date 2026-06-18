@@ -1,0 +1,92 @@
+#+TITLE: Expand `~` in config paths
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-18 Thu 10:00]
+#+TASK_COMPLETED: [2026-06-18 Thu 16:22]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the task: "Expand `~` in config paths".
+
+Context:
+The config loader currently supports absolute paths and paths relative to the config file location. Paths starting with `~` are currently treated as normal relative paths. This task should add home-directory expansion for config path fields only.
+
+Scope:
+
+- Update config path resolution so a leading `~` expands to the current user's home directory.
+- Apply this to:
+  - `db_path`
+  - entries in `files`
+  - entries in `dirs`
+- Keep the change focused in the config/path resolution layer.
+
+Required behavior:
+
+- `~/org-files-db.sqlite` resolves under the current user's home directory.
+- `~/notes/test.org` resolves under the current user's home directory.
+- Existing absolute path behavior remains unchanged.
+- Existing config-relative path behavior remains unchanged.
+- A `~` that is not at the start of the path is not expanded.
+- Do not implement general shell expansion.
+- Do not expand environment variables such as `$HOME`.
+- If the home directory cannot be determined, return an understandable config error.
+
+Non-goals:
+
+- Do not change CLI behavior.
+- Do not change parser, DB, indexer, or schema behavior.
+- Do not add `--config` support to other commands.
+- Do not perform unrelated refactors.
+
+Tests:
+
+- Add focused config tests for leading `~` expansion in `db_path`.
+- Add focused config tests for leading `~` expansion in `files`.
+- Add focused config tests for leading `~` expansion in `dirs`.
+- Test that non-leading `~` is not expanded.
+- Keep existing config-relative and absolute path behavior passing.
+- Run the repository’s relevant checks, preferring commands from `repository.org` if present.
+
+Completion report:
+
+- Summarize files changed.
+- State the exact `~` expansion behavior.
+- State what happens when the home directory cannot be determined.
+- State tests/checks run.
+- Suggest a Conventional Commit message.
+
+* Build
+
+** Approach
+
+- Extended config path resolution to expand a leading ~ before falling back to config-relative paths.
+- Kept the change local to the config loader and added tests through the private raw-config path.
+- Added an explicit config error when no home directory can be determined.
+
+** Changed files
+
+- ~src/config.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-18--expand-tilde-in-config-paths.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- Config tests cover leading ~ expansion for ~db_path~, ~files~, and ~dirs~.
+- Config tests cover non-leading ~ and missing home directory behavior.
+- Existing config-relative and absolute path behavior still passes.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

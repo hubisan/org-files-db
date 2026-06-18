@@ -105,37 +105,9 @@ config
 
 [[./archive/2026-06-18--feat-cli-implement-include-root.org]]
 
-** BUILD Expand `~` in config paths
+** DONE Expand `~` in config paths
 
-Goal:
-Allow users to write home-relative paths in the config file.
-
-Context:
-Config paths currently support absolute paths and paths relative to the config file location. Paths starting with `~` are not expanded and are therefore treated like normal relative paths, which makes entries such as `~/notes` fail.
-
-Required behavior:
-
-- Expand `~` to the current user's home directory for config path fields.
-- Support at least:
-  - `db_path = "~/org-files-db.sqlite"`
-  - `files = ["~/notes/test.org"]`
-  - `dirs = ["~/notes"]`
-- Keep existing behavior unchanged for:
-  - absolute paths
-  - paths relative to the config file
-  - normal relative paths containing `~` not at the start
-- Do not perform shell expansion generally.
-- Do not expand environment variables such as `$HOME` in this task.
-- If the home directory cannot be determined, return an understandable config error.
-
-Acceptance criteria:
-
-- `~` at the start of `db_path`, `files`, and `dirs` resolves to the user's home directory.
-- Relative paths without `~` still resolve relative to the config file location.
-- Absolute paths still work unchanged.
-- Missing expanded files or directories still produce the existing missing file/directory errors with the resolved path.
-- Tests cover `~` expansion for `db_path`, `files`, and `dirs`.
-- Tests cover that non-leading `~` is not expanded.
+[[./archive/2026-06-18--expand-tilde-in-config-paths.org]]
 
 ** TODO Add `--config` support to `headings --json`
 
