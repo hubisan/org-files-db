@@ -2,7 +2,7 @@
 #+MY_VISUAL_FILL: off
 
 #+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
-SELECT * FROM files LIMIT 5;
+  SELECT * FROM files LIMIT 5;
 #+END_SRC
 
 #+RESULTS:

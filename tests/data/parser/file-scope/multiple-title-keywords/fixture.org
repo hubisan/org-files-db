@@ -1,0 +1,10 @@
+#+TITLE: Title can span
+#+TITLE: multiple lines,
+#+AUTHOR: Hubisan
+
+* Unfortunately Everywhere
+
+#+TITLE: even here
+#+TITLE:
+
+* Plain Heading

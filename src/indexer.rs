@@ -854,6 +854,53 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_uses_combined_document_title_for_root_heading() {
+        let test_dir = TestDir::new("combined-document-title");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("multiple-title.org");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Title can span\n#+TITLE: multiple lines,\n#+AUTHOR: Hubisan\n\n* Unfortunately Everywhere\n\n#+TITLE: even here\n#+TITLE:\n\n* Plain Heading\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+
+        assert_eq!(headings.len(), 3);
+        assert_eq!(
+            headings[0].title,
+            "Title can span multiple lines, even here"
+        );
+        assert_eq!(
+            headings[0].title_raw,
+            "Title can span multiple lines, even here"
+        );
+        assert_eq!(headings[1].title, "Unfortunately Everywhere");
+        assert_eq!(headings[1].title_raw, "Unfortunately Everywhere");
+        assert_eq!(headings[2].title, "Plain Heading");
+        assert_eq!(headings[2].title_raw, "Plain Heading");
+    }
+
+    #[test]
     fn rebuild_respects_file_local_todo_keywords_as_overrides() {
         let test_dir = TestDir::new("file-local-todo");
         let notes_dir = test_dir.path().join("notes");

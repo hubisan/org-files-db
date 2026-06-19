@@ -1,0 +1,83 @@
+#+TITLE: Support multiple file-wide `#+TITLE:` keywords
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.5.0
+#+TASK_STARTED: [2026-06-19 Fri 11:18]
+#+TASK_COMPLETED: [2026-06-19 Fri 13:15]
+
+* Original Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Handle Org's file-wide title semantics when multiple `#+TITLE:` keywords appear
+in a file.
+
+Org supports long titles by allowing multiple `#+TITLE:` lines. These lines may
+appear anywhere in the file, including after headings. Org treats them as
+file-wide export/title metadata and combines their values.
+
+Required behavior:
+
+- Detect all `#+TITLE:` keywords from anywhere in the file.
+- Treat `#+TITLE:` keywords as file-wide metadata, not section-local metadata.
+- Preserve document order when combining multiple title values.
+- Combine multiple title values with a single space between non-empty parts.
+- Trim surrounding whitespace from each title value before combining.
+- Ignore empty `#+TITLE:` values unless existing project conventions require
+  preserving them.
+- Keep the level 0/root heading title consistent with the effective file title.
+- Keep existing single-title behavior working.
+- Do not change the DB schema unless unavoidable.
+- Do not change CLI JSON field names.
+- Do not implement broader export metadata handling in this task.
+- Do not implement full Org export behavior beyond `#+TITLE:` collection.
+
+Acceptance criteria:
+
+- A file with one `#+TITLE:` keeps the current behavior.
+- A file with multiple top-level `#+TITLE:` lines combines them in document
+  order.
+- A file with a later `#+TITLE:` after a heading still includes that value in
+  the effective file title.
+- The level 0/root heading uses the combined effective title.
+- Regular headings are not affected by later `#+TITLE:` keywords.
+- Existing title normalization behavior for headings remains unchanged.
+- Focused parser/indexer tests cover multiple `#+TITLE:` lines.
+- A regression test covers a `#+TITLE:` appearing after a heading.
+
+* Build
+
+** Approach
+- Added an Orgize-adapter helper that walks the full parsed AST in document
+  order and combines every non-empty `#+TITLE:` value.
+- Left regular heading normalization alone, so later title keywords only affect
+  file-level metadata and the synthetic level 0 heading.
+- Kept the change local to the parser adapter and existing root-heading
+  construction path.
+
+** Changed files
+- `src/parser/orgize_adapter.rs`
+- `src/indexer.rs`
+- `tests/orgize_adapter.rs`
+- `tests/data/parser/file-scope/multiple-title-keywords/fixture.org`
+- `tests/data/parser/file-scope/multiple-title-keywords/expected.txt`
+- `.project/tasks/todo.org`
+
+** Checks performed
+- `cargo fmt`
+- `cargo test orgize_adapter -- --nocapture`
+- `cargo test rebuild_uses_combined_document_title_for_root_heading -- --nocapture`
+- `make ci`
+
+** Test results
+- Existing parser, indexer, contract, and fixture tests passed.
+- New parser fixture covers multiple titles, later titles after headings, and
+  empty title values.
+- New indexer regression verifies the synthetic level 0 heading uses the
+  combined title.
+
+** Blockers
+None.
+
+** Follow-ups
+None.

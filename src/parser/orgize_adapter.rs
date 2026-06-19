@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use orgize::{
-    ast::{Headline, Link},
+    ast::{Document as OrgDocument, Headline, Keyword, Link},
     rowan::{ast::AstNode, NodeOrToken},
     Org, SyntaxElement, SyntaxKind, SyntaxNode,
 };
@@ -32,7 +32,7 @@ impl OrgParser for OrgizeAdapter {
         let document = org.document();
         let mut parsed = ParsedOrgDocument::new(path);
 
-        parsed.metadata.title = document.title();
+        parsed.metadata.title = combined_document_title(&document);
         parsed.metadata.keywords = document
             .keywords()
             .map(|keyword| ParsedKeyword {
@@ -62,6 +62,26 @@ impl OrgParser for OrgizeAdapter {
 
         Ok(parsed)
     }
+}
+
+fn combined_document_title(document: &OrgDocument) -> Option<String> {
+    document
+        .syntax()
+        .descendants()
+        .filter_map(Keyword::cast)
+        .filter(|keyword| keyword.key().eq_ignore_ascii_case("TITLE"))
+        .map(|keyword| keyword.value().trim().to_string())
+        .filter(|title| !title.is_empty())
+        .fold(None, |acc, title| match acc {
+            Some(mut existing) => {
+                if !existing.is_empty() {
+                    existing.push(' ');
+                }
+                existing.push_str(&title);
+                Some(existing)
+            }
+            None => Some(title),
+        })
 }
 
 fn collect_headlines(

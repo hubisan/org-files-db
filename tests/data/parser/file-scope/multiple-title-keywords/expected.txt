@@ -1,0 +1,14 @@
+# classification: org-special-case
+# note: Multiple document titles are combined in file order and later titles do not rename headings.
+document.title=Title can span multiple lines, even here
+heading_count=3
+diagnostic_count=0
+heading.0.level=0
+heading.0.title=Title can span multiple lines, even here
+heading.0.is_root=true
+heading.1.level=1
+heading.1.title=Unfortunately Everywhere
+heading.1.parent_index=0
+heading.2.level=1
+heading.2.title=Plain Heading
+heading.2.parent_index=0

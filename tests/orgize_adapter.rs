@@ -175,8 +175,8 @@ fn orgize_adapter_treats_file_local_todo_keywords_as_overrides() {
 }
 
 #[test]
-fn orgize_adapter_handles_manual_file_local_todo_fixture_with_empty_title() {
-    let content = "#+TITLE:\n#+STARTUP: showall\n#+TODO: TODO(t) NEXT(n) PLAN(p) | DONE(d) CANCEL(c)\n\n* REVIEW *Mist*\n\n* PLAN me\n\n* TODO me                                                              :test:\n\n** again                                                                :me:\n\n* DONE me\n";
+fn orgize_adapter_ignores_empty_document_title_keywords() {
+    let content = "#+TITLE:\n#+TITLE:   Project Notes   \n#+STARTUP: showall\n#+TODO: TODO(t) NEXT(n) PLAN(p) | DONE(d) CANCEL(c)\n\n* REVIEW *Mist*\n\n* PLAN me\n\n* TODO me                                                              :test:\n\n** again                                                                :me:\n\n* DONE me\n";
 
     let document = OrgizeAdapter::new()
         .parse_document(
@@ -186,7 +186,7 @@ fn orgize_adapter_handles_manual_file_local_todo_fixture_with_empty_title() {
         )
         .expect("manual fixture should parse");
 
-    assert_eq!(document.metadata.title.as_deref(), Some(""));
+    assert_eq!(document.metadata.title.as_deref(), Some("Project Notes"));
     assert_eq!(document.headings.len(), 6);
     assert_eq!(document.headings[1].title, "REVIEW Mist");
     assert_eq!(document.headings[1].title_raw, "REVIEW *Mist*");
@@ -205,6 +205,37 @@ fn orgize_adapter_handles_manual_file_local_todo_fixture_with_empty_title() {
     assert_eq!(document.headings[5].title_raw, "me");
     assert_eq!(document.headings[5].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[5].todo_type, Some(TodoType::Closed));
+}
+
+#[test]
+fn orgize_adapter_combines_multiple_document_title_keywords_in_order() {
+    let content = "#+TITLE: Title can span\n#+TITLE: multiple lines,\n#+AUTHOR: Hubisan\n\n* Unfortunately Everywhere\n\n#+TITLE: even here\n#+TITLE:   \n\n* Plain Heading\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/multiple-title.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("document with multiple titles should parse");
+
+    assert_eq!(
+        document.metadata.title.as_deref(),
+        Some("Title can span multiple lines, even here")
+    );
+    assert_eq!(document.headings.len(), 3);
+    assert_eq!(
+        document.headings[0].title,
+        "Title can span multiple lines, even here"
+    );
+    assert_eq!(
+        document.headings[0].title_raw,
+        "Title can span multiple lines, even here"
+    );
+    assert_eq!(document.headings[1].title, "Unfortunately Everywhere");
+    assert_eq!(document.headings[1].title_raw, "Unfortunately Everywhere");
+    assert_eq!(document.headings[2].title, "Plain Heading");
+    assert_eq!(document.headings[2].title_raw, "Plain Heading");
 }
 
 #[test]
