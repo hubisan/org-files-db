@@ -183,6 +183,26 @@ impl DbWriter {
         Ok(())
     }
 
+    pub fn delete_all_indexed_data(connection: &Connection) -> Result<(), DbWriteError> {
+        if heading_fts_table_exists(connection)? {
+            connection
+                .execute("DELETE FROM heading_fts", [])
+                .map_err(|source| DbWriteError::Write {
+                    operation: "delete_all_indexed_data.heading_fts",
+                    source,
+                })?;
+        }
+
+        connection
+            .execute("DELETE FROM files", [])
+            .map_err(|source| DbWriteError::Write {
+                operation: "delete_all_indexed_data.files",
+                source,
+            })?;
+
+        Ok(())
+    }
+
     pub fn insert_level0_heading(
         connection: &Connection,
         heading: &HeadingRecord,

@@ -1,0 +1,130 @@
+#+TITLE: Normalize resolved config paths syntactically
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.6.0
+#+TASK_STARTED: [2026-06-19 Fri 13:26]
+#+TASK_COMPLETED: [2026-06-19 Fri 14:41]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Store absolute normalized config paths and make rebuild replace configured-scope
+indexed data from disk.
+
+Apply to:
+
+- `db_path`
+- `files`
+- `dirs`
+
+Requirements:
+
+- Keep config-relative paths relative to config file directory.
+- Keep existing `~` expansion behavior.
+- Do not canonicalize through filesystem.
+- Do not resolve symlinks.
+- Do not require `db_path` to exist.
+- Keep existing validation behavior for `files` and `dirs`.
+- Rebuild must remove stale indexed data for the configured scope before
+  inserting rebuilt data.
+- After rebuild, `files` must contain one row per currently indexed configured
+  Org file.
+- Old relative/noisy rows for those files must not remain.
+- Headings must only reference current rebuilt files rows.
+- Do not change parser, DB schema, indexer behavior, or CLI JSON field names.
+
+Tests:
+
+- `db_path = "./org-files-db.sqlite"`
+- `files = ["./test.org"]`
+- `dirs = ["./notes"]`
+- rebuilding the same file with equivalent config paths does not create two
+  `files` rows
+- seeding old relative/noisy `files` rows and headings is cleaned by rebuild
+- absolute paths containing `.` components
+- `~` expansion together with `.` normalization
+
+* Planning
+
+** Problem summary
+Config path resolution and rebuild semantics currently allow stale relative file
+identity to survive in the DB.
+
+** Goals
+- Resolve configured paths to absolute syntactically normalized paths.
+- Make rebuild replace configured-scope indexed data instead of incrementally
+  preserving stale file identity.
+
+** Non-goals
+- No filesystem canonicalization.
+- No symlink resolution.
+- No parser, DB, indexer, or CLI schema changes.
+
+** Architecture
+Keep path normalization in config resolution and rebuild cleanup in the indexer
+and DB writer transaction path.
+
+** Execution plan
+- Make resolved config paths absolute and syntactically normalized.
+- Replace configured-scope indexed rows transactionally during rebuild.
+- Add focused config and indexer tests for stale-row cleanup and dedupe.
+- Run repo checks.
+
+** Risks & assumptions
+- `Path::components()` is sufficient for removing only `.` segments without
+  changing filesystem identity.
+- Parsing before the rebuild transaction is acceptable and avoids clearing the
+  DB on parse failure.
+
+** Open questions
+None.
+
+** Proposed checks
+- `cargo test config -- --nocapture`
+- `make ci`
+
+* Build
+
+** Approach
+- Made config resolution produce absolute paths before validation and before
+  downstream rebuild/discovery use.
+- Kept `~` expansion and syntactic `.` removal in the same resolution path.
+- Changed rebuild to parse the configured scope first, then clear indexed data
+  in one transaction, then insert the rebuilt files.
+- Added DB-writer cleanup for full indexed-data reset so stale relative/noisy
+  file rows cannot survive rebuild.
+- Left parser, DB schema, and CLI JSON field names unchanged.
+
+** Changed files
+- `src/config.rs`
+- `src/db/writer.rs`
+- `src/indexer.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-06-19--normalize-resolved-config-paths-syntactically.org`
+
+** Checks performed
+- `cargo fmt`
+- `cargo test normalizes_syntactic_dots -- --nocapture`
+- `cargo test rebuild_deduplicates_equivalent_config_file_paths -- --nocapture`
+- `cargo test rebuild_removes_stale_relative_file_rows_for_configured_scope -- --nocapture`
+- `cargo test faulty_file_stops_cleanly_with_clear_error -- --nocapture`
+- `cargo test --all-targets --all-features`
+- `make ci`
+
+** Test results
+- Config tests passed for relative config paths, absolute paths with `.`, and
+  `~` combined with absolute normalization.
+- Indexer regressions passed for equivalent config file entries resolving to
+  one DB file row and for seeded stale relative/noisy rows being removed by
+  rebuild.
+- Faulty-file rebuild remains transactional and leaves no partial writes on
+  parse failure.
+- Full test suite passed.
+- `make ci` passed.
+
+** Blockers
+None.
+
+** Follow-ups
+None.

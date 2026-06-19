@@ -1,4 +1,5 @@
 #+TITLE: Repository-specific AI Instructions
+#+STARTUP: showall
 
 * Preferred checks
 
@@ -7,3 +8,10 @@ Before setting a task to ~REVIEW~, run:
 - ~make ci~
 
 If not all checks can be run, explain why in the task file.
+
+* Folders/Files to ignore
+
+AI ignores:
+
+- [[../manual-tests]]
+- [[../local]]

@@ -51,8 +51,7 @@ where
         config: &Config,
     ) -> Result<RebuildReport, IndexerError> {
         let paths = discover_org_files(config)?;
-        let mut report = RebuildReport::default();
-
+        let mut pending = Vec::with_capacity(paths.len());
         for path in paths {
             let metadata = fs::metadata(&path).map_err(|source| IndexerError::ReadFile {
                 path: path.clone(),
@@ -73,25 +72,41 @@ where
             let todo_keywords =
                 active_todo_keywords(&normalized, &config.parse_options().todo_keywords);
             let file_record = build_file_record(&path, &metadata)?;
-            let indexed_file = DbWriter::rebuild_file(connection, &file_record, |tx, file_id| {
-                index_document(
-                    tx,
-                    file_id,
-                    &normalized,
-                    &todo_keywords,
-                    config.search.fts5_enabled,
-                    config.search.index_body_text,
-                )
-            })
-            .map(|(file_id, heading_count)| IndexedFile {
-                path: path.clone(),
+            pending.push(PendingRebuildFile {
+                path,
+                document: normalized,
+                todo_keywords,
+                file_record,
+            });
+        }
+
+        let tx = connection
+            .transaction()
+            .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
+        DbWriter::delete_all_indexed_data(&tx).map_err(IndexerError::Write)?;
+
+        let mut report = RebuildReport::default();
+        for pending_file in pending {
+            let file_id = DbWriter::upsert_file(&tx, &pending_file.file_record)
+                .map_err(IndexerError::Write)?;
+            let heading_count = index_document(
+                &tx,
+                file_id,
+                &pending_file.document,
+                &pending_file.todo_keywords,
+                config.search.fts5_enabled,
+                config.search.index_body_text,
+            )
+            .map_err(IndexerError::Write)?;
+            let indexed_file = IndexedFile {
+                path: pending_file.path.clone(),
                 file_id,
                 heading_count,
-            })
-            .map_err(IndexerError::Write)?;
+            };
 
             report.diagnostics.extend(
-                normalized
+                pending_file
+                    .document
                     .diagnostics
                     .iter()
                     .cloned()
@@ -100,8 +115,18 @@ where
             report.indexed_files.push(indexed_file);
         }
 
+        tx.commit()
+            .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
+
         Ok(report)
     }
+}
+
+struct PendingRebuildFile {
+    path: PathBuf,
+    document: ParsedOrgDocument,
+    todo_keywords: TodoKeywordConfig,
+    file_record: FileRecordInput,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -901,6 +926,143 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_deduplicates_equivalent_config_file_paths() {
+        let test_dir = TestDir::new("equivalent-config-files");
+        let notes_dir = test_dir.path().join("files");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("a.org");
+
+        write_file(&org_path, "#+TITLE: Example\n* Heading\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["././files/a.org", "files/a.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert_eq!(report.indexed_files[0].path, org_path);
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let files_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("files count should load");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+
+        assert_eq!(files_count, 1);
+        assert_eq!(headings.len(), 2);
+        assert_eq!(headings[0].title, "Example");
+        assert_eq!(headings[1].title, "Heading");
+    }
+
+    #[test]
+    fn rebuild_removes_stale_relative_file_rows_for_configured_scope() {
+        let test_dir = TestDir::new("stale-relative-rows");
+        let files_dir = test_dir.path().join("files");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = files_dir.join("a.org");
+        let absolute_path = org_path.to_string_lossy().to_string();
+
+        write_file(&org_path, "#+TITLE: Current\n* Fresh\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["././files/a.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '././files/a.org', 1, 1)",
+                [],
+            )
+            .expect("first stale file row should insert");
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (2, 'files/a.org', 1, 1)",
+                [],
+            )
+            .expect("second stale file row should insert");
+        connection
+            .execute(
+                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p, all_tags_json)
+                 VALUES (1, 1, NULL, 0, 1, -1, 1, 'Old Root', 'Old Root', 0, 0, '[]')",
+                [],
+            )
+            .expect("first stale root should insert");
+        connection
+            .execute(
+                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p, all_tags_json)
+                 VALUES (2, 1, 1, 1, 1, 0, 1, 'Old Child', 'Old Child', 0, 0, '[]')",
+                [],
+            )
+            .expect("first stale child should insert");
+        connection
+            .execute(
+                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p, all_tags_json)
+                 VALUES (3, 2, NULL, 0, 1, -1, 1, 'Older Root', 'Older Root', 0, 0, '[]')",
+                [],
+            )
+            .expect("second stale root should insert");
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild(
+                &mut connection,
+                &Config::load_from_file(&config_path).expect("config should load"),
+            )
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert_eq!(report.indexed_files[0].path, org_path);
+
+        let file_rows: Vec<(i64, String)> = query_rows(
+            &connection,
+            "SELECT id, path FROM files ORDER BY id",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        let heading_rows: Vec<(i64, i64, String)> = query_rows(
+            &connection,
+            "SELECT id, file_id, title FROM headings ORDER BY id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+
+        assert_eq!(file_rows.len(), 1);
+        assert_eq!(file_rows[0].1, absolute_path);
+        assert_eq!(heading_rows.len(), 2);
+        assert!(heading_rows
+            .iter()
+            .all(|(_, file_id, _)| *file_id == file_rows[0].0));
+        assert_eq!(
+            heading_rows
+                .iter()
+                .map(|(_, _, title)| title.clone())
+                .collect::<Vec<_>>(),
+            vec!["Current".to_string(), "Fresh".to_string()]
+        );
+    }
+
+    #[test]
     fn rebuild_respects_file_local_todo_keywords_as_overrides() {
         let test_dir = TestDir::new("file-local-todo");
         let notes_dir = test_dir.path().join("notes");
@@ -1488,8 +1650,8 @@ index_body_text = true
             .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
             .expect("heading count should load");
 
-        assert_eq!(files_count, 1);
-        assert_eq!(headings_count, 1);
+        assert_eq!(files_count, 0);
+        assert_eq!(headings_count, 0);
     }
 
     fn query_rows<T, F>(connection: &Connection, sql: &str, mut map: F) -> Vec<T>

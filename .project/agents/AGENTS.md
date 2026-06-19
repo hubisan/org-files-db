@@ -44,10 +44,7 @@ Tasks use Org-mode TODO states.
 ### 1. Prepare
 
 1. Work only on `PLAN`, `BUILD`, `NEXT`, or `CONTINUE` tasks.
-2. Create or reuse `../tasks/YYYY-MM-DD--slug.org` from `../tasks/template.org`.
-   Summarize relevant chat input and copy the task entry from `todo.org`
-   under `* Input & Todo Task`; remove inapplicable sections.
-3. Add `#+TASK_STARTED: [YYYY-MM-DD Day HH:MM]` near the top.
+2. Create or reuse `../tasks/YYYY-MM-DD--slug.org` from `../tasks/template.org`. Summarize relevant chat input and copy the task entry from `todo.org` under `* Input & Todo Task`; remove inapplicable sections. 3. Add `#+TASK_STARTED: [YYYY-MM-DD Day HH:MM]` near the top.
 4. Link the task file below the task heading in `todo.org`.
 5. If on `main`, create a branch `type/description` using `feat`, `fix`, `hotfix`, `refactor`, `perf`, `docs`, `test`, `release`, `ci`, or `chore`; otherwise continue on the current branch.
 

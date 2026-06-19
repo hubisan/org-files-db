@@ -28,28 +28,48 @@ This test suite builds the db and outputs:
 
 * Commands
 
+** Run all
+
+#+name: run-all
+#+begin_src emacs-lisp :results silent
+  (org-sbe run-rebuild)
+  (org-sbe dump-db)
+  (org-sbe write-headings-json-with-root)
+  (org-sbe write-db-top10-md)
+#+end_src
+
 ** Run rebuild. This rebuilds the database.
 
+#+name: run-rebuild
 #+begin_src shell :noweb yes :results silent
 cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- rebuild --config <<config-path()>>
 #+end_src
 
 ** Dump SQLite database.
 
+[[./data/db-dump.sql]]
+
+#+name: dump-db
 #+begin_src shell :noweb yes :results silent
 sqlite3 ./data/org-files-db.sqlite .dump > <<db-dump()>>
 #+end_src
 
 ** Write headings JSON including the root heading.
 
+[[./data/headings-with-root.json]]
+
+#+name: write-headings-json-with-root
 #+begin_src shell :noweb yes :results silent
 cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- headings --json --include-root --config <<config-path()>> > <<headings-json-with-root()>>
 #+end_src
 
 ** DB as Markdown, Top 10 Rows
 
+[[./data/db-top10.md]]
+
 Write top 10 rows from every SQLite table as Markdown.
 
+#+name: write-db-top10-md
 #+begin_src shell :noweb yes :results silent
   {
     echo "# SQLite DB preview"
@@ -72,4 +92,5 @@ Write top 10 rows from every SQLite table as Markdown.
   EOF
   } > <<db-top10-md()>>
 #+end_src
+
 

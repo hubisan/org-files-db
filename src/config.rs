@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fmt, fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use serde::Deserialize;
@@ -49,15 +49,15 @@ impl Config {
             todo,
             search,
         } = raw;
-        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-        let db_path = resolve_path(base_dir, raw_db_path, home_dir)?;
+        let base_dir = absolute_base_dir(path.parent().unwrap_or_else(|| Path::new(".")));
+        let db_path = resolve_path(&base_dir, raw_db_path, home_dir)?;
         let files = raw_files
             .into_iter()
-            .map(|file| resolve_path(base_dir, file, home_dir))
+            .map(|file| resolve_path(&base_dir, file, home_dir))
             .collect::<Result<Vec<_>, _>>()?;
         let dirs = raw_dirs
             .into_iter()
-            .map(|dir| resolve_path(base_dir, dir, home_dir))
+            .map(|dir| resolve_path(&base_dir, dir, home_dir))
             .collect::<Result<Vec<_>, _>>()?;
         let todo = todo.unwrap_or(RawTodoConfig {
             default_open_keywords: None,
@@ -305,15 +305,17 @@ fn resolve_path(
     path: PathBuf,
     home_dir: Option<&Path>,
 ) -> Result<PathBuf, ConfigError> {
-    if path.is_absolute() {
-        return Ok(path);
-    }
-
     if let Some(expanded) = expand_home_directory(&path, home_dir)? {
-        return Ok(expanded);
+        return Ok(absolute_syntactic_path(expanded));
     }
 
-    Ok(base_dir.join(path))
+    let resolved = if path.is_absolute() {
+        path
+    } else {
+        base_dir.join(path)
+    };
+
+    Ok(absolute_syntactic_path(resolved))
 }
 
 fn expand_home_directory(
@@ -339,6 +341,38 @@ fn expand_home_directory(
     }
 
     Ok(Some(resolved))
+}
+
+fn normalize_syntactic_path(path: PathBuf) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        if matches!(component, Component::CurDir) {
+            continue;
+        }
+        normalized.push(component.as_os_str());
+    }
+
+    normalized
+}
+
+fn absolute_base_dir(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return normalize_syntactic_path(path.to_path_buf());
+    }
+
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    normalize_syntactic_path(current_dir.join(path))
+}
+
+fn absolute_syntactic_path(path: PathBuf) -> PathBuf {
+    let normalized = normalize_syntactic_path(path);
+    if normalized.is_absolute() {
+        normalized
+    } else {
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        normalize_syntactic_path(current_dir.join(normalized))
+    }
 }
 
 fn current_home_dir() -> Option<PathBuf> {
@@ -378,7 +412,7 @@ fn validate_dir_paths(dirs: &[PathBuf]) -> Result<(), ConfigError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, ConfigError, RawConfig, RawSearchConfig, RawTodoConfig};
+    use super::{resolve_path, Config, ConfigError, RawConfig, RawSearchConfig, RawTodoConfig};
     use crate::parser::{ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
         fs,
@@ -552,6 +586,108 @@ recursive = true
         assert_eq!(config.files, vec![file_path]);
         assert_eq!(config.dirs, vec![dir_path]);
         assert!(config.recursive);
+    }
+
+    #[test]
+    fn resolves_relative_config_paths_to_absolute_locations() {
+        let resolved = resolve_path(
+            Path::new("nested/config"),
+            PathBuf::from("./notes/test.org"),
+            None,
+        )
+        .expect("relative config path should resolve");
+        let current_dir = std::env::current_dir().expect("cwd should be available");
+
+        assert_eq!(resolved, current_dir.join("nested/config/notes/test.org"));
+        assert!(resolved.is_absolute());
+        assert!(!resolved.to_string_lossy().contains("/./"));
+    }
+
+    #[test]
+    fn normalizes_syntactic_dots_after_resolving_config_relative_paths() {
+        let test_dir = TestDir::new("relative-dot-paths");
+        let config_dir = test_dir.path().join("nested/config");
+        let file_path = config_dir.join("test.org");
+        let dir_path = config_dir.join("notes");
+        let config_path = config_dir.join("config.toml");
+
+        write_file(&file_path, "* Note");
+        fs::create_dir_all(&dir_path).expect("dir path should be created");
+        write_file(
+            &config_path,
+            r#"
+db_path = "./org-files-db.sqlite"
+files = ["./test.org"]
+dirs = ["./notes"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(config.db_path, config_dir.join("org-files-db.sqlite"));
+        assert_eq!(config.files, vec![file_path]);
+        assert_eq!(config.dirs, vec![dir_path]);
+    }
+
+    #[test]
+    fn normalizes_syntactic_dots_in_absolute_paths() {
+        let test_dir = TestDir::new("absolute-dot-paths");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db/./org-files-db.sqlite");
+        let file_path = test_dir.path().join("notes/./test.org");
+        let dir_path = test_dir.path().join("dirs/./notes");
+        let normalized_file_path = test_dir.path().join("notes/test.org");
+        let normalized_dir_path = test_dir.path().join("dirs/notes");
+        let config_body = format!(
+            r#"
+db_path = "{}"
+files = ["{}"]
+dirs = ["{}"]
+"#,
+            db_path.display(),
+            file_path.display(),
+            dir_path.display()
+        );
+
+        write_file(&normalized_file_path, "* Note");
+        fs::create_dir_all(&normalized_dir_path).expect("dir path should be created");
+        write_file(&config_path, &config_body);
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.db_path,
+            test_dir.path().join("db/org-files-db.sqlite")
+        );
+        assert_eq!(config.files, vec![normalized_file_path]);
+        assert_eq!(config.dirs, vec![normalized_dir_path]);
+    }
+
+    #[test]
+    fn normalizes_syntactic_dots_together_with_tilde_expansion() {
+        let test_dir = TestDir::new("tilde-dot-paths");
+        let config_path = test_dir.path().join("config.toml");
+        let home_dir = test_dir.path().join("home");
+        let notes_dir = home_dir.join("notes");
+        let file_path = notes_dir.join("test.org");
+
+        fs::create_dir_all(&notes_dir).expect("notes dir should be created");
+        write_file(&file_path, "* Note");
+
+        let config = Config::from_raw_with_home_dir(
+            &config_path,
+            raw_config(
+                "~/./org-files-db.sqlite",
+                vec!["~/./notes/test.org".to_string()],
+                vec!["~/./notes".to_string()],
+            ),
+            Some(home_dir.as_path()),
+        )
+        .expect("config should load");
+
+        assert_eq!(config.db_path, home_dir.join("org-files-db.sqlite"));
+        assert_eq!(config.files, vec![file_path]);
+        assert_eq!(config.dirs, vec![notes_dir]);
     }
 
     #[test]

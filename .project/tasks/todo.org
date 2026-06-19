@@ -133,52 +133,9 @@ config
 
 [[./archive/2026-06-19--support-multiple-file-wide-title-keywords.org]]
 
-** TODO Normalize resolved config paths syntactically
+** DONE [2026-06-19 Fri 14:41] Normalize resolved config paths syntactically
 
-Goal:
-Avoid storing syntactically noisy but equivalent paths such as `/path/./file.org`.
-
-Context:
-Config paths are resolved before they are used by discovery, indexing, DB writes, and CLI output. Config-relative paths are resolved by joining the config file directory with the configured path. For entries such as `./test.org`, this can currently produce paths like:
-
-#+begin_src json
-{
-  "file_path": "/path/to/project/.project/local/./test.org"
-}
-#+end_src
-
-This is functionally equivalent, but noisy and undesirable for stored file identity, JSON output, tests, and future deduplication.
-
-Required behavior:
-
-- Normalize resolved config paths syntactically after config path resolution.
-- Remove syntactic `.` path components from resolved paths.
-- Apply this to:
-  - `db_path`
-  - entries in `files`
-  - entries in `dirs`
-- Keep config-relative paths resolving relative to the config file location.
-- Keep absolute paths working unchanged, except for removing syntactic `.` components.
-- Keep existing leading `~` expansion behavior unchanged.
-- Do not canonicalize paths through the filesystem.
-- Do not resolve symlinks.
-- Do not require `db_path` to exist.
-- For `files` and `dirs`, continue validating existence as before.
-- Do not change parser, DB schema, indexer behavior, or CLI JSON field names.
-- Do not implement broad path cleanup beyond syntactic `.` normalization unless needed by the existing path APIs.
-
-Acceptance criteria:
-
-- `files = ["./test.org"]` resolves to `/path/to/config-dir/test.org`, not `/path/to/config-dir/./test.org`.
-- `dirs = ["./notes"]` resolves to `/path/to/config-dir/notes`, not `/path/to/config-dir/./notes`.
-- `db_path = "./org-files-db.sqlite"` resolves to `/path/to/config-dir/org-files-db.sqlite`, not `/path/to/config-dir/./org-files-db.sqlite`.
-- Absolute paths containing syntactic `.` components are normalized without resolving symlinks.
-- Existing absolute path behavior still works.
-- Existing config-relative path behavior still works.
-- Existing `~` expansion behavior still works.
-- Validation behavior for missing files and missing directories remains unchanged.
-- Tests cover config-relative paths with leading `./` for `db_path`, `files`, and `dirs`.
-- Tests cover that existing `~` expansion still works together with syntactic path normalization.
+[[./archive/2026-06-19--normalize-resolved-config-paths-syntactically.org]]
 
 ** TODO Verify minimal end-to-end slice
 
