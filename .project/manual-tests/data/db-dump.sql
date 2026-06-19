@@ -8,9 +8,9 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1781876919);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org',1781808923034914634,904,NULL,1781876919);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1781876919);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1781880327);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org',1781808923034914634,904,NULL,1781880327);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1781880327);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -241,16 +241,16 @@ INSERT INTO outline_path VALUES(17,1,1,1,'0000.0016','["File-local TODO keywords
 INSERT INTO outline_path VALUES(18,1,1,1,'0000.0017','["File-local TODO keywords","DONE still not valid after later local lines"]');
 INSERT INTO outline_path VALUES(19,2,NULL,0,'0000','["Inherited heading tags"]');
 INSERT INTO outline_path VALUES(20,2,19,1,'0000.0001','["Inherited heading tags","parent with one tag"]');
-INSERT INTO outline_path VALUES(21,2,20,2,'0000.0001.0002','["Inherited heading tags","parent with one tag","child inherits parent tag"]');
-INSERT INTO outline_path VALUES(22,2,20,2,'0000.0001.0003','["Inherited heading tags","parent with one tag","child with local tag"]');
-INSERT INTO outline_path VALUES(23,2,22,3,'0000.0001.0003.0004','["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]');
-INSERT INTO outline_path VALUES(24,2,22,3,'0000.0001.0003.0005','["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"]');
-INSERT INTO outline_path VALUES(25,2,19,1,'0000.0006','["Inherited heading tags","second parent"]');
-INSERT INTO outline_path VALUES(26,2,25,2,'0000.0006.0007','["Inherited heading tags","second parent","second child with local tag"]');
-INSERT INTO outline_path VALUES(27,2,26,3,'0000.0006.0007.0008','["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]');
-INSERT INTO outline_path VALUES(28,2,19,1,'0000.0009','["Inherited heading tags","untagged parent"]');
-INSERT INTO outline_path VALUES(29,2,28,2,'0000.0009.0010','["Inherited heading tags","untagged parent","child with only local tag"]');
-INSERT INTO outline_path VALUES(30,2,28,2,'0000.0009.0011','["Inherited heading tags","untagged parent","child without tags"]');
+INSERT INTO outline_path VALUES(21,2,20,2,'0000.0001.0001','["Inherited heading tags","parent with one tag","child inherits parent tag"]');
+INSERT INTO outline_path VALUES(22,2,20,2,'0000.0001.0002','["Inherited heading tags","parent with one tag","child with local tag"]');
+INSERT INTO outline_path VALUES(23,2,22,3,'0000.0001.0002.0001','["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]');
+INSERT INTO outline_path VALUES(24,2,22,3,'0000.0001.0002.0002','["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"]');
+INSERT INTO outline_path VALUES(25,2,19,1,'0000.0002','["Inherited heading tags","second parent"]');
+INSERT INTO outline_path VALUES(26,2,25,2,'0000.0002.0001','["Inherited heading tags","second parent","second child with local tag"]');
+INSERT INTO outline_path VALUES(27,2,26,3,'0000.0002.0001.0001','["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]');
+INSERT INTO outline_path VALUES(28,2,19,1,'0000.0003','["Inherited heading tags","untagged parent"]');
+INSERT INTO outline_path VALUES(29,2,28,2,'0000.0003.0001','["Inherited heading tags","untagged parent","child with only local tag"]');
+INSERT INTO outline_path VALUES(30,2,28,2,'0000.0003.0002','["Inherited heading tags","untagged parent","child without tags"]');
 INSERT INTO outline_path VALUES(31,3,NULL,0,'0000','["Title can span multiple lines, even here"]');
 INSERT INTO outline_path VALUES(32,3,31,1,'0000.0001','["Title can span multiple lines, even here","Unfortunately Everywhere"]');
 CREATE UNIQUE INDEX uq_headings_file_level0

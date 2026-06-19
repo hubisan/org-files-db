@@ -472,7 +472,7 @@ fn index_document(
         file_id,
         None,
         0,
-        "0000".to_string(),
+        outline_root_materialized_path(),
         vec![level0_heading.title.clone()],
     )
     .map_err(db_write_invalid_input)?];
@@ -485,6 +485,8 @@ fn index_document(
             body: body_for_fts(index_body_text),
         });
     }
+
+    let mut child_ordinals = vec![0usize; document.headings.len()];
 
     for (heading_index, heading) in document.headings.iter().enumerate().skip(1) {
         let parent_index = heading.parent_index.unwrap_or(0);
@@ -510,17 +512,15 @@ fn index_document(
 
         heading_ids.push(heading_id);
         let parent_outline = &outline_rows[parent_index];
+        let sibling_ordinal = child_ordinals[parent_index] + 1;
+        child_ordinals[parent_index] = sibling_ordinal;
         outline_rows.push(
             outline_record(
                 heading_id,
                 file_id,
                 Some(parent_id),
                 parent_outline.depth + 1,
-                format!(
-                    "{}.{}",
-                    parent_outline.materialized_path,
-                    zero_pad_path_segment(heading_index)
-                ),
+                outline_child_materialized_path(&parent_outline.materialized_path, sibling_ordinal),
                 extend_breadcrumbs(&parent_outline.breadcrumbs_json, &heading.title)
                     .map_err(db_write_invalid_input)?,
             )
@@ -718,6 +718,14 @@ fn extend_breadcrumbs(breadcrumbs_json: &str, title: &str) -> Result<Vec<String>
 
 fn zero_pad_path_segment(value: usize) -> String {
     format!("{value:04}")
+}
+
+fn outline_root_materialized_path() -> String {
+    zero_pad_path_segment(0)
+}
+
+fn outline_child_materialized_path(parent_path: &str, sibling_ordinal: usize) -> String {
+    format!("{parent_path}.{}", zero_pad_path_segment(sibling_ordinal))
 }
 
 fn body_for_fts(_index_body_text: bool) -> String {
@@ -1568,7 +1576,10 @@ index_body_text = false
         )
         .expect("db should open");
 
-        write_file(&org_path, "* Parent\n** Child\n");
+        write_file(
+            &org_path,
+            "#+TITLE: Outline\n* Parent A\n** Child A1\n*** Grandchild A1a\n** Child A2\n* Parent B\n** Child B1\n",
+        );
         let indexer = Indexer::new(OrgizeAdapter::new());
         indexer
             .rebuild(&mut connection, &config)
@@ -1587,24 +1598,53 @@ index_body_text = false
             "SELECT depth, materialized_path, breadcrumbs_json FROM outline_path ORDER BY materialized_path",
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         );
+        let heading_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
+            .expect("heading count should load");
+        let outline_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM outline_path", [], |row| row.get(0))
+            .expect("outline count should load");
 
         assert_eq!(
             first_outline,
             vec![
-                (0, "0000".to_string(), "[\"outline\"]".to_string()),
+                (0, "0000".to_string(), "[\"Outline\"]".to_string()),
                 (
                     1,
                     "0000.0001".to_string(),
-                    "[\"outline\",\"Parent\"]".to_string()
+                    "[\"Outline\",\"Parent A\"]".to_string()
+                ),
+                (
+                    2,
+                    "0000.0001.0001".to_string(),
+                    "[\"Outline\",\"Parent A\",\"Child A1\"]".to_string()
+                ),
+                (
+                    3,
+                    "0000.0001.0001.0001".to_string(),
+                    "[\"Outline\",\"Parent A\",\"Child A1\",\"Grandchild A1a\"]".to_string()
                 ),
                 (
                     2,
                     "0000.0001.0002".to_string(),
-                    "[\"outline\",\"Parent\",\"Child\"]".to_string()
+                    "[\"Outline\",\"Parent A\",\"Child A2\"]".to_string()
+                ),
+                (
+                    1,
+                    "0000.0002".to_string(),
+                    "[\"Outline\",\"Parent B\"]".to_string()
+                ),
+                (
+                    2,
+                    "0000.0002.0001".to_string(),
+                    "[\"Outline\",\"Parent B\",\"Child B1\"]".to_string()
                 ),
             ]
         );
         assert_eq!(second_outline, first_outline);
+        assert_eq!(heading_count, 7);
+        assert_eq!(outline_count, 7);
+        assert_materialized_paths_are_four_digits(&first_outline);
     }
 
     #[test]
@@ -1768,5 +1808,17 @@ index_body_text = true
             .expect("query should run");
         rows.collect::<Result<Vec<_>, _>>()
             .expect("rows should collect")
+    }
+
+    fn assert_materialized_paths_are_four_digits(rows: &[(i64, String, String)]) {
+        for (_, path, _) in rows {
+            for segment in path.split('.') {
+                assert_eq!(
+                    segment.len(),
+                    4,
+                    "outline path segment should be exactly 4 digits: {path}"
+                );
+            }
+        }
     }
 }

@@ -1,0 +1,126 @@
+#+TITLE: Store materialized outline path
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-19 Fri 16:17]
+#+TASK_COMPLETED: [2026-06-19 Fri 16:50]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Build the derived `outline_path` table for fast hierarchy queries.
+- Keep the logic derived after headings are inserted and `parent_id` is known.
+- Use sibling ordinal, not heading id, for materialized path segments.
+- Keep parser behavior unchanged.
+- Do not build the query engine in this task.
+
+Copied task entry from `todo.org`:
+
+** BUILD Store materialized outline path
+
+Goal:
+Build the ~outline_path~ derived/cache table for fast hierarchy queries.
+
+The table stores:
+
+- ~heading_id~
+- ~file_id~
+- ~parent_id~
+- ~depth~
+- ~materialized_path~
+- ~breadcrumbs_json~
+
+Example materialized paths:
+
+#+begin_src text
+0000
+0000.0001
+0000.0001.0002
+0000.0001.0001.0001
+#+end_src
+
+Acceptance criteria:
+
+- One ~outline_path~ row exists per heading.
+- Level 0 heading has depth 0.
+- Top-level Org headings have depth 1.
+- ~materialized_path~ is stable for one rebuild.
+- Zero-padding is explicitly defined and enforced, e.g. exactly 4 digits per level.
+- ~breadcrumbs_json~ contains titles from level 0 to the current heading.
+- Subtree queries can use ~file_id~ and ~materialized_path~.
+- A test verifies expected paths for nested headings.
+
+* Planning
+
+** Problem summary
+`outline_path` already exists as a derived table and is populated during rebuild, but the current path construction uses the global heading index instead of a sibling ordinal. That makes the path shape depend on document position rather than structural sibling order.
+
+** Goals
+- Derive `outline_path` after headings are inserted and `parent_id` is known.
+- Use sibling ordinal among siblings, not heading id.
+- Keep exactly 4 digits per path segment.
+- Keep level 0 path as `0000`.
+- Store hierarchy depth as `depth`, with level 0 = 0.
+- Store breadcrumb titles from level 0 through the current heading.
+
+** Non-goals
+- No parser changes.
+- No query engine implementation.
+- No schema redesign unless a failing test proves it is necessary.
+
+** Architecture
+The indexer should continue to insert headings first, then derive `outline_path` rows from the inserted hierarchy. The sibling ordinal should be tracked per parent heading index during the same document pass that produces heading ids.
+
+** Execution plan
+- Update the outline-path derivation in `src/indexer.rs` to use sibling ordinals per parent instead of the global heading index.
+- Keep `depth` and `breadcrumbs_json` derived from the parent outline row.
+- Add a focused indexer test that exercises nested headings with siblings and asserts exact `materialized_path` and `breadcrumbs_json`.
+- Keep repeated rebuild coverage to prove stability and non-duplication.
+- Run targeted tests, then `make ci`.
+
+** Risks & assumptions
+- Assumption: document order is stable and can be used to assign sibling ordinals deterministically.
+- Assumption: the current `outline_path` schema is sufficient and does not need changes.
+- Risk: changing path derivation may require updating existing outline-path tests that currently rely on the old global-index behavior.
+
+** Open questions
+- None.
+
+** Proposed checks
+- Focused indexer test for outline paths.
+- Existing rebuild idempotence and outline consistency tests.
+- `make ci` before setting the task to `REVIEW`.
+
+* Results
+
+** Approach
+- Kept `outline_path` generation in the indexer after headings and `parent_id` are known.
+- Replaced global heading-index-based path segments with sibling ordinals tracked per parent heading index.
+- Added explicit helpers for the level 0 path and child path formatting so the 4-digit segment rule is enforced in one place.
+- Preserved the existing `depth` and breadcrumb derivation from the parent outline row so the table stays a pure cache of the current hierarchy.
+
+** Changed files
+- `src/indexer.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-06-19--store-materialized-outline-path.org`
+
+** Checks performed
+- `cargo test outline_rows_remain_consistent_after_rebuild -- --nocapture`
+- `cargo test rebuild_computes_parent_ids_for_nested_headings -- --nocapture`
+- `cargo test rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows -- --nocapture`
+- `cargo fmt --all`
+- `make ci`
+
+** Test results
+- `outline_rows_remain_consistent_after_rebuild` now verifies sibling-ordinal materialized paths, breadcrumb JSON, row counts, and rebuild stability for a nested tree with siblings.
+- Existing parent-id and rebuild-idempotence tests still pass.
+- The path regression reported in review is now covered by exact assertions for `0000`, `.0001`, per-parent ordinal reset, and four-digit segment length.
+- `make ci` passed with formatting, clippy, the full test suite, and a full build.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Ready for review.

@@ -290,3 +290,322 @@ Should return no rows.
 #+END_SRC
 
 #+RESULTS:
+* Outline Path
+
+** Raw outline paths
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    op.heading_id,
+    op.file_id,
+    op.parent_id,
+    op.depth,
+    op.materialized_path,
+    op.breadcrumbs_json,
+    h.level,
+    h.title
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+   ORDER BY op.file_id, op.materialized_path;
+#+END_SRC
+
+#+RESULTS:
+| heading_id | file_id | parent_id | depth |   materialized_path | breadcrumbs_json                                                                                              | level | title                                          |
+|------------+---------+-----------+-------+---------------------+---------------------------------------------------------------------------------------------------------------+-------+------------------------------------------------|
+|          1 |       1 |       N/A |     0 |                   0 | ["File-local TODO keywords"]                                                                                  |     0 | File-local TODO keywords                       |
+|          2 |       1 |         1 |     1 |              0.0001 | ["File-local TODO keywords","TODO default keyword should stay in title"]                                      |     1 | TODO default keyword should stay in title      |
+|          3 |       1 |         1 |     1 |              0.0002 | ["File-local TODO keywords","DONE default done keyword should stay in title"]                                 |     1 | DONE default done keyword should stay in title |
+|          4 |       1 |         1 |     1 |              0.0003 | ["File-local TODO keywords","open keyword with fast key"]                                                     |     1 | open keyword with fast key                     |
+|          5 |       1 |         1 |     1 |              0.0004 | ["File-local TODO keywords","another open keyword with fast key"]                                             |     1 | another open keyword with fast key             |
+|          6 |       1 |         1 |     1 |              0.0005 | ["File-local TODO keywords","closed keyword with fast key"]                                                   |     1 | closed keyword with fast key                   |
+|          7 |       1 |         1 |     1 |              0.0006 | ["File-local TODO keywords","closed keyword with extended fast key"]                                          |     1 | closed keyword with extended fast key          |
+|          8 |       1 |         1 |     1 |              0.0007 | ["File-local TODO keywords","open keyword from empty-done-side line"]                                         |     1 | open keyword from empty-done-side line         |
+|          9 |       1 |         1 |     1 |              0.0008 | ["File-local TODO keywords","another open keyword from empty-done-side line"]                                 |     1 | another open keyword from empty-done-side line |
+|         10 |       1 |         1 |     1 |              0.0009 | ["File-local TODO keywords","open keyword from TYP_TODO"]                                                     |     1 | open keyword from TYP_TODO                     |
+|         11 |       1 |         1 |     1 |               0.001 | ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                   |     1 | closed keyword from TYP_TODO                   |
+|         12 |       1 |         1 |     1 |              0.0011 | ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                     |     1 | open keyword from SEQ_TODO                     |
+|         13 |       1 |         1 |     1 |              0.0012 | ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                   |     1 | closed keyword from SEQ_TODO                   |
+|         14 |       1 |         1 |     1 |              0.0013 | ["File-local TODO keywords","closed keyword from later TODO line"]                                            |     1 | closed keyword from later TODO line            |
+|         15 |       1 |         1 |     1 |              0.0014 | ["File-local TODO keywords","open keyword from line defined later in file"]                                   |     1 | open keyword from line defined later in file   |
+|         16 |       1 |         1 |     1 |              0.0015 | ["File-local TODO keywords","closed keyword from line defined later in file"]                                 |     1 | closed keyword from line defined later in file |
+|         17 |       1 |         1 |     1 |              0.0016 | ["File-local TODO keywords","TODO still not valid after later local lines"]                                   |     1 | TODO still not valid after later local lines   |
+|         18 |       1 |         1 |     1 |              0.0017 | ["File-local TODO keywords","DONE still not valid after later local lines"]                                   |     1 | DONE still not valid after later local lines   |
+|         19 |       2 |       N/A |     0 |                   0 | ["Inherited heading tags"]                                                                                    |     0 | Inherited heading tags                         |
+|         20 |       2 |        19 |     1 |              0.0001 | ["Inherited heading tags","parent with one tag"]                                                              |     1 | parent with one tag                            |
+|         21 |       2 |        20 |     2 |      0000.0001.0001 | ["Inherited heading tags","parent with one tag","child inherits parent tag"]                                  |     2 | child inherits parent tag                      |
+|         22 |       2 |        20 |     2 |      0000.0001.0002 | ["Inherited heading tags","parent with one tag","child with local tag"]                                       |     2 | child with local tag                           |
+|         23 |       2 |        22 |     3 | 0000.0001.0002.0001 | ["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]            |     3 | grandchild inherits both                       |
+|         24 |       2 |        22 |     3 | 0000.0001.0002.0002 | ["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"] |     3 | grandchild with duplicate local tag            |
+|         25 |       2 |        19 |     1 |              0.0002 | ["Inherited heading tags","second parent"]                                                                    |     1 | second parent                                  |
+|         26 |       2 |        25 |     2 |      0000.0002.0001 | ["Inherited heading tags","second parent","second child with local tag"]                                      |     2 | second child with local tag                    |
+|         27 |       2 |        26 |     3 | 0000.0002.0001.0001 | ["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]   |     3 | second grandchild with extra tag               |
+|         28 |       2 |        19 |     1 |              0.0003 | ["Inherited heading tags","untagged parent"]                                                                  |     1 | untagged parent                                |
+|         29 |       2 |        28 |     2 |      0000.0003.0001 | ["Inherited heading tags","untagged parent","child with only local tag"]                                      |     2 | child with only local tag                      |
+|         30 |       2 |        28 |     2 |      0000.0003.0002 | ["Inherited heading tags","untagged parent","child without tags"]                                             |     2 | child without tags                             |
+|         31 |       3 |       N/A |     0 |                   0 | ["Title can span multiple lines, even here"]                                                                  |     0 | Title can span multiple lines, even here       |
+|         32 |       3 |        31 |     1 |              0.0001 | ["Title can span multiple lines, even here","Unfortunately Everywhere"]                                       |     1 | Unfortunately Everywhere                       |
+
+** Outline tree
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :results output :nullvalue 'N/A'
+  SELECT
+    CASE
+    WHEN op.depth = 0 THEN f.path || ' - ' || op.materialized_path || ' ' || h.title
+    ELSE printf(
+      '%s- %s %s',
+      substr('                                                                                ', 1, op.depth * 2),
+      op.materialized_path,
+      h.title
+    )
+    END AS line
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+         JOIN files f ON f.id = op.file_id
+   ORDER BY op.file_id, op.materialized_path;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0000 File-local TODO keywords"
+"  - 0000.0001 TODO default keyword should stay in title"
+"  - 0000.0002 DONE default done keyword should stay in title"
+"  - 0000.0003 open keyword with fast key"
+"  - 0000.0004 another open keyword with fast key"
+"  - 0000.0005 closed keyword with fast key"
+"  - 0000.0006 closed keyword with extended fast key"
+"  - 0000.0007 open keyword from empty-done-side line"
+"  - 0000.0008 another open keyword from empty-done-side line"
+"  - 0000.0009 open keyword from TYP_TODO"
+"  - 0000.0010 closed keyword from TYP_TODO"
+"  - 0000.0011 open keyword from SEQ_TODO"
+"  - 0000.0012 closed keyword from SEQ_TODO"
+"  - 0000.0013 closed keyword from later TODO line"
+"  - 0000.0014 open keyword from line defined later in file"
+"  - 0000.0015 closed keyword from line defined later in file"
+"  - 0000.0016 TODO still not valid after later local lines"
+"  - 0000.0017 DONE still not valid after later local lines"
+"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org - 0000 Inherited heading tags"
+"  - 0000.0001 parent with one tag"
+"    - 0000.0001.0002 child inherits parent tag"
+"    - 0000.0001.0003 child with local tag"
+"      - 0000.0001.0003.0004 grandchild inherits both"
+"      - 0000.0001.0003.0005 grandchild with duplicate local tag"
+"  - 0000.0006 second parent"
+"    - 0000.0006.0007 second child with local tag"
+"      - 0000.0006.0007.0008 second grandchild with extra tag"
+"  - 0000.0009 untagged parent"
+"    - 0000.0009.0010 child with only local tag"
+"    - 0000.0009.0011 child without tags"
+"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0000 Title can span multiple lines, even here"
+"  - 0000.0001 Unfortunately Everywhere"
+#+end_example
+
+** One outline row per heading
+
+Should return same counts.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    (SELECT COUNT(*) FROM headings) AS heading_count,
+    (SELECT COUNT(*) FROM outline_path) AS outline_path_count;
+#+END_SRC
+
+#+RESULTS:
+| heading_count | outline_path_count |
+|---------------+--------------------|
+|            32 |                 32 |
+
+** Missing outline rows
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    h.id,
+    h.file_id,
+    h.level,
+    h.title
+    FROM headings h
+         LEFT JOIN outline_path op ON op.heading_id = h.id
+   WHERE op.heading_id IS NULL
+   ORDER BY h.file_id, h.id;
+#+END_SRC
+
+#+RESULTS:
+
+** Orphan outline rows
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    op.heading_id,
+    op.file_id,
+    op.parent_id,
+    op.materialized_path
+    FROM outline_path op
+         LEFT JOIN headings h ON h.id = op.heading_id
+   WHERE h.id IS NULL
+   ORDER BY op.file_id, op.heading_id;
+#+END_SRC
+
+#+RESULTS:
+
+** Parent alignment with headings
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    op.heading_id,
+    h.title,
+    h.parent_id AS heading_parent_id,
+    op.parent_id AS outline_parent_id
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+   WHERE
+    (h.parent_id IS NOT op.parent_id)
+   ORDER BY op.file_id, op.heading_id;
+#+END_SRC
+
+#+RESULTS:
+
+** Depth alignment with headings tree
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  WITH RECURSIVE expected AS (
+    SELECT
+      h.id,
+      h.parent_id,
+      h.file_id,
+      0 AS expected_depth
+      FROM headings h
+     WHERE h.parent_id IS NULL
+
+     UNION ALL
+
+    SELECT
+      h.id,
+      h.parent_id,
+      h.file_id,
+      expected.expected_depth + 1
+      FROM headings h
+           JOIN expected ON expected.id = h.parent_id
+  )
+  SELECT
+    op.heading_id,
+    h.title,
+    op.depth,
+    expected.expected_depth
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+         JOIN expected ON expected.id = op.heading_id
+   WHERE op.depth <> expected.expected_depth
+   ORDER BY op.file_id, op.materialized_path;
+#+END_SRC
+
+#+RESULTS:
+
+** Duplicate materialized paths per file
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    file_id,
+    materialized_path,
+    COUNT(*) AS count
+    FROM outline_path
+   GROUP BY file_id, materialized_path
+  HAVING COUNT(*) > 1
+   ORDER BY file_id, materialized_path;
+#+END_SRC
+
+#+RESULTS:
+
+** Invalid path segment width
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  WITH RECURSIVE segments AS (
+    SELECT
+      heading_id,
+      file_id,
+      materialized_path,
+      materialized_path || '.' AS rest,
+      NULL AS segment
+      FROM outline_path
+
+     UNION ALL
+
+    SELECT
+      heading_id,
+      file_id,
+      materialized_path,
+      substr(rest, instr(rest, '.') + 1),
+      substr(rest, 1, instr(rest, '.') - 1)
+      FROM segments
+     WHERE rest <> ''
+  )
+  SELECT
+    heading_id,
+    file_id,
+    materialized_path,
+    segment
+    FROM segments
+   WHERE segment IS NOT NULL
+     AND length(segment) <> 4
+   ORDER BY file_id, materialized_path;
+#+END_SRC
+
+#+RESULTS:
+
+** Breadcrumb preview
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    op.materialized_path,
+    h.title,
+    op.breadcrumbs_json
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+   ORDER BY op.file_id, op.materialized_path
+   LIMIT 30;
+#+END_SRC
+
+#+RESULTS:
+|   materialized_path | title                                          | breadcrumbs_json                                                                                              |
+|---------------------+------------------------------------------------+---------------------------------------------------------------------------------------------------------------|
+|                   0 | File-local TODO keywords                       | ["File-local TODO keywords"]                                                                                  |
+|              0.0001 | TODO default keyword should stay in title      | ["File-local TODO keywords","TODO default keyword should stay in title"]                                      |
+|              0.0002 | DONE default done keyword should stay in title | ["File-local TODO keywords","DONE default done keyword should stay in title"]                                 |
+|              0.0003 | open keyword with fast key                     | ["File-local TODO keywords","open keyword with fast key"]                                                     |
+|              0.0004 | another open keyword with fast key             | ["File-local TODO keywords","another open keyword with fast key"]                                             |
+|              0.0005 | closed keyword with fast key                   | ["File-local TODO keywords","closed keyword with fast key"]                                                   |
+|              0.0006 | closed keyword with extended fast key          | ["File-local TODO keywords","closed keyword with extended fast key"]                                          |
+|              0.0007 | open keyword from empty-done-side line         | ["File-local TODO keywords","open keyword from empty-done-side line"]                                         |
+|              0.0008 | another open keyword from empty-done-side line | ["File-local TODO keywords","another open keyword from empty-done-side line"]                                 |
+|              0.0009 | open keyword from TYP_TODO                     | ["File-local TODO keywords","open keyword from TYP_TODO"]                                                     |
+|               0.001 | closed keyword from TYP_TODO                   | ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                   |
+|              0.0011 | open keyword from SEQ_TODO                     | ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                     |
+|              0.0012 | closed keyword from SEQ_TODO                   | ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                   |
+|              0.0013 | closed keyword from later TODO line            | ["File-local TODO keywords","closed keyword from later TODO line"]                                            |
+|              0.0014 | open keyword from line defined later in file   | ["File-local TODO keywords","open keyword from line defined later in file"]                                   |
+|              0.0015 | closed keyword from line defined later in file | ["File-local TODO keywords","closed keyword from line defined later in file"]                                 |
+|              0.0016 | TODO still not valid after later local lines   | ["File-local TODO keywords","TODO still not valid after later local lines"]                                   |
+|              0.0017 | DONE still not valid after later local lines   | ["File-local TODO keywords","DONE still not valid after later local lines"]                                   |
+|                   0 | Inherited heading tags                         | ["Inherited heading tags"]                                                                                    |
+|              0.0001 | parent with one tag                            | ["Inherited heading tags","parent with one tag"]                                                              |
+|      0000.0001.0002 | child inherits parent tag                      | ["Inherited heading tags","parent with one tag","child inherits parent tag"]                                  |
+|      0000.0001.0003 | child with local tag                           | ["Inherited heading tags","parent with one tag","child with local tag"]                                       |
+| 0000.0001.0003.0004 | grandchild inherits both                       | ["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]            |
+| 0000.0001.0003.0005 | grandchild with duplicate local tag            | ["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"] |
+|              0.0006 | second parent                                  | ["Inherited heading tags","second parent"]                                                                    |
+|      0000.0006.0007 | second child with local tag                    | ["Inherited heading tags","second parent","second child with local tag"]                                      |
+| 0000.0006.0007.0008 | second grandchild with extra tag               | ["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]   |
+|              0.0009 | untagged parent                                | ["Inherited heading tags","untagged parent"]                                                                  |
+|      0000.0009.0010 | child with only local tag                      | ["Inherited heading tags","untagged parent","child with only local tag"]                                      |
+|      0000.0009.0011 | child without tags                             | ["Inherited heading tags","untagged parent","child without tags"]                                             |

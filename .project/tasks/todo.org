@@ -36,39 +36,9 @@ Extend the data model enough to represent real Org workflows meaningfully, witho
 
 [[./archive/2026-06-19--compute-parent-child-structure.org]]
 
-** TODO Store materialized outline path
+** DONE [2026-06-19 Fri 16:50] Store materialized outline path
 
-Goal:
-Build the ~outline_path~ derived/cache table for fast hierarchy queries.
-
-The table stores:
-
-- ~heading_id~
-- ~file_id~
-- ~parent_id~
-- ~depth~
-- ~materialized_path~
-- ~breadcrumbs_json~
-
-Example materialized paths:
-
-#+begin_src text
-0000
-0000.0001
-0000.0001.0002
-0000.0001.0002.0001
-#+end_src
-
-Acceptance criteria:
-
-- One ~outline_path~ row exists per heading.
-- Level 0 heading has depth 0.
-- Top-level Org headings have depth 1.
-- ~materialized_path~ is stable for one rebuild.
-- Zero-padding is explicitly defined and enforced (e.g., exactly 4 digits per level to support up to 9999 children).
-- ~breadcrumbs_json~ contains titles from level 0 to the current heading.
-- Subtree queries can use ~file_id~ and ~materialized_path~.
-- A test verifies expected paths for nested headings.
+[[./archive/2026-06-19--store-materialized-outline-path.org]]
 
 ** TODO Parse planning lines
 
