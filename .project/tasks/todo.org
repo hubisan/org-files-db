@@ -1,4 +1,4 @@
-#+TITLE: org-files-db Task Index
+#+TITLE: Task Index
 #+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
 #+STARTUP: showall
 
@@ -18,138 +18,253 @@ Task status semantics are defined in [[../agents/AGENTS.md]].
 :VISIBILITY: folded
 :END:
 
-Goal of this phase:
-Create a stable foundation without getting stuck in full grammar validation before the MVP.
-
-The most important insight is: Orgize is probably good enough for a first end-to-end slice, but not safe enough to couple the project tightly to it.
-
-Therefore, an adapter layer is built first and protected with representative fixtures.
-
-** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
-
-[[./archive/2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
-
-** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
-
-[[./archive/2026-06-16--evaluate-minimal-orgize-adapter.org]]
-
-** DONE [2026-06-17 Wed 11:14] Structure test fixtures for parser regressions
-
-[[./archive/2026-06-17--structure-parser-regression-fixtures.org]]
-
-** DONE [2026-06-17 Wed 11:46] Create parser risk list
-
-[[./archive/2026-06-17--create-parser-risk-list.org]]
+Archived in [[./archive/todo-archive.org]]
 
 * Phase 1: Minimal end-to-end slice
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Archived in [[./archive/todo-archive.org]]
+
+* Phase 2: Complete parser data model v0.1
 
 Goal of this phase:
-Get a runnable system as early as possible without coupling too tightly to Orgize.
+Extend the data model enough to represent real Org workflows meaningfully, without already building the full query engine.
 
-One Org file is read through the parser adapter, translated into our own internal model, stored in SQLite, and output as JSON through a ~clap~ CLI.
+** TODO Compute parent-child structure
 
-Pipeline:
+Goal:
+Compute ~parent_id~ while iterating and store it in the DB.
 
-#+begin_src text
-config
-  -> find files
-  -> read file
-  -> read/derive TODO keyword config
-  -> run parser backend
-  -> validate / normalize ParsedOrgDocument
-  -> update SQLite
-  -> output CLI JSON
-#+end_src
+Note:
+If Orgize does not provide a stable parent structure, the hierarchy is computed from heading levels using a stack.
 
-** DONE [2026-06-17 Wed 12:56] Define minimal config
-
-[[./archive/2026-06-17--define-minimal-config.org]]
-
-** DONE [2026-06-17 Wed 13:24] Define configurable TODO keyword model
-
-[[./archive/2026-06-17--define-configurable-todo-keyword-model.org]]
-
-** DONE [2026-06-17 Wed 13:53] Define minimal `ParsedHeading` / `OrgHeading`
-
-[[./archive/2026-06-17--define-minimal-parsed-heading.org]]
-
-** DONE [2026-06-17 Wed 23:00] Open SQLite and enable WAL
-
-[[./archive/2026-06-17--open-sqlite-and-enable-wal.org]]
-
-** DONE [2026-06-18 Thu 00:10] Review and improve SQLite schema
-
-[[./archive/2026-06-17--review-and-improve-sqlite-schema.org]]
-
-** DONE [2026-06-18 Thu 00:21] Implement minimal DB schema migration
-
-[[./archive/2026-06-18--implement-minimal-db-schema-migration.org]]
-
-** DONE [2026-06-18 Thu 00:36] Implement minimal DB functions
-
-[[./archive/2026-06-18--implement-minimal-db-functions.org]]
-
-** DONE [2026-06-18 Thu 11:28] Implement Orgize adapter for headings and priorities
-
-[[./archive/2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
-
-** DONE [2026-06-18 Thu 11:28] Implement indexer for full rebuild
-
-[[./archive/2026-06-18--implement-indexer-for-full-rebuild.org]]
-
-** DONE [2026-06-18 Thu 16:36] Set up CLI with Clap
-
-[[./archive/2026-06-18--set-up-cli-with-clap.org]]
-
-** DONE [2026-06-18 Thu] Implement a small CLI follow-up for level-0/root heading output.
-
-[[./archive/2026-06-18--feat-cli-implement-include-root.org]]
-
-** DONE [2026-06-18 Thu] Expand `~` in config paths
-
-[[./archive/2026-06-18--expand-tilde-in-config-paths.org]]
-
-** DONE [2026-06-18 Thu] Add `--config` support to `headings --json`
-
-[[./archive/2026-06-18--add-config-support-to-headings-json.org]]
-
-** DONE Normalize `title` and preserve `title_raw` for headings
-
-[[./archive/2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org]]
-
-** DONE Respect file-local TODO keyword config in parser/indexer pipeline
-
-[[./archive/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
-
-** DONE Compute inherited tags for `all_tags_json`
-
-[[./archive/2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
-
-** DONE Support simplified file-local TODO keyword lines
-
-[[./archive/2026-06-19--support-simplified-file-local-todo-keyword-lines.org]]
-
-** DONE [2026-06-19 Fri 13:15] Support multiple file-wide `#+TITLE:` keywords
-
-[[./archive/2026-06-19--support-multiple-file-wide-title-keywords.org]]
-
-** DONE [2026-06-19 Fri 14:41] Normalize resolved config paths syntactically
-
-[[./archive/2026-06-19--normalize-resolved-config-paths-syntactically.org]]
-
-** TODO Verify minimal end-to-end slice
-
-Geht direkt mit NEXT
+The synthetic level 0 file heading is the parent of all top-level Org headings.
 
 Acceptance criteria:
 
-- A test Org file can be read.
-- A level 0 heading is created for the file.
-- Regular headings are stored in SQLite.
-- TODO keywords are interpreted using Org-mode defaults, configured project defaults, or file-local ~#+TODO:~.
-- ~orgfdb headings --json~ outputs the stored headings.
-- Orgize-specific types do not appear in DB, query, indexer, or CLI modules.
-- At least one parser fixture test checks the Orgize adapter against expected heading data.
-- At least one DB test verifies that rebuilding the same file does not duplicate rows.
-- End-to-end rebuild works with FTS5 disabled.
-- End-to-end rebuild works with FTS5 enabled if supported by the SQLite build.
+- Parent/child relationships are correct for nested headings.
+- Every file has exactly one level 0 heading.
+- Root Org headings have the level 0 heading as parent.
+- Level 0 heading has no parent.
+- A test with at least three levels exists.
+
+** TODO Store materialized outline path
+
+Goal:
+Build the ~outline_path~ derived/cache table for fast hierarchy queries.
+
+The table stores:
+
+- ~heading_id~
+- ~file_id~
+- ~parent_id~
+- ~depth~
+- ~materialized_path~
+- ~breadcrumbs_json~
+
+Example materialized paths:
+
+#+begin_src text
+0000
+0000.0001
+0000.0001.0002
+0000.0001.0002.0001
+#+end_src
+
+Acceptance criteria:
+
+- One ~outline_path~ row exists per heading.
+- Level 0 heading has depth 0.
+- Top-level Org headings have depth 1.
+- ~materialized_path~ is stable for one rebuild.
+- Zero-padding is explicitly defined and enforced (e.g., exactly 4 digits per level to support up to 9999 children).
+- ~breadcrumbs_json~ contains titles from level 0 to the current heading.
+- Subtree queries can use ~file_id~ and ~materialized_path~.
+- A test verifies expected paths for nested headings.
+
+** TODO Parse planning lines
+
+Goal:
+Extract ~SCHEDULED~, ~DEADLINE~, and ~CLOSED~.
+
+Acceptance criteria:
+
+- Planning data is represented in the parser model.
+- DB schema supports direct planning fields on ~headings~:
+  - ~scheduled_raw~
+  - ~scheduled_ts~
+  - ~deadline_raw~
+  - ~deadline_ts~
+  - ~closed_raw~
+  - ~closed_ts~
+- Raw Org timestamp values are preserved where possible.
+- JSON output includes planning data.
+- Tests exist for all three planning types.
+- The one-line planning case is covered:
+  #+begin_src org
+    ,* Test
+    DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
+  #+end_src
+
+** TODO Parse properties drawer and file-level properties
+
+Goal:
+Extract properties from heading drawers and file-level property declarations.
+
+Sources:
+
+- heading property drawers:
+  #+begin_src org
+    ,* Task
+    :PROPERTIES:
+    :ID: abc
+    :CUSTOM_ID: task
+    :END:
+  #+end_src
+
+- file-level property keywords:
+  #+begin_src org
+    ,#+PROPERTY: Effort_ALL 0:10 0:30 1:00
+    ,#+CATEGORY: project
+  #+end_src
+
+Acceptance criteria:
+
+- Properties are assigned to the correct heading.
+- File-level properties are assigned to the synthetic level 0 heading.
+- File-level ~#+CATEGORY~ can be stored as a property on the level 0 heading.
+- ~ID~ and ~CUSTOM_ID~ are directly queryable through indexes.
+- Additional properties are preserved.
+- Keys are normalized (e.g., converted to uppercase) before DB insertion to handle Org-mode's case-insensitivity.
+- Inherited/effective properties are represented or explicitly deferred.
+- A test with multiple properties exists.
+- A test with file-level properties exists.
+
+** TODO Parse file-level keywords
+
+Goal:
+Extract Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, and ~#+EXPORT_FILE_NAME~.
+
+Note:
+File-level keywords are stored in the ~keywords~ table and attached to the level 0 heading.
+
+Acceptance criteria:
+
+- File-level keywords are attached to the level 0 heading.
+- Keyword name and raw value are preserved.
+- ~#+TODO:~ may be stored as raw keyword and additionally normalized into ~todo_keywords~.
+- A test with ~#+TITLE~ and ~#+STARTUP~ exists.
+
+** TODO Parse tags and FILETAGS
+
+Goal:
+Extract direct, inherited, and file-level tags.
+
+Acceptance criteria:
+
+- Heading tags are stored in normalized ~tags~ rows.
+- ~#+FILETAGS:~ are stored as tags on the level 0 heading.
+- ~headings.all_tags_json~ is either populated as a cache or explicitly deferred.
+- Inherited tags are marked with ~inherited = 1~.
+- A test with direct and inherited tags exists.
+- A test with file-level tags exists.
+
+** TODO Store body text per heading
+
+Goal:
+Store the body text that belongs to each heading so it can later be indexed through SQLite FTS5 if FTS5 and body indexing are enabled.
+
+Acceptance criteria:
+
+- Body text is assigned to the correct heading.
+- Body text storage is configurable or explicitly documented as always stored.
+- Body text excludes child heading subtrees unless explicitly decided otherwise.
+- Body byte ranges are stored as ~body_byte_start~ and ~body_byte_end~.
+- File-level text before the first regular heading is assigned to the level 0 heading or explicitly ignored with documented reasoning.
+- Body storage can be disabled or omitted if not needed.
+- Body text is inserted into FTS only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- A fixture test verifies heading body extraction.
+
+** TODO Parse rich timestamps
+
+Goal:
+Represent timestamps beyond the simple planning fields on headings.
+
+Examples:
+
+- active timestamps
+- inactive timestamps
+- date ranges
+- time ranges
+- repeaters
+- warning delays
+- timestamps in body text
+
+Acceptance criteria:
+
+- Parser model can represent timestamp role, raw value, normalized start/end timestamps, activity type, range type, and byte ranges.
+- DB tables ~timestamps~ and ~timestamp_repeaters~ can store extracted values.
+- Planning timestamps can either be mirrored into ~timestamps~ or only stored on headings; the decision is documented.
+- Tests cover at least one active timestamp, one inactive timestamp, and one repeater.
+
+** TODO Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
+
+Goal:
+Decide whether `org-files-db` should support directory-local Org TODO keyword
+defaults by safely parsing `.dir-locals.el`.
+
+Possible supported subset:
+
+#+begin_src emacs-lisp
+((org-mode . ((org-todo-keywords . ((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d)" "CANCEL(c)"))))))
+#+end_src
+
+Rules:
+
+- Parse only data, do not evaluate Emacs Lisp.
+- Support only `org-mode` / `nil` entries.
+- Support only `org-todo-keywords`.
+- Support `sequence` first; optionally `type` later.
+- Treat keywords before `|` as open and after `|` as closed.
+- Preserve fast-selection keys when supported.
+- Ignore or warn on unsupported forms.
+- Define precedence separately:
+  1. file-local `#+TODO:`
+  2. nearest supported `.dir-locals.el`
+  3. `config.toml`
+  4. built-in defaults
+
+Non-goal:
+- Do not execute `.dir-locals.el`.
+- Do not support arbitrary Emacs directory-local variables.
+
+** TODO Define DB schema versioning
+
+Goal:
+Define a code-level DB schema version and store the applied version in SQLite.
+
+Acceptance criteria:
+
+- Current schema version is defined in code.
+- Applied schema version is stored in SQLite.
+- Missing or mismatched schema version triggers automatic rebuild.
+- Successful rebuild stores the current schema version.
+- Tests cover missing, matching, and mismatched versions.
+
+** TODO Finalize DB schema and JSON API for v0.1
+
+Goal:
+Define the schema and JSON output for the first stable internal version.
+
+Acceptance criteria:
+
+- ~files~, ~headings~, ~todo_keywords~, ~keywords~, ~properties~, ~tags~, ~timestamps~, ~timestamp_repeaters~, ~links~, ~heading_bodies~, and ~outline_path~ are defined or explicitly deferred.
+- ~heading_fts~ is defined as optional and controlled by ~search.fts5_enabled~.
+- Schema versioning behavior is decided.
+- Level 0 heading behavior is documented.
+- Optional FTS5 behavior is documented.
+- JSON output for headings documents whether level 0 headings are included by default.
+- README contains a minimal example.
+- DB schema documentation references the actual schema file.

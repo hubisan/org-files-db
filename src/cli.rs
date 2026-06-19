@@ -552,6 +552,58 @@ db_path = "../db.sqlite"
     }
 
     #[test]
+    fn rebuild_and_headings_json_cover_minimal_end_to_end_slice() {
+        let test_dir = TestDir::new("minimal-end-to-end");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        let org_path = test_dir.path().join("notes.org");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Minimal Slice\n#+TODO: PLAN(p) | DONE(d)\n* PLAN Inbox\n",
+        );
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+files = ["./notes.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = rebuild(&config_path).expect("rebuild should succeed");
+        assert_eq!(report.indexed_files.len(), 1);
+        assert_eq!(report.indexed_files[0].path, org_path);
+
+        let json_rows = super::headings_json_rows(true, false, Some(&config_path))
+            .expect("json rows should load");
+        assert_eq!(json_rows.len(), 1);
+        assert_eq!(json_rows[0].level, 1);
+        assert_eq!(json_rows[0].title, "Inbox");
+        assert_eq!(json_rows[0].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(json_rows[0].todo_type.as_deref(), Some("open"));
+        assert_eq!(json_rows[0].file_path, org_path.display().to_string());
+
+        let all_rows = super::headings_json_rows(true, true, Some(&config_path))
+            .expect("all rows should load");
+        assert_eq!(all_rows.len(), 2);
+        assert_eq!(all_rows[0].level, 0);
+        assert_eq!(all_rows[0].title, "Minimal Slice");
+        assert_eq!(all_rows[0].title_raw, "Minimal Slice");
+        assert_eq!(all_rows[1].level, 1);
+        assert_eq!(all_rows[1].title, "Inbox");
+
+        let connection = open_database(&db_path).expect("database should open");
+        let heading_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
+            .expect("heading count should load");
+        assert_eq!(heading_count, 2);
+    }
+
+    #[test]
     fn rebuild_helper_propagates_indexer_errors() {
         let error = rebuild(Path::new("missing-config.toml")).expect_err("rebuild should fail");
 

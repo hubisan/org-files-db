@@ -1,0 +1,134 @@
+#+TITLE: Task Index Archive
+#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+#+STARTUP: showall
+
+* Phase 0: Foundation and parser risks
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal of this phase:
+Create a stable foundation without getting stuck in full grammar validation before the MVP.
+
+The most important insight is: Orgize is probably good enough for a first end-to-end slice, but not safe enough to couple the project tightly to it.
+
+Therefore, an adapter layer is built first and protected with representative fixtures.
+
+** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
+
+[[./2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
+
+** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
+
+[[./2026-06-16--evaluate-minimal-orgize-adapter.org]]
+
+** DONE [2026-06-17 Wed 11:14] Structure test fixtures for parser regressions
+
+[[./2026-06-17--structure-parser-regression-fixtures.org]]
+
+** DONE [2026-06-17 Wed 11:46] Create parser risk list
+
+[[./2026-06-17--create-parser-risk-list.org]]
+
+* Phase 1: Minimal end-to-end slice
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal of this phase:
+Get a runnable system as early as possible without coupling too tightly to Orgize.
+
+One Org file is read through the parser adapter, translated into our own internal model, stored in SQLite, and output as JSON through a ~clap~ CLI.
+
+Pipeline:
+
+#+begin_src text
+config
+  -> find files
+  -> read file
+  -> read/derive TODO keyword config
+  -> run parser backend
+  -> validate / normalize ParsedOrgDocument
+  -> update SQLite
+  -> output CLI JSON
+#+end_src
+
+** DONE [2026-06-17 Wed 12:56] Define minimal config
+
+[[./2026-06-17--define-minimal-config.org]]
+
+** DONE [2026-06-17 Wed 13:24] Define configurable TODO keyword model
+
+[[./2026-06-17--define-configurable-todo-keyword-model.org]]
+
+** DONE [2026-06-17 Wed 13:53] Define minimal `ParsedHeading` / `OrgHeading`
+
+[[./2026-06-17--define-minimal-parsed-heading.org]]
+
+** DONE [2026-06-17 Wed 23:00] Open SQLite and enable WAL
+
+[[./2026-06-17--open-sqlite-and-enable-wal.org]]
+
+** DONE [2026-06-18 Thu 00:10] Review and improve SQLite schema
+
+[[./2026-06-17--review-and-improve-sqlite-schema.org]]
+
+** DONE [2026-06-18 Thu 00:21] Implement minimal DB schema migration
+
+[[./2026-06-18--implement-minimal-db-schema-migration.org]]
+
+** DONE [2026-06-18 Thu 00:36] Implement minimal DB functions
+
+[[./2026-06-18--implement-minimal-db-functions.org]]
+
+** DONE [2026-06-18 Thu 11:28] Implement Orgize adapter for headings and priorities
+
+[[./2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
+
+** DONE [2026-06-18 Thu 11:28] Implement indexer for full rebuild
+
+[[./2026-06-18--implement-indexer-for-full-rebuild.org]]
+
+** DONE [2026-06-18 Thu 16:36] Set up CLI with Clap
+
+[[./2026-06-18--set-up-cli-with-clap.org]]
+
+** DONE [2026-06-18 Thu] Implement a small CLI follow-up for level-0/root heading output.
+
+[[./2026-06-18--feat-cli-implement-include-root.org]]
+
+** DONE [2026-06-18 Thu] Expand `~` in config paths
+
+[[./2026-06-18--expand-tilde-in-config-paths.org]]
+
+** DONE [2026-06-18 Thu] Add `--config` support to `headings --json`
+
+[[./2026-06-18--add-config-support-to-headings-json.org]]
+
+** DONE Normalize `title` and preserve `title_raw` for headings
+
+[[./2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org]]
+
+** DONE Respect file-local TODO keyword config in parser/indexer pipeline
+
+[[./2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
+
+** DONE Compute inherited tags for `all_tags_json`
+
+[[./2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
+
+** DONE Support simplified file-local TODO keyword lines
+
+[[./2026-06-19--support-simplified-file-local-todo-keyword-lines.org]]
+
+** DONE [2026-06-19 Fri 13:15] Support multiple file-wide `#+TITLE:` keywords
+
+[[./2026-06-19--support-multiple-file-wide-title-keywords.org]]
+
+** DONE [2026-06-19 Fri 14:41] Normalize resolved config paths syntactically
+
+[[./2026-06-19--normalize-resolved-config-paths-syntactically.org]]
+
+** DONE Verify minimal end-to-end slice
+
+[[./2026-06-19--verify-minimal-end-to-end-slice.org]]

@@ -1,0 +1,122 @@
+#+TITLE: Verify minimal end-to-end slice
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-19 Fri 14:54]
+#+TASK_COMPLETED: [2026-06-19 Fri 15:13]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Verify the minimal Phase 1 path from config to CLI JSON.
+- Prefer adding or adjusting focused tests and only small verification fixes.
+- Reuse existing fixtures and tests where possible.
+- Keep scope narrow: no schema, parser design, CLI field name, or config format changes unless strictly required.
+- Update this task file with notes, commands, results, and changed files.
+- Set the task state to REVIEW when done.
+
+Copied task entry from ~todo.org~:
+
+** NEXT Verify minimal end-to-end slice
+
+Acceptance criteria:
+
+- A test Org file can be read.
+- A level 0 heading is created for the file.
+- Regular headings are stored in SQLite.
+- TODO keywords are interpreted using Org-mode defaults, configured project defaults, or file-local ~#+TODO:~.
+- ~orgfdb headings --json~ outputs the stored headings.
+- Orgize-specific types do not appear in DB, query, indexer, or CLI modules.
+- At least one parser fixture test checks the Orgize adapter against expected heading data.
+- At least one DB test verifies that rebuilding the same file does not duplicate rows.
+- End-to-end rebuild works with FTS5 disabled.
+- End-to-end rebuild works with FTS5 enabled if supported by the SQLite build.
+
+* Planning
+
+** Problem summary
+Verify that the existing Phase 1 implementation already works end to end and add only the missing focused coverage.
+
+** Goals
+- Confirm the config -> rebuild -> SQLite -> CLI JSON path with a focused test.
+- Reuse existing parser fixture and indexer rebuild coverage where it already satisfies the acceptance criteria.
+
+** Non-goals
+- No schema or parser redesign.
+- No broader end-to-end harness.
+
+** Architecture
+The narrowest place to verify config-to-JSON behavior is the CLI test module, using the existing rebuild helper and JSON row loader.
+
+** Execution plan
+- Inspect existing parser, indexer, and CLI tests for current coverage.
+- Add only the missing focused CLI end-to-end assertion if needed.
+- Run targeted tests, then the project CI check.
+
+** Risks & assumptions
+- SQLite FTS5 support may vary by build and must remain conditional.
+
+** Open questions
+- None at start.
+
+** Proposed checks
+- `cargo test` for focused modules first.
+- `make ci` before setting REVIEW.
+
+* Results
+
+** Approach
+- Inspected existing parser fixture, indexer rebuild, FTS, and CLI tests before changing code.
+- Kept the implementation scope to one focused CLI test that exercises config loading, rebuild, SQLite storage, and CLI JSON row loading together.
+- Reused existing parser fixture coverage and existing indexer rebuild tests for the remaining acceptance criteria instead of adding broader end-to-end machinery.
+
+** Changed files
+- ~src/cli.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-19--verify-minimal-end-to-end-slice.org~
+
+** Checks performed
+- Inspected:
+  - ~tests/parser_fixtures.rs~
+  - ~src/indexer.rs~
+  - ~src/cli.rs~
+  - ~src/db/reader.rs~
+  - ~.project/tasks/todo.org~
+  - ~.project/tasks/template.org~
+- Verified by search that ~orgize::~ types remain confined to ~src/parser/orgize_adapter.rs~.
+- Ran ~cargo fmt --all~ after ~make ci~ first reported formatting drift in the new test.
+
+** Test results
+- Added ~cli::tests::rebuild_and_headings_json_cover_minimal_end_to_end_slice~.
+- This new test verifies:
+  - a configured Org file is read,
+  - rebuild succeeds from config,
+  - a synthetic level 0 row is stored,
+  - a regular heading is stored and emitted through CLI JSON,
+  - file-local ~#+TODO:~ is respected in stored/returned heading data,
+  - default CLI JSON excludes the root row and ~--include-root~ path includes it.
+- Reused existing passing coverage for:
+  - parser fixture adapter expectations in ~tests/parser_fixtures.rs~,
+  - rebuild idempotence in ~indexer::tests::rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows~,
+  - FTS-disabled rebuild in ~indexer::tests::rebuild_works_when_fts_is_disabled~,
+  - conditional FTS-enabled rebuild in ~indexer::tests::rebuild_populates_fts_rows_when_supported_and_enabled~,
+  - TODO keyword defaults / configured defaults / file-local overrides in existing parser and indexer tests.
+- Commands run:
+  - ~cargo test rebuild_and_headings_json_cover_minimal_end_to_end_slice -- --nocapture~
+  - ~cargo test --test parser_fixtures -- --nocapture~
+  - ~cargo test rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows -- --nocapture~
+  - ~cargo test rebuild_works_when_fts_is_disabled -- --nocapture~
+  - ~cargo test rebuild_populates_fts_rows_when_supported_and_enabled -- --nocapture~
+  - ~cargo fmt --all~
+  - ~make ci~
+- Final result:
+  - ~make ci~ passed.
+  - Full suite in ~make ci~ passed with 55 unit tests, 14 adapter tests, 7 parser contract tests, and 2 parser fixture tests.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Ready for review.
