@@ -367,9 +367,6 @@ fn normalize_document(
         .unwrap_or(true);
 
     if needs_level_zero {
-        for heading in &mut normalized.headings {
-            heading.parent_index = heading.parent_index.map(|index| index + 1);
-        }
         normalized.headings.insert(
             0,
             synthetic_level_zero_heading(path, content, &level_zero_title),
@@ -387,16 +384,41 @@ fn normalize_document(
         level_zero.is_root = true;
     }
 
-    for heading in normalized.headings.iter_mut().skip(1) {
+    normalize_heading_parent_indexes(&mut normalized.headings);
+
+    for heading in &mut normalized.headings {
         heading.file_path = path.to_path_buf();
-        heading.is_root = false;
-        if heading.parent_index.is_none() {
-            heading.parent_index = Some(0);
-        }
     }
 
     normalized.file_path = path.to_path_buf();
     normalized
+}
+
+fn normalize_heading_parent_indexes(headings: &mut [ParsedHeading]) {
+    if headings.is_empty() {
+        return;
+    }
+
+    headings[0].level = 0;
+    headings[0].parent_index = None;
+    headings[0].is_root = true;
+
+    let mut stack = vec![0usize];
+    for index in 1..headings.len() {
+        let current_level = headings[index].level;
+        headings[index].is_root = false;
+
+        while let Some(&parent_index) = stack.last() {
+            if headings[parent_index].level < current_level {
+                break;
+            }
+            stack.pop();
+        }
+
+        let parent_index = stack.last().copied().unwrap_or(0);
+        headings[index].parent_index = Some(parent_index);
+        stack.push(index);
+    }
 }
 
 fn synthetic_level_zero_heading(path: &Path, content: &str, title: &str) -> ParsedHeading {
@@ -1440,6 +1462,88 @@ index_body_text = false
         assert_eq!(tag_count, 1);
         assert_eq!(titles, vec!["Second".to_string()]);
         assert_eq!(tags, vec!["new".to_string()]);
+    }
+
+    #[test]
+    fn rebuild_computes_parent_ids_for_nested_headings() {
+        let test_dir = TestDir::new("parent-ids");
+        let org_path = test_dir.path().join("tree.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Tree\n* Parent\n** Child\n*** Grandchild\n* Sibling\n** Cousin\n",
+        );
+
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("first rebuild should succeed");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("second rebuild should succeed");
+
+        let headings: Vec<(i64, Option<i64>, i64, String)> = query_rows(
+            &connection,
+            "SELECT id, parent_id, level, title FROM headings ORDER BY byte_start, id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+
+        let level0_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings WHERE level = 0", [], |row| {
+                row.get(0)
+            })
+            .expect("level 0 count should load");
+
+        let level0 = headings
+            .iter()
+            .find(|(_, _, level, _)| *level == 0)
+            .expect("level 0 heading should exist");
+        let parent = headings
+            .iter()
+            .find(|(_, _, _, title)| title == "Parent")
+            .expect("parent heading should exist");
+        let child = headings
+            .iter()
+            .find(|(_, _, _, title)| title == "Child")
+            .expect("child heading should exist");
+        let grandchild = headings
+            .iter()
+            .find(|(_, _, _, title)| title == "Grandchild")
+            .expect("grandchild heading should exist");
+        let sibling = headings
+            .iter()
+            .find(|(_, _, _, title)| title == "Sibling")
+            .expect("sibling heading should exist");
+        let cousin = headings
+            .iter()
+            .find(|(_, _, _, title)| title == "Cousin")
+            .expect("cousin heading should exist");
+
+        assert_eq!(headings.len(), 6);
+        assert_eq!(level0_count, 1);
+        assert_eq!(level0.1, None);
+        assert_eq!(parent.1, Some(level0.0));
+        assert_eq!(child.1, Some(parent.0));
+        assert_eq!(grandchild.1, Some(child.0));
+        assert_eq!(sibling.1, Some(level0.0));
+        assert_eq!(cousin.1, Some(sibling.0));
     }
 
     #[test]

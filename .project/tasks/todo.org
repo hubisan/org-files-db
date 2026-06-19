@@ -13,14 +13,14 @@ This file is the active task index.
 
 Task status semantics are defined in [[../agents/AGENTS.md]].
 
-* Phase 0: Foundation and parser risks
+* DONE Phase 0: Foundation and parser risks
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
 Archived in [[./archive/todo-archive.org]]
 
-* Phase 1: Minimal end-to-end slice
+* DONE Phase 1: Minimal end-to-end slice
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
@@ -32,23 +32,9 @@ Archived in [[./archive/todo-archive.org]]
 Goal of this phase:
 Extend the data model enough to represent real Org workflows meaningfully, without already building the full query engine.
 
-** TODO Compute parent-child structure
+** DONE [2026-06-19 Fri 16:17] Compute parent-child structure
 
-Goal:
-Compute ~parent_id~ while iterating and store it in the DB.
-
-Note:
-If Orgize does not provide a stable parent structure, the hierarchy is computed from heading levels using a stack.
-
-The synthetic level 0 file heading is the parent of all top-level Org headings.
-
-Acceptance criteria:
-
-- Parent/child relationships are correct for nested headings.
-- Every file has exactly one level 0 heading.
-- Root Org headings have the level 0 heading as parent.
-- Level 0 heading has no parent.
-- A test with at least three levels exists.
+[[./archive/2026-06-19--compute-parent-child-structure.org]]
 
 ** TODO Store materialized outline path
 

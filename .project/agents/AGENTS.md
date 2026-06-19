@@ -74,7 +74,6 @@ For status `BUILD` or `NEXT`:
 7. Record results under `* Results` in the task file, following the task template.
 8. Set the task state in `todo.org` to `REVIEW`.
 9. Notify the user and stop.
-10. Suggest a Conventional Commit message with optional body.
 
 ### 4. CONTINUE Mode
 

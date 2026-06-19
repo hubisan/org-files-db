@@ -1,0 +1,142 @@
+#+TITLE: Compute parent-child structure
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-19 Fri 15:38]
+#+TASK_COMPLETED: [2026-06-19 Fri 16:17]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Compute `parent_id` for headings and store it in SQLite.
+- Keep Orgize-specific types out of DB, query, indexer, and CLI modules.
+- Compute hierarchy from heading levels using a stack rooted at the synthetic level 0 heading.
+- Keep the DB `parent_id` nullable and derived only during insert.
+- Prepare the structure for the later `outline_path` task.
+
+Copied task entry from `todo.org`:
+
+** BUILD Compute parent-child structure
+
+Goal:
+Compute ~parent_id~ while iterating and store it in the DB.
+
+Note:
+If Orgize does not provide a stable parent structure, the hierarchy is computed from heading levels using a stack.
+
+The synthetic level 0 file heading is the parent of all top-level Org headings.
+
+Acceptance criteria:
+
+- Parent/child relationships are correct for nested headings.
+- Every file has exactly one level 0 heading.
+- Root Org headings have the level 0 heading as parent.
+- Level 0 heading has no parent.
+- A test with at least three levels exists.
+
+* Planning
+
+** Problem summary
+The DB already stores `parent_id`, but hierarchy is still only implied by parsed heading order and `parent_index`. The missing work is to make indexer normalization authoritative so that `parent_index` is recomputed from heading levels before DB insertion.
+
+** Goals
+- Compute parent-child structure from heading levels during indexer normalization.
+- Ensure exactly one synthetic level 0 heading at index 0.
+- Keep `parent_id` DB-only and derived during insert.
+- Prepare the hierarchy model for the later `outline_path` task.
+
+** Non-goals
+- No Orgize adapter hierarchy redesign.
+- No DB schema redesign unless a failing test proves it necessary.
+- No CLI, parser API, tag feature, or outline-path feature expansion.
+
+** Architecture
+Hierarchy should be computed in `src/indexer.rs` during document normalization.
+
+Reasons:
+- The parser adapter already provides stable document order and heading levels.
+- The DB layer already requires `parent_id` but does not have parsed ordering context.
+- Downstream features such as inherited tags and `outline_path` already depend on normalized hierarchy, so one normalization step should define the structure for all later consumers.
+
+Normalization behavior:
+- Guarantee a single level 0 heading at index 0.
+- Level 0 heading:
+  - `level = 0`
+  - `parent_index = None`
+  - `is_root = true`
+  - normalized file path, title, and full-file byte range kept as today
+- Regular headings:
+  - `is_root = false`
+  - `parent_index = nearest earlier heading with lower level`
+  - top-level Org headings parent to level 0
+
+Algorithm:
+- After level 0 is guaranteed at index 0, iterate headings from index 1.
+- Maintain a stack of heading indexes, initialized with `0`.
+- For each regular heading:
+  - pop while the stack top has `level >= current.level`
+  - use the remaining top index as parent
+  - if the stack is empty unexpectedly, fall back to `0`
+  - assign `parent_index = Some(parent)`
+  - push the current index
+
+DB mapping:
+- Keep `index_document` responsible for translating normalized `parent_index` into inserted row ids and storing those as `parent_id`.
+- Keep `HeadingRecord.parent_id` and SQLite `headings.parent_id` unchanged.
+
+Preparation for `outline_path`:
+- `outline_path`, inherited tags, and later hierarchy-derived data should continue to consume normalized `parent_index` so all hierarchy-dependent behavior shares one source of truth.
+
+** Execution plan
+- Create the active task file and link it from `todo.org`.
+- Update `normalize_document` in `src/indexer.rs` to recompute all regular-heading `parent_index` values from heading levels using a stack.
+- Keep the level 0 insertion and DB-id mapping flow in `index_document`.
+- Add focused indexer tests that assert stored `parent_id` relationships in SQLite for a file with at least three heading levels.
+- Extend or add an idempotent rebuild assertion to confirm no duplicate rows and stable parent relationships after repeated rebuilds.
+- Run focused tests first, then `make ci`.
+- Record results in the task file and set the task to `REVIEW`.
+
+** Risks & assumptions
+- Assumption: parser output order remains stable document order; the stack algorithm depends on that.
+- Assumption: no new diagnostics are needed for irregular level jumps in this task.
+- Risk: recomputing `parent_index` affects inherited tags and `outline_path` indirectly; existing hierarchy-sensitive tests must still pass.
+- Risk: `.project/tasks/todo.org` already has unrelated user edits, so only the active task entry should be changed.
+
+** Open questions
+- None currently. The preferred design direction is specific enough to implement without further product decisions.
+
+** Proposed checks
+- Focused `cargo test` for new hierarchy tests.
+- Existing hierarchy-sensitive tests, especially rebuild idempotence and outline consistency.
+- `make ci` before setting the task to `REVIEW`.
+
+* Results
+
+** Approach
+- Recomputed `parent_index` in `normalize_document` from heading levels using a stack rooted at the synthetic level 0 heading.
+- Kept `parent_id` DB-only and left `index_document` as the place that maps normalized `parent_index` values to inserted row ids.
+- Added a focused SQLite-backed indexer test with a three-level heading tree plus a repeated rebuild pass to prove stable parent links and no duplicate rows.
+
+** Changed files
+- `src/indexer.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-06-19--compute-parent-child-structure.org`
+
+** Checks performed
+- `cargo test rebuild_computes_parent_ids_for_nested_headings -- --nocapture`
+- `cargo test rebuilding_same_file_twice_is_idempotent_and_replaces_old_rows -- --nocapture`
+- `cargo test outline_rows_remain_consistent_after_rebuild -- --nocapture`
+- `cargo fmt --all`
+- `make ci`
+
+** Test results
+- All focused hierarchy tests passed.
+- `make ci` passed with `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features`, and `cargo build --all-targets --all-features`.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Ready for review.

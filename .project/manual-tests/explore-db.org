@@ -1,13 +1,292 @@
 #+TITLE: Explore DB
+#+STARTUP: showall
 #+MY_VISUAL_FILL: off
 
+* Files
+
 #+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
-  SELECT * FROM files LIMIT 5;
+  SELECT *
+    FROM files
+   ORDER BY id
+   LIMIT 10;
 #+END_SRC
 
 #+RESULTS:
-| id | path                                   |            mtime_ns | size | content_hash | indexed_at |
-|----+----------------------------------------+---------------------+------+--------------+------------|
-|  1 | ././files/file-local-todo-keywords.org | 1781808483955605322 | 1188 | N/A          | 1781809601 |
-|  2 | ././files/inherited-heading-tags.org   | 1781808923034914634 |  904 | N/A          | 1781809601 |
-|  3 | ././files/multipe-title-keywords.org   | 1781809115964142153 |  254 | N/A          | 1781809601 |
+| id | path                                                                                              |            mtime_ns | size | content_hash | indexed_at |
+|----+---------------------------------------------------------------------------------------------------+---------------------+------+--------------+------------|
+|  1 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 | N/A          | 1781876919 |
+|  2 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 |  904 | N/A          | 1781876919 |
+|  3 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 |  321 | N/A          | 1781876919 |
+
+* Headings
+
+** Raw headings
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT *
+    FROM headings
+   ORDER BY file_id, byte_start, id;
+#+END_SRC
+
+#+RESULTS:
+| id | file_id | parent_id | level | line_number | byte_start | byte_end | title                                          | title_raw                                      | todo_keyword | todo_type | priority | scheduled_raw | scheduled_ts | deadline_raw | deadline_ts | closed_raw | closed_ts | archivedp | footnote_section_p | all_tags_json              |
+|----+---------+-----------+-------+-------------+------------+----------+------------------------------------------------+------------------------------------------------+--------------+-----------+----------+---------------+--------------+--------------+-------------+------------+-----------+-----------+--------------------+----------------------------|
+|  1 |       1 |       N/A |     0 |           1 |         -1 |     1188 | File-local TODO keywords                       | File-local TODO keywords                       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  2 |       1 |         1 |     1 |          10 |        234 |      354 | TODO default keyword should stay in title      | TODO default keyword should stay in title      | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  3 |       1 |         1 |     1 |          13 |        354 |      479 | DONE default done keyword should stay in title | DONE default done keyword should stay in title | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  4 |       1 |         1 |     1 |          16 |        479 |      512 | open keyword with fast key                     | open keyword with fast key                     | one          | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  5 |       1 |         1 |     1 |          17 |        512 |      553 | another open keyword with fast key             | another open keyword with fast key             | two          | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  6 |       1 |         1 |     1 |          18 |        553 |      590 | closed keyword with fast key                   | closed keyword with fast key                   | three        | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  7 |       1 |         1 |     1 |          19 |        590 |      636 | closed keyword with extended fast key          | closed keyword with extended fast key          | four         | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  8 |       1 |         1 |     1 |          21 |        636 |      682 | open keyword from empty-done-side line         | open keyword from empty-done-side line         | FIVE         | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+|  9 |       1 |         1 |     1 |          22 |        682 |      736 | another open keyword from empty-done-side line | another open keyword from empty-done-side line | SIX          | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 10 |       1 |         1 |     1 |          24 |        736 |      771 | open keyword from TYP_TODO                     | open keyword from TYP_TODO                     | seven        | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 11 |       1 |         1 |     1 |          25 |        771 |      809 | closed keyword from TYP_TODO                   | closed keyword from TYP_TODO                   | eight        | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 12 |       1 |         1 |     1 |          27 |        809 |      843 | open keyword from SEQ_TODO                     | open keyword from SEQ_TODO                     | nine         | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 13 |       1 |         1 |     1 |          28 |        843 |      900 | closed keyword from SEQ_TODO                   | closed keyword from SEQ_TODO                   | ten          | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 14 |       1 |         1 |     1 |          32 |        900 |      977 | closed keyword from later TODO line            | closed keyword from later TODO line            | eleven       | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 15 |       1 |         1 |     1 |          36 |        977 |     1034 | open keyword from line defined later in file   | open keyword from line defined later in file   | late_open    | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 16 |       1 |         1 |     1 |          37 |       1034 |     1094 | closed keyword from line defined later in file | closed keyword from line defined later in file | late_done    | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 17 |       1 |         1 |     1 |          39 |       1094 |     1141 | TODO still not valid after later local lines   | TODO still not valid after later local lines   | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 18 |       1 |         1 |     1 |          40 |       1141 |     1188 | DONE still not valid after later local lines   | DONE still not valid after later local lines   | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 19 |       2 |       N/A |     0 |           1 |         -1 |      904 | Inherited heading tags                         | Inherited heading tags                         | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 20 |       2 |        19 |     1 |           4 |         52 |      491 | parent with one tag                            | parent with one tag                            | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent"]                 |
+| 21 |       2 |        20 |     2 |           7 |         97 |      173 | child inherits parent tag                      | child inherits parent tag                      | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent"]                 |
+| 22 |       2 |        20 |     2 |          10 |        173 |      491 | child with local tag                           | child with local tag                           | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent","child"]         |
+| 23 |       2 |        22 |     3 |          13 |        261 |      351 | grandchild inherits both                       | grandchild inherits both                       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent","child"]         |
+| 24 |       2 |        22 |     3 |          16 |        351 |      491 | grandchild with duplicate local tag            | grandchild with duplicate local tag            | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent","child"]         |
+| 25 |       2 |        19 |     1 |          20 |        491 |      760 | second parent                                  | second parent                                  | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["second"]                 |
+| 26 |       2 |        25 |     2 |          23 |        573 |      760 | second child with local tag                    | second child with local tag                    | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["second","child"]         |
+| 27 |       2 |        26 |     3 |          26 |        659 |      760 | second grandchild with extra tag               | second grandchild with extra tag               | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["second","child","extra"] |
+| 28 |       2 |        19 |     1 |          29 |        760 |      904 | untagged parent                                | untagged parent                                | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 29 |       2 |        28 |     2 |          31 |        779 |      853 | child with only local tag                      | child with only local tag                      | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["local"]                  |
+| 30 |       2 |        28 |     2 |          34 |        853 |      904 | child without tags                             | child without tags                             | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 31 |       3 |       N/A |     0 |           1 |         -1 |      321 | Title can span multiple lines, even here       | Title can span multiple lines, even here       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+| 32 |       3 |        31 |     1 |           7 |        136 |      321 | Unfortunately Everywhere                       | Unfortunately Everywhere                       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+
+** Level 0 headings
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    id,
+    parent_id,
+    level,
+    title,
+    file_id
+    FROM headings
+   WHERE level = 0
+   ORDER BY file_id, id;
+#+END_SRC
+
+#+RESULTS:
+| id | parent_id | level | title                                    | file_id |
+|----+-----------+-------+------------------------------------------+---------|
+|  1 | N/A       |     0 | File-local TODO keywords                 |       1 |
+| 19 | N/A       |     0 | Inherited heading tags                   |       2 |
+| 31 | N/A       |     0 | Title can span multiple lines, even here |       3 |
+
+** Parent-child check
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    h.id,
+    h.parent_id,
+    p.title AS parent_title,
+    h.level,
+    h.title,
+    h.file_id,
+    h.byte_start
+    FROM headings h
+         LEFT JOIN headings p ON p.id = h.parent_id
+   ORDER BY h.file_id, h.byte_start, h.id;
+#+END_SRC
+
+#+RESULTS:
+| id | parent_id | parent_title                             | level | title                                          | file_id | byte_start |
+|----+-----------+------------------------------------------+-------+------------------------------------------------+---------+------------|
+|  1 |       N/A | N/A                                      |     0 | File-local TODO keywords                       |       1 |         -1 |
+|  2 |         1 | File-local TODO keywords                 |     1 | TODO default keyword should stay in title      |       1 |        234 |
+|  3 |         1 | File-local TODO keywords                 |     1 | DONE default done keyword should stay in title |       1 |        354 |
+|  4 |         1 | File-local TODO keywords                 |     1 | open keyword with fast key                     |       1 |        479 |
+|  5 |         1 | File-local TODO keywords                 |     1 | another open keyword with fast key             |       1 |        512 |
+|  6 |         1 | File-local TODO keywords                 |     1 | closed keyword with fast key                   |       1 |        553 |
+|  7 |         1 | File-local TODO keywords                 |     1 | closed keyword with extended fast key          |       1 |        590 |
+|  8 |         1 | File-local TODO keywords                 |     1 | open keyword from empty-done-side line         |       1 |        636 |
+|  9 |         1 | File-local TODO keywords                 |     1 | another open keyword from empty-done-side line |       1 |        682 |
+| 10 |         1 | File-local TODO keywords                 |     1 | open keyword from TYP_TODO                     |       1 |        736 |
+| 11 |         1 | File-local TODO keywords                 |     1 | closed keyword from TYP_TODO                   |       1 |        771 |
+| 12 |         1 | File-local TODO keywords                 |     1 | open keyword from SEQ_TODO                     |       1 |        809 |
+| 13 |         1 | File-local TODO keywords                 |     1 | closed keyword from SEQ_TODO                   |       1 |        843 |
+| 14 |         1 | File-local TODO keywords                 |     1 | closed keyword from later TODO line            |       1 |        900 |
+| 15 |         1 | File-local TODO keywords                 |     1 | open keyword from line defined later in file   |       1 |        977 |
+| 16 |         1 | File-local TODO keywords                 |     1 | closed keyword from line defined later in file |       1 |       1034 |
+| 17 |         1 | File-local TODO keywords                 |     1 | TODO still not valid after later local lines   |       1 |       1094 |
+| 18 |         1 | File-local TODO keywords                 |     1 | DONE still not valid after later local lines   |       1 |       1141 |
+| 19 |       N/A | N/A                                      |     0 | Inherited heading tags                         |       2 |         -1 |
+| 20 |        19 | Inherited heading tags                   |     1 | parent with one tag                            |       2 |         52 |
+| 21 |        20 | parent with one tag                      |     2 | child inherits parent tag                      |       2 |         97 |
+| 22 |        20 | parent with one tag                      |     2 | child with local tag                           |       2 |        173 |
+| 23 |        22 | child with local tag                     |     3 | grandchild inherits both                       |       2 |        261 |
+| 24 |        22 | child with local tag                     |     3 | grandchild with duplicate local tag            |       2 |        351 |
+| 25 |        19 | Inherited heading tags                   |     1 | second parent                                  |       2 |        491 |
+| 26 |        25 | second parent                            |     2 | second child with local tag                    |       2 |        573 |
+| 27 |        26 | second child with local tag              |     3 | second grandchild with extra tag               |       2 |        659 |
+| 28 |        19 | Inherited heading tags                   |     1 | untagged parent                                |       2 |        760 |
+| 29 |        28 | untagged parent                          |     2 | child with only local tag                      |       2 |        779 |
+| 30 |        28 | untagged parent                          |     2 | child without tags                             |       2 |        853 |
+| 31 |       N/A | N/A                                      |     0 | Title can span multiple lines, even here       |       3 |         -1 |
+| 32 |        31 | Title can span multiple lines, even here |     1 | Unfortunately Everywhere                       |       3 |        136 |
+
+** Tree view
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :nullvalue 'N/A' :results output
+  WITH RECURSIVE tree AS (
+    SELECT
+      h.id,
+      h.parent_id,
+      h.file_id,
+      h.level,
+      h.title,
+      printf('%04d', h.id) AS sort_path,
+      f.path || ' - 0 ' || h.title AS line
+      FROM headings h
+           JOIN files f ON f.id = h.file_id
+     WHERE h.parent_id IS NULL
+
+     UNION ALL
+
+    SELECT
+      h.id,
+      h.parent_id,
+      h.file_id,
+      h.level,
+      h.title,
+      tree.sort_path || '.' || printf('%04d', h.id) AS sort_path,
+      printf('%s- %d %s',
+             substr('                                                                                ', 1, h.level * 2),
+             h.level,
+             h.title
+      ) AS line
+      FROM headings h
+           JOIN tree ON h.parent_id = tree.id
+  )
+  SELECT line
+    FROM tree
+   ORDER BY file_id, sort_path;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0 File-local TODO keywords"
+"  - 1 TODO default keyword should stay in title"
+"  - 1 DONE default done keyword should stay in title"
+"  - 1 open keyword with fast key"
+"  - 1 another open keyword with fast key"
+"  - 1 closed keyword with fast key"
+"  - 1 closed keyword with extended fast key"
+"  - 1 open keyword from empty-done-side line"
+"  - 1 another open keyword from empty-done-side line"
+"  - 1 open keyword from TYP_TODO"
+"  - 1 closed keyword from TYP_TODO"
+"  - 1 open keyword from SEQ_TODO"
+"  - 1 closed keyword from SEQ_TODO"
+"  - 1 closed keyword from later TODO line"
+"  - 1 open keyword from line defined later in file"
+"  - 1 closed keyword from line defined later in file"
+"  - 1 TODO still not valid after later local lines"
+"  - 1 DONE still not valid after later local lines"
+"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org - 0 Inherited heading tags"
+"  - 1 parent with one tag"
+"    - 2 child inherits parent tag"
+"    - 2 child with local tag"
+"      - 3 grandchild inherits both"
+"      - 3 grandchild with duplicate local tag"
+"  - 1 second parent"
+"    - 2 second child with local tag"
+"      - 3 second grandchild with extra tag"
+"  - 1 untagged parent"
+"    - 2 child with only local tag"
+"    - 2 child without tags"
+"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0 Title can span multiple lines, even here"
+"  - 1 Unfortunately Everywhere"
+#+end_example
+
+* Integrity checks
+
+** One level 0 heading per file
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    f.id AS file_id,
+    f.path,
+    COUNT(h.id) AS level0_count
+    FROM files f
+         LEFT JOIN headings h
+             ON h.file_id = f.id
+             AND h.level = 0
+   GROUP BY f.id, f.path
+   ORDER BY f.id;
+#+END_SRC
+
+#+RESULTS:
+| file_id | path                                                                                              | level0_count |
+|---------+---------------------------------------------------------------------------------------------------+--------------|
+|       1 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org |            1 |
+|       2 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   |            1 |
+|       3 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   |            1 |
+
+** Invalid parent structure
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    id,
+    parent_id,
+    level,
+    title,
+    file_id
+    FROM headings
+   WHERE
+    (level = 0 AND parent_id IS NOT NULL)
+      OR
+    (level > 0 AND parent_id IS NULL)
+   ORDER BY file_id, id;
+#+END_SRC
+
+#+RESULTS:
+
+** Cross-file parent links
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    h.id,
+    h.title,
+    h.file_id,
+    h.parent_id,
+    p.title AS parent_title,
+    p.file_id AS parent_file_id
+    FROM headings h
+         JOIN headings p ON p.id = h.parent_id
+   WHERE h.file_id <> p.file_id
+   ORDER BY h.file_id, h.id;
+#+END_SRC
+
+#+RESULTS:
+
+** Duplicate file paths
+
+Should return no rows.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+  SELECT
+    path,
+    COUNT(*) AS count
+    FROM files
+   GROUP BY path
+  HAVING COUNT(*) > 1;
+#+END_SRC
+
+#+RESULTS:
