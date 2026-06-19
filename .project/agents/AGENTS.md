@@ -44,7 +44,8 @@ Tasks use Org-mode TODO states.
 ### 1. Prepare
 
 1. Work only on `PLAN`, `BUILD`, `NEXT`, or `CONTINUE` tasks.
-2. Create or reuse `../tasks/YYYY-MM-DD--slug.org` from `../tasks/template.org`. Summarize relevant chat input and copy the task entry from `todo.org` under `* Input & Todo Task`; remove inapplicable sections. 3. Add `#+TASK_STARTED: [YYYY-MM-DD Day HH:MM]` near the top.
+2. Create or reuse `../tasks/YYYY-MM-DD--slug.org` from `../tasks/template.org`. In the task file under `* Input & Todo Task`, summarize relevant chat input and copy the task entry from `todo.org`. Remove inapplicable sections from the task file.
+3. Add `#+TASK_STARTED: [YYYY-MM-DD Day HH:MM]` near the top.
 4. Link the task file below the task heading in `todo.org`.
 5. If on `main`, create a branch `type/description` using `feat`, `fix`, `hotfix`, `refactor`, `perf`, `docs`, `test`, `release`, `ci`, or `chore`; otherwise continue on the current branch.
 
@@ -69,8 +70,8 @@ For status `BUILD` or `NEXT`:
 3. Read `./repository.org`.
 4. Implement only the active task scope.
 5. Run relevant tests and linters.
-6. Update docs/README/`../../CHANGELOG.org` only if needed.
-7. Write `* Build` in the task file, following the task template.
+6. Update docs, README, CHANGELOG if needed.
+7. Record results under `* Results` in the task file, following the task template.
 8. Set the task state in `todo.org` to `REVIEW`.
 9. Notify the user and stop.
 10. Suggest a Conventional Commit message with optional body.

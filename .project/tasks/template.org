@@ -1,6 +1,6 @@
 #+TITLE: <Short Task Title>
 #+STARTUP: showall
-#+TEMPLATE_VERSION: 0.6.0
+#+TEMPLATE_VERSION: 0.7.0
 #+TASK_STARTED:
 #+TASK_COMPLETED:
 
@@ -20,7 +20,7 @@
 ** Open questions
 ** Proposed checks
 
-* Build
+* Results
 
 ** Approach
 ** Changed files
