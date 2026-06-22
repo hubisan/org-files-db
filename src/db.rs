@@ -14,7 +14,8 @@ pub use reader::{DbReadError, DbReader, HeadingListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition};
 pub use writer::{
     DbWriteError, DbWriter, FileRecordInput, HeadingFtsRecord, HeadingRecord, KeywordRecord,
-    OutlinePathRecord, PropertyRecord, TagRecord, TodoKeywordRecord,
+    OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord,
+    TodoKeywordRecord,
 };
 
 pub const IN_MEMORY_DATABASE: &str = ":memory:";
@@ -145,6 +146,26 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    type MigratedLegacyRepeaterRow = (
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+    );
+    type MigratedExplicitRepeaterRow = (
+        i64,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+    );
+
     struct TestDir {
         path: PathBuf,
     }
@@ -236,6 +257,141 @@ mod tests {
             .expect("sqlite_master should be queryable");
 
         assert_eq!(heading_fts_exists, 1);
+    }
+
+    #[test]
+    fn timestamp_repeaters_schema_tracks_explicit_repeater_warning_columns() {
+        let connection = open_in_memory_database().expect("database should open");
+
+        let timestamps_columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(timestamps)")
+                .expect("timestamps pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("timestamps pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("timestamps columns should collect")
+        };
+        assert!(
+            !timestamps_columns
+                .iter()
+                .any(|column| column == "has_repeater"),
+            "timestamps table should not expose has_repeater"
+        );
+
+        let modifier_columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(timestamp_repeaters)")
+                .expect("timestamp_repeaters pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("timestamp_repeaters pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("timestamp_repeaters columns should collect")
+        };
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "repeater_type"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "repeater_value"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "repeater_unit"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "repeater_deadline_value"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "repeater_deadline_unit"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "warning_type"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "warning_value"));
+        assert!(modifier_columns
+            .iter()
+            .any(|column| column == "warning_unit"));
+    }
+
+    #[test]
+    fn timestamp_repeaters_constraints_reject_invalid_repeater_warning_shapes() {
+        let connection = open_in_memory_database().expect("database should open");
+
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (?1, ?2, ?3, ?4)",
+                (1_i64, "/tmp/example.org", 10_i64, 20_i64),
+            )
+            .expect("file insert should succeed");
+        connection
+            .execute(
+                "INSERT INTO headings
+                 (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    1_i64,
+                    1_i64,
+                    Option::<i64>::None,
+                    0_i64,
+                    -1_i64,
+                    20_i64,
+                    "/tmp/example.org",
+                    "/tmp/example.org",
+                ),
+            )
+            .expect("heading insert should succeed");
+        connection
+            .execute(
+                "INSERT INTO timestamps
+                 (id, heading_id, role, raw_value, byte_start, byte_end)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (1_i64, 1_i64, "scheduled", "<2024-11-20 Wed>", 0_i64, 16_i64),
+            )
+            .expect("timestamp insert should succeed");
+
+        let deadline_without_repeater = connection
+            .execute(
+                "INSERT INTO timestamp_repeaters
+                 (timestamp_id, repeater_deadline_value, repeater_deadline_unit, warning_type, warning_value, warning_unit)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (1_i64, 2_i64, "day", "all", 5_i64, "day"),
+            )
+            .expect_err("repeater deadline should require repeater columns");
+        assert!(deadline_without_repeater.to_string().contains("CHECK"));
+
+        connection
+            .execute(
+                "INSERT INTO timestamp_repeaters
+                 (timestamp_id, repeater_type, repeater_value, repeater_unit,
+                  repeater_deadline_value, repeater_deadline_unit,
+                  warning_type, warning_value, warning_unit)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                (
+                    1_i64, "catch_up", 1_i64, "month", 2_i64, "day", "all", 5_i64, "day",
+                ),
+            )
+            .expect("combined repeater and warning row should insert");
+
+        let duplicate_timestamp = connection
+            .execute(
+                "INSERT INTO timestamp_repeaters
+                 (timestamp_id, warning_type, warning_value, warning_unit)
+                 VALUES (?1, ?2, ?3, ?4)",
+                (1_i64, "first", 2_i64, "week"),
+            )
+            .expect_err("duplicate timestamp row should fail");
+        assert!(duplicate_timestamp.to_string().contains("UNIQUE"));
+
+        let empty_row = connection
+            .execute(
+                "INSERT INTO timestamp_repeaters (timestamp_id) VALUES (?1)",
+                (2_i64,),
+            )
+            .expect_err("timestamp repeater row should require repeater or warning data");
+        assert!(empty_row.to_string().contains("CHECK"));
     }
 
     #[test]
@@ -622,6 +778,193 @@ mod tests {
             .expect("journal_mode pragma should be readable");
 
         assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+    }
+
+    #[test]
+    fn open_database_upgrades_legacy_timestamp_repeaters_table() {
+        let test_dir = TestDir::new("legacy-repeaters");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
+INSERT INTO timestamps
+    (id, heading_id, role, raw_value, byte_start, byte_end)
+VALUES
+    (1, 1, 'scheduled', '<2024-11-20 Wed +1w/2d>', 0, 22);
+
+DROP TABLE timestamp_repeaters;
+
+CREATE TABLE timestamp_repeaters (
+    id INTEGER PRIMARY KEY,
+    timestamp_id INTEGER NOT NULL,
+    type TEXT,
+    value INTEGER,
+    unit TEXT,
+    deadline_value INTEGER,
+    deadline_unit TEXT
+);
+
+INSERT INTO timestamp_repeaters
+    (id, timestamp_id, type, value, unit, deadline_value, deadline_unit)
+VALUES
+    (1, 1, 'cumulate', 1, 'week', 2, 'day');
+"#,
+                )
+                .expect("legacy schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+
+        let columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(timestamp_repeaters)")
+                .expect("timestamp_repeaters pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("timestamp_repeaters pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("timestamp_repeaters columns should collect")
+        };
+        assert!(columns.iter().any(|column| column == "repeater_type"));
+        assert!(columns
+            .iter()
+            .any(|column| column == "repeater_deadline_value"));
+        assert!(columns
+            .iter()
+            .any(|column| column == "repeater_deadline_unit"));
+        assert!(columns.iter().any(|column| column == "warning_type"));
+
+        let migrated_row: MigratedLegacyRepeaterRow = connection
+            .query_row(
+                "SELECT repeater_type, repeater_deadline_value, repeater_deadline_unit,
+                        warning_type, warning_value, warning_unit
+                 FROM timestamp_repeaters
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("migrated row should be queryable");
+        assert_eq!(
+            migrated_row,
+            (
+                Some("cumulate".to_string()),
+                Some(2_i64),
+                Some("day".to_string()),
+                None,
+                None,
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn open_database_upgrades_generic_modifier_rows_to_explicit_timestamp_row() {
+        let test_dir = TestDir::new("generic-repeaters");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
+INSERT INTO timestamps
+    (id, heading_id, role, raw_value, byte_start, byte_end)
+VALUES
+    (1, 1, 'scheduled', '<2024-11-20 Wed ++1m/2d -5d>', 0, 28);
+
+DROP TABLE timestamp_repeaters;
+
+CREATE TABLE timestamp_repeaters (
+    id INTEGER PRIMARY KEY,
+    timestamp_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    type TEXT NOT NULL,
+    value INTEGER NOT NULL,
+    unit TEXT NOT NULL,
+    repeater_deadline_value INTEGER,
+    repeater_deadline_unit TEXT
+);
+
+INSERT INTO timestamp_repeaters
+    (id, timestamp_id, kind, type, value, unit, repeater_deadline_value, repeater_deadline_unit)
+VALUES
+    (1, 1, 'repeater', 'catch_up', 1, 'month', 2, 'day'),
+    (2, 1, 'warning', 'all', 5, 'day', NULL, NULL);
+"#,
+                )
+                .expect("generic schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+
+        let migrated_rows: Vec<MigratedExplicitRepeaterRow> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT timestamp_id, repeater_type, repeater_value, repeater_unit,
+                            repeater_deadline_value, repeater_deadline_unit,
+                            warning_type, warning_value, warning_unit
+                     FROM timestamp_repeaters",
+                )
+                .expect("query should prepare");
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                    ))
+                })
+                .expect("query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("rows should collect")
+        };
+
+        assert_eq!(
+            migrated_rows,
+            vec![(
+                1_i64,
+                Some("catch_up".to_string()),
+                Some(1_i64),
+                Some("month".to_string()),
+                Some(2_i64),
+                Some("day".to_string()),
+                Some("all".to_string()),
+                Some(5_i64),
+                Some("day".to_string()),
+            )]
+        );
     }
 
     fn insert_fixture_graph(connection: &Connection) {

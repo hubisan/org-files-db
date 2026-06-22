@@ -2,9 +2,11 @@
 #+STARTUP: showall
 #+MY_VISUAL_FILL: off
 
+Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
+
 * Files
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT *
     FROM files
    ORDER BY id
@@ -12,61 +14,199 @@
 #+END_SRC
 
 #+RESULTS:
-| id | path                                                                                              |            mtime_ns | size | content_hash | indexed_at |
-|----+---------------------------------------------------------------------------------------------------+---------------------+------+--------------+------------|
-|  1 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 | N/A          | 1781876919 |
-|  2 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 |  904 | N/A          | 1781876919 |
-|  3 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 |  321 | N/A          | 1781876919 |
+: id  path                                                                                                 mtime_ns             size  content_hash  indexed_at
+: --  ---------------------------------------------------------------------------------------------------  -------------------  ----  ------------  ----------
+: 1   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org  1781808483955605322  1188  NULL          1782137753
+: 2   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org    1781808923034914634  904   NULL          1782137753
+: 3   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org    1781809982908544855  321   NULL          1782137753
+: 4   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org            1782129087807207205  1163  NULL          1782137753
 
 * Headings
 
 ** Raw headings
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT *
     FROM headings
    ORDER BY file_id, byte_start, id;
 #+END_SRC
 
 #+RESULTS:
-| id | file_id | parent_id | level | line_number | byte_start | byte_end | title                                          | title_raw                                      | todo_keyword | todo_type | priority | scheduled_raw | scheduled_ts | deadline_raw | deadline_ts | closed_raw | closed_ts | archivedp | footnote_section_p | all_tags_json              |
-|----+---------+-----------+-------+-------------+------------+----------+------------------------------------------------+------------------------------------------------+--------------+-----------+----------+---------------+--------------+--------------+-------------+------------+-----------+-----------+--------------------+----------------------------|
-|  1 |       1 |       N/A |     0 |           1 |         -1 |     1188 | File-local TODO keywords                       | File-local TODO keywords                       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  2 |       1 |         1 |     1 |          10 |        234 |      354 | TODO default keyword should stay in title      | TODO default keyword should stay in title      | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  3 |       1 |         1 |     1 |          13 |        354 |      479 | DONE default done keyword should stay in title | DONE default done keyword should stay in title | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  4 |       1 |         1 |     1 |          16 |        479 |      512 | open keyword with fast key                     | open keyword with fast key                     | one          | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  5 |       1 |         1 |     1 |          17 |        512 |      553 | another open keyword with fast key             | another open keyword with fast key             | two          | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  6 |       1 |         1 |     1 |          18 |        553 |      590 | closed keyword with fast key                   | closed keyword with fast key                   | three        | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  7 |       1 |         1 |     1 |          19 |        590 |      636 | closed keyword with extended fast key          | closed keyword with extended fast key          | four         | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  8 |       1 |         1 |     1 |          21 |        636 |      682 | open keyword from empty-done-side line         | open keyword from empty-done-side line         | FIVE         | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-|  9 |       1 |         1 |     1 |          22 |        682 |      736 | another open keyword from empty-done-side line | another open keyword from empty-done-side line | SIX          | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 10 |       1 |         1 |     1 |          24 |        736 |      771 | open keyword from TYP_TODO                     | open keyword from TYP_TODO                     | seven        | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 11 |       1 |         1 |     1 |          25 |        771 |      809 | closed keyword from TYP_TODO                   | closed keyword from TYP_TODO                   | eight        | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 12 |       1 |         1 |     1 |          27 |        809 |      843 | open keyword from SEQ_TODO                     | open keyword from SEQ_TODO                     | nine         | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 13 |       1 |         1 |     1 |          28 |        843 |      900 | closed keyword from SEQ_TODO                   | closed keyword from SEQ_TODO                   | ten          | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 14 |       1 |         1 |     1 |          32 |        900 |      977 | closed keyword from later TODO line            | closed keyword from later TODO line            | eleven       | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 15 |       1 |         1 |     1 |          36 |        977 |     1034 | open keyword from line defined later in file   | open keyword from line defined later in file   | late_open    | open      | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 16 |       1 |         1 |     1 |          37 |       1034 |     1094 | closed keyword from line defined later in file | closed keyword from line defined later in file | late_done    | closed    | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 17 |       1 |         1 |     1 |          39 |       1094 |     1141 | TODO still not valid after later local lines   | TODO still not valid after later local lines   | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 18 |       1 |         1 |     1 |          40 |       1141 |     1188 | DONE still not valid after later local lines   | DONE still not valid after later local lines   | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 19 |       2 |       N/A |     0 |           1 |         -1 |      904 | Inherited heading tags                         | Inherited heading tags                         | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 20 |       2 |        19 |     1 |           4 |         52 |      491 | parent with one tag                            | parent with one tag                            | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent"]                 |
-| 21 |       2 |        20 |     2 |           7 |         97 |      173 | child inherits parent tag                      | child inherits parent tag                      | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent"]                 |
-| 22 |       2 |        20 |     2 |          10 |        173 |      491 | child with local tag                           | child with local tag                           | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent","child"]         |
-| 23 |       2 |        22 |     3 |          13 |        261 |      351 | grandchild inherits both                       | grandchild inherits both                       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent","child"]         |
-| 24 |       2 |        22 |     3 |          16 |        351 |      491 | grandchild with duplicate local tag            | grandchild with duplicate local tag            | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["parent","child"]         |
-| 25 |       2 |        19 |     1 |          20 |        491 |      760 | second parent                                  | second parent                                  | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["second"]                 |
-| 26 |       2 |        25 |     2 |          23 |        573 |      760 | second child with local tag                    | second child with local tag                    | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["second","child"]         |
-| 27 |       2 |        26 |     3 |          26 |        659 |      760 | second grandchild with extra tag               | second grandchild with extra tag               | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["second","child","extra"] |
-| 28 |       2 |        19 |     1 |          29 |        760 |      904 | untagged parent                                | untagged parent                                | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 29 |       2 |        28 |     2 |          31 |        779 |      853 | child with only local tag                      | child with only local tag                      | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | ["local"]                  |
-| 30 |       2 |        28 |     2 |          34 |        853 |      904 | child without tags                             | child without tags                             | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 31 |       3 |       N/A |     0 |           1 |         -1 |      321 | Title can span multiple lines, even here       | Title can span multiple lines, even here       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
-| 32 |       3 |        31 |     1 |           7 |        136 |      321 | Unfortunately Everywhere                       | Unfortunately Everywhere                       | N/A          | N/A       | N/A      | N/A           | N/A          | N/A          | N/A         | N/A        | N/A       |         0 |                  0 | []                         |
+#+begin_example
+id  file_id  parent_id  level  line_number  byte_start  byte_end  title                                           title_raw                                       todo_keyword  todo_type  priority  scheduled_raw                 scheduled_ts  deadline_raw                        deadline_ts  closed_raw        closed_ts   archivedp  footnote_section_p  all_tags_json             
+--  -------  ---------  -----  -----------  ----------  --------  ----------------------------------------------  ----------------------------------------------  ------------  ---------  --------  ----------------------------  ------------  ----------------------------------  -----------  ----------------  ----------  ---------  ------------------  --------------------------
+1   1        NULL       0      1            -1          1188      File-local TODO keywords                        File-local TODO keywords                        NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+2   1        1          1      10           234         354       TODO default keyword should stay in title       TODO default keyword should stay in title       NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+3   1        1          1      13           354         479       DONE default done keyword should stay in title  DONE default done keyword should stay in title  NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+4   1        1          1      16           479         512       open keyword with fast key                      open keyword with fast key                      one           open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+5   1        1          1      17           512         553       another open keyword with fast key              another open keyword with fast key              two           open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+6   1        1          1      18           553         590       closed keyword with fast key                    closed keyword with fast key                    three         closed     NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+7   1        1          1      19           590         636       closed keyword with extended fast key           closed keyword with extended fast key           four          closed     NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+8   1        1          1      21           636         682       open keyword from empty-done-side line          open keyword from empty-done-side line          FIVE          open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+9   1        1          1      22           682         736       another open keyword from empty-done-side line  another open keyword from empty-done-side line  SIX           open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+10  1        1          1      24           736         771       open keyword from TYP_TODO                      open keyword from TYP_TODO                      seven         open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+11  1        1          1      25           771         809       closed keyword from TYP_TODO                    closed keyword from TYP_TODO                    eight         closed     NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+12  1        1          1      27           809         843       open keyword from SEQ_TODO                      open keyword from SEQ_TODO                      nine          open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+13  1        1          1      28           843         900       closed keyword from SEQ_TODO                    closed keyword from SEQ_TODO                    ten           closed     NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+14  1        1          1      32           900         977       closed keyword from later TODO line             closed keyword from later TODO line             eleven        closed     NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+15  1        1          1      36           977         1034      open keyword from line defined later in file    open keyword from line defined later in file    late_open     open       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+16  1        1          1      37           1034        1094      closed keyword from line defined later in file  closed keyword from line defined later in file  late_done     closed     NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+17  1        1          1      39           1094        1141      TODO still not valid after later local lines    TODO still not valid after later local lines    NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+18  1        1          1      40           1141        1188      DONE still not valid after later local lines    DONE still not valid after later local lines    NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+19  2        NULL       0      1            -1          904       Inherited heading tags                          Inherited heading tags                          NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+20  2        19         1      4            52          491       parent with one tag                             parent with one tag                             NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["parent"]                
+21  2        20         2      7            97          173       child inherits parent tag                       child inherits parent tag                       NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["parent"]                
+22  2        20         2      10           173         491       child with local tag                            child with local tag                            NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["parent","child"]        
+23  2        22         3      13           261         351       grandchild inherits both                        grandchild inherits both                        NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["parent","child"]        
+24  2        22         3      16           351         491       grandchild with duplicate local tag             grandchild with duplicate local tag             NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["parent","child"]        
+25  2        19         1      20           491         760       second parent                                   second parent                                   NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["second"]                
+26  2        25         2      23           573         760       second child with local tag                     second child with local tag                     NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["second","child"]        
+27  2        26         3      26           659         760       second grandchild with extra tag                second grandchild with extra tag                NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["second","child","extra"]
+28  2        19         1      29           760         904       untagged parent                                 untagged parent                                 NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+29  2        28         2      31           779         853       child with only local tag                       child with only local tag                       NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   ["local"]                 
+30  2        28         2      34           853         904       child without tags                              child without tags                              NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+31  3        NULL       0      1            -1          321       Title can span multiple lines, even here        Title can span multiple lines, even here        NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+32  3        31         1      7            136         321       Unfortunately Everywhere                        Unfortunately Everywhere                        NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+33  4        NULL       0      1            -1          1163      Planning timestamp                              Planning timestamp                              NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+34  4        33         1      4            49          1163      Planning                                        Planning                                        NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+35  4        34         2      6            62          111       Simple scheduled                                Simple scheduled                                NULL          NULL       NULL      <2024-11-20 Wed>              1732060800    NULL                                NULL         NULL              NULL        0          0                   []                        
+36  4        34         2      9            111         158       Simple deadline                                 Simple deadline                                 NULL          NULL       NULL      NULL                          NULL          <2024-12-01 Sun>                    1733011200   NULL              NULL        0          0                   []                        
+37  4        34         2      12           158         201       Simple closed                                   Simple closed                                   NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         [2024-11-21 Thu]  1732147200  0          0                   []                        
+38  4        34         2      15           201         310       All on one planning line                        All on one planning line                        NULL          NULL       NULL      <2024-11-20 Wed>              1732060800    <2024-12-01 Sun>                    1733011200   [2024-11-21 Thu]  1732147200  0          0                   []                        
+39  4        34         2      18           310         358       With time                                       With time                                       NULL          NULL       NULL      <2024-11-20 Wed 09:30>        1732095000    NULL                                NULL         NULL              NULL        0          0                   []                        
+40  4        34         2      21           358         422       Time range same day                             Time range same day                             NULL          NULL       NULL      <2024-11-20 Wed 09:30-11:00>  1732095000    NULL                                NULL         NULL              NULL        0          0                   []                        
+41  4        34         2      24           422         482       Date range                                      Date range                                      NULL          NULL       NULL      NULL                          NULL          <2024-12-01 Sun>--<2024-12-03 Tue>  1733011200   NULL              NULL        0          0                   []                        
+42  4        34         2      27           482         527       Repeater                                        Repeater                                        NULL          NULL       NULL      <2024-11-20 Wed +1w>          1732060800    NULL                                NULL         NULL              NULL        0          0                   []                        
+43  4        34         2      30           527         582       Diary expression                                Diary expression                                NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+44  4        34         2      33           582         704       Multiple same keyword                           Multiple same keyword                           NULL          NULL       NULL      <2024-11-21 Thu>              1732147200    NULL                                NULL         NULL              NULL        0          0                   []                        
+45  4        34         2      37           704         1163      Not valid                                       Not valid                                       NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+46  4        45         3      39           718         827       Multiple planning lines                         Multiple planning lines                         NULL          NULL       NULL      <2024-11-20 Wed>              1732060800    NULL                                NULL         NULL              NULL        0          0                   []                        
+47  4        45         3      44           827         922       Planning not immediately after headline         Planning not immediately after headline         NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+48  4        45         3      48           922         1009      Looks like planning in body                     Looks like planning in body                     NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+49  4        45         3      51           1009        1078      Lowercase should probably not count             Lowercase should probably not count             NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+50  4        45         3      54           1078        1163      Multiple same keyword                           Multiple same keyword                           NULL          NULL       NULL      <2024-11-21 Thu>              1732147200    NULL                                NULL         NULL              NULL        0          0                   []                        
+51  5        NULL       0      1            -1          280       Timestamps                                      Timestamps                                      NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+52  5        51         1      3            21          72        Meet Peter at the movies                        Meet Peter at the movies                        NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+53  5        51         1      6            72          133       Discussion on climate change                    Discussion on climate change                    NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+54  5        51         1      9            133         182       My days off                                     My days off                                     NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+55  5        51         1      13           182         280       Can be anywhere                                 Can be anywhere                                 NULL          NULL       NULL      NULL                          NULL          NULL                                NULL         NULL              NULL        0          0                   []                        
+#+end_example
 
+** Planning lines
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT title, scheduled_raw, scheduled_ts, deadline_raw, deadline_ts, closed_raw, closed_ts
+    FROM headings
+            WHERE file_id=4 or file_id=5
+   ORDER BY file_id, byte_start, id;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+title                                    scheduled_raw                 scheduled_ts  deadline_raw                        deadline_ts  closed_raw        closed_ts 
+---------------------------------------  ----------------------------  ------------  ----------------------------------  -----------  ----------------  ----------
+Planning timestamp                       NULL                          NULL          NULL                                NULL         NULL              NULL      
+Planning                                 NULL                          NULL          NULL                                NULL         NULL              NULL      
+Simple scheduled                         <2024-11-20 Wed>              1732060800    NULL                                NULL         NULL              NULL      
+Simple deadline                          NULL                          NULL          <2024-12-01 Sun>                    1733011200   NULL              NULL      
+Simple closed                            NULL                          NULL          NULL                                NULL         [2024-11-21 Thu]  1732147200
+All on one planning line                 <2024-11-20 Wed>              1732060800    <2024-12-01 Sun>                    1733011200   [2024-11-21 Thu]  1732147200
+With time                                <2024-11-20 Wed 09:30>        1732095000    NULL                                NULL         NULL              NULL      
+Time range same day                      <2024-11-20 Wed 09:30-11:00>  1732095000    NULL                                NULL         NULL              NULL      
+Date range                               NULL                          NULL          <2024-12-01 Sun>--<2024-12-03 Tue>  1733011200   NULL              NULL      
+Repeater                                 <2024-11-20 Wed +1w>          1732060800    NULL                                NULL         NULL              NULL      
+Diary expression                         NULL                          NULL          NULL                                NULL         NULL              NULL      
+Multiple same keyword                    <2024-11-21 Thu>              1732147200    NULL                                NULL         NULL              NULL      
+Not valid                                NULL                          NULL          NULL                                NULL         NULL              NULL      
+Multiple planning lines                  <2024-11-20 Wed>              1732060800    NULL                                NULL         NULL              NULL      
+Planning not immediately after headline  NULL                          NULL          NULL                                NULL         NULL              NULL      
+Looks like planning in body              NULL                          NULL          NULL                                NULL         NULL              NULL      
+Lowercase should probably not count      NULL                          NULL          NULL                                NULL         NULL              NULL      
+Multiple same keyword                    <2024-11-21 Thu>              1732147200    NULL                                NULL         NULL              NULL      
+Timestamps                               NULL                          NULL          NULL                                NULL         NULL              NULL      
+Meet Peter at the movies                 NULL                          NULL          NULL                                NULL         NULL              NULL      
+Discussion on climate change             NULL                          NULL          NULL                                NULL         NULL              NULL      
+My days off                              NULL                          NULL          NULL                                NULL         NULL              NULL      
+Can be anywhere                          NULL                          NULL          NULL                                NULL         NULL              NULL      
+#+end_example
+
+** Timestamps
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT * FROM timestamps;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  heading_id  role       start_ts    end_ts      type      range_type  raw_value                           byte_start  byte_end  line_number
+--  ----------  ---------  ----------  ----------  --------  ----------  ----------------------------------  ----------  --------  -----------
+1   35          scheduled  1732060800  NULL        active    none        <2024-11-20 Wed>                    93          109       7          
+2   36          deadline   1733011200  NULL        active    none        <2024-12-01 Sun>                    140         156       10         
+3   37          closed     1732147200  NULL        inactive  none        [2024-11-21 Thu]                    183         199       13         
+4   38          deadline   1733011200  NULL        active    none        <2024-12-01 Sun>                    239         255       16         
+5   38          scheduled  1732060800  NULL        active    none        <2024-11-20 Wed>                    267         283       16         
+6   38          closed     1732147200  NULL        inactive  none        [2024-11-21 Thu]                    292         308       16         
+7   39          scheduled  1732095000  NULL        active    none        <2024-11-20 Wed 09:30>              334         356       19         
+8   40          scheduled  1732095000  1732100400  active    time_range  <2024-11-20 Wed 09:30-11:00>        392         420       22         
+9   41          deadline   1733011200  1733184000  active    date_range  <2024-12-01 Sun>--<2024-12-03 Tue>  446         480       25         
+10  42          scheduled  1732060800  NULL        active    none        <2024-11-20 Wed +1w>                505         525       28         
+11  43          body       NULL        NULL        diary     none        <%%(diary-float t 42)>              558         580       31         
+12  44          scheduled  1732060800  NULL        active    none        <2024-11-20 Wed>                    618         634       34         
+13  44          scheduled  1732147200  NULL        active    none        <2024-11-21 Thu>                    646         662       34         
+14  46          scheduled  1732060800  NULL        active    none        <2024-11-20 Wed>                    757         773       40         
+15  46          body       1733011200  NULL        active    none        <2024-12-01 Sun>                    784         800       41         
+16  46          body       1732147200  NULL        inactive  none        [2024-11-21 Thu]                    809         825       42         
+17  47          body       1732060800  NULL        active    none        <2024-11-20 Wed>                    904         920       46         
+18  48          body       1733011200  NULL        active    none        <2024-12-01 Sun>                    978         994       49         
+19  49          body       1732060800  NULL        active    none        <2024-11-20 Wed>                    1060        1076      52         
+20  50          scheduled  1732060800  NULL        active    none        <2024-11-20 Wed>                    1115        1131      55         
+21  50          scheduled  1732147200  NULL        active    none        <2024-11-21 Thu>                    1143        1159      55         
+22  52          body       1162408500  NULL        active    none        <2006-11-01 Wed 19:15>              48          70        4          
+23  53          body       1162461600  1162468800  active    time_range  <2006-11-02 Thu 10:00-12:00>        103         131       7          
+24  54          body       1162512000  NULL        active    none        <2006-11-03 Fri>                    147         163       10         
+25  54          body       1162771200  NULL        active    none        <2006-11-06 Mon>                    164         180       11         
+26  55          body       1162512000  NULL        active    none        <2006-11-03 Fri>                    218         234       15         
+27  55          body       1782086400  NULL        inactive  none        [2026-06-22 Mon]                    262         278       17         
+#+end_example
+
+** Timestamps Repeaters
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT * FROM timestamp_repeaters;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  timestamp_id  repeater_type  repeater_value  repeater_unit  repeater_deadline_value  repeater_deadline_unit  warning_type  warning_value  warning_unit
+--  ------------  -------------  --------------  -------------  -----------------------  ----------------------  ------------  -------------  ------------
+1   10            cumulate       1               week           NULL                     NULL                    NULL          NULL           NULL        
+2   22            cumulate       1               week           NULL                     NULL                    NULL          NULL           NULL        
+3   23            catch_up       1               month          NULL                     NULL                    NULL          NULL           NULL        
+4   24            restart        2               day            NULL                     NULL                    NULL          NULL           NULL        
+5   25            cumulate       3               hour           NULL                     NULL                    NULL          NULL           NULL        
+6   26            cumulate       3               day            NULL                     NULL                    NULL          NULL           NULL        
+7   27            cumulate       3               week           NULL                     NULL                    NULL          NULL           NULL        
+8   28            cumulate       3               month          NULL                     NULL                    NULL          NULL           NULL        
+9   29            cumulate       3               year           NULL                     NULL                    NULL          NULL           NULL        
+10  30            cumulate       1               week           2                        day                     NULL          NULL           NULL        
+11  31            catch_up       1               month          1                        week                    NULL          NULL           NULL        
+12  32            restart        1               year           2                        month                   NULL          NULL           NULL        
+13  33            NULL           NULL            NULL           NULL                     NULL                    all           5              day         
+14  34            NULL           NULL            NULL           NULL                     NULL                    first         2              week        
+15  35            NULL           NULL            NULL           NULL                     NULL                    all           3              hour        
+16  36            NULL           NULL            NULL           NULL                     NULL                    all           1              month       
+17  37            NULL           NULL            NULL           NULL                     NULL                    first         1              year        
+18  38            cumulate       1               week           NULL                     NULL                    all           5              day         
+19  39            catch_up       1               month          2                        day                     all           5              day         
+20  40            restart        2               week           NULL                     NULL                    first         1              week        
+21  41            cumulate       1               week           NULL                     NULL                    NULL          NULL           NULL        
+22  42            cumulate       1               week           NULL                     NULL                    NULL          NULL           NULL        
+23  43            cumulate       1               week           NULL                     NULL                    NULL          NULL           NULL        
+24  44            cumulate       1               week           NULL                     NULL                    NULL          NULL           NULL        
+#+end_example
 ** Level 0 headings
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     id,
     parent_id,
@@ -79,15 +219,16 @@
 #+END_SRC
 
 #+RESULTS:
-| id | parent_id | level | title                                    | file_id |
-|----+-----------+-------+------------------------------------------+---------|
-|  1 | N/A       |     0 | File-local TODO keywords                 |       1 |
-| 19 | N/A       |     0 | Inherited heading tags                   |       2 |
-| 31 | N/A       |     0 | Title can span multiple lines, even here |       3 |
+: id  parent_id  level  title                                     file_id
+: --  ---------  -----  ----------------------------------------  -------
+: 1   NULL       0      File-local TODO keywords                  1      
+: 19  NULL       0      Inherited heading tags                    2      
+: 31  NULL       0      Title can span multiple lines, even here  3      
+: 33  NULL       0      Planning timestamp                        4      
 
 ** Parent-child check
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     h.id,
     h.parent_id,
@@ -102,44 +243,64 @@
 #+END_SRC
 
 #+RESULTS:
-| id | parent_id | parent_title                             | level | title                                          | file_id | byte_start |
-|----+-----------+------------------------------------------+-------+------------------------------------------------+---------+------------|
-|  1 |       N/A | N/A                                      |     0 | File-local TODO keywords                       |       1 |         -1 |
-|  2 |         1 | File-local TODO keywords                 |     1 | TODO default keyword should stay in title      |       1 |        234 |
-|  3 |         1 | File-local TODO keywords                 |     1 | DONE default done keyword should stay in title |       1 |        354 |
-|  4 |         1 | File-local TODO keywords                 |     1 | open keyword with fast key                     |       1 |        479 |
-|  5 |         1 | File-local TODO keywords                 |     1 | another open keyword with fast key             |       1 |        512 |
-|  6 |         1 | File-local TODO keywords                 |     1 | closed keyword with fast key                   |       1 |        553 |
-|  7 |         1 | File-local TODO keywords                 |     1 | closed keyword with extended fast key          |       1 |        590 |
-|  8 |         1 | File-local TODO keywords                 |     1 | open keyword from empty-done-side line         |       1 |        636 |
-|  9 |         1 | File-local TODO keywords                 |     1 | another open keyword from empty-done-side line |       1 |        682 |
-| 10 |         1 | File-local TODO keywords                 |     1 | open keyword from TYP_TODO                     |       1 |        736 |
-| 11 |         1 | File-local TODO keywords                 |     1 | closed keyword from TYP_TODO                   |       1 |        771 |
-| 12 |         1 | File-local TODO keywords                 |     1 | open keyword from SEQ_TODO                     |       1 |        809 |
-| 13 |         1 | File-local TODO keywords                 |     1 | closed keyword from SEQ_TODO                   |       1 |        843 |
-| 14 |         1 | File-local TODO keywords                 |     1 | closed keyword from later TODO line            |       1 |        900 |
-| 15 |         1 | File-local TODO keywords                 |     1 | open keyword from line defined later in file   |       1 |        977 |
-| 16 |         1 | File-local TODO keywords                 |     1 | closed keyword from line defined later in file |       1 |       1034 |
-| 17 |         1 | File-local TODO keywords                 |     1 | TODO still not valid after later local lines   |       1 |       1094 |
-| 18 |         1 | File-local TODO keywords                 |     1 | DONE still not valid after later local lines   |       1 |       1141 |
-| 19 |       N/A | N/A                                      |     0 | Inherited heading tags                         |       2 |         -1 |
-| 20 |        19 | Inherited heading tags                   |     1 | parent with one tag                            |       2 |         52 |
-| 21 |        20 | parent with one tag                      |     2 | child inherits parent tag                      |       2 |         97 |
-| 22 |        20 | parent with one tag                      |     2 | child with local tag                           |       2 |        173 |
-| 23 |        22 | child with local tag                     |     3 | grandchild inherits both                       |       2 |        261 |
-| 24 |        22 | child with local tag                     |     3 | grandchild with duplicate local tag            |       2 |        351 |
-| 25 |        19 | Inherited heading tags                   |     1 | second parent                                  |       2 |        491 |
-| 26 |        25 | second parent                            |     2 | second child with local tag                    |       2 |        573 |
-| 27 |        26 | second child with local tag              |     3 | second grandchild with extra tag               |       2 |        659 |
-| 28 |        19 | Inherited heading tags                   |     1 | untagged parent                                |       2 |        760 |
-| 29 |        28 | untagged parent                          |     2 | child with only local tag                      |       2 |        779 |
-| 30 |        28 | untagged parent                          |     2 | child without tags                             |       2 |        853 |
-| 31 |       N/A | N/A                                      |     0 | Title can span multiple lines, even here       |       3 |         -1 |
-| 32 |        31 | Title can span multiple lines, even here |     1 | Unfortunately Everywhere                       |       3 |        136 |
+#+begin_example
+id  parent_id  parent_title                              level  title                                           file_id  byte_start
+--  ---------  ----------------------------------------  -----  ----------------------------------------------  -------  ----------
+1   NULL       NULL                                      0      File-local TODO keywords                        1        -1        
+2   1          File-local TODO keywords                  1      TODO default keyword should stay in title       1        234       
+3   1          File-local TODO keywords                  1      DONE default done keyword should stay in title  1        354       
+4   1          File-local TODO keywords                  1      open keyword with fast key                      1        479       
+5   1          File-local TODO keywords                  1      another open keyword with fast key              1        512       
+6   1          File-local TODO keywords                  1      closed keyword with fast key                    1        553       
+7   1          File-local TODO keywords                  1      closed keyword with extended fast key           1        590       
+8   1          File-local TODO keywords                  1      open keyword from empty-done-side line          1        636       
+9   1          File-local TODO keywords                  1      another open keyword from empty-done-side line  1        682       
+10  1          File-local TODO keywords                  1      open keyword from TYP_TODO                      1        736       
+11  1          File-local TODO keywords                  1      closed keyword from TYP_TODO                    1        771       
+12  1          File-local TODO keywords                  1      open keyword from SEQ_TODO                      1        809       
+13  1          File-local TODO keywords                  1      closed keyword from SEQ_TODO                    1        843       
+14  1          File-local TODO keywords                  1      closed keyword from later TODO line             1        900       
+15  1          File-local TODO keywords                  1      open keyword from line defined later in file    1        977       
+16  1          File-local TODO keywords                  1      closed keyword from line defined later in file  1        1034      
+17  1          File-local TODO keywords                  1      TODO still not valid after later local lines    1        1094      
+18  1          File-local TODO keywords                  1      DONE still not valid after later local lines    1        1141      
+19  NULL       NULL                                      0      Inherited heading tags                          2        -1        
+20  19         Inherited heading tags                    1      parent with one tag                             2        52        
+21  20         parent with one tag                       2      child inherits parent tag                       2        97        
+22  20         parent with one tag                       2      child with local tag                            2        173       
+23  22         child with local tag                      3      grandchild inherits both                        2        261       
+24  22         child with local tag                      3      grandchild with duplicate local tag             2        351       
+25  19         Inherited heading tags                    1      second parent                                   2        491       
+26  25         second parent                             2      second child with local tag                     2        573       
+27  26         second child with local tag               3      second grandchild with extra tag                2        659       
+28  19         Inherited heading tags                    1      untagged parent                                 2        760       
+29  28         untagged parent                           2      child with only local tag                       2        779       
+30  28         untagged parent                           2      child without tags                              2        853       
+31  NULL       NULL                                      0      Title can span multiple lines, even here        3        -1        
+32  31         Title can span multiple lines, even here  1      Unfortunately Everywhere                        3        136       
+33  NULL       NULL                                      0      Planning timestamp                              4        -1        
+34  33         Planning timestamp                        1      Planning                                        4        49        
+35  34         Planning                                  2      Simple scheduled                                4        62        
+36  34         Planning                                  2      Simple deadline                                 4        111       
+37  34         Planning                                  2      Simple closed                                   4        158       
+38  34         Planning                                  2      All on one planning line                        4        201       
+39  34         Planning                                  2      With time                                       4        310       
+40  34         Planning                                  2      Time range same day                             4        358       
+41  34         Planning                                  2      Date range                                      4        422       
+42  34         Planning                                  2      Repeater                                        4        482       
+43  34         Planning                                  2      Diary expression                                4        527       
+44  34         Planning                                  2      Multiple same keyword                           4        582       
+45  34         Planning                                  2      Not valid                                       4        704       
+46  45         Not valid                                 3      Multiple planning lines                         4        718       
+47  45         Not valid                                 3      Planning not immediately after headline         4        827       
+48  45         Not valid                                 3      Looks like planning in body                     4        922       
+49  45         Not valid                                 3      Lowercase should probably not count             4        1009      
+50  45         Not valid                                 3      Multiple same keyword                           4        1078      
+#+end_example
 
 ** Tree view
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :nullvalue 'N/A' :results output
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   WITH RECURSIVE tree AS (
     SELECT
       h.id,
@@ -177,45 +338,65 @@
 
 #+RESULTS:
 #+begin_example
-"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0 File-local TODO keywords"
-"  - 1 TODO default keyword should stay in title"
-"  - 1 DONE default done keyword should stay in title"
-"  - 1 open keyword with fast key"
-"  - 1 another open keyword with fast key"
-"  - 1 closed keyword with fast key"
-"  - 1 closed keyword with extended fast key"
-"  - 1 open keyword from empty-done-side line"
-"  - 1 another open keyword from empty-done-side line"
-"  - 1 open keyword from TYP_TODO"
-"  - 1 closed keyword from TYP_TODO"
-"  - 1 open keyword from SEQ_TODO"
-"  - 1 closed keyword from SEQ_TODO"
-"  - 1 closed keyword from later TODO line"
-"  - 1 open keyword from line defined later in file"
-"  - 1 closed keyword from line defined later in file"
-"  - 1 TODO still not valid after later local lines"
-"  - 1 DONE still not valid after later local lines"
-"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org - 0 Inherited heading tags"
-"  - 1 parent with one tag"
-"    - 2 child inherits parent tag"
-"    - 2 child with local tag"
-"      - 3 grandchild inherits both"
-"      - 3 grandchild with duplicate local tag"
-"  - 1 second parent"
-"    - 2 second child with local tag"
-"      - 3 second grandchild with extra tag"
-"  - 1 untagged parent"
-"    - 2 child with only local tag"
-"    - 2 child without tags"
-"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0 Title can span multiple lines, even here"
-"  - 1 Unfortunately Everywhere"
+line                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0 File-local TODO keywords              
+  - 1 TODO default keyword should stay in title                                                                                               
+  - 1 DONE default done keyword should stay in title                                                                                          
+  - 1 open keyword with fast key                                                                                                              
+  - 1 another open keyword with fast key                                                                                                      
+  - 1 closed keyword with fast key                                                                                                            
+  - 1 closed keyword with extended fast key                                                                                                   
+  - 1 open keyword from empty-done-side line                                                                                                  
+  - 1 another open keyword from empty-done-side line                                                                                          
+  - 1 open keyword from TYP_TODO                                                                                                              
+  - 1 closed keyword from TYP_TODO                                                                                                            
+  - 1 open keyword from SEQ_TODO                                                                                                              
+  - 1 closed keyword from SEQ_TODO                                                                                                            
+  - 1 closed keyword from later TODO line                                                                                                     
+  - 1 open keyword from line defined later in file                                                                                            
+  - 1 closed keyword from line defined later in file                                                                                          
+  - 1 TODO still not valid after later local lines                                                                                            
+  - 1 DONE still not valid after later local lines                                                                                            
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org - 0 Inherited heading tags                  
+  - 1 parent with one tag                                                                                                                     
+    - 2 child inherits parent tag                                                                                                             
+    - 2 child with local tag                                                                                                                  
+      - 3 grandchild inherits both                                                                                                            
+      - 3 grandchild with duplicate local tag                                                                                                 
+  - 1 second parent                                                                                                                           
+    - 2 second child with local tag                                                                                                           
+      - 3 second grandchild with extra tag                                                                                                    
+  - 1 untagged parent                                                                                                                         
+    - 2 child with only local tag                                                                                                             
+    - 2 child without tags                                                                                                                    
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0 Title can span multiple lines, even here
+  - 1 Unfortunately Everywhere                                                                                                                
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org - 0 Planning timestamp                              
+  - 1 Planning                                                                                                                                
+    - 2 Simple scheduled                                                                                                                      
+    - 2 Simple deadline                                                                                                                       
+    - 2 Simple closed                                                                                                                         
+    - 2 All on one planning line                                                                                                              
+    - 2 With time                                                                                                                             
+    - 2 Time range same day                                                                                                                   
+    - 2 Date range                                                                                                                            
+    - 2 Repeater                                                                                                                              
+    - 2 Diary expression                                                                                                                      
+    - 2 Multiple same keyword                                                                                                                 
+    - 2 Not valid                                                                                                                             
+      - 3 Multiple planning lines                                                                                                             
+      - 3 Planning not immediately after headline                                                                                             
+      - 3 Looks like planning in body                                                                                                         
+      - 3 Lowercase should probably not count                                                                                                 
+      - 3 Multiple same keyword                                                                                                               
 #+end_example
 
 * Integrity checks
 
 ** One level 0 heading per file
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     f.id AS file_id,
     f.path,
@@ -229,17 +410,18 @@
 #+END_SRC
 
 #+RESULTS:
-| file_id | path                                                                                              | level0_count |
-|---------+---------------------------------------------------------------------------------------------------+--------------|
-|       1 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org |            1 |
-|       2 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   |            1 |
-|       3 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   |            1 |
+: file_id  path                                                                                                 level0_count
+: -------  ---------------------------------------------------------------------------------------------------  ------------
+: 1        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org  1           
+: 2        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org    1           
+: 3        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org    1           
+: 4        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org            1           
 
 ** Invalid parent structure
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     id,
     parent_id,
@@ -260,7 +442,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     h.id,
     h.title,
@@ -280,7 +462,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     path,
     COUNT(*) AS count
@@ -290,11 +472,12 @@ Should return no rows.
 #+END_SRC
 
 #+RESULTS:
+
 * Outline Path
 
 ** Raw outline paths
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     op.heading_id,
     op.file_id,
@@ -310,44 +493,64 @@ Should return no rows.
 #+END_SRC
 
 #+RESULTS:
-| heading_id | file_id | parent_id | depth |   materialized_path | breadcrumbs_json                                                                                              | level | title                                          |
-|------------+---------+-----------+-------+---------------------+---------------------------------------------------------------------------------------------------------------+-------+------------------------------------------------|
-|          1 |       1 |       N/A |     0 |                   0 | ["File-local TODO keywords"]                                                                                  |     0 | File-local TODO keywords                       |
-|          2 |       1 |         1 |     1 |              0.0001 | ["File-local TODO keywords","TODO default keyword should stay in title"]                                      |     1 | TODO default keyword should stay in title      |
-|          3 |       1 |         1 |     1 |              0.0002 | ["File-local TODO keywords","DONE default done keyword should stay in title"]                                 |     1 | DONE default done keyword should stay in title |
-|          4 |       1 |         1 |     1 |              0.0003 | ["File-local TODO keywords","open keyword with fast key"]                                                     |     1 | open keyword with fast key                     |
-|          5 |       1 |         1 |     1 |              0.0004 | ["File-local TODO keywords","another open keyword with fast key"]                                             |     1 | another open keyword with fast key             |
-|          6 |       1 |         1 |     1 |              0.0005 | ["File-local TODO keywords","closed keyword with fast key"]                                                   |     1 | closed keyword with fast key                   |
-|          7 |       1 |         1 |     1 |              0.0006 | ["File-local TODO keywords","closed keyword with extended fast key"]                                          |     1 | closed keyword with extended fast key          |
-|          8 |       1 |         1 |     1 |              0.0007 | ["File-local TODO keywords","open keyword from empty-done-side line"]                                         |     1 | open keyword from empty-done-side line         |
-|          9 |       1 |         1 |     1 |              0.0008 | ["File-local TODO keywords","another open keyword from empty-done-side line"]                                 |     1 | another open keyword from empty-done-side line |
-|         10 |       1 |         1 |     1 |              0.0009 | ["File-local TODO keywords","open keyword from TYP_TODO"]                                                     |     1 | open keyword from TYP_TODO                     |
-|         11 |       1 |         1 |     1 |               0.001 | ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                   |     1 | closed keyword from TYP_TODO                   |
-|         12 |       1 |         1 |     1 |              0.0011 | ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                     |     1 | open keyword from SEQ_TODO                     |
-|         13 |       1 |         1 |     1 |              0.0012 | ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                   |     1 | closed keyword from SEQ_TODO                   |
-|         14 |       1 |         1 |     1 |              0.0013 | ["File-local TODO keywords","closed keyword from later TODO line"]                                            |     1 | closed keyword from later TODO line            |
-|         15 |       1 |         1 |     1 |              0.0014 | ["File-local TODO keywords","open keyword from line defined later in file"]                                   |     1 | open keyword from line defined later in file   |
-|         16 |       1 |         1 |     1 |              0.0015 | ["File-local TODO keywords","closed keyword from line defined later in file"]                                 |     1 | closed keyword from line defined later in file |
-|         17 |       1 |         1 |     1 |              0.0016 | ["File-local TODO keywords","TODO still not valid after later local lines"]                                   |     1 | TODO still not valid after later local lines   |
-|         18 |       1 |         1 |     1 |              0.0017 | ["File-local TODO keywords","DONE still not valid after later local lines"]                                   |     1 | DONE still not valid after later local lines   |
-|         19 |       2 |       N/A |     0 |                   0 | ["Inherited heading tags"]                                                                                    |     0 | Inherited heading tags                         |
-|         20 |       2 |        19 |     1 |              0.0001 | ["Inherited heading tags","parent with one tag"]                                                              |     1 | parent with one tag                            |
-|         21 |       2 |        20 |     2 |      0000.0001.0001 | ["Inherited heading tags","parent with one tag","child inherits parent tag"]                                  |     2 | child inherits parent tag                      |
-|         22 |       2 |        20 |     2 |      0000.0001.0002 | ["Inherited heading tags","parent with one tag","child with local tag"]                                       |     2 | child with local tag                           |
-|         23 |       2 |        22 |     3 | 0000.0001.0002.0001 | ["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]            |     3 | grandchild inherits both                       |
-|         24 |       2 |        22 |     3 | 0000.0001.0002.0002 | ["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"] |     3 | grandchild with duplicate local tag            |
-|         25 |       2 |        19 |     1 |              0.0002 | ["Inherited heading tags","second parent"]                                                                    |     1 | second parent                                  |
-|         26 |       2 |        25 |     2 |      0000.0002.0001 | ["Inherited heading tags","second parent","second child with local tag"]                                      |     2 | second child with local tag                    |
-|         27 |       2 |        26 |     3 | 0000.0002.0001.0001 | ["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]   |     3 | second grandchild with extra tag               |
-|         28 |       2 |        19 |     1 |              0.0003 | ["Inherited heading tags","untagged parent"]                                                                  |     1 | untagged parent                                |
-|         29 |       2 |        28 |     2 |      0000.0003.0001 | ["Inherited heading tags","untagged parent","child with only local tag"]                                      |     2 | child with only local tag                      |
-|         30 |       2 |        28 |     2 |      0000.0003.0002 | ["Inherited heading tags","untagged parent","child without tags"]                                             |     2 | child without tags                             |
-|         31 |       3 |       N/A |     0 |                   0 | ["Title can span multiple lines, even here"]                                                                  |     0 | Title can span multiple lines, even here       |
-|         32 |       3 |        31 |     1 |              0.0001 | ["Title can span multiple lines, even here","Unfortunately Everywhere"]                                       |     1 | Unfortunately Everywhere                       |
+#+begin_example
+heading_id  file_id  parent_id  depth  materialized_path    breadcrumbs_json                                                                                               level  title                                         
+----------  -------  ---------  -----  -------------------  -------------------------------------------------------------------------------------------------------------  -----  ----------------------------------------------
+1           1        NULL       0      0000                 ["File-local TODO keywords"]                                                                                   0      File-local TODO keywords                      
+2           1        1          1      0000.0001            ["File-local TODO keywords","TODO default keyword should stay in title"]                                       1      TODO default keyword should stay in title     
+3           1        1          1      0000.0002            ["File-local TODO keywords","DONE default done keyword should stay in title"]                                  1      DONE default done keyword should stay in title
+4           1        1          1      0000.0003            ["File-local TODO keywords","open keyword with fast key"]                                                      1      open keyword with fast key                    
+5           1        1          1      0000.0004            ["File-local TODO keywords","another open keyword with fast key"]                                              1      another open keyword with fast key            
+6           1        1          1      0000.0005            ["File-local TODO keywords","closed keyword with fast key"]                                                    1      closed keyword with fast key                  
+7           1        1          1      0000.0006            ["File-local TODO keywords","closed keyword with extended fast key"]                                           1      closed keyword with extended fast key         
+8           1        1          1      0000.0007            ["File-local TODO keywords","open keyword from empty-done-side line"]                                          1      open keyword from empty-done-side line        
+9           1        1          1      0000.0008            ["File-local TODO keywords","another open keyword from empty-done-side line"]                                  1      another open keyword from empty-done-side line
+10          1        1          1      0000.0009            ["File-local TODO keywords","open keyword from TYP_TODO"]                                                      1      open keyword from TYP_TODO                    
+11          1        1          1      0000.0010            ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                    1      closed keyword from TYP_TODO                  
+12          1        1          1      0000.0011            ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                      1      open keyword from SEQ_TODO                    
+13          1        1          1      0000.0012            ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                    1      closed keyword from SEQ_TODO                  
+14          1        1          1      0000.0013            ["File-local TODO keywords","closed keyword from later TODO line"]                                             1      closed keyword from later TODO line           
+15          1        1          1      0000.0014            ["File-local TODO keywords","open keyword from line defined later in file"]                                    1      open keyword from line defined later in file  
+16          1        1          1      0000.0015            ["File-local TODO keywords","closed keyword from line defined later in file"]                                  1      closed keyword from line defined later in file
+17          1        1          1      0000.0016            ["File-local TODO keywords","TODO still not valid after later local lines"]                                    1      TODO still not valid after later local lines  
+18          1        1          1      0000.0017            ["File-local TODO keywords","DONE still not valid after later local lines"]                                    1      DONE still not valid after later local lines  
+19          2        NULL       0      0000                 ["Inherited heading tags"]                                                                                     0      Inherited heading tags                        
+20          2        19         1      0000.0001            ["Inherited heading tags","parent with one tag"]                                                               1      parent with one tag                           
+21          2        20         2      0000.0001.0001       ["Inherited heading tags","parent with one tag","child inherits parent tag"]                                   2      child inherits parent tag                     
+22          2        20         2      0000.0001.0002       ["Inherited heading tags","parent with one tag","child with local tag"]                                        2      child with local tag                          
+23          2        22         3      0000.0001.0002.0001  ["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]             3      grandchild inherits both                      
+24          2        22         3      0000.0001.0002.0002  ["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"]  3      grandchild with duplicate local tag           
+25          2        19         1      0000.0002            ["Inherited heading tags","second parent"]                                                                     1      second parent                                 
+26          2        25         2      0000.0002.0001       ["Inherited heading tags","second parent","second child with local tag"]                                       2      second child with local tag                   
+27          2        26         3      0000.0002.0001.0001  ["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]    3      second grandchild with extra tag              
+28          2        19         1      0000.0003            ["Inherited heading tags","untagged parent"]                                                                   1      untagged parent                               
+29          2        28         2      0000.0003.0001       ["Inherited heading tags","untagged parent","child with only local tag"]                                       2      child with only local tag                     
+30          2        28         2      0000.0003.0002       ["Inherited heading tags","untagged parent","child without tags"]                                              2      child without tags                            
+31          3        NULL       0      0000                 ["Title can span multiple lines, even here"]                                                                   0      Title can span multiple lines, even here      
+32          3        31         1      0000.0001            ["Title can span multiple lines, even here","Unfortunately Everywhere"]                                        1      Unfortunately Everywhere                      
+33          4        NULL       0      0000                 ["Planning timestamp"]                                                                                         0      Planning timestamp                            
+34          4        33         1      0000.0001            ["Planning timestamp","Planning"]                                                                              1      Planning                                      
+35          4        34         2      0000.0001.0001       ["Planning timestamp","Planning","Simple scheduled"]                                                           2      Simple scheduled                              
+36          4        34         2      0000.0001.0002       ["Planning timestamp","Planning","Simple deadline"]                                                            2      Simple deadline                               
+37          4        34         2      0000.0001.0003       ["Planning timestamp","Planning","Simple closed"]                                                              2      Simple closed                                 
+38          4        34         2      0000.0001.0004       ["Planning timestamp","Planning","All on one planning line"]                                                   2      All on one planning line                      
+39          4        34         2      0000.0001.0005       ["Planning timestamp","Planning","With time"]                                                                  2      With time                                     
+40          4        34         2      0000.0001.0006       ["Planning timestamp","Planning","Time range same day"]                                                        2      Time range same day                           
+41          4        34         2      0000.0001.0007       ["Planning timestamp","Planning","Date range"]                                                                 2      Date range                                    
+42          4        34         2      0000.0001.0008       ["Planning timestamp","Planning","Repeater"]                                                                   2      Repeater                                      
+43          4        34         2      0000.0001.0009       ["Planning timestamp","Planning","Diary expression"]                                                           2      Diary expression                              
+44          4        34         2      0000.0001.0010       ["Planning timestamp","Planning","Multiple same keyword"]                                                      2      Multiple same keyword                         
+45          4        34         2      0000.0001.0011       ["Planning timestamp","Planning","Not valid"]                                                                  2      Not valid                                     
+46          4        45         3      0000.0001.0011.0001  ["Planning timestamp","Planning","Not valid","Multiple planning lines"]                                        3      Multiple planning lines                       
+47          4        45         3      0000.0001.0011.0002  ["Planning timestamp","Planning","Not valid","Planning not immediately after headline"]                        3      Planning not immediately after headline       
+48          4        45         3      0000.0001.0011.0003  ["Planning timestamp","Planning","Not valid","Looks like planning in body"]                                    3      Looks like planning in body                   
+49          4        45         3      0000.0001.0011.0004  ["Planning timestamp","Planning","Not valid","Lowercase should probably not count"]                            3      Lowercase should probably not count           
+50          4        45         3      0000.0001.0011.0005  ["Planning timestamp","Planning","Not valid","Multiple same keyword"]                                          3      Multiple same keyword                         
+#+end_example
 
 ** Outline tree
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :results output :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     CASE
     WHEN op.depth = 0 THEN f.path || ' - ' || op.materialized_path || ' ' || h.title
@@ -366,60 +569,80 @@ Should return no rows.
 
 #+RESULTS:
 #+begin_example
-"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0000 File-local TODO keywords"
-"  - 0000.0001 TODO default keyword should stay in title"
-"  - 0000.0002 DONE default done keyword should stay in title"
-"  - 0000.0003 open keyword with fast key"
-"  - 0000.0004 another open keyword with fast key"
-"  - 0000.0005 closed keyword with fast key"
-"  - 0000.0006 closed keyword with extended fast key"
-"  - 0000.0007 open keyword from empty-done-side line"
-"  - 0000.0008 another open keyword from empty-done-side line"
-"  - 0000.0009 open keyword from TYP_TODO"
-"  - 0000.0010 closed keyword from TYP_TODO"
-"  - 0000.0011 open keyword from SEQ_TODO"
-"  - 0000.0012 closed keyword from SEQ_TODO"
-"  - 0000.0013 closed keyword from later TODO line"
-"  - 0000.0014 open keyword from line defined later in file"
-"  - 0000.0015 closed keyword from line defined later in file"
-"  - 0000.0016 TODO still not valid after later local lines"
-"  - 0000.0017 DONE still not valid after later local lines"
-"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org - 0000 Inherited heading tags"
-"  - 0000.0001 parent with one tag"
-"    - 0000.0001.0002 child inherits parent tag"
-"    - 0000.0001.0003 child with local tag"
-"      - 0000.0001.0003.0004 grandchild inherits both"
-"      - 0000.0001.0003.0005 grandchild with duplicate local tag"
-"  - 0000.0006 second parent"
-"    - 0000.0006.0007 second child with local tag"
-"      - 0000.0006.0007.0008 second grandchild with extra tag"
-"  - 0000.0009 untagged parent"
-"    - 0000.0009.0010 child with only local tag"
-"    - 0000.0009.0011 child without tags"
-"/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0000 Title can span multiple lines, even here"
-"  - 0000.0001 Unfortunately Everywhere"
+line                                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0000 File-local TODO keywords              
+  - 0000.0001 TODO default keyword should stay in title                                                                                          
+  - 0000.0002 DONE default done keyword should stay in title                                                                                     
+  - 0000.0003 open keyword with fast key                                                                                                         
+  - 0000.0004 another open keyword with fast key                                                                                                 
+  - 0000.0005 closed keyword with fast key                                                                                                       
+  - 0000.0006 closed keyword with extended fast key                                                                                              
+  - 0000.0007 open keyword from empty-done-side line                                                                                             
+  - 0000.0008 another open keyword from empty-done-side line                                                                                     
+  - 0000.0009 open keyword from TYP_TODO                                                                                                         
+  - 0000.0010 closed keyword from TYP_TODO                                                                                                       
+  - 0000.0011 open keyword from SEQ_TODO                                                                                                         
+  - 0000.0012 closed keyword from SEQ_TODO                                                                                                       
+  - 0000.0013 closed keyword from later TODO line                                                                                                
+  - 0000.0014 open keyword from line defined later in file                                                                                       
+  - 0000.0015 closed keyword from line defined later in file                                                                                     
+  - 0000.0016 TODO still not valid after later local lines                                                                                       
+  - 0000.0017 DONE still not valid after later local lines                                                                                       
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org - 0000 Inherited heading tags                  
+  - 0000.0001 parent with one tag                                                                                                                
+    - 0000.0001.0001 child inherits parent tag                                                                                                   
+    - 0000.0001.0002 child with local tag                                                                                                        
+      - 0000.0001.0002.0001 grandchild inherits both                                                                                             
+      - 0000.0001.0002.0002 grandchild with duplicate local tag                                                                                  
+  - 0000.0002 second parent                                                                                                                      
+    - 0000.0002.0001 second child with local tag                                                                                                 
+      - 0000.0002.0001.0001 second grandchild with extra tag                                                                                     
+  - 0000.0003 untagged parent                                                                                                                    
+    - 0000.0003.0001 child with only local tag                                                                                                   
+    - 0000.0003.0002 child without tags                                                                                                          
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0000 Title can span multiple lines, even here
+  - 0000.0001 Unfortunately Everywhere                                                                                                           
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org - 0000 Planning timestamp                              
+  - 0000.0001 Planning                                                                                                                           
+    - 0000.0001.0001 Simple scheduled                                                                                                            
+    - 0000.0001.0002 Simple deadline                                                                                                             
+    - 0000.0001.0003 Simple closed                                                                                                               
+    - 0000.0001.0004 All on one planning line                                                                                                    
+    - 0000.0001.0005 With time                                                                                                                   
+    - 0000.0001.0006 Time range same day                                                                                                         
+    - 0000.0001.0007 Date range                                                                                                                  
+    - 0000.0001.0008 Repeater                                                                                                                    
+    - 0000.0001.0009 Diary expression                                                                                                            
+    - 0000.0001.0010 Multiple same keyword                                                                                                       
+    - 0000.0001.0011 Not valid                                                                                                                   
+      - 0000.0001.0011.0001 Multiple planning lines                                                                                              
+      - 0000.0001.0011.0002 Planning not immediately after headline                                                                              
+      - 0000.0001.0011.0003 Looks like planning in body                                                                                          
+      - 0000.0001.0011.0004 Lowercase should probably not count                                                                                  
+      - 0000.0001.0011.0005 Multiple same keyword                                                                                                
 #+end_example
 
 ** One outline row per heading
 
 Should return same counts.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     (SELECT COUNT(*) FROM headings) AS heading_count,
     (SELECT COUNT(*) FROM outline_path) AS outline_path_count;
 #+END_SRC
 
 #+RESULTS:
-| heading_count | outline_path_count |
-|---------------+--------------------|
-|            32 |                 32 |
+: heading_count  outline_path_count
+: -------------  ------------------
+: 50             50                
 
 ** Missing outline rows
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     h.id,
     h.file_id,
@@ -437,7 +660,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     op.heading_id,
     op.file_id,
@@ -455,7 +678,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     op.heading_id,
     h.title,
@@ -474,7 +697,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   WITH RECURSIVE expected AS (
     SELECT
       h.id,
@@ -512,7 +735,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     file_id,
     materialized_path,
@@ -529,7 +752,7 @@ Should return no rows.
 
 Should return no rows.
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   WITH RECURSIVE segments AS (
     SELECT
       heading_id,
@@ -565,7 +788,7 @@ Should return no rows.
 
 ** Breadcrumb preview
 
-#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :nullvalue 'N/A'
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT
     op.materialized_path,
     h.title,
@@ -577,35 +800,38 @@ Should return no rows.
 #+END_SRC
 
 #+RESULTS:
-|   materialized_path | title                                          | breadcrumbs_json                                                                                              |
-|---------------------+------------------------------------------------+---------------------------------------------------------------------------------------------------------------|
-|                   0 | File-local TODO keywords                       | ["File-local TODO keywords"]                                                                                  |
-|              0.0001 | TODO default keyword should stay in title      | ["File-local TODO keywords","TODO default keyword should stay in title"]                                      |
-|              0.0002 | DONE default done keyword should stay in title | ["File-local TODO keywords","DONE default done keyword should stay in title"]                                 |
-|              0.0003 | open keyword with fast key                     | ["File-local TODO keywords","open keyword with fast key"]                                                     |
-|              0.0004 | another open keyword with fast key             | ["File-local TODO keywords","another open keyword with fast key"]                                             |
-|              0.0005 | closed keyword with fast key                   | ["File-local TODO keywords","closed keyword with fast key"]                                                   |
-|              0.0006 | closed keyword with extended fast key          | ["File-local TODO keywords","closed keyword with extended fast key"]                                          |
-|              0.0007 | open keyword from empty-done-side line         | ["File-local TODO keywords","open keyword from empty-done-side line"]                                         |
-|              0.0008 | another open keyword from empty-done-side line | ["File-local TODO keywords","another open keyword from empty-done-side line"]                                 |
-|              0.0009 | open keyword from TYP_TODO                     | ["File-local TODO keywords","open keyword from TYP_TODO"]                                                     |
-|               0.001 | closed keyword from TYP_TODO                   | ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                   |
-|              0.0011 | open keyword from SEQ_TODO                     | ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                     |
-|              0.0012 | closed keyword from SEQ_TODO                   | ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                   |
-|              0.0013 | closed keyword from later TODO line            | ["File-local TODO keywords","closed keyword from later TODO line"]                                            |
-|              0.0014 | open keyword from line defined later in file   | ["File-local TODO keywords","open keyword from line defined later in file"]                                   |
-|              0.0015 | closed keyword from line defined later in file | ["File-local TODO keywords","closed keyword from line defined later in file"]                                 |
-|              0.0016 | TODO still not valid after later local lines   | ["File-local TODO keywords","TODO still not valid after later local lines"]                                   |
-|              0.0017 | DONE still not valid after later local lines   | ["File-local TODO keywords","DONE still not valid after later local lines"]                                   |
-|                   0 | Inherited heading tags                         | ["Inherited heading tags"]                                                                                    |
-|              0.0001 | parent with one tag                            | ["Inherited heading tags","parent with one tag"]                                                              |
-|      0000.0001.0002 | child inherits parent tag                      | ["Inherited heading tags","parent with one tag","child inherits parent tag"]                                  |
-|      0000.0001.0003 | child with local tag                           | ["Inherited heading tags","parent with one tag","child with local tag"]                                       |
-| 0000.0001.0003.0004 | grandchild inherits both                       | ["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]            |
-| 0000.0001.0003.0005 | grandchild with duplicate local tag            | ["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"] |
-|              0.0006 | second parent                                  | ["Inherited heading tags","second parent"]                                                                    |
-|      0000.0006.0007 | second child with local tag                    | ["Inherited heading tags","second parent","second child with local tag"]                                      |
-| 0000.0006.0007.0008 | second grandchild with extra tag               | ["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]   |
-|              0.0009 | untagged parent                                | ["Inherited heading tags","untagged parent"]                                                                  |
-|      0000.0009.0010 | child with only local tag                      | ["Inherited heading tags","untagged parent","child with only local tag"]                                      |
-|      0000.0009.0011 | child without tags                             | ["Inherited heading tags","untagged parent","child without tags"]                                             |
+#+begin_example
+materialized_path    title                                           breadcrumbs_json                                                                                             
+-------------------  ----------------------------------------------  -------------------------------------------------------------------------------------------------------------
+0000                 File-local TODO keywords                        ["File-local TODO keywords"]                                                                                 
+0000.0001            TODO default keyword should stay in title       ["File-local TODO keywords","TODO default keyword should stay in title"]                                     
+0000.0002            DONE default done keyword should stay in title  ["File-local TODO keywords","DONE default done keyword should stay in title"]                                
+0000.0003            open keyword with fast key                      ["File-local TODO keywords","open keyword with fast key"]                                                    
+0000.0004            another open keyword with fast key              ["File-local TODO keywords","another open keyword with fast key"]                                            
+0000.0005            closed keyword with fast key                    ["File-local TODO keywords","closed keyword with fast key"]                                                  
+0000.0006            closed keyword with extended fast key           ["File-local TODO keywords","closed keyword with extended fast key"]                                         
+0000.0007            open keyword from empty-done-side line          ["File-local TODO keywords","open keyword from empty-done-side line"]                                        
+0000.0008            another open keyword from empty-done-side line  ["File-local TODO keywords","another open keyword from empty-done-side line"]                                
+0000.0009            open keyword from TYP_TODO                      ["File-local TODO keywords","open keyword from TYP_TODO"]                                                    
+0000.0010            closed keyword from TYP_TODO                    ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                  
+0000.0011            open keyword from SEQ_TODO                      ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                    
+0000.0012            closed keyword from SEQ_TODO                    ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                  
+0000.0013            closed keyword from later TODO line             ["File-local TODO keywords","closed keyword from later TODO line"]                                           
+0000.0014            open keyword from line defined later in file    ["File-local TODO keywords","open keyword from line defined later in file"]                                  
+0000.0015            closed keyword from line defined later in file  ["File-local TODO keywords","closed keyword from line defined later in file"]                                
+0000.0016            TODO still not valid after later local lines    ["File-local TODO keywords","TODO still not valid after later local lines"]                                  
+0000.0017            DONE still not valid after later local lines    ["File-local TODO keywords","DONE still not valid after later local lines"]                                  
+0000                 Inherited heading tags                          ["Inherited heading tags"]                                                                                   
+0000.0001            parent with one tag                             ["Inherited heading tags","parent with one tag"]                                                             
+0000.0001.0001       child inherits parent tag                       ["Inherited heading tags","parent with one tag","child inherits parent tag"]                                 
+0000.0001.0002       child with local tag                            ["Inherited heading tags","parent with one tag","child with local tag"]                                      
+0000.0001.0002.0001  grandchild inherits both                        ["Inherited heading tags","parent with one tag","child with local tag","grandchild inherits both"]           
+0000.0001.0002.0002  grandchild with duplicate local tag             ["Inherited heading tags","parent with one tag","child with local tag","grandchild with duplicate local tag"]
+0000.0002            second parent                                   ["Inherited heading tags","second parent"]                                                                   
+0000.0002.0001       second child with local tag                     ["Inherited heading tags","second parent","second child with local tag"]                                     
+0000.0002.0001.0001  second grandchild with extra tag                ["Inherited heading tags","second parent","second child with local tag","second grandchild with extra tag"]  
+0000.0003            untagged parent                                 ["Inherited heading tags","untagged parent"]                                                                 
+0000.0003.0001       child with only local tag                       ["Inherited heading tags","untagged parent","child with only local tag"]                                     
+0000.0003.0002       child without tags                              ["Inherited heading tags","untagged parent","child without tags"]                                            
+#+end_example
+

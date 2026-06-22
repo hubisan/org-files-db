@@ -560,7 +560,7 @@ db_path = "../db.sqlite"
 
         write_file(
             &org_path,
-            "#+TITLE: Minimal Slice\n#+TODO: PLAN(p) | DONE(d)\n* PLAN Inbox\n",
+            "#+TITLE: Minimal Slice\n#+TODO: PLAN(p) | DONE(d)\n* PLAN Inbox\nSCHEDULED: <2024-11-20 Wed 09:15>\n",
         );
         write_file(
             &config_path,
@@ -586,6 +586,13 @@ index_body_text = false
         assert_eq!(json_rows[0].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(json_rows[0].todo_type.as_deref(), Some("open"));
         assert_eq!(json_rows[0].file_path, org_path.display().to_string());
+        assert_eq!(
+            json_rows[0].scheduled_raw.as_deref(),
+            Some("<2024-11-20 Wed 09:15>")
+        );
+        assert_eq!(json_rows[0].scheduled_ts, Some(1_732_094_100));
+        assert!(json_rows[0].deadline_raw.is_none());
+        assert!(json_rows[0].closed_raw.is_none());
 
         let all_rows = super::headings_json_rows(true, true, Some(&config_path))
             .expect("all rows should load");
@@ -593,6 +600,7 @@ index_body_text = false
         assert_eq!(all_rows[0].level, 0);
         assert_eq!(all_rows[0].title, "Minimal Slice");
         assert_eq!(all_rows[0].title_raw, "Minimal Slice");
+        assert!(all_rows[0].scheduled_raw.is_none());
         assert_eq!(all_rows[1].level, 1);
         assert_eq!(all_rows[1].title, "Inbox");
 

@@ -1,0 +1,151 @@
+# classification: positive rich timestamp and planning coverage fixture
+# note: Covers planning shortcut derivation, rich timestamp rows, ranges, modifiers, diary values, and body timestamps.
+
+document.title=Planning timestamp Fixture
+heading_count=23
+diagnostic_count=0
+
+heading.1.title=Planning
+heading.2.title=Simple scheduled
+heading.2.planning.scheduled_raw=<2024-11-20 Wed>
+heading.2.planning.scheduled_ts=1732060800
+heading.2.timestamp_count=1
+heading.2.timestamp.0.role=scheduled
+heading.2.timestamp.0.type=active
+heading.2.timestamp.0.range_type=none
+heading.2.timestamp.0.raw_value=<2024-11-20 Wed>
+heading.2.timestamp.0.start_ts=1732060800
+
+heading.3.planning.deadline_raw=<2024-12-01 Sun>
+heading.3.planning.deadline_ts=1733011200
+heading.3.timestamp_count=1
+heading.3.timestamp.0.role=deadline
+heading.3.timestamp.0.type=active
+heading.3.timestamp.0.range_type=none
+heading.3.timestamp.0.start_ts=1733011200
+
+heading.4.planning.closed_raw=[2024-11-21 Thu]
+heading.4.planning.closed_ts=1732147200
+heading.4.timestamp_count=1
+heading.4.timestamp.0.role=closed
+heading.4.timestamp.0.type=inactive
+heading.4.timestamp.0.range_type=none
+heading.4.timestamp.0.start_ts=1732147200
+
+heading.5.timestamp_count=3
+heading.5.planning.deadline_raw=<2024-12-01 Sun>
+heading.5.planning.scheduled_raw=<2024-11-20 Wed>
+heading.5.planning.closed_raw=[2024-11-21 Thu]
+heading.5.timestamp.0.role=deadline
+heading.5.timestamp.1.role=scheduled
+heading.5.timestamp.2.role=closed
+
+heading.6.planning.scheduled_raw=<2024-11-20 Wed 09:30>
+heading.6.planning.scheduled_ts=1732095000
+heading.6.timestamp.0.range_type=none
+heading.6.timestamp.0.start_ts=1732095000
+
+heading.7.planning.scheduled_raw=<2024-11-20 Wed 09:30-11:00>
+heading.7.planning.scheduled_ts=1732095000
+heading.7.timestamp_count=1
+heading.7.timestamp.0.role=scheduled
+heading.7.timestamp.0.range_type=time_range
+heading.7.timestamp.0.start_ts=1732095000
+heading.7.timestamp.0.end_ts=1732100400
+
+heading.8.planning.deadline_raw=<2024-12-01 Sun>--<2024-12-03 Tue>
+heading.8.planning.deadline_ts=1733011200
+heading.8.timestamp_count=1
+heading.8.timestamp.0.role=deadline
+heading.8.timestamp.0.range_type=date_range
+heading.8.timestamp.0.start_ts=1733011200
+heading.8.timestamp.0.end_ts=1733184000
+
+heading.9.planning.scheduled_raw=<2024-11-20 Wed +1w>
+heading.9.planning.scheduled_ts=1732060800
+heading.9.timestamp_count=1
+heading.9.timestamp.0.role=scheduled
+heading.9.timestamp.0.start_ts=1732060800
+heading.9.timestamp.0.modifier_count=1
+heading.9.timestamp.0.modifier.0.kind=repeater
+heading.9.timestamp.0.modifier.0.type=cumulate
+heading.9.timestamp.0.modifier.0.value=1
+heading.9.timestamp.0.modifier.0.unit=week
+
+heading.10.planning.scheduled_raw=<2024-11-20 Wed ++1m/2d -5d>
+heading.10.planning.scheduled_ts=1732060800
+heading.10.timestamp_count=1
+heading.10.timestamp.0.role=scheduled
+heading.10.timestamp.0.start_ts=1732060800
+heading.10.timestamp.0.modifier_count=2
+heading.10.timestamp.0.modifier.0.kind=repeater
+heading.10.timestamp.0.modifier.0.type=catch_up
+heading.10.timestamp.0.modifier.0.value=1
+heading.10.timestamp.0.modifier.0.unit=month
+heading.10.timestamp.0.modifier.0.repeater_deadline_value=2
+heading.10.timestamp.0.modifier.0.repeater_deadline_unit=day
+heading.10.timestamp.0.modifier.1.kind=warning
+heading.10.timestamp.0.modifier.1.type=all
+heading.10.timestamp.0.modifier.1.value=5
+heading.10.timestamp.0.modifier.1.unit=day
+
+heading.11.planning.deadline_raw=<2024-11-20 Wed -5d>
+heading.11.planning.deadline_ts=1732060800
+heading.11.timestamp_count=1
+heading.11.timestamp.0.role=deadline
+heading.11.timestamp.0.modifier_count=1
+heading.11.timestamp.0.modifier.0.kind=warning
+heading.11.timestamp.0.modifier.0.type=all
+heading.11.timestamp.0.modifier.0.value=5
+heading.11.timestamp.0.modifier.0.unit=day
+
+heading.12.planning.deadline_raw=<2024-11-20 Wed --2w>
+heading.12.planning.deadline_ts=1732060800
+heading.12.timestamp_count=1
+heading.12.timestamp.0.role=deadline
+heading.12.timestamp.0.modifier_count=1
+heading.12.timestamp.0.modifier.0.kind=warning
+heading.12.timestamp.0.modifier.0.type=first
+heading.12.timestamp.0.modifier.0.value=2
+heading.12.timestamp.0.modifier.0.unit=week
+
+heading.13.timestamp_count=1
+heading.13.timestamp.0.role=body
+heading.13.timestamp.0.type=diary
+heading.13.timestamp.0.range_type=none
+heading.13.timestamp.0.raw_value=<%%(diary-float t 42)>
+
+heading.15.planning.scheduled_raw=<2024-11-20 Wed>
+heading.15.planning.scheduled_ts=1732060800
+heading.15.timestamp_count=3
+heading.15.timestamp.0.role=scheduled
+heading.15.timestamp.1.role=body
+heading.15.timestamp.2.role=body
+
+heading.16.timestamp_count=1
+heading.16.timestamp.0.role=body
+heading.16.timestamp.0.raw_value=<2024-11-20 Wed>
+
+heading.17.timestamp_count=1
+heading.17.timestamp.0.role=body
+heading.17.timestamp.0.raw_value=<2024-12-01 Sun>
+
+heading.19.planning.scheduled_raw=<2024-11-21 Thu>
+heading.19.planning.scheduled_ts=1732147200
+heading.19.timestamp_count=2
+heading.19.timestamp.0.role=scheduled
+heading.19.timestamp.0.raw_value=<2024-11-20 Wed>
+heading.19.timestamp.1.role=scheduled
+heading.19.timestamp.1.raw_value=<2024-11-21 Thu>
+
+heading.21.timestamp_count=1
+heading.21.timestamp.0.role=body
+heading.21.timestamp.0.raw_value=<2026-06-23 Tue>
+heading.21.timestamp.0.start_ts=1782172800
+
+heading.22.timestamp_count=2
+heading.22.timestamp.0.role=body
+heading.22.timestamp.0.raw_value=<2026-06-23 Tue>
+heading.22.timestamp.1.role=body
+heading.22.timestamp.1.raw_value=<2026-06-24 Wed>
+heading.22.timestamp.1.start_ts=1782259200

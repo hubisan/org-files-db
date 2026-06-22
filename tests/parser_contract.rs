@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use org_files_db::parser::{
     DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParseOptions,
     ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning,
-    ParsedProperty, TodoKeyword, TodoKeywordConfig, TodoType,
+    ParsedProperty, ParsedTimestamp, ParsedTimestampRangeType, ParsedTimestampRole,
+    ParsedTimestampType, TodoKeyword, TodoKeywordConfig, TodoType,
 };
 
 struct ParserFixture {
@@ -92,7 +93,11 @@ impl OrgParser for StubFixtureParser {
             inherited: false,
         }];
         heading.planning = ParsedPlanning {
-            scheduled: Some("<2026-06-16 Tue>".to_string()),
+            scheduled: Some(sample_timestamp(
+                "<2026-06-16 Tue>",
+                ParsedTimestampRole::Scheduled,
+                Some(1_781_568_000),
+            )),
             deadline: None,
             closed: None,
         };
@@ -112,6 +117,25 @@ impl OrgParser for StubFixtureParser {
         );
 
         Ok(document)
+    }
+}
+
+fn sample_timestamp(
+    raw_value: &str,
+    role: ParsedTimestampRole,
+    start_ts: Option<i64>,
+) -> ParsedTimestamp {
+    ParsedTimestamp {
+        role: Some(role),
+        raw_value: raw_value.to_string(),
+        timestamp_type: ParsedTimestampType::Active,
+        range_type: ParsedTimestampRangeType::None,
+        start_ts,
+        end_ts: None,
+        byte_start: 0,
+        byte_end: raw_value.len(),
+        line_number: None,
+        modifiers: Vec::new(),
     }
 }
 
@@ -138,8 +162,16 @@ fn parsed_org_document_supports_schema_near_metadata() {
         inherited: false,
     }];
     heading.planning = ParsedPlanning {
-        scheduled: Some("<2026-06-17 Wed>".to_string()),
-        deadline: Some("<2026-06-20 Sat>".to_string()),
+        scheduled: Some(sample_timestamp(
+            "<2026-06-17 Wed>",
+            ParsedTimestampRole::Scheduled,
+            Some(1_781_654_400),
+        )),
+        deadline: Some(sample_timestamp(
+            "<2026-06-20 Sat>",
+            ParsedTimestampRole::Deadline,
+            Some(1_781_913_600),
+        )),
         closed: None,
     };
     heading.parent_index = Some(0);
@@ -156,8 +188,12 @@ fn parsed_org_document_supports_schema_near_metadata() {
     assert_eq!(document.metadata.keywords.len(), 1);
     assert_eq!(document.headings[0], heading);
     assert_eq!(
-        document.headings[0].planning.deadline.as_deref(),
+        document.headings[0].planning.deadline_raw(),
         Some("<2026-06-20 Sat>")
+    );
+    assert_eq!(
+        document.headings[0].planning.deadline_ts(),
+        Some(1_781_913_600)
     );
 }
 

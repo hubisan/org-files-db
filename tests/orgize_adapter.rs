@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use org_files_db::parser::{
-    OrgParser, OrgizeAdapter, ParseOptions, TodoKeyword, TodoKeywordConfig, TodoType,
+    OrgParser, OrgizeAdapter, ParseOptions, ParsedTimestampModifierKind,
+    ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
+    ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig, TodoType,
 };
 
 #[test]
@@ -45,10 +47,321 @@ fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
     assert_eq!(document.headings[3].title, "Each on one Line");
     assert_eq!(document.headings[3].level, 2);
     assert_eq!(document.headings[3].parent_index, Some(2));
-    assert!(document.headings[3].planning.scheduled.is_some());
-    assert!(document.headings[3].planning.deadline.is_none());
-    assert!(document.headings[3].planning.closed.is_none());
+    assert_eq!(
+        document.headings[3].planning.scheduled_raw(),
+        Some("<2023-11-10>")
+    );
+    assert_eq!(
+        document.headings[3].planning.scheduled_ts(),
+        Some(1_699_574_400)
+    );
+    assert!(document.headings[3].planning.deadline_raw().is_none());
+    assert!(document.headings[3].planning.deadline_ts().is_none());
+    assert!(document.headings[3].planning.closed_raw().is_none());
+    assert!(document.headings[3].planning.closed_ts().is_none());
     assert!(document.diagnostics.is_empty());
+}
+
+#[test]
+fn orgize_adapter_extracts_each_planning_keyword_with_normalized_timestamps() {
+    let content = "#+TITLE: Planning Keywords\n* Scheduled\nSCHEDULED: <2024-11-20 Wed>\n* Deadline\nDEADLINE: <2024-12-01 Sun 10:30>\n* Closed\nCLOSED: [2024-12-02 Mon]\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/planning-keywords.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("planning keywords should parse");
+
+    assert_eq!(document.headings.len(), 4);
+    assert_eq!(document.headings[0].title, "Planning Keywords");
+
+    assert_eq!(document.headings[1].title, "Scheduled");
+    assert_eq!(
+        document.headings[1].planning.scheduled_raw(),
+        Some("<2024-11-20 Wed>")
+    );
+    assert_eq!(
+        document.headings[1].planning.scheduled_ts(),
+        Some(1_732_060_800)
+    );
+    assert!(document.headings[1].planning.deadline_raw().is_none());
+    assert!(document.headings[1].planning.closed_raw().is_none());
+
+    assert_eq!(document.headings[2].title, "Deadline");
+    assert_eq!(
+        document.headings[2].planning.deadline_raw(),
+        Some("<2024-12-01 Sun 10:30>")
+    );
+    assert_eq!(
+        document.headings[2].planning.deadline_ts(),
+        Some(1_733_049_000)
+    );
+    assert!(document.headings[2].planning.scheduled_raw().is_none());
+    assert!(document.headings[2].planning.closed_raw().is_none());
+
+    assert_eq!(document.headings[3].title, "Closed");
+    assert_eq!(
+        document.headings[3].planning.closed_raw(),
+        Some("[2024-12-02 Mon]")
+    );
+    assert_eq!(
+        document.headings[3].planning.closed_ts(),
+        Some(1_733_097_600)
+    );
+    assert!(document.headings[3].planning.scheduled_raw().is_none());
+    assert!(document.headings[3].planning.deadline_raw().is_none());
+}
+
+#[test]
+fn orgize_adapter_parses_one_line_planning_with_all_keywords() {
+    let content = "#+TITLE: One Line Planning\n* Test\nDEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed 09:15> CLOSED: [2024-12-02 Mon]\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/one-line-planning.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("one-line planning should parse");
+
+    assert_eq!(document.headings.len(), 2);
+    let heading = &document.headings[1];
+    assert_eq!(heading.title, "Test");
+    assert_eq!(heading.planning.deadline_raw(), Some("<2024-12-01 Sun>"));
+    assert_eq!(heading.planning.deadline_ts(), Some(1_733_011_200));
+    assert_eq!(
+        heading.planning.scheduled_raw(),
+        Some("<2024-11-20 Wed 09:15>")
+    );
+    assert_eq!(heading.planning.scheduled_ts(), Some(1_732_094_100));
+    assert_eq!(heading.planning.closed_raw(), Some("[2024-12-02 Mon]"));
+    assert_eq!(heading.planning.closed_ts(), Some(1_733_097_600));
+}
+
+#[test]
+fn orgize_adapter_ignores_body_planning_lines_and_preserves_unsupported_raw_values() {
+    let content =
+        "* Warning delay\nDEADLINE: <2024-12-01 Sun -5d>\nscheduled: <2024-11-20 Wed -2d>\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/warning-delay.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("warning-delay planning should parse");
+
+    assert_eq!(document.headings.len(), 2);
+    let heading = &document.headings[1];
+    assert_eq!(heading.title, "Warning delay");
+    assert_eq!(
+        heading.planning.deadline_raw(),
+        Some("<2024-12-01 Sun -5d>")
+    );
+    assert_eq!(heading.planning.deadline_ts(), Some(1_733_011_200));
+    assert!(heading.planning.scheduled_raw().is_none());
+    assert!(heading.planning.scheduled_ts().is_none());
+    assert!(heading.planning.closed_raw().is_none());
+    assert!(heading.planning.closed_ts().is_none());
+    assert_eq!(heading.timestamps.len(), 2);
+    assert_eq!(heading.timestamps[0].modifiers.len(), 1);
+    assert_eq!(heading.timestamps[1].role, Some(ParsedTimestampRole::Body));
+}
+
+#[test]
+fn orgize_adapter_uses_last_value_for_duplicate_planning_keyword_on_one_line() {
+    let content = "* Duplicate\nSCHEDULED: <2024-11-20 Wed> SCHEDULED: <2024-11-21 Thu 09:15>\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/duplicate-planning.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("duplicate planning keyword should parse");
+
+    assert_eq!(document.headings.len(), 2);
+    let heading = &document.headings[1];
+    assert_eq!(heading.title, "Duplicate");
+    assert_eq!(
+        heading.planning.scheduled_raw(),
+        Some("<2024-11-21 Thu 09:15>")
+    );
+    assert_eq!(heading.planning.scheduled_ts(), Some(1_732_180_500));
+    assert!(heading.planning.deadline_raw().is_none());
+    assert!(heading.planning.closed_raw().is_none());
+    assert_eq!(heading.timestamps.len(), 2);
+    assert_eq!(
+        heading.timestamps[0].role,
+        Some(ParsedTimestampRole::Scheduled)
+    );
+    assert_eq!(heading.timestamps[0].raw_value, "<2024-11-20 Wed>");
+    assert_eq!(
+        heading.timestamps[1].role,
+        Some(ParsedTimestampRole::Scheduled)
+    );
+    assert_eq!(heading.timestamps[1].raw_value, "<2024-11-21 Thu 09:15>");
+}
+
+#[test]
+fn orgize_adapter_collects_ranges_repeaters_and_body_timestamps() {
+    let content = include_str!("data/parser/timestamps/planning-timestamp/fixture.org");
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("tests/data/parser/timestamps/planning-timestamp/fixture.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("timestamp fixture should parse");
+
+    let time_range = &document.headings[7];
+    assert_eq!(time_range.title, "Time range same day");
+    assert_eq!(time_range.timestamps.len(), 1);
+    assert_eq!(
+        time_range.timestamps[0].role,
+        Some(ParsedTimestampRole::Scheduled)
+    );
+    assert_eq!(
+        time_range.timestamps[0].range_type,
+        ParsedTimestampRangeType::TimeRange
+    );
+    assert_eq!(time_range.timestamps[0].start_ts, Some(1_732_095_000));
+    assert_eq!(time_range.timestamps[0].end_ts, Some(1_732_100_400));
+
+    let date_range = &document.headings[8];
+    assert_eq!(date_range.title, "Date range");
+    assert_eq!(
+        date_range.timestamps[0].range_type,
+        ParsedTimestampRangeType::DateRange
+    );
+    assert_eq!(date_range.timestamps[0].start_ts, Some(1_733_011_200));
+    assert_eq!(date_range.timestamps[0].end_ts, Some(1_733_184_000));
+
+    let repeater = &document.headings[9];
+    assert_eq!(repeater.title, "Repeater");
+    assert_eq!(repeater.timestamps[0].modifiers.len(), 1);
+    assert_eq!(repeater.timestamps[0].modifiers[0].value, 1);
+
+    let combined = &document.headings[10];
+    assert_eq!(combined.title, "Repeater with deadline and warning");
+    assert_eq!(combined.timestamps[0].modifiers.len(), 2);
+    assert_eq!(
+        combined.timestamps[0].modifiers[0].modifier_type,
+        ParsedTimestampModifierType::CatchUp
+    );
+    assert_eq!(combined.timestamps[0].modifiers[0].value, 1);
+    assert_eq!(
+        combined.timestamps[0].modifiers[0].unit,
+        ParsedTimestampUnit::Month
+    );
+    assert_eq!(
+        combined.timestamps[0].modifiers[0].repeater_deadline_value,
+        Some(2)
+    );
+    assert_eq!(
+        combined.timestamps[0].modifiers[0].repeater_deadline_unit,
+        Some(ParsedTimestampUnit::Day)
+    );
+    assert_eq!(
+        combined.timestamps[0].modifiers[1].kind,
+        ParsedTimestampModifierKind::Warning
+    );
+    assert_eq!(
+        combined.timestamps[0].modifiers[1].modifier_type,
+        ParsedTimestampModifierType::All
+    );
+
+    let warning_first = &document.headings[12];
+    assert_eq!(warning_first.title, "Warning only first");
+    assert_eq!(warning_first.timestamps[0].modifiers.len(), 1);
+    assert_eq!(
+        warning_first.timestamps[0].modifiers[0].modifier_type,
+        ParsedTimestampModifierType::First
+    );
+    assert_eq!(warning_first.timestamps[0].modifiers[0].value, 2);
+    assert_eq!(
+        warning_first.timestamps[0].modifiers[0].unit,
+        ParsedTimestampUnit::Week
+    );
+
+    let body_only = &document.headings[22];
+    assert_eq!(body_only.title, "Another Task");
+    assert_eq!(body_only.timestamps.len(), 2);
+    assert_eq!(
+        body_only.timestamps[0].role,
+        Some(ParsedTimestampRole::Body)
+    );
+    assert_eq!(
+        body_only.timestamps[1].role,
+        Some(ParsedTimestampRole::Body)
+    );
+}
+
+#[test]
+fn orgize_adapter_only_populates_shortcuts_when_parser_exposes_planning() {
+    let content = "* Not valid\n** Planning not immediately after headline\nSome body text first.\nSCHEDULED: <2024-11-20 Wed>\n** Looks like planning in body\nThis mentions DEADLINE: <2024-12-01 Sun> inside text.\n** Lowercase\nscheduled: <2024-11-20 Wed>\n** Diary expression\nSCHEDULED: <%%(diary-float t 42)>\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/planning-ownership.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("planning ownership cases should parse");
+
+    let delayed = &document.headings[2];
+    assert!(delayed.planning.scheduled_raw().is_none());
+    assert_eq!(delayed.timestamps.len(), 1);
+    assert_eq!(delayed.timestamps[0].role, Some(ParsedTimestampRole::Body));
+
+    let body_like = &document.headings[3];
+    assert!(body_like.planning.deadline_raw().is_none());
+    assert_eq!(body_like.timestamps.len(), 1);
+    assert_eq!(
+        body_like.timestamps[0].role,
+        Some(ParsedTimestampRole::Body)
+    );
+
+    let lowercase = &document.headings[4];
+    let lowercase_shortcuts = [
+        lowercase.planning.scheduled.is_some(),
+        lowercase.planning.deadline.is_some(),
+        lowercase.planning.closed.is_some(),
+    ];
+    assert_eq!(lowercase.timestamps.len(), 1);
+    if lowercase_shortcuts.iter().any(|value| *value) {
+        assert_ne!(
+            lowercase.timestamps[0].role,
+            Some(ParsedTimestampRole::Body)
+        );
+    } else {
+        assert_eq!(
+            lowercase.timestamps[0].role,
+            Some(ParsedTimestampRole::Body)
+        );
+    }
+
+    let diary = &document.headings[5];
+    assert_eq!(diary.timestamps.len(), 1);
+    assert_eq!(
+        diary.timestamps[0].timestamp_type,
+        ParsedTimestampType::Diary
+    );
+    assert!(diary.timestamps[0].start_ts.is_none());
+    assert!(diary.timestamps[0].end_ts.is_none());
+    if let Some(scheduled) = &diary.planning.scheduled {
+        assert_eq!(scheduled.raw_value, "<%%(diary-float t 42)>");
+        assert!(scheduled.start_ts.is_none());
+        assert_eq!(
+            diary.timestamps[0].role,
+            Some(ParsedTimestampRole::Scheduled)
+        );
+    } else {
+        assert_eq!(diary.timestamps[0].role, Some(ParsedTimestampRole::Body));
+    }
 }
 
 #[test]

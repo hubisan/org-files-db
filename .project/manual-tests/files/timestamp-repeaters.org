@@ -1,0 +1,87 @@
+* Repeater markers
+
+** Cumulate plus
+SCHEDULED: <2024-11-20 Wed +1w>
+
+** Catch up plus plus
+SCHEDULED: <2024-11-20 Wed ++1m>
+
+** Restart dot plus
+SCHEDULED: <2024-11-20 Wed .+2d>
+
+* Repeater units
+
+** Repeater hour
+SCHEDULED: <2024-11-20 Wed +3h>
+
+** Repeater day
+SCHEDULED: <2024-11-20 Wed +3d>
+
+** Repeater week
+SCHEDULED: <2024-11-20 Wed +3w>
+
+** Repeater month
+SCHEDULED: <2024-11-20 Wed +3m>
+
+** Repeater year
+SCHEDULED: <2024-11-20 Wed +3y>
+
+* Repeater deadline part
+
+** Repeater with deadline day
+SCHEDULED: <2024-11-20 Wed +1w/2d>
+
+** Repeater with deadline week
+SCHEDULED: <2024-11-20 Wed ++1m/1w>
+
+** Repeater with deadline month
+SCHEDULED: <2024-11-20 Wed .+1y/2m>
+
+* Warning delays
+
+** Warning all
+DEADLINE: <2024-12-01 Sun -5d>
+
+** Warning first
+DEADLINE: <2024-12-01 Sun --2w>
+
+** Warning hour
+DEADLINE: <2024-12-01 Sun 09:30 -3h>
+
+** Warning month
+DEADLINE: <2024-12-01 Sun -1m>
+
+** Warning year
+DEADLINE: <2024-12-01 Sun --1y>
+
+* Repeater and warning combinations
+
+** Repeater and warning
+DEADLINE: <2024-12-01 Sun +1w -5d>
+
+** Catch up repeater with deadline part and warning
+DEADLINE: <2024-12-01 Sun ++1m/2d -5d>
+
+** Restart repeater with first warning
+DEADLINE: <2024-12-01 Sun .+2w --1w>
+
+* Time and range combinations
+
+** Time with repeater
+SCHEDULED: <2024-11-20 Wed 09:30 +1w>
+
+** Time range with repeater
+SCHEDULED: <2024-11-20 Wed 09:30-11:00 +1w>
+
+** Date range with repeater
+DEADLINE: <2024-12-01 Sun>--<2024-12-03 Tue +1w>
+
+* Inactive timestamp with repeater
+
+** Inactive repeater
+[2024-11-20 Wed +1w]
+
+* Diary negative case
+
+** Diary with apparent repeater text
+SCHEDULED: <%%(diary-float t 42)>

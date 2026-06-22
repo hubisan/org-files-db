@@ -12,6 +12,7 @@ fn fixture_root() -> PathBuf {
 
 fn collect_fixture_dirs() -> Vec<PathBuf> {
     let categories = [
+        "timestamps",
         "headings",
         "links",
         "planning",
@@ -216,24 +217,57 @@ fn assert_heading_expectation(
             "unexpected property count for {}",
             path.display()
         ),
-        "planning.scheduled" => assert_eq!(
-            heading.planning.scheduled.as_deref(),
+        "timestamp_count" => assert_eq!(
+            heading.timestamps.len(),
+            value
+                .parse::<usize>()
+                .expect("timestamp_count should be numeric"),
+            "unexpected timestamp count for {}",
+            path.display()
+        ),
+        "planning.scheduled" | "planning.scheduled_raw" => assert_eq!(
+            heading.planning.scheduled_raw(),
             Some(value),
             "unexpected scheduled value for {}",
             path.display()
         ),
-        "planning.deadline" => assert_eq!(
-            heading.planning.deadline.as_deref(),
+        "planning.scheduled_ts" => assert_eq!(
+            heading.planning.scheduled_ts(),
+            Some(
+                value
+                    .parse::<i64>()
+                    .expect("scheduled_ts should be numeric")
+            ),
+            "unexpected scheduled timestamp for {}",
+            path.display()
+        ),
+        "planning.deadline" | "planning.deadline_raw" => assert_eq!(
+            heading.planning.deadline_raw(),
             Some(value),
             "unexpected deadline value for {}",
             path.display()
         ),
-        "planning.closed" => assert_eq!(
-            heading.planning.closed.as_deref(),
+        "planning.deadline_ts" => assert_eq!(
+            heading.planning.deadline_ts(),
+            Some(value.parse::<i64>().expect("deadline_ts should be numeric")),
+            "unexpected deadline timestamp for {}",
+            path.display()
+        ),
+        "planning.closed" | "planning.closed_raw" => assert_eq!(
+            heading.planning.closed_raw(),
             Some(value),
             "unexpected closed value for {}",
             path.display()
         ),
+        "planning.closed_ts" => assert_eq!(
+            heading.planning.closed_ts(),
+            Some(value.parse::<i64>().expect("closed_ts should be numeric")),
+            "unexpected closed timestamp for {}",
+            path.display()
+        ),
+        field if field.starts_with("timestamp.") => {
+            assert_timestamp_expectation(path, heading, field, value);
+        }
         _ => panic!(
             "unsupported heading expectation key {key} in {}",
             path.display()
@@ -241,9 +275,211 @@ fn assert_heading_expectation(
     }
 }
 
+fn assert_timestamp_expectation(
+    path: &Path,
+    heading: &org_files_db::parser::ParsedHeading,
+    field: &str,
+    value: &str,
+) {
+    let remainder = field.trim_start_matches("timestamp.");
+    let (index, field) = remainder.split_once('.').unwrap_or_else(|| {
+        panic!(
+            "malformed timestamp expectation key heading.{field} in {}",
+            path.display()
+        )
+    });
+    let timestamp = &heading.timestamps[index
+        .parse::<usize>()
+        .expect("timestamp index should be numeric")];
+
+    match field {
+        "role" => assert_eq!(
+            timestamp.role.map(normalize_role_name),
+            Some(value),
+            "unexpected timestamp role for {}",
+            path.display()
+        ),
+        "type" => assert_eq!(
+            normalize_type_name(timestamp.timestamp_type),
+            value,
+            "unexpected timestamp type for {}",
+            path.display()
+        ),
+        "range_type" => assert_eq!(
+            normalize_range_type_name(timestamp.range_type),
+            value,
+            "unexpected timestamp range_type for {}",
+            path.display()
+        ),
+        "raw_value" => assert_eq!(
+            timestamp.raw_value,
+            value,
+            "unexpected timestamp raw_value for {}",
+            path.display()
+        ),
+        "start_ts" => assert_eq!(
+            timestamp.start_ts,
+            Some(value.parse::<i64>().expect("start_ts should be numeric")),
+            "unexpected timestamp start_ts for {}",
+            path.display()
+        ),
+        "end_ts" => assert_eq!(
+            timestamp.end_ts,
+            Some(value.parse::<i64>().expect("end_ts should be numeric")),
+            "unexpected timestamp end_ts for {}",
+            path.display()
+        ),
+        "modifier_count" => assert_eq!(
+            timestamp.modifiers.len(),
+            value
+                .parse::<usize>()
+                .expect("modifier_count should be numeric"),
+            "unexpected timestamp modifier count for {}",
+            path.display()
+        ),
+        field if field.starts_with("modifier.") => {
+            assert_modifier_expectation(path, timestamp, field, value);
+        }
+        _ => panic!(
+            "unsupported timestamp expectation key heading.{field} in {}",
+            path.display()
+        ),
+    }
+}
+
+fn assert_modifier_expectation(
+    path: &Path,
+    timestamp: &org_files_db::parser::ParsedTimestamp,
+    field: &str,
+    value: &str,
+) {
+    let remainder = field.trim_start_matches("modifier.");
+    let (index, field) = remainder.split_once('.').unwrap_or_else(|| {
+        panic!(
+            "malformed modifier expectation key heading.timestamp.{field} in {}",
+            path.display()
+        )
+    });
+    let modifier = &timestamp.modifiers[index
+        .parse::<usize>()
+        .expect("modifier index should be numeric")];
+
+    match field {
+        "kind" => assert_eq!(
+            normalize_modifier_kind_name(modifier.kind),
+            value,
+            "unexpected modifier kind for {}",
+            path.display()
+        ),
+        "type" => assert_eq!(
+            normalize_modifier_type_name(modifier.modifier_type),
+            value,
+            "unexpected modifier type for {}",
+            path.display()
+        ),
+        "value" => assert_eq!(
+            modifier.value,
+            value
+                .parse::<i64>()
+                .expect("modifier value should be numeric"),
+            "unexpected modifier value for {}",
+            path.display()
+        ),
+        "unit" => assert_eq!(
+            normalize_modifier_unit_name(modifier.unit),
+            value,
+            "unexpected modifier unit for {}",
+            path.display()
+        ),
+        "repeater_deadline_value" => assert_eq!(
+            modifier.repeater_deadline_value,
+            Some(
+                value
+                    .parse::<i64>()
+                    .expect("repeater_deadline_value should be numeric")
+            ),
+            "unexpected modifier repeater_deadline_value for {}",
+            path.display()
+        ),
+        "repeater_deadline_unit" => assert_eq!(
+            modifier
+                .repeater_deadline_unit
+                .map(normalize_modifier_unit_name),
+            Some(value),
+            "unexpected modifier repeater_deadline_unit for {}",
+            path.display()
+        ),
+        _ => panic!(
+            "unsupported modifier expectation key heading.timestamp.{field} in {}",
+            path.display()
+        ),
+    }
+}
+
+fn normalize_role_name(role: org_files_db::parser::ParsedTimestampRole) -> &'static str {
+    match role {
+        org_files_db::parser::ParsedTimestampRole::Scheduled => "scheduled",
+        org_files_db::parser::ParsedTimestampRole::Deadline => "deadline",
+        org_files_db::parser::ParsedTimestampRole::Closed => "closed",
+        org_files_db::parser::ParsedTimestampRole::Body => "body",
+    }
+}
+
+fn normalize_type_name(timestamp_type: org_files_db::parser::ParsedTimestampType) -> &'static str {
+    match timestamp_type {
+        org_files_db::parser::ParsedTimestampType::Active => "active",
+        org_files_db::parser::ParsedTimestampType::Inactive => "inactive",
+        org_files_db::parser::ParsedTimestampType::Diary => "diary",
+    }
+}
+
+fn normalize_range_type_name(
+    range_type: org_files_db::parser::ParsedTimestampRangeType,
+) -> &'static str {
+    match range_type {
+        org_files_db::parser::ParsedTimestampRangeType::None => "none",
+        org_files_db::parser::ParsedTimestampRangeType::DateRange => "date_range",
+        org_files_db::parser::ParsedTimestampRangeType::TimeRange => "time_range",
+        org_files_db::parser::ParsedTimestampRangeType::DateTimeRange => "datetime_range",
+        org_files_db::parser::ParsedTimestampRangeType::Unknown => "unknown",
+    }
+}
+
+fn normalize_modifier_kind_name(
+    kind: org_files_db::parser::ParsedTimestampModifierKind,
+) -> &'static str {
+    match kind {
+        org_files_db::parser::ParsedTimestampModifierKind::Repeater => "repeater",
+        org_files_db::parser::ParsedTimestampModifierKind::Warning => "warning",
+    }
+}
+
+fn normalize_modifier_type_name(
+    modifier_type: org_files_db::parser::ParsedTimestampModifierType,
+) -> String {
+    match modifier_type {
+        org_files_db::parser::ParsedTimestampModifierType::Cumulate => "cumulate".to_string(),
+        org_files_db::parser::ParsedTimestampModifierType::CatchUp => "catch_up".to_string(),
+        org_files_db::parser::ParsedTimestampModifierType::Restart => "restart".to_string(),
+        org_files_db::parser::ParsedTimestampModifierType::All => "all".to_string(),
+        org_files_db::parser::ParsedTimestampModifierType::First => "first".to_string(),
+    }
+}
+
+fn normalize_modifier_unit_name(unit: org_files_db::parser::ParsedTimestampUnit) -> &'static str {
+    match unit {
+        org_files_db::parser::ParsedTimestampUnit::Hour => "hour",
+        org_files_db::parser::ParsedTimestampUnit::Day => "day",
+        org_files_db::parser::ParsedTimestampUnit::Week => "week",
+        org_files_db::parser::ParsedTimestampUnit::Month => "month",
+        org_files_db::parser::ParsedTimestampUnit::Year => "year",
+    }
+}
+
 #[test]
 fn parser_fixture_directories_follow_expected_layout() {
     for category in [
+        "timestamps",
         "headings",
         "links",
         "planning",

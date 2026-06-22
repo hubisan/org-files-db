@@ -4,9 +4,12 @@
 
 | id |                                                path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|-----------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1781880327 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 | 904  |              | 1781880327 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1781880327 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782165208 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 | 904  |              | 1782165208 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782165208 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782165208 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782165208 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782165208 |
 
 ## heading_bodies
 
@@ -73,6 +76,36 @@
 | 26         | child  | 0         |
 | 27         | extra  | 0         |
 | 29         | local  | 0         |
+
+## timestamp_repeaters
+
+| id | timestamp_id | repeater_type | repeater_value | repeater_unit | repeater_deadline_value | repeater_deadline_unit | warning_type | warning_value | warning_unit |
+|----|--------------|---------------|----------------|---------------|-------------------------|------------------------|--------------|---------------|--------------|
+| 1  | 10           | cumulate      | 1              | week          |                         |                        |              |               |              |
+| 2  | 22           | cumulate      | 1              | week          |                         |                        |              |               |              |
+| 3  | 23           | catch_up      | 1              | month         |                         |                        |              |               |              |
+| 4  | 24           | restart       | 2              | day           |                         |                        |              |               |              |
+| 5  | 25           | cumulate      | 3              | hour          |                         |                        |              |               |              |
+| 6  | 26           | cumulate      | 3              | day           |                         |                        |              |               |              |
+| 7  | 27           | cumulate      | 3              | week          |                         |                        |              |               |              |
+| 8  | 28           | cumulate      | 3              | month         |                         |                        |              |               |              |
+| 9  | 29           | cumulate      | 3              | year          |                         |                        |              |               |              |
+| 10 | 30           | cumulate      | 1              | week          | 2                       | day                    |              |               |              |
+
+## timestamps
+
+| id | heading_id |   role    |  start_ts  |   end_ts   |   type   | range_type |             raw_value              | byte_start | byte_end | line_number |
+|----|------------|-----------|------------|------------|----------|------------|------------------------------------|------------|----------|-------------|
+| 1  | 35         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 93         | 109      | 7           |
+| 2  | 36         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 140        | 156      | 10          |
+| 3  | 37         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 183        | 199      | 13          |
+| 4  | 38         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 239        | 255      | 16          |
+| 5  | 38         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 267        | 283      | 16          |
+| 6  | 38         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 292        | 308      | 16          |
+| 7  | 39         | scheduled | 1732095000 |            | active   | none       | <2024-11-20 Wed 09:30>             | 334        | 356      | 19          |
+| 8  | 40         | scheduled | 1732095000 | 1732100400 | active   | time_range | <2024-11-20 Wed 09:30-11:00>       | 392        | 420      | 22          |
+| 9  | 41         | deadline  | 1733011200 | 1733184000 | active   | date_range | <2024-12-01 Sun>--<2024-12-03 Tue> | 446        | 480      | 25          |
+| 10 | 42         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed +1w>               | 505        | 525      | 28          |
 
 ## todo_keywords
 

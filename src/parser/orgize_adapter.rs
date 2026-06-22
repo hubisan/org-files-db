@@ -1,7 +1,10 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use orgize::{
-    ast::{Document as OrgDocument, Headline, Keyword, Link},
+    ast::{
+        DelayType, Document as OrgDocument, Headline, Keyword, Link, RepeaterType, TimeUnit,
+        Timestamp,
+    },
     rowan::{ast::AstNode, NodeOrToken},
     Org, SyntaxElement, SyntaxKind, SyntaxNode,
 };
@@ -9,7 +12,9 @@ use orgize::{
 use super::diagnostics::ParseDiagnostic;
 use super::model::{
     file_local_todo_keyword_config, OrgParser, ParseOptions, ParsedHeading, ParsedKeyword,
-    ParsedOrgDocument, ParsedProperty, TodoKeywordConfig, TodoType,
+    ParsedOrgDocument, ParsedProperty, ParsedTimestamp, ParsedTimestampModifier,
+    ParsedTimestampModifierKind, ParsedTimestampModifierType, ParsedTimestampRangeType,
+    ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit, TodoKeywordConfig, TodoType,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -138,11 +143,7 @@ fn collect_headlines(
         parsed.is_archived = headline.is_archived();
         parsed.is_root = parent_index.is_none();
 
-        if headline.planning().is_some() {
-            parsed.planning.scheduled = headline.scheduled().map(|ts| ts.syntax().to_string());
-            parsed.planning.deadline = headline.deadline().map(|ts| ts.syntax().to_string());
-            parsed.planning.closed = headline.closed().map(|ts| ts.syntax().to_string());
-        }
+        populate_heading_timestamps(&headline, content, &mut parsed);
 
         if let Some(properties) = headline.properties() {
             parsed.properties = properties
@@ -226,6 +227,632 @@ fn normalize_title_preserving_leading_keyword(title_raw: &str) -> String {
         .map(|headline| normalize_title_elements(headline.title()))
         .and_then(|title| title.strip_prefix(SENTINEL).map(str::to_string))
         .unwrap_or_else(|| title_raw.trim().to_string())
+}
+
+fn populate_heading_timestamps(headline: &Headline, content: &str, parsed: &mut ParsedHeading) {
+    let mut seen_ranges = HashSet::new();
+    let planning_node = headline.planning();
+
+    if let Some(ref planning) = planning_node {
+        for child in planning.syntax().children() {
+            let role = match child.kind() {
+                SyntaxKind::PLANNING_SCHEDULED => ParsedTimestampRole::Scheduled,
+                SyntaxKind::PLANNING_DEADLINE => ParsedTimestampRole::Deadline,
+                SyntaxKind::PLANNING_CLOSED => ParsedTimestampRole::Closed,
+                _ => continue,
+            };
+            let parsed_timestamp = if let Some(timestamp) =
+                child.children().find_map(Timestamp::cast)
+            {
+                parsed_timestamp_from_orgize(&timestamp, Some(role), content)
+            } else if let Some(timestamp) =
+                parsed_timestamp_from_planning_fallback(&child.to_string(), &child, role, content)
+            {
+                timestamp
+            } else {
+                continue;
+            };
+            seen_ranges.insert((parsed_timestamp.byte_start, parsed_timestamp.byte_end));
+            parsed.timestamps.push(parsed_timestamp.clone());
+
+            match role {
+                ParsedTimestampRole::Scheduled => {
+                    parsed.planning.scheduled = Some(parsed_timestamp)
+                }
+                ParsedTimestampRole::Deadline => parsed.planning.deadline = Some(parsed_timestamp),
+                ParsedTimestampRole::Closed => parsed.planning.closed = Some(parsed_timestamp),
+                ParsedTimestampRole::Body => {}
+            }
+        }
+    }
+
+    if planning_node.is_none() {
+        populate_repeater_deadline_planning_fallback(content, parsed, &mut seen_ranges);
+    }
+
+    if let Some(title_node) = headline
+        .syntax()
+        .children()
+        .find(|node| node.kind() == SyntaxKind::HEADLINE_TITLE)
+    {
+        for timestamp in title_node.descendants().filter_map(Timestamp::cast) {
+            push_body_timestamp_if_new(&timestamp, content, parsed, &mut seen_ranges);
+        }
+    }
+
+    for section in headline
+        .syntax()
+        .children()
+        .filter(|node| node.kind() == SyntaxKind::SECTION)
+    {
+        for timestamp in section.descendants().filter_map(Timestamp::cast) {
+            if timestamp
+                .syntax()
+                .ancestors()
+                .any(|ancestor| ancestor.kind() == SyntaxKind::PLANNING)
+            {
+                continue;
+            }
+            push_body_timestamp_if_new(&timestamp, content, parsed, &mut seen_ranges);
+        }
+    }
+}
+
+fn push_body_timestamp_if_new(
+    timestamp: &Timestamp,
+    content: &str,
+    parsed: &mut ParsedHeading,
+    seen_ranges: &mut HashSet<(usize, usize)>,
+) {
+    let parsed_timestamp =
+        parsed_timestamp_from_orgize(timestamp, Some(ParsedTimestampRole::Body), content);
+    if seen_ranges.insert((parsed_timestamp.byte_start, parsed_timestamp.byte_end)) {
+        parsed.timestamps.push(parsed_timestamp);
+    }
+}
+
+fn parsed_timestamp_from_orgize(
+    timestamp: &Timestamp,
+    role: Option<ParsedTimestampRole>,
+    content: &str,
+) -> ParsedTimestamp {
+    let raw_value = timestamp.raw();
+    let byte_start = usize::from(timestamp.start());
+    let byte_end = usize::from(timestamp.end());
+    let range_type = timestamp_range_type(timestamp, &raw_value);
+    let (start_ts, end_ts) = normalize_timestamp_bounds(timestamp, range_type);
+
+    ParsedTimestamp {
+        role,
+        raw_value,
+        timestamp_type: timestamp_type(timestamp),
+        range_type,
+        start_ts,
+        end_ts,
+        byte_start,
+        byte_end,
+        line_number: Some(line_number_for_offset(content, byte_start)),
+        modifiers: timestamp_modifiers(timestamp),
+    }
+}
+
+fn parsed_timestamp_from_planning_fallback(
+    planning_text: &str,
+    planning_node: &SyntaxNode,
+    role: ParsedTimestampRole,
+    content: &str,
+) -> Option<ParsedTimestamp> {
+    let (relative_start, raw_value) = extract_first_raw_timestamp(planning_text)?;
+    let byte_start = usize::from(planning_node.text_range().start()) + relative_start;
+    let byte_end = byte_start + raw_value.len();
+    let timestamp_type = timestamp_type_from_raw(&raw_value)?;
+    let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(&raw_value);
+
+    Some(ParsedTimestamp {
+        role: Some(role),
+        raw_value: raw_value.clone(),
+        timestamp_type,
+        range_type,
+        start_ts,
+        end_ts,
+        byte_start,
+        byte_end,
+        line_number: Some(line_number_for_offset(content, byte_start)),
+        modifiers: parse_timestamp_modifiers_from_raw(&raw_value)?,
+    })
+}
+
+fn populate_repeater_deadline_planning_fallback(
+    content: &str,
+    parsed: &mut ParsedHeading,
+    seen_ranges: &mut HashSet<(usize, usize)>,
+) {
+    let Some(heading_text) = content.get(parsed.byte_start..parsed.byte_end) else {
+        return;
+    };
+    let Some(first_newline) = heading_text.find('\n') else {
+        return;
+    };
+    let after_heading = &heading_text[first_newline + 1..];
+    let planning_line = after_heading
+        .split_once('\n')
+        .map(|(line, _)| line)
+        .unwrap_or(after_heading);
+
+    if !planning_line.contains('/') {
+        return;
+    }
+
+    let line_offset = parsed.byte_start + first_newline + 1;
+    for (role, raw_value, relative_start) in parse_planning_fallback_entries(planning_line) {
+        let byte_start = line_offset + relative_start;
+        let byte_end = byte_start + raw_value.len();
+        let (start_ts, end_ts, range_type) = normalize_raw_timestamp_bounds(&raw_value);
+        let parsed_timestamp = ParsedTimestamp {
+            role: Some(role),
+            raw_value: raw_value.clone(),
+            timestamp_type: timestamp_type_from_raw(&raw_value)
+                .unwrap_or(ParsedTimestampType::Active),
+            range_type,
+            start_ts,
+            end_ts,
+            byte_start,
+            byte_end,
+            line_number: Some(line_number_for_offset(content, byte_start)),
+            modifiers: parse_timestamp_modifiers_from_raw(&raw_value).unwrap_or_default(),
+        };
+
+        if seen_ranges.insert((byte_start, byte_end)) {
+            parsed.timestamps.push(parsed_timestamp.clone());
+        }
+
+        match role {
+            ParsedTimestampRole::Scheduled => parsed.planning.scheduled = Some(parsed_timestamp),
+            ParsedTimestampRole::Deadline => parsed.planning.deadline = Some(parsed_timestamp),
+            ParsedTimestampRole::Closed => parsed.planning.closed = Some(parsed_timestamp),
+            ParsedTimestampRole::Body => {}
+        }
+    }
+}
+
+fn parse_planning_fallback_entries(line: &str) -> Vec<(ParsedTimestampRole, String, usize)> {
+    let mut entries = Vec::new();
+    let mut offset = 0;
+
+    while offset < line.len() {
+        let remaining = &line[offset..];
+        let trimmed = remaining.trim_start();
+        let leading_ws = remaining.len() - trimmed.len();
+        let entry_offset = offset + leading_ws;
+
+        let (role, rest) = if let Some(rest) = trimmed.strip_prefix("SCHEDULED:") {
+            (ParsedTimestampRole::Scheduled, rest)
+        } else if let Some(rest) = trimmed.strip_prefix("DEADLINE:") {
+            (ParsedTimestampRole::Deadline, rest)
+        } else if let Some(rest) = trimmed.strip_prefix("CLOSED:") {
+            (ParsedTimestampRole::Closed, rest)
+        } else {
+            break;
+        };
+
+        let timestamp_text = rest.trim_start();
+        let Some((timestamp_start, raw_value)) = extract_first_raw_timestamp(timestamp_text) else {
+            break;
+        };
+        let absolute_start =
+            entry_offset + (trimmed.len() - timestamp_text.len()) + timestamp_start;
+        offset = absolute_start + raw_value.len();
+        entries.push((role, raw_value, absolute_start));
+    }
+
+    entries
+}
+
+fn extract_first_raw_timestamp(text: &str) -> Option<(usize, String)> {
+    for (index, character) in text.char_indices() {
+        let closing = match character {
+            '<' => '>',
+            '[' => ']',
+            _ => continue,
+        };
+        let end = text[index..].find(closing)? + index + closing.len_utf8();
+        return Some((index, text[index..end].to_string()));
+    }
+    None
+}
+
+fn timestamp_type_from_raw(raw_value: &str) -> Option<ParsedTimestampType> {
+    if raw_value.starts_with("<%%(") || raw_value.starts_with("[%%(") {
+        Some(ParsedTimestampType::Diary)
+    } else if raw_value.starts_with('<') {
+        Some(ParsedTimestampType::Active)
+    } else if raw_value.starts_with('[') {
+        Some(ParsedTimestampType::Inactive)
+    } else {
+        None
+    }
+}
+
+fn normalize_raw_timestamp_bounds(
+    raw_value: &str,
+) -> (Option<i64>, Option<i64>, ParsedTimestampRangeType) {
+    if matches!(
+        timestamp_type_from_raw(raw_value),
+        Some(ParsedTimestampType::Diary)
+    ) {
+        return (None, None, ParsedTimestampRangeType::None);
+    }
+
+    let inner = raw_value
+        .strip_prefix(['<', '['])
+        .and_then(|value| value.strip_suffix(['>', ']']))
+        .unwrap_or(raw_value);
+    let mut tokens = inner.split_whitespace();
+    let Some(date_token) = tokens.next() else {
+        return (None, None, ParsedTimestampRangeType::Unknown);
+    };
+    let Some((year, month, day)) = parse_date_token(date_token) else {
+        return (None, None, ParsedTimestampRangeType::Unknown);
+    };
+
+    let mut start_hour = None;
+    let mut start_minute = None;
+    if let Some(token) = tokens.next() {
+        if let Some((hour, minute)) = parse_time_token(token) {
+            start_hour = Some(hour);
+            start_minute = Some(minute);
+        } else if let Some(time_token) = tokens.next() {
+            if let Some((hour, minute)) = parse_time_token(time_token) {
+                start_hour = Some(hour);
+                start_minute = Some(minute);
+            }
+        }
+    }
+
+    (
+        unix_seconds_from_utc_date_time(
+            year,
+            month,
+            day,
+            start_hour.unwrap_or(0),
+            start_minute.unwrap_or(0),
+        ),
+        None,
+        ParsedTimestampRangeType::None,
+    )
+}
+
+fn parse_date_token(token: &str) -> Option<(i32, u32, u32)> {
+    let mut parts = token.split('-');
+    let year = parts.next()?.parse().ok()?;
+    let month = parts.next()?.parse().ok()?;
+    let day = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((year, month, day))
+}
+
+fn parse_time_token(token: &str) -> Option<(u32, u32)> {
+    let (hour, minute) = token.split_once(':')?;
+    Some((hour.parse().ok()?, minute.parse().ok()?))
+}
+
+fn timestamp_type(timestamp: &Timestamp) -> ParsedTimestampType {
+    if timestamp.is_diary() {
+        ParsedTimestampType::Diary
+    } else if timestamp.is_inactive() {
+        ParsedTimestampType::Inactive
+    } else {
+        ParsedTimestampType::Active
+    }
+}
+
+fn timestamp_range_type(timestamp: &Timestamp, raw_value: &str) -> ParsedTimestampRangeType {
+    if !timestamp.is_range() {
+        return ParsedTimestampRangeType::None;
+    }
+
+    let start_has_time = timestamp.hour_start().is_some() && timestamp.minute_start().is_some();
+    let end_has_time = timestamp.hour_end().is_some() && timestamp.minute_end().is_some();
+    let explicit_end = raw_value.contains("--");
+
+    if explicit_end {
+        if !start_has_time && !end_has_time {
+            ParsedTimestampRangeType::DateRange
+        } else {
+            ParsedTimestampRangeType::DateTimeRange
+        }
+    } else if start_has_time && end_has_time {
+        ParsedTimestampRangeType::TimeRange
+    } else {
+        ParsedTimestampRangeType::Unknown
+    }
+}
+
+fn normalize_timestamp_bounds(
+    timestamp: &Timestamp,
+    range_type: ParsedTimestampRangeType,
+) -> (Option<i64>, Option<i64>) {
+    if timestamp.is_diary() {
+        return (None, None);
+    }
+
+    let start = normalize_timestamp_part(
+        timestamp.year_start(),
+        timestamp.month_start(),
+        timestamp.day_start(),
+        timestamp.hour_start(),
+        timestamp.minute_start(),
+        true,
+    );
+
+    let end = match range_type {
+        ParsedTimestampRangeType::None => None,
+        ParsedTimestampRangeType::TimeRange => normalize_timestamp_part(
+            timestamp.year_start(),
+            timestamp.month_start(),
+            timestamp.day_start(),
+            timestamp.hour_end(),
+            timestamp.minute_end(),
+            false,
+        ),
+        ParsedTimestampRangeType::DateRange | ParsedTimestampRangeType::DateTimeRange => {
+            normalize_timestamp_part(
+                timestamp.year_end(),
+                timestamp.month_end(),
+                timestamp.day_end(),
+                timestamp.hour_end(),
+                timestamp.minute_end(),
+                true,
+            )
+        }
+        ParsedTimestampRangeType::Unknown => normalize_timestamp_part(
+            timestamp.year_end(),
+            timestamp.month_end(),
+            timestamp.day_end(),
+            timestamp.hour_end(),
+            timestamp.minute_end(),
+            true,
+        ),
+    };
+
+    (start, end)
+}
+
+fn normalize_timestamp_part(
+    year: Option<orgize::ast::Token>,
+    month: Option<orgize::ast::Token>,
+    day: Option<orgize::ast::Token>,
+    hour: Option<orgize::ast::Token>,
+    minute: Option<orgize::ast::Token>,
+    default_to_midnight: bool,
+) -> Option<i64> {
+    let year = year?.to_string().parse().ok()?;
+    let month = month?.to_string().parse().ok()?;
+    let day = day?.to_string().parse().ok()?;
+    let (hour, minute) = match (hour, minute) {
+        (Some(hour), Some(minute)) => (
+            hour.to_string().parse().ok()?,
+            minute.to_string().parse().ok()?,
+        ),
+        (None, None) if default_to_midnight => (0, 0),
+        _ => return None,
+    };
+
+    unix_seconds_from_utc_date_time(year, month, day, hour, minute)
+}
+
+fn timestamp_modifiers(timestamp: &Timestamp) -> Vec<ParsedTimestampModifier> {
+    parse_timestamp_modifiers_from_raw(&timestamp.raw())
+        .unwrap_or_else(|| timestamp_modifiers_from_orgize(timestamp))
+}
+
+fn timestamp_modifiers_from_orgize(timestamp: &Timestamp) -> Vec<ParsedTimestampModifier> {
+    let mut modifiers = Vec::new();
+
+    if let (Some(modifier_type), Some(value), Some(unit)) = (
+        timestamp.repeater_type().map(parsed_repeater_type),
+        timestamp.repeater_value(),
+        timestamp.repeater_unit().map(parsed_timestamp_unit),
+    ) {
+        modifiers.push(ParsedTimestampModifier {
+            kind: ParsedTimestampModifierKind::Repeater,
+            modifier_type,
+            value: i64::from(value),
+            unit,
+            repeater_deadline_value: None,
+            repeater_deadline_unit: None,
+        });
+    }
+
+    if let (Some(modifier_type), Some(value), Some(unit)) = (
+        timestamp.warning_type().map(parsed_warning_type),
+        timestamp.warning_value(),
+        timestamp.warning_unit().map(parsed_timestamp_unit),
+    ) {
+        modifiers.push(ParsedTimestampModifier {
+            kind: ParsedTimestampModifierKind::Warning,
+            modifier_type,
+            value: i64::from(value),
+            unit,
+            repeater_deadline_value: None,
+            repeater_deadline_unit: None,
+        });
+    }
+
+    modifiers
+}
+
+fn parse_timestamp_modifiers_from_raw(raw_value: &str) -> Option<Vec<ParsedTimestampModifier>> {
+    if raw_value.starts_with("<%%(") || raw_value.starts_with("[%%(") {
+        return Some(Vec::new());
+    }
+
+    let mut modifiers = Vec::new();
+
+    for token in raw_value.split_whitespace() {
+        let token = token.trim_matches(|character| matches!(character, '<' | '>' | '[' | ']'));
+        if token.is_empty() {
+            continue;
+        }
+
+        if let Some(modifier) = parse_repeater_modifier_token(token) {
+            modifiers.push(modifier);
+            continue;
+        }
+
+        if let Some(modifier) = parse_warning_modifier_token(token) {
+            modifiers.push(modifier);
+        }
+    }
+
+    Some(modifiers)
+}
+
+fn parse_repeater_modifier_token(token: &str) -> Option<ParsedTimestampModifier> {
+    let (modifier_type, remainder) = if let Some(remainder) = token.strip_prefix("++") {
+        (ParsedTimestampModifierType::CatchUp, remainder)
+    } else if let Some(remainder) = token.strip_prefix(".+") {
+        (ParsedTimestampModifierType::Restart, remainder)
+    } else if let Some(remainder) = token.strip_prefix('+') {
+        (ParsedTimestampModifierType::Cumulate, remainder)
+    } else {
+        return None;
+    };
+
+    let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
+    let (repeater_deadline_value, repeater_deadline_unit) =
+        if let Some(remainder) = remainder.strip_prefix('/') {
+            let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
+            if !remainder.is_empty() {
+                return None;
+            }
+            (Some(value), Some(unit))
+        } else {
+            if !remainder.is_empty() {
+                return None;
+            }
+            (None, None)
+        };
+
+    Some(ParsedTimestampModifier {
+        kind: ParsedTimestampModifierKind::Repeater,
+        modifier_type,
+        value,
+        unit,
+        repeater_deadline_value,
+        repeater_deadline_unit,
+    })
+}
+
+fn parse_warning_modifier_token(token: &str) -> Option<ParsedTimestampModifier> {
+    let (modifier_type, remainder) = if let Some(remainder) = token.strip_prefix("--") {
+        (ParsedTimestampModifierType::First, remainder)
+    } else if let Some(remainder) = token.strip_prefix('-') {
+        (ParsedTimestampModifierType::All, remainder)
+    } else {
+        return None;
+    };
+
+    let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
+    if !remainder.is_empty() {
+        return None;
+    }
+
+    Some(ParsedTimestampModifier {
+        kind: ParsedTimestampModifierKind::Warning,
+        modifier_type,
+        value,
+        unit,
+        repeater_deadline_value: None,
+        repeater_deadline_unit: None,
+    })
+}
+
+fn parse_modifier_value_unit(input: &str) -> Option<(i64, ParsedTimestampUnit, &str)> {
+    let digits_end = input
+        .find(|character: char| !character.is_ascii_digit())
+        .unwrap_or(input.len());
+    if digits_end == 0 {
+        return None;
+    }
+
+    let value = input[..digits_end].parse::<i64>().ok()?;
+    if value <= 0 {
+        return None;
+    }
+
+    let remainder = &input[digits_end..];
+    let unit = remainder
+        .chars()
+        .next()
+        .and_then(parsed_timestamp_unit_from_char)?;
+    Some((value, unit, &remainder[1..]))
+}
+
+fn parsed_timestamp_unit_from_char(character: char) -> Option<ParsedTimestampUnit> {
+    match character {
+        'h' => Some(ParsedTimestampUnit::Hour),
+        'd' => Some(ParsedTimestampUnit::Day),
+        'w' => Some(ParsedTimestampUnit::Week),
+        'm' => Some(ParsedTimestampUnit::Month),
+        'y' => Some(ParsedTimestampUnit::Year),
+        _ => None,
+    }
+}
+
+fn parsed_repeater_type(repeater_type: RepeaterType) -> ParsedTimestampModifierType {
+    match repeater_type {
+        RepeaterType::Cumulate => ParsedTimestampModifierType::Cumulate,
+        RepeaterType::CatchUp => ParsedTimestampModifierType::CatchUp,
+        RepeaterType::Restart => ParsedTimestampModifierType::Restart,
+    }
+}
+
+fn parsed_warning_type(delay_type: DelayType) -> ParsedTimestampModifierType {
+    match delay_type {
+        DelayType::All => ParsedTimestampModifierType::All,
+        DelayType::First => ParsedTimestampModifierType::First,
+    }
+}
+
+fn parsed_timestamp_unit(unit: TimeUnit) -> ParsedTimestampUnit {
+    match unit {
+        TimeUnit::Hour => ParsedTimestampUnit::Hour,
+        TimeUnit::Day => ParsedTimestampUnit::Day,
+        TimeUnit::Week => ParsedTimestampUnit::Week,
+        TimeUnit::Month => ParsedTimestampUnit::Month,
+        TimeUnit::Year => ParsedTimestampUnit::Year,
+    }
+}
+
+fn unix_seconds_from_utc_date_time(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+) -> Option<i64> {
+    // The project does not model time zones yet, so planning timestamps are
+    // normalized as UTC-naive Unix seconds.
+    let days = days_from_civil(year, month, day)?;
+    let seconds = i64::from(hour) * 3_600 + i64::from(minute) * 60;
+    days.checked_mul(86_400)?.checked_add(seconds)
+}
+
+fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
+    let mut year = i64::from(year);
+    let month = i64::from(month);
+    let day = i64::from(day);
+
+    year -= if month <= 2 { 1 } else { 0 };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let month_index = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    Some(era * 146_097 + day_of_era - 719_468)
 }
 
 fn normalize_title_elements(elements: impl Iterator<Item = SyntaxElement>) -> String {

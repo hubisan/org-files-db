@@ -1,0 +1,242 @@
+#+TITLE: Headings Timesstamps
+
+Timesstamps (not planning line) are associated with the heading and will make it show up in the Agenda, but only if it is an active timestamp:
+
+#+BEGIN_QUOTE
+A timestamp can appear anywhere in the headline or body of an Org tree entry. Its
+presence causes entries to be shown on specific dates in the agenda
+#+END_QUOTE
+
+* Org Info
+
+[[info:org#Timestamps][org#Timestamps]]
+
+#+BEGIN_QUOTE
+8.1 Timestamps
+==============
+
+A timestamp is a specification of a date--possibly with a time or time
+range--in a special format, either ‘<2003-09-16 Tue>’ or ‘<2003-09-16
+Tue 09:39>’ or ‘<2003-09-16 Tue 12:00-12:30>’(1).  A timestamp can
+appear anywhere in the headline or body of an Org tree entry.  Its
+presence causes entries to be shown on specific dates in the agenda (see
+*note Weekly/daily agenda::).  We distinguish:
+
+Plain timestamp; Event; Appointment
+     A simple timestamp just assigns a date/time to an item.  This is
+     just like writing down an appointment or event in a paper agenda.
+     In the agenda display, the headline of an entry associated with a
+     plain timestamp is shown exactly on that date.  There can be
+     multiple timestamps in an item.
+
+          * Meet Peter at the movies
+            <2006-11-01 Wed 19:15>
+          * Discussion on climate change
+            <2006-11-02 Thu 10:00-12:00>
+          * My days off
+            <2006-11-03 Fri>
+            <2006-11-06 Mon>
+
+Timestamp with repeater interval
+     A timestamp may contain a _repeater interval_, indicating that it
+     applies not only on the given date, but again and again after a
+     certain interval of N hours (h), days (d), weeks (w), months (m),
+     or years (y).  The following shows up in the agenda every
+     Wednesday:
+
+          * Pick up Sam at school
+            <2007-05-16 Wed 12:30 +1w>
+
+Diary-style expression entries
+
+     For more complex date specifications, Org mode supports using the
+     special expression diary entries implemented in the *note Emacs
+     Calendar package: (emacs)Special Diary Entries.(2).  For example,
+     with optional time:
+
+          * 22:00-23:00 The nerd meeting on every 2nd Thursday of the month
+            <%%(diary-float t 4 2) 22:00-23:00>
+
+Time range
+
+     Time range is a timestamp having two time units connected by ‘-’
+
+          * Discussion on climate change
+             <2006-11-02 Thu 10:00-12:00>
+
+Time/Date range
+     Two timestamps connected by ‘--’ denote a range.  In the agenda,
+     the headline is shown on the first and last day of the range, and
+     on any dates that are displayed and fall in the range.  The first
+     example specifies just the dates of the range while the second
+     example specifies a time range for each date.
+
+          ** Meeting in Amsterdam
+             <2004-08-23 Mon>--<2004-08-26 Thu>
+          ** This weeks committee meetings
+             <2004-08-23 Mon 10:00-11:00>--<2004-08-26 Thu 10:00-11:00>
+
+Inactive timestamp
+     Just like a plain timestamp, but with square brackets instead of
+     angle brackets.  These timestamps are inactive in the sense that
+     they do _not_ trigger an entry to show up in the agenda.
+
+          * Gillian comes late for the fifth time
+            [2006-11-01 Wed]
+#+END_QUOTE
+
+* Example
+
+#+name: example
+#+begin_src org
+  ,* Meet Peter at the movies
+  <2006-11-01 Wed 19:15>
+
+  ,* Discussion on climate change
+  <2006-11-02 Thu 10:00-12:00>
+
+  ,* My days off
+  <2006-11-03 Fri>
+  <2006-11-06 Mon>
+
+  ,* Can be anywhere
+  Also in the body <2006-11-03 Fri>.
+  This is an inactive one: [2026-06-22 Mon].
+#+end_src
+
+* Org parse
+
+#+begin_src emacs-lisp :results value code
+  (org-sbe "init")
+  (orgfdb-parse-named-org-src-block "example")
+#+end_src
+
+#+RESULTS:
+#+begin_src emacs-lisp
+(org-data
+ (:standard-properties
+  [1 1 1 257 257 0 nil org-data nil nil nil 3 257 nil #<killed buffer> nil nil
+     nil]
+  :pre-blank 0 :path nil :CATEGORY nil)
+ (headline
+  (:standard-properties
+   [1 1 28 52 52 0 (:title) first-section nil nil nil 30 50 1 #<killed buffer>
+      nil nil #0]
+   :pre-blank 0 :raw-value "Meet Peter at the movies" :title
+   (#("Meet Peter at the movies" 0 24 (:parent #1))) :level 1 :priority nil
+   :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp
+   nil :commentedp nil)
+  (section
+   (:standard-properties
+    [28 28 28 52 52 0 nil section nil nil nil 28 52 nil #<killed buffer> nil nil
+        #1])
+   (paragraph
+    (:standard-properties
+     [28 28 28 51 52 1 nil planning nil nil nil nil nil nil #<killed buffer> nil
+         nil #2])
+    (timestamp
+     (:standard-properties
+      [28 nil nil nil 50 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+          nil #3]
+      :type active :range-type nil :raw-value "<2006-11-01 Wed 19:15>"
+      :year-start 2006 :month-start 11 :day-start 1 :hour-start 19 :minute-start
+      15 :year-end 2006 :month-end 11 :day-end 1 :hour-end 19 :minute-end 15))
+    #("\n" 0 1 (:parent #3)))))
+ (headline
+  (:standard-properties
+   [52 52 83 113 113 0 (:title) nil nil nil nil 85 111 1 #<killed buffer> nil
+       nil #0]
+   :pre-blank 0 :raw-value "Discussion on climate change" :title
+   (#("Discussion on climate change" 0 28 (:parent #1))) :level 1 :priority nil
+   :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp
+   nil :commentedp nil)
+  (section
+   (:standard-properties
+    [83 83 83 113 113 0 nil section nil nil nil 83 113 nil #<killed buffer> nil
+        nil #1])
+   (paragraph
+    (:standard-properties
+     [83 83 83 112 113 1 nil planning nil nil nil nil nil nil #<killed buffer>
+         nil nil #2])
+    (timestamp
+     (:standard-properties
+      [83 nil nil nil 111 0 nil nil nil nil nil nil nil nil #<killed buffer> nil
+          nil #3]
+      :type active-range :range-type timerange :raw-value
+      "<2006-11-02 Thu 10:00-12:00>" :year-start 2006 :month-start 11 :day-start
+      2 :hour-start 10 :minute-start 0 :year-end 2006 :month-end 11 :day-end 2
+      :hour-end 12 :minute-end 0))
+    #("\n" 0 1 (:parent #3)))))
+ (headline
+  (:standard-properties
+   [113 113 127 162 162 0 (:title) nil nil nil nil 129 160 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "My days off" :title
+   (#("My days off" 0 11 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (section
+   (:standard-properties
+    [127 127 127 162 162 0 nil section nil nil nil 127 162 nil #<killed buffer>
+         nil nil #1])
+   (paragraph
+    (:standard-properties
+     [127 127 127 161 162 1 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2])
+    (timestamp
+     (:standard-properties
+      [127 nil nil nil 143 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #3]
+      :type active :range-type nil :raw-value "<2006-11-03 Fri>" :year-start
+      2006 :month-start 11 :day-start 3 :hour-start nil :minute-start nil
+      :year-end 2006 :month-end 11 :day-end 3 :hour-end nil :minute-end nil))
+    #("\n" 0 1 (:parent #3))
+    (timestamp
+     (:standard-properties
+      [144 nil nil nil 160 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #3]
+      :type active :range-type nil :raw-value "<2006-11-06 Mon>" :year-start
+      2006 :month-start 11 :day-start 6 :hour-start nil :minute-start nil
+      :year-end 2006 :month-end 11 :day-end 6 :hour-end nil :minute-end nil))
+    #("\n" 0 1 (:parent #3)))))
+ (headline
+  (:standard-properties
+   [162 162 180 257 257 0 (:title) nil nil nil nil 182 255 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 0 :raw-value "Can be anywhere" :title
+   (#("Can be anywhere" 0 15 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (section
+   (:standard-properties
+    [180 180 180 257 257 0 nil section nil nil nil 180 257 nil #<killed buffer>
+         nil nil #1])
+   (paragraph
+    (:standard-properties
+     [180 180 180 257 257 0 nil planning nil nil nil nil nil nil #<killed
+          buffer> nil nil #2])
+    #("Also in the body " 0 17 (:parent #3))
+    (timestamp
+     (:standard-properties
+      [197 nil nil nil 213 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #3]
+      :type active :range-type nil :raw-value "<2006-11-03 Fri>" :year-start
+      2006 :month-start 11 :day-start 3 :hour-start nil :minute-start nil
+      :year-end 2006 :month-end 11 :day-end 3 :hour-end nil :minute-end nil))
+    #(".\nThis is an inactive one: " 0 27 (:parent #3))
+    (timestamp
+     (:standard-properties
+      [240 nil nil nil 256 0 nil nil nil nil nil nil nil nil #<killed buffer>
+           nil nil #3]
+      :type inactive :range-type nil :raw-value "[2026-06-22 Mon]" :year-start
+      2026 :month-start 6 :day-start 22 :hour-start nil :minute-start nil
+      :year-end 2026 :month-end 6 :day-end 22 :hour-end nil :minute-end nil))
+    #("." 0 1 (:parent #3))))))
+#+end_src
+
+* Setup
+
+#+name: init
+#+begin_src emacs-lisp :results silent
+(load-file "./tools/orgfdb-org-inspect.el")
+#+end_src

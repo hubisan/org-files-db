@@ -1,0 +1,18 @@
+#+TITLE: Timestamps
+#+STARTUP: showall
+
+* Meet Peter at the movies
+<2006-11-01 Wed 19:15>
+
+* Discussion on climate change
+<2006-11-02 Thu 10:00-12:00>
+
+* My days off
+<2006-11-03 Fri>
+<2006-11-06 Mon>
+
+* Can be anywhere
+
+Also in the body <2006-11-03 Fri>.
+
+This is an inactive one: [2026-06-22 Mon].

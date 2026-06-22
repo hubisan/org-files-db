@@ -15,6 +15,7 @@ The ~expected.txt~ format is intentionally simple:
 
 Current categories:
 
+- ~timestamps~
 - ~headings~
 - ~links~
 - ~planning~

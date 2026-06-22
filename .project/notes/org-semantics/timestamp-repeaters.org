@@ -1,0 +1,1114 @@
+#+TITLE: Timestamp Repeaters
+
+* Org Parser Function
+
+This parser function is most helpful:
+
+#+BEGIN_SRC emacs-lisp
+  (defun org-element-timestamp-parser ()
+    "Parse time stamp at point, if any.
+
+  When at a time stamp, return a new syntax node of `timestamp' type
+  containing `:type', `:range-type', `:raw-value', `:year-start',
+  `:month-start', `:day-start', `:hour-start', `:minute-start',
+  `:year-end', `:month-end', `:day-end', `:hour-end', `:minute-end',
+  `:repeater-type', `:repeater-value', `:repeater-unit',
+  `:repeater-deadline-value', `:repeater-deadline-unit', `:warning-type',
+  `:warning-value', `:warning-unit', `:diary-sexp', `:begin', `:end' and
+  `:post-blank' properties.  Otherwise, return nil.
+
+  Assume point is at the beginning of the timestamp."
+    (when (looking-at-p org-element--timestamp-regexp)
+      (save-excursion
+        (let* ((begin (point))
+               (activep (eq (char-after) ?<))
+               (raw-value
+                (progn
+                  (looking-at org-element--timestamp-raw-value-regexp)
+                  (match-string-no-properties 0)))
+               (diaryp (match-beginning 2))
+               diary-sexp
+               (date-start (if diaryp
+                               ;; Only consider part after sexp for
+                               ;; diary timestamps.
+                               (save-match-data
+                                 (looking-at org-element--timestamp-regexp)
+                                 (setq diary-sexp
+                                       (buffer-substring-no-properties
+                                        (+ 3 (match-beginning 0))
+                                        (match-beginning 2)))
+                                 (match-string 2))
+                             (match-string-no-properties 1)))
+               (date-end (match-string-no-properties 3))
+               (post-blank (progn (goto-char (match-end 0))
+                                  (skip-chars-forward " \t")))
+               (end (point))
+               (time-range
+                (when (string-match
+                       "[012]?[0-9]:[0-5][0-9]\\(-\\([012]?[0-9]\\):\\([0-5][0-9]\\)\\)"
+                       date-start)
+                  (cons (string-to-number (match-string 2 date-start))
+                        (string-to-number (match-string 3 date-start)))))
+               (type (cond (diaryp 'diary)
+                           ((and activep (or date-end time-range)) 'active-range)
+                           (activep 'active)
+                           ((or date-end time-range) 'inactive-range)
+                           (t 'inactive)))
+               (range-type (cond
+                            (date-end 'daterange)
+                            (time-range 'timerange)
+                            (t nil)))
+               (repeater-props
+                (and (not diaryp)
+                     (string-match
+                      (rx
+                       (group-n 1 (or "+" "++" ".+"))
+                       (group-n 2 (+ digit))
+                       (group-n 3 (any "hdwmy"))
+                       (optional
+                        "/"
+                        (group-n 4 (+ digit))
+                        (group-n 5 (any "hdwmy"))))
+                      raw-value)
+                     (nconc
+                      (list
+                       :repeater-type
+                       (let ((type (match-string 1 raw-value)))
+                         (cond ((equal "++" type) 'catch-up)
+                               ((equal ".+" type) 'restart)
+                               (t 'cumulate)))
+                       :repeater-value (string-to-number (match-string 2 raw-value))
+                       :repeater-unit
+                       (pcase (string-to-char (match-string 3 raw-value))
+                         (?h 'hour) (?d 'day) (?w 'week) (?m 'month) (_ 'year)))
+
+                      (let ((repeater-deadline-value (match-string 4 raw-value))
+                            (repeater-deadline-unit (match-string 5 raw-value)))
+                        (when (and repeater-deadline-value repeater-deadline-unit)
+                          (list
+                           :repeater-deadline-value (string-to-number repeater-deadline-value)
+                           :repeater-deadline-unit
+                           (pcase (string-to-char repeater-deadline-unit)
+                             (?h 'hour) (?d 'day) (?w 'week) (?m 'month) (_ 'year))))))))
+               (warning-props
+                (and (not diaryp)
+                     (string-match "\\(-\\)?-\\([0-9]+\\)\\([hdwmy]\\)" raw-value)
+                     (list
+                      :warning-type (if (match-string 1 raw-value) 'first 'all)
+                      :warning-value (string-to-number (match-string 2 raw-value))
+                      :warning-unit
+                      (pcase (string-to-char (match-string 3 raw-value))
+                        (?h 'hour) (?d 'day) (?w 'week) (?m 'month) (_ 'year)))))
+               year-start month-start day-start hour-start minute-start year-end
+               month-end day-end hour-end minute-end)
+          ;; Parse date-start.
+          (unless diaryp
+            (let ((date (org-parse-time-string date-start t)))
+              (setq year-start (nth 5 date)
+                    month-start (nth 4 date)
+                    day-start (nth 3 date)
+                    hour-start (nth 2 date)
+                    minute-start (nth 1 date))))
+          ;; Compute date-end.  It can be provided directly in timestamp,
+          ;; or extracted from time range.  Otherwise, it defaults to the
+          ;; same values as date-start.
+          (unless diaryp
+            (let ((date (and date-end (org-parse-time-string date-end t))))
+              (setq year-end (or (nth 5 date) year-start)
+                    month-end (or (nth 4 date) month-start)
+                    day-end (or (nth 3 date) day-start)
+                    hour-end (or (nth 2 date) (car time-range) hour-start)
+                    minute-end (or (nth 1 date) (cdr time-range) minute-start))))
+          ;; Diary timestamp with time.
+          (when (and diaryp
+                     (string-match "\\([012]?[0-9]\\):\\([0-5][0-9]\\)\\(-\\([012]?[0-9]\\):\\([0-5][0-9]\\)\\)?" date-start))
+            (setq hour-start (match-string 1 date-start)
+                  minute-start (match-string 2 date-start)
+                  hour-end (match-string 4 date-start)
+                  minute-end (match-string 5 date-start))
+            (when hour-start (setq hour-start (string-to-number hour-start)))
+            (when minute-start (setq minute-start (string-to-number minute-start)))
+            (when hour-end (setq hour-end (string-to-number hour-end)))
+            (when minute-end (setq minute-end (string-to-number minute-end))))
+          (org-element-create
+           'timestamp
+           (nconc (list :type type
+                        :range-type range-type
+                        :raw-value raw-value
+                        :year-start year-start
+                        :month-start month-start
+                        :day-start day-start
+                        :hour-start hour-start
+                        :minute-start minute-start
+                        :year-end year-end
+                        :month-end month-end
+                        :day-end day-end
+                        :hour-end hour-end
+                        :minute-end minute-end
+                        :begin begin
+                        :end end
+                        :post-blank post-blank)
+                  (and diary-sexp (list :diary-sexp diary-sexp))
+                  repeater-props
+                  warning-props))))))
+#+END_SRC
+
+
+* Example
+
+#+name: example
+#+begin_src org
+  ,* Repeater markers
+
+  ,** Cumulate plus
+  SCHEDULED: <2024-11-20 Wed +1w>
+
+  ,** Catch up plus plus
+  SCHEDULED: <2024-11-20 Wed ++1m>
+
+  ,** Restart dot plus
+  SCHEDULED: <2024-11-20 Wed .+2d>
+
+  ,* Repeater units
+
+  ,** Repeater hour
+  SCHEDULED: <2024-11-20 Wed +3h>
+
+  ,** Repeater day
+  SCHEDULED: <2024-11-20 Wed +3d>
+
+  ,** Repeater week
+  SCHEDULED: <2024-11-20 Wed +3w>
+
+  ,** Repeater month
+  SCHEDULED: <2024-11-20 Wed +3m>
+
+  ,** Repeater year
+  SCHEDULED: <2024-11-20 Wed +3y>
+
+  ,* Repeater deadline part
+
+  ,** Repeater with deadline day
+  SCHEDULED: <2024-11-20 Wed +1w/2d>
+
+  ,** Repeater with deadline week
+  SCHEDULED: <2024-11-20 Wed ++1m/1w>
+
+  ,** Repeater with deadline month
+  SCHEDULED: <2024-11-20 Wed .+1y/2m>
+
+  ,* Warning delays
+
+  ,** Warning all
+  DEADLINE: <2024-12-01 Sun -5d>
+
+  ,** Warning first
+  DEADLINE: <2024-12-01 Sun --2w>
+
+  ,** Warning hour
+  DEADLINE: <2024-12-01 Sun 09:30 -3h>
+
+  ,** Warning month
+  DEADLINE: <2024-12-01 Sun -1m>
+
+  ,** Warning year
+  DEADLINE: <2024-12-01 Sun --1y>
+
+  ,* Repeater and warning combinations
+
+  ,** Repeater and warning
+  DEADLINE: <2024-12-01 Sun +1w -5d>
+
+  ,** Catch up repeater with deadline part and warning
+  DEADLINE: <2024-12-01 Sun ++1m/2d -5d>
+
+  ,** Restart repeater with first warning
+  DEADLINE: <2024-12-01 Sun .+2w --1w>
+
+  ,* Time and range combinations
+
+  ,** Time with repeater
+  SCHEDULED: <2024-11-20 Wed 09:30 +1w>
+
+  ,** Time range with repeater
+  SCHEDULED: <2024-11-20 Wed 09:30-11:00 +1w>
+
+  ,** Date range with repeater
+  DEADLINE: <2024-12-01 Sun>--<2024-12-03 Tue +1w>
+
+  ,* Inactive timestamp with repeater
+
+  ,** Inactive repeater
+  [2024-11-20 Wed +1w]
+
+  ,* Diary negative case
+
+  ,** Diary with apparent repeater text
+  SCHEDULED: <%%(diary-float t 42)>
+#+end_src
+
+* Org parse
+
+#+begin_src emacs-lisp :results value code
+  (org-sbe "init")
+  (orgfdb-parse-named-org-src-block "example")
+#+end_src
+
+#+RESULTS:
+#+begin_src emacs-lisp
+(org-data
+ (:standard-properties
+  [1 1 1 1626 1626 0 nil org-data nil nil nil 3 1626 nil #<killed buffer> nil
+     nil nil]
+  :pre-blank 0 :path nil :CATEGORY nil)
+ (headline
+  (:standard-properties
+   [1 1 21 181 181 0 (:title) first-section nil nil nil 23 179 1 #<killed
+      buffer> nil nil #0]
+   :pre-blank 1 :raw-value "Repeater markers" :title
+   (#("Repeater markers" 0 16 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (headline
+   (:standard-properties
+    [21 21 38 71 71 0 (:title) section nil nil nil nil nil 2 #<killed buffer>
+        nil nil #1]
+    :pre-blank 0 :raw-value "Cumulate plus" :title
+    (#("Cumulate plus" 0 13 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [49 nil nil nil 69 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +1w>" :year-start
+      2024 :month-start 11 :day-start 20 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 11 :day-end 20 :hour-end nil :minute-end nil
+      :repeater-type cumulate :repeater-value 1 :repeater-unit week)))
+   (section
+    (:standard-properties
+     [38 38 38 71 71 0 nil section nil nil nil 38 71 nil #<killed buffer> nil
+         nil #2])
+    (planning
+     (:standard-properties
+      [38 38 nil nil 71 1 nil planning nil nil nil nil nil nil #<killed buffer>
+          nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [49 nil nil nil 69 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +1w>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 1 :repeater-unit
+        week))))))
+  (headline
+   (:standard-properties
+    [71 71 93 127 127 0 (:title) nil nil nil nil nil nil 2 #<killed buffer> nil
+        nil #1]
+    :pre-blank 0 :raw-value "Catch up plus plus" :title
+    (#("Catch up plus plus" 0 18 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [104 nil nil nil 125 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed ++1m>"
+      :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+      :minute-end nil :repeater-type catch-up :repeater-value 1 :repeater-unit
+      month)))
+   (section
+    (:standard-properties
+     [93 93 93 127 127 0 nil section nil nil nil 93 127 nil #<killed buffer> nil
+         nil #2])
+    (planning
+     (:standard-properties
+      [93 93 nil nil 127 1 nil planning nil nil nil nil nil nil #<killed buffer>
+          nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [104 nil nil nil 125 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed ++1m>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type catch-up :repeater-value 1 :repeater-unit
+        month))))))
+  (headline
+   (:standard-properties
+    [127 127 147 181 181 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Restart dot plus" :title
+    (#("Restart dot plus" 0 16 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [158 nil nil nil 179 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed .+2d>"
+      :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+      :minute-end nil :repeater-type restart :repeater-value 2 :repeater-unit
+      day)))
+   (section
+    (:standard-properties
+     [147 147 147 181 181 0 nil section nil nil nil 147 181 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [147 147 nil nil 181 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [158 nil nil nil 179 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed .+2d>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type restart :repeater-value 2 :repeater-unit
+        day)))))))
+ (headline
+  (:standard-properties
+   [181 181 199 449 449 0 (:title) nil nil nil nil 201 447 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "Repeater units" :title
+   (#("Repeater units" 0 14 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (headline
+   (:standard-properties
+    [199 199 216 249 249 0 (:title) section nil nil nil nil nil 2 #<killed
+         buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Repeater hour" :title
+    (#("Repeater hour" 0 13 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [227 nil nil nil 247 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +3h>" :year-start
+      2024 :month-start 11 :day-start 20 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 11 :day-end 20 :hour-end nil :minute-end nil
+      :repeater-type cumulate :repeater-value 3 :repeater-unit hour)))
+   (section
+    (:standard-properties
+     [216 216 216 249 249 0 nil section nil nil nil 216 249 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [216 216 nil nil 249 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [227 nil nil nil 247 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +3h>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 3 :repeater-unit
+        hour))))))
+  (headline
+   (:standard-properties
+    [249 249 265 298 298 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Repeater day" :title
+    (#("Repeater day" 0 12 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [276 nil nil nil 296 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +3d>" :year-start
+      2024 :month-start 11 :day-start 20 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 11 :day-end 20 :hour-end nil :minute-end nil
+      :repeater-type cumulate :repeater-value 3 :repeater-unit day)))
+   (section
+    (:standard-properties
+     [265 265 265 298 298 0 nil section nil nil nil 265 298 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [265 265 nil nil 298 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [276 nil nil nil 296 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +3d>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 3 :repeater-unit
+        day))))))
+  (headline
+   (:standard-properties
+    [298 298 315 348 348 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Repeater week" :title
+    (#("Repeater week" 0 13 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [326 nil nil nil 346 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +3w>" :year-start
+      2024 :month-start 11 :day-start 20 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 11 :day-end 20 :hour-end nil :minute-end nil
+      :repeater-type cumulate :repeater-value 3 :repeater-unit week)))
+   (section
+    (:standard-properties
+     [315 315 315 348 348 0 nil section nil nil nil 315 348 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [315 315 nil nil 348 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [326 nil nil nil 346 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +3w>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 3 :repeater-unit
+        week))))))
+  (headline
+   (:standard-properties
+    [348 348 366 399 399 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Repeater month" :title
+    (#("Repeater month" 0 14 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [377 nil nil nil 397 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +3m>" :year-start
+      2024 :month-start 11 :day-start 20 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 11 :day-end 20 :hour-end nil :minute-end nil
+      :repeater-type cumulate :repeater-value 3 :repeater-unit month)))
+   (section
+    (:standard-properties
+     [366 366 366 399 399 0 nil section nil nil nil 366 399 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [366 366 nil nil 399 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [377 nil nil nil 397 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +3m>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 3 :repeater-unit
+        month))))))
+  (headline
+   (:standard-properties
+    [399 399 416 449 449 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Repeater year" :title
+    (#("Repeater year" 0 13 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [427 nil nil nil 447 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +3y>" :year-start
+      2024 :month-start 11 :day-start 20 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 11 :day-end 20 :hour-end nil :minute-end nil
+      :repeater-type cumulate :repeater-value 3 :repeater-unit year)))
+   (section
+    (:standard-properties
+     [416 416 416 449 449 0 nil section nil nil nil 416 449 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [416 416 nil nil 449 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [427 nil nil nil 447 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +3y>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 3 :repeater-unit
+        year)))))))
+ (headline
+  (:standard-properties
+   [449 449 475 678 678 0 (:title) nil nil nil nil 477 676 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "Repeater deadline part" :title
+   (#("Repeater deadline part" 0 22 (:parent #1))) :level 1 :priority nil :tags
+   nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (headline
+   (:standard-properties
+    [475 475 505 541 541 0 (:title) section nil nil nil nil nil 2 #<killed
+         buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Repeater with deadline day" :title
+    (#("Repeater with deadline day" 0 26 (:parent #2))) :level 2 :priority nil
+    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [516 nil nil nil 539 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed +1w/2d>"
+      :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+      :minute-end nil :repeater-type cumulate :repeater-value 1 :repeater-unit
+      week :repeater-deadline-value 2 :repeater-deadline-unit day)))
+   (section
+    (:standard-properties
+     [505 505 505 541 541 0 nil section nil nil nil 505 541 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [505 505 nil nil 541 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [516 nil nil nil 539 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed +1w/2d>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 1 :repeater-unit
+        week :repeater-deadline-value 2 :repeater-deadline-unit day))))))
+  (headline
+   (:standard-properties
+    [541 541 572 609 609 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Repeater with deadline week" :title
+    (#("Repeater with deadline week" 0 27 (:parent #2))) :level 2 :priority nil
+    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [583 nil nil nil 607 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed ++1m/1w>"
+      :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+      :minute-end nil :repeater-type catch-up :repeater-value 1 :repeater-unit
+      month :repeater-deadline-value 1 :repeater-deadline-unit week)))
+   (section
+    (:standard-properties
+     [572 572 572 609 609 0 nil section nil nil nil 572 609 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [572 572 nil nil 609 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [583 nil nil nil 607 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed ++1m/1w>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type catch-up :repeater-value 1 :repeater-unit
+        month :repeater-deadline-value 1 :repeater-deadline-unit week))))))
+  (headline
+   (:standard-properties
+    [609 609 641 678 678 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Repeater with deadline month" :title
+    (#("Repeater with deadline month" 0 28 (:parent #2))) :level 2 :priority nil
+    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [652 nil nil nil 676 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed .+1y/2m>"
+      :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+      :minute-end nil :repeater-type restart :repeater-value 1 :repeater-unit
+      year :repeater-deadline-value 2 :repeater-deadline-unit month)))
+   (section
+    (:standard-properties
+     [641 641 641 678 678 0 nil section nil nil nil 641 678 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [641 641 nil nil 678 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [652 nil nil nil 676 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed .+1y/2m>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+        :minute-end nil :repeater-type restart :repeater-value 1 :repeater-unit
+        year :repeater-deadline-value 2 :repeater-deadline-unit month)))))))
+ (headline
+  (:standard-properties
+   [678 678 696 945 945 0 (:title) nil nil nil nil 698 943 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "Warning delays" :title
+   (#("Warning delays" 0 14 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (headline
+   (:standard-properties
+    [696 696 711 743 743 0 (:title) section nil nil nil nil nil 2 #<killed
+         buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Warning all" :title
+    (#("Warning all" 0 11 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [721 nil nil nil 741 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun -5d>" :year-start
+      2024 :month-start 12 :day-start 1 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 12 :day-end 1 :hour-end nil :minute-end nil
+      :warning-type all :warning-value 5 :warning-unit day)))
+   (section
+    (:standard-properties
+     [711 711 711 743 743 0 nil section nil nil nil 711 743 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [711 711 nil nil 743 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [721 nil nil nil 741 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun -5d>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :warning-type all :warning-value 5 :warning-unit day))
+      :scheduled nil))))
+  (headline
+   (:standard-properties
+    [743 743 760 793 793 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Warning first" :title
+    (#("Warning first" 0 13 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [770 nil nil nil 791 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun --2w>"
+      :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+      :minute-end nil :warning-type first :warning-value 2 :warning-unit week)))
+   (section
+    (:standard-properties
+     [760 760 760 793 793 0 nil section nil nil nil 760 793 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [760 760 nil nil 793 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [770 nil nil nil 791 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun --2w>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :warning-type first :warning-value 2 :warning-unit week))
+      :scheduled nil))))
+  (headline
+   (:standard-properties
+    [793 793 809 847 847 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Warning hour" :title
+    (#("Warning hour" 0 12 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [819 nil nil nil 845 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun 09:30 -3h>"
+      :year-start 2024 :month-start 12 :day-start 1 :hour-start 9 :minute-start
+      30 :year-end 2024 :month-end 12 :day-end 1 :hour-end 9 :minute-end 30
+      :warning-type all :warning-value 3 :warning-unit hour)))
+   (section
+    (:standard-properties
+     [809 809 809 847 847 0 nil section nil nil nil 809 847 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [809 809 nil nil 847 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [819 nil nil nil 845 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun 09:30 -3h>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start 9
+        :minute-start 30 :year-end 2024 :month-end 12 :day-end 1 :hour-end 9
+        :minute-end 30 :warning-type all :warning-value 3 :warning-unit hour))
+      :scheduled nil))))
+  (headline
+   (:standard-properties
+    [847 847 864 896 896 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Warning month" :title
+    (#("Warning month" 0 13 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [874 nil nil nil 894 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun -1m>" :year-start
+      2024 :month-start 12 :day-start 1 :hour-start nil :minute-start nil
+      :year-end 2024 :month-end 12 :day-end 1 :hour-end nil :minute-end nil
+      :warning-type all :warning-value 1 :warning-unit month)))
+   (section
+    (:standard-properties
+     [864 864 864 896 896 0 nil section nil nil nil 864 896 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [864 864 nil nil 896 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [874 nil nil nil 894 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun -1m>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :warning-type all :warning-value 1 :warning-unit month))
+      :scheduled nil))))
+  (headline
+   (:standard-properties
+    [896 896 912 945 945 0 (:title) nil nil nil nil nil nil 2 #<killed buffer>
+         nil nil #1]
+    :pre-blank 0 :raw-value "Warning year" :title
+    (#("Warning year" 0 12 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [922 nil nil nil 943 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun --1y>"
+      :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+      :minute-end nil :warning-type first :warning-value 1 :warning-unit year)))
+   (section
+    (:standard-properties
+     [912 912 912 945 945 0 nil section nil nil nil 912 945 nil #<killed buffer>
+          nil nil #2])
+    (planning
+     (:standard-properties
+      [912 912 nil nil 945 1 nil planning nil nil nil nil nil nil #<killed
+           buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [922 nil nil nil 943 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun --1y>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :warning-type first :warning-value 1 :warning-unit year))
+      :scheduled nil)))))
+ (headline
+  (:standard-properties
+   [945 945 982 1211 1211 0 (:title) nil nil nil nil 984 1209 1 #<killed buffer>
+        nil nil #0]
+   :pre-blank 1 :raw-value "Repeater and warning combinations" :title
+   (#("Repeater and warning combinations" 0 33 (:parent #1))) :level 1 :priority
+   nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+   :archivedp nil :commentedp nil)
+  (headline
+   (:standard-properties
+    [982 982 1006 1042 1042 0 (:title) section nil nil nil nil nil 2 #<killed
+         buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Repeater and warning" :title
+    (#("Repeater and warning" 0 20 (:parent #2))) :level 2 :priority nil :tags
+    nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [1016 nil nil nil 1040 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun +1w -5d>"
+      :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+      :minute-end nil :repeater-type cumulate :repeater-value 1 :repeater-unit
+      week :warning-type all :warning-value 5 :warning-unit day)))
+   (section
+    (:standard-properties
+     [1006 1006 1006 1042 1042 0 nil section nil nil nil 1006 1042 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1006 1006 nil nil 1042 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [1016 nil nil nil 1040 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun +1w -5d>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :repeater-type cumulate :repeater-value 1 :repeater-unit
+        week :warning-type all :warning-value 5 :warning-unit day))
+      :scheduled nil))))
+  (headline
+   (:standard-properties
+    [1042 1042 1094 1134 1134 0 (:title) nil nil nil nil nil nil 2 #<killed
+          buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Catch up repeater with deadline part and warning"
+    :title
+    (#("Catch up repeater with deadline part and warning" 0 48 (:parent #2)))
+    :level 2 :priority nil :tags nil :todo-keyword nil :todo-type nil
+    :footnote-section-p nil :archivedp nil :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [1104 nil nil nil 1132 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun ++1m/2d -5d>"
+      :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+      :minute-end nil :repeater-type catch-up :repeater-value 1 :repeater-unit
+      month :repeater-deadline-value 2 :repeater-deadline-unit day :warning-type
+      all :warning-value 5 :warning-unit day)))
+   (section
+    (:standard-properties
+     [1094 1094 1094 1134 1134 0 nil section nil nil nil 1094 1134 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1094 1094 nil nil 1134 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [1104 nil nil nil 1132 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun ++1m/2d -5d>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :repeater-type catch-up :repeater-value 1 :repeater-unit
+        month :repeater-deadline-value 2 :repeater-deadline-unit day
+        :warning-type all :warning-value 5 :warning-unit day))
+      :scheduled nil))))
+  (headline
+   (:standard-properties
+    [1134 1134 1173 1211 1211 0 (:title) nil nil nil nil nil nil 2 #<killed
+          buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Restart repeater with first warning" :title
+    (#("Restart repeater with first warning" 0 35 (:parent #2))) :level 2
+    :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+    nil :archivedp nil :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [1183 nil nil nil 1209 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-12-01 Sun .+2w --1w>"
+      :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+      :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+      :minute-end nil :repeater-type restart :repeater-value 2 :repeater-unit
+      week :warning-type first :warning-value 1 :warning-unit week)))
+   (section
+    (:standard-properties
+     [1173 1173 1173 1211 1211 0 nil section nil nil nil 1173 1211 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1173 1173 nil nil 1211 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [1183 nil nil nil 1209 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-12-01 Sun .+2w --1w>"
+        :year-start 2024 :month-start 12 :day-start 1 :hour-start nil
+        :minute-start nil :year-end 2024 :month-end 12 :day-end 1 :hour-end nil
+        :minute-end nil :repeater-type restart :repeater-value 2 :repeater-unit
+        week :warning-type first :warning-value 1 :warning-unit week))
+      :scheduled nil)))))
+ (headline
+  (:standard-properties
+   [1211 1211 1242 1454 1454 0 (:title) nil nil nil nil 1244 1452 1 #<killed
+         buffer> nil nil #0]
+   :pre-blank 1 :raw-value "Time and range combinations" :title
+   (#("Time and range combinations" 0 27 (:parent #1))) :level 1 :priority nil
+   :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp
+   nil :commentedp nil)
+  (headline
+   (:standard-properties
+    [1242 1242 1264 1303 1303 0 (:title) section nil nil nil nil nil 2 #<killed
+          buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Time with repeater" :title
+    (#("Time with repeater" 0 18 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [1275 nil nil nil 1301 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active :range-type nil :raw-value "<2024-11-20 Wed 09:30 +1w>"
+      :year-start 2024 :month-start 11 :day-start 20 :hour-start 9 :minute-start
+      30 :year-end 2024 :month-end 11 :day-end 20 :hour-end 9 :minute-end 30
+      :repeater-type cumulate :repeater-value 1 :repeater-unit week)))
+   (section
+    (:standard-properties
+     [1264 1264 1264 1303 1303 0 nil section nil nil nil 1264 1303 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1264 1264 nil nil 1303 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [1275 nil nil nil 1301 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active :range-type nil :raw-value "<2024-11-20 Wed 09:30 +1w>"
+        :year-start 2024 :month-start 11 :day-start 20 :hour-start 9
+        :minute-start 30 :year-end 2024 :month-end 11 :day-end 20 :hour-end 9
+        :minute-end 30 :repeater-type cumulate :repeater-value 1 :repeater-unit
+        week))))))
+  (headline
+   (:standard-properties
+    [1303 1303 1331 1376 1376 0 (:title) nil nil nil nil nil nil 2 #<killed
+          buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Time range with repeater" :title
+    (#("Time range with repeater" 0 24 (:parent #2))) :level 2 :priority nil
+    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [1342 nil nil nil 1374 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active-range :range-type timerange :raw-value
+      "<2024-11-20 Wed 09:30-11:00 +1w>" :year-start 2024 :month-start 11
+      :day-start 20 :hour-start 9 :minute-start 30 :year-end 2024 :month-end 11
+      :day-end 20 :hour-end 11 :minute-end 0 :repeater-type cumulate
+      :repeater-value 1 :repeater-unit week)))
+   (section
+    (:standard-properties
+     [1331 1331 1331 1376 1376 0 nil section nil nil nil 1331 1376 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1331 1331 nil nil 1376 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [1342 nil nil nil 1374 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active-range :range-type timerange :raw-value
+        "<2024-11-20 Wed 09:30-11:00 +1w>" :year-start 2024 :month-start 11
+        :day-start 20 :hour-start 9 :minute-start 30 :year-end 2024 :month-end
+        11 :day-end 20 :hour-end 11 :minute-end 0 :repeater-type cumulate
+        :repeater-value 1 :repeater-unit week))))))
+  (headline
+   (:standard-properties
+    [1376 1376 1404 1454 1454 0 (:title) nil nil nil nil nil nil 2 #<killed
+          buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Date range with repeater" :title
+    (#("Date range with repeater" 0 24 (:parent #2))) :level 2 :priority nil
+    :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+    :archivedp nil :commentedp nil :deadline
+    (timestamp
+     (:standard-properties
+      [1414 nil nil nil 1452 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type active-range :range-type daterange :raw-value
+      "<2024-12-01 Sun>--<2024-12-03 Tue +1w>" :year-start 2024 :month-start 12
+      :day-start 1 :hour-start nil :minute-start nil :year-end 2024 :month-end
+      12 :day-end 3 :hour-end nil :minute-end nil :repeater-type cumulate
+      :repeater-value 1 :repeater-unit week)))
+   (section
+    (:standard-properties
+     [1404 1404 1404 1454 1454 0 nil section nil nil nil 1404 1454 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1404 1404 nil nil 1454 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline
+      (timestamp
+       (:standard-properties
+        [1414 nil nil nil 1452 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type active-range :range-type daterange :raw-value
+        "<2024-12-01 Sun>--<2024-12-03 Tue +1w>" :year-start 2024 :month-start
+        12 :day-start 1 :hour-start nil :minute-start nil :year-end 2024
+        :month-end 12 :day-end 3 :hour-end nil :minute-end nil :repeater-type
+        cumulate :repeater-value 1 :repeater-unit week))
+      :scheduled nil)))))
+ (headline
+  (:standard-properties
+   [1454 1454 1490 1533 1533 0 (:title) nil nil nil nil 1492 1531 1 #<killed
+         buffer> nil nil #0]
+   :pre-blank 1 :raw-value "Inactive timestamp with repeater" :title
+   (#("Inactive timestamp with repeater" 0 32 (:parent #1))) :level 1 :priority
+   nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p nil
+   :archivedp nil :commentedp nil)
+  (headline
+   (:standard-properties
+    [1490 1490 1511 1533 1533 0 (:title) section nil nil nil 1513 1531 2
+          #<killed buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Inactive repeater" :title
+    (#("Inactive repeater" 0 17 (:parent #2))) :level 2 :priority nil :tags nil
+    :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+    :commentedp nil)
+   (section
+    (:standard-properties
+     [1511 1511 1511 1533 1533 0 nil section nil nil nil 1511 1533 nil #<killed
+           buffer> nil nil #2])
+    (paragraph
+     (:standard-properties
+      [1511 1511 1511 1532 1533 1 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3])
+     (timestamp
+      (:standard-properties
+       [1511 nil nil nil 1531 0 nil nil nil nil nil nil nil nil #<killed buffer>
+             nil nil #4]
+       :type inactive :range-type nil :raw-value "[2024-11-20 Wed +1w]"
+       :year-start 2024 :month-start 11 :day-start 20 :hour-start nil
+       :minute-start nil :year-end 2024 :month-end 11 :day-end 20 :hour-end nil
+       :minute-end nil :repeater-type cumulate :repeater-value 1 :repeater-unit
+       week))
+     #("\n" 0 1 (:parent #4))))))
+ (headline
+  (:standard-properties
+   [1533 1533 1556 1626 1626 0 (:title) nil nil nil nil 1558 1624 1 #<killed
+         buffer> nil nil #0]
+   :pre-blank 1 :raw-value "Diary negative case" :title
+   (#("Diary negative case" 0 19 (:parent #1))) :level 1 :priority nil :tags nil
+   :todo-keyword nil :todo-type nil :footnote-section-p nil :archivedp nil
+   :commentedp nil)
+  (headline
+   (:standard-properties
+    [1556 1556 1593 1626 1626 0 (:title) section nil nil nil nil nil 2 #<killed
+          buffer> nil nil #1]
+    :pre-blank 0 :raw-value "Diary with apparent repeater text" :title
+    (#("Diary with apparent repeater text" 0 33 (:parent #2))) :level 2
+    :priority nil :tags nil :todo-keyword nil :todo-type nil :footnote-section-p
+    nil :archivedp nil :commentedp nil :scheduled
+    (timestamp
+     (:standard-properties
+      [1604 nil nil nil 1626 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+      :type diary :range-type nil :raw-value "<%%(diary-float t 42)>"
+      :year-start nil :month-start nil :day-start nil :hour-start nil
+      :minute-start nil :year-end nil :month-end nil :day-end nil :hour-end nil
+      :minute-end nil :diary-sexp "(diary-float t 42)")))
+   (section
+    (:standard-properties
+     [1593 1593 1593 1626 1626 0 nil section nil nil nil 1593 1626 nil #<killed
+           buffer> nil nil #2])
+    (planning
+     (:standard-properties
+      [1593 1593 nil nil 1626 0 nil planning nil nil nil nil nil nil #<killed
+            buffer> nil nil #3]
+      :closed nil :deadline nil :scheduled
+      (timestamp
+       (:standard-properties
+        [1604 nil nil nil 1626 0 nil nil nil nil nil nil nil nil nil nil nil nil]
+        :type diary :range-type nil :raw-value "<%%(diary-float t 42)>"
+        :year-start nil :month-start nil :day-start nil :hour-start nil
+        :minute-start nil :year-end nil :month-end nil :day-end nil :hour-end
+        nil :minute-end nil :diary-sexp "(diary-float t 42)"))))))))
+#+end_src
+
+* Setup
+
+#+name: init
+#+begin_src emacs-lisp :results silent
+(load-file "./tools/orgfdb-org-inspect.el")
+#+end_src
+

@@ -18,6 +18,12 @@ pub struct HeadingListRow {
     pub todo_keyword: Option<String>,
     pub todo_type: Option<String>,
     pub priority: Option<char>,
+    pub scheduled_raw: Option<String>,
+    pub scheduled_ts: Option<i64>,
+    pub deadline_raw: Option<String>,
+    pub deadline_ts: Option<i64>,
+    pub closed_raw: Option<String>,
+    pub closed_ts: Option<i64>,
     pub archivedp: bool,
     pub footnote_section_p: bool,
     pub all_tags_json: String,
@@ -48,6 +54,12 @@ impl DbReader {
                     headings.todo_keyword,
                     headings.todo_type,
                     headings.priority,
+                    headings.scheduled_raw,
+                    headings.scheduled_ts,
+                    headings.deadline_raw,
+                    headings.deadline_ts,
+                    headings.closed_raw,
+                    headings.closed_ts,
                     headings.archivedp,
                     headings.footnote_section_p,
                     headings.all_tags_json
@@ -77,9 +89,15 @@ impl DbReader {
                     todo_keyword: row.get(10)?,
                     todo_type: row.get(11)?,
                     priority: priority.and_then(|value| value.chars().next()),
-                    archivedp: row.get::<_, i64>(13)? != 0,
-                    footnote_section_p: row.get::<_, i64>(14)? != 0,
-                    all_tags_json: row.get(15)?,
+                    scheduled_raw: row.get(13)?,
+                    scheduled_ts: row.get(14)?,
+                    deadline_raw: row.get(15)?,
+                    deadline_ts: row.get(16)?,
+                    closed_raw: row.get(17)?,
+                    closed_ts: row.get(18)?,
+                    archivedp: row.get::<_, i64>(19)? != 0,
+                    footnote_section_p: row.get::<_, i64>(20)? != 0,
+                    all_tags_json: row.get(21)?,
                 })
             })
             .map_err(|source| DbReadError::Query {
@@ -208,6 +226,8 @@ mod tests {
         assert_eq!(rows[1].title, "Inbox");
         assert_eq!(rows[1].todo_keyword.as_deref(), Some("TODO"));
         assert_eq!(rows[1].priority, Some('A'));
+        assert_eq!(rows[1].scheduled_raw, None);
+        assert_eq!(rows[1].scheduled_ts, None);
         assert_eq!(rows[1].all_tags_json, "[\"rust\"]");
     }
 }

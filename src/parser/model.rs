@@ -183,6 +183,7 @@ pub struct ParsedHeading {
     pub tags: Vec<String>,
     pub properties: Vec<ParsedProperty>,
     pub planning: ParsedPlanning,
+    pub timestamps: Vec<ParsedTimestamp>,
     pub line_number: Option<u32>,
     pub byte_start: usize,
     pub byte_end: usize,
@@ -211,6 +212,7 @@ impl ParsedHeading {
             tags: Vec::new(),
             properties: Vec::new(),
             planning: ParsedPlanning::default(),
+            timestamps: Vec::new(),
             line_number: None,
             byte_start,
             byte_end,
@@ -236,7 +238,117 @@ pub struct ParsedProperty {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ParsedPlanning {
-    pub scheduled: Option<String>,
-    pub deadline: Option<String>,
-    pub closed: Option<String>,
+    pub scheduled: Option<ParsedTimestamp>,
+    pub deadline: Option<ParsedTimestamp>,
+    pub closed: Option<ParsedTimestamp>,
+}
+
+impl ParsedPlanning {
+    pub fn scheduled_raw(&self) -> Option<&str> {
+        self.scheduled
+            .as_ref()
+            .map(|timestamp| timestamp.raw_value.as_str())
+    }
+
+    pub fn scheduled_ts(&self) -> Option<i64> {
+        self.scheduled
+            .as_ref()
+            .and_then(|timestamp| timestamp.start_ts)
+    }
+
+    pub fn deadline_raw(&self) -> Option<&str> {
+        self.deadline
+            .as_ref()
+            .map(|timestamp| timestamp.raw_value.as_str())
+    }
+
+    pub fn deadline_ts(&self) -> Option<i64> {
+        self.deadline
+            .as_ref()
+            .and_then(|timestamp| timestamp.start_ts)
+    }
+
+    pub fn closed_raw(&self) -> Option<&str> {
+        self.closed
+            .as_ref()
+            .map(|timestamp| timestamp.raw_value.as_str())
+    }
+
+    pub fn closed_ts(&self) -> Option<i64> {
+        self.closed
+            .as_ref()
+            .and_then(|timestamp| timestamp.start_ts)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ParsedTimestamp {
+    pub role: Option<ParsedTimestampRole>,
+    pub raw_value: String,
+    pub timestamp_type: ParsedTimestampType,
+    pub range_type: ParsedTimestampRangeType,
+    pub start_ts: Option<i64>,
+    pub end_ts: Option<i64>,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub line_number: Option<u32>,
+    pub modifiers: Vec<ParsedTimestampModifier>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ParsedTimestampRole {
+    Scheduled,
+    Deadline,
+    Closed,
+    Body,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ParsedTimestampType {
+    Active,
+    Inactive,
+    Diary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ParsedTimestampRangeType {
+    None,
+    DateRange,
+    TimeRange,
+    DateTimeRange,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ParsedTimestampModifier {
+    pub kind: ParsedTimestampModifierKind,
+    pub modifier_type: ParsedTimestampModifierType,
+    pub value: i64,
+    pub unit: ParsedTimestampUnit,
+    pub repeater_deadline_value: Option<i64>,
+    pub repeater_deadline_unit: Option<ParsedTimestampUnit>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ParsedTimestampModifierKind {
+    Repeater,
+    Warning,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ParsedTimestampModifierType {
+    Cumulate,
+    CatchUp,
+    Restart,
+    All,
+    First,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ParsedTimestampUnit {
+    Hour,
+    Day,
+    Week,
+    Month,
+    Year,
 }

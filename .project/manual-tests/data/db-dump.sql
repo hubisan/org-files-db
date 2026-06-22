@@ -8,9 +8,12 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1781880327);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org',1781808923034914634,904,NULL,1781880327);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1781880327);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782165208);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org',1781808923034914634,904,NULL,1782165208);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782165208);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782165208);
+INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782165208);
+INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782165208);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -78,6 +81,62 @@ INSERT INTO headings VALUES(29,2,28,2,31,779,853,'child with only local tag','ch
 INSERT INTO headings VALUES(30,2,28,2,34,853,904,'child without tags','child without tags',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(31,3,NULL,0,1,-1,321,'Title can span multiple lines, even here','Title can span multiple lines, even here',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(32,3,31,1,7,136,321,'Unfortunately Everywhere','Unfortunately Everywhere',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(33,4,NULL,0,1,-1,1163,'Planning timestamp','Planning timestamp',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(34,4,33,1,4,49,1163,'Planning','Planning',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(35,4,34,2,6,62,111,'Simple scheduled','Simple scheduled',NULL,NULL,NULL,'<2024-11-20 Wed>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(36,4,34,2,9,111,158,'Simple deadline','Simple deadline',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(37,4,34,2,12,158,201,'Simple closed','Simple closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[2024-11-21 Thu]',1732147200,0,0,'[]');
+INSERT INTO headings VALUES(38,4,34,2,15,201,310,'All on one planning line','All on one planning line',NULL,NULL,NULL,'<2024-11-20 Wed>',1732060800,'<2024-12-01 Sun>',1733011200,'[2024-11-21 Thu]',1732147200,0,0,'[]');
+INSERT INTO headings VALUES(39,4,34,2,18,310,358,'With time','With time',NULL,NULL,NULL,'<2024-11-20 Wed 09:30>',1732095000,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(40,4,34,2,21,358,422,'Time range same day','Time range same day',NULL,NULL,NULL,'<2024-11-20 Wed 09:30-11:00>',1732095000,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(41,4,34,2,24,422,482,'Date range','Date range',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun>--<2024-12-03 Tue>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(42,4,34,2,27,482,527,'Repeater','Repeater',NULL,NULL,NULL,'<2024-11-20 Wed +1w>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(43,4,34,2,30,527,582,'Diary expression','Diary expression',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(44,4,34,2,33,582,704,'Multiple same keyword','Multiple same keyword',NULL,NULL,NULL,'<2024-11-21 Thu>',1732147200,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(45,4,34,2,37,704,1163,'Not valid','Not valid',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(46,4,45,3,39,718,827,'Multiple planning lines','Multiple planning lines',NULL,NULL,NULL,'<2024-11-20 Wed>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(47,4,45,3,44,827,922,'Planning not immediately after headline','Planning not immediately after headline',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(48,4,45,3,48,922,1009,'Looks like planning in body','Looks like planning in body',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(49,4,45,3,51,1009,1078,'Lowercase should probably not count','Lowercase should probably not count',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(50,4,45,3,54,1078,1163,'Multiple same keyword','Multiple same keyword',NULL,NULL,NULL,'<2024-11-21 Thu>',1732147200,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(51,5,NULL,0,1,-1,1626,'timestamp-repeaters','timestamp-repeaters',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(52,5,51,1,1,0,180,'Repeater markers','Repeater markers',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(53,5,52,2,3,20,70,'Cumulate plus','Cumulate plus',NULL,NULL,NULL,'<2024-11-20 Wed +1w>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(54,5,52,2,6,70,126,'Catch up plus plus','Catch up plus plus',NULL,NULL,NULL,'<2024-11-20 Wed ++1m>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(55,5,52,2,9,126,180,'Restart dot plus','Restart dot plus',NULL,NULL,NULL,'<2024-11-20 Wed .+2d>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(56,5,51,1,12,180,448,'Repeater units','Repeater units',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(57,5,56,2,14,198,248,'Repeater hour','Repeater hour',NULL,NULL,NULL,'<2024-11-20 Wed +3h>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(58,5,56,2,17,248,297,'Repeater day','Repeater day',NULL,NULL,NULL,'<2024-11-20 Wed +3d>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(59,5,56,2,20,297,347,'Repeater week','Repeater week',NULL,NULL,NULL,'<2024-11-20 Wed +3w>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(60,5,56,2,23,347,398,'Repeater month','Repeater month',NULL,NULL,NULL,'<2024-11-20 Wed +3m>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(61,5,56,2,26,398,448,'Repeater year','Repeater year',NULL,NULL,NULL,'<2024-11-20 Wed +3y>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(62,5,51,1,29,448,677,'Repeater deadline part','Repeater deadline part',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(63,5,62,2,31,474,540,'Repeater with deadline day','Repeater with deadline day',NULL,NULL,NULL,'<2024-11-20 Wed +1w/2d>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(64,5,62,2,34,540,608,'Repeater with deadline week','Repeater with deadline week',NULL,NULL,NULL,'<2024-11-20 Wed ++1m/1w>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(65,5,62,2,37,608,677,'Repeater with deadline month','Repeater with deadline month',NULL,NULL,NULL,'<2024-11-20 Wed .+1y/2m>',1732060800,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(66,5,51,1,40,677,944,'Warning delays','Warning delays',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(67,5,66,2,42,695,742,'Warning all','Warning all',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun -5d>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(68,5,66,2,45,742,792,'Warning first','Warning first',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun --2w>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(69,5,66,2,48,792,846,'Warning hour','Warning hour',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun 09:30 -3h>',1733045400,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(70,5,66,2,51,846,895,'Warning month','Warning month',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun -1m>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(71,5,66,2,54,895,944,'Warning year','Warning year',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun --1y>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(72,5,51,1,57,944,1210,'Repeater and warning combinations','Repeater and warning combinations',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(73,5,72,2,59,981,1041,'Repeater and warning','Repeater and warning',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun +1w -5d>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(74,5,72,2,62,1041,1133,'Catch up repeater with deadline part and warning','Catch up repeater with deadline part and warning',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun ++1m/2d -5d>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(75,5,72,2,65,1133,1210,'Restart repeater with first warning','Restart repeater with first warning',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun .+2w --1w>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(76,5,51,1,68,1210,1453,'Time and range combinations','Time and range combinations',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(77,5,76,2,70,1241,1302,'Time with repeater','Time with repeater',NULL,NULL,NULL,'<2024-11-20 Wed 09:30 +1w>',1732095000,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(78,5,76,2,73,1302,1375,'Time range with repeater','Time range with repeater',NULL,NULL,NULL,'<2024-11-20 Wed 09:30-11:00 +1w>',1732095000,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(79,5,76,2,76,1375,1453,'Date range with repeater','Date range with repeater',NULL,NULL,NULL,NULL,NULL,'<2024-12-01 Sun>--<2024-12-03 Tue +1w>',1733011200,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(80,5,51,1,79,1453,1532,'Inactive timestamp with repeater','Inactive timestamp with repeater',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(81,5,80,2,81,1489,1532,'Inactive repeater','Inactive repeater',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(82,5,51,1,84,1532,1626,'Diary negative case','Diary negative case',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(83,5,82,2,86,1555,1626,'Diary with apparent repeater text','Diary with apparent repeater text',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(84,6,NULL,0,1,-1,299,'Timestamps','Timestamps',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(85,6,84,1,4,40,91,'Meet Peter at the movies','Meet Peter at the movies',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(86,6,84,1,7,91,152,'Discussion on climate change','Discussion on climate change',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(87,6,84,1,10,152,201,'My days off','My days off',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(88,6,84,1,14,201,299,'Can be anywhere','Can be anywhere',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 CREATE TABLE todo_keywords (
     file_id         INTEGER NOT NULL,
     keyword         TEXT NOT NULL,
@@ -106,6 +165,12 @@ INSERT INTO todo_keywords VALUES(2,'TODO','open',NULL,0);
 INSERT INTO todo_keywords VALUES(2,'DONE','closed',NULL,1);
 INSERT INTO todo_keywords VALUES(3,'TODO','open',NULL,0);
 INSERT INTO todo_keywords VALUES(3,'DONE','closed',NULL,1);
+INSERT INTO todo_keywords VALUES(4,'TODO','open',NULL,0);
+INSERT INTO todo_keywords VALUES(4,'DONE','closed',NULL,1);
+INSERT INTO todo_keywords VALUES(5,'TODO','open',NULL,0);
+INSERT INTO todo_keywords VALUES(5,'DONE','closed',NULL,1);
+INSERT INTO todo_keywords VALUES(6,'TODO','open',NULL,0);
+INSERT INTO todo_keywords VALUES(6,'DONE','closed',NULL,1);
 CREATE TABLE keywords (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -130,6 +195,10 @@ INSERT INTO keywords VALUES(10,19,'STARTUP','showall',NULL);
 INSERT INTO keywords VALUES(11,31,'TITLE','Title can span',NULL);
 INSERT INTO keywords VALUES(12,31,'TITLE','multiple lines,',NULL);
 INSERT INTO keywords VALUES(13,31,'AUTHOR','Hubisan',NULL);
+INSERT INTO keywords VALUES(14,33,'TITLE','Planning timestamp',NULL);
+INSERT INTO keywords VALUES(15,33,'STARTUP','showall',NULL);
+INSERT INTO keywords VALUES(16,84,'TITLE','Timestamps',NULL);
+INSERT INTO keywords VALUES(17,84,'STARTUP','showall',NULL);
 CREATE TABLE properties (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -253,6 +322,225 @@ INSERT INTO outline_path VALUES(29,2,28,2,'0000.0003.0001','["Inherited heading 
 INSERT INTO outline_path VALUES(30,2,28,2,'0000.0003.0002','["Inherited heading tags","untagged parent","child without tags"]');
 INSERT INTO outline_path VALUES(31,3,NULL,0,'0000','["Title can span multiple lines, even here"]');
 INSERT INTO outline_path VALUES(32,3,31,1,'0000.0001','["Title can span multiple lines, even here","Unfortunately Everywhere"]');
+INSERT INTO outline_path VALUES(33,4,NULL,0,'0000','["Planning timestamp"]');
+INSERT INTO outline_path VALUES(34,4,33,1,'0000.0001','["Planning timestamp","Planning"]');
+INSERT INTO outline_path VALUES(35,4,34,2,'0000.0001.0001','["Planning timestamp","Planning","Simple scheduled"]');
+INSERT INTO outline_path VALUES(36,4,34,2,'0000.0001.0002','["Planning timestamp","Planning","Simple deadline"]');
+INSERT INTO outline_path VALUES(37,4,34,2,'0000.0001.0003','["Planning timestamp","Planning","Simple closed"]');
+INSERT INTO outline_path VALUES(38,4,34,2,'0000.0001.0004','["Planning timestamp","Planning","All on one planning line"]');
+INSERT INTO outline_path VALUES(39,4,34,2,'0000.0001.0005','["Planning timestamp","Planning","With time"]');
+INSERT INTO outline_path VALUES(40,4,34,2,'0000.0001.0006','["Planning timestamp","Planning","Time range same day"]');
+INSERT INTO outline_path VALUES(41,4,34,2,'0000.0001.0007','["Planning timestamp","Planning","Date range"]');
+INSERT INTO outline_path VALUES(42,4,34,2,'0000.0001.0008','["Planning timestamp","Planning","Repeater"]');
+INSERT INTO outline_path VALUES(43,4,34,2,'0000.0001.0009','["Planning timestamp","Planning","Diary expression"]');
+INSERT INTO outline_path VALUES(44,4,34,2,'0000.0001.0010','["Planning timestamp","Planning","Multiple same keyword"]');
+INSERT INTO outline_path VALUES(45,4,34,2,'0000.0001.0011','["Planning timestamp","Planning","Not valid"]');
+INSERT INTO outline_path VALUES(46,4,45,3,'0000.0001.0011.0001','["Planning timestamp","Planning","Not valid","Multiple planning lines"]');
+INSERT INTO outline_path VALUES(47,4,45,3,'0000.0001.0011.0002','["Planning timestamp","Planning","Not valid","Planning not immediately after headline"]');
+INSERT INTO outline_path VALUES(48,4,45,3,'0000.0001.0011.0003','["Planning timestamp","Planning","Not valid","Looks like planning in body"]');
+INSERT INTO outline_path VALUES(49,4,45,3,'0000.0001.0011.0004','["Planning timestamp","Planning","Not valid","Lowercase should probably not count"]');
+INSERT INTO outline_path VALUES(50,4,45,3,'0000.0001.0011.0005','["Planning timestamp","Planning","Not valid","Multiple same keyword"]');
+INSERT INTO outline_path VALUES(51,5,NULL,0,'0000','["timestamp-repeaters"]');
+INSERT INTO outline_path VALUES(52,5,51,1,'0000.0001','["timestamp-repeaters","Repeater markers"]');
+INSERT INTO outline_path VALUES(53,5,52,2,'0000.0001.0001','["timestamp-repeaters","Repeater markers","Cumulate plus"]');
+INSERT INTO outline_path VALUES(54,5,52,2,'0000.0001.0002','["timestamp-repeaters","Repeater markers","Catch up plus plus"]');
+INSERT INTO outline_path VALUES(55,5,52,2,'0000.0001.0003','["timestamp-repeaters","Repeater markers","Restart dot plus"]');
+INSERT INTO outline_path VALUES(56,5,51,1,'0000.0002','["timestamp-repeaters","Repeater units"]');
+INSERT INTO outline_path VALUES(57,5,56,2,'0000.0002.0001','["timestamp-repeaters","Repeater units","Repeater hour"]');
+INSERT INTO outline_path VALUES(58,5,56,2,'0000.0002.0002','["timestamp-repeaters","Repeater units","Repeater day"]');
+INSERT INTO outline_path VALUES(59,5,56,2,'0000.0002.0003','["timestamp-repeaters","Repeater units","Repeater week"]');
+INSERT INTO outline_path VALUES(60,5,56,2,'0000.0002.0004','["timestamp-repeaters","Repeater units","Repeater month"]');
+INSERT INTO outline_path VALUES(61,5,56,2,'0000.0002.0005','["timestamp-repeaters","Repeater units","Repeater year"]');
+INSERT INTO outline_path VALUES(62,5,51,1,'0000.0003','["timestamp-repeaters","Repeater deadline part"]');
+INSERT INTO outline_path VALUES(63,5,62,2,'0000.0003.0001','["timestamp-repeaters","Repeater deadline part","Repeater with deadline day"]');
+INSERT INTO outline_path VALUES(64,5,62,2,'0000.0003.0002','["timestamp-repeaters","Repeater deadline part","Repeater with deadline week"]');
+INSERT INTO outline_path VALUES(65,5,62,2,'0000.0003.0003','["timestamp-repeaters","Repeater deadline part","Repeater with deadline month"]');
+INSERT INTO outline_path VALUES(66,5,51,1,'0000.0004','["timestamp-repeaters","Warning delays"]');
+INSERT INTO outline_path VALUES(67,5,66,2,'0000.0004.0001','["timestamp-repeaters","Warning delays","Warning all"]');
+INSERT INTO outline_path VALUES(68,5,66,2,'0000.0004.0002','["timestamp-repeaters","Warning delays","Warning first"]');
+INSERT INTO outline_path VALUES(69,5,66,2,'0000.0004.0003','["timestamp-repeaters","Warning delays","Warning hour"]');
+INSERT INTO outline_path VALUES(70,5,66,2,'0000.0004.0004','["timestamp-repeaters","Warning delays","Warning month"]');
+INSERT INTO outline_path VALUES(71,5,66,2,'0000.0004.0005','["timestamp-repeaters","Warning delays","Warning year"]');
+INSERT INTO outline_path VALUES(72,5,51,1,'0000.0005','["timestamp-repeaters","Repeater and warning combinations"]');
+INSERT INTO outline_path VALUES(73,5,72,2,'0000.0005.0001','["timestamp-repeaters","Repeater and warning combinations","Repeater and warning"]');
+INSERT INTO outline_path VALUES(74,5,72,2,'0000.0005.0002','["timestamp-repeaters","Repeater and warning combinations","Catch up repeater with deadline part and warning"]');
+INSERT INTO outline_path VALUES(75,5,72,2,'0000.0005.0003','["timestamp-repeaters","Repeater and warning combinations","Restart repeater with first warning"]');
+INSERT INTO outline_path VALUES(76,5,51,1,'0000.0006','["timestamp-repeaters","Time and range combinations"]');
+INSERT INTO outline_path VALUES(77,5,76,2,'0000.0006.0001','["timestamp-repeaters","Time and range combinations","Time with repeater"]');
+INSERT INTO outline_path VALUES(78,5,76,2,'0000.0006.0002','["timestamp-repeaters","Time and range combinations","Time range with repeater"]');
+INSERT INTO outline_path VALUES(79,5,76,2,'0000.0006.0003','["timestamp-repeaters","Time and range combinations","Date range with repeater"]');
+INSERT INTO outline_path VALUES(80,5,51,1,'0000.0007','["timestamp-repeaters","Inactive timestamp with repeater"]');
+INSERT INTO outline_path VALUES(81,5,80,2,'0000.0007.0001','["timestamp-repeaters","Inactive timestamp with repeater","Inactive repeater"]');
+INSERT INTO outline_path VALUES(82,5,51,1,'0000.0008','["timestamp-repeaters","Diary negative case"]');
+INSERT INTO outline_path VALUES(83,5,82,2,'0000.0008.0001','["timestamp-repeaters","Diary negative case","Diary with apparent repeater text"]');
+INSERT INTO outline_path VALUES(84,6,NULL,0,'0000','["Timestamps"]');
+INSERT INTO outline_path VALUES(85,6,84,1,'0000.0001','["Timestamps","Meet Peter at the movies"]');
+INSERT INTO outline_path VALUES(86,6,84,1,'0000.0002','["Timestamps","Discussion on climate change"]');
+INSERT INTO outline_path VALUES(87,6,84,1,'0000.0003','["Timestamps","My days off"]');
+INSERT INTO outline_path VALUES(88,6,84,1,'0000.0004','["Timestamps","Can be anywhere"]');
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT CHECK (
+                        role IN ('scheduled', 'deadline', 'closed', 'body')
+                        OR role IS NULL
+                    ),
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT CHECK (
+                        type IN ('active', 'inactive', 'diary')
+                        OR type IS NULL
+                    ),
+    range_type      TEXT CHECK (
+                        range_type IN ('none', 'date_range', 'time_range', 'datetime_range', 'unknown')
+                        OR range_type IS NULL
+                    ),
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+);
+INSERT INTO timestamps VALUES(1,35,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed>',93,109,7);
+INSERT INTO timestamps VALUES(2,36,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun>',140,156,10);
+INSERT INTO timestamps VALUES(3,37,'closed',1732147200,NULL,'inactive','none','[2024-11-21 Thu]',183,199,13);
+INSERT INTO timestamps VALUES(4,38,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun>',239,255,16);
+INSERT INTO timestamps VALUES(5,38,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed>',267,283,16);
+INSERT INTO timestamps VALUES(6,38,'closed',1732147200,NULL,'inactive','none','[2024-11-21 Thu]',292,308,16);
+INSERT INTO timestamps VALUES(7,39,'scheduled',1732095000,NULL,'active','none','<2024-11-20 Wed 09:30>',334,356,19);
+INSERT INTO timestamps VALUES(8,40,'scheduled',1732095000,1732100400,'active','time_range','<2024-11-20 Wed 09:30-11:00>',392,420,22);
+INSERT INTO timestamps VALUES(9,41,'deadline',1733011200,1733184000,'active','date_range','<2024-12-01 Sun>--<2024-12-03 Tue>',446,480,25);
+INSERT INTO timestamps VALUES(10,42,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +1w>',505,525,28);
+INSERT INTO timestamps VALUES(11,43,'body',NULL,NULL,'diary','none','<%%(diary-float t 42)>',558,580,31);
+INSERT INTO timestamps VALUES(12,44,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed>',618,634,34);
+INSERT INTO timestamps VALUES(13,44,'scheduled',1732147200,NULL,'active','none','<2024-11-21 Thu>',646,662,34);
+INSERT INTO timestamps VALUES(14,46,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed>',757,773,40);
+INSERT INTO timestamps VALUES(15,46,'body',1733011200,NULL,'active','none','<2024-12-01 Sun>',784,800,41);
+INSERT INTO timestamps VALUES(16,46,'body',1732147200,NULL,'inactive','none','[2024-11-21 Thu]',809,825,42);
+INSERT INTO timestamps VALUES(17,47,'body',1732060800,NULL,'active','none','<2024-11-20 Wed>',904,920,46);
+INSERT INTO timestamps VALUES(18,48,'body',1733011200,NULL,'active','none','<2024-12-01 Sun>',978,994,49);
+INSERT INTO timestamps VALUES(19,49,'body',1732060800,NULL,'active','none','<2024-11-20 Wed>',1060,1076,52);
+INSERT INTO timestamps VALUES(20,50,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed>',1115,1131,55);
+INSERT INTO timestamps VALUES(21,50,'scheduled',1732147200,NULL,'active','none','<2024-11-21 Thu>',1143,1159,55);
+INSERT INTO timestamps VALUES(22,53,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +1w>',48,68,4);
+INSERT INTO timestamps VALUES(23,54,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed ++1m>',103,124,7);
+INSERT INTO timestamps VALUES(24,55,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed .+2d>',157,178,10);
+INSERT INTO timestamps VALUES(25,57,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +3h>',226,246,15);
+INSERT INTO timestamps VALUES(26,58,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +3d>',275,295,18);
+INSERT INTO timestamps VALUES(27,59,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +3w>',325,345,21);
+INSERT INTO timestamps VALUES(28,60,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +3m>',376,396,24);
+INSERT INTO timestamps VALUES(29,61,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +3y>',426,446,27);
+INSERT INTO timestamps VALUES(30,63,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed +1w/2d>',515,538,32);
+INSERT INTO timestamps VALUES(31,64,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed ++1m/1w>',582,606,35);
+INSERT INTO timestamps VALUES(32,65,'scheduled',1732060800,NULL,'active','none','<2024-11-20 Wed .+1y/2m>',651,675,38);
+INSERT INTO timestamps VALUES(33,67,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun -5d>',720,740,43);
+INSERT INTO timestamps VALUES(34,68,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun --2w>',769,790,46);
+INSERT INTO timestamps VALUES(35,69,'deadline',1733045400,NULL,'active','none','<2024-12-01 Sun 09:30 -3h>',818,844,49);
+INSERT INTO timestamps VALUES(36,70,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun -1m>',873,893,52);
+INSERT INTO timestamps VALUES(37,71,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun --1y>',921,942,55);
+INSERT INTO timestamps VALUES(38,73,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun +1w -5d>',1015,1039,60);
+INSERT INTO timestamps VALUES(39,74,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun ++1m/2d -5d>',1103,1131,63);
+INSERT INTO timestamps VALUES(40,75,'deadline',1733011200,NULL,'active','none','<2024-12-01 Sun .+2w --1w>',1182,1208,66);
+INSERT INTO timestamps VALUES(41,77,'scheduled',1732095000,NULL,'active','none','<2024-11-20 Wed 09:30 +1w>',1274,1300,71);
+INSERT INTO timestamps VALUES(42,78,'scheduled',1732095000,1732100400,'active','time_range','<2024-11-20 Wed 09:30-11:00 +1w>',1341,1373,74);
+INSERT INTO timestamps VALUES(43,79,'deadline',1733011200,1733184000,'active','date_range','<2024-12-01 Sun>--<2024-12-03 Tue +1w>',1413,1451,77);
+INSERT INTO timestamps VALUES(44,81,'body',1732060800,NULL,'inactive','none','[2024-11-20 Wed +1w]',1510,1530,82);
+INSERT INTO timestamps VALUES(45,83,'body',NULL,NULL,'diary','none','<%%(diary-float t 42)>',1603,1625,87);
+INSERT INTO timestamps VALUES(46,85,'body',1162408500,NULL,'active','none','<2006-11-01 Wed 19:15>',67,89,5);
+INSERT INTO timestamps VALUES(47,86,'body',1162461600,1162468800,'active','time_range','<2006-11-02 Thu 10:00-12:00>',122,150,8);
+INSERT INTO timestamps VALUES(48,87,'body',1162512000,NULL,'active','none','<2006-11-03 Fri>',166,182,11);
+INSERT INTO timestamps VALUES(49,87,'body',1162771200,NULL,'active','none','<2006-11-06 Mon>',183,199,12);
+INSERT INTO timestamps VALUES(50,88,'body',1162512000,NULL,'active','none','<2006-11-03 Fri>',237,253,16);
+INSERT INTO timestamps VALUES(51,88,'body',1782086400,NULL,'inactive','none','[2026-06-22 Mon]',281,297,18);
+CREATE TABLE timestamp_repeaters (
+    id                          INTEGER PRIMARY KEY,
+    timestamp_id                INTEGER NOT NULL UNIQUE,
+    repeater_type               TEXT CHECK (
+                                    repeater_type IN ('cumulate', 'catch_up', 'restart')
+                                    OR repeater_type IS NULL
+                                ),
+    repeater_value              INTEGER CHECK (
+                                    repeater_value IS NULL
+                                    OR repeater_value > 0
+                                ),
+    repeater_unit               TEXT CHECK (
+                                    repeater_unit IN ('hour', 'day', 'week', 'month', 'year')
+                                    OR repeater_unit IS NULL
+                                ),
+    repeater_deadline_value     INTEGER CHECK (
+                                    repeater_deadline_value IS NULL
+                                    OR repeater_deadline_value > 0
+                                ),
+    repeater_deadline_unit      TEXT CHECK (
+                                    repeater_deadline_unit IN ('hour', 'day', 'week', 'month', 'year')
+                                    OR repeater_deadline_unit IS NULL
+                                ),
+    warning_type                TEXT CHECK (
+                                    warning_type IN ('all', 'first')
+                                    OR warning_type IS NULL
+                                ),
+    warning_value               INTEGER CHECK (
+                                    warning_value IS NULL
+                                    OR warning_value > 0
+                                ),
+    warning_unit                TEXT CHECK (
+                                    warning_unit IN ('hour', 'day', 'week', 'month', 'year')
+                                    OR warning_unit IS NULL
+                                ),
+    FOREIGN KEY (timestamp_id)
+        REFERENCES timestamps(id)
+        ON DELETE CASCADE,
+    CHECK (
+        (repeater_type IS NULL AND repeater_value IS NULL AND repeater_unit IS NULL)
+        OR
+        (repeater_type IS NOT NULL AND repeater_value IS NOT NULL AND repeater_unit IS NOT NULL)
+    ),
+    CHECK (
+        (repeater_deadline_value IS NULL AND repeater_deadline_unit IS NULL)
+        OR
+        (repeater_deadline_value IS NOT NULL AND repeater_deadline_unit IS NOT NULL)
+    ),
+    CHECK (
+        repeater_deadline_value IS NULL
+        OR
+        repeater_type IS NOT NULL
+    ),
+    CHECK (
+        (warning_type IS NULL AND warning_value IS NULL AND warning_unit IS NULL)
+        OR
+        (warning_type IS NOT NULL AND warning_value IS NOT NULL AND warning_unit IS NOT NULL)
+    ),
+    CHECK (
+        repeater_type IS NOT NULL
+        OR warning_type IS NOT NULL
+    )
+);
+INSERT INTO timestamp_repeaters VALUES(1,10,'cumulate',1,'week',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(2,22,'cumulate',1,'week',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(3,23,'catch_up',1,'month',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(4,24,'restart',2,'day',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(5,25,'cumulate',3,'hour',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(6,26,'cumulate',3,'day',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(7,27,'cumulate',3,'week',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(8,28,'cumulate',3,'month',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(9,29,'cumulate',3,'year',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(10,30,'cumulate',1,'week',2,'day',NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(11,31,'catch_up',1,'month',1,'week',NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(12,32,'restart',1,'year',2,'month',NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(13,33,NULL,NULL,NULL,NULL,NULL,'all',5,'day');
+INSERT INTO timestamp_repeaters VALUES(14,34,NULL,NULL,NULL,NULL,NULL,'first',2,'week');
+INSERT INTO timestamp_repeaters VALUES(15,35,NULL,NULL,NULL,NULL,NULL,'all',3,'hour');
+INSERT INTO timestamp_repeaters VALUES(16,36,NULL,NULL,NULL,NULL,NULL,'all',1,'month');
+INSERT INTO timestamp_repeaters VALUES(17,37,NULL,NULL,NULL,NULL,NULL,'first',1,'year');
+INSERT INTO timestamp_repeaters VALUES(18,38,'cumulate',1,'week',NULL,NULL,'all',5,'day');
+INSERT INTO timestamp_repeaters VALUES(19,39,'catch_up',1,'month',2,'day','all',5,'day');
+INSERT INTO timestamp_repeaters VALUES(20,40,'restart',2,'week',NULL,NULL,'first',1,'week');
+INSERT INTO timestamp_repeaters VALUES(21,41,'cumulate',1,'week',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(22,42,'cumulate',1,'week',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(23,43,'cumulate',1,'week',NULL,NULL,NULL,NULL,NULL);
+INSERT INTO timestamp_repeaters VALUES(24,44,'cumulate',1,'week',NULL,NULL,NULL,NULL,NULL);
 CREATE UNIQUE INDEX uq_headings_file_level0
     ON headings(file_id)
     WHERE level = 0;
@@ -304,4 +592,12 @@ CREATE INDEX idx_outline_file_materialized_path
     ON outline_path(file_id, materialized_path);
 CREATE INDEX idx_outline_parent
     ON outline_path(parent_id);
+CREATE INDEX idx_timestamps_heading_id
+    ON timestamps(heading_id);
+CREATE INDEX idx_timestamps_role_start
+    ON timestamps(role, start_ts);
+CREATE INDEX idx_timestamps_start
+    ON timestamps(start_ts);
+CREATE INDEX idx_timestamp_repeaters_timestamp_id
+    ON timestamp_repeaters(timestamp_id);
 COMMIT;

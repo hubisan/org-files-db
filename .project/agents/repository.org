@@ -1,6 +1,19 @@
 #+TITLE: Repository-specific AI Instructions
 #+STARTUP: showall
 
+* Parser validation with Emacs
+
+Emacs is available and should be used as a reference oracle for Org-mode parser semantics when useful.
+
+For parser tasks:
+
+- Prefer Orgize as the implementation parser.
+- Compare tricky Org syntax behavior with Emacs Org-mode, especially via ~org-element-parse-buffer~.
+- Use Emacs output to validate expectations for planning lines, timestamps, special properties, tags, drawers, and agenda-relevant behavior.
+- If Orgize and Emacs disagree, document the difference in the active task file before choosing behavior.
+- Do not evaluate unsafe Emacs Lisp from project files.
+- Do not evaluate diary expressions or arbitrary ~.dir-locals.el~ forms unless a task explicitly defines a safe, data-only subset.
+
 * Preferred checks
 
 Before setting a task to ~REVIEW~, run:

@@ -13,11 +13,13 @@ use crate::{
     db::{
         open_database_with_schema, DbError, DbWriteError, DbWriter, FileRecordInput,
         HeadingFtsRecord, HeadingRecord, KeywordRecord, OutlinePathRecord, PropertyRecord,
-        SchemaDefinition, TagRecord, TodoKeywordRecord,
+        SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
     },
     parser::{
         file_local_todo_keyword_config, DiagnosticSeverity, OrgParser, ParseDiagnostic,
-        ParsedHeading, ParsedOrgDocument, TodoKeywordConfig, TodoType,
+        ParsedHeading, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
+        ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoKeywordConfig,
+        TodoType,
     },
 };
 
@@ -580,18 +582,111 @@ fn index_document(
                 })
         })
         .collect::<Vec<_>>();
+    let timestamp_rows = document
+        .headings
+        .iter()
+        .enumerate()
+        .flat_map(|(index, heading)| {
+            let heading_id = heading_ids[index];
+            heading
+                .timestamps
+                .iter()
+                .map(move |timestamp| timestamp_record(heading_id, timestamp))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_write_invalid_input)?;
 
     DbWriter::insert_todo_keywords(connection, &todo_rows)?;
     DbWriter::insert_keywords(connection, &keyword_rows)?;
     DbWriter::insert_tags(connection, &tag_rows)?;
     DbWriter::insert_properties(connection, &property_rows)?;
     DbWriter::insert_outline_path(connection, &outline_rows)?;
+    let timestamp_ids = DbWriter::insert_timestamps(connection, &timestamp_rows)?;
+    let timestamp_repeater_rows = document
+        .headings
+        .iter()
+        .flat_map(|heading| heading.timestamps.iter())
+        .zip(timestamp_ids.iter().copied())
+        .filter_map(|(timestamp, timestamp_id)| {
+            timestamp_repeater_record(timestamp_id, &timestamp.modifiers).transpose()
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_write_invalid_input)?;
+    DbWriter::insert_timestamp_repeaters(connection, &timestamp_repeater_rows)?;
 
     if fts5_enabled {
         DbWriter::insert_heading_fts(connection, &fts_rows)?;
     }
 
     Ok(document.headings.len())
+}
+
+fn timestamp_record(
+    heading_id: i64,
+    timestamp: &ParsedTimestamp,
+) -> Result<TimestampRecord, &'static str> {
+    Ok(TimestampRecord {
+        heading_id,
+        role: timestamp.role.map(timestamp_role_name),
+        start_ts: timestamp.start_ts,
+        end_ts: timestamp.end_ts,
+        timestamp_type: Some(timestamp_type_name(timestamp).to_string()),
+        range_type: Some(timestamp_range_type_name(timestamp).to_string()),
+        raw_value: timestamp.raw_value.clone(),
+        byte_start: i64::try_from(timestamp.byte_start)
+            .map_err(|_| "timestamp byte_start out of range")?,
+        byte_end: i64::try_from(timestamp.byte_end)
+            .map_err(|_| "timestamp byte_end out of range")?,
+        line_number: timestamp.line_number.map(i64::from),
+    })
+}
+
+fn timestamp_repeater_record(
+    timestamp_id: i64,
+    modifiers: &[crate::parser::ParsedTimestampModifier],
+) -> Result<Option<TimestampRepeaterRecord>, &'static str> {
+    let mut row = TimestampRepeaterRecord {
+        timestamp_id,
+        repeater_type: None,
+        repeater_value: None,
+        repeater_unit: None,
+        repeater_deadline_value: None,
+        repeater_deadline_unit: None,
+        warning_type: None,
+        warning_value: None,
+        warning_unit: None,
+    };
+
+    for modifier in modifiers {
+        match modifier.kind {
+            ParsedTimestampModifierKind::Repeater => {
+                if row.repeater_type.is_some() {
+                    return Err("timestamp modifiers must not contain multiple repeater entries");
+                }
+                row.repeater_type = Some(repeater_modifier_type_name(modifier.modifier_type)?);
+                row.repeater_value = Some(modifier.value);
+                row.repeater_unit = Some(timestamp_unit_name(modifier.unit).to_string());
+                row.repeater_deadline_value = modifier.repeater_deadline_value;
+                row.repeater_deadline_unit = modifier
+                    .repeater_deadline_unit
+                    .map(|unit| timestamp_unit_name(unit).to_string());
+            }
+            ParsedTimestampModifierKind::Warning => {
+                if row.warning_type.is_some() {
+                    return Err("timestamp modifiers must not contain multiple warning entries");
+                }
+                row.warning_type = Some(warning_modifier_type_name(modifier.modifier_type)?);
+                row.warning_value = Some(modifier.value);
+                row.warning_unit = Some(timestamp_unit_name(modifier.unit).to_string());
+            }
+        }
+    }
+
+    if row.repeater_type.is_none() && row.warning_type.is_none() {
+        return Ok(None);
+    }
+
+    Ok(Some(row))
 }
 
 fn heading_record(
@@ -622,17 +717,81 @@ fn heading_record(
         todo_keyword: heading.todo_keyword.clone(),
         todo_type,
         priority: heading.priority,
-        scheduled_raw: heading.planning.scheduled.clone(),
-        scheduled_ts: None,
-        deadline_raw: heading.planning.deadline.clone(),
-        deadline_ts: None,
-        closed_raw: heading.planning.closed.clone(),
-        closed_ts: None,
+        scheduled_raw: heading.planning.scheduled_raw().map(str::to_string),
+        scheduled_ts: heading.planning.scheduled_ts(),
+        deadline_raw: heading.planning.deadline_raw().map(str::to_string),
+        deadline_ts: heading.planning.deadline_ts(),
+        closed_raw: heading.planning.closed_raw().map(str::to_string),
+        closed_ts: heading.planning.closed_ts(),
         archivedp: heading.is_archived,
         footnote_section_p: false,
         all_tags_json: serde_json::to_string(effective_tags)
             .map_err(|_| "tag serialization failed")?,
     })
+}
+
+fn timestamp_role_name(role: ParsedTimestampRole) -> String {
+    match role {
+        ParsedTimestampRole::Scheduled => "scheduled".to_string(),
+        ParsedTimestampRole::Deadline => "deadline".to_string(),
+        ParsedTimestampRole::Closed => "closed".to_string(),
+        ParsedTimestampRole::Body => "body".to_string(),
+    }
+}
+
+fn timestamp_type_name(timestamp: &ParsedTimestamp) -> &'static str {
+    match timestamp.timestamp_type {
+        crate::parser::ParsedTimestampType::Active => "active",
+        crate::parser::ParsedTimestampType::Inactive => "inactive",
+        crate::parser::ParsedTimestampType::Diary => "diary",
+    }
+}
+
+fn timestamp_range_type_name(timestamp: &ParsedTimestamp) -> &'static str {
+    match timestamp.range_type {
+        crate::parser::ParsedTimestampRangeType::None => "none",
+        crate::parser::ParsedTimestampRangeType::DateRange => "date_range",
+        crate::parser::ParsedTimestampRangeType::TimeRange => "time_range",
+        crate::parser::ParsedTimestampRangeType::DateTimeRange => "datetime_range",
+        crate::parser::ParsedTimestampRangeType::Unknown => "unknown",
+    }
+}
+
+fn repeater_modifier_type_name(
+    modifier_type: ParsedTimestampModifierType,
+) -> Result<String, &'static str> {
+    match modifier_type {
+        ParsedTimestampModifierType::Cumulate => Ok("cumulate".to_string()),
+        ParsedTimestampModifierType::CatchUp => Ok("catch_up".to_string()),
+        ParsedTimestampModifierType::Restart => Ok("restart".to_string()),
+        ParsedTimestampModifierType::All | ParsedTimestampModifierType::First => {
+            Err("warning modifier type cannot be stored as a repeater")
+        }
+    }
+}
+
+fn warning_modifier_type_name(
+    modifier_type: ParsedTimestampModifierType,
+) -> Result<String, &'static str> {
+    match modifier_type {
+        ParsedTimestampModifierType::All => Ok("all".to_string()),
+        ParsedTimestampModifierType::First => Ok("first".to_string()),
+        ParsedTimestampModifierType::Cumulate
+        | ParsedTimestampModifierType::CatchUp
+        | ParsedTimestampModifierType::Restart => {
+            Err("repeater modifier type cannot be stored as a warning")
+        }
+    }
+}
+
+fn timestamp_unit_name(unit: ParsedTimestampUnit) -> &'static str {
+    match unit {
+        ParsedTimestampUnit::Hour => "hour",
+        ParsedTimestampUnit::Day => "day",
+        ParsedTimestampUnit::Week => "week",
+        ParsedTimestampUnit::Month => "month",
+        ParsedTimestampUnit::Year => "year",
+    }
 }
 
 fn effective_tags_for_document(document: &ParsedOrgDocument) -> Vec<Vec<String>> {
@@ -750,6 +909,19 @@ mod tests {
         path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    type TimestampRow = (String, String, String, String, Option<i64>, Option<i64>);
+    type RepeaterRow = (
+        String,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+    );
 
     struct TestDir {
         path: PathBuf,
@@ -953,6 +1125,179 @@ index_body_text = false
         assert_eq!(headings[1].title_raw, "Unfortunately Everywhere");
         assert_eq!(headings[2].title, "Plain Heading");
         assert_eq!(headings[2].title_raw, "Plain Heading");
+    }
+
+    #[test]
+    fn rebuild_persists_heading_shortcuts_and_rich_timestamp_rows() {
+        let test_dir = TestDir::new("timestamp-rebuild");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("planning-timestamp.org");
+
+        write_file(
+            &org_path,
+            include_str!("../tests/data/parser/timestamps/planning-timestamp/fixture.org"),
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let timestamp_columns: Vec<String> =
+            query_rows(&connection, "PRAGMA table_info(timestamps)", |row| {
+                row.get(1)
+            });
+        assert!(
+            !timestamp_columns
+                .iter()
+                .any(|column| column == "has_repeater"),
+            "timestamps table should not have has_repeater"
+        );
+
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        let scheduled = headings
+            .iter()
+            .find(|heading| heading.title == "Simple scheduled")
+            .expect("scheduled heading should exist");
+        assert_eq!(scheduled.scheduled_raw.as_deref(), Some("<2024-11-20 Wed>"));
+        assert_eq!(scheduled.scheduled_ts, Some(1_732_060_800));
+
+        let duplicate = headings
+            .iter()
+            .find(|heading| heading.title == "Multiple same keyword")
+            .expect("duplicate heading should exist");
+        assert_eq!(duplicate.scheduled_raw.as_deref(), Some("<2024-11-21 Thu>"));
+        assert_eq!(duplicate.scheduled_ts, Some(1_732_147_200));
+
+        let diary = headings
+            .iter()
+            .find(|heading| heading.title == "Diary expression")
+            .expect("diary heading should exist");
+        assert!(diary.scheduled_ts.is_none());
+
+        let timestamp_rows: Vec<TimestampRow> = query_rows(
+            &connection,
+            "SELECT h.title, t.role, t.type, t.range_type, t.start_ts, t.end_ts
+                 FROM timestamps t
+                 JOIN headings h ON h.id = t.heading_id
+                 WHERE h.level > 0
+                 ORDER BY h.title, t.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        );
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Time range same day"
+                && row.1 == "scheduled"
+                && row.2 == "active"
+                && row.3 == "time_range"
+                && row.4 == Some(1_732_095_000)
+                && row.5 == Some(1_732_100_400)
+        }));
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Date range"
+                && row.1 == "deadline"
+                && row.3 == "date_range"
+                && row.4 == Some(1_733_011_200)
+                && row.5 == Some(1_733_184_000)
+        }));
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Task" && row.1 == "body" && row.2 == "active" && row.4 == Some(1_782_172_800)
+        }));
+
+        let repeater_rows: Vec<RepeaterRow> = query_rows(
+            &connection,
+            "SELECT h.title, tr.repeater_type, tr.repeater_value, tr.repeater_unit,
+                    tr.repeater_deadline_value, tr.repeater_deadline_unit,
+                    tr.warning_type, tr.warning_value, tr.warning_unit
+             FROM timestamp_repeaters tr
+             JOIN timestamps t ON t.id = tr.timestamp_id
+             JOIN headings h ON h.id = t.heading_id
+             ORDER BY h.title, tr.id",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                ))
+            },
+        );
+        assert_eq!(
+            repeater_rows,
+            vec![
+                (
+                    "Repeater".to_string(),
+                    Some("cumulate".to_string()),
+                    Some(1),
+                    Some("week".to_string()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                (
+                    "Repeater with deadline and warning".to_string(),
+                    Some("catch_up".to_string()),
+                    Some(1),
+                    Some("month".to_string()),
+                    Some(2),
+                    Some("day".to_string()),
+                    Some("all".to_string()),
+                    Some(5),
+                    Some("day".to_string()),
+                ),
+                (
+                    "Warning only all".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("all".to_string()),
+                    Some(5),
+                    Some("day".to_string()),
+                ),
+                (
+                    "Warning only first".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("first".to_string()),
+                    Some(2),
+                    Some("week".to_string()),
+                ),
+            ]
+        );
     }
 
     #[test]

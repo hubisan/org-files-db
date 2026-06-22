@@ -40,29 +40,9 @@ Extend the data model enough to represent real Org workflows meaningfully, witho
 
 [[./archive/2026-06-19--store-materialized-outline-path.org]]
 
-** TODO Parse planning lines
+** DONE [2026-06-23 Tue 00:01] Parse Org timestamps and planning fields
 
-Goal:
-Extract ~SCHEDULED~, ~DEADLINE~, and ~CLOSED~.
-
-Acceptance criteria:
-
-- Planning data is represented in the parser model.
-- DB schema supports direct planning fields on ~headings~:
-  - ~scheduled_raw~
-  - ~scheduled_ts~
-  - ~deadline_raw~
-  - ~deadline_ts~
-  - ~closed_raw~
-  - ~closed_ts~
-- Raw Org timestamp values are preserved where possible.
-- JSON output includes planning data.
-- Tests exist for all three planning types.
-- The one-line planning case is covered:
-  #+begin_src org
-    ,* Test
-    DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: <2024-11-20 Wed>
-  #+end_src
+[[./archive/2026-06-19--parse-planning-lines.org]]
 
 ** TODO Parse properties drawer and file-level properties
 
@@ -142,28 +122,6 @@ Acceptance criteria:
 - Body storage can be disabled or omitted if not needed.
 - Body text is inserted into FTS only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
 - A fixture test verifies heading body extraction.
-
-** TODO Parse rich timestamps
-
-Goal:
-Represent timestamps beyond the simple planning fields on headings.
-
-Examples:
-
-- active timestamps
-- inactive timestamps
-- date ranges
-- time ranges
-- repeaters
-- warning delays
-- timestamps in body text
-
-Acceptance criteria:
-
-- Parser model can represent timestamp role, raw value, normalized start/end timestamps, activity type, range type, and byte ranges.
-- DB tables ~timestamps~ and ~timestamp_repeaters~ can store extracted values.
-- Planning timestamps can either be mirrored into ~timestamps~ or only stored on headings; the decision is documented.
-- Tests cover at least one active timestamp, one inactive timestamp, and one repeater.
 
 ** TODO Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
 

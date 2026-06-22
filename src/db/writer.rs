@@ -55,6 +55,33 @@ pub struct TagRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimestampRecord {
+    pub heading_id: i64,
+    pub role: Option<String>,
+    pub start_ts: Option<i64>,
+    pub end_ts: Option<i64>,
+    pub timestamp_type: Option<String>,
+    pub range_type: Option<String>,
+    pub raw_value: String,
+    pub byte_start: i64,
+    pub byte_end: i64,
+    pub line_number: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimestampRepeaterRecord {
+    pub timestamp_id: i64,
+    pub repeater_type: Option<String>,
+    pub repeater_value: Option<i64>,
+    pub repeater_unit: Option<String>,
+    pub repeater_deadline_value: Option<i64>,
+    pub repeater_deadline_unit: Option<String>,
+    pub warning_type: Option<String>,
+    pub warning_value: Option<i64>,
+    pub warning_unit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordRecord {
     pub heading_id: i64,
     pub keyword: String,
@@ -271,6 +298,72 @@ impl DbWriter {
                 )
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_tags",
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
+    pub fn insert_timestamps(
+        connection: &Connection,
+        rows: &[TimestampRecord],
+    ) -> Result<Vec<i64>, DbWriteError> {
+        let mut ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO timestamps
+                     (heading_id, role, start_ts, end_ts, type, range_type, raw_value, byte_start,
+                      byte_end, line_number)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        row.heading_id,
+                        row.role,
+                        row.start_ts,
+                        row.end_ts,
+                        row.timestamp_type,
+                        row.range_type,
+                        row.raw_value,
+                        row.byte_start,
+                        row.byte_end,
+                        row.line_number,
+                    ],
+                )
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_timestamps",
+                    source,
+                })?;
+            ids.push(connection.last_insert_rowid());
+        }
+        Ok(ids)
+    }
+
+    pub fn insert_timestamp_repeaters(
+        connection: &Connection,
+        rows: &[TimestampRepeaterRecord],
+    ) -> Result<(), DbWriteError> {
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO timestamp_repeaters
+                     (timestamp_id, repeater_type, repeater_value, repeater_unit,
+                      repeater_deadline_value, repeater_deadline_unit,
+                      warning_type, warning_value, warning_unit)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        row.timestamp_id,
+                        row.repeater_type,
+                        row.repeater_value,
+                        row.repeater_unit,
+                        row.repeater_deadline_value,
+                        row.repeater_deadline_unit,
+                        row.warning_type,
+                        row.warning_value,
+                        row.warning_unit,
+                    ],
+                )
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_timestamp_repeaters",
                     source,
                 })?;
         }

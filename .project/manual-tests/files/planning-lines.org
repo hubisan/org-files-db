@@ -1,0 +1,58 @@
+#+TITLE: Planning timestamp 
+#+STARTUP: showall
+
+* Planning 
+
+** Simple scheduled
+SCHEDULED: <2024-11-20 Wed>
+
+** Simple deadline
+DEADLINE: <2024-12-01 Sun>
+
+** Simple closed
+CLOSED: [2024-11-21 Thu]
+
+** All on one planning line
+DEADLINE: <2024-12-01 Sun> SCHEDULED: <2024-11-20 Wed> CLOSED: [2024-11-21 Thu]
+
+** With time
+SCHEDULED: <2024-11-20 Wed 09:30>
+
+** Time range same day
+SCHEDULED: <2024-11-20 Wed 09:30-11:00>
+
+** Date range
+DEADLINE: <2024-12-01 Sun>--<2024-12-03 Tue>
+
+** Repeater
+SCHEDULED: <2024-11-20 Wed +1w>
+
+** Diary expression
+SCHEDULED: <%%(diary-float t 42)>
+
+** Multiple same keyword
+SCHEDULED: <2024-11-20 Wed> SCHEDULED: <2024-11-21 Thu>
+In that case Org uses the second entry.
+
+** Not valid
+
+*** Multiple planning lines
+SCHEDULED: <2024-11-20 Wed>
+DEADLINE: <2024-12-01 Sun>
+CLOSED: [2024-11-21 Thu]
+
+*** Planning not immediately after headline
+Some body text first.
+SCHEDULED: <2024-11-20 Wed>
+
+*** Looks like planning in body
+This mentions DEADLINE: <2024-12-01 Sun> inside text.
+
+*** Lowercase should probably not count
+scheduled: <2024-11-20 Wed>
+
+*** Multiple same keyword
+SCHEDULED: <2024-11-20 Wed> SCHEDULED: <2024-11-21 Thu>
+
+
+

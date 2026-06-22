@@ -1,0 +1,210 @@
+#+TITLE: Parse Org timestamps and planning fields
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-19 Fri 17:06]
+#+TASK_COMPLETED: [2026-06-23 Tue 00:01]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Work on the merged task in ~BUILD~ mode.
+- Update the active task file before implementation to reflect the merged timestamp and planning design.
+- Use parser-owned Orgize timestamp and planning structures as the source of truth.
+- Keep Orgize-specific logic inside ~src/parser/orgize_adapter.rs~.
+- Translate parser data into project-owned ~ParsedTimestamp~ and ~ParsedPlanning~ models.
+- Do not scan raw text with independent regexes to infer planning.
+- Do not execute diary expressions.
+- Preserve direct heading planning shortcut fields for fast queries and add rich timestamp rows for all parsed timestamp occurrences.
+
+Copied task entry from ~todo.org~:
+
+** BUILD Parse Org timestamps and planning fields
+
+Goal:
+Parse Org timestamps from parser-owned Orgize or Org-compatible timestamp structures and store them in both direct heading shortcut fields and rich timestamp tables.
+
+Merged from:
+- Parse planning lines
+- Parse rich timestamps
+
+Acceptance criteria:
+- Parser model can represent timestamp role, raw value, normalized start/end timestamps, activity type, range type, byte ranges, line number, and modifiers.
+- Planning data is represented in the parser model.
+- DB schema supports direct planning shortcut fields on ~headings~:
+  - ~scheduled_raw~
+  - ~scheduled_ts~
+  - ~deadline_raw~
+  - ~deadline_ts~
+  - ~closed_raw~
+  - ~closed_ts~
+- Planning timestamps are mirrored into ~timestamps~ with role ~scheduled~, ~deadline~, or ~closed~.
+- General entry timestamps are stored in ~timestamps~ with role ~body~ or ~NULL~.
+- Raw Org timestamp text is preserved exactly from the timestamp node or parser raw value.
+- ~*_ts~ fields are UTC Unix timestamp seconds.
+- Date-only timestamps normalize to ~00:00:00~ UTC.
+- Date-time timestamps normalize to the given ~HH:MM~ in UTC.
+- Time/date ranges populate ~start_ts~ and ~end_ts~ where the parser exposes enough structure.
+- Diary expressions are stored as raw timestamps with type ~diary~, but never evaluated.
+- JSON output includes heading planning shortcut fields.
+- Tests cover scheduled, deadline, closed, one-line planning, active timestamps, inactive timestamps, date ranges, time ranges, repeaters, diary expressions, and multiple body timestamps belonging to one heading.
+
+* Planning
+
+** Problem summary
+The repository currently implements only direct heading planning shortcut fields. ~ParsedPlanning~ stores raw and normalized values per keyword, the Orgize adapter extracts heading planning only, and the DB layer persists ~scheduled_*~, ~deadline_*~, and ~closed_*~ on ~headings~. There is no project-owned rich timestamp model, no timestamp rows, no modifier rows, and no parser-to-indexer path for non-planning timestamps.
+
+The merged task needs one coherent model that keeps Orgize as the structural source of truth while exposing project-owned timestamp and planning data to the indexer, DB, and JSON layers. The task also needs to preserve the important ownership rule: only parser-owned heading planning data populates the heading shortcut fields.
+
+** Goals
+- Introduce project-owned timestamp models for rich parser output.
+- Keep Orgize-specific AST handling and timestamp extraction in ~src/parser/orgize_adapter.rs~.
+- Preserve direct heading planning shortcut fields for fast heading queries.
+- Insert rich timestamp rows for planning and non-planning timestamp occurrences.
+- Preserve exact raw timestamp text and parser-owned byte/line metadata.
+- Preserve diary expressions as raw values without evaluation.
+- Store repeaters and warning modifiers in a dedicated modifier table if available.
+- Cover edge cases around duplicate planning keywords, planning-looking body text, and diary planning.
+
+** Non-goals
+- No diary expression execution.
+- No regex-based recovery of planning semantics from body text.
+- No Orgize types outside the adapter boundary.
+- No agenda engine or recurrence expansion.
+- No unrelated refactors beyond parser, indexer, DB, fixtures, and task docs needed for this scope.
+
+** Architecture
+The adapter remains the parser boundary:
+
+#+begin_src text
+Orgize AST / parser accessors / byte ranges
+  -> src/parser/orgize_adapter.rs
+  -> ParsedHeading / ParsedPlanning / ParsedTimestamp
+  -> indexer
+  -> DB writer
+  -> DB reader / JSON output
+#+end_src
+
+Design rules:
+- Orgize parser timestamp structures are the source of truth for type, ranges, and modifiers.
+- Heading shortcut fields are derived from parser-owned ~ParsedPlanning~ only.
+- Planning timestamps also become timestamp rows with role ~scheduled~, ~deadline~, or ~closed~.
+- Generic title/body timestamps become timestamp rows with role ~body~ or ~NULL~.
+- If the parser exposes duplicate values for the same planning keyword, last value wins for shortcut fields.
+- Paragraph or body lines that merely look like planning must not populate heading shortcut fields unless the parser surfaces them as heading planning data.
+
+Planned parser model shape:
+
+#+begin_src rust
+pub struct ParsedPlanning {
+    pub scheduled: Option<ParsedTimestamp>,
+    pub deadline: Option<ParsedTimestamp>,
+    pub closed: Option<ParsedTimestamp>,
+}
+
+pub struct ParsedTimestamp {
+    pub role: Option<ParsedTimestampRole>,
+    pub raw_value: String,
+    pub timestamp_type: ParsedTimestampType,
+    pub range_type: ParsedTimestampRangeType,
+    pub start_ts: Option<i64>,
+    pub end_ts: Option<i64>,
+    pub byte_start: i64,
+    pub byte_end: i64,
+    pub line_number: Option<i64>,
+    pub modifiers: Vec<ParsedTimestampModifier>,
+}
+#+end_src
+
+Shortcut field derivation stays straightforward:
+
+#+begin_src text
+scheduled_raw = planning.scheduled.raw_value
+scheduled_ts  = planning.scheduled.start_ts
+deadline_raw  = planning.deadline.raw_value
+deadline_ts   = planning.deadline.start_ts
+closed_raw    = planning.closed.raw_value
+closed_ts     = planning.closed.start_ts
+#+end_src
+
+** Execution plan
+- Replace the narrow planning-only parser model with project-owned timestamp and planning structs while preserving compatibility for heading shortcut fields.
+- Extend the Orgize adapter to map heading planning timestamps and generic timestamps from parser-owned timestamp structures, including raw text, roles, range metadata, and modifiers.
+- Extend the DB schema and writer for ~timestamps~ plus timestamp modifier storage using the existing generic modifier table name if present, otherwise add the closest required schema with generic semantics.
+- Thread parsed timestamps through the indexer into DB rows while deriving ~headings.scheduled_*~, ~deadline_*~, and ~closed_*~ only from parser-owned planning.
+- Extend DB readers and CLI JSON output as needed for existing heading fields and any timestamp-facing tests.
+- Add and update fixtures and tests for planning, ranges, modifiers, diary planning, body timestamps, and invalid planning-looking text.
+- Run focused tests first, then ~cargo fmt --all~, ~cargo test~, and ~make ci~ if available.
+
+** Risks & assumptions
+- Assumption: Orgize exposes enough timestamp structure for ranges, raw extraction, and planning ownership without fallback regex parsing.
+- Assumption: raw timestamp text can be recovered either directly from parser data or safely from byte ranges in the original source owned by the adapter.
+- Risk: introducing timestamp tables may require schema migration changes, indexer record changes, and DB test fixture updates across several modules.
+- Risk: Orgize and Emacs may differ on some edge-case planning or range behaviors; any observed mismatch needs to be documented in this task file before locking behavior.
+- Risk: timestamp normalization semantics are now explicitly UTC for stored Unix seconds, which may differ from earlier local-naive comments in the code.
+
+** Open questions
+- Whether the existing schema already contains a reusable generic timestamp modifier table or needs a migration for one.
+- Which exact Orgize node paths expose non-planning timestamps in headings and section bodies most reliably.
+
+** Proposed checks
+- Focused parser and Orgize adapter tests for planning ownership, roles, raw extraction, timestamp types, range types, modifiers, and diary handling.
+- Focused indexer and DB tests for heading shortcut derivation and timestamp row persistence.
+- JSON-facing tests for heading shortcut fields and any timestamp output covered by the current CLI/API surface.
+- ~cargo fmt --all~
+- ~cargo test~
+- ~make ci~
+
+* Results
+
+** Approach
+- Kept the legacy table name ~timestamp_repeaters~ but corrected its row shape to match Org/Emacs timestamp properties directly: one row per timestamp with explicit repeater and warning columns.
+- Extended parser-owned timestamp modifiers to carry the repeater deadline pair exposed by Org/Emacs: ~:repeater-deadline-value~ and ~:repeater-deadline-unit~.
+- Changed the DB mapping so parsed repeater and warning modifiers for the same timestamp are merged into one ~timestamp_repeaters~ row instead of being split across generic modifier rows.
+- Added focused adapter fallback only for the unsupported ~+1w/2d~ planning form because the current Orgize version does not parse that timestamp as a planning node. This keeps the broader timestamp/planning design unchanged while preserving the required modifier data.
+- Added a compatibility migration that rebuilds ~timestamp_repeaters~ into the explicit per-timestamp shape and folds both earlier layouts into it:
+  - the oldest legacy ~deadline_value~ / ~deadline_unit~ table
+  - the intermediate generic ~kind~ / ~type~ / ~value~ / ~unit~ row model
+
+** Changed files
+- ~src/db/schema.rs~
+- ~src/parser/model.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/db.rs~
+- ~src/db/writer.rs~
+- ~src/indexer.rs~
+- ~sql/schema.sql~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_fixtures.rs~
+- ~tests/data/parser/timestamps/planning-timestamp/fixture.org~
+- ~tests/data/parser/timestamps/planning-timestamp/expected.txt~
+- ~.project/tasks/2026-06-19--parse-planning-lines.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test --test orgize_adapter --quiet~
+- ~cargo test --test parser_fixtures --quiet~
+- ~cargo test rebuild_persists_heading_shortcuts_and_rich_timestamp_rows --quiet~
+- ~cargo test open_database_upgrades_legacy_timestamp_repeaters_table --quiet~
+- ~cargo test open_database_upgrades_generic_modifier_rows_to_explicit_timestamp_row --quiet~
+- ~cargo test timestamp_repeaters_constraints_reject_invalid_repeater_warning_shapes --quiet~
+- ~cargo test --quiet~
+- ~make ci~
+
+** Test results
+- Focused checks passed:
+  - ~cargo test --test orgize_adapter --quiet~
+  - ~cargo test --test parser_fixtures --quiet~
+  - ~cargo test rebuild_persists_heading_shortcuts_and_rich_timestamp_rows --quiet~
+- ~make ci~ passed, including:
+  - ~cargo fmt --all --check~
+  - ~cargo clippy --all-targets --all-features -- -D warnings~
+  - ~cargo test --all-targets --all-features~ with 59 library tests, 20 Orgize adapter tests, 7 parser contract tests, and 2 parser fixture tests passing
+  - ~cargo build --all-targets --all-features~
+
+** Risks / open notes
+- The ~+1w/2d~ planning support currently uses a narrow adapter fallback because Orgize 0.10.0-alpha.10 does not parse that syntax as a planning timestamp node.
+- Diary planning behavior is still parser-dependent. The current implementation does not change the earlier decision to preserve diary timestamps without evaluating them and only populate planning shortcut fields when the parser exposes diary planning structurally.
+- Existing databases are upgraded lazily on open. The migration now normalizes both previous ~timestamp_repeaters~ layouts into the explicit per-timestamp repeater/warning schema before new writes run.

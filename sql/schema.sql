@@ -12,9 +12,9 @@
     to jump to a heading or link location.
   - outline_path and heading_fts are derived/index tables. They can be rebuilt
     from the core tables when a file is reparsed.
-  - Rich timestamp tables are deferred for now. Planning timestamps such as
-    SCHEDULED, DEADLINE, and CLOSED are stored directly on headings for fast
-    common queries.
+  - Planning timestamps such as SCHEDULED, DEADLINE, and CLOSED are stored
+    directly on headings for fast common queries and also mirrored into the
+    richer timestamps table.
   - heading_fts is created conditionally by replacing the marker block below.
   - The schema is optimized for querying and full rebuilds per changed file.
 */
@@ -128,8 +128,11 @@ CREATE TABLE IF NOT EXISTS files (
     Original Org planning timestamp strings when present.
 
   scheduled_ts / deadline_ts / closed_ts:
-    Normalized Unix timestamps in seconds when the corresponding planning
-    timestamp can be normalized. NULL when absent or not normalized.
+    Nullable Unix timestamp seconds in UTC.
+    Populated only when the corresponding planning timestamp is a simple date or
+    date-time timestamp. NULL when absent or when the Org timestamp contains
+    unsupported syntax such as ranges, repeaters, warning delays, diary
+    expressions, or other rich timestamp forms.
 
   archivedp / footnote_section_p:
     Stored as 0/1 integers.
@@ -234,6 +237,147 @@ CREATE TABLE IF NOT EXISTS todo_keywords (
         ON DELETE CASCADE,
     PRIMARY KEY (file_id, keyword)
 );
+
+--------------------------------------------------
+-- TIMESTAMPS
+--------------------------------------------------
+/*
+  Each row represents one parsed timestamp occurrence associated with a
+  heading.
+
+  Planning timestamps are mirrored here with role scheduled, deadline, or
+  closed. Generic timestamps in heading titles or section/body content use role
+  body.
+
+  type:
+    active, inactive, or diary.
+
+  range_type:
+    none, date_range, time_range, datetime_range, or unknown.
+
+  start_ts / end_ts:
+    Nullable Unix timestamp seconds in UTC. Diary expressions are preserved as
+    raw values and leave these columns NULL.
+*/
+CREATE TABLE IF NOT EXISTS timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT CHECK (
+                        role IN ('scheduled', 'deadline', 'closed', 'body')
+                        OR role IS NULL
+                    ),
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT CHECK (
+                        type IN ('active', 'inactive', 'diary')
+                        OR type IS NULL
+                    ),
+    range_type      TEXT CHECK (
+                        range_type IN ('none', 'date_range', 'time_range', 'datetime_range', 'unknown')
+                        OR range_type IS NULL
+                    ),
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+);
+
+/*
+  Timestamp repeater and warning rows emitted from parsed Org timestamps.
+
+  The legacy table name timestamp_repeaters is kept for compatibility with the
+  earlier schema draft.
+
+  Each row represents the Org/Emacs repeater and warning properties for one
+  timestamp:
+
+  - :repeater-type
+  - :repeater-value
+  - :repeater-unit
+  - :repeater-deadline-value
+  - :repeater-deadline-unit
+  - :warning-type
+  - :warning-value
+  - :warning-unit
+*/
+CREATE TABLE IF NOT EXISTS timestamp_repeaters (
+    id                          INTEGER PRIMARY KEY,
+    timestamp_id                INTEGER NOT NULL UNIQUE,
+    repeater_type               TEXT CHECK (
+                                    repeater_type IN ('cumulate', 'catch_up', 'restart')
+                                    OR repeater_type IS NULL
+                                ),
+    repeater_value              INTEGER CHECK (
+                                    repeater_value IS NULL
+                                    OR repeater_value > 0
+                                ),
+    repeater_unit               TEXT CHECK (
+                                    repeater_unit IN ('hour', 'day', 'week', 'month', 'year')
+                                    OR repeater_unit IS NULL
+                                ),
+    repeater_deadline_value     INTEGER CHECK (
+                                    repeater_deadline_value IS NULL
+                                    OR repeater_deadline_value > 0
+                                ),
+    repeater_deadline_unit      TEXT CHECK (
+                                    repeater_deadline_unit IN ('hour', 'day', 'week', 'month', 'year')
+                                    OR repeater_deadline_unit IS NULL
+                                ),
+    warning_type                TEXT CHECK (
+                                    warning_type IN ('all', 'first')
+                                    OR warning_type IS NULL
+                                ),
+    warning_value               INTEGER CHECK (
+                                    warning_value IS NULL
+                                    OR warning_value > 0
+                                ),
+    warning_unit                TEXT CHECK (
+                                    warning_unit IN ('hour', 'day', 'week', 'month', 'year')
+                                    OR warning_unit IS NULL
+                                ),
+    FOREIGN KEY (timestamp_id)
+        REFERENCES timestamps(id)
+        ON DELETE CASCADE,
+    CHECK (
+        (repeater_type IS NULL AND repeater_value IS NULL AND repeater_unit IS NULL)
+        OR
+        (repeater_type IS NOT NULL AND repeater_value IS NOT NULL AND repeater_unit IS NOT NULL)
+    ),
+    CHECK (
+        (repeater_deadline_value IS NULL AND repeater_deadline_unit IS NULL)
+        OR
+        (repeater_deadline_value IS NOT NULL AND repeater_deadline_unit IS NOT NULL)
+    ),
+    CHECK (
+        repeater_deadline_value IS NULL
+        OR
+        repeater_type IS NOT NULL
+    ),
+    CHECK (
+        (warning_type IS NULL AND warning_value IS NULL AND warning_unit IS NULL)
+        OR
+        (warning_type IS NOT NULL AND warning_value IS NOT NULL AND warning_unit IS NOT NULL)
+    ),
+    CHECK (
+        repeater_type IS NOT NULL
+        OR warning_type IS NOT NULL
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_timestamps_heading_id
+    ON timestamps(heading_id);
+
+CREATE INDEX IF NOT EXISTS idx_timestamps_role_start
+    ON timestamps(role, start_ts);
+
+CREATE INDEX IF NOT EXISTS idx_timestamps_start
+    ON timestamps(start_ts);
+
+CREATE INDEX IF NOT EXISTS idx_timestamp_repeaters_timestamp_id
+    ON timestamp_repeaters(timestamp_id);
 
 --------------------------------------------------
 -- KEYWORDS
