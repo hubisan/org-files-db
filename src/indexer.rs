@@ -2939,6 +2939,78 @@ index_body_text = true
     }
 
     #[test]
+    fn rebuild_excludes_structured_metadata_from_stored_heading_bodies() {
+        let test_dir = TestDir::new("heading-bodies-structured-metadata");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: true,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(
+            &org_path,
+            ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:END:\n#+TITLE: Body Metadata Fixture\nIntro before heading.\n\n* Task\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Bob\n:END:\nReal body text.\n\n#+AUTHOR: Jane Doe\n\nBody after keyword.\n\n** Child\nChild body.\n\n* Invalid Planning\nSCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.\n",
+        );
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+
+        let level_zero_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.level = 0",
+                [],
+                |row| row.get(0),
+            )
+            .expect("level 0 body should load");
+        assert_eq!(level_zero_body, "Intro before heading.");
+
+        let task_body: (String, Option<i64>, Option<i64>) = connection
+            .query_row(
+                "SELECT heading_bodies.body_text, heading_bodies.body_byte_start, heading_bodies.body_byte_end
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Task'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("task body should load");
+        assert_eq!(task_body.0, "Real body text.\n\nBody after keyword.");
+        assert_eq!(task_body.1, None);
+        assert_eq!(task_body.2, None);
+
+        let invalid_planning_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Invalid Planning'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("invalid planning body should load");
+        assert_eq!(
+            invalid_planning_body,
+            "SCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning."
+        );
+    }
+
+    #[test]
     fn faulty_file_stops_cleanly_with_clear_error() {
         struct FailingParser;
 

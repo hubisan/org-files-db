@@ -45,7 +45,7 @@ impl OrgParser for OrgizeAdapter {
             .unwrap_or_else(|| options.todo_keywords.clone());
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
-        populate_heading_body(document.section(), &mut level_zero);
+        populate_heading_body(document.section(), content, &mut level_zero);
         if let Some(properties) = document.properties() {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
@@ -147,7 +147,7 @@ fn collect_headlines(
         parsed.is_root = parent_index.is_none();
 
         populate_heading_timestamps(&headline, content, &mut parsed);
-        populate_heading_body(headline.section(), &mut parsed);
+        populate_heading_body(headline.section(), content, &mut parsed);
 
         if let Some(properties) = headline.properties() {
             parsed.properties = parsed_properties_from_drawer(
@@ -195,27 +195,44 @@ fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> Stri
         .unwrap_or_else(|| path.display().to_string())
 }
 
-fn populate_heading_body(section: Option<Section>, parsed: &mut ParsedHeading) {
+fn populate_heading_body(section: Option<Section>, content: &str, parsed: &mut ParsedHeading) {
     let Some(section) = section else {
         return;
     };
 
-    if let Some((body_text, body_byte_start, body_byte_end)) = trimmed_section_body(
-        &section.raw(),
-        usize::from(section.start()),
-        usize::from(section.end()),
-    ) {
+    if let Some((body_text, body_byte_start, body_byte_end)) =
+        filtered_section_body(&section, content)
+    {
         parsed.body_text = Some(body_text);
-        parsed.body_byte_start = Some(body_byte_start);
-        parsed.body_byte_end = Some(body_byte_end);
+        parsed.body_byte_start = body_byte_start;
+        parsed.body_byte_end = body_byte_end;
     }
 }
 
-fn trimmed_section_body(
-    raw: &str,
-    body_byte_start: usize,
-    body_byte_end: usize,
-) -> Option<(String, usize, usize)> {
+fn filtered_section_body(
+    section: &Section,
+    content: &str,
+) -> Option<(String, Option<usize>, Option<usize>)> {
+    let children = section.syntax().children().collect::<Vec<_>>();
+    let included_ranges = children
+        .iter()
+        .filter(|child| !body_metadata_kind(child.kind()))
+        .map(|child| {
+            (
+                usize::from(child.text_range().start()),
+                usize::from(child.text_range().end()),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if included_ranges.is_empty() {
+        return None;
+    }
+
+    let raw = included_ranges
+        .iter()
+        .map(|(start, end)| &content[*start..*end])
+        .collect::<String>();
     let without_leading = raw.trim_start_matches(char::is_whitespace);
     let leading_trim = raw.len() - without_leading.len();
     let trimmed = without_leading.trim_end_matches(char::is_whitespace);
@@ -224,11 +241,26 @@ fn trimmed_section_body(
     }
 
     let trailing_trim = without_leading.len() - trimmed.len();
+    let first_start = included_ranges[0].0;
+    let last_end = included_ranges[included_ranges.len() - 1].1;
+    let exact_range = if content[first_start..last_end] == raw {
+        Some((first_start + leading_trim, last_end - trailing_trim))
+    } else {
+        None
+    };
+
     Some((
         trimmed.to_string(),
-        body_byte_start + leading_trim,
-        body_byte_end - trailing_trim,
+        exact_range.map(|(start, _)| start),
+        exact_range.map(|(_, end)| end),
     ))
+}
+
+fn body_metadata_kind(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::KEYWORD | SyntaxKind::PROPERTY_DRAWER | SyntaxKind::PLANNING
+    )
 }
 
 fn normalize_title_from_raw(title_raw: &str) -> String {

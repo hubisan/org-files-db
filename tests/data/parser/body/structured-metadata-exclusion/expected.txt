@@ -1,0 +1,7 @@
+# classification: body excludes structured metadata but keeps normal paragraph text
+document.title=Body Metadata Fixture
+heading_count=4
+heading.0.body_text=Intro before heading.
+heading.1.body_text=Real body text.\n\nBody after keyword.
+heading.2.body_text=Child body.
+heading.3.body_text=SCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.

@@ -1150,6 +1150,134 @@ to be parsed as valid `NODE_PROPERTY` entries with an empty string value.
 Thanks for maintaining Orgize!
 #+end_src
 
+*** Diary timestamps in planning lines are parsed as paragraph text instead of PLANNING
+
+#+BEGIN_SRC markdown
+  Title: Diary timestamps in planning lines are parsed as paragraph text instead of PLANNING
+
+  Hi, I noticed that Orgize does not seem to classify a planning line as `PLANNING` when the scheduled timestamp is a diary expression.
+
+  ## Minimal reproduction
+
+  ```org
+  ,** Diary expression
+  SCHEDULED: <%%(diary-float t 42)>
+  ```
+
+  ## Actual Orgize parse result
+
+  Orgize parses the `SCHEDULED:` line as normal paragraph text containing a `TIMESTAMP_DIARY`:
+
+  ```text
+  DOCUMENT@0..54
+    HEADLINE@0..54
+      HEADLINE_STARS@0..2 "**"
+      WHITESPACE@2..3 " "
+      HEADLINE_TITLE@3..19
+        TEXT@3..19 "Diary expression"
+      NEW_LINE@19..20 "\n"
+      SECTION@20..54
+        PARAGRAPH@20..54
+          TEXT@20..31 "SCHEDULED: "
+          TIMESTAMP_DIARY@31..53
+            L_ANGLE@31..32 "<"
+            PERCENT2@32..34 "%%"
+            L_PARENS@34..35 "("
+            TEXT@35..51 "diary-float t 42"
+            R_PARENS@51..52 ")"
+            R_ANGLE@52..53 ">"
+          TEXT@53..54 "\n"
+  ```
+
+  So the line is exposed as:
+
+  ```text
+  SECTION
+    PARAGRAPH
+      TEXT "SCHEDULED: "
+      TIMESTAMP_DIARY
+  ```
+
+  instead of a `PLANNING` node.
+
+  ## Expected behavior
+
+  Emacs Org recognizes this as a planning line with a scheduled diary timestamp.
+
+  For the same input, `org-element-parse-buffer` produces a headline with `:scheduled` set to a diary timestamp, and the section contains a `planning` element:
+
+  ```elisp
+  (headline
+   (:raw-value "Diary expression"
+    :level 2
+    :scheduled
+    (timestamp
+     (:type diary
+      :raw-value "<%%(diary-float t 42)>"
+      :diary-sexp "(diary-float t 42)")))
+   (section
+    (planning
+     (:scheduled
+      (timestamp
+       (:type diary
+        :raw-value "<%%(diary-float t 42)>"
+        :diary-sexp "(diary-float t 42)"))))))
+  ```
+
+  So I would expect Orgize to classify this roughly as:
+
+  ```text
+  HEADLINE
+    HEADLINE_TITLE "Diary expression"
+    PLANNING
+      PLANNING_SCHEDULED
+        TEXT "SCHEDULED:"
+        TIMESTAMP_DIARY
+  ```
+
+  ## Comparison: normal scheduled timestamps work
+
+  For a normal scheduled timestamp like this:
+
+  ```org
+  ,** Simple scheduled
+  SCHEDULED: <2024-11-20 Wed>
+  ```
+
+  Orgize correctly exposes a `PLANNING` node:
+
+  ```text
+  HEADLINE
+    HEADLINE_TITLE "Simple scheduled"
+    PLANNING
+      PLANNING_SCHEDULED
+        TEXT "SCHEDULED:"
+        TIMESTAMP_ACTIVE
+  ```
+
+  The issue seems specific to diary timestamps in planning lines.
+
+  ## Why this matters
+
+  Consumers using Orgize as the syntax source cannot reliably distinguish structured planning metadata from normal body text in this case.
+
+  For example, an indexer that stores heading body text may correctly exclude `PLANNING` nodes from body text, but with the current parse result this valid planning line is treated as paragraph/body text instead.
+
+  This also means scheduled diary timestamps are not exposed through the same planning API/path as normal scheduled timestamps.
+
+  ## Suggested fix
+
+  Allow planning keywords such as `SCHEDULED:`, `DEADLINE:`, and `CLOSED:` to accept diary timestamps where Org mode accepts them, for example:
+
+  ```org
+  SCHEDULED: <%%(diary-float t 42)>
+  ```
+
+  and expose them as `PLANNING` / `PLANNING_SCHEDULED` with a `TIMESTAMP_DIARY` child.
+
+  Thanks for maintaining Orgize!
+#+END_SRC
+
 ** TODO Define benchmarks
 
 Possible benchmarks:

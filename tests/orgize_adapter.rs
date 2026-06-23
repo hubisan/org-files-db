@@ -984,6 +984,39 @@ fn orgize_adapter_extracts_heading_bodies_without_child_subtrees() {
 }
 
 #[test]
+fn orgize_adapter_excludes_structured_metadata_from_body_text() {
+    let content = ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:END:\n#+TITLE: Body Metadata Fixture\nIntro before heading.\n\n* Task\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Bob\n:END:\nReal body text.\n\n#+AUTHOR: Jane Doe\n\nBody after keyword.\n\n** Child\nChild body.\n\n* Invalid Planning\nSCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/body-metadata-fixture.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("body metadata fixture should parse");
+
+    assert_eq!(document.headings.len(), 4);
+    assert_eq!(
+        document.headings[0].body_text.as_deref(),
+        Some("Intro before heading.")
+    );
+    assert_eq!(
+        document.headings[1].body_text.as_deref(),
+        Some("Real body text.\n\nBody after keyword.")
+    );
+    assert_eq!(document.headings[1].body_byte_start, None);
+    assert_eq!(document.headings[1].body_byte_end, None);
+    assert_eq!(
+        document.headings[2].body_text.as_deref(),
+        Some("Child body.")
+    );
+    assert_eq!(
+        document.headings[3].body_text.as_deref(),
+        Some("SCHEDULED: <%%(diary-float t 42)>\nBody after invalid planning.")
+    );
+}
+
+#[test]
 fn orgize_adapter_supports_simplified_file_local_todo_keyword_lines() {
     let content = include_str!("data/parser/todo-keywords/simplified-file-local-lines/fixture.org");
     let options = ParseOptions {

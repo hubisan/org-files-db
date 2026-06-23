@@ -1,0 +1,174 @@
+#+TITLE: Refine heading body extraction to exclude structured metadata
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 23:04]
+#+TASK_COMPLETED: [2026-06-23 Tue 23:24]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- The previous body-text task is already completed by the user.
+- Implement the follow-up BUILD task to refine body extraction.
+- Keep the change narrow and exclude structured metadata from ~body_text~ using Orgize structure as the authority.
+
+Copied task entry from ~todo.org~:
+
+** BUILD Refine heading body extraction to exclude structured metadata
+
+Goal:
+Refine optional heading body extraction so ~heading_bodies.body_text~ contains free Org content only, not structured metadata that is already stored in dedicated tables.
+
+Context:
+A previous body-text implementation exists and the current version has been committed. This task should be a focused follow-up that adjusts body extraction semantics without mixing in unrelated parser/indexer changes.
+
+The project uses this architecture:
+
+- Orgize is the syntax authority.
+- Parser adapter translates Orgize syntax nodes into the internal model.
+- Indexer/DB writer stores direct facts and derived/cache data.
+- Structured metadata belongs in dedicated tables.
+- ~heading_bodies~ is for optional free body content that may later be indexed through FTS.
+
+Existing config behavior must remain:
+
+#+begin_src toml
+  [search]
+  fts5_enabled = false
+  index_body_text = false
+#+end_src
+
+~heading_bodies~ rows are written only when ~search.index_body_text = true~. Body text is inserted into FTS only when both ~search.fts5_enabled = true~ and ~search.index_body_text = true~.
+
+Design decision:
+~heading_bodies.body_text~ should contain normal content from a heading's own section, not structured metadata.
+
+Use Orgize as the boundary authority:
+
+- If Orgize exposes a line/block as structured metadata, exclude it from ~body_text~.
+- If Orgize exposes a metadata-looking line as normal section text, keep it in ~body_text~.
+- Do not implement independent metadata recognition for body filtering.
+
+Body extraction rules:
+- Exclude the heading line itself.
+- Exclude child heading subtrees.
+- Exclude Orgize ~PLANNING~ nodes.
+- Exclude Orgize ~PROPERTY_DRAWER~ nodes.
+- Exclude Orgize ~KEYWORD~ nodes wherever they appear.
+- Include normal section content such as paragraphs, lists, source blocks, example blocks, and normal text.
+- Include planning/property/keyword-looking text if Orgize exposes it as normal paragraph/section text rather than a structured node.
+- File-level free text before the first regular heading belongs to the synthetic level 0 heading.
+- File-level structured metadata before the first regular heading, such as property drawers and keywords, does not belong to level 0 ~body_text~.
+
+Scope:
+- Inspect the current committed body extraction implementation.
+- Adjust parser/indexer body extraction to follow the rules above.
+- Preserve existing ~search.index_body_text~ gating.
+- Preserve existing FTS gating.
+- Preserve existing heading/title/tag/property/keyword/planning extraction.
+- Update fixtures and tests for body extraction around planning lines, property drawers, keywords, child subtrees, and level 0 text.
+- Keep the change narrow.
+
+Out of scope:
+- Do not reimplement planning parsing.
+- Do not reimplement property parsing.
+- Do not reimplement keyword parsing.
+- Do not change ~heading_bodies~ schema unless the current schema is broken.
+- Do not implement query/search commands.
+- Do not add body text when ~search.index_body_text = false~.
+- Do not insert body text into FTS unless both required search flags are enabled.
+- Do not treat metadata-looking paragraph text as metadata unless Orgize exposes it structurally.
+
+Acceptance criteria:
+- Body extraction uses Orgize structure as the authority.
+- ~PLANNING~ nodes are excluded from ~body_text~.
+- ~PROPERTY_DRAWER~ nodes are excluded from ~body_text~.
+- ~KEYWORD~ nodes are excluded from ~body_text~ wherever they appear.
+- Normal section text remains in ~body_text~.
+- Metadata-looking paragraph text remains in ~body_text~ if Orgize does not expose it structurally.
+- Child heading subtrees are excluded from parent ~body_text~.
+- File-level free text before the first regular heading is assigned to level 0.
+- File-level structured property drawers and keywords are excluded from level 0 body.
+- Existing config-disabled behavior still works.
+- Existing FTS gating still works.
+- Existing parser/indexer tests still pass.
+
+Validation:
+- Run focused body extraction tests.
+- Run focused parser/indexer tests for planning and property fixtures if present.
+- Run config-disabled body storage tests.
+- Run FTS gating tests if present.
+- Run:
+
+#+begin_src shell
+  cargo test --all-targets --all-features --quiet
+  make ci
+#+end_src
+
+* Planning
+
+** Problem summary
+- The current implementation stores ~section.raw()~ after outer whitespace trimming.
+- That keeps regular child-subtree exclusion, but it also keeps structured nodes that live inside ~SECTION~, especially ~KEYWORD~ nodes and any structured metadata that Orgize represents inside the section body.
+- File-level body extraction has the same issue for ~Document::section()~, so pre-heading free text and structured file-level metadata are currently mixed together.
+** Goals
+- Keep Orgize as the only authority for deciding what is metadata versus free body content.
+- Exclude structured metadata nodes from stored ~body_text~ while preserving ordinary section content and existing config/FTS gating.
+** Non-goals
+- No independent planning/property/keyword recognizer.
+- No schema change.
+- No change to body-indexing enable/disable behavior.
+** Architecture
+- Build body text from direct ~SECTION~ child nodes rather than from ~section.raw()~.
+- Exclude direct child nodes with kinds ~KEYWORD~, ~PROPERTY_DRAWER~, and ~PLANNING~.
+- Preserve raw text of all remaining section children in order.
+- Keep byte ranges only when the kept body text still maps to one contiguous original slice; otherwise leave them ~None~.
+** Execution plan
+- Replace the current raw-section trimming helper with a section-child filter based on Orgize ~SyntaxKind~.
+- Update body tests to assert exclusion of structured metadata and retention of metadata-looking paragraph text when Orgize leaves it as paragraph text.
+- Re-run focused parser/indexer checks plus full project validation.
+** Risks & assumptions
+- Internal removal of a ~KEYWORD~ node between two paragraphs may make the stored text non-contiguous in the source buffer; in that case byte ranges should stay unset instead of guessed.
+- Orgize may already exclude some direct metadata from ~SECTION~ for regular headings; tests should assert observed behavior rather than re-specifying parser internals.
+** Open questions
+- None blocking after inspecting Orgize's headline/document grammar and syntax kinds.
+** Proposed checks
+- Focused ~orgize_adapter~ body-metadata regressions
+- Focused body fixture regressions
+- Focused indexer regressions for cleaned ~heading_bodies~
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+* Results
+
+** Approach
+- Replaced the raw ~section.raw()~ body path with a filtered reconstruction from direct Orgize ~SECTION~ child nodes.
+- Excluded child nodes with kinds ~KEYWORD~, ~PROPERTY_DRAWER~, and ~PLANNING~, while keeping all other section content exactly as Orgize classified it.
+- Preserved the existing body/FTS config gating and kept byte ranges only when the retained body text still maps to one contiguous source slice.
+** Changed files
+- ~src/parser/orgize_adapter.rs~
+- ~tests/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~tests/data/parser/body/structured-metadata-exclusion/fixture.org~
+- ~tests/data/parser/body/structured-metadata-exclusion/expected.txt~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-23--refine-heading-body-extraction-to-exclude-structured-metadata.org~
+** Checks performed
+- Focused ~orgize_adapter~ body extraction regressions
+- Focused parser fixture regression for structured metadata exclusion
+- Focused indexer regression for cleaned stored body rows
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+** Test results
+- Structured ~KEYWORD~ nodes are now excluded from stored heading body text.
+- File-level structured metadata no longer leaks into level 0 ~body_text~.
+- Metadata-looking paragraph text remains when Orgize keeps it as normal section content.
+- Non-contiguous filtered body text now leaves body byte ranges unset instead of guessing.
+- ~cargo test --all-targets --all-features --quiet~ passed.
+- ~make ci~ passed.
+** Blockers
+- None.
+** Follow-ups
+- None.

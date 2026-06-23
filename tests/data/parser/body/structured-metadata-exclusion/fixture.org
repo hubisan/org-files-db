@@ -1,0 +1,23 @@
+:PROPERTIES:
+:CATEGORY: Level 0 Category Property
+:END:
+#+TITLE: Body Metadata Fixture
+Intro before heading.
+
+* Task
+SCHEDULED: <2026-06-23 Tue>
+:PROPERTIES:
+:Owner: Bob
+:END:
+Real body text.
+
+#+AUTHOR: Jane Doe
+
+Body after keyword.
+
+** Child
+Child body.
+
+* Invalid Planning
+SCHEDULED: <%%(diary-float t 42)>
+Body after invalid planning.
