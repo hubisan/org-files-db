@@ -48,7 +48,9 @@ Extend the data model enough to represent real Org workflows meaningfully, witho
 
 [[./archive/2026-06-23--parse-properties-drawer-and-file-level-properties.org]]
 
-** BUILD Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
+** DONE [2026-06-23 Tue 20:17] Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
+
+[[./archive/2026-06-23--fix-property-and-category-normalization-to-use-whole-file-keyword-scan.org]]
 
 Goal: Ensure that normalized property rows created from ~#+PROPERTY~ and ~#+CATEGORY~ are based on keyword lines from the whole Org document, not only on keywords before the first regular heading.
 
@@ -379,3 +381,5 @@ Acceptance criteria:
 - JSON output for headings documents whether level 0 headings are included by default.
 - README contains a minimal example.
 - DB schema documentation references the actual schema file.
+  
+** TODO Repo durch ChatGPT prüfen lassen

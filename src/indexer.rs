@@ -307,6 +307,7 @@ fn active_todo_keywords(
 ) -> TodoKeywordConfig {
     file_local_todo_keyword_config(&document.metadata.keywords)
         .unwrap_or_else(|| default_keywords.clone())
+        .deduplicated()
 }
 
 fn build_file_record(
@@ -1229,6 +1230,322 @@ index_body_text = false
                     Some("project".to_string()),
                     Some(15),
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_indexes_late_file_level_keywords_on_level_zero_heading() {
+        let test_dir = TestDir::new("rebuild-late-file-level-keywords");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("late-file-keywords.org");
+        let content =
+            include_str!("../tests/data/parser/properties/late-file-keywords/fixture.org");
+
+        write_file(&org_path, content);
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings.len(), 4);
+        assert_eq!(
+            headings
+                .iter()
+                .map(|heading| heading.title.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                "Keyword and Property Normalization Fixture Later Title".to_string(),
+                "First heading".to_string(),
+                "Child heading".to_string(),
+                "Second heading".to_string(),
+            ]
+        );
+        assert_eq!(headings[1].parent_id, Some(headings[0].id));
+        assert_eq!(headings[2].parent_id, Some(headings[1].id));
+        assert_eq!(headings[3].parent_id, Some(headings[0].id));
+
+        let properties: Vec<PropertyRow> = query_rows(
+            &connection,
+            "SELECT headings.level, properties.key, properties.value, properties.source, properties.append, properties.line_number
+             FROM properties
+             INNER JOIN headings ON headings.id = properties.heading_id
+             ORDER BY properties.line_number, properties.id",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        );
+        assert_eq!(
+            properties,
+            vec![
+                (
+                    0,
+                    "BEFORE_PROP".to_string(),
+                    Some("before-value".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(3),
+                ),
+                (
+                    0,
+                    "CATEGORY".to_string(),
+                    Some("before-category".to_string()),
+                    "category_keyword".to_string(),
+                    0,
+                    Some(4),
+                ),
+                (
+                    0,
+                    "AFTER_PROP".to_string(),
+                    Some("after-value".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(11),
+                ),
+                (
+                    0,
+                    "REPEATED_PROP".to_string(),
+                    Some("first".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(12),
+                ),
+                (
+                    0,
+                    "REPEATED_PROP".to_string(),
+                    Some("second".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(13),
+                ),
+                (
+                    0,
+                    "APPENDED_PROP".to_string(),
+                    Some("base".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(14),
+                ),
+                (
+                    0,
+                    "APPENDED_PROP".to_string(),
+                    Some("extra".to_string()),
+                    "property_keyword".to_string(),
+                    1,
+                    Some(15),
+                ),
+                (
+                    0,
+                    "CATEGORY".to_string(),
+                    Some("after-category".to_string()),
+                    "category_keyword".to_string(),
+                    0,
+                    Some(16),
+                ),
+                (
+                    0,
+                    "SECOND_AFTER_HEADING".to_string(),
+                    Some("works".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(27),
+                ),
+                (
+                    0,
+                    "CATEGORY".to_string(),
+                    Some("second-category".to_string()),
+                    "category_keyword".to_string(),
+                    0,
+                    Some(28),
+                ),
+            ]
+        );
+
+        let raw_keywords: Vec<KeywordRow> = query_rows(
+            &connection,
+            "SELECT keyword, value, line_number
+             FROM keywords
+             ORDER BY line_number, rowid",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+        assert_eq!(
+            raw_keywords,
+            vec![
+                (
+                    "TITLE".to_string(),
+                    Some("Keyword and Property Normalization Fixture".to_string()),
+                    Some(1),
+                ),
+                ("STARTUP".to_string(), Some("showall".to_string()), Some(2)),
+                (
+                    "PROPERTY".to_string(),
+                    Some("before_prop before-value".to_string()),
+                    Some(3),
+                ),
+                (
+                    "CATEGORY".to_string(),
+                    Some("before-category".to_string()),
+                    Some(4),
+                ),
+                (
+                    "AUTHOR".to_string(),
+                    Some("Later Author".to_string()),
+                    Some(9),
+                ),
+                (
+                    "OPTIONS".to_string(),
+                    Some("toc:nil num:t".to_string()),
+                    Some(10),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("after_prop after-value".to_string()),
+                    Some(11),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("repeated_prop first".to_string()),
+                    Some(12),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("repeated_prop second".to_string()),
+                    Some(13),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("appended_prop base".to_string()),
+                    Some(14),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("appended_prop+ extra".to_string()),
+                    Some(15),
+                ),
+                (
+                    "CATEGORY".to_string(),
+                    Some("after-category".to_string()),
+                    Some(16),
+                ),
+                (
+                    "TITLE".to_string(),
+                    Some("Later Title".to_string()),
+                    Some(21),
+                ),
+                (
+                    "EXPORT_FILE_NAME".to_string(),
+                    Some("later-export-name".to_string()),
+                    Some(22),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("second_after_heading works".to_string()),
+                    Some(27),
+                ),
+                (
+                    "CATEGORY".to_string(),
+                    Some("second-category".to_string()),
+                    Some(28),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_handles_overlapping_file_local_todo_keyword_lines_without_duplicate_rows() {
+        let test_dir = TestDir::new("overlapping-file-local-todo");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("overlapping.org");
+        let content = include_str!(
+            "../tests/data/parser/todo-keywords/overlapping-file-local-lines/fixture.org"
+        );
+
+        write_file(&org_path, content);
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings.len(), 4);
+        assert_eq!(headings[1].title, "First heading");
+        assert_eq!(headings[1].title_raw, "First heading");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("TODO"));
+        assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
+        assert_eq!(headings[2].title, "Second heading");
+        assert_eq!(headings[2].title_raw, "Second heading");
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("NEXT"));
+        assert_eq!(headings[2].todo_type.as_deref(), Some("open"));
+        assert_eq!(headings[3].title, "Finished heading");
+        assert_eq!(headings[3].title_raw, "Finished heading");
+        assert_eq!(headings[3].todo_keyword.as_deref(), Some("DONE"));
+        assert_eq!(headings[3].todo_type.as_deref(), Some("closed"));
+
+        let todo_rows: Vec<(String, String, Option<String>, i64)> = query_rows(
+            &connection,
+            "SELECT keyword, state_type, shortcut, sequence_no FROM todo_keywords ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                ("TODO".to_string(), "open".to_string(), None, 0,),
+                ("NEXT".to_string(), "open".to_string(), None, 1,),
+                ("WAIT".to_string(), "open".to_string(), None, 2,),
+                ("DONE".to_string(), "closed".to_string(), None, 3,),
+                ("CANCELED".to_string(), "closed".to_string(), None, 4,),
             ]
         );
     }

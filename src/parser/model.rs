@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use serde::Serialize;
 
@@ -28,6 +31,25 @@ impl TodoKeywordConfig {
     pub fn all_keywords(&self) -> impl Iterator<Item = &TodoKeyword> {
         self.open.iter().chain(self.closed.iter())
     }
+
+    pub fn deduplicated(self) -> Self {
+        let mut seen = HashSet::new();
+        let mut open = Vec::new();
+        let mut closed = Vec::new();
+
+        for keyword in self.open {
+            if seen.insert(keyword.name.clone()) {
+                open.push(keyword);
+            }
+        }
+        for keyword in self.closed {
+            if seen.insert(keyword.name.clone()) {
+                closed.push(keyword);
+            }
+        }
+
+        Self { open, closed }
+    }
 }
 
 impl Default for TodoKeywordConfig {
@@ -42,6 +64,7 @@ impl Default for TodoKeywordConfig {
 pub fn file_local_todo_keyword_config(keywords: &[ParsedKeyword]) -> Option<TodoKeywordConfig> {
     let mut open = Vec::new();
     let mut closed = Vec::new();
+    let mut seen = HashSet::new();
 
     for keyword in keywords.iter().filter(|keyword| {
         keyword.key.eq_ignore_ascii_case("TODO")
@@ -55,8 +78,16 @@ pub fn file_local_todo_keyword_config(keywords: &[ParsedKeyword]) -> Option<Todo
             continue;
         };
 
-        open.extend(line_config.open);
-        closed.extend(line_config.closed);
+        for todo_keyword in line_config.open {
+            if seen.insert(todo_keyword.name.clone()) {
+                open.push(todo_keyword);
+            }
+        }
+        for todo_keyword in line_config.closed {
+            if seen.insert(todo_keyword.name.clone()) {
+                closed.push(todo_keyword);
+            }
+        }
     }
 
     if open.is_empty() && closed.is_empty() {

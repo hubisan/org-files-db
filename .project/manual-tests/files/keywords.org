@@ -4,7 +4,7 @@
 #+PROPERTY: before_prop before-value
 #+CATEGORY: before-category
 
-* First heading
+* WURST First heading
 This heading has body text before later keywords.
 
 #+AUTHOR: Later Author
@@ -23,11 +23,11 @@ This child should not directly receive keyword rows.
 #+EXPORT_FILE_NAME: later-export-name
 #+STARTUP: content
 
-* Second heading
+* IDEA Second heading
 This heading appears after later keywords.
 
 #+TODO: TODO NEXT | DONE CANCELED
-#+SEQ_TODO: IDEA(i) PLAN(p) BUILD(b) | DONE(d)
+#+SEQ_TODO: IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)
 #+TYP_TODO: WAITING(w) | CANCELED(c)
 
 * Boundary: keyword-looking body text

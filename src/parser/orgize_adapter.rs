@@ -903,12 +903,12 @@ fn is_supported_title_markup(kind: SyntaxKind) -> bool {
 }
 
 fn collect_document_keywords(document: &OrgDocument, content: &str) -> Vec<ParsedKeyword> {
-    let mut keywords = document
-        .keywords()
+    document
+        .syntax()
+        .descendants()
+        .filter_map(Keyword::cast)
         .map(|keyword| parsed_keyword_from_orgize(&keyword, content))
-        .collect::<Vec<_>>();
-    merge_special_keywords_from_content(&mut keywords, content);
-    keywords
+        .collect()
 }
 
 fn parsed_keyword_from_orgize(keyword: &Keyword, content: &str) -> ParsedKeyword {
@@ -920,43 +920,6 @@ fn parsed_keyword_from_orgize(keyword: &Keyword, content: &str) -> ParsedKeyword
             usize::from(keyword.start()),
         )),
     }
-}
-
-fn merge_special_keywords_from_content(keywords: &mut Vec<ParsedKeyword>, content: &str) {
-    keywords.retain(|keyword| !is_full_buffer_special_keyword_name(&keyword.key));
-    keywords.extend(special_keywords_from_content(content));
-}
-
-fn special_keywords_from_content(content: &str) -> Vec<ParsedKeyword> {
-    content
-        .lines()
-        .enumerate()
-        .filter_map(|(index, line)| {
-            let remainder = line.strip_prefix("#+")?;
-            let (key, value) = remainder.split_once(':')?;
-            if !is_full_buffer_special_keyword_name(key) {
-                return None;
-            }
-
-            Some(ParsedKeyword {
-                key: key.to_string(),
-                value: Some(value.trim().to_string()).filter(|value| !value.is_empty()),
-                line_number: Some(index as u32 + 1),
-            })
-        })
-        .collect()
-}
-
-fn is_full_buffer_special_keyword_name(key: &str) -> bool {
-    is_file_local_todo_keyword_name(key)
-        || key.eq_ignore_ascii_case("PROPERTY")
-        || key.eq_ignore_ascii_case("CATEGORY")
-}
-
-fn is_file_local_todo_keyword_name(key: &str) -> bool {
-    key.eq_ignore_ascii_case("TODO")
-        || key.eq_ignore_ascii_case("SEQ_TODO")
-        || key.eq_ignore_ascii_case("TYP_TODO")
 }
 
 fn file_level_properties_from_keywords(keywords: &[ParsedKeyword]) -> Vec<ParsedProperty> {

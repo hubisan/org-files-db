@@ -1,0 +1,228 @@
+#+TITLE: Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 19:49]
+#+TASK_COMPLETED: [2026-06-23 Tue 20:17]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- The previous implementation was reverted.
+- The task now includes additional rules for whole-file keyword scanning, raw keyword preservation, property normalization attachment, and a TODO regression for overlapping local declarations.
+- Keep the change narrow: fix PROPERTY and CATEGORY normalization without broadening TODO semantics.
+
+Copied task entry from ~todo.org~:
+
+** DONE [2026-06-23 Tue 20:17] Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
+
+Goal:
+Ensure that normalized property rows created from ~#+PROPERTY~ and ~#+CATEGORY~ are based on keyword lines from the whole Org document, not only on keywords before the first regular heading.
+
+Context:
+Org keyword lines can appear later in the buffer and still be recognized by Org-mode. The raw keyword parser/indexer stores keyword rows on the synthetic level 0 heading. Property normalization for ~#+PROPERTY~ and ~#+CATEGORY~ must use the same parsed keyword source, but this task must not change TODO keyword semantics.
+
+Important regression context:
+A previous attempt changed the central keyword collection path too broadly and caused ~todo_keywords~ insertion to fail with a uniqueness error. This task must avoid that regression.
+
+Do not change:
+- Do not change normalized ~TODO~, ~SEQ_TODO~, or ~TYP_TODO~ behavior.
+- Do not remove existing TODO keyword deduplication or merge logic.
+- Do not change the ~todo_keywords~ schema.
+- Do not change the uniqueness behavior of ~todo_keywords~.
+- Do not modify manual SQLite database files.
+- Do not modify task tracking files such as ~.project/tasks/todo.org~, except for moving this task through the workflow if explicitly required by the project process.
+- Do not implement a second independent raw-text scanner if a parsed keyword list already exists.
+- Do not compute effective or inherited property values in this task.
+
+Problem:
+#+begin_src org
+  ,#+PROPERTY: var before
+
+  ,* First heading
+
+  ,#+PROPERTY: var after
+  ,#+CATEGORY: later-category
+
+  ,* Second heading
+#+end_src
+
+Expected parser/indexer behavior:
+- Both ~#+PROPERTY~ rows are stored as raw keyword rows.
+- The later ~#+CATEGORY~ row is stored as a raw keyword row.
+- Both ~#+PROPERTY~ rows also create normalized rows in ~properties~ with ~source = property_keyword~.
+- The ~#+CATEGORY~ row also creates a normalized row in ~properties~ with ~source = category_keyword~.
+- All normalized rows are attached to the synthetic level 0 heading.
+- No normalized row is attached directly to ~First heading~ or ~Second heading~.
+
+Scope:
+- Reuse the existing parsed keyword collection used for raw keyword insertion, if available.
+- If the existing parser has special whole-buffer keyword logic for ~TODO~, ~SEQ_TODO~, ~TYP_TODO~, ~PROPERTY~, or ~CATEGORY~, preserve it unless a test proves it is wrong.
+- Do not replace the central keyword collector with a broad ~syntax().descendants().filter_map(Keyword::cast)~ implementation unless all existing keyword/TODO tests still pass and no duplicate ~todo_keywords~ rows are produced.
+- Do not limit ~#+PROPERTY~ or ~#+CATEGORY~ normalization to the preamble before the first regular heading.
+- Preserve duplicate raw keyword rows.
+- Preserve duplicate normalized property rows.
+- Preserve source order through ~line_number~ and/or insertion order.
+- Keep keyword rows and property rows separate.
+- Store ~#+PROPERTY~ and ~#+CATEGORY~ twice: once as raw ~keywords~ rows and once as normalized ~properties~ rows.
+- Attach normalized ~property_keyword~ and ~category_keyword~ rows only to the synthetic level 0 heading.
+- Do not attach normalized keyword-derived property rows to surrounding regular headings.
+
+Normalization rules:
+- ~#+PROPERTY: key value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 0, and heading_id = synthetic level 0 heading.
+- ~#+PROPERTY: key+ value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 1, and heading_id = synthetic level 0 heading.
+- ~#+CATEGORY: value~ creates a row in ~properties~ with key ~CATEGORY~, value ~value~, source ~category_keyword~, append = 0, and heading_id = synthetic level 0 heading.
+- The trailing ~+~ append marker is not part of the stored key.
+- Property keys are normalized consistently with the existing property implementation.
+
+Required regression fixture:
+#+begin_src org
+  ,#+TITLE: Keyword and Property Normalization Fixture
+  ,#+STARTUP: showall
+  ,#+PROPERTY: before_prop before-value
+  ,#+CATEGORY: before-category
+
+  ,* First heading
+  This heading has body text before later keywords.
+
+  ,#+AUTHOR: Later Author
+  ,#+OPTIONS: toc:nil num:t
+  ,#+PROPERTY: after_prop after-value
+  ,#+PROPERTY: repeated_prop first
+  ,#+PROPERTY: repeated_prop second
+  ,#+PROPERTY: appended_prop base
+  ,#+PROPERTY: appended_prop+ extra
+  ,#+CATEGORY: after-category
+
+  ,** Child heading
+  This child should not directly receive keyword or property rows created from later file-level keywords.
+
+  ,#+TITLE: Later Title
+  ,#+EXPORT_FILE_NAME: later-export-name
+
+  ,* Second heading
+  This heading appears after later keywords.
+
+  ,#+PROPERTY: second_after_heading works
+  ,#+CATEGORY: second-category
+#+end_src
+
+Expected normalized property rows on level 0:
+#+begin_src text
+BEFORE_PROP          | before-value    | property_keyword | append = 0
+CATEGORY             | before-category | category_keyword | append = 0
+AFTER_PROP           | after-value     | property_keyword | append = 0
+REPEATED_PROP        | first           | property_keyword | append = 0
+REPEATED_PROP        | second          | property_keyword | append = 0
+APPENDED_PROP        | base            | property_keyword | append = 0
+APPENDED_PROP        | extra           | property_keyword | append = 1
+CATEGORY             | after-category  | category_keyword | append = 0
+SECOND_AFTER_HEADING | works           | property_keyword | append = 0
+CATEGORY             | second-category | category_keyword | append = 0
+#+end_src
+
+Expected attachment behavior:
+- All rows above are attached to the synthetic level 0 heading.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~First heading~.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~Child heading~.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~Second heading~.
+
+Required TODO regression fixture:
+#+begin_src org
+  ,#+TODO: TODO NEXT | DONE
+  ,#+SEQ_TODO: TODO WAIT | DONE CANCELED
+
+  ,* TODO First heading
+  ,* NEXT Second heading
+  ,* DONE Finished heading
+#+end_src
+
+Expected TODO behavior:
+- Rebuild must not fail with ~UNIQUE constraint failed: todo_keywords.file_id, todo_keywords.keyword~.
+- Raw keyword rows may preserve both TODO-related keyword declarations.
+- Normalized ~todo_keywords~ rows must remain valid for the existing schema.
+- If duplicate normalized TODO keywords occur, keep the existing project behavior for deduplication or conflict handling.
+- Do not change TODO keyword semantics unless an existing test is wrong and the change is explicitly justified.
+
+Acceptance criteria:
+- A test proves that ~#+PROPERTY~ after a regular heading creates a ~properties~ row on the level 0 heading.
+- A test proves that ~#+CATEGORY~ after a regular heading creates a ~properties~ row on the level 0 heading.
+- A test proves that raw ~keywords~ rows are still stored for those later keyword lines.
+- A test proves that no ~property_keyword~ or ~category_keyword~ row is attached to the surrounding regular heading.
+- Duplicate ~#+PROPERTY~ rows from different positions are preserved.
+- Append syntax with ~#+PROPERTY: key+ value~ is preserved as ~append = 1~.
+- Existing TODO keyword tests still pass.
+- A regression test proves that rebuild does not fail with duplicate or overlapping TODO declarations.
+- The implementation uses the same keyword source as raw keyword insertion, or clearly documents why that is not possible.
+- The test fails on the old implementation if ~#+PROPERTY~ or ~#+CATEGORY~ is only scanned before the first regular heading.
+
+Validation:
+- Run the new parser/indexer tests.
+- Run all existing TODO keyword tests.
+- Run the rebuild command that previously failed, if available:
+  #+begin_src shell
+    cargo run -- rebuild --config ./Config.toml
+  #+end_src
+- Run the project standard validation command if available, for example:
+  #+begin_src shell
+    make ci
+  #+end_src
+
+* Planning
+
+** Problem summary
+The parser currently needs to source file-level keyword facts from the whole document so late ~#+PROPERTY~ and ~#+CATEGORY~ lines normalize to the synthetic level 0 heading. The TODO path must not regress, and overlapping local TODO declarations must not create duplicate ~todo_keywords~ rows.
+
+** Goals
+- Use parsed keyword nodes instead of raw text scanning for whole-file keyword collection.
+- Keep raw keyword rows and normalized property rows aligned on the same source data.
+- Prevent duplicate overlapping local TODO declarations from breaking rebuild.
+
+** Non-goals
+- No effective or inherited property computation.
+- No schema changes.
+- No new TODO semantics.
+
+** Execution plan
+- Update keyword collection to use whole-document parsed keyword nodes.
+- Dedupe local TODO keyword config entries before database insertion.
+- Add parser and indexer regression coverage for late file-level property/category keywords and overlapping TODO declarations.
+
+** Proposed checks
+- Focused parser and indexer tests for property/category normalization.
+- Focused rebuild test for overlapping TODO declarations.
+- `cargo test --all-targets --all-features --quiet`
+
+* Results
+
+** Approach
+- Switched keyword collection to parsed whole-document keyword nodes instead of the raw-text fallback.
+- Kept late ~#+PROPERTY~ and ~#+CATEGORY~ rows normalized onto the synthetic level 0 heading by reusing the shared parsed keyword list.
+- Added TODO keyword deduplication before database insertion so overlapping local TODO declarations no longer trip the unique constraint.
+
+** Changed files
+- ~src/parser/model.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~tests/orgize_adapter.rs~
+- ~tests/data/parser/properties/late-file-keywords/fixture.org~
+- ~tests/data/parser/properties/late-file-keywords/expected.txt~
+- ~tests/data/parser/todo-keywords/overlapping-file-local-lines/fixture.org~
+- ~tests/data/parser/todo-keywords/overlapping-file-local-lines/expected.txt~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+- ~cargo test --test parser_fixtures --quiet~
+- ~cargo test --test orgize_adapter orgize_adapter_collects_file_level_property_keywords_anywhere_in_buffer -- --nocapture~
+- ~cargo test --lib indexer::tests -- --nocapture~
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+** Test results
+- Parser fixtures passed, including the new late keyword normalization fixture.
+- The adapter regression test passed with full-document keyword collection.
+- Indexer regression tests passed, including the overlapping TODO keyword case and late property/category indexing.
+- ~cargo test --all-targets --all-features --quiet~ passed.
+- ~make ci~ passed.

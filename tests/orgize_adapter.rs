@@ -327,67 +327,221 @@ fn orgize_adapter_preserves_empty_property_values_exposed_by_orgize() {
 
 #[test]
 fn orgize_adapter_collects_file_level_property_keywords_anywhere_in_buffer() {
-    let content = "#+TITLE: File Properties\n* Task\n#+PROPERTY: Effort_ALL 0:10 0:30 1:00\n#+PROPERTY: var+ bar=2\n#+CATEGORY: project\n";
+    let content = include_str!("data/parser/properties/late-file-keywords/fixture.org");
 
     let document = OrgizeAdapter::new()
         .parse_document(
-            Path::new("notes/file-properties.org"),
+            Path::new("notes/late-file-keywords.org"),
             content,
             &ParseOptions::default(),
         )
         .expect("file-level properties should parse");
 
-    assert_eq!(document.headings.len(), 2);
-    assert_eq!(document.headings[0].properties.len(), 3);
-    assert_eq!(document.headings[0].properties[0].key, "EFFORT_ALL");
     assert_eq!(
-        document.headings[0].properties[0].value.as_deref(),
-        Some("0:10 0:30 1:00")
+        document.metadata.title.as_deref(),
+        Some("Keyword and Property Normalization Fixture Later Title")
     );
-    assert_eq!(
-        document.headings[0].properties[0].source,
-        ParsedPropertySource::PropertyKeyword
-    );
-    assert!(!document.headings[0].properties[0].append);
+    assert_eq!(document.headings.len(), 4);
 
-    assert_eq!(document.headings[0].properties[1].key, "VAR");
-    assert_eq!(
-        document.headings[0].properties[1].value.as_deref(),
-        Some("bar=2")
-    );
-    assert_eq!(
-        document.headings[0].properties[1].source,
-        ParsedPropertySource::PropertyKeyword
-    );
-    assert!(document.headings[0].properties[1].append);
-
-    assert_eq!(document.headings[0].properties[2].key, "CATEGORY");
-    assert_eq!(
-        document.headings[0].properties[2].value.as_deref(),
-        Some("project")
-    );
-    assert_eq!(
-        document.headings[0].properties[2].source,
-        ParsedPropertySource::CategoryKeyword
-    );
-    assert!(!document.headings[0].properties[2].append);
-
-    let special_keywords: Vec<(&str, Option<&str>)> = document
+    let keyword_rows: Vec<(String, Option<String>, Option<u32>)> = document
         .metadata
         .keywords
         .iter()
-        .filter(|keyword| matches!(keyword.key.as_str(), "PROPERTY" | "CATEGORY" | "TITLE"))
-        .map(|keyword| (keyword.key.as_str(), keyword.value.as_deref()))
+        .map(|keyword| {
+            (
+                keyword.key.clone(),
+                keyword.value.clone(),
+                keyword.line_number,
+            )
+        })
         .collect();
     assert_eq!(
-        special_keywords,
+        keyword_rows,
         vec![
-            ("TITLE", Some("File Properties")),
-            ("PROPERTY", Some("Effort_ALL 0:10 0:30 1:00")),
-            ("PROPERTY", Some("var+ bar=2")),
-            ("CATEGORY", Some("project")),
+            (
+                "TITLE".to_string(),
+                Some("Keyword and Property Normalization Fixture".to_string()),
+                Some(1)
+            ),
+            ("STARTUP".to_string(), Some("showall".to_string()), Some(2)),
+            (
+                "PROPERTY".to_string(),
+                Some("before_prop before-value".to_string()),
+                Some(3)
+            ),
+            (
+                "CATEGORY".to_string(),
+                Some("before-category".to_string()),
+                Some(4)
+            ),
+            (
+                "AUTHOR".to_string(),
+                Some("Later Author".to_string()),
+                Some(9)
+            ),
+            (
+                "OPTIONS".to_string(),
+                Some("toc:nil num:t".to_string()),
+                Some(10)
+            ),
+            (
+                "PROPERTY".to_string(),
+                Some("after_prop after-value".to_string()),
+                Some(11)
+            ),
+            (
+                "PROPERTY".to_string(),
+                Some("repeated_prop first".to_string()),
+                Some(12)
+            ),
+            (
+                "PROPERTY".to_string(),
+                Some("repeated_prop second".to_string()),
+                Some(13)
+            ),
+            (
+                "PROPERTY".to_string(),
+                Some("appended_prop base".to_string()),
+                Some(14)
+            ),
+            (
+                "PROPERTY".to_string(),
+                Some("appended_prop+ extra".to_string()),
+                Some(15)
+            ),
+            (
+                "CATEGORY".to_string(),
+                Some("after-category".to_string()),
+                Some(16)
+            ),
+            (
+                "TITLE".to_string(),
+                Some("Later Title".to_string()),
+                Some(21)
+            ),
+            (
+                "EXPORT_FILE_NAME".to_string(),
+                Some("later-export-name".to_string()),
+                Some(22)
+            ),
+            (
+                "PROPERTY".to_string(),
+                Some("second_after_heading works".to_string()),
+                Some(27)
+            ),
+            (
+                "CATEGORY".to_string(),
+                Some("second-category".to_string()),
+                Some(28)
+            ),
         ]
     );
+
+    let root = &document.headings[0];
+    assert_eq!(root.level, 0);
+    assert_eq!(
+        root.title,
+        "Keyword and Property Normalization Fixture Later Title"
+    );
+    assert!(root.is_root);
+    assert_eq!(
+        root.properties
+            .iter()
+            .map(|property| {
+                (
+                    property.key.clone(),
+                    property.value.clone(),
+                    property.source,
+                    property.append,
+                    property.line_number,
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "BEFORE_PROP".to_string(),
+                Some("before-value".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                false,
+                Some(3)
+            ),
+            (
+                "CATEGORY".to_string(),
+                Some("before-category".to_string()),
+                ParsedPropertySource::CategoryKeyword,
+                false,
+                Some(4)
+            ),
+            (
+                "AFTER_PROP".to_string(),
+                Some("after-value".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                false,
+                Some(11)
+            ),
+            (
+                "REPEATED_PROP".to_string(),
+                Some("first".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                false,
+                Some(12)
+            ),
+            (
+                "REPEATED_PROP".to_string(),
+                Some("second".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                false,
+                Some(13)
+            ),
+            (
+                "APPENDED_PROP".to_string(),
+                Some("base".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                false,
+                Some(14)
+            ),
+            (
+                "APPENDED_PROP".to_string(),
+                Some("extra".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                true,
+                Some(15)
+            ),
+            (
+                "CATEGORY".to_string(),
+                Some("after-category".to_string()),
+                ParsedPropertySource::CategoryKeyword,
+                false,
+                Some(16)
+            ),
+            (
+                "SECOND_AFTER_HEADING".to_string(),
+                Some("works".to_string()),
+                ParsedPropertySource::PropertyKeyword,
+                false,
+                Some(27)
+            ),
+            (
+                "CATEGORY".to_string(),
+                Some("second-category".to_string()),
+                ParsedPropertySource::CategoryKeyword,
+                false,
+                Some(28)
+            ),
+        ]
+    );
+
+    assert_eq!(document.headings[1].title, "First heading");
+    assert_eq!(document.headings[1].parent_index, Some(0));
+    assert!(document.headings[1].properties.is_empty());
+
+    assert_eq!(document.headings[2].title, "Child heading");
+    assert_eq!(document.headings[2].parent_index, Some(1));
+    assert!(document.headings[2].properties.is_empty());
+
+    assert_eq!(document.headings[3].title, "Second heading");
+    assert_eq!(document.headings[3].parent_index, Some(0));
+    assert!(document.headings[3].properties.is_empty());
     assert!(document.diagnostics.is_empty());
 }
 

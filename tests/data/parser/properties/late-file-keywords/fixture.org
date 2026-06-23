@@ -1,0 +1,28 @@
+#+TITLE: Keyword and Property Normalization Fixture
+#+STARTUP: showall
+#+PROPERTY: before_prop before-value
+#+CATEGORY: before-category
+
+* First heading
+This heading has body text before later keywords.
+
+#+AUTHOR: Later Author
+#+OPTIONS: toc:nil num:t
+#+PROPERTY: after_prop after-value
+#+PROPERTY: repeated_prop first
+#+PROPERTY: repeated_prop second
+#+PROPERTY: appended_prop base
+#+PROPERTY: appended_prop+ extra
+#+CATEGORY: after-category
+
+** Child heading
+This child should not directly receive keyword or property rows created from later file-level keywords.
+
+#+TITLE: Later Title
+#+EXPORT_FILE_NAME: later-export-name
+
+* Second heading
+This heading appears after later keywords.
+
+#+PROPERTY: second_after_heading works
+#+CATEGORY: second-category

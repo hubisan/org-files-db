@@ -1,0 +1,19 @@
+# classification: org-special-case
+# note: Overlapping file-local TODO declarations are accepted and the resulting TODO config remains usable.
+document.title=Overlapping TODO Fixture
+heading_count=4
+diagnostic_count=0
+document.keyword.TODO=TODO NEXT | DONE
+document.keyword.SEQ_TODO=TODO WAIT | DONE CANCELED
+heading.0.level=0
+heading.0.title=Overlapping TODO Fixture
+heading.0.is_root=true
+heading.1.title=First heading
+heading.1.todo_keyword=TODO
+heading.1.parent_index=0
+heading.2.title=Second heading
+heading.2.todo_keyword=NEXT
+heading.2.parent_index=0
+heading.3.title=Finished heading
+heading.3.todo_keyword=DONE
+heading.3.parent_index=0

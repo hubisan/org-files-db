@@ -1,0 +1,7 @@
+#+TITLE: Overlapping TODO Fixture
+#+TODO: TODO NEXT | DONE
+#+SEQ_TODO: TODO WAIT | DONE CANCELED
+
+* TODO First heading
+* NEXT Second heading
+* DONE Finished heading

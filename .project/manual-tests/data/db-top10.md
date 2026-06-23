@@ -4,13 +4,14 @@
 
 | id |                                                path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|-----------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782218405 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 | 904  |              | 1782218405 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782218405 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782218405 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782218405 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782218405 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782218405 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782237917 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 | 904  |              | 1782237917 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                 | 1782237909127183381 | 2261 |              | 1782237917 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782237917 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782237917 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782237917 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782237917 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782237917 |
 
 ## heading_bodies
 
@@ -65,18 +66,18 @@
 
 ## properties
 
-| id | heading_id |              key              |                value                 |      source      | append | line_number |
-|----|------------|-------------------------------|--------------------------------------|------------------|--------|-------------|
-| 1  | 51         | CATEGORY                      | Level 0 Category Property            | property_drawer  | 0      | 2           |
-| 2  | 51         | WHATEVER                      | level 0 drawer property              | property_drawer  | 0      | 3           |
-| 3  | 51         | ID                            | 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d | property_drawer  | 0      | 4           |
-| 4  | 51         | CATEGORY                      | category_keyword_value               | category_keyword | 0      | 8           |
-| 5  | 51         | EFFORT_ALL                    | 0:10 0:30 1:00                       | property_keyword | 0      | 9           |
-| 6  | 51         | KEYWORD_PROPERTY              | valid                                | property_keyword | 0      | 10          |
-| 7  | 51         | KEYWORD_OVERWRITTEN_BY_SECOND | invalid                              | property_keyword | 0      | 11          |
-| 8  | 51         | KEYWORD_OVERWRITTEN_BY_SECOND | valid                                | property_keyword | 0      | 12          |
-| 9  | 51         | KEYWORD_APPEND                | foo=1                                | property_keyword | 0      | 13          |
-| 10 | 51         | KEYWORD_APPEND                | bar=2                                | property_keyword | 1      | 14          |
+| id | heading_id |      key      |           value           |      source      | append | line_number |
+|----|------------|---------------|---------------------------|------------------|--------|-------------|
+| 1  | 31         | BEFORE_PROP   | before-value              | property_keyword | 0      | 4           |
+| 2  | 31         | CATEGORY      | before-category           | category_keyword | 0      | 5           |
+| 3  | 31         | AFTER_PROP    | after-value               | property_keyword | 0      | 12          |
+| 4  | 31         | REPEATED_PROP | first                     | property_keyword | 0      | 13          |
+| 5  | 31         | REPEATED_PROP | second                    | property_keyword | 0      | 14          |
+| 6  | 31         | APPENDED_PROP | base                      | property_keyword | 0      | 15          |
+| 7  | 31         | APPENDED_PROP | extra                     | property_keyword | 1      | 16          |
+| 8  | 31         | CATEGORY      | after-category            | category_keyword | 0      | 17          |
+| 9  | 57         | CATEGORY      | Level 0 Category Property | property_drawer  | 0      | 2           |
+| 10 | 57         | WHATEVER      | level 0 drawer property   | property_drawer  | 0      | 3           |
 
 ## tags
 
@@ -109,16 +110,16 @@
 
 | id | heading_id |   role    |  start_ts  |   end_ts   |   type   | range_type |             raw_value              | byte_start | byte_end | line_number |
 |----|------------|-----------|------------|------------|----------|------------|------------------------------------|------------|----------|-------------|
-| 1  | 35         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 93         | 109      | 7           |
-| 2  | 36         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 140        | 156      | 10          |
-| 3  | 37         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 183        | 199      | 13          |
-| 4  | 38         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 239        | 255      | 16          |
-| 5  | 38         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 267        | 283      | 16          |
-| 6  | 38         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 292        | 308      | 16          |
-| 7  | 39         | scheduled | 1732095000 |            | active   | none       | <2024-11-20 Wed 09:30>             | 334        | 356      | 19          |
-| 8  | 40         | scheduled | 1732095000 | 1732100400 | active   | time_range | <2024-11-20 Wed 09:30-11:00>       | 392        | 420      | 22          |
-| 9  | 41         | deadline  | 1733011200 | 1733184000 | active   | date_range | <2024-12-01 Sun>--<2024-12-03 Tue> | 446        | 480      | 25          |
-| 10 | 42         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed +1w>               | 505        | 525      | 28          |
+| 1  | 41         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 93         | 109      | 7           |
+| 2  | 42         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 140        | 156      | 10          |
+| 3  | 43         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 183        | 199      | 13          |
+| 4  | 44         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 239        | 255      | 16          |
+| 5  | 44         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 267        | 283      | 16          |
+| 6  | 44         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 292        | 308      | 16          |
+| 7  | 45         | scheduled | 1732095000 |            | active   | none       | <2024-11-20 Wed 09:30>             | 334        | 356      | 19          |
+| 8  | 46         | scheduled | 1732095000 | 1732100400 | active   | time_range | <2024-11-20 Wed 09:30-11:00>       | 392        | 420      | 22          |
+| 9  | 47         | deadline  | 1733011200 | 1733184000 | active   | date_range | <2024-12-01 Sun>--<2024-12-03 Tue> | 446        | 480      | 25          |
+| 10 | 48         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed +1w>               | 505        | 525      | 28          |
 
 ## todo_keywords
 
