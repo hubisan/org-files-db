@@ -386,7 +386,8 @@ CREATE INDEX IF NOT EXISTS idx_timestamp_repeaters_timestamp_id
   Each row represents an Org keyword line.
 
   File-level keywords such as #+TITLE, #+AUTHOR, #+STARTUP, #+OPTIONS and
-  #+EXPORT_FILE_NAME are attached to the level 0 heading.
+  #+EXPORT_FILE_NAME are attached to the synthetic level 0 heading, even when
+  the keyword line appears later in the document after regular headings.
 
   Keywords that are semantically relevant to parser behavior, especially
   #+TODO, may also be represented in specialized tables such as todo_keywords.
@@ -475,14 +476,21 @@ CREATE TABLE IF NOT EXISTS properties (
 /*
   Each row represents a tag associated with a heading.
 
-  FILETAGS are stored as tags on the level 0 heading.
+  Tags are stored as direct facts only.
+
+  Regular heading tags are stored on their actual heading.
+
+  FILETAGS are stored as tags on the synthetic level 0 heading. This is
+  sufficient to distinguish them from regular heading tags without adding a
+  separate source column.
 
   tag:
     Tag name without surrounding colons.
 
   inherited:
-    0 = directly defined on this heading
-    1 = inherited/effective tag
+    Deprecated compatibility column.
+    Current writes store only direct tag facts, so this remains 0.
+    Effective/inherited tags are represented in headings.all_tags_json.
 */
 CREATE TABLE IF NOT EXISTS tags (
     heading_id      INTEGER NOT NULL,

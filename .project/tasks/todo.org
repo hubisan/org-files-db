@@ -213,96 +213,124 @@ Validation:
     make ci
   #+end_src
 
-** TODO Parse keywords
+** DONE [2026-06-23 Tue 20:45] Verify and complete raw keyword parsing contract
 
-Goal: Extract Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, ~#+EXPORT_FILE_NAME~, ~#+TODO~, ~#+SEQ_TODO~, ~#+TYP_TODO~, ~#+PROPERTY~, and ~#+CATEGORY~.
+[[./archive/2026-06-23--verify-and-complete-raw-keyword-parsing-contract.org]]
 
-Context: Org keyword lines are not necessarily limited to the physical beginning of the file. Initial checks suggest that Org-mode still recognizes keyword lines when they appear later in the buffer. For the parser/indexer, treat recognized keyword nodes as file-level metadata and attach them to the synthetic level 0 heading. Do not attach keyword rows to regular headings.
+** DONE [2026-06-23 Tue 21:53] Parse direct heading tags and FILETAGS as normalized tag facts
 
-Important distinction: Keyword recognition is separate from keyword semantics. This task stores raw keyword facts. It does not decide whether a keyword is globally effective, position-dependent, cumulative, last-one-wins, or only metadata.
+[[./archive/2026-06-23--parse-direct-heading-tags-and-filetags-as-normalized-tag-facts.org]]
 
-Scope:
-
-- Collect keyword nodes from the whole document when Orgize exposes them as keywords.
-- Attach all keyword rows to the synthetic level 0 heading.
-- Preserve keyword name and raw value.
-- Normalize keyword names consistently, preferably uppercase.
-- Preserve duplicate keyword rows.
-- Preserve source order through ~line_number~ and/or insertion order.
-- Do not compute semantic meaning of generic keywords in this task.
-- Do not treat keywords as heading-local data.
-- Do not create property rows in this task unless the current build scope explicitly includes ~#+PROPERTY~ and ~#+CATEGORY~ normalization.
-- If ~#+TODO~, ~#+SEQ_TODO~, or ~#+TYP_TODO~ normalization already exists or is in scope, raw keyword storage and normalized ~todo_keywords~ rows may both be written deliberately.
-
-Suggested fixture:
-
-#+begin_src org
-  ,#+TITLE: First title
-  ,#+STARTUP: showall
-
-  ,* First heading
-  Body text.
-
-  ,#+AUTHOR: Jane Doe
-  ,#+OPTIONS: toc:nil num:t
-
-  ,** Child heading
-  More body text.
-
-  ,#+TITLE: Later title
-  ,#+EXPORT_FILE_NAME: export-name
-#+end_src
-
-Expected raw keyword rows:
-
-#+begin_src text
-TITLE            | First title
-STARTUP          | showall
-AUTHOR           | Jane Doe
-OPTIONS          | toc:nil num:t
-TITLE            | Later title
-EXPORT_FILE_NAME | export-name
-#+end_src
-
-Boundary fixture:
-
-#+begin_src org
-  ,* Heading with keyword-looking body text
-  This line mentions #+TITLE: but is not necessarily a keyword if Orgize does not expose it as one in this context.
-
-  ,#+TITLE: Real keyword if Orgize exposes it as a keyword node
-#+end_src
-
-Acceptance criteria:
-
-- Keyword rows are attached to the level 0 heading.
-- Keyword name and raw value are preserved.
-- Duplicate keyword rows are preserved.
-- Source order is preserved through ~line_number~ and/or insertion order.
-- Keywords appearing after regular headings are tested.
-- A test with ~#+TITLE~ before and after a heading exists.
-- A test with ~#+STARTUP~ exists.
-- A test with at least one later keyword such as ~#+AUTHOR~, ~#+OPTIONS~, or ~#+EXPORT_FILE_NAME~ exists.
-- No keyword row is attached directly to a regular heading.
-- The parser/indexer contract documents that keywords are file-level rows, even if they appear later in the file.
-- Keyword semantics are deferred to later tasks.
-- ~#+TITLE~ and other generic keywords remain raw ~keywords~ rows only.
-- If ~#+TODO~ normalization is in scope, ~#+TODO~ may be stored as a raw keyword row and additionally normalized into ~todo_keywords~.
-- If ~#+PROPERTY~ and ~#+CATEGORY~ normalization is not in this task, they remain raw keyword rows here and are handled by the properties task.
-
-** TODO Parse tags and FILETAGS
+** BUILD Simplify tags schema to direct tag facts only
 
 Goal:
-Extract direct, inherited, and file-level tags.
+Simplify the normalized ~tags~ table so it stores direct tag facts only.
+
+The obsolete ~inherited~ column should be removed. Do not add a ~source~ column or ~line_number~ column. Effective and inherited tag semantics remain represented by ~headings.all_tags_json~.
+
+Context:
+The project now uses this tag model:
+
+- ~keywords~ stores raw keyword facts, including ~#+FILETAGS~.
+- ~tags~ stores normalized direct tag facts only.
+- Tags on the synthetic level 0 heading represent file-level tags from ~#+FILETAGS~.
+- Tags on regular headings represent direct heading tags from the headline.
+- ~headings.all_tags_json~ stores effective visible tags, including file-level tags and inherited parent tags.
+
+The old ~tags.inherited~ column came from a previous design where inherited/effective tags could be materialized into ~tags~ rows. That is no longer the chosen design.
+
+Design decision:
+- Do not materialize inherited tags into ~tags~.
+- Do not add a ~source~ column.
+- Do not add a ~line_number~ column.
+- Use the heading level to distinguish file-level tags from heading tags:
+  - ~level = 0~ means tags from ~#+FILETAGS~.
+  - ~level > 0~ means direct heading tags.
+- Keep ~headings.all_tags_json~ as the convenience/effective tag cache.
+
+Preferred schema:
+
+#+begin_src sql
+CREATE TABLE IF NOT EXISTS tags (
+    heading_id      INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (heading_id, tag)
+);
+#+end_src
+
+Scope:
+- Remove ~tags.inherited~ from the schema.
+- Do not add ~tags.source~.
+- Do not add ~tags.line_number~.
+- Update DB writer/indexer code that inserts tag rows.
+- Update tests and expected fixtures that still include ~inherited~.
+- Ensure direct heading tags are still stored on their actual heading.
+- Ensure ~#+FILETAGS~ are still stored as normalized tags on the synthetic level 0 heading.
+- Ensure ~#+FILETAGS~ continue to be stored as raw rows in ~keywords~.
+- Ensure ~headings.all_tags_json~ still includes effective file-level and inherited heading tags.
+- Preserve existing duplicate-removal behavior for ~headings.all_tags_json~.
+
+Out of scope:
+- Do not add a ~source~ column.
+- Do not add a ~line_number~ column.
+- Do not materialize inherited/effective tags into ~tags~.
+- Do not reimplement ~headings.all_tags_json~ from scratch.
+- Do not change unrelated keyword parsing.
+- Do not change property parsing.
+- Do not change raw keyword storage.
+- Do not implement inherited properties.
 
 Acceptance criteria:
+- The ~tags~ table no longer has an active ~inherited~ column.
+- The ~tags~ table has only ~heading_id~ and ~tag~ as data columns.
+- The primary key is ~(heading_id, tag)~.
+- The ~tags~ table stores direct tag facts only.
+- Tags from ~#+FILETAGS~ are stored on the synthetic level 0 heading.
+- Direct headline tags are stored on their actual heading.
+- No inherited/effective tags are written as separate ~tags~ rows for child headings.
+- ~#+FILETAGS~ remains stored as a raw ~keywords~ row.
+- ~headings.all_tags_json~ still includes file-level tags from ~#+FILETAGS~.
+- ~headings.all_tags_json~ still includes inherited parent heading tags.
+- Existing inherited-tag tests for ~all_tags_json~ still pass.
+- Existing raw keyword tests still pass.
+- Schema tests or migration tests are updated for the new ~tags~ shape.
+- Manual SQLite checks no longer need to select ~tags.inherited~.
 
-- Heading tags are stored in normalized ~tags~ rows.
-- ~#+FILETAGS:~ are stored as tags on the level 0 heading.
-- ~headings.all_tags_json~ is either populated as a cache or explicitly deferred.
-- Inherited tags are marked with ~inherited = 1~.
-- A test with direct and inherited tags exists.
-- A test with file-level tags exists.
+Suggested validation query:
+
+#+begin_src sqlite
+SELECT
+  t.heading_id,
+  h.level,
+  h.title,
+  t.tag,
+  h.file_id,
+  f.path AS file_path
+FROM tags t
+JOIN headings h
+  ON h.id = t.heading_id
+JOIN files f
+  ON f.id = h.file_id
+ORDER BY
+  h.file_id,
+  t.heading_id,
+  t.tag;
+#+end_src
+
+Validation:
+- Run focused tag/indexer tests.
+- Run existing inherited tag tests for ~headings.all_tags_json~.
+- Run existing raw keyword tests.
+- Run schema/migration tests if present.
+- Run:
+
+#+begin_src shell
+cargo test --all-targets --all-features --quiet
+make ci
+#+end_src
 
 ** TODO Store body text per heading
 

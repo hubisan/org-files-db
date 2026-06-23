@@ -1,0 +1,33 @@
+# classification: org-special-case
+# note: Generic keyword rows are file-level rows on the synthetic level 0 heading even when they appear later in the file.
+document.title=First title Later title
+document.keyword_count=6
+document.keyword.0.key=TITLE
+document.keyword.0.value=First title
+document.keyword.0.line_number=1
+document.keyword.1.key=STARTUP
+document.keyword.1.value=showall
+document.keyword.1.line_number=2
+document.keyword.2.key=AUTHOR
+document.keyword.2.value=Jane Doe
+document.keyword.2.line_number=7
+document.keyword.3.key=OPTIONS
+document.keyword.3.value=toc:nil num:t
+document.keyword.3.line_number=8
+document.keyword.4.key=TITLE
+document.keyword.4.value=Later title
+document.keyword.4.line_number=13
+document.keyword.5.key=EXPORT_FILE_NAME
+document.keyword.5.value=export-name
+document.keyword.5.line_number=14
+heading_count=3
+diagnostic_count=0
+heading.0.level=0
+heading.0.title=First title Later title
+heading.0.is_root=true
+heading.1.level=1
+heading.1.title=First heading
+heading.1.parent_index=0
+heading.2.level=2
+heading.2.title=Child heading
+heading.2.parent_index=1

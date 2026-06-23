@@ -1,0 +1,14 @@
+#+TITLE: First title
+#+STARTUP: showall
+
+* First heading
+Body text.
+
+#+AUTHOR: Jane Doe
+#+OPTIONS: toc:nil num:t
+
+** Child heading
+More body text.
+
+#+TITLE: Later title
+#+EXPORT_FILE_NAME: export-name

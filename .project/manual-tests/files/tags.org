@@ -1,5 +1,26 @@
-#+TITLE: Inherited heading tags
+#+TITLE: Tags and FILETAGS Fixture
 #+STARTUP: showall
+#+FILETAGS: :file:project:
+
+* Parent :parent:
+Parent body.
+
+** Child :child:
+Child body.
+
+*** Grandchild :project:grandchild:
+Grandchild repeats one FILETAG locally and adds a local tag.
+
+* Sibling
+Sibling body.
+
+* Duplicate Local :file:sibling:
+This heading repeats one FILETAG locally.
+
+#+FILETAGS: :later:extra:
+
+* After Later FILETAGS :after:
+This heading appears after a later FILETAGS keyword.
 
 * parent with one tag :parent:
 Parent body.

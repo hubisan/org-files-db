@@ -1,0 +1,98 @@
+#+TITLE: Parse direct heading tags and FILETAGS as normalized tag facts
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 21:07]
+#+TASK_COMPLETED: [2026-06-23 Tue 21:53]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Implement the active BUILD task for direct heading tags and FILETAGS.
+- Keep the existing all_tags_json inheritance logic.
+- Treat tags as direct facts only.
+- Preserve raw FILETAGS keyword rows in keywords.
+- First inspect the existing tag schema, all_tags_json computation, and inherited-tags tests.
+
+Copied task entry from ~todo.org~:
+
+** DONE [2026-06-23 Tue 21:53] Parse direct heading tags and FILETAGS as normalized tag facts
+
+Goal:
+Define and implement the tag storage contract for direct Org heading tags and file-level ~#+FILETAGS~.
+
+This task should store direct tag facts in the normalized ~tags~ table and keep inherited/effective tag computation in ~headings.all_tags_json~.
+
+Context:
+~headings.all_tags_json~ already computes effective visible tags for headings, including inherited parent tags, duplicate removal, and deterministic ordering. This existing logic must be preserved.
+
+~#+FILETAGS~ are also raw Org keyword lines. Raw keyword storage must remain unchanged: ~#+FILETAGS~ must continue to be stored as raw rows in the ~keywords~ table on the synthetic level 0 heading.
+
+Preferred design:
+- ~tags~ stores direct tag facts only.
+- Direct heading tags are stored on their actual heading.
+- File-level tags from ~#+FILETAGS~ are stored as direct tag facts on the synthetic level 0 heading.
+- ~headings.all_tags_json~ stores effective/visible tags for each heading.
+- Do not materialize inherited tag rows into ~tags~ unless planning finds a strong reason to keep that design.
+
+* Planning
+
+** Problem summary
+Heading-local tags are already parsed and direct tag rows already exist, but the schema still models an old ~inherited~ flag and file-level ~#+FILETAGS~ are not yet fed into either direct tag rows or ~all_tags_json~ inheritance.
+
+** Goals
+- Keep ~all_tags_json~ inheritance logic intact.
+- Add ~FILETAGS~ as direct tags on the synthetic level 0 heading.
+- Stop using inherited tag rows as part of the normalized tag contract.
+
+** Non-goals
+- No redesign of parser tag architecture.
+- No materialized inherited tag rows on descendants.
+- No change to raw keyword storage for ~FILETAGS~.
+
+** Execution plan
+- Reuse parsed raw keywords to derive level 0 file tags.
+- Feed those tags into the existing heading/tag pipeline so tag rows and ~all_tags_json~ stay aligned.
+- Migrate the tags schema from ~inherited~ to direct-fact semantics with minimal compatibility work.
+- Add focused parser/indexer/schema coverage.
+
+** Proposed checks
+- focused tag parser/indexer tests
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+* Results
+
+** Approach
+- Reused the existing raw keyword collection and derived ~FILETAGS~ from parsed ~FILETAGS~ keyword rows only.
+- Stored file-level tags as direct tags on the synthetic level 0 heading by populating level 0 ~ParsedHeading.tags~.
+- Kept the existing ~all_tags_json~ inheritance logic unchanged so file-level tags now flow to descendants through the same effective-tag path as parent heading tags.
+- Kept the existing ~tags.inherited~ column for backward compatibility, but current writes use only direct tag facts with ~inherited = 0~. ~heading_id = level 0~ is used to identify normalized ~FILETAGS~ rows.
+
+** Changed files
+- ~src/parser/orgize_adapter.rs~
+- ~tests/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~sql/schema.sql~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-23--parse-direct-heading-tags-and-filetags-as-normalized-tag-facts.org~
+
+** Checks performed
+- focused ~orgize_adapter~ FILETAGS regression
+- focused ~indexer~ regression for direct heading tags and FILETAGS
+- existing inherited-tag regressions
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+** Test results
+- Parser regression passed for storing ~FILETAGS~ as direct level 0 tags while preserving the raw ~FILETAGS~ keyword row.
+- Indexer regression passed for:
+  - direct heading tags in ~tags~
+  - direct level 0 ~FILETAGS~ rows in ~tags~
+  - inherited/effective file tags in ~headings.all_tags_json~
+  - no inherited tag rows materialized into ~tags~
+- Existing inherited-tag, raw-keyword, property, and TODO regressions still passed.
+- ~cargo test --all-targets --all-features --quiet~ passed.
+- ~make ci~ passed.

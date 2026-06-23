@@ -652,6 +652,39 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
 }
 
 #[test]
+fn orgize_adapter_stores_filetags_as_level_zero_direct_tags() {
+    let content = "#+TITLE: Tags Fixture\n#+FILETAGS: :file:project:\n\n* Parent :parent:\nParent body.\n\n** Child :child:\nChild body.\n\n* Sibling\nSibling body.\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/filetags.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("filetags fixture should parse");
+
+    assert_eq!(document.headings.len(), 4);
+    assert_eq!(document.headings[0].tags, vec!["file", "project"]);
+    assert_eq!(document.headings[1].tags, vec!["parent"]);
+    assert_eq!(document.headings[2].tags, vec!["child"]);
+    assert!(document.headings[3].tags.is_empty());
+
+    let raw_keywords: Vec<(&str, Option<&str>)> = document
+        .metadata
+        .keywords
+        .iter()
+        .map(|keyword| (keyword.key.as_str(), keyword.value.as_deref()))
+        .collect();
+    assert_eq!(
+        raw_keywords,
+        vec![
+            ("TITLE", Some("Tags Fixture")),
+            ("FILETAGS", Some(":file:project:")),
+        ]
+    );
+}
+
+#[test]
 fn orgize_adapter_uses_configured_project_todo_keywords() {
     let content = "* PLAN Parser fixture\n** DONE Implemented\n";
     let options = ParseOptions {
@@ -794,6 +827,113 @@ fn orgize_adapter_combines_multiple_document_title_keywords_in_order() {
     assert_eq!(document.headings[1].title_raw, "Unfortunately Everywhere");
     assert_eq!(document.headings[2].title, "Plain Heading");
     assert_eq!(document.headings[2].title_raw, "Plain Heading");
+}
+
+#[test]
+fn orgize_adapter_collects_generic_keywords_anywhere_in_document_as_raw_keyword_rows() {
+    let content = include_str!("data/parser/file-scope/raw-generic-keywords/fixture.org");
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/raw-generic-keywords.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("generic keywords anywhere in document should parse");
+
+    assert_eq!(
+        document.metadata.title.as_deref(),
+        Some("First title Later title")
+    );
+    assert_eq!(document.headings.len(), 3);
+    assert_eq!(document.headings[0].title, "First title Later title");
+    assert!(document.headings[0].is_root);
+    assert!(document.headings[1].properties.is_empty());
+    assert!(document.headings[2].properties.is_empty());
+
+    let keyword_rows: Vec<(String, Option<String>, Option<u32>)> = document
+        .metadata
+        .keywords
+        .iter()
+        .map(|keyword| {
+            (
+                keyword.key.clone(),
+                keyword.value.clone(),
+                keyword.line_number,
+            )
+        })
+        .collect();
+    assert_eq!(
+        keyword_rows,
+        vec![
+            (
+                "TITLE".to_string(),
+                Some("First title".to_string()),
+                Some(1)
+            ),
+            ("STARTUP".to_string(), Some("showall".to_string()), Some(2)),
+            ("AUTHOR".to_string(), Some("Jane Doe".to_string()), Some(7)),
+            (
+                "OPTIONS".to_string(),
+                Some("toc:nil num:t".to_string()),
+                Some(8)
+            ),
+            (
+                "TITLE".to_string(),
+                Some("Later title".to_string()),
+                Some(13)
+            ),
+            (
+                "EXPORT_FILE_NAME".to_string(),
+                Some("export-name".to_string()),
+                Some(14)
+            ),
+        ]
+    );
+}
+
+#[test]
+fn orgize_adapter_does_not_treat_keyword_like_body_text_as_a_raw_keyword_row() {
+    let content = "* Heading with keyword-looking body text\nThis line mentions #+TITLE: but should only become a keyword row if Orgize exposes it as a keyword node in this context.\n\n#+TITLE: Real keyword if Orgize exposes it as a keyword node\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/keyword-looking-body-text.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("keyword-like body text should parse");
+
+    assert_eq!(
+        document.metadata.title.as_deref(),
+        Some("Real keyword if Orgize exposes it as a keyword node")
+    );
+    assert_eq!(document.headings.len(), 2);
+    assert_eq!(
+        document.headings[0].title,
+        "Real keyword if Orgize exposes it as a keyword node"
+    );
+    assert_eq!(
+        document.headings[1].title,
+        "Heading with keyword-looking body text"
+    );
+    assert_eq!(
+        document
+            .metadata
+            .keywords
+            .iter()
+            .map(|keyword| (
+                keyword.key.as_str(),
+                keyword.value.as_deref(),
+                keyword.line_number
+            ))
+            .collect::<Vec<_>>(),
+        vec![(
+            "TITLE",
+            Some("Real keyword if Orgize exposes it as a keyword node"),
+            Some(4)
+        )]
+    );
 }
 
 #[test]

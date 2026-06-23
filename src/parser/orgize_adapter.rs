@@ -44,6 +44,7 @@ impl OrgParser for OrgizeAdapter {
         let active_todo_keywords = file_local_todo_keyword_config(&parsed.metadata.keywords)
             .unwrap_or_else(|| options.todo_keywords.clone());
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
+        level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
         if let Some(properties) = document.properties() {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
@@ -926,6 +927,40 @@ fn file_level_properties_from_keywords(keywords: &[ParsedKeyword]) -> Vec<Parsed
     keywords
         .iter()
         .filter_map(parsed_property_from_keyword)
+        .collect()
+}
+
+fn file_level_tags_from_keywords(keywords: &[ParsedKeyword]) -> Vec<String> {
+    let mut tags = Vec::new();
+
+    for keyword in keywords {
+        if !keyword.key.eq_ignore_ascii_case("FILETAGS") {
+            continue;
+        }
+
+        let Some(value) = keyword.value.as_deref() else {
+            continue;
+        };
+        for tag in parse_filetags_keyword_value(value) {
+            if !tags.iter().any(|existing| existing == &tag) {
+                tags.push(tag);
+            }
+        }
+    }
+
+    tags
+}
+
+fn parse_filetags_keyword_value(value: &str) -> Vec<String> {
+    value
+        .split_whitespace()
+        .flat_map(|part| {
+            part.trim_matches(':')
+                .split(':')
+                .filter(|tag| !tag.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 

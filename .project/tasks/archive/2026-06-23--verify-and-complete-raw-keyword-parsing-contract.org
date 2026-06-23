@@ -1,0 +1,111 @@
+#+TITLE: Verify and complete raw keyword parsing contract
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 20:33]
+#+TASK_COMPLETED: [2026-06-23 Tue 20:45]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Implement the active BUILD task for raw generic Org keyword storage.
+- First inspect the current parsed keyword collection and tests.
+- Do not implement a new scanner.
+- PROPERTY/CATEGORY whole-file normalization and TODO deduplication were already handled and should not be broadened unless an existing test proves a bug.
+
+Copied task entry from ~todo.org~:
+
+** DONE [2026-06-23 Tue 20:45] Verify and complete raw keyword parsing contract
+
+Goal:
+Verify and complete raw Org keyword storage for generic Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, and ~#+EXPORT_FILE_NAME~.
+
+This task ensures that recognized Org keyword nodes are stored as raw file-level keyword facts attached to the synthetic level 0 heading, even when they appear later in the document after regular headings.
+
+Context:
+Whole-document parsed keyword collection already exists and is used for raw keyword insertion and for ~#+PROPERTY~ / ~#+CATEGORY~ normalization. This task should not reimplement keyword scanning. It should verify and complete the raw keyword contract for generic keywords.
+
+Important distinction:
+Keyword recognition is separate from keyword semantics. This task stores raw keyword facts only. It must not decide whether a keyword is globally effective, position-dependent, cumulative, last-one-wins, export-related, startup-related, or only metadata.
+
+Scope:
+- Reuse the existing parsed whole-document keyword collection.
+- Store recognized keyword nodes from the whole document as raw rows in ~keywords~.
+- Attach all raw keyword rows to the synthetic level 0 heading.
+- Preserve keyword name and raw value.
+- Normalize keyword names consistently, preferably uppercase.
+- Preserve duplicate keyword rows.
+- Preserve source order through ~line_number~ and/or insertion order.
+- Test generic keywords before and after regular headings.
+- Document the parser/indexer contract that keyword rows are file-level rows, even when the keyword appears later in the file.
+
+Out of scope:
+- Do not add a second raw-text scanner.
+- Do not attach keyword rows to regular headings.
+- Do not compute keyword semantics.
+- Do not change ~TODO~, ~SEQ_TODO~, or ~TYP_TODO~ semantics.
+- Do not change ~todo_keywords~ schema or uniqueness behavior.
+- Do not change ~#+PROPERTY~ or ~#+CATEGORY~ normalization unless an existing regression test fails.
+- Do not create property rows for generic keywords such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, or ~#+EXPORT_FILE_NAME~.
+
+* Planning
+
+** Problem summary
+The parser and indexer already use a whole-document parsed keyword list, but the current regression coverage is stronger for TODO and PROPERTY/CATEGORY than for generic raw keywords. The fixture harness also cannot currently assert duplicate keyword rows in order.
+
+** Goals
+- Verify generic keywords are stored as raw file-level rows from the whole document.
+- Prove duplicate keyword rows and source order are preserved.
+- Keep the change narrow and avoid widening TODO or property semantics.
+
+** Non-goals
+- No new keyword scanner.
+- No semantic interpretation of generic keywords.
+- No changes to property normalization or TODO behavior unless existing tests fail.
+
+** Execution plan
+- Reuse the existing keyword collection path.
+- Extend parser fixture expectations so duplicate raw keywords can be asserted directly.
+- Add focused generic-keyword parser and indexer regressions.
+- Clarify the keywords table contract that raw keyword rows are attached to the synthetic level 0 heading even when they appear later in the file.
+
+** Proposed checks
+- ~cargo test --test parser_fixtures --quiet~
+- focused ~orgize_adapter~ and ~indexer~ tests for raw generic keywords
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+* Results
+
+** Approach
+- Kept the existing whole-document parsed keyword collection unchanged and verified the raw keyword contract around it instead of adding a scanner.
+- Extended the parser fixture harness so duplicate raw keywords can be asserted by index, value, and line number.
+- Added generic raw-keyword regressions for parser and indexer behavior, including later keywords after regular headings and a boundary case where `#+TITLE:` appears only as body text.
+- Clarified the schema contract that generic raw keyword rows attach to the synthetic level 0 heading even when they occur later in the file.
+
+** Changed files
+- ~tests/parser_fixtures.rs~
+- new fixture under ~tests/data/parser/file-scope/raw-generic-keywords/~
+- ~tests/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~sql/schema.sql~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-23--verify-and-complete-raw-keyword-parsing-contract.org~
+
+** Checks performed
+- ~cargo test --test parser_fixtures --quiet~
+- focused ~orgize_adapter~ regression for generic raw keywords
+- focused ~indexer~ regression for level 0 keyword attachment
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+** Test results
+- Parser fixtures passed, including duplicate generic keyword assertions and source-order checks.
+- New adapter regressions passed for:
+  - generic keywords before and after headings
+  - boundary handling of keyword-looking body text
+- New indexer regression passed for storing generic raw keywords only on the synthetic level 0 heading.
+- Existing TODO and PROPERTY/CATEGORY regressions still passed in the full suite.
+- ~make ci~ passed.

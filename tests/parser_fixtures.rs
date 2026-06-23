@@ -91,6 +91,14 @@ fn assert_expectations(path: &Path, expectations: &HashMap<String, String>) {
                 "unexpected title for {}",
                 path.display()
             ),
+            "document.keyword_count" => assert_eq!(
+                document.metadata.keywords.len(),
+                value
+                    .parse::<usize>()
+                    .expect("document.keyword_count should be numeric"),
+                "unexpected keyword count for {}",
+                path.display()
+            ),
             "heading_count" => assert_eq!(
                 document.headings.len(),
                 value
@@ -108,25 +116,71 @@ fn assert_expectations(path: &Path, expectations: &HashMap<String, String>) {
                 path.display()
             ),
             key if key.starts_with("document.keyword.") => {
-                let wanted_key = key.trim_start_matches("document.keyword.");
-                let actual = document
-                    .metadata
-                    .keywords
-                    .iter()
-                    .find(|keyword| keyword.key == wanted_key)
-                    .and_then(|keyword| keyword.value.as_deref());
-                assert_eq!(
-                    actual,
-                    Some(value.as_str()),
-                    "unexpected keyword {wanted_key} for {}",
-                    path.display()
-                );
+                assert_keyword_expectation(path, &document.metadata.keywords, key, value);
             }
             key if key.starts_with("heading.") => {
                 assert_heading_expectation(path, &document.headings, key, value);
             }
             _ => panic!("unsupported expectation key {key} in {}", path.display()),
         }
+    }
+}
+
+fn assert_keyword_expectation(
+    path: &Path,
+    keywords: &[org_files_db::parser::ParsedKeyword],
+    key: &str,
+    value: &str,
+) {
+    let remainder = key.trim_start_matches("document.keyword.");
+
+    if let Some((index, field)) = remainder.split_once('.') {
+        let keyword = &keywords[index
+            .parse::<usize>()
+            .expect("document keyword index should be numeric")];
+
+        match field {
+            "key" => assert_eq!(
+                keyword.key,
+                value,
+                "unexpected keyword key for {}",
+                path.display()
+            ),
+            "value" => {
+                let expected = if value == "NULL" { None } else { Some(value) };
+                assert_eq!(
+                    keyword.value.as_deref(),
+                    expected,
+                    "unexpected keyword value for {}",
+                    path.display()
+                );
+            }
+            "line_number" => assert_eq!(
+                keyword.line_number,
+                Some(
+                    value
+                        .parse::<u32>()
+                        .expect("document keyword line_number should be numeric")
+                ),
+                "unexpected keyword line number for {}",
+                path.display()
+            ),
+            _ => panic!(
+                "unsupported document keyword expectation key {key} in {}",
+                path.display()
+            ),
+        }
+    } else {
+        let actual = keywords
+            .iter()
+            .find(|keyword| keyword.key == remainder)
+            .and_then(|keyword| keyword.value.as_deref());
+        assert_eq!(
+            actual,
+            Some(value),
+            "unexpected keyword {remainder} for {}",
+            path.display()
+        );
     }
 }
 

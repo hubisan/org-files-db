@@ -1482,6 +1482,114 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_stores_generic_raw_keywords_on_the_synthetic_level_zero_heading() {
+        let test_dir = TestDir::new("rebuild-generic-raw-keywords");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("raw-generic-keywords.org");
+        let content =
+            include_str!("../tests/data/parser/file-scope/raw-generic-keywords/fixture.org");
+
+        write_file(&org_path, content);
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings.len(), 3);
+        assert_eq!(
+            headings
+                .iter()
+                .map(|heading| heading.title.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                "First title Later title".to_string(),
+                "First heading".to_string(),
+                "Child heading".to_string(),
+            ]
+        );
+        assert_eq!(headings[1].parent_id, Some(headings[0].id));
+        assert_eq!(headings[2].parent_id, Some(headings[1].id));
+
+        let raw_keywords: Vec<(i64, String, Option<String>, Option<i64>)> = query_rows(
+            &connection,
+            "SELECT headings.level, keywords.keyword, keywords.value, keywords.line_number
+             FROM keywords
+             INNER JOIN headings ON headings.id = keywords.heading_id
+             ORDER BY keywords.line_number, keywords.id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            raw_keywords,
+            vec![
+                (
+                    0,
+                    "TITLE".to_string(),
+                    Some("First title".to_string()),
+                    Some(1),
+                ),
+                (
+                    0,
+                    "STARTUP".to_string(),
+                    Some("showall".to_string()),
+                    Some(2),
+                ),
+                (
+                    0,
+                    "AUTHOR".to_string(),
+                    Some("Jane Doe".to_string()),
+                    Some(7),
+                ),
+                (
+                    0,
+                    "OPTIONS".to_string(),
+                    Some("toc:nil num:t".to_string()),
+                    Some(8),
+                ),
+                (
+                    0,
+                    "TITLE".to_string(),
+                    Some("Later title".to_string()),
+                    Some(13),
+                ),
+                (
+                    0,
+                    "EXPORT_FILE_NAME".to_string(),
+                    Some("export-name".to_string()),
+                    Some(14),
+                ),
+            ]
+        );
+
+        let generic_properties: Vec<(String, Option<String>, String)> = query_rows(
+            &connection,
+            "SELECT key, value, source
+             FROM properties
+             WHERE key IN ('TITLE', 'AUTHOR', 'STARTUP', 'OPTIONS', 'EXPORT_FILE_NAME')",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+        assert!(generic_properties.is_empty());
+    }
+
+    #[test]
     fn rebuild_handles_overlapping_file_local_todo_keyword_lines_without_duplicate_rows() {
         let test_dir = TestDir::new("overlapping-file-local-todo");
         let notes_dir = test_dir.path().join("notes");
@@ -2169,6 +2277,86 @@ index_body_text = false
         assert_eq!(
             tag_rows,
             vec![("test".to_string(), 0), ("me".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn rebuild_stores_direct_heading_tags_and_filetags_without_materializing_inherited_rows() {
+        let test_dir = TestDir::new("filetags-direct-tags");
+        let org_path = test_dir.path().join("tags.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Tags Fixture\n#+FILETAGS: :file:project:\n\n* Parent :parent:\nParent body.\n\n** Child :child:\nChild body.\n\n* Sibling\nSibling body.\n",
+        );
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[0].all_tags_json, "[\"file\",\"project\"]");
+        assert_eq!(
+            headings[1].all_tags_json,
+            "[\"file\",\"project\",\"parent\"]"
+        );
+        assert_eq!(
+            headings[2].all_tags_json,
+            "[\"file\",\"project\",\"parent\",\"child\"]"
+        );
+        assert_eq!(headings[3].all_tags_json, "[\"file\",\"project\"]");
+
+        let tag_rows: Vec<(i64, String, i64)> = query_rows(
+            &connection,
+            "SELECT headings.level, tags.tag, tags.inherited
+             FROM tags
+             INNER JOIN headings ON headings.id = tags.heading_id
+             ORDER BY headings.level, tags.tag",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+        assert_eq!(
+            tag_rows,
+            vec![
+                (0, "file".to_string(), 0),
+                (0, "project".to_string(), 0),
+                (1, "parent".to_string(), 0),
+                (2, "child".to_string(), 0),
+            ]
+        );
+
+        let raw_keywords: Vec<(i64, String, Option<String>, Option<i64>)> = query_rows(
+            &connection,
+            "SELECT headings.level, keywords.keyword, keywords.value, keywords.line_number
+             FROM keywords
+             INNER JOIN headings ON headings.id = keywords.heading_id
+             WHERE keywords.keyword = 'FILETAGS'
+             ORDER BY keywords.line_number, keywords.id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            raw_keywords,
+            vec![(
+                0,
+                "FILETAGS".to_string(),
+                Some(":file:project:".to_string()),
+                Some(2),
+            )]
         );
     }
 

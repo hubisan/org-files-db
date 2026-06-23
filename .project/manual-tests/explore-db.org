@@ -897,7 +897,6 @@ file_id  heading_id  key                            value                       
 6        57          LATER_KEYWORD_PROPERTY         works_everywhere                      property_keyword  0       80         
 6        57          CATEGORY                       later_category_keyword                category_keyword  0       81         
 #+end_example
-
 ** PROPERTY and CATEGORY keywords
 
 #+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
@@ -910,7 +909,6 @@ file_id  heading_id  key                            value                       
   FROM headings h
   JOIN keywords k
     ON k.heading_id = h.id
-    AND k.keyword IN ('PROPERTY', 'CATEGORY')
   ORDER BY
     h.file_id,
     k.line_number,
@@ -919,40 +917,173 @@ file_id  heading_id  key                            value                       
 
 #+RESULTS:
 #+begin_example
-file_id  heading_id  keyword   value                                    line_number
--------  ----------  --------  ---------------------------------------  -----------
-3        31          PROPERTY  before_prop before-value                 4          
-3        31          CATEGORY  before-category                          5          
-3        31          PROPERTY  after_prop after-value                   12         
-3        31          PROPERTY  repeated_prop first                      13         
-3        31          PROPERTY  repeated_prop second                     14         
-3        31          PROPERTY  appended_prop base                       15         
-3        31          PROPERTY  appended_prop+ extra                     16         
-3        31          CATEGORY  after-category                           17         
-6        57          CATEGORY  category_keyword_value                   8          
-6        57          PROPERTY  Effort_ALL 0:10 0:30 1:00                9          
-6        57          PROPERTY  keyword_property valid                   10         
-6        57          PROPERTY  keyword_overwritten_by_second invalid    11         
-6        57          PROPERTY  keyword_overwritten_by_second valid      12         
-6        57          PROPERTY  keyword_append foo=1                     13         
-6        57          PROPERTY  keyword_append+ bar=2                    14         
-6        57          PROPERTY  later_keyword_property works_everywhere  80         
-6        57          CATEGORY  later_category_keyword                   81         
+file_id  heading_id  keyword           value                                        line_number
+-------  ----------  ----------------  -------------------------------------------  -----------
+1        1           TITLE             File-local TODO keywords                     1          
+1        1           STARTUP           showall                                      2          
+1        1           TODO              one(t) two(n) | three(d) four(w@)            3          
+1        1           TODO              FIVE SIX |                                   4          
+1        1           TYP_TODO          seven | eight                                5          
+1        1           SEQ_TODO          nine | ten                                   6          
+1        1           TODO              | eleven(c)                                  30         
+1        1           TODO              late_open | late_done                        34         
+2        19          TITLE             Inherited heading tags                       1          
+2        19          STARTUP           showall                                      2          
+3        31          TITLE             Keyword Parsing Fixture                      1          
+3        31          STARTUP           showall                                      2          
+3        31          AUTHOR            First Author                                 3          
+3        31          PROPERTY          before_prop before-value                     4          
+3        31          CATEGORY          before-category                              5          
+3        31          AUTHOR            Later Author                                 10         
+3        31          OPTIONS           toc:nil num:t                                11         
+3        31          PROPERTY          after_prop after-value                       12         
+3        31          PROPERTY          repeated_prop first                          13         
+3        31          PROPERTY          repeated_prop second                         14         
+3        31          PROPERTY          appended_prop base                           15         
+3        31          PROPERTY          appended_prop+ extra                         16         
+3        31          CATEGORY          after-category                               17         
+3        31          TITLE             Later Title                                  22         
+3        31          EXPORT_FILE_NAME  later-export-name                            23         
+3        31          STARTUP           content                                      24         
+3        31          TODO              TODO NEXT | DONE CANCELED                    29         
+3        31          SEQ_TODO          IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)  30         
+3        31          TYP_TODO          WAITING(w) | CANCELED(c)                     31         
+4        37          TITLE             Title can span                               1          
+4        37          TITLE             multiple lines,                              2          
+4        37          AUTHOR            Hubisan                                      3          
+4        37          TITLE             even here                                    9          
+5        39          TITLE             Planning timestamp                           1          
+5        39          STARTUP           showall                                      2          
+6        57          TITLE             Org Property and Keyword Test                6          
+6        57          STARTUP           showall                                      7          
+6        57          CATEGORY          category_keyword_value                       8          
+6        57          PROPERTY          Effort_ALL 0:10 0:30 1:00                    9          
+6        57          PROPERTY          keyword_property valid                       10         
+6        57          PROPERTY          keyword_overwritten_by_second invalid        11         
+6        57          PROPERTY          keyword_overwritten_by_second valid          12         
+6        57          PROPERTY          keyword_append foo=1                         13         
+6        57          PROPERTY          keyword_append+ bar=2                        14         
+6        57          PROPERTY          later_keyword_property works_everywhere      80         
+6        57          CATEGORY          later_category_keyword                       81         
+6        57          FILETAGS          :project:work:                               90         
+6        57          TAGS              work(w) home(h)                              91         
+6        57          COLUMNS           %TODO %50ITEM %Effort{:} %CLOCKSUM           92         
+6        57          CONSTANTS         c=299792458                                  93         
+6        57          AUTHOR            Jane Doe                                     94         
+6        57          OPTIONS           toc:nil num:t                                95         
+8        100         TITLE             Timestamps                                   1          
+8        100         STARTUP           showall                                      2          
 #+end_example
 
-** PROPERTY and CATEGORY keywords
 
 #+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
-  SELECT
-    key,
-    quote(value) AS quoted_value,
-    value IS NULL AS is_null,
-    length(value) AS value_len
-  FROM properties
-  WHERE key = 'EMPTY';
+  SELECT * FROM keywords;
 #+END_SRC
 
 #+RESULTS:
-: key    quoted_value  is_null  value_len
-: -----  ------------  -------  ---------
-: EMPTY  ''            0        0        
+#+begin_example
+id  heading_id  keyword           value                                        line_number
+--  ----------  ----------------  -------------------------------------------  -----------
+1   1           TITLE             File-local TODO keywords                     1          
+2   1           STARTUP           showall                                      2          
+3   1           TODO              one(t) two(n) | three(d) four(w@)            3          
+4   1           TODO              FIVE SIX |                                   4          
+5   1           TYP_TODO          seven | eight                                5          
+6   1           SEQ_TODO          nine | ten                                   6          
+7   1           TODO              | eleven(c)                                  30         
+8   1           TODO              late_open | late_done                        34         
+9   19          TITLE             Inherited heading tags                       1          
+10  19          STARTUP           showall                                      2          
+11  31          TITLE             Keyword Parsing Fixture                      1          
+12  31          STARTUP           showall                                      2          
+13  31          AUTHOR            First Author                                 3          
+14  31          PROPERTY          before_prop before-value                     4          
+15  31          CATEGORY          before-category                              5          
+16  31          AUTHOR            Later Author                                 10         
+17  31          OPTIONS           toc:nil num:t                                11         
+18  31          PROPERTY          after_prop after-value                       12         
+19  31          PROPERTY          repeated_prop first                          13         
+20  31          PROPERTY          repeated_prop second                         14         
+21  31          PROPERTY          appended_prop base                           15         
+22  31          PROPERTY          appended_prop+ extra                         16         
+23  31          CATEGORY          after-category                               17         
+24  31          TITLE             Later Title                                  22         
+25  31          EXPORT_FILE_NAME  later-export-name                            23         
+26  31          STARTUP           content                                      24         
+27  31          TODO              TODO NEXT | DONE CANCELED                    29         
+28  31          SEQ_TODO          IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)  30         
+29  31          TYP_TODO          WAITING(w) | CANCELED(c)                     31         
+30  37          TITLE             Title can span                               1          
+31  37          TITLE             multiple lines,                              2          
+32  37          AUTHOR            Hubisan                                      3          
+33  37          TITLE             even here                                    9          
+34  39          TITLE             Planning timestamp                           1          
+35  39          STARTUP           showall                                      2          
+36  57          TITLE             Org Property and Keyword Test                6          
+37  57          STARTUP           showall                                      7          
+38  57          CATEGORY          category_keyword_value                       8          
+39  57          PROPERTY          Effort_ALL 0:10 0:30 1:00                    9          
+40  57          PROPERTY          keyword_property valid                       10         
+41  57          PROPERTY          keyword_overwritten_by_second invalid        11         
+42  57          PROPERTY          keyword_overwritten_by_second valid          12         
+43  57          PROPERTY          keyword_append foo=1                         13         
+44  57          PROPERTY          keyword_append+ bar=2                        14         
+45  57          PROPERTY          later_keyword_property works_everywhere      80         
+46  57          CATEGORY          later_category_keyword                       81         
+47  57          FILETAGS          :project:work:                               90         
+48  57          TAGS              work(w) home(h)                              91         
+49  57          COLUMNS           %TODO %50ITEM %Effort{:} %CLOCKSUM           92         
+50  57          CONSTANTS         c=299792458                                  93         
+51  57          AUTHOR            Jane Doe                                     94         
+52  57          OPTIONS           toc:nil num:t                                95         
+53  100         TITLE             Timestamps                                   1          
+54  100         STARTUP           showall                                      2          
+#+end_example
+
+* Tags
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+    SELECT
+      t.heading_id,
+      h.level,
+      h.title,
+      t.tag,
+      t.inherited,
+      h.file_id,
+      f.path AS file_path
+    FROM tags t
+    JOIN headings h
+      ON h.id = t.heading_id
+    JOIN files f
+      ON f.id = h.file_id
+    ORDER BY
+      h.file_id,
+      t.heading_id,
+      h.level;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+heading_id  level  title                                tag         inherited  file_id  file_path                                                                            
+----------  -----  -----------------------------------  ----------  ---------  -------  -------------------------------------------------------------------------------------
+45          0      Org Property and Keyword Test        project     0          5        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org
+45          0      Org Property and Keyword Test        work        0          5        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org
+55          0      Tags and FILETAGS Fixture            file        0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+55          0      Tags and FILETAGS Fixture            project     0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+55          0      Tags and FILETAGS Fixture            later       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+55          0      Tags and FILETAGS Fixture            extra       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+56          1      Parent                               parent      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+57          2      Child                                child       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+58          3      Grandchild                           project     0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+58          3      Grandchild                           grandchild  0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+60          1      Duplicate Local                      file        0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+60          1      Duplicate Local                      sibling     0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+61          1      After Later FILETAGS                 after       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+62          1      parent with one tag                  parent      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+64          2      child with local tag                 child       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+66          3      grandchild with duplicate local tag  parent      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+67          1      second parent                        second      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+68          2      second child with local tag          child       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+69          3      second grandchild with extra tag     extra       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+71          2      child with only local tag            local       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+#+end_example
