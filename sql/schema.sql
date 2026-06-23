@@ -486,20 +486,14 @@ CREATE TABLE IF NOT EXISTS properties (
 
   tag:
     Tag name without surrounding colons.
-
-  inherited:
-    Deprecated compatibility column.
-    Current writes store only direct tag facts, so this remains 0.
-    Effective/inherited tags are represented in headings.all_tags_json.
 */
 CREATE TABLE IF NOT EXISTS tags (
     heading_id      INTEGER NOT NULL,
     tag             TEXT NOT NULL,
-    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
     FOREIGN KEY (heading_id)
         REFERENCES headings(id)
         ON DELETE CASCADE,
-    PRIMARY KEY (heading_id, tag, inherited)
+    PRIMARY KEY (heading_id, tag)
 );
 
 --------------------------------------------------

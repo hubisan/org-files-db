@@ -1133,6 +1133,83 @@ VALUES
         );
     }
 
+    #[test]
+    fn open_database_upgrades_legacy_tags_table() {
+        let test_dir = TestDir::new("legacy-tags");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
+
+DROP TABLE tags;
+
+CREATE TABLE tags (
+    heading_id      INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (heading_id, tag, inherited)
+);
+
+INSERT INTO tags (heading_id, tag, inherited)
+VALUES
+    (1, 'alpha', 0),
+    (1, 'alpha', 1),
+    (1, 'beta', 0);
+"#,
+                )
+                .expect("legacy tags schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+
+        let columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(tags)")
+                .expect("tags pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("tags pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("tags columns should collect")
+        };
+        assert!(columns.iter().any(|column| column == "heading_id"));
+        assert!(columns.iter().any(|column| column == "tag"));
+        assert!(!columns.iter().any(|column| column == "inherited"));
+
+        let tag_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
+            .expect("tags count should be queryable");
+        assert_eq!(tag_count, 2);
+
+        let tag_rows: Vec<(i64, String)> = {
+            let mut statement = connection
+                .prepare("SELECT heading_id, tag FROM tags ORDER BY heading_id, tag")
+                .expect("tags select should prepare");
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("tags select should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("migrated tags should collect")
+        };
+        assert_eq!(
+            tag_rows,
+            vec![(1_i64, "alpha".to_string()), (1_i64, "beta".to_string())]
+        );
+    }
+
     fn insert_fixture_graph(connection: &Connection) {
         connection
             .execute(
@@ -1220,8 +1297,8 @@ VALUES
             .expect("property insert should succeed");
         connection
             .execute(
-                "INSERT INTO tags (heading_id, tag, inherited) VALUES (?1, ?2, ?3)",
-                (2_i64, "project", 0_i64),
+                "INSERT INTO tags (heading_id, tag) VALUES (?1, ?2)",
+                (2_i64, "project"),
             )
             .expect("tag insert should succeed");
         connection

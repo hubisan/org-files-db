@@ -1048,7 +1048,6 @@ id  heading_id  keyword           value                                        l
       h.level,
       h.title,
       t.tag,
-      t.inherited,
       h.file_id,
       f.path AS file_path
     FROM tags t
@@ -1064,26 +1063,26 @@ id  heading_id  keyword           value                                        l
 
 #+RESULTS:
 #+begin_example
-heading_id  level  title                                tag         inherited  file_id  file_path                                                                            
-----------  -----  -----------------------------------  ----------  ---------  -------  -------------------------------------------------------------------------------------
-45          0      Org Property and Keyword Test        project     0          5        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org
-45          0      Org Property and Keyword Test        work        0          5        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org
-55          0      Tags and FILETAGS Fixture            file        0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-55          0      Tags and FILETAGS Fixture            project     0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-55          0      Tags and FILETAGS Fixture            later       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-55          0      Tags and FILETAGS Fixture            extra       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-56          1      Parent                               parent      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-57          2      Child                                child       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-58          3      Grandchild                           project     0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-58          3      Grandchild                           grandchild  0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-60          1      Duplicate Local                      file        0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-60          1      Duplicate Local                      sibling     0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-61          1      After Later FILETAGS                 after       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-62          1      parent with one tag                  parent      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-64          2      child with local tag                 child       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-66          3      grandchild with duplicate local tag  parent      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-67          1      second parent                        second      0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-68          2      second child with local tag          child       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-69          3      second grandchild with extra tag     extra       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
-71          2      child with only local tag            local       0          6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+heading_id  level  title                                tag         file_id  file_path                                                                            
+----------  -----  -----------------------------------  ----------  -------  -------------------------------------------------------------------------------------
+45          0      Org Property and Keyword Test        project     5        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org
+45          0      Org Property and Keyword Test        work        5        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org
+55          0      Tags and FILETAGS Fixture            file        6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+55          0      Tags and FILETAGS Fixture            project     6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+55          0      Tags and FILETAGS Fixture            later       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+55          0      Tags and FILETAGS Fixture            extra       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+56          1      Parent                               parent      6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+57          2      Child                                child       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+58          3      Grandchild                           project     6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+58          3      Grandchild                           grandchild  6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+60          1      Duplicate Local                      file        6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+60          1      Duplicate Local                      sibling     6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+61          1      After Later FILETAGS                 after       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+62          1      parent with one tag                  parent      6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+64          2      child with local tag                 child       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+66          3      grandchild with duplicate local tag  parent      6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+67          1      second parent                        second      6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+68          2      second child with local tag          child       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+69          3      second grandchild with extra tag     extra       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
+71          2      child with only local tag            local       6        /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org      
 #+end_example

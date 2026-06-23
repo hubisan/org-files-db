@@ -91,6 +91,16 @@ CREATE TABLE properties (
         ON DELETE CASCADE
 )
 "#;
+const TAGS_TABLE_SQL: &str = r#"
+CREATE TABLE tags (
+    heading_id      INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (heading_id, tag)
+)
+"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaDefinition {
@@ -119,6 +129,7 @@ impl SchemaDefinition {
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
         migrate_legacy_timestamp_repeaters(connection)?;
         migrate_legacy_properties_table(connection)?;
+        migrate_legacy_tags_table(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
 }
@@ -307,6 +318,42 @@ DROP TABLE properties_legacy;
 fn properties_table_uses_append_column(columns: &[String]) -> bool {
     columns.iter().any(|column| column == "append")
         && !columns.iter().any(|column| column == "inherited")
+}
+
+fn migrate_legacy_tags_table(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "tags")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "tags")?;
+    if tags_table_uses_direct_facts(&columns) {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+ALTER TABLE tags RENAME TO tags_legacy;
+"#,
+    )?;
+    connection.execute_batch(TAGS_TABLE_SQL)?;
+    connection.execute_batch(
+        r#"
+INSERT INTO tags (heading_id, tag)
+SELECT DISTINCT heading_id, tag
+FROM tags_legacy
+WHERE inherited = 0;
+
+DROP TABLE tags_legacy;
+"#,
+    )?;
+
+    Ok(())
+}
+
+fn tags_table_uses_direct_facts(columns: &[String]) -> bool {
+    columns.len() == 2
+        && columns.iter().any(|column| column == "heading_id")
+        && columns.iter().any(|column| column == "tag")
 }
 
 fn table_exists(connection: &Connection, table_name: &str) -> rusqlite::Result<bool> {

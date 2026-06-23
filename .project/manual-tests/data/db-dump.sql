@@ -8,14 +8,14 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782243226);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org',1782237960833303823,2276,NULL,1782243226);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782243226);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782243226);
-INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org',1782218329407221851,2783,NULL,1782243226);
-INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org',1782243198853649058,1307,NULL,1782243226);
-INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782243226);
-INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782243226);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782245208);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org',1782237960833303823,2276,NULL,1782245208);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782245208);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782245208);
+INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org',1782218329407221851,2783,NULL,1782245208);
+INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org',1782243198853649058,1307,NULL,1782245208);
+INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782245208);
+INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782245208);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -273,35 +273,6 @@ INSERT INTO keywords VALUES(53,55,'FILETAGS',':file:project:',3);
 INSERT INTO keywords VALUES(54,55,'FILETAGS',':later:extra:',20);
 INSERT INTO keywords VALUES(55,106,'TITLE','Timestamps',1);
 INSERT INTO keywords VALUES(56,106,'STARTUP','showall',2);
-CREATE TABLE tags (
-    heading_id      INTEGER NOT NULL,
-    tag             TEXT NOT NULL,
-    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    PRIMARY KEY (heading_id, tag, inherited)
-);
-INSERT INTO tags VALUES(45,'project',0);
-INSERT INTO tags VALUES(45,'work',0);
-INSERT INTO tags VALUES(55,'file',0);
-INSERT INTO tags VALUES(55,'project',0);
-INSERT INTO tags VALUES(55,'later',0);
-INSERT INTO tags VALUES(55,'extra',0);
-INSERT INTO tags VALUES(56,'parent',0);
-INSERT INTO tags VALUES(57,'child',0);
-INSERT INTO tags VALUES(58,'project',0);
-INSERT INTO tags VALUES(58,'grandchild',0);
-INSERT INTO tags VALUES(60,'file',0);
-INSERT INTO tags VALUES(60,'sibling',0);
-INSERT INTO tags VALUES(61,'after',0);
-INSERT INTO tags VALUES(62,'parent',0);
-INSERT INTO tags VALUES(64,'child',0);
-INSERT INTO tags VALUES(66,'parent',0);
-INSERT INTO tags VALUES(67,'second',0);
-INSERT INTO tags VALUES(68,'child',0);
-INSERT INTO tags VALUES(69,'extra',0);
-INSERT INTO tags VALUES(71,'local',0);
 CREATE TABLE links (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -683,6 +654,34 @@ INSERT INTO properties VALUES(31,49,'CUSTOM_ID','mixed-case-custom-id','property
 INSERT INTO properties VALUES(32,49,'DRAWER_PROP','valid','property_drawer',0,49);
 INSERT INTO properties VALUES(33,49,'ADD-VALUE','appended','property_drawer',1,50);
 INSERT INTO properties VALUES(34,50,'EMPTY','','property_drawer',0,60);
+CREATE TABLE tags (
+    heading_id      INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (heading_id, tag)
+);
+INSERT INTO tags VALUES(45,'project');
+INSERT INTO tags VALUES(45,'work');
+INSERT INTO tags VALUES(55,'file');
+INSERT INTO tags VALUES(55,'project');
+INSERT INTO tags VALUES(55,'later');
+INSERT INTO tags VALUES(55,'extra');
+INSERT INTO tags VALUES(56,'parent');
+INSERT INTO tags VALUES(57,'child');
+INSERT INTO tags VALUES(58,'project');
+INSERT INTO tags VALUES(58,'grandchild');
+INSERT INTO tags VALUES(60,'file');
+INSERT INTO tags VALUES(60,'sibling');
+INSERT INTO tags VALUES(61,'after');
+INSERT INTO tags VALUES(62,'parent');
+INSERT INTO tags VALUES(64,'child');
+INSERT INTO tags VALUES(66,'parent');
+INSERT INTO tags VALUES(67,'second');
+INSERT INTO tags VALUES(68,'child');
+INSERT INTO tags VALUES(69,'extra');
+INSERT INTO tags VALUES(71,'local');
 CREATE UNIQUE INDEX uq_headings_file_level0
     ON headings(file_id)
     WHERE level = 0;
@@ -708,10 +707,6 @@ CREATE INDEX idx_keywords_heading
     ON keywords(heading_id);
 CREATE INDEX idx_keywords_keyword
     ON keywords(keyword);
-CREATE INDEX idx_tags_tag
-    ON tags(tag);
-CREATE INDEX idx_tags_heading
-    ON tags(heading_id);
 CREATE INDEX idx_links_heading
     ON links(heading_id);
 CREATE INDEX idx_links_target
@@ -742,4 +737,8 @@ CREATE INDEX idx_properties_id_lookup
 CREATE INDEX idx_properties_custom_id_lookup
     ON properties(value)
     WHERE key = 'CUSTOM_ID';
+CREATE INDEX idx_tags_tag
+    ON tags(tag);
+CREATE INDEX idx_tags_heading
+    ON tags(heading_id);
 COMMIT;

@@ -51,7 +51,6 @@ pub struct TodoKeywordRecord {
 pub struct TagRecord {
     pub heading_id: i64,
     pub tag: String,
-    pub inherited: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,8 +292,8 @@ impl DbWriter {
         for row in rows {
             connection
                 .execute(
-                    "INSERT INTO tags (heading_id, tag, inherited) VALUES (?1, ?2, ?3)",
-                    params![row.heading_id, row.tag, bool_to_i64(row.inherited)],
+                    "INSERT INTO tags (heading_id, tag) VALUES (?1, ?2)",
+                    params![row.heading_id, row.tag],
                 )
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_tags",
@@ -677,7 +676,6 @@ mod tests {
             &[TagRecord {
                 heading_id: child_id,
                 tag: "rust".to_string(),
-                inherited: false,
             }],
         )
         .expect("tag should insert");

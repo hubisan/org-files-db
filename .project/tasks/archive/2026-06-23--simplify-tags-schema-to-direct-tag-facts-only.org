@@ -1,0 +1,74 @@
+#+TITLE: Simplify tags schema to direct tag facts only
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 21:53]
+#+TASK_COMPLETED: [2026-06-23 Tue 22:02]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Implement the tag schema cleanup task.
+- Remove the obsolete `inherited` column from `tags`.
+- Keep `headings.all_tags_json` as the effective/inherited tag cache.
+- Preserve raw `FILETAGS` keyword storage in `keywords`.
+
+Copied task entry from ~todo.org~:
+
+** DONE [2026-06-23 Tue 22:02] Simplify tags schema to direct tag facts only
+
+Goal:
+Simplify the normalized ~tags~ table so it stores direct tag facts only.
+
+The obsolete ~inherited~ column should be removed. Do not add a ~source~ column or ~line_number~ column. Effective and inherited tag semantics remain represented by ~headings.all_tags_json~.
+
+* Planning
+
+** Problem summary
+The project already treats tags as direct facts in parser output, but the SQLite schema and DB writer still carry the old ~inherited~ column. That keeps the storage model broader than the chosen contract and leaks obsolete semantics into tests and migration logic.
+
+** Goals
+- Remove ~tags.inherited~ from the schema and writer path.
+- Keep direct heading tags and level 0 ~FILETAGS~ tags stored on their heading only.
+- Preserve ~headings.all_tags_json~ as the effective/inherited cache.
+
+** Non-goals
+- No new columns in ~tags~.
+- No materialized inherited/effective tag rows.
+- No parser changes beyond what is needed for the narrower schema.
+
+** Execution plan
+- Drop ~inherited~ from the schema definition and migration path.
+- Update tag insertion and tag tests to use only ~heading_id~ and ~tag~.
+- Keep existing inherited-tag tests that read ~all_tags_json~.
+
+** Proposed checks
+- focused tag schema/indexer tests
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+* Results
+
+** Approach
+- Removed `inherited` from the normalized `tags` schema and writer path.
+- Added a legacy `tags` migration that rewrites old tables to direct facts only and drops inherited rows.
+- Kept `headings.all_tags_json` unchanged as the effective/inherited tag cache.
+
+** Changed files
+- `sql/schema.sql`
+- `src/db/schema.rs`
+- `src/db/writer.rs`
+- `src/db.rs`
+- `src/indexer.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/archive/2026-06-23--simplify-tags-schema-to-direct-tag-facts-only.org`
+
+** Checks performed
+- `cargo test --all-targets --all-features --quiet`
+- `make ci`
+
+** Test results
+- `cargo test --all-targets --all-features --quiet` passed.
+- `make ci` passed.

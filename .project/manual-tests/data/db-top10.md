@@ -4,14 +4,14 @@
 
 | id |                                                path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|-----------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782243226 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                 | 1782237960833303823 | 2276 |              | 1782243226 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782243226 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782243226 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782243226 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org                     | 1782243198853649058 | 1307 |              | 1782243226 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782243226 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782243226 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782245208 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                 | 1782237960833303823 | 2276 |              | 1782245208 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782245208 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782245208 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782245208 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org                     | 1782243198853649058 | 1307 |              | 1782245208 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782245208 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782245208 |
 
 ## heading_bodies
 
@@ -81,18 +81,18 @@
 
 ## tags
 
-| heading_id |    tag     | inherited |
-|------------|------------|-----------|
-| 45         | project    | 0         |
-| 45         | work       | 0         |
-| 55         | file       | 0         |
-| 55         | project    | 0         |
-| 55         | later      | 0         |
-| 55         | extra      | 0         |
-| 56         | parent     | 0         |
-| 57         | child      | 0         |
-| 58         | project    | 0         |
-| 58         | grandchild | 0         |
+| heading_id |    tag     |
+|------------|------------|
+| 45         | project    |
+| 45         | work       |
+| 55         | file       |
+| 55         | project    |
+| 55         | later      |
+| 55         | extra      |
+| 56         | parent     |
+| 57         | child      |
+| 58         | project    |
+| 58         | grandchild |
 
 ## timestamp_repeaters
 

@@ -557,11 +557,11 @@ fn index_document(
         .enumerate()
         .flat_map(|(index, heading)| {
             let heading_id = heading_ids[index];
-            heading.tags.iter().cloned().map(move |tag| TagRecord {
-                heading_id,
-                tag,
-                inherited: false,
-            })
+            heading
+                .tags
+                .iter()
+                .cloned()
+                .map(move |tag| TagRecord { heading_id, tag })
         })
         .collect::<Vec<_>>();
     let property_rows = document
@@ -2269,15 +2269,12 @@ index_body_text = false
         assert_eq!(headings[1].all_tags_json, "[\"test\"]");
         assert_eq!(headings[2].all_tags_json, "[\"test\",\"me\"]");
 
-        let tag_rows: Vec<(String, i64)> = query_rows(
+        let tag_rows: Vec<String> = query_rows(
             &connection,
-            "SELECT tag, inherited FROM tags ORDER BY heading_id, tag",
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            "SELECT tag FROM tags ORDER BY heading_id, tag",
+            |row| row.get(0),
         );
-        assert_eq!(
-            tag_rows,
-            vec![("test".to_string(), 0), ("me".to_string(), 0)]
-        );
+        assert_eq!(tag_rows, vec!["test".to_string(), "me".to_string()]);
     }
 
     #[test]
@@ -2322,21 +2319,21 @@ index_body_text = false
         );
         assert_eq!(headings[3].all_tags_json, "[\"file\",\"project\"]");
 
-        let tag_rows: Vec<(i64, String, i64)> = query_rows(
+        let tag_rows: Vec<(i64, String)> = query_rows(
             &connection,
-            "SELECT headings.level, tags.tag, tags.inherited
+            "SELECT headings.level, tags.tag
              FROM tags
              INNER JOIN headings ON headings.id = tags.heading_id
              ORDER BY headings.level, tags.tag",
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         );
         assert_eq!(
             tag_rows,
             vec![
-                (0, "file".to_string(), 0),
-                (0, "project".to_string(), 0),
-                (1, "parent".to_string(), 0),
-                (2, "child".to_string(), 0),
+                (0, "file".to_string()),
+                (0, "project".to_string()),
+                (1, "parent".to_string()),
+                (2, "child".to_string()),
             ]
         );
 
@@ -2401,20 +2398,20 @@ index_body_text = false
             "[\"outer\",\"shared\",\"inner\",\"leaf\"]"
         );
 
-        let tag_rows: Vec<(String, i64)> = query_rows(
+        let tag_rows: Vec<String> = query_rows(
             &connection,
-            "SELECT tag, inherited FROM tags ORDER BY heading_id, tag",
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            "SELECT tag FROM tags ORDER BY heading_id, tag",
+            |row| row.get(0),
         );
         assert_eq!(
             tag_rows,
             vec![
-                ("outer".to_string(), 0),
-                ("shared".to_string(), 0),
-                ("inner".to_string(), 0),
-                ("shared".to_string(), 0),
-                ("leaf".to_string(), 0),
-                ("outer".to_string(), 0),
+                "outer".to_string(),
+                "shared".to_string(),
+                "inner".to_string(),
+                "shared".to_string(),
+                "leaf".to_string(),
+                "outer".to_string(),
             ]
         );
     }
