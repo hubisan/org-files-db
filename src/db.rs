@@ -13,9 +13,9 @@ pub mod writer;
 pub use reader::{DbReadError, DbReader, HeadingListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition};
 pub use writer::{
-    DbWriteError, DbWriter, FileRecordInput, HeadingFtsRecord, HeadingRecord, KeywordRecord,
-    OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord,
-    TodoKeywordRecord,
+    DbWriteError, DbWriter, FileRecordInput, HeadingBodyRecord, HeadingFtsRecord, HeadingRecord,
+    KeywordRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
+    TimestampRepeaterRecord, TodoKeywordRecord,
 };
 
 pub const IN_MEMORY_DATABASE: &str = ":memory:";

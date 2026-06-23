@@ -1,5 +1,9 @@
-#+TITLE: Body Fixture Placeholder
+#+TITLE: Body Fixtures
 
-This directory is reserved for future body-extraction regression fixtures.
+This directory contains parser regression fixtures for heading body extraction.
 
-The parser risk register currently tracks body extraction boundaries as an open parser-contract decision. Add concrete fixtures here before implementing heading-body extraction.
+Focus areas:
+
+- section ownership
+- child subtree exclusion
+- level 0 pre-heading body behavior

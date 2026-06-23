@@ -272,6 +272,9 @@ fn parse_options_default_to_org_mode_todo_keywords() {
 fn parsed_heading_serializes_with_expected_field_names() {
     let mut heading = ParsedHeading::new("notes/project.org", 0, "Project", 0, 12);
     heading.title_raw = "Project".to_string();
+    heading.body_text = Some("Body".to_string());
+    heading.body_byte_start = Some(13);
+    heading.body_byte_end = Some(17);
     heading.todo_keyword = Some("TODO".to_string());
     heading.todo_type = Some(TodoType::Open);
     heading.priority = Some('A');
@@ -285,6 +288,9 @@ fn parsed_heading_serializes_with_expected_field_names() {
     assert_eq!(json["level"], 0);
     assert_eq!(json["title"], "Project");
     assert_eq!(json["title_raw"], "Project");
+    assert_eq!(json["body_text"], "Body");
+    assert_eq!(json["body_byte_start"], 13);
+    assert_eq!(json["body_byte_end"], 17);
     assert_eq!(json["todo_keyword"], "TODO");
     assert_eq!(json["todo_type"], "Open");
     assert_eq!(json["priority"], "A");

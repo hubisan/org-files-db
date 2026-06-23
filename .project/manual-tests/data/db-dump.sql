@@ -8,14 +8,14 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782245208);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org',1782237960833303823,2276,NULL,1782245208);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782245208);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782245208);
-INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org',1782218329407221851,2783,NULL,1782245208);
-INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org',1782243198853649058,1307,NULL,1782245208);
-INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782245208);
-INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782245208);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782246756);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org',1782237960833303823,2276,NULL,1782246756);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782246756);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782246756);
+INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org',1782218329407221851,2783,NULL,1782246756);
+INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org',1782243198853649058,1307,NULL,1782246756);
+INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782246756);
+INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782246756);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -316,6 +316,64 @@ CREATE TABLE heading_bodies (
         REFERENCES headings(id)
         ON DELETE CASCADE
 );
+INSERT INTO heading_bodies VALUES(1,unistr('#+TITLE: File-local TODO keywords\u000a#+STARTUP: showall\u000a#+TODO: one(t) two(n) | three(d) four(w@)\u000a#+TODO: FIVE SIX |\u000a#+TYP_TODO: seven | eight\u000a#+SEQ_TODO: nine | ten\u000a\u000aSee [[file:../../notes/org-semantics/file-local-todo-keywords.org]]'),0,231);
+INSERT INTO heading_bodies VALUES(2,'Default TODO is not valid because file-local TODO lines override defaults.',278,352);
+INSERT INTO heading_bodies VALUES(3,'Default DONE is not valid because file-local TODO lines override defaults.',403,477);
+INSERT INTO heading_bodies VALUES(13,'#+TODO: | eleven(c)',879,898);
+INSERT INTO heading_bodies VALUES(14,'#+TODO: late_open | late_done',946,975);
+INSERT INTO heading_bodies VALUES(19,unistr('#+TITLE: Keyword Parsing Fixture\u000a#+STARTUP: showall\u000a#+AUTHOR: First Author\u000a#+PROPERTY: before_prop before-value\u000a#+CATEGORY: before-category'),0,139);
+INSERT INTO heading_bodies VALUES(20,unistr('This heading has body text before later keywords.\u000a\u000a#+AUTHOR: Later Author\u000a#+OPTIONS: toc:nil num:t\u000a#+PROPERTY: after_prop after-value\u000a#+PROPERTY: repeated_prop first\u000a#+PROPERTY: repeated_prop second\u000a#+PROPERTY: appended_prop base\u000a#+PROPERTY: appended_prop+ extra\u000a#+CATEGORY: after-category'),163,452);
+INSERT INTO heading_bodies VALUES(21,unistr('This child should not directly receive keyword rows.\u000a\u000a#+TITLE: Later Title\u000a#+EXPORT_FILE_NAME: later-export-name\u000a#+STARTUP: content'),471,602);
+INSERT INTO heading_bodies VALUES(22,unistr('This heading appears after later keywords.\u000a\u000a#+TODO: TODO NEXT | DONE CANCELED\u000a#+SEQ_TODO: IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)\u000a#+TYP_TODO: WAITING(w) | CANCELED(c)'),626,796);
+INSERT INTO heading_bodies VALUES(23,unistr('This line mentions #+TITLE: Inline Mention but should only become a keyword row if Orgize exposes it as a keyword node.\u000aThis line mentions #+PROPERTY: inline_prop invalid in prose.\u000a\u000a#+BEGIN_EXAMPLE\u000a#+TITLE: Example Block Title\u000a#+PROPERTY: example_prop invalid\u000a#+CATEGORY: example-category\u000a#+END_EXAMPLE\u000a\u000a#+begin_src org\u000a  ,#+TITLE: Source Block Title\u000a  ,#+PROPERTY: source_prop invalid\u000a  ,#+CATEGORY: source-category\u000a#+end_src'),836,1262);
+INSERT INTO heading_bodies VALUES(24,unistr('- All real keyword nodes exposed by Orgize are stored as raw ~keywords~ rows attached to the level 0 heading.\u000a- Keyword rows are not attached to regular headings.\u000a- Duplicate keyword rows are preserved.\u000a- Source order is preserved with ~line_number~ and/or insertion order.\u000a- Generic keywords such as ~TITLE~, ~AUTHOR~, ~STARTUP~, ~OPTIONS~, and ~EXPORT_FILE_NAME~ remain raw keyword rows only.\u000a- ~TODO~, ~SEQ_TODO~, and ~TYP_TODO~ may additionally create normalized ~todo_keywords~ rows if that normalization is in scope.\u000a- ~PROPERTY~ rows may additionally create normalized ~properties~ rows with ~source = property_keyword~ if that normalization is in scope.\u000a- ~CATEGORY~ rows may additionally create normalized ~properties~ rows with ~source = category_keyword~ if that normalization is in scope.\u000a- Keywords inside example/source blocks must not create keyword rows unless Orgize incorrectly exposes them as keyword nodes; if that happens, document the Orgize behavior as a parser risk.'),1285,2275);
+INSERT INTO heading_bodies VALUES(25,unistr('#+TITLE: Title can span\u000a#+TITLE: multiple lines, \u000a#+AUTHOR: Hubisan\u000a\u000aSee [[file:../../notes/org-semantics/multipe-title-keywords.org]]'),0,134);
+INSERT INTO heading_bodies VALUES(26,unistr('#+TITLE: even here\u000a\u000aThis can be proven by using ~org-latex-export-as-latex~:\u000a\u000a#+BEGIN_SRC latex\u000a  \\title{Title can span multiple lines, even here}\u000a#+END_SRC'),164,320);
+INSERT INTO heading_bodies VALUES(27,unistr('#+TITLE: Planning timestamp \u000a#+STARTUP: showall'),0,47);
+INSERT INTO heading_bodies VALUES(37,'SCHEDULED: <%%(diary-float t 42)>',547,580);
+INSERT INTO heading_bodies VALUES(38,'In that case Org uses the second entry.',663,702);
+INSERT INTO heading_bodies VALUES(40,unistr('DEADLINE: <2024-12-01 Sun>\u000aCLOSED: [2024-11-21 Thu]'),774,825);
+INSERT INTO heading_bodies VALUES(41,unistr('Some body text first.\u000aSCHEDULED: <2024-11-20 Wed>'),871,920);
+INSERT INTO heading_bodies VALUES(42,'This mentions DEADLINE: <2024-12-01 Sun> inside text.',954,1007);
+INSERT INTO heading_bodies VALUES(43,'scheduled: <2024-11-20 Wed>',1049,1076);
+INSERT INTO heading_bodies VALUES(45,unistr('#+TITLE: Org Property and Keyword Test\u000a#+STARTUP: showall\u000a#+CATEGORY: category_keyword_value\u000a#+PROPERTY: Effort_ALL 0:10 0:30 1:00\u000a#+PROPERTY: keyword_property valid\u000a#+PROPERTY: keyword_overwritten_by_second invalid\u000a#+PROPERTY: keyword_overwritten_by_second valid\u000a#+PROPERTY: keyword_append foo=1\u000a#+PROPERTY: keyword_append+ bar=2'),133,463);
+INSERT INTO heading_bodies VALUES(46,'Body text for the first task.',607,636);
+INSERT INTO heading_bodies VALUES(47,unistr('Expected raw/direct storage:\u000a- both DEFINED_TWICE rows should be preserved\u000a- no overwrite should be computed here'),743,856);
+INSERT INTO heading_bodies VALUES(48,unistr('Expected raw/direct storage:\u000a- ADD-VALUE = is, append = 0\u000a- ADD-VALUE = valid, append = 1\u000a- final value "is valid" is not computed in this task'),949,1092);
+INSERT INTO heading_bodies VALUES(49,unistr('Expected normalized keys:\u000a- ID\u000a- CUSTOM_ID\u000a- DRAWER_PROP\u000a- ADD-VALUE'),1234,1302);
+INSERT INTO heading_bodies VALUES(50,unistr('Expected:\u000a- key EMPTY\u000a- value ""\u000a- source property_drawer'),1378,1435);
+INSERT INTO heading_bodies VALUES(51,unistr(':PROPERTIES:\u000a:EMPTY:\u000a:END:\u000aExpected for now:\u000a- Orgize may expose this as a generic drawer, not PROPERTY_DRAWER\u000a- parser should not add fallback parsing in this task\u000a- no property row is expected if Orgize does not expose NODE_PROPERTY'),1482,1716);
+INSERT INTO heading_bodies VALUES(52,unistr('This heading should not directly receive file-level #+PROPERTY or #+CATEGORY rows.\u000aThose belong to the synthetic level 0 heading only.\u000a\u000a#+PROPERTY: later_keyword_property works_everywhere\u000a#+CATEGORY: later_category_keyword'),1760,1982);
+INSERT INTO heading_bodies VALUES(53,unistr('This heading still should not directly receive those keyword properties.\u000aThey should be stored on level 0 as:\u000a- LATER_KEYWORD_PROPERTY = works_everywhere, source property_keyword\u000a- CATEGORY = later_category_keyword, source category_keyword'),2023,2262);
+INSERT INTO heading_bodies VALUES(54,unistr('#+FILETAGS: :project:work:\u000a#+TAGS: work(w) home(h)\u000a#+COLUMNS: %TODO %50ITEM %Effort{:} %CLOCKSUM\u000a#+CONSTANTS: c=299792458\u000a#+AUTHOR: Jane Doe\u000a#+OPTIONS: toc:nil num:t\u000a\u000aThese keyword lines should not create property rows in this task.\u000aFILETAGS belongs to the later tags task.\u000aTAGS may later become tag-definition metadata.\u000aCOLUMNS references properties but does not define property values.\u000aCONSTANTS belongs to table/formula semantics.\u000aAUTHOR and OPTIONS remain raw keywords.'),2309,2782);
+INSERT INTO heading_bodies VALUES(55,unistr('#+TITLE: Tags and FILETAGS Fixture\u000a#+STARTUP: showall\u000a#+FILETAGS: :file:project:'),0,80);
+INSERT INTO heading_bodies VALUES(56,'Parent body.',100,112);
+INSERT INTO heading_bodies VALUES(57,'Child body.',131,142);
+INSERT INTO heading_bodies VALUES(58,'Grandchild repeats one FILETAG locally and adds a local tag.',180,240);
+INSERT INTO heading_bodies VALUES(59,'Sibling body.',252,265);
+INSERT INTO heading_bodies VALUES(60,unistr('This heading repeats one FILETAG locally.\u000a\u000a#+FILETAGS: :later:extra:'),300,368);
+INSERT INTO heading_bodies VALUES(61,'This heading appears after a later FILETAGS keyword.',401,453);
+INSERT INTO heading_bodies VALUES(62,'Parent body.',486,498);
+INSERT INTO heading_bodies VALUES(63,'Child should have all_tags_json = ["parent"].',529,574);
+INSERT INTO heading_bodies VALUES(64,'Child should have all_tags_json = ["parent", "child"].',608,662);
+INSERT INTO heading_bodies VALUES(65,'Grandchild should have all_tags_json = ["parent", "child"].',693,752);
+INSERT INTO heading_bodies VALUES(66,unistr('Duplicate local tag should not be repeated.\u000aExpected all_tags_json = ["parent", "child"].'),803,892);
+INSERT INTO heading_bodies VALUES(67,'Second parent starts a separate tag inheritance branch.',919,974);
+INSERT INTO heading_bodies VALUES(68,'Expected all_tags_json = ["second", "child"].',1015,1060);
+INSERT INTO heading_bodies VALUES(69,'Expected all_tags_json = ["second", "child", "extra"].',1107,1161);
+INSERT INTO heading_bodies VALUES(71,'Expected all_tags_json = ["local"].',1219,1254);
+INSERT INTO heading_bodies VALUES(72,'Expected all_tags_json = [].',1278,1306);
+INSERT INTO heading_bodies VALUES(85,'SCHEDULED: <2024-11-20 Wed +1w/2d>',504,538);
+INSERT INTO heading_bodies VALUES(86,'SCHEDULED: <2024-11-20 Wed ++1m/1w>',571,606);
+INSERT INTO heading_bodies VALUES(87,'SCHEDULED: <2024-11-20 Wed .+1y/2m>',640,675);
+INSERT INTO heading_bodies VALUES(96,'DEADLINE: <2024-12-01 Sun ++1m/2d -5d>',1093,1131);
+INSERT INTO heading_bodies VALUES(103,'[2024-11-20 Wed +1w]',1510,1530);
+INSERT INTO heading_bodies VALUES(105,'SCHEDULED: <%%(diary-float t 42)>',1592,1625);
+INSERT INTO heading_bodies VALUES(106,unistr('#+TITLE: Timestamps\u000a#+STARTUP: showall'),0,38);
+INSERT INTO heading_bodies VALUES(107,'<2006-11-01 Wed 19:15>',67,89);
+INSERT INTO heading_bodies VALUES(108,'<2006-11-02 Thu 10:00-12:00>',122,150);
+INSERT INTO heading_bodies VALUES(109,unistr('<2006-11-03 Fri>\u000a<2006-11-06 Mon>'),166,199);
+INSERT INTO heading_bodies VALUES(110,unistr('Also in the body <2006-11-03 Fri>.\u000a\u000aThis is an inactive one: [2026-06-22 Mon].'),220,298);
 CREATE TABLE outline_path (
     heading_id          INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,

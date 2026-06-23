@@ -109,6 +109,14 @@ pub struct OutlinePathRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadingBodyRecord {
+    pub heading_id: i64,
+    pub body_text: String,
+    pub body_byte_start: Option<i64>,
+    pub body_byte_end: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadingFtsRecord {
     pub heading_id: i64,
     pub title: String,
@@ -457,6 +465,31 @@ impl DbWriter {
                 )
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_heading_fts",
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
+    pub fn insert_heading_bodies(
+        connection: &Connection,
+        rows: &[HeadingBodyRecord],
+    ) -> Result<(), DbWriteError> {
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO heading_bodies
+                     (heading_id, body_text, body_byte_start, body_byte_end)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        row.heading_id,
+                        row.body_text,
+                        row.body_byte_start,
+                        row.body_byte_end
+                    ],
+                )
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_heading_bodies",
                     source,
                 })?;
         }

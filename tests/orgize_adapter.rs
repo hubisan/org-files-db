@@ -937,6 +937,53 @@ fn orgize_adapter_does_not_treat_keyword_like_body_text_as_a_raw_keyword_row() {
 }
 
 #[test]
+fn orgize_adapter_extracts_heading_bodies_without_child_subtrees() {
+    let content = "#+TITLE: Body Text Fixture\nFile-level introduction before the first heading.\nThis belongs to the synthetic level 0 heading if body indexing is enabled.\n\n* Parent\nParent paragraph one.\n\nParent paragraph two.\n\n** Child\nChild paragraph.\nThis text belongs to Child, not Parent.\n\n*** Grandchild\nGrandchild paragraph.\n\n* Empty Body Parent\n** Child Under Empty Parent\nChild body only.\n\n* Parent With Metadata\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Alice\n:END:\n\nBody after planning and property drawer.\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/body-text-fixture.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("body text fixture should parse");
+
+    assert_eq!(document.headings.len(), 7);
+
+    let level_zero_body = document.headings[0]
+        .body_text
+        .as_deref()
+        .expect("level 0 body should be present");
+    assert!(level_zero_body.contains("File-level introduction before the first heading."));
+    assert!(!level_zero_body.contains("Parent paragraph one."));
+    assert!(document.headings[0].body_byte_end > document.headings[0].body_byte_start);
+
+    assert_eq!(
+        document.headings[1].body_text.as_deref(),
+        Some("Parent paragraph one.\n\nParent paragraph two.")
+    );
+    assert_eq!(
+        document.headings[2].body_text.as_deref(),
+        Some("Child paragraph.\nThis text belongs to Child, not Parent.")
+    );
+    assert_eq!(
+        document.headings[3].body_text.as_deref(),
+        Some("Grandchild paragraph.")
+    );
+    assert!(document.headings[4].body_text.is_none());
+    assert_eq!(
+        document.headings[5].body_text.as_deref(),
+        Some("Child body only.")
+    );
+
+    let metadata_body = document.headings[6]
+        .body_text
+        .as_deref()
+        .expect("metadata heading body should be present");
+    assert_eq!(metadata_body, "Body after planning and property drawer.");
+}
+
+#[test]
 fn orgize_adapter_supports_simplified_file_local_todo_keyword_lines() {
     let content = include_str!("data/parser/todo-keywords/simplified-file-local-lines/fixture.org");
     let options = ParseOptions {

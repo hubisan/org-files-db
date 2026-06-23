@@ -1,0 +1,185 @@
+#+TITLE: Store optional body text per heading
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 22:20]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Start the next BUILD task.
+- Follow the AGENTS workflow exactly.
+- Implement optional heading body storage controlled by ~search.index_body_text~.
+
+Copied task entry from ~todo.org~:
+
+** BUILD Store optional body text per heading
+
+Goal:
+Store the body text that belongs directly to each heading in ~heading_bodies~, controlled by the existing ~search.index_body_text~ configuration.
+
+This feature is optional because body text can consume significant database space. When ~search.index_body_text = false~, body text should not be written to ~heading_bodies~ and should not be indexed into FTS.
+
+Context:
+The schema already has a dedicated ~heading_bodies~ table so body text can stay out of the compact ~headings~ table.
+
+Existing config:
+
+#+begin_src toml
+  [search]
+  fts5_enabled = false
+  index_body_text = false
+#+end_src
+
+Design decision:
+- ~heading_bodies~ stores body text only when ~search.index_body_text = true~.
+- ~heading_bodies~ is the source for optional body FTS indexing.
+- Heading title indexing and body indexing must remain separate.
+- Body text is inserted into ~heading_fts~ only when both ~search.fts5_enabled = true~ and ~search.index_body_text = true~.
+- If ~search.index_body_text = false~, no body rows should be written and FTS body content should remain empty or omitted according to the existing FTS design.
+
+Body ownership rules:
+- Each regular heading owns only the body content in its own section.
+- Body text must exclude child heading subtrees.
+- Body text must exclude the heading line itself.
+- File-level text before the first regular heading belongs to the synthetic level 0 heading.
+- If there is no body text for a heading, either omit the ~heading_bodies~ row or insert an empty string consistently; prefer omitting empty rows unless existing DB writer conventions require otherwise.
+- Body byte ranges should be stored as ~body_byte_start~ and ~body_byte_end~ when available.
+- Byte ranges must use UTF-8 byte offsets in the original file content.
+- If exact byte ranges are not available from the parser, document the limitation and keep the columns ~NULL~ rather than guessing.
+
+Preferred table:
+
+#+begin_src sql
+  CREATE TABLE IF NOT EXISTS heading_bodies (
+      heading_id          INTEGER PRIMARY KEY,
+      body_text           TEXT NOT NULL,
+      body_byte_start     INTEGER,
+      body_byte_end       INTEGER,
+      FOREIGN KEY (heading_id)
+          REFERENCES headings(id)
+          ON DELETE CASCADE
+  );
+#+end_src
+
+Scope:
+- Inspect the existing parser model, Orgize adapter, indexer, DB writer, config handling, and FTS code.
+- Add parser/indexer support for heading body extraction if not already present.
+- Write body rows to ~heading_bodies~ only when ~search.index_body_text = true~.
+- Delete/reinsert body rows consistently during rebuild or per-file replacement.
+- Ensure regular heading body text excludes child subtrees.
+- Ensure level 0 body text handles file-level text before the first regular heading.
+- Store ~body_byte_start~ and ~body_byte_end~ when available.
+- Ensure FTS receives body text only when both ~search.fts5_enabled~ and ~search.index_body_text~ are true.
+- Add fixtures and tests for body ownership, child subtree exclusion, level 0 text, config-disabled behavior, and FTS gating.
+
+Out of scope:
+- Do not implement full query/search commands in this task.
+- Do not change unrelated heading fields.
+- Do not change tag, property, timestamp, TODO, or keyword parsing.
+- Do not index body text when ~search.index_body_text = false~.
+- Do not force FTS5 to be enabled.
+- Do not store large body text unconditionally.
+- Do not include child subtree text in a parent heading body unless a later task explicitly changes the body model.
+
+Acceptance criteria:
+- Body text is assigned to the correct heading.
+- Body text storage is controlled by ~search.index_body_text~.
+- Body text is not stored when ~search.index_body_text = false~.
+- Body text excludes child heading subtrees.
+- Body text excludes the heading line itself.
+- File-level text before the first regular heading is assigned to the synthetic level 0 heading, or a different decision is explicitly documented and tested.
+- ~body_byte_start~ and ~body_byte_end~ are stored when available.
+- Unknown byte ranges are stored as ~NULL~, not guessed.
+- Rebuild deletes/replaces old ~heading_bodies~ rows consistently.
+- Body text is inserted into FTS only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- Existing parser/indexer tests still pass.
+
+Validation:
+- Run focused parser fixture tests for heading body extraction.
+- Run focused DB/indexer tests for ~heading_bodies~ writes.
+- Run config-disabled body storage test.
+- Run FTS-enabled and FTS-disabled tests if supported.
+- Run:
+
+#+begin_src shell
+  cargo test --all-targets --all-features --quiet
+  make ci
+#+end_src
+
+* Planning
+
+** Problem summary
+- The schema and cleanup path already know about ~heading_bodies~, but the parser model and indexer pipeline do not currently carry heading body content through to persistence.
+- The current FTS path always inserts empty body strings via ~body_for_fts()~, so enabling ~index_body_text~ has no effect today.
+** Goals
+- Extract section-local body text for the synthetic level 0 heading and regular headings.
+- Persist ~heading_bodies~ only when ~search.index_body_text = true~.
+- Feed body text into ~heading_fts~ only when both FTS and body indexing are enabled.
+** Non-goals
+- No redesign of heading/title/tag/property/timestamp parsing.
+- No query/search feature work.
+- No unconditional storage of body text when body indexing is disabled.
+** Architecture
+- Use Orgize ~Document::section()~ for file-level pre-heading content and ~Headline::section()~ for per-heading section content.
+- Extend ~ParsedHeading~ with optional body text and byte-range fields rather than adding a separate parser result structure.
+- Keep body extraction tied to the parser's existing structural view instead of introducing a second raw-text scanner.
+** Execution plan
+- Extend the parser model and Orgize adapter to populate optional body fields from section nodes.
+- Add DB writer support for ~heading_bodies~ rows and teach the indexer to write them only when enabled.
+- Replace the current empty-body FTS placeholder with gated body content from parsed headings.
+- Add focused parser fixture/unit coverage plus indexer regressions for disabled/enabled body storage and subtree exclusion.
+** Risks & assumptions
+- Orgize section text may include planning lines and property drawers for regular headings; that behavior will be documented in tests rather than normalized away in this task.
+- Level 0 body text may include file-level keyword lines when they are part of the document section; tests will assert the required inclusion of pre-heading content without overconstraining unrelated section details.
+** Open questions
+- None blocking after inspecting Orgize's ~section()~ API.
+** Proposed checks
+- Focused parser fixture and ~orgize_adapter~ body tests
+- Focused indexer tests for ~heading_bodies~ and FTS gating
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+* Results
+
+** Approach
+- Extended ~ParsedHeading~ with optional body text and byte-range fields so section ownership can flow through the existing parser/indexer pipeline.
+- Used Orgize ~Document::section()~ for level 0 pre-heading content and ~Headline::section()~ for regular headings, trimming surrounding whitespace and omitting whitespace-only bodies.
+- Added explicit ~heading_bodies~ writes behind ~search.index_body_text~ and reused the same parsed body text for FTS only when body indexing is enabled.
+- Verified the actual Orgize section contract in tests: child subtrees are excluded and planning/property-drawer metadata is not part of the stored regular-heading body text.
+** Changed files
+- ~src/parser/model.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/db/writer.rs~
+- ~src/db.rs~
+- ~src/indexer.rs~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_contract.rs~
+- ~tests/parser_fixtures.rs~
+- ~tests/data/parser/README.org~
+- ~tests/data/parser/body/README.org~
+- ~tests/data/parser/body/section-ownership/fixture.org~
+- ~tests/data/parser/body/section-ownership/expected.txt~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-23--store-optional-body-text-per-heading.org~
+** Checks performed
+- Focused ~orgize_adapter~ body extraction regression
+- Focused parser fixture regression for body section ownership
+- Focused indexer regressions for enabled/disabled ~heading_bodies~ writes
+- Focused FTS regression for body-text indexing
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+** Test results
+- Body extraction now stores level 0 pre-heading content and regular-heading section bodies without child subtree text.
+- Empty/whitespace-only bodies are omitted from ~heading_bodies~.
+- Body rows are not written when ~search.index_body_text = false~.
+- FTS rows include body content only when both FTS and body indexing are enabled.
+- ~cargo test --all-targets --all-features --quiet~ passed.
+- ~make ci~ passed.
+** Blockers
+- None.
+** Follow-ups
+- None.

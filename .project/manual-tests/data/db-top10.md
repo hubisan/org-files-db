@@ -4,17 +4,70 @@
 
 | id |                                                path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|-----------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782245208 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                 | 1782237960833303823 | 2276 |              | 1782245208 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782245208 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782245208 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782245208 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org                     | 1782243198853649058 | 1307 |              | 1782245208 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782245208 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782245208 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782246756 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                 | 1782237960833303823 | 2276 |              | 1782246756 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782246756 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782246756 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782246756 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org                     | 1782243198853649058 | 1307 |              | 1782246756 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782246756 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782246756 |
 
 ## heading_bodies
 
+| heading_id |                                                        body_text                                                        | body_byte_start | body_byte_end |
+|------------|-------------------------------------------------------------------------------------------------------------------------|-----------------|---------------|
+| 1          | #+TITLE: File-local TODO keywords                                                                                       | 0               | 231           |
+|            | #+STARTUP: showall                                                                                                      |                 |               |
+|            | #+TODO: one(t) two(n) | three(d) four(w@)                                                                               |                 |               |
+|            | #+TODO: FIVE SIX |                                                                                                      |                 |               |
+|            | #+TYP_TODO: seven | eight                                                                                               |                 |               |
+|            | #+SEQ_TODO: nine | ten                                                                                                  |                 |               |
+|            |                                                                                                                         |                 |               |
+|            | See [[file:../../notes/org-semantics/file-local-todo-keywords.org]]                                                     |                 |               |
+| 2          | Default TODO is not valid because file-local TODO lines override defaults.                                              | 278             | 352           |
+| 3          | Default DONE is not valid because file-local TODO lines override defaults.                                              | 403             | 477           |
+| 13         | #+TODO: | eleven(c)                                                                                                     | 879             | 898           |
+| 14         | #+TODO: late_open | late_done                                                                                           | 946             | 975           |
+| 19         | #+TITLE: Keyword Parsing Fixture                                                                                        | 0               | 139           |
+|            | #+STARTUP: showall                                                                                                      |                 |               |
+|            | #+AUTHOR: First Author                                                                                                  |                 |               |
+|            | #+PROPERTY: before_prop before-value                                                                                    |                 |               |
+|            | #+CATEGORY: before-category                                                                                             |                 |               |
+| 20         | This heading has body text before later keywords.                                                                       | 163             | 452           |
+|            |                                                                                                                         |                 |               |
+|            | #+AUTHOR: Later Author                                                                                                  |                 |               |
+|            | #+OPTIONS: toc:nil num:t                                                                                                |                 |               |
+|            | #+PROPERTY: after_prop after-value                                                                                      |                 |               |
+|            | #+PROPERTY: repeated_prop first                                                                                         |                 |               |
+|            | #+PROPERTY: repeated_prop second                                                                                        |                 |               |
+|            | #+PROPERTY: appended_prop base                                                                                          |                 |               |
+|            | #+PROPERTY: appended_prop+ extra                                                                                        |                 |               |
+|            | #+CATEGORY: after-category                                                                                              |                 |               |
+| 21         | This child should not directly receive keyword rows.                                                                    | 471             | 602           |
+|            |                                                                                                                         |                 |               |
+|            | #+TITLE: Later Title                                                                                                    |                 |               |
+|            | #+EXPORT_FILE_NAME: later-export-name                                                                                   |                 |               |
+|            | #+STARTUP: content                                                                                                      |                 |               |
+| 22         | This heading appears after later keywords.                                                                              | 626             | 796           |
+|            |                                                                                                                         |                 |               |
+|            | #+TODO: TODO NEXT | DONE CANCELED                                                                                       |                 |               |
+|            | #+SEQ_TODO: IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)                                                                 |                 |               |
+|            | #+TYP_TODO: WAITING(w) | CANCELED(c)                                                                                    |                 |               |
+| 23         | This line mentions #+TITLE: Inline Mention but should only become a keyword row if Orgize exposes it as a keyword node. | 836             | 1262          |
+|            | This line mentions #+PROPERTY: inline_prop invalid in prose.                                                            |                 |               |
+|            |                                                                                                                         |                 |               |
+|            | #+BEGIN_EXAMPLE                                                                                                         |                 |               |
+|            | #+TITLE: Example Block Title                                                                                            |                 |               |
+|            | #+PROPERTY: example_prop invalid                                                                                        |                 |               |
+|            | #+CATEGORY: example-category                                                                                            |                 |               |
+|            | #+END_EXAMPLE                                                                                                           |                 |               |
+|            |                                                                                                                         |                 |               |
+|            | #+begin_src org                                                                                                         |                 |               |
+|            |   ,#+TITLE: Source Block Title                                                                                          |                 |               |
+|            |   ,#+PROPERTY: source_prop invalid                                                                                      |                 |               |
+|            |   ,#+CATEGORY: source-category                                                                                          |                 |               |
+|            | #+end_src                                                                                                               |                 |               |
 
 ## headings
 

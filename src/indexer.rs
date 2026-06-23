@@ -12,8 +12,9 @@ use crate::{
     config::{Config, ConfigError},
     db::{
         open_database_with_schema, DbError, DbWriteError, DbWriter, FileRecordInput,
-        HeadingFtsRecord, HeadingRecord, KeywordRecord, OutlinePathRecord, PropertyRecord,
-        SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
+        HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord, OutlinePathRecord,
+        PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord,
+        TodoKeywordRecord,
     },
     parser::{
         file_local_todo_keyword_config, DiagnosticSeverity, OrgParser, ParseDiagnostic,
@@ -485,7 +486,7 @@ fn index_document(
         fts_rows.push(HeadingFtsRecord {
             heading_id: level0_id,
             title: level0_heading.title.clone(),
-            body: body_for_fts(index_body_text),
+            body: body_for_fts(level0_heading, index_body_text),
         });
     }
 
@@ -534,7 +535,7 @@ fn index_document(
             fts_rows.push(HeadingFtsRecord {
                 heading_id,
                 title: heading.title.clone(),
-                body: body_for_fts(index_body_text),
+                body: body_for_fts(heading, index_body_text),
             });
         }
     }
@@ -583,6 +584,18 @@ fn index_document(
                 })
         })
         .collect::<Vec<_>>();
+    let body_rows = if index_body_text {
+        document
+            .headings
+            .iter()
+            .enumerate()
+            .map(|(index, heading)| heading_body_record(heading_ids[index], heading))
+            .filter_map(Result::transpose)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_write_invalid_input)?
+    } else {
+        Vec::new()
+    };
     let timestamp_rows = document
         .headings
         .iter()
@@ -602,6 +615,7 @@ fn index_document(
     DbWriter::insert_tags(connection, &tag_rows)?;
     DbWriter::insert_properties(connection, &property_rows)?;
     DbWriter::insert_outline_path(connection, &outline_rows)?;
+    DbWriter::insert_heading_bodies(connection, &body_rows)?;
     let timestamp_ids = DbWriter::insert_timestamps(connection, &timestamp_rows)?;
     let timestamp_repeater_rows = document
         .headings
@@ -888,8 +902,36 @@ fn outline_child_materialized_path(parent_path: &str, sibling_ordinal: usize) ->
     format!("{parent_path}.{}", zero_pad_path_segment(sibling_ordinal))
 }
 
-fn body_for_fts(_index_body_text: bool) -> String {
-    String::new()
+fn heading_body_record(
+    heading_id: i64,
+    heading: &ParsedHeading,
+) -> Result<Option<HeadingBodyRecord>, &'static str> {
+    let Some(body_text) = heading.body_text.clone() else {
+        return Ok(None);
+    };
+
+    Ok(Some(HeadingBodyRecord {
+        heading_id,
+        body_text,
+        body_byte_start: heading
+            .body_byte_start
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "heading body_byte_start out of range")?,
+        body_byte_end: heading
+            .body_byte_end
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| "heading body_byte_end out of range")?,
+    }))
+}
+
+fn body_for_fts(heading: &ParsedHeading, index_body_text: bool) -> String {
+    if !index_body_text {
+        return String::new();
+    }
+
+    heading.body_text.clone().unwrap_or_default()
 }
 
 fn db_write_invalid_input(message: &'static str) -> DbWriteError {
@@ -2694,7 +2736,10 @@ index_body_text = false
         let config_path = test_dir.path().join("config.toml");
         let db_path = test_dir.path().join("db.sqlite");
 
-        write_file(&org_path, "* TODO Searchable Heading\n");
+        write_file(
+            &org_path,
+            "* TODO Searchable Heading\nBody phrase for full text search.\n",
+        );
         write_config(
             &config_path,
             r#"
@@ -2722,9 +2767,175 @@ index_body_text = true
                 |row| row.get(0),
             )
             .expect("fts match should load");
+        let body_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'phrase'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts body match should load");
 
         assert_eq!(row_count, 2);
         assert_eq!(match_count, 1);
+        assert_eq!(body_match_count, 1);
+    }
+
+    #[test]
+    fn rebuild_stores_heading_bodies_only_when_body_indexing_is_enabled() {
+        let test_dir = TestDir::new("heading-bodies-enabled");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: true,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Body Text Fixture\nFile-level introduction before the first heading.\n\n* Parent\nParent paragraph one.\n\nParent paragraph two.\n\n** Child\nChild paragraph.\nThis text belongs to Child, not Parent.\n\n*** Grandchild\nGrandchild paragraph.\n\n* Empty Body Parent\n** Child Under Empty Parent\nChild body only.\n\n* Parent With Metadata\nSCHEDULED: <2026-06-23 Tue>\n:PROPERTIES:\n:Owner: Alice\n:END:\n\nBody after planning and property drawer.\n",
+        );
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+
+        let level_zero_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.level = 0",
+                [],
+                |row| row.get(0),
+            )
+            .expect("level 0 body should load");
+        assert!(level_zero_body.contains("File-level introduction before the first heading."));
+
+        let parent_body: (String, i64, i64) = connection
+            .query_row(
+                "SELECT heading_bodies.body_text, heading_bodies.body_byte_start, heading_bodies.body_byte_end
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Parent'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("parent body should load");
+        assert_eq!(
+            parent_body.0,
+            "Parent paragraph one.\n\nParent paragraph two."
+        );
+        assert!(parent_body.1 < parent_body.2);
+
+        let child_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Child'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("child body should load");
+        assert_eq!(
+            child_body,
+            "Child paragraph.\nThis text belongs to Child, not Parent."
+        );
+
+        let grandchild_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Grandchild'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("grandchild body should load");
+        assert_eq!(grandchild_body, "Grandchild paragraph.");
+
+        let empty_parent_rows: i64 = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Empty Body Parent'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("empty body parent count should load");
+        assert_eq!(empty_parent_rows, 0);
+
+        let child_under_empty_parent_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Child Under Empty Parent'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("child under empty parent body should load");
+        assert_eq!(child_under_empty_parent_body, "Child body only.");
+
+        let metadata_body: String = connection
+            .query_row(
+                "SELECT heading_bodies.body_text
+                 FROM heading_bodies
+                 INNER JOIN headings ON headings.id = heading_bodies.heading_id
+                 WHERE headings.title = 'Parent With Metadata'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("metadata body should load");
+        assert_eq!(metadata_body, "Body after planning and property drawer.");
+    }
+
+    #[test]
+    fn rebuild_skips_heading_bodies_when_body_indexing_is_disabled() {
+        let test_dir = TestDir::new("heading-bodies-disabled");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            recursive: false,
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Disabled Bodies\n* Parent\nBody that should not be stored.\n",
+        );
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+
+        let body_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM heading_bodies", [], |row| row.get(0))
+            .expect("heading body count should load");
+        assert_eq!(body_count, 0);
     }
 
     #[test]

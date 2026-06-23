@@ -12,6 +12,7 @@ fn fixture_root() -> PathBuf {
 
 fn collect_fixture_dirs() -> Vec<PathBuf> {
     let categories = [
+        "body",
         "timestamps",
         "headings",
         "links",
@@ -61,6 +62,10 @@ fn load_expectations(path: &Path) -> HashMap<String, String> {
     }
 
     expectations
+}
+
+fn decode_expected_text(value: &str) -> String {
+    value.replace("\\n", "\n")
 }
 
 fn assert_expectations(path: &Path, expectations: &HashMap<String, String>) {
@@ -214,6 +219,34 @@ fn assert_heading_expectation(
             heading.title,
             value,
             "unexpected heading title for {}",
+            path.display()
+        ),
+        "body_text" => assert!(
+            {
+                let expected = decode_expected_text(value);
+                heading.body_text.as_deref() == Some(expected.as_str())
+            },
+            "unexpected heading body text for {}",
+            path.display()
+        ),
+        "body_byte_start" => assert_eq!(
+            heading.body_byte_start,
+            Some(
+                value
+                    .parse::<usize>()
+                    .expect("body_byte_start should be numeric")
+            ),
+            "unexpected heading body byte start for {}",
+            path.display()
+        ),
+        "body_byte_end" => assert_eq!(
+            heading.body_byte_end,
+            Some(
+                value
+                    .parse::<usize>()
+                    .expect("body_byte_end should be numeric")
+            ),
+            "unexpected heading body byte end for {}",
             path.display()
         ),
         "todo_keyword" => assert_eq!(
@@ -608,6 +641,7 @@ fn normalize_property_source_name(
 #[test]
 fn parser_fixture_directories_follow_expected_layout() {
     for category in [
+        "body",
         "timestamps",
         "headings",
         "links",

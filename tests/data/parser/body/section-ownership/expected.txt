@@ -1,0 +1,5 @@
+# classification: body section ownership and subtree exclusion
+document.title=Body Fixture
+heading_count=3
+heading.1.body_text=Parent paragraph one.\n\nParent paragraph two.
+heading.2.body_text=Child paragraph.

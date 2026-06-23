@@ -5,4 +5,4 @@ recursive = true
 
 [search]
 fts5_enabled = false
-index_body_text = false
+index_body_text = true

@@ -3,7 +3,7 @@ use std::{collections::HashSet, path::Path};
 use orgize::{
     ast::{
         DelayType, Document as OrgDocument, Headline, Keyword, Link, NodeProperty, PropertyDrawer,
-        RepeaterType, TimeUnit, Timestamp,
+        RepeaterType, Section, TimeUnit, Timestamp,
     },
     rowan::{ast::AstNode, NodeOrToken},
     Org, SyntaxElement, SyntaxKind, SyntaxNode,
@@ -45,6 +45,7 @@ impl OrgParser for OrgizeAdapter {
             .unwrap_or_else(|| options.todo_keywords.clone());
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
+        populate_heading_body(document.section(), &mut level_zero);
         if let Some(properties) = document.properties() {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
@@ -146,6 +147,7 @@ fn collect_headlines(
         parsed.is_root = parent_index.is_none();
 
         populate_heading_timestamps(&headline, content, &mut parsed);
+        populate_heading_body(headline.section(), &mut parsed);
 
         if let Some(properties) = headline.properties() {
             parsed.properties = parsed_properties_from_drawer(
@@ -191,6 +193,42 @@ fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> Stri
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn populate_heading_body(section: Option<Section>, parsed: &mut ParsedHeading) {
+    let Some(section) = section else {
+        return;
+    };
+
+    if let Some((body_text, body_byte_start, body_byte_end)) = trimmed_section_body(
+        &section.raw(),
+        usize::from(section.start()),
+        usize::from(section.end()),
+    ) {
+        parsed.body_text = Some(body_text);
+        parsed.body_byte_start = Some(body_byte_start);
+        parsed.body_byte_end = Some(body_byte_end);
+    }
+}
+
+fn trimmed_section_body(
+    raw: &str,
+    body_byte_start: usize,
+    body_byte_end: usize,
+) -> Option<(String, usize, usize)> {
+    let without_leading = raw.trim_start_matches(char::is_whitespace);
+    let leading_trim = raw.len() - without_leading.len();
+    let trimmed = without_leading.trim_end_matches(char::is_whitespace);
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let trailing_trim = without_leading.len() - trimmed.len();
+    Some((
+        trimmed.to_string(),
+        body_byte_start + leading_trim,
+        body_byte_end - trailing_trim,
+    ))
 }
 
 fn normalize_title_from_raw(title_raw: &str) -> String {
