@@ -48,361 +48,245 @@ Extend the data model enough to represent real Org workflows meaningfully, witho
 
 [[./archive/2026-06-23--parse-properties-drawer-and-file-level-properties.org]]
 
-Goal:
-Extract direct Org properties from property drawers and file-level property declarations, store them as queryable property rows, and attach buffer-level properties to the synthetic level 0 heading.
+** BUILD Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
 
-This task stores direct property definitions only. It does not materialize inherited or effective properties.
+Goal: Ensure that normalized property rows created from ~#+PROPERTY~ and ~#+CATEGORY~ are based on keyword lines from the whole Org document, not only on keywords before the first regular heading.
 
-Sources:
+Context: Org keyword lines can appear later in the buffer and still be recognized by Org-mode. The raw keyword parser/indexer stores keyword rows on the synthetic level 0 heading. Property normalization for ~#+PROPERTY~ and ~#+CATEGORY~ must use the same parsed keyword source, but this task must not change TODO keyword semantics.
 
-- buffer-level property drawer before the first regular heading:
-  #+begin_src org
-    :PROPERTIES:
-    :CATEGORY: Level 0 Category Property
-    :WHATEVER: test
-    :ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
-    :END:
-    ,#+TITLE: Test
+Important regression context: A previous attempt changed the central keyword collection path too broadly and caused ~todo_keywords~ insertion to fail with a uniqueness error. This task must avoid that regression.
 
-    ,* Heading level 1
-  #+end_src
+Do not change:
 
-- heading property drawers:
-  #+begin_src org
-    ,* Task
-    :PROPERTIES:
-    :ID: abc
-    :CUSTOM_ID: task
-    :Effort: 0:30
-    :END:
-  #+end_src
+- Do not change normalized ~TODO~, ~SEQ_TODO~, or ~TYP_TODO~ behavior.
+- Do not remove existing TODO keyword deduplication or merge logic.
+- Do not change the ~todo_keywords~ schema.
+- Do not change the uniqueness behavior of ~todo_keywords~.
+- Do not modify manual SQLite database files.
+- Do not modify task tracking files such as ~.project/tasks/todo.org~, except for moving this task through the workflow if explicitly required by the project process.
+- Do not implement a second independent raw-text scanner if a parsed keyword list already exists.
+- Do not compute effective or inherited property values in this task.
 
-- file-level property keywords:
-  #+begin_src org
-    #+PROPERTY: Effort_ALL 0:10 0:30 1:00
-    #+PROPERTY: var foo=1
-    #+PROPERTY: var+ bar=2
-    #+CATEGORY: project
-  #+end_src
+Problem:
 
-Implementation notes:
+#+begin_src org
+  ,#+PROPERTY: var before
 
-- Prefer Orgize syntax nodes for property drawers and node properties instead of reimplementing Org property drawer parsing with custom regex/FSM logic.
-- If Orgize does not parse a malformed drawer as a property drawer, ignore it for this task.
-- The parser/DB should store direct source facts. Effective property resolution, inheritance, overwrite semantics, and append resolution are query/API concerns and are explicitly deferred.
-- Keep ~keywords~ and ~properties~ separate:
-  - ~keywords~ stores raw Org keyword lines such as ~#+TITLE~, ~#+STARTUP~, ~#+PROPERTY~, and ~#+CATEGORY~.
-  - ~properties~ stores queryable property definitions.
-- Semantic keyword lines may be represented twice:
-  - ~#+PROPERTY~ is stored as a raw keyword and additionally as a property with source ~property_keyword~.
-  - ~#+CATEGORY~ is stored as a raw keyword and additionally as a property with source ~category_keyword~.
-- File-level ~#+PROPERTY~ lines may occur anywhere in the buffer. Store them as properties attached to the synthetic level 0 heading.
-- Buffer-level property drawers before the first regular heading are attached to the synthetic level 0 heading.
-- Heading property drawers are attached to the corresponding regular heading.
-- Keys are normalized before DB insertion by converting to uppercase only. Do not otherwise rewrite key characters.
-  - ~drawer_prop~ becomes ~DRAWER_PROP~
-  - ~Custom_Id~ becomes ~CUSTOM_ID~
-  - ~add-value~ becomes ~ADD-VALUE~
-- A trailing ~+~ on a property key is an append operator, not part of the key.
-  - ~:var+: value~ becomes key ~VAR~, value ~value~, append = 1.
-  - ~#+PROPERTY: var+ value~ becomes key ~VAR~, value ~value~, append = 1.
-- Do not compute inherited properties in this task.
-- Do not store inherited/effective rows in the ~properties~ table.
-- If effective properties are needed later, implement them as SQL/API logic, a view, or a separate cache table.
+  ,* First heading
 
-Suggested schema adjustment:
+  ,#+PROPERTY: var after
+  ,#+CATEGORY: later-category
 
-#+begin_src sql
-CREATE TABLE IF NOT EXISTS properties (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    key             TEXT NOT NULL,
-    value           TEXT,
-    source          TEXT NOT NULL CHECK (
-                        source IN (
-                            'property_drawer',
-                            'property_keyword',
-                            'category_keyword'
-                        )
-                    ),
-    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
-    line_number     INTEGER,
-    FOREIGN KEY (heading_id)
-        REFERENCES headings(id)
-        ON DELETE CASCADE
-);
+  ,* Second heading
 #+end_src
 
-Suggested indexes:
+Expected parser/indexer behavior:
 
-#+begin_src sql
-CREATE INDEX IF NOT EXISTS idx_properties_heading_key
-ON properties (heading_id, key);
+- Both ~#+PROPERTY~ rows are stored as raw keyword rows.
+- The later ~#+CATEGORY~ row is stored as a raw keyword row.
+- Both ~#+PROPERTY~ rows also create normalized rows in ~properties~ with ~source = property_keyword~.
+- The ~#+CATEGORY~ row also creates a normalized row in ~properties~ with ~source = category_keyword~.
+- All normalized rows are attached to the synthetic level 0 heading.
+- No normalized row is attached directly to ~First heading~ or ~Second heading~.
 
-CREATE INDEX IF NOT EXISTS idx_properties_key_value
-ON properties (key, value);
+Scope:
 
-CREATE INDEX IF NOT EXISTS idx_properties_id_lookup
-ON properties (value)
-WHERE key = 'ID';
+- Reuse the existing parsed keyword collection used for raw keyword insertion, if available.
+- If the existing parser has special whole-buffer keyword logic for ~TODO~, ~SEQ_TODO~, ~TYP_TODO~, ~PROPERTY~, or ~CATEGORY~, preserve it unless a test proves it is wrong.
+- Do not replace the central keyword collector with a broad ~syntax().descendants().filter_map(Keyword::cast)~ implementation unless all existing keyword/TODO tests still pass and no duplicate ~todo_keywords~ rows are produced.
+- Do not limit ~#+PROPERTY~ or ~#+CATEGORY~ normalization to the preamble before the first regular heading.
+- Preserve duplicate raw keyword rows.
+- Preserve duplicate normalized property rows.
+- Preserve source order through ~line_number~ and/or insertion order.
+- Keep keyword rows and property rows separate.
+- Store ~#+PROPERTY~ and ~#+CATEGORY~ twice: once as raw ~keywords~ rows and once as normalized ~properties~ rows.
+- Attach normalized ~property_keyword~ and ~category_keyword~ rows only to the synthetic level 0 heading.
+- Do not attach normalized keyword-derived property rows to surrounding regular headings.
 
-CREATE INDEX IF NOT EXISTS idx_properties_custom_id_lookup
-ON properties (value)
-WHERE key = 'CUSTOM_ID';
+Normalization rules:
+
+- ~#+PROPERTY: key value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 0, and heading_id = synthetic level 0 heading.
+- ~#+PROPERTY: key+ value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 1, and heading_id = synthetic level 0 heading.
+- ~#+CATEGORY: value~ creates a row in ~properties~ with key ~CATEGORY~, value ~value~, source ~category_keyword~, append = 0, and heading_id = synthetic level 0 heading.
+- The trailing ~+~ append marker is not part of the stored key.
+- Property keys are normalized consistently with the existing property implementation.
+
+Required regression fixture:
+
+#+begin_src org
+  ,#+TITLE: Keyword and Property Normalization Fixture
+  ,#+STARTUP: showall
+  ,#+PROPERTY: before_prop before-value
+  ,#+CATEGORY: before-category
+
+  ,* First heading
+  This heading has body text before later keywords.
+
+  ,#+AUTHOR: Later Author
+  ,#+OPTIONS: toc:nil num:t
+  ,#+PROPERTY: after_prop after-value
+  ,#+PROPERTY: repeated_prop first
+  ,#+PROPERTY: repeated_prop second
+  ,#+PROPERTY: appended_prop base
+  ,#+PROPERTY: appended_prop+ extra
+  ,#+CATEGORY: after-category
+
+  ,** Child heading
+  This child should not directly receive keyword or property rows created from later file-level keywords.
+
+  ,#+TITLE: Later Title
+  ,#+EXPORT_FILE_NAME: later-export-name
+
+  ,* Second heading
+  This heading appears after later keywords.
+
+  ,#+PROPERTY: second_after_heading works
+  ,#+CATEGORY: second-category
 #+end_src
+
+Expected normalized property rows on level 0:
+
+#+begin_src text
+BEFORE_PROP          | before-value    | property_keyword | append = 0
+CATEGORY             | before-category | category_keyword | append = 0
+AFTER_PROP           | after-value     | property_keyword | append = 0
+REPEATED_PROP        | first           | property_keyword | append = 0
+REPEATED_PROP        | second          | property_keyword | append = 0
+APPENDED_PROP        | base            | property_keyword | append = 0
+APPENDED_PROP        | extra           | property_keyword | append = 1
+CATEGORY             | after-category  | category_keyword | append = 0
+SECOND_AFTER_HEADING | works           | property_keyword | append = 0
+CATEGORY             | second-category | category_keyword | append = 0
+#+end_src
+
+Expected attachment behavior:
+
+- All rows above are attached to the synthetic level 0 heading.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~First heading~.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~Child heading~.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~Second heading~.
+
+Required TODO regression fixture:
+
+#+begin_src org
+  ,#+TODO: TODO NEXT | DONE
+  ,#+SEQ_TODO: TODO WAIT | DONE CANCELED
+
+  ,* TODO First heading
+  ,* NEXT Second heading
+  ,* DONE Finished heading
+#+end_src
+
+Expected TODO behavior:
+
+- Rebuild must not fail with ~UNIQUE constraint failed: todo_keywords.file_id, todo_keywords.keyword~.
+- Raw keyword rows may preserve both TODO-related keyword declarations.
+- Normalized ~todo_keywords~ rows must remain valid for the existing schema.
+- If duplicate normalized TODO keywords occur, keep the existing project behavior for deduplication or conflict handling.
+- Do not change TODO keyword semantics unless an existing test is wrong and the change is explicitly justified.
 
 Acceptance criteria:
 
-- Property drawers parsed by Orgize are extracted.
-- Properties from heading drawers are assigned to the correct regular heading.
-- Buffer-level property drawers before the first regular heading are assigned to the synthetic level 0 heading.
-- File-level ~#+PROPERTY~ declarations are assigned to the synthetic level 0 heading as properties with source ~property_keyword~.
-- File-level ~#+CATEGORY~ declarations are assigned to the synthetic level 0 heading as properties with source ~category_keyword~.
-- ~#+PROPERTY~ and ~#+CATEGORY~ may still be stored as raw rows in the ~keywords~ table.
-- ~ID~ and ~CUSTOM_ID~ are directly queryable through indexes.
-- Additional properties are preserved.
-- Property keys are normalized to uppercase before DB insertion.
-- The append operator ~+~ is represented explicitly with ~append = 1~ and is not stored as part of the key.
-- Duplicate direct property definitions are preserved as separate rows.
-- No uniqueness constraint drops earlier property definitions.
-- Inherited/effective properties are explicitly deferred.
-- Tests cover multiple heading properties.
-- Tests cover a buffer-level property drawer.
-- Tests cover file-level ~#+PROPERTY~.
-- Tests cover file-level ~#+CATEGORY~.
-- Tests cover case-insensitive property keys.
-- Tests cover duplicate direct property definitions.
-- Tests cover the property append operator ~+~.
+- A test proves that ~#+PROPERTY~ after a regular heading creates a ~properties~ row on the level 0 heading.
+- A test proves that ~#+CATEGORY~ after a regular heading creates a ~properties~ row on the level 0 heading.
+- A test proves that raw ~keywords~ rows are still stored for those later keyword lines.
+- A test proves that no ~property_keyword~ or ~category_keyword~ row is attached to the surrounding regular heading.
+- Duplicate ~#+PROPERTY~ rows from different positions are preserved.
+- Append syntax with ~#+PROPERTY: key+ value~ is preserved as ~append = 1~.
+- Existing TODO keyword tests still pass.
+- A regression test proves that rebuild does not fail with duplicate or overlapping TODO declarations.
+- The implementation uses the same keyword source as raw keyword insertion, or clearly documents why that is not possible.
+- The test fails on the old implementation if ~#+PROPERTY~ or ~#+CATEGORY~ is only scanned before the first regular heading.
 
-Suggested tests:
+Validation:
 
-*** Test: heading property drawer with multiple properties
-
-Input:
-
-#+begin_src org
-,* Task
-:PROPERTIES:
-:ID: abc
-:CUSTOM_ID: task
-:Effort: 0:30
-:Owner: Alice
-:END:
-Body text
-#+end_src
-
-Expected:
-
-- The regular heading ~Task~ has direct properties:
-  - key ~ID~, value ~abc~, source ~property_drawer~, append = 0
-  - key ~CUSTOM_ID~, value ~task~, source ~property_drawer~, append = 0
-  - key ~EFFORT~, value ~0:30~, source ~property_drawer~, append = 0
-  - key ~OWNER~, value ~Alice~, source ~property_drawer~, append = 0
-- The properties are not attached to the level 0 heading.
-- Keys are stored uppercase.
-
-*** Test: buffer-level property drawer
-
-Input:
-
-#+begin_src org
-:PROPERTIES:
-:CATEGORY: Level 0 Category Property
-:WHATEVER: test
-:ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
-:END:
-#+TITLE: Test
-
-,* Heading level 1
-#+end_src
-
-Expected:
-
-- The synthetic level 0 heading has direct properties:
-  - key ~CATEGORY~, value ~Level 0 Category Property~, source ~property_drawer~, append = 0
-  - key ~WHATEVER~, value ~test~, source ~property_drawer~, append = 0
-  - key ~ID~, value ~7dad9b62-a3cc-43ec-a60f-e650bdaeae6d~, source ~property_drawer~, append = 0
-- The regular heading ~Heading level 1~ does not directly receive these properties.
-- No inherited/effective property rows are created.
-
-*** Test: file-level PROPERTY keyword
-
-Input:
-
-#+begin_src org
-#+PROPERTY: Effort_ALL 0:10 0:30 1:00
-
-,* Task
-#+end_src
-
-Expected:
-
-- The raw keyword line may be stored in ~keywords~:
-  - keyword ~PROPERTY~
-  - value ~Effort_ALL 0:10 0:30 1:00~
-- The synthetic level 0 heading has a property:
-  - key ~EFFORT_ALL~
-  - value ~0:10 0:30 1:00~
-  - source ~property_keyword~
-  - append = 0
-- The regular heading ~Task~ does not directly receive this property.
-- Effective inheritance from level 0 is not materialized in this task.
-
-*** Test: file-level CATEGORY keyword
-
-Input:
-
-#+begin_src org
-#+CATEGORY: project
-
-,* Task
-#+end_src
-
-Expected:
-
-- The raw keyword line may be stored in ~keywords~:
-  - keyword ~CATEGORY~
-  - value ~project~
-- The synthetic level 0 heading has a property:
-  - key ~CATEGORY~
-  - value ~project~
-  - source ~category_keyword~
-  - append = 0
-- The regular heading ~Task~ does not directly receive this property.
-
-*** Test: property key case normalization
-
-Input:
-
-#+begin_src org
-,* Task
-:PROPERTIES:
-:id: abc
-:Custom_Id: task
-:drawer_prop: valid
-:END:
-#+end_src
-
-Expected:
-
-- Keys are stored as:
-  - ~ID~
-  - ~CUSTOM_ID~
-  - ~DRAWER_PROP~
-- Lookup must not depend on the original key casing.
-
-*** Test: duplicate direct property definitions are preserved
-
-Input:
-
-#+begin_src org
-,* Task
-:PROPERTIES:
-:defined_twice: invalid
-:defined_twice: valid
-:END:
-#+end_src
-
-Expected:
-
-- Two direct property rows are stored for key ~DEFINED_TWICE~.
-- The first row has value ~invalid~.
-- The second row has value ~valid~.
-- The parser does not collapse them.
-- Effective overwrite behavior is deferred to query/API logic.
-
-*** Test: PROPERTY keyword duplicate definitions are preserved
-
-Input:
-
-#+begin_src org
-#+PROPERTY: keyword_overwritten_by_second invalid
-#+PROPERTY: keyword_overwritten_by_second valid
-
-,* Task
-#+end_src
-
-Expected:
-
-- Two direct property rows are stored on the synthetic level 0 heading.
-- Both rows have key ~KEYWORD_OVERWRITTEN_BY_SECOND~.
-- The first row has value ~invalid~.
-- The second row has value ~valid~.
-- Both rows have source ~property_keyword~.
-- Effective overwrite behavior is deferred.
-
-*** Test: property append operator in drawer
-
-Input:
-
-#+begin_src org
-,* Task
-:PROPERTIES:
-:add-value: is
-:add-value+: valid
-:END:
-#+end_src
-
-Expected:
-
-- Two direct property rows are stored for the regular heading ~Task~:
-  - key ~ADD-VALUE~, value ~is~, source ~property_drawer~, append = 0
-  - key ~ADD-VALUE~, value ~valid~, source ~property_drawer~, append = 1
-- The ~+~ is not stored as part of the key.
-- The parser does not compute the final value ~is valid~ in this task.
-
-*** Test: property append operator in PROPERTY keyword
-
-Input:
-
-#+begin_src org
-#+PROPERTY: var foo=1
-#+PROPERTY: var+ bar=2
-
-,* Task
-#+end_src
-
-Expected:
-
-- Two direct property rows are stored on the synthetic level 0 heading:
-  - key ~VAR~, value ~foo=1~, source ~property_keyword~, append = 0
-  - key ~VAR~, value ~bar=2~, source ~property_keyword~, append = 1
-- The ~+~ is not stored as part of the key.
-- The parser does not compute the final value ~foo=1 bar=2~ in this task.
-
-*** Test: malformed property drawer is ignored if Orgize does not parse it
-
-Input:
-
-#+begin_src org
-,* Task
-:PROPERTIES:
-:props-dont-work: invalid
-
-:END:
-#+end_src
-
-Expected:
-
-- If Orgize does not expose this as a valid ~PROPERTY_DRAWER~ with ~NODE_PROPERTY~ children, no properties are stored from it.
-- The implementation does not add separate regex/FSM recovery for malformed drawers in this task.
-
+- Run the new parser/indexer tests.
+- Run all existing TODO keyword tests.
+- Run the rebuild command that previously failed, if available:
+  #+begin_src shell
+    cargo run -- rebuild --config ./Config.toml
+  #+end_src
+- Run the project standard validation command if available, for example:
+  #+begin_src shell
+    make ci
+  #+end_src
 
 ** TODO Parse keywords
 
-Goal:
-Extract Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, and ~#+EXPORT_FILE_NAME~.
+Goal: Extract Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, ~#+EXPORT_FILE_NAME~, ~#+TODO~, ~#+SEQ_TODO~, ~#+TYP_TODO~, ~#+PROPERTY~, and ~#+CATEGORY~.
 
-Note:
-File-level keywords are stored in the ~keywords~ table and attached to the level 0 heading.
+Context: Org keyword lines are not necessarily limited to the physical beginning of the file. Initial checks suggest that Org-mode still recognizes keyword lines when they appear later in the buffer. For the parser/indexer, treat recognized keyword nodes as file-level metadata and attach them to the synthetic level 0 heading. Do not attach keyword rows to regular headings.
+
+Important distinction: Keyword recognition is separate from keyword semantics. This task stores raw keyword facts. It does not decide whether a keyword is globally effective, position-dependent, cumulative, last-one-wins, or only metadata.
+
+Scope:
+
+- Collect keyword nodes from the whole document when Orgize exposes them as keywords.
+- Attach all keyword rows to the synthetic level 0 heading.
+- Preserve keyword name and raw value.
+- Normalize keyword names consistently, preferably uppercase.
+- Preserve duplicate keyword rows.
+- Preserve source order through ~line_number~ and/or insertion order.
+- Do not compute semantic meaning of generic keywords in this task.
+- Do not treat keywords as heading-local data.
+- Do not create property rows in this task unless the current build scope explicitly includes ~#+PROPERTY~ and ~#+CATEGORY~ normalization.
+- If ~#+TODO~, ~#+SEQ_TODO~, or ~#+TYP_TODO~ normalization already exists or is in scope, raw keyword storage and normalized ~todo_keywords~ rows may both be written deliberately.
+
+Suggested fixture:
+
+#+begin_src org
+  ,#+TITLE: First title
+  ,#+STARTUP: showall
+
+  ,* First heading
+  Body text.
+
+  ,#+AUTHOR: Jane Doe
+  ,#+OPTIONS: toc:nil num:t
+
+  ,** Child heading
+  More body text.
+
+  ,#+TITLE: Later title
+  ,#+EXPORT_FILE_NAME: export-name
+#+end_src
+
+Expected raw keyword rows:
+
+#+begin_src text
+TITLE            | First title
+STARTUP          | showall
+AUTHOR           | Jane Doe
+OPTIONS          | toc:nil num:t
+TITLE            | Later title
+EXPORT_FILE_NAME | export-name
+#+end_src
+
+Boundary fixture:
+
+#+begin_src org
+  ,* Heading with keyword-looking body text
+  This line mentions #+TITLE: but is not necessarily a keyword if Orgize does not expose it as one in this context.
+
+  ,#+TITLE: Real keyword if Orgize exposes it as a keyword node
+#+end_src
 
 Acceptance criteria:
 
-- File-level keywords are attached to the level 0 heading.
+- Keyword rows are attached to the level 0 heading.
 - Keyword name and raw value are preserved.
-- ~#+TODO:~ may be stored as raw keyword and additionally normalized into ~todo_keywords~.
-- A test with ~#+TITLE~ and ~#+STARTUP~ exists.
-- I am not sure: Keywords kann be anywhere in the file and still count, as file level keywords. there is no keywords for headings.
+- Duplicate keyword rows are preserved.
+- Source order is preserved through ~line_number~ and/or insertion order.
+- Keywords appearing after regular headings are tested.
+- A test with ~#+TITLE~ before and after a heading exists.
+- A test with ~#+STARTUP~ exists.
+- A test with at least one later keyword such as ~#+AUTHOR~, ~#+OPTIONS~, or ~#+EXPORT_FILE_NAME~ exists.
+- No keyword row is attached directly to a regular heading.
+- The parser/indexer contract documents that keywords are file-level rows, even if they appear later in the file.
+- Keyword semantics are deferred to later tasks.
+- ~#+TITLE~ and other generic keywords remain raw ~keywords~ rows only.
+- If ~#+TODO~ normalization is in scope, ~#+TODO~ may be stored as a raw keyword row and additionally normalized into ~todo_keywords~.
+- If ~#+PROPERTY~ and ~#+CATEGORY~ normalization is not in this task, they remain raw keyword rows here and are handled by the properties task.
 
 ** TODO Parse tags and FILETAGS
 
@@ -422,6 +306,8 @@ Acceptance criteria:
 
 Goal:
 Store the body text that belongs to each heading so it can later be indexed through SQLite FTS5 if FTS5 and body indexing are enabled.
+
+This should be an optional feature and only be done, if it is activated. As it may consume a lot of space. Ah, we already have this in the Config.toml: ~index_body_text = false~.
 
 Acceptance criteria:
 

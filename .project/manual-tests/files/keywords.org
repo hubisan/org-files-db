@@ -1,0 +1,59 @@
+#+TITLE: Keyword Parsing Fixture
+#+STARTUP: showall
+#+AUTHOR: First Author
+#+PROPERTY: before_prop before-value
+#+CATEGORY: before-category
+
+* First heading
+This heading has body text before later keywords.
+
+#+AUTHOR: Later Author
+#+OPTIONS: toc:nil num:t
+#+PROPERTY: after_prop after-value
+#+PROPERTY: repeated_prop first
+#+PROPERTY: repeated_prop second
+#+PROPERTY: appended_prop base
+#+PROPERTY: appended_prop+ extra
+#+CATEGORY: after-category
+
+** Child heading
+This child should not directly receive keyword rows.
+
+#+TITLE: Later Title
+#+EXPORT_FILE_NAME: later-export-name
+#+STARTUP: content
+
+* Second heading
+This heading appears after later keywords.
+
+#+TODO: TODO NEXT | DONE CANCELED
+#+SEQ_TODO: IDEA(i) PLAN(p) BUILD(b) | DONE(d)
+#+TYP_TODO: WAITING(w) | CANCELED(c)
+
+* Boundary: keyword-looking body text
+This line mentions #+TITLE: Inline Mention but should only become a keyword row if Orgize exposes it as a keyword node.
+This line mentions #+PROPERTY: inline_prop invalid in prose.
+
+#+BEGIN_EXAMPLE
+#+TITLE: Example Block Title
+#+PROPERTY: example_prop invalid
+#+CATEGORY: example-category
+#+END_EXAMPLE
+
+#+begin_src org
+  ,#+TITLE: Source Block Title
+  ,#+PROPERTY: source_prop invalid
+  ,#+CATEGORY: source-category
+#+end_src
+
+* Expected behavior
+
+- All real keyword nodes exposed by Orgize are stored as raw ~keywords~ rows attached to the level 0 heading.
+- Keyword rows are not attached to regular headings.
+- Duplicate keyword rows are preserved.
+- Source order is preserved with ~line_number~ and/or insertion order.
+- Generic keywords such as ~TITLE~, ~AUTHOR~, ~STARTUP~, ~OPTIONS~, and ~EXPORT_FILE_NAME~ remain raw keyword rows only.
+- ~TODO~, ~SEQ_TODO~, and ~TYP_TODO~ may additionally create normalized ~todo_keywords~ rows if that normalization is in scope.
+- ~PROPERTY~ rows may additionally create normalized ~properties~ rows with ~source = property_keyword~ if that normalization is in scope.
+- ~CATEGORY~ rows may additionally create normalized ~properties~ rows with ~source = category_keyword~ if that normalization is in scope.
+- Keywords inside example/source blocks must not create keyword rows unless Orgize incorrectly exposes them as keyword nodes; if that happens, document the Orgize behavior as a parser risk.
