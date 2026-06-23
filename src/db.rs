@@ -395,6 +395,85 @@ mod tests {
     }
 
     #[test]
+    fn properties_schema_tracks_append_and_allows_duplicate_direct_rows() {
+        let connection = open_in_memory_database().expect("database should open");
+
+        let property_columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(properties)")
+                .expect("properties pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("properties pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("properties columns should collect")
+        };
+        assert!(property_columns.iter().any(|column| column == "append"));
+        assert!(!property_columns.iter().any(|column| column == "inherited"));
+
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (?1, ?2, ?3, ?4)",
+                (1_i64, "/tmp/example.org", 10_i64, 20_i64),
+            )
+            .expect("file insert should succeed");
+        connection
+            .execute(
+                "INSERT INTO headings
+                 (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    1_i64,
+                    1_i64,
+                    Option::<i64>::None,
+                    0_i64,
+                    -1_i64,
+                    20_i64,
+                    "/tmp/example.org",
+                    "/tmp/example.org",
+                ),
+            )
+            .expect("heading insert should succeed");
+
+        connection
+            .execute(
+                "INSERT INTO properties (heading_id, key, value, source, append, line_number)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (1_i64, "OWNER", "Alice", "property_drawer", 0_i64, 2_i64),
+            )
+            .expect("first property insert should succeed");
+        connection
+            .execute(
+                "INSERT INTO properties (heading_id, key, value, source, append, line_number)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (1_i64, "OWNER", "Bob", "property_drawer", 0_i64, 3_i64),
+            )
+            .expect("duplicate direct property insert should succeed");
+
+        let property_rows: Vec<(String, String, i64)> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT key, value, append
+                     FROM properties
+                     ORDER BY line_number, id",
+                )
+                .expect("properties select should prepare");
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .expect("properties select should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("properties select should collect")
+        };
+        assert_eq!(
+            property_rows,
+            vec![
+                ("OWNER".to_string(), "Alice".to_string(), 0),
+                ("OWNER".to_string(), "Bob".to_string(), 0),
+            ]
+        );
+    }
+
+    #[test]
     fn enforces_unique_file_paths() {
         let schema = SchemaDefinition::new(1, false);
         let connection =
@@ -967,6 +1046,93 @@ VALUES
         );
     }
 
+    #[test]
+    fn open_database_upgrades_legacy_properties_table() {
+        let test_dir = TestDir::new("legacy-properties");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
+
+DROP TABLE properties;
+
+CREATE TABLE properties (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    key             TEXT NOT NULL,
+    value           TEXT,
+    source          TEXT NOT NULL CHECK (
+                        source IN ('property_keyword', 'property_drawer', 'category_keyword')
+                    ),
+    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    UNIQUE (heading_id, key, source, inherited)
+);
+
+INSERT INTO properties (id, heading_id, key, value, source, inherited, line_number)
+VALUES
+    (1, 1, 'CUSTOM_ID', 'legacy-id', 'property_drawer', 0, 2);
+"#,
+                )
+                .expect("legacy properties schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+
+        let columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(properties)")
+                .expect("properties pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("properties pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("properties columns should collect")
+        };
+        assert!(columns.iter().any(|column| column == "append"));
+        assert!(!columns.iter().any(|column| column == "inherited"));
+
+        let migrated_row: (String, Option<String>, String, i64, Option<i64>) = connection
+            .query_row(
+                "SELECT key, value, source, append, line_number
+                 FROM properties",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("migrated row should be queryable");
+        assert_eq!(
+            migrated_row,
+            (
+                "CUSTOM_ID".to_string(),
+                Some("legacy-id".to_string()),
+                "property_drawer".to_string(),
+                0,
+                Some(2),
+            )
+        );
+    }
+
     fn insert_fixture_graph(connection: &Connection) {
         connection
             .execute(
@@ -1040,7 +1206,7 @@ VALUES
             .expect("keyword insert should succeed");
         connection
             .execute(
-                "INSERT INTO properties (heading_id, key, value, source, inherited, line_number)
+                "INSERT INTO properties (heading_id, key, value, source, append, line_number)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 (
                     2_i64,

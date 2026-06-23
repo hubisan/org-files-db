@@ -2,8 +2,8 @@ use std::{collections::HashSet, path::Path};
 
 use orgize::{
     ast::{
-        DelayType, Document as OrgDocument, Headline, Keyword, Link, RepeaterType, TimeUnit,
-        Timestamp,
+        DelayType, Document as OrgDocument, Headline, Keyword, Link, NodeProperty, PropertyDrawer,
+        RepeaterType, TimeUnit, Timestamp,
     },
     rowan::{ast::AstNode, NodeOrToken},
     Org, SyntaxElement, SyntaxKind, SyntaxNode,
@@ -12,9 +12,10 @@ use orgize::{
 use super::diagnostics::ParseDiagnostic;
 use super::model::{
     file_local_todo_keyword_config, OrgParser, ParseOptions, ParsedHeading, ParsedKeyword,
-    ParsedOrgDocument, ParsedProperty, ParsedTimestamp, ParsedTimestampModifier,
-    ParsedTimestampModifierKind, ParsedTimestampModifierType, ParsedTimestampRangeType,
-    ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit, TodoKeywordConfig, TodoType,
+    ParsedOrgDocument, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
+    ParsedTimestampModifier, ParsedTimestampModifierKind, ParsedTimestampModifierType,
+    ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit,
+    TodoKeywordConfig, TodoType,
 };
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -38,22 +39,24 @@ impl OrgParser for OrgizeAdapter {
         let mut parsed = ParsedOrgDocument::new(path);
 
         parsed.metadata.title = combined_document_title(&document);
-        parsed.metadata.keywords = document
-            .keywords()
-            .map(|keyword| ParsedKeyword {
-                key: keyword.key().to_string(),
-                value: Some(keyword.value().trim().to_string()).filter(|value| !value.is_empty()),
-            })
-            .collect();
-        merge_file_local_todo_keywords_from_content(&mut parsed.metadata.keywords, content);
+        parsed.metadata.keywords = collect_document_keywords(&document, content);
 
         let active_todo_keywords = file_local_todo_keyword_config(&parsed.metadata.keywords)
             .unwrap_or_else(|| options.todo_keywords.clone());
-        parsed.headings.push(level_zero_heading(
-            path,
-            content,
-            parsed.metadata.title.as_deref(),
-        ));
+        let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
+        if let Some(properties) = document.properties() {
+            level_zero.properties.extend(parsed_properties_from_drawer(
+                &properties,
+                content,
+                ParsedPropertySource::PropertyDrawer,
+            ));
+        }
+        level_zero
+            .properties
+            .extend(file_level_properties_from_keywords(
+                &parsed.metadata.keywords,
+            ));
+        parsed.headings.push(level_zero);
 
         collect_headlines(
             document.headlines(),
@@ -61,7 +64,6 @@ impl OrgParser for OrgizeAdapter {
             content,
             &active_todo_keywords,
             &mut parsed.headings,
-            &mut parsed.diagnostics,
             Some(0),
         );
 
@@ -95,7 +97,6 @@ fn collect_headlines(
     content: &str,
     todo_keywords: &TodoKeywordConfig,
     output: &mut Vec<ParsedHeading>,
-    diagnostics: &mut Vec<ParseDiagnostic>,
     parent_index: Option<usize>,
 ) {
     for headline in headlines {
@@ -146,25 +147,10 @@ fn collect_headlines(
         populate_heading_timestamps(&headline, content, &mut parsed);
 
         if let Some(properties) = headline.properties() {
-            parsed.properties = properties
-                .iter()
-                .map(|(key, value)| ParsedProperty {
-                    key: key.to_string(),
-                    value: value.to_string(),
-                    inherited: false,
-                })
-                .collect();
-
-            diagnostics.push(
-                ParseDiagnostic::warning(
-                    "Orgize adapter property extraction is currently local-only and does not handle inheritance",
-                )
-                .with_file_path(path)
-                .with_line_number(line_number_for_offset(content, start))
-                .with_byte_range(
-                    usize::from(properties.start()),
-                    usize::from(properties.end()),
-                ),
+            parsed.properties = parsed_properties_from_drawer(
+                &properties,
+                content,
+                ParsedPropertySource::PropertyDrawer,
             );
         }
 
@@ -177,7 +163,6 @@ fn collect_headlines(
             content,
             todo_keywords,
             output,
-            diagnostics,
             Some(current_index),
         );
     }
@@ -917,33 +902,164 @@ fn is_supported_title_markup(kind: SyntaxKind) -> bool {
     )
 }
 
-fn merge_file_local_todo_keywords_from_content(keywords: &mut Vec<ParsedKeyword>, content: &str) {
-    keywords.retain(|keyword| !is_file_local_todo_keyword_name(&keyword.key));
-    keywords.extend(file_local_todo_keywords_from_content(content));
+fn collect_document_keywords(document: &OrgDocument, content: &str) -> Vec<ParsedKeyword> {
+    let mut keywords = document
+        .keywords()
+        .map(|keyword| parsed_keyword_from_orgize(&keyword, content))
+        .collect::<Vec<_>>();
+    merge_special_keywords_from_content(&mut keywords, content);
+    keywords
 }
 
-fn file_local_todo_keywords_from_content(content: &str) -> Vec<ParsedKeyword> {
+fn parsed_keyword_from_orgize(keyword: &Keyword, content: &str) -> ParsedKeyword {
+    ParsedKeyword {
+        key: keyword.key().to_string(),
+        value: Some(keyword.value().trim().to_string()).filter(|value| !value.is_empty()),
+        line_number: Some(line_number_for_offset(
+            content,
+            usize::from(keyword.start()),
+        )),
+    }
+}
+
+fn merge_special_keywords_from_content(keywords: &mut Vec<ParsedKeyword>, content: &str) {
+    keywords.retain(|keyword| !is_full_buffer_special_keyword_name(&keyword.key));
+    keywords.extend(special_keywords_from_content(content));
+}
+
+fn special_keywords_from_content(content: &str) -> Vec<ParsedKeyword> {
     content
         .lines()
-        .filter_map(|line| {
+        .enumerate()
+        .filter_map(|(index, line)| {
             let remainder = line.strip_prefix("#+")?;
             let (key, value) = remainder.split_once(':')?;
-            if !is_file_local_todo_keyword_name(key) {
+            if !is_full_buffer_special_keyword_name(key) {
                 return None;
             }
 
             Some(ParsedKeyword {
                 key: key.to_string(),
                 value: Some(value.trim().to_string()).filter(|value| !value.is_empty()),
+                line_number: Some(index as u32 + 1),
             })
         })
         .collect()
+}
+
+fn is_full_buffer_special_keyword_name(key: &str) -> bool {
+    is_file_local_todo_keyword_name(key)
+        || key.eq_ignore_ascii_case("PROPERTY")
+        || key.eq_ignore_ascii_case("CATEGORY")
 }
 
 fn is_file_local_todo_keyword_name(key: &str) -> bool {
     key.eq_ignore_ascii_case("TODO")
         || key.eq_ignore_ascii_case("SEQ_TODO")
         || key.eq_ignore_ascii_case("TYP_TODO")
+}
+
+fn file_level_properties_from_keywords(keywords: &[ParsedKeyword]) -> Vec<ParsedProperty> {
+    keywords
+        .iter()
+        .filter_map(parsed_property_from_keyword)
+        .collect()
+}
+
+fn parsed_property_from_keyword(keyword: &ParsedKeyword) -> Option<ParsedProperty> {
+    if keyword.key.eq_ignore_ascii_case("PROPERTY") {
+        let (key, value, append) = parse_property_keyword_value(keyword.value.as_deref()?)?;
+        Some(ParsedProperty {
+            key,
+            value,
+            source: ParsedPropertySource::PropertyKeyword,
+            append,
+            line_number: keyword.line_number,
+        })
+    } else if keyword.key.eq_ignore_ascii_case("CATEGORY") {
+        Some(ParsedProperty {
+            key: "CATEGORY".to_string(),
+            value: keyword.value.clone(),
+            source: ParsedPropertySource::CategoryKeyword,
+            append: false,
+            line_number: keyword.line_number,
+        })
+    } else {
+        None
+    }
+}
+
+fn parse_property_keyword_value(value: &str) -> Option<(String, Option<String>, bool)> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let raw_key = parts.next()?.trim();
+    if raw_key.is_empty() {
+        return None;
+    }
+    let raw_value = parts
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let (key, append) = normalize_property_key(raw_key);
+    Some((key, raw_value, append))
+}
+
+fn parsed_properties_from_drawer(
+    drawer: &PropertyDrawer,
+    content: &str,
+    source: ParsedPropertySource,
+) -> Vec<ParsedProperty> {
+    drawer
+        .node_properties()
+        .filter_map(|property| parsed_property_from_node(&property, content, source))
+        .collect()
+}
+
+fn parsed_property_from_node(
+    property: &NodeProperty,
+    content: &str,
+    source: ParsedPropertySource,
+) -> Option<ParsedProperty> {
+    let mut text_tokens = property
+        .syntax()
+        .children_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| token.kind() == SyntaxKind::TEXT)
+        .map(|token| token.to_string());
+
+    let raw_key = text_tokens.next()?;
+    let value = Some(text_tokens.next().unwrap_or_default());
+    let append = property
+        .syntax()
+        .children_with_tokens()
+        .filter_map(|element| element.into_token())
+        .any(|token| token.kind() == SyntaxKind::PLUS);
+    let (key, normalized_append) = normalize_property_key(&raw_key);
+
+    Some(ParsedProperty {
+        key,
+        value,
+        source,
+        append: append || normalized_append,
+        line_number: Some(line_number_for_offset(
+            content,
+            usize::from(property.start()),
+        )),
+    })
+}
+
+fn normalize_property_key(raw_key: &str) -> (String, bool) {
+    let (key, append) = if let Some(key) = raw_key.strip_suffix('+') {
+        (key, true)
+    } else {
+        (raw_key, false)
+    };
+    (key.to_uppercase(), append)
 }
 
 fn line_number_for_offset(content: &str, offset: usize) -> u32 {

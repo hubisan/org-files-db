@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use org_files_db::parser::{
     DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParseOptions,
     ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning,
-    ParsedProperty, ParsedTimestamp, ParsedTimestampRangeType, ParsedTimestampRole,
-    ParsedTimestampType, TodoKeyword, TodoKeywordConfig, TodoType,
+    ParsedProperty, ParsedPropertySource, ParsedTimestamp, ParsedTimestampRangeType,
+    ParsedTimestampRole, ParsedTimestampType, TodoKeyword, TodoKeywordConfig, TodoType,
 };
 
 struct ParserFixture {
@@ -89,8 +89,10 @@ impl OrgParser for StubFixtureParser {
         heading.tags = vec!["rust".to_string(), "parser".to_string()];
         heading.properties = vec![ParsedProperty {
             key: "CUSTOM_ID".to_string(),
-            value: "parser-inbox".to_string(),
-            inherited: false,
+            value: Some("parser-inbox".to_string()),
+            source: ParsedPropertySource::PropertyDrawer,
+            append: false,
+            line_number: Some(3),
         }];
         heading.planning = ParsedPlanning {
             scheduled: Some(sample_timestamp(
@@ -107,6 +109,7 @@ impl OrgParser for StubFixtureParser {
         document.metadata.keywords.push(ParsedKeyword {
             key: "TITLE".to_string(),
             value: document.metadata.title.clone(),
+            line_number: Some(1),
         });
         document.headings.push(heading);
         document.diagnostics.push(
@@ -147,6 +150,7 @@ fn parsed_org_document_supports_schema_near_metadata() {
         keywords: vec![ParsedKeyword {
             key: "FILETAGS".to_string(),
             value: Some(":project:rust:".to_string()),
+            line_number: Some(1),
         }],
     };
 
@@ -158,8 +162,10 @@ fn parsed_org_document_supports_schema_near_metadata() {
     heading.tags = vec!["project".to_string(), "rust".to_string()];
     heading.properties = vec![ParsedProperty {
         key: "OWNER".to_string(),
-        value: "hubisan".to_string(),
-        inherited: false,
+        value: Some("hubisan".to_string()),
+        source: ParsedPropertySource::PropertyDrawer,
+        append: false,
+        line_number: Some(4),
     }];
     heading.planning = ParsedPlanning {
         scheduled: Some(sample_timestamp(

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use org_files_db::parser::{
-    OrgParser, OrgizeAdapter, ParseOptions, ParsedTimestampModifierKind,
+    OrgParser, OrgizeAdapter, ParseOptions, ParsedPropertySource, ParsedTimestampModifierKind,
     ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
     ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig, TodoType,
 };
@@ -298,6 +298,97 @@ fn orgize_adapter_collects_ranges_repeaters_and_body_timestamps() {
         body_only.timestamps[1].role,
         Some(ParsedTimestampRole::Body)
     );
+}
+
+#[test]
+fn orgize_adapter_preserves_empty_property_values_exposed_by_orgize() {
+    let content = "#+TITLE: Empty Property\n* Task\n:PROPERTIES:\n:EMPTY: \n:END:\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/empty-property.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("empty property should parse");
+
+    assert_eq!(document.headings.len(), 2);
+    let heading = &document.headings[1];
+    assert_eq!(heading.properties.len(), 1);
+    assert_eq!(heading.properties[0].key, "EMPTY");
+    assert_eq!(heading.properties[0].value.as_deref(), Some(""));
+    assert_eq!(
+        heading.properties[0].source,
+        ParsedPropertySource::PropertyDrawer
+    );
+    assert!(!heading.properties[0].append);
+    assert!(document.diagnostics.is_empty());
+}
+
+#[test]
+fn orgize_adapter_collects_file_level_property_keywords_anywhere_in_buffer() {
+    let content = "#+TITLE: File Properties\n* Task\n#+PROPERTY: Effort_ALL 0:10 0:30 1:00\n#+PROPERTY: var+ bar=2\n#+CATEGORY: project\n";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/file-properties.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("file-level properties should parse");
+
+    assert_eq!(document.headings.len(), 2);
+    assert_eq!(document.headings[0].properties.len(), 3);
+    assert_eq!(document.headings[0].properties[0].key, "EFFORT_ALL");
+    assert_eq!(
+        document.headings[0].properties[0].value.as_deref(),
+        Some("0:10 0:30 1:00")
+    );
+    assert_eq!(
+        document.headings[0].properties[0].source,
+        ParsedPropertySource::PropertyKeyword
+    );
+    assert!(!document.headings[0].properties[0].append);
+
+    assert_eq!(document.headings[0].properties[1].key, "VAR");
+    assert_eq!(
+        document.headings[0].properties[1].value.as_deref(),
+        Some("bar=2")
+    );
+    assert_eq!(
+        document.headings[0].properties[1].source,
+        ParsedPropertySource::PropertyKeyword
+    );
+    assert!(document.headings[0].properties[1].append);
+
+    assert_eq!(document.headings[0].properties[2].key, "CATEGORY");
+    assert_eq!(
+        document.headings[0].properties[2].value.as_deref(),
+        Some("project")
+    );
+    assert_eq!(
+        document.headings[0].properties[2].source,
+        ParsedPropertySource::CategoryKeyword
+    );
+    assert!(!document.headings[0].properties[2].append);
+
+    let special_keywords: Vec<(&str, Option<&str>)> = document
+        .metadata
+        .keywords
+        .iter()
+        .filter(|keyword| matches!(keyword.key.as_str(), "PROPERTY" | "CATEGORY" | "TITLE"))
+        .map(|keyword| (keyword.key.as_str(), keyword.value.as_deref()))
+        .collect();
+    assert_eq!(
+        special_keywords,
+        vec![
+            ("TITLE", Some("File Properties")),
+            ("PROPERTY", Some("Effort_ALL 0:10 0:30 1:00")),
+            ("PROPERTY", Some("var+ bar=2")),
+            ("CATEGORY", Some("project")),
+        ]
+    );
+    assert!(document.diagnostics.is_empty());
 }
 
 #[test]

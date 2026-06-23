@@ -1,0 +1,26 @@
+# classification: property-drawer
+document.title=Duplicate And Append
+heading_count=2
+diagnostic_count=0
+heading.0.level=0
+heading.0.title=Duplicate And Append
+heading.1.level=1
+heading.1.title=Task
+heading.1.parent_index=0
+heading.1.property_count=4
+heading.1.property.0.key=DEFINED_TWICE
+heading.1.property.0.value=invalid
+heading.1.property.0.source=property_drawer
+heading.1.property.0.append=false
+heading.1.property.1.key=DEFINED_TWICE
+heading.1.property.1.value=valid
+heading.1.property.1.source=property_drawer
+heading.1.property.1.append=false
+heading.1.property.2.key=ADD-VALUE
+heading.1.property.2.value=is
+heading.1.property.2.source=property_drawer
+heading.1.property.2.append=false
+heading.1.property.3.key=ADD-VALUE
+heading.1.property.3.value=valid
+heading.1.property.3.source=property_drawer
+heading.1.property.3.append=true

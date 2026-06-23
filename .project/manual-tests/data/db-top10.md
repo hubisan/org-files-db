@@ -4,12 +4,13 @@
 
 | id |                                                path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|-----------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782165208 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 | 904  |              | 1782165208 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782165208 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782165208 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782165208 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782165208 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org | 1781808483955605322 | 1188 |              | 1782218405 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/inherited-heading-tags.org   | 1781808923034914634 | 904  |              | 1782218405 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org   | 1781809982908544855 | 321  |              | 1782218405 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org           | 1782129087807207205 | 1163 |              | 1782218405 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org               | 1782218329407221851 | 2783 |              | 1782218405 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org      | 1782159459016426918 | 1626 |              | 1782218405 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org               | 1782153027780066037 | 299  |              | 1782218405 |
 
 ## heading_bodies
 
@@ -33,16 +34,16 @@
 
 | id | heading_id | keyword  |               value               | line_number |
 |----|------------|----------|-----------------------------------|-------------|
-| 1  | 1          | TITLE    | File-local TODO keywords          |             |
-| 2  | 1          | STARTUP  | showall                           |             |
-| 3  | 1          | TODO     | one(t) two(n) | three(d) four(w@) |             |
-| 4  | 1          | TODO     | FIVE SIX |                        |             |
-| 5  | 1          | TYP_TODO | seven | eight                     |             |
-| 6  | 1          | SEQ_TODO | nine | ten                        |             |
-| 7  | 1          | TODO     | | eleven(c)                       |             |
-| 8  | 1          | TODO     | late_open | late_done             |             |
-| 9  | 19         | TITLE    | Inherited heading tags            |             |
-| 10 | 19         | STARTUP  | showall                           |             |
+| 1  | 1          | TITLE    | File-local TODO keywords          | 1           |
+| 2  | 1          | STARTUP  | showall                           | 2           |
+| 3  | 1          | TODO     | one(t) two(n) | three(d) four(w@) | 3           |
+| 4  | 1          | TODO     | FIVE SIX |                        | 4           |
+| 5  | 1          | TYP_TODO | seven | eight                     | 5           |
+| 6  | 1          | SEQ_TODO | nine | ten                        | 6           |
+| 7  | 1          | TODO     | | eleven(c)                       | 30          |
+| 8  | 1          | TODO     | late_open | late_done             | 34          |
+| 9  | 19         | TITLE    | Inherited heading tags            | 1           |
+| 10 | 19         | STARTUP  | showall                           | 2           |
 
 ## links
 
@@ -64,6 +65,18 @@
 
 ## properties
 
+| id | heading_id |              key              |                value                 |      source      | append | line_number |
+|----|------------|-------------------------------|--------------------------------------|------------------|--------|-------------|
+| 1  | 51         | CATEGORY                      | Level 0 Category Property            | property_drawer  | 0      | 2           |
+| 2  | 51         | WHATEVER                      | level 0 drawer property              | property_drawer  | 0      | 3           |
+| 3  | 51         | ID                            | 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d | property_drawer  | 0      | 4           |
+| 4  | 51         | CATEGORY                      | category_keyword_value               | category_keyword | 0      | 8           |
+| 5  | 51         | EFFORT_ALL                    | 0:10 0:30 1:00                       | property_keyword | 0      | 9           |
+| 6  | 51         | KEYWORD_PROPERTY              | valid                                | property_keyword | 0      | 10          |
+| 7  | 51         | KEYWORD_OVERWRITTEN_BY_SECOND | invalid                              | property_keyword | 0      | 11          |
+| 8  | 51         | KEYWORD_OVERWRITTEN_BY_SECOND | valid                                | property_keyword | 0      | 12          |
+| 9  | 51         | KEYWORD_APPEND                | foo=1                                | property_keyword | 0      | 13          |
+| 10 | 51         | KEYWORD_APPEND                | bar=2                                | property_keyword | 1      | 14          |
 
 ## tags
 

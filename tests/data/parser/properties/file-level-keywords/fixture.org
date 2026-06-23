@@ -1,0 +1,6 @@
+#+TITLE: File Property Keywords
+* Task
+#+PROPERTY: Effort_ALL 0:10 0:30 1:00
+#+PROPERTY: var foo=1
+#+PROPERTY: var+ bar=2
+#+CATEGORY: project

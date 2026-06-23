@@ -75,6 +75,22 @@ CREATE TABLE timestamp_repeaters (
     )
 )
 "#;
+const PROPERTIES_TABLE_SQL: &str = r#"
+CREATE TABLE properties (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    key             TEXT NOT NULL,
+    value           TEXT,
+    source          TEXT NOT NULL CHECK (
+                        source IN ('property_keyword', 'property_drawer', 'category_keyword')
+                    ),
+    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+)
+"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaDefinition {
@@ -102,6 +118,7 @@ impl SchemaDefinition {
 
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
         migrate_legacy_timestamp_repeaters(connection)?;
+        migrate_legacy_properties_table(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
 }
@@ -256,6 +273,40 @@ fn timestamp_repeaters_uses_explicit_columns(columns: &[String]) -> bool {
     ]
     .iter()
     .all(|required| columns.iter().any(|column| column == required))
+}
+
+fn migrate_legacy_properties_table(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "properties")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "properties")?;
+    if properties_table_uses_append_column(&columns) {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+ALTER TABLE properties RENAME TO properties_legacy;
+"#,
+    )?;
+    connection.execute_batch(PROPERTIES_TABLE_SQL)?;
+    connection.execute_batch(
+        r#"
+INSERT INTO properties (id, heading_id, key, value, source, append, line_number)
+SELECT id, heading_id, key, value, source, 0, line_number
+FROM properties_legacy;
+
+DROP TABLE properties_legacy;
+"#,
+    )?;
+
+    Ok(())
+}
+
+fn properties_table_uses_append_column(columns: &[String]) -> bool {
+    columns.iter().any(|column| column == "append")
+        && !columns.iter().any(|column| column == "inherited")
 }
 
 fn table_exists(connection: &Connection, table_name: &str) -> rusqlite::Result<bool> {

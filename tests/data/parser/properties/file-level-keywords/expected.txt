@@ -1,0 +1,28 @@
+# classification: file-scope-properties
+document.title=File Property Keywords
+heading_count=2
+diagnostic_count=0
+document.keyword.PROPERTY=Effort_ALL 0:10 0:30 1:00
+document.keyword.CATEGORY=project
+heading.0.level=0
+heading.0.title=File Property Keywords
+heading.0.property_count=4
+heading.0.property.0.key=EFFORT_ALL
+heading.0.property.0.value=0:10 0:30 1:00
+heading.0.property.0.source=property_keyword
+heading.0.property.0.append=false
+heading.0.property.1.key=VAR
+heading.0.property.1.value=foo=1
+heading.0.property.1.source=property_keyword
+heading.0.property.1.append=false
+heading.0.property.2.key=VAR
+heading.0.property.2.value=bar=2
+heading.0.property.2.source=property_keyword
+heading.0.property.2.append=true
+heading.0.property.3.key=CATEGORY
+heading.0.property.3.value=project
+heading.0.property.3.source=category_keyword
+heading.0.property.3.append=false
+heading.1.level=1
+heading.1.title=Task
+heading.1.parent_index=0

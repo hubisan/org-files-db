@@ -1,0 +1,127 @@
+#+TITLE: Parse property drawers and file-level properties
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-23 Tue 14:23]
+#+TASK_COMPLETED: [2026-06-23 Tue 16:37]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Relevant chat input summary:
+- Implement the approved plan for parsing direct Org properties.
+- Support heading property drawers, buffer-level property drawers, file-level ~#+PROPERTY~, and file-level ~#+CATEGORY~.
+- Keep raw keyword storage separate from normalized property rows.
+- Preserve duplicate direct properties and represent the append operator explicitly.
+- Follow Orgize as the syntax authority and ignore malformed drawers that Orgize does not expose as property drawers.
+
+Copied task entry from ~todo.org~:
+
+** BUILD Parse properties drawer and file-level properties
+
+Goal:
+Extract direct Org properties from property drawers and file-level property declarations, store them as queryable property rows, and attach buffer-level properties to the synthetic level 0 heading.
+
+This task stores direct property definitions only. It does not materialize inherited or effective properties.
+
+* Planning
+
+** Problem summary
+The parser currently extracts only heading-local drawer properties and models them as inherited-capable rows without source, append, or per-property line information. File-level ~#+PROPERTY~ and ~#+CATEGORY~ lines are only represented as raw keywords when they occur in the zeroth section, buffer-level property drawers are not attached to the synthetic level 0 heading, and the database schema still deduplicates property rows through a uniqueness constraint.
+
+** Goals
+- Represent direct properties uniformly across regular headings and the synthetic level 0 heading.
+- Parse direct properties from heading drawers, buffer-level drawers, ~#+PROPERTY~, and ~#+CATEGORY~.
+- Preserve duplicate direct property definitions as separate rows.
+- Normalize keys by uppercasing only and encode the trailing ~+~ as ~append = true~.
+- Keep raw keyword storage separate from normalized property rows.
+- Update the DB schema and migration path so direct property rows are not deduplicated.
+
+** Non-goals
+- No inherited or effective property resolution.
+- No overwrite or append-value computation.
+- No malformed drawer recovery beyond what Orgize exposes structurally.
+- No unrelated keyword-to-property conversions.
+
+** Architecture
+Orgize remains the only syntax authority. The adapter translates Orgize property drawers, node-property nodes, and relevant keyword nodes into project-owned ~ParsedProperty~ rows. The parser output carries source, append, and line metadata. The indexer writes every parsed property row, including level 0 rows, into the ~properties~ table while still storing ~#+PROPERTY~ and ~#+CATEGORY~ as raw keyword rows in ~keywords~.
+
+** Execution plan
+- Extend the parser property model with source, append, optional value, and line metadata.
+- Update the Orgize adapter to collect heading and document property drawers without collapsing duplicates.
+- Add a full-buffer collection path for special keywords so ~PROPERTY~ and ~CATEGORY~ raw keyword rows are captured anywhere in the file alongside the existing TODO-keyword handling.
+- Parse property-like keyword values into level 0 ~ParsedProperty~ rows.
+- Update indexer and DB writer plumbing for the new property shape.
+- Rebuild the ~properties~ table schema to replace ~inherited~ with ~append~ and remove uniqueness on direct rows.
+- Extend parser fixtures, adapter tests, DB tests, and indexer tests for the new property behaviors.
+
+** Risks & assumptions
+- Orgize and Emacs differ for some pre-heading drawer cases and empty property forms; implementation follows Orgize and any observed mismatch should be documented here.
+- Existing legacy databases may already contain rows using the old ~inherited~ column; migration must preserve them as direct rows with ~append = 0~.
+- Empty properties exposed by Orgize as valid node properties should be stored as empty strings, not ~NULL~.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo fmt --all~
+- focused parser, adapter, DB, and indexer tests
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+- Reworked the parser property model from inherited/local placeholders to direct property facts with ~source~, ~append~, optional ~value~, and per-property ~line_number~.
+- Kept Orgize as the syntax authority:
+  - heading drawers are read from ~headline.properties()~ and iterated via ~node_properties()~
+  - buffer-level drawers are read from ~document.properties()~
+  - malformed drawers that Orgize does not expose as property drawers remain ignored
+- Added a full-buffer keyword collection path for ~TODO~, ~SEQ_TODO~, ~TYP_TODO~, ~PROPERTY~, and ~CATEGORY~ so raw keyword rows and derived file-level property rows are captured wherever these lines occur.
+- Updated the DB schema and migration path so direct property rows are no longer deduplicated and the append operator is stored explicitly.
+- Verified the main parser-semantics discrepancy observed during implementation and chose Orgize behavior as required:
+  - Emacs ~org-element~ exposed the pre-heading ~:PROPERTIES:~ block differently from Orgize in the exploratory check
+  - Orgize provides the intended buffer-level property access through ~document.properties()~, so the implementation follows Orgize for this task
+- Stored Orgize-exposed empty property values as empty strings.
+
+** Changed files
+- ~src/parser/model.rs~
+- ~src/parser.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~src/db/writer.rs~
+- ~src/db/schema.rs~
+- ~src/db.rs~
+- ~sql/schema.sql~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_contract.rs~
+- ~tests/parser_fixtures.rs~
+- ~tests/data/parser/links/plain-and-bracket-links/expected.txt~
+- ~tests/data/parser/properties/drawer-after-planning/expected.txt~
+- new parser fixtures under ~tests/data/parser/properties/~
+- ~.project/tasks/2026-06-23--parse-properties-drawer-and-file-level-properties.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test --test parser_contract --quiet~
+- ~cargo test --test orgize_adapter --quiet~
+- ~cargo test --test parser_fixtures --quiet~
+- ~cargo test --all-targets --all-features --quiet~
+- ~make ci~
+
+** Test results
+- All targeted parser tests passed.
+- Full test suite passed with ~cargo test --all-targets --all-features --quiet~.
+- ~make ci~ passed, including:
+  - ~cargo fmt --all --check~
+  - ~cargo clippy --all-targets --all-features -- -D warnings~
+  - ~cargo test --all-targets --all-features~
+  - ~cargo build --all-targets --all-features~
+
+** Blockers
+- None.
+
+** Follow-ups
+- Effective/inherited property resolution remains intentionally deferred.
+- The malformed empty-property drawer case that Orgize does not classify as a property drawer is still a parser limitation and should be handled upstream rather than in this task.

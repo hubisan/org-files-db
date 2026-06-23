@@ -1,0 +1,26 @@
+# classification: property-drawer
+document.title=Heading Property Drawer
+heading_count=2
+diagnostic_count=0
+heading.0.level=0
+heading.0.title=Heading Property Drawer
+heading.1.level=1
+heading.1.title=Task
+heading.1.parent_index=0
+heading.1.property_count=4
+heading.1.property.0.key=ID
+heading.1.property.0.value=abc
+heading.1.property.0.source=property_drawer
+heading.1.property.0.append=false
+heading.1.property.1.key=CUSTOM_ID
+heading.1.property.1.value=task
+heading.1.property.1.source=property_drawer
+heading.1.property.1.append=false
+heading.1.property.2.key=EFFORT
+heading.1.property.2.value=0:30
+heading.1.property.2.source=property_drawer
+heading.1.property.2.append=false
+heading.1.property.3.key=OWNER
+heading.1.property.3.value=Alice
+heading.1.property.3.source=property_drawer
+heading.1.property.3.append=false

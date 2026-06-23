@@ -447,9 +447,9 @@ CREATE TABLE IF NOT EXISTS keywords (
     property_drawer = heading :PROPERTIES: drawer
     category_keyword = file-level #+CATEGORY
 
-  inherited:
-    0 = directly defined on this heading
-    1 = inherited/effective value
+  append:
+    0 = normal definition
+    1 = key used the trailing + append operator
 
   line_number:
     Source line number for the property when available.
@@ -462,12 +462,11 @@ CREATE TABLE IF NOT EXISTS properties (
     source          TEXT NOT NULL CHECK (
                         source IN ('property_keyword', 'property_drawer', 'category_keyword')
                     ),
-    inherited       INTEGER NOT NULL DEFAULT 0 CHECK (inherited IN (0, 1)),
+    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
     line_number     INTEGER,
     FOREIGN KEY (heading_id)
         REFERENCES headings(id)
-        ON DELETE CASCADE,
-    UNIQUE (heading_id, key, source, inherited)
+        ON DELETE CASCADE
 );
 
 --------------------------------------------------
@@ -770,17 +769,17 @@ CREATE INDEX IF NOT EXISTS idx_keywords_keyword
 --------------------------------------------------
 -- INDEXES: PROPERTIES
 --------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_properties_heading
-    ON properties(heading_id);
+CREATE INDEX IF NOT EXISTS idx_properties_heading_key
+    ON properties(heading_id, key);
 
 CREATE INDEX IF NOT EXISTS idx_properties_key_value
     ON properties(key, value);
 
-CREATE INDEX IF NOT EXISTS idx_properties_id
+CREATE INDEX IF NOT EXISTS idx_properties_id_lookup
     ON properties(value)
     WHERE key = 'ID';
 
-CREATE INDEX IF NOT EXISTS idx_properties_custom_id
+CREATE INDEX IF NOT EXISTS idx_properties_custom_id_lookup
     ON properties(value)
     WHERE key = 'CUSTOM_ID';
 

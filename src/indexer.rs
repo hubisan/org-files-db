@@ -546,7 +546,7 @@ fn index_document(
             heading_id: level0_id,
             keyword: keyword.key.clone(),
             value: keyword.value.clone(),
-            line_number: None,
+            line_number: keyword.line_number.map(i64::from),
         })
         .collect::<Vec<_>>();
     let todo_rows = todo_keyword_rows(file_id, todo_keywords);
@@ -575,10 +575,10 @@ fn index_document(
                 .map(move |property| PropertyRecord {
                     heading_id,
                     key: property.key.clone(),
-                    value: Some(property.value.clone()),
-                    source: "property_drawer".to_string(),
-                    inherited: property.inherited,
-                    line_number: heading.line_number.map(i64::from),
+                    value: property.value.clone(),
+                    source: property.source.as_db_str().to_string(),
+                    append: property.append,
+                    line_number: property.line_number.map(i64::from),
                 })
         })
         .collect::<Vec<_>>();
@@ -922,6 +922,8 @@ mod tests {
         Option<i64>,
         Option<String>,
     );
+    type PropertyRow = (i64, String, Option<String>, String, i64, Option<i64>);
+    type KeywordRow = (String, Option<String>, Option<i64>);
 
     struct TestDir {
         path: PathBuf,
@@ -1006,18 +1008,7 @@ index_body_text = false
                 heading_count: 2,
             }]
         );
-        assert_eq!(report.diagnostics.len(), 1);
-        assert_eq!(
-            report.diagnostics[0].severity,
-            crate::parser::DiagnosticSeverity::Warning
-        );
-        assert_eq!(
-            report.diagnostics[0].message,
-            "Orgize adapter property extraction is currently local-only and does not handle inheritance"
-        );
-        assert_eq!(report.diagnostics[0].file_path, Some(org_path.clone()));
-        assert_eq!(report.diagnostics[0].line_number, Some(3));
-        assert!(report.diagnostics[0].byte_range.is_some());
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
@@ -1077,6 +1068,168 @@ index_body_text = false
                 Some("inbox".to_string()),
                 "property_drawer".to_string(),
             )]
+        );
+    }
+
+    #[test]
+    fn rebuild_persists_level_zero_and_duplicate_direct_properties() {
+        let test_dir = TestDir::new("rebuild-properties");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("properties.org");
+
+        write_file(
+            &org_path,
+            ":PROPERTIES:\n:CATEGORY: Level 0 Category Property\n:var+: root\n:END:\n#+TITLE: Project Notes\n#+PROPERTY: Effort_ALL 0:10 0:30 1:00\n* TODO Inbox :rust:\n:PROPERTIES:\n:CUSTOM_ID: inbox\n:Owner: Alice\n:owner: Bob\n:var+: baz=3\n:END:\n#+PROPERTY: var+ bar=2\n#+CATEGORY: project\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let properties: Vec<PropertyRow> = query_rows(
+            &connection,
+            "SELECT headings.level, properties.key, properties.value, properties.source, properties.append, properties.line_number
+             FROM properties
+             INNER JOIN headings ON headings.id = properties.heading_id
+             ORDER BY headings.level, properties.line_number, properties.id",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        );
+        assert_eq!(
+            properties,
+            vec![
+                (
+                    0,
+                    "CATEGORY".to_string(),
+                    Some("Level 0 Category Property".to_string()),
+                    "property_drawer".to_string(),
+                    0,
+                    Some(2),
+                ),
+                (
+                    0,
+                    "VAR".to_string(),
+                    Some("root".to_string()),
+                    "property_drawer".to_string(),
+                    1,
+                    Some(3),
+                ),
+                (
+                    0,
+                    "EFFORT_ALL".to_string(),
+                    Some("0:10 0:30 1:00".to_string()),
+                    "property_keyword".to_string(),
+                    0,
+                    Some(6),
+                ),
+                (
+                    0,
+                    "VAR".to_string(),
+                    Some("bar=2".to_string()),
+                    "property_keyword".to_string(),
+                    1,
+                    Some(14),
+                ),
+                (
+                    0,
+                    "CATEGORY".to_string(),
+                    Some("project".to_string()),
+                    "category_keyword".to_string(),
+                    0,
+                    Some(15),
+                ),
+                (
+                    1,
+                    "CUSTOM_ID".to_string(),
+                    Some("inbox".to_string()),
+                    "property_drawer".to_string(),
+                    0,
+                    Some(9),
+                ),
+                (
+                    1,
+                    "OWNER".to_string(),
+                    Some("Alice".to_string()),
+                    "property_drawer".to_string(),
+                    0,
+                    Some(10),
+                ),
+                (
+                    1,
+                    "OWNER".to_string(),
+                    Some("Bob".to_string()),
+                    "property_drawer".to_string(),
+                    0,
+                    Some(11),
+                ),
+                (
+                    1,
+                    "VAR".to_string(),
+                    Some("baz=3".to_string()),
+                    "property_drawer".to_string(),
+                    1,
+                    Some(12),
+                ),
+            ]
+        );
+
+        let raw_keywords: Vec<KeywordRow> = query_rows(
+            &connection,
+            "SELECT keyword, value, line_number
+             FROM keywords
+             WHERE keyword IN ('PROPERTY', 'CATEGORY')
+             ORDER BY line_number, rowid",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+        assert_eq!(
+            raw_keywords,
+            vec![
+                (
+                    "PROPERTY".to_string(),
+                    Some("Effort_ALL 0:10 0:30 1:00".to_string()),
+                    Some(6),
+                ),
+                (
+                    "PROPERTY".to_string(),
+                    Some("var+ bar=2".to_string()),
+                    Some(14),
+                ),
+                (
+                    "CATEGORY".to_string(),
+                    Some("project".to_string()),
+                    Some(15),
+                ),
+            ]
         );
     }
 

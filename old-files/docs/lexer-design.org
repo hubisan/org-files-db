@@ -733,6 +733,9 @@ links and markup.
 I only plan to add Links and Citations.
 
 ** DONE Links (Org-Mode) — Lexer/Parser Spec (Bracket, Angle, Plain)
+:PROPERTIES:
+:CUSTOM_ID: 3aaf24af-52fc-4cf6-9892-128bee8978ff
+:END:
 
 *** Assumptions
 

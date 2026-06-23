@@ -169,6 +169,7 @@ pub struct ParsedDocumentMetadata {
 pub struct ParsedKeyword {
     pub key: String,
     pub value: Option<String>,
+    pub line_number: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -232,8 +233,28 @@ pub enum TodoType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedProperty {
     pub key: String,
-    pub value: String,
-    pub inherited: bool,
+    pub value: Option<String>,
+    pub source: ParsedPropertySource,
+    pub append: bool,
+    pub line_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParsedPropertySource {
+    PropertyDrawer,
+    PropertyKeyword,
+    CategoryKeyword,
+}
+
+impl ParsedPropertySource {
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::PropertyDrawer => "property_drawer",
+            Self::PropertyKeyword => "property_keyword",
+            Self::CategoryKeyword => "category_keyword",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

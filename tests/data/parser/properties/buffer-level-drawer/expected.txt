@@ -1,0 +1,22 @@
+# classification: file-scope-properties
+document.title=Buffer Property Drawer
+heading_count=2
+diagnostic_count=0
+heading.0.level=0
+heading.0.title=Buffer Property Drawer
+heading.0.property_count=3
+heading.0.property.0.key=CATEGORY
+heading.0.property.0.value=Level 0 Category Property
+heading.0.property.0.source=property_drawer
+heading.0.property.0.append=false
+heading.0.property.1.key=WHATEVER
+heading.0.property.1.value=test
+heading.0.property.1.source=property_drawer
+heading.0.property.1.append=false
+heading.0.property.2.key=ID
+heading.0.property.2.value=7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+heading.0.property.2.source=property_drawer
+heading.0.property.2.append=false
+heading.1.level=1
+heading.1.title=Heading level 1
+heading.1.parent_index=0

@@ -95,7 +95,7 @@ pub struct PropertyRecord {
     pub key: String,
     pub value: Option<String>,
     pub source: String,
-    pub inherited: bool,
+    pub append: bool,
     pub line_number: Option<i64>,
 }
 
@@ -396,14 +396,14 @@ impl DbWriter {
         for row in rows {
             connection
                 .execute(
-                    "INSERT INTO properties (heading_id, key, value, source, inherited, line_number)
+                    "INSERT INTO properties (heading_id, key, value, source, append, line_number)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                     params![
                         row.heading_id,
                         row.key,
                         row.value,
                         row.source,
-                        bool_to_i64(row.inherited),
+                        bool_to_i64(row.append),
                         row.line_number
                     ],
                 )
@@ -698,7 +698,7 @@ mod tests {
                 key: "CUSTOM_ID".to_string(),
                 value: Some("inbox".to_string()),
                 source: "property_drawer".to_string(),
-                inherited: false,
+                append: false,
                 line_number: Some(4),
             }],
         )

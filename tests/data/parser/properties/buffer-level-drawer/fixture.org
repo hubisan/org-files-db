@@ -1,0 +1,8 @@
+:PROPERTIES:
+:CATEGORY: Level 0 Category Property
+:WHATEVER: test
+:ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+:END:
+#+TITLE: Buffer Property Drawer
+
+* Heading level 1

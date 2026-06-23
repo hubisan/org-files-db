@@ -217,6 +217,9 @@ fn assert_heading_expectation(
             "unexpected property count for {}",
             path.display()
         ),
+        field if field.starts_with("property.") => {
+            assert_property_expectation(path, heading, field, value);
+        }
         "timestamp_count" => assert_eq!(
             heading.timestamps.len(),
             value
@@ -270,6 +273,68 @@ fn assert_heading_expectation(
         }
         _ => panic!(
             "unsupported heading expectation key {key} in {}",
+            path.display()
+        ),
+    }
+}
+
+fn assert_property_expectation(
+    path: &Path,
+    heading: &org_files_db::parser::ParsedHeading,
+    field: &str,
+    value: &str,
+) {
+    let remainder = field.trim_start_matches("property.");
+    let (index, field) = remainder.split_once('.').unwrap_or_else(|| {
+        panic!(
+            "malformed property expectation key heading.{field} in {}",
+            path.display()
+        )
+    });
+    let property = &heading.properties[index
+        .parse::<usize>()
+        .expect("property index should be numeric")];
+
+    match field {
+        "key" => assert_eq!(
+            property.key,
+            value,
+            "unexpected property key for {}",
+            path.display()
+        ),
+        "value" => {
+            let expected = if value == "NULL" { None } else { Some(value) };
+            assert_eq!(
+                property.value.as_deref(),
+                expected,
+                "unexpected property value for {}",
+                path.display()
+            );
+        }
+        "source" => assert_eq!(
+            normalize_property_source_name(property.source),
+            value,
+            "unexpected property source for {}",
+            path.display()
+        ),
+        "append" => assert_eq!(
+            property.append,
+            value.parse::<bool>().expect("append should be a boolean"),
+            "unexpected property append flag for {}",
+            path.display()
+        ),
+        "line_number" => assert_eq!(
+            property.line_number,
+            Some(
+                value
+                    .parse::<u32>()
+                    .expect("property line_number should be numeric")
+            ),
+            "unexpected property line number for {}",
+            path.display()
+        ),
+        _ => panic!(
+            "unsupported property expectation key heading.{field} in {}",
             path.display()
         ),
     }
@@ -473,6 +538,16 @@ fn normalize_modifier_unit_name(unit: org_files_db::parser::ParsedTimestampUnit)
         org_files_db::parser::ParsedTimestampUnit::Week => "week",
         org_files_db::parser::ParsedTimestampUnit::Month => "month",
         org_files_db::parser::ParsedTimestampUnit::Year => "year",
+    }
+}
+
+fn normalize_property_source_name(
+    source: org_files_db::parser::ParsedPropertySource,
+) -> &'static str {
+    match source {
+        org_files_db::parser::ParsedPropertySource::PropertyDrawer => "property_drawer",
+        org_files_db::parser::ParsedPropertySource::PropertyKeyword => "property_keyword",
+        org_files_db::parser::ParsedPropertySource::CategoryKeyword => "category_keyword",
     }
 }
 

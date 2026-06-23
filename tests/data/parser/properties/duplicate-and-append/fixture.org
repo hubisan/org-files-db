@@ -1,0 +1,8 @@
+#+TITLE: Duplicate And Append
+* Task
+:PROPERTIES:
+:defined_twice: invalid
+:defined_twice: valid
+:add-value: is
+:add-value+: valid
+:END:

@@ -3,21 +3,29 @@
 
 This file contains later phases, backlog items, and long-term project direction.
 
-Do not work directly from this file. Active tasks are tracked in [[./todo.org]]. 
+Do not work directly from this file. Active tasks are tracked in [[./todo.org]].
 
 * Phase 3: Link extractor
 
-Goal of this phase:
-Extract Org links and represent them in SQLite. Link resolution comes later.
+Goal of this phase: Extract Org links and represent them in SQLite. Link resolution comes later.
 
-Reference:
+Reference material:
 
-- [[file:../../tests/data/org-test-links.org][Org Tests for Links]]
+- [[file:../../old-files/tests/data/org-test-links.org][Org Tests for Links]]
+- [[file:../../old-files/docs/lexer-design.org::#3aaf24af-52fc-4cf6-9892-128bee8978ff][Links (Org-Mode) — Lexer/Parser Spec (Bracket, Angle, Plain)]]
+
+General rules:
+
+- Link extraction stores source facts only.
+- Resolution to known files, headings, IDs, or CUSTOM_IDs belongs to Phase 4.
+- Links outside regular headings are attached to the synthetic level 0 heading.
+- The link model must be independent of Orgize.
 
 ** TODO Define OrgLink and create DB table
 
-Goal:
-Define an internal link model.
+Goal: Define the internal link model and create the SQLite table for direct link facts.
+
+There is already a proposed DB schema in sql/schema.sql.
 
 Possible fields:
 
@@ -41,13 +49,15 @@ Acceptance criteria:
 - DB table is created.
 - Links can be deleted and reinserted per file.
 - Links outside regular headings are attached to the level 0 heading.
-- Link source fields are separated from resolved target fields.
-- Link target foreign keys use deliberate ~ON DELETE SET NULL~ behavior.
+- Raw/source fields are separated from resolved target fields.
+- Link target foreign keys use deliberate ~ON DELETE SET NULL~ behavior where applicable.
+- Fixture tests exist for links under headings and links at level 0.
 
 ** TODO Extract bracket links
 
-Goal:
-Extract Org bracket links:
+Goal: Extract Org bracket links.
+
+Examples:
 
 #+begin_src org
   [[target][description]]
@@ -57,28 +67,28 @@ Extract Org bracket links:
 Acceptance criteria:
 
 - Target is extracted.
-- Description is extracted, if present.
+- Description is extracted when present.
 - Raw link is preserved.
 - Format is stored as ~bracket~.
 - Positions are stored as ~byte_start~ and ~byte_end~.
-- Bracket escaping / link unescaping is handled as a separate topic.
+- Line number is stored when available.
+- Bracket escaping and link unescaping are handled separately.
 - Edge cases exist as fixtures.
 
 ** TODO Handle link unescaping and known Orgize deviations
 
-Goal:
-Check and supplement ~org-link-unescape~-like logic where Orgize provides incomplete or wrong data.
+Goal: Check whether Orgize provides complete and Org-compatible link target data. Add a small adapter-level normalizer only where necessary.
 
 Acceptance criteria:
 
-- Known link escaping cases are documented.
-- Workaround is encapsulated in the adapter or normalizer.
-- Fixture test covers the special case.
+- Known escaping/unescaping cases are documented.
+- Workaround logic is encapsulated in the adapter or normalizer.
+- Fixture tests cover each supported special case.
+- Orgize deviations are documented in the parser risk register if relevant.
 
 ** TODO Integrate plain links and custom protocols
 
-Goal:
-Detect plain links from text nodes.
+Goal: Detect plain links from text nodes.
 
 Relevant protocols:
 
@@ -96,11 +106,11 @@ Acceptance criteria:
 - Format is stored as ~plain~.
 - False positives are documented in fixtures.
 - Custom protocols are configurable or clearly limited.
+- Unsupported protocols are either ignored or stored with documented behavior.
 
 ** TODO Extract file link search options
 
-Goal:
-Extract search options from file links.
+Goal: Extract search options from file links.
 
 Example:
 
@@ -120,7 +130,7 @@ Acceptance criteria:
 - Search options after ~::~ are extracted.
 - Raw link remains preserved.
 - Relative and absolute file targets remain distinguishable.
-- Tests cover numeric and text search options.
+- Tests cover numeric, text, and heading-search options.
 
 ** TODO Check special link syntax for relationships
 
@@ -130,20 +140,18 @@ Example:
 [[https://www.example.com][Example (->Owner)]]
 #+end_src
 
-Goal:
-Check whether optional relationships should be extracted from link descriptions.
+Goal: Decide whether optional relationships should be extracted from link descriptions.
 
-Note:
-This is project logic, not Org-mode standard. Therefore, treat it as an optional feature first.
+Note: This is project logic, not Org-mode standard. Treat it as optional until there is a concrete use case.
 
 Acceptance criteria:
 
 - Decision is documented: MVP, later, or not supported.
-- If supported: relationship is stored separately in ~links.relation~.
+- If supported, relationship is stored separately in ~links.relation~.
 - Normal link descriptions remain preserved unchanged.
 - A fixture documents the behavior.
 
-** TODO Provide CLI command `links`
+** TODO Provide CLI command ~links~
 
 Command:
 
@@ -156,36 +164,42 @@ Acceptance criteria:
 - Links are output as JSON.
 - Filtering by file or heading is optionally prepared.
 - Level 0/file-level links can be included or excluded deliberately.
+- Output contains enough source location data for editor jumps.
 
 * Phase 4: Link resolution
 
-Goal of this phase:
-Resolve links to known files, headings, IDs, and CUSTOM_IDs.
+Goal of this phase: Resolve links to known files, headings, IDs, and CUSTOM_IDs.
+
+General rules:
+
+- Resolution never destroys raw link facts.
+- Broken and ambiguous links are represented explicitly.
+- Target deletion must not delete source link rows.
 
 ** TODO Resolve ID and CUSTOM_ID links
 
-Goal:
-Resolve ~id:~ and custom-id links by matching them against properties in the DB.
+Goal: Resolve ~id:~ and ~custom-id:~ links by matching them against properties in the DB.
 
 Acceptance criteria:
 
 - ~id:~ links are assigned ~resolved_heading_id~ where possible.
-- ~CUSTOM_ID~ links are assigned ~resolved_heading_id~ where possible.
+- ~custom-id:~ links are assigned ~resolved_heading_id~ where possible.
 - Broken links are marked.
 - Ambiguous IDs are reported as diagnostics.
 - Properties indexes for ~ID~ and ~CUSTOM_ID~ are used or checked.
+- Tests cover resolved, broken, and ambiguous links.
 
 ** TODO Resolve file and attachment links
 
-Goal:
-Map ~file:~ and ~attachment:~ links to known files.
+Goal: Map ~file:~ and ~attachment:~ links to known files.
 
 Acceptance criteria:
 
 - Relative paths are interpreted relative to the source file.
 - Known files are linked through ~resolved_file_id~.
 - Missing files are marked as broken.
-- Link rows are not deleted when a target file disappears; target references are set to NULL or marked broken.
+- Link rows are not deleted when a target file disappears.
+- Target references are set to NULL or marked broken according to the schema contract.
 
 ** TODO Represent link target in DB
 
@@ -203,18 +217,24 @@ Acceptance criteria:
 - Rebuild produces consistent link targets.
 - Broken links can later be queried.
 - Target deletion behavior is tested.
+- Resolution fields remain clearly separated from raw link source fields.
 
 * Phase 5: Query engine and optional full-text search
 
-Goal of this phase:
-Build a simple, safe query layer that can later be extended toward org-ql-like behavior. It would actually be cool to make it exactly like org-ql, the query language. And extend if org-ql does not support it.
+Goal of this phase: Build a simple, safe query layer that can later be extended toward an org-ql-like language.
 
 FTS5 is optional and must only be required when FTS-specific functionality is enabled.
 
+General rules:
+
+- The query model is independent of CLI and SQL.
+- SQL generation uses bound parameters.
+- FTS-dependent operators must fail clearly when FTS5 is disabled.
+- Direct parsed facts and effective/derived semantics must be clearly distinguished.
+
 ** TODO Enable optional SQLite FTS5 for full-text search
 
-Goal:
-Create and maintain a virtual FTS5 table for heading title and optional body search when FTS5 is enabled in configuration.
+Goal: Create and maintain a virtual FTS5 table for heading title and optional body search when FTS5 is enabled.
 
 Planned table if enabled:
 
@@ -239,7 +259,159 @@ Acceptance criteria:
 - Body indexing can be disabled even when FTS5 is enabled.
 - Search/query commands handle disabled FTS5 clearly.
 
+** TODO Define effective property semantics
+
+Goal: Define how direct property rows are resolved into effective property values for query/API use.
+
+Context: The ~properties~ table stores direct source facts only. It preserves duplicate definitions, append operators, property keyword defaults, category keywords, level 0 property drawers, and regular heading property drawers.
+
+Parsing and indexing do not collapse rows and do not compute final values.
+
+Definitions:
+
+- Direct property :: A property row exactly as parsed from the source file and stored in the ~properties~ table.
+- Effective property :: The resolved property value for a heading after applying overwrite, append, source precedence, and optional inheritance rules.
+- Direct property query :: A query against raw/direct property rows.
+- Effective property query :: A query against resolved property values.
+
+Scope: This task defines semantics and implementation strategy. It may implement minimal query/API support if the query layer is ready, but it must not change the parser/indexer contract.
+
+Direct property rows remain the source of truth.
+
+Rules to define:
+
+- Later direct definitions with the same key override earlier non-append definitions in effective mode.
+- Rows with ~append = 1~ append to the current effective value, separated by a single space.
+- If an append row appears before any base value for that key, define whether it starts the value or is ignored. Prefer starting the value.
+- ~#+PROPERTY~ rows are buffer-level default/inherited property definitions.
+- Level 0 property drawer rows are direct level 0 properties.
+- ~#+CATEGORY~ rows are represented as level 0 ~CATEGORY~ properties with source ~category_keyword~.
+- Regular heading property drawer rows are direct heading properties.
+- In effective inherited mode, apply properties in this order:
+  1. level 0 property keyword defaults
+  2. level 0 category keyword
+  3. level 0 property drawer
+  4. ancestor heading property drawers from root to parent
+  5. current heading property drawer
+- Later rows within the same source/heading/key are applied in source order.
+- Direct heading drawer properties override inherited/default values when they define the same key.
+- ~append = 1~ on a child heading appends to the inherited/current value for the same key.
+- Effective inheritance must be optional.
+- Queries should be able to request direct-only behavior.
+
+Examples:
+
+*** Example: later PROPERTY keyword wins
+
+#+begin_src org
+  ,#+PROPERTY: keyword_overwritten_by_second invalid
+  ,#+PROPERTY: keyword_overwritten_by_second valid
+#+end_src
+
+Direct rows:
+
+#+begin_src text
+KEYWORD_OVERWRITTEN_BY_SECOND = invalid, source = property_keyword, append = 0
+KEYWORD_OVERWRITTEN_BY_SECOND = valid,   source = property_keyword, append = 0
+#+end_src
+
+Effective value:
+
+#+begin_src text
+KEYWORD_OVERWRITTEN_BY_SECOND = valid
+#+end_src
+
+*** Example: append operator
+
+#+begin_src org
+  ,#+PROPERTY: var foo=1
+  ,#+PROPERTY: var+ bar=2
+#+end_src
+
+Direct rows:
+
+#+begin_src text
+VAR = foo=1, source = property_keyword, append = 0
+VAR = bar=2, source = property_keyword, append = 1
+#+end_src
+
+Effective value:
+
+#+begin_src text
+VAR = foo=1 bar=2
+#+end_src
+
+*** Example: drawer overrides keyword default
+
+#+begin_src org
+  ,#+PROPERTY: owner Alice
+
+  ,* Task
+  :PROPERTIES:
+  :owner: Bob
+  :END:
+#+end_src
+
+Direct rows:
+
+#+begin_src text
+level 0: OWNER = Alice, source = property_keyword, append = 0
+Task:    OWNER = Bob,   source = property_drawer, append = 0
+#+end_src
+
+Effective value for ~Task~ with inheritance enabled:
+
+#+begin_src text
+OWNER = Bob
+#+end_src
+
+*** Example: child append uses inherited value
+
+#+begin_src org
+  ,* Parent
+  :PROPERTIES:
+  :genres: Classic
+  :END:
+
+  ,** Child
+  :PROPERTIES:
+  :genres+: Baroque
+  :END:
+#+end_src
+
+Effective value for ~Child~ with inheritance enabled:
+
+#+begin_src text
+GENRES = Classic Baroque
+#+end_src
+
+Open decisions:
+
+- Decide whether effective properties should be computed in Rust query/API code, a SQL view, or a dedicated cache table.
+- Prefer Rust query/API logic first unless SQL-only querying clearly requires a view or cache.
+- Decide whether the first query model exposes both direct and effective property operators immediately, or starts with one clearly documented mode.
+- Decide naming for query operators, for example:
+  - ~(has-property "ID")~
+  - ~(property "KEY" "VALUE")~
+  - ~(direct-property "KEY" "VALUE")~
+  - ~(effective-property "KEY" "VALUE")~
+
+Acceptance criteria:
+
+- Direct property rows remain unchanged.
+- Direct property queries are clearly distinguished from effective property queries.
+- Duplicate direct definitions are resolved only in effective mode.
+- Later non-append definitions override earlier effective values.
+- Append rows append to the current effective value.
+- Append behavior without a prior base value is explicitly defined.
+- Inheritance behavior is explicit and optional.
+- Level 0 property behavior is documented.
+- ~#+PROPERTY~, ~#+CATEGORY~, level 0 property drawers, ancestor drawers, and current heading drawers have defined precedence.
+- Tests cover overwrite, append, append without prior base value, level 0 properties, drawer-over-keyword override, and child append with inheritance.
+
 ** TODO Define query model v0
+
+Goal: Define the first query AST and the supported operator set.
 
 Initially supported operators:
 
@@ -266,11 +438,11 @@ Acceptance criteria:
 - Query model can use ~outline_path~ for hierarchy queries.
 - Query model can use FTS5 for title/body search when FTS5 is enabled.
 - Query model has documented fallback/error behavior for FTS-dependent operators when FTS5 is disabled.
+- Property operators clearly state whether they use direct or effective property semantics.
 
 ** TODO Build query parser and SQL translator
 
-Goal:
-Parse query strings and translate them safely to SQL using bound parameters.
+Goal: Parse query strings and translate them safely to SQL using bound parameters.
 
 Acceptance criteria:
 
@@ -278,11 +450,12 @@ Acceptance criteria:
 - Bound parameters are used.
 - Invalid query syntax produces understandable error messages.
 - Tests exist for all supported operators.
+- SQL-injection-like inputs are tested.
 - FTS5 MATCH queries are handled safely and deliberately.
 - FTS-dependent SQL is generated only when FTS5 is enabled.
 - Hierarchy queries use ~outline_path~ where appropriate.
 
-** TODO Implement CLI command `query`
+** TODO Implement CLI command ~query~
 
 Example:
 
@@ -299,10 +472,9 @@ Acceptance criteria:
 - Query results include enough location data for editor jumps.
 - If a query requires FTS5 while FTS5 is disabled, the CLI returns a clear error.
 
-** TODO Provide CLI command `search`
+** TODO Provide CLI command ~search~
 
-Goal:
-Provide a simple FTS-focused command before or alongside the full query language.
+Goal: Provide a simple FTS-focused command before or alongside the full query language.
 
 Example:
 
@@ -320,10 +492,15 @@ Acceptance criteria:
 
 * Phase 6: Robust initial indexer
 
-Goal of this phase:
-Turn the MVP rebuild into a robust indexer.
+Goal of this phase: Turn the MVP rebuild into a robust indexer.
 
-** TODO Recursive file discovery (`find_org_files`)
+General rules:
+
+- Parsing and DB writing should remain cleanly separated.
+- Rebuilds should be deterministic.
+- Derived/cache tables must stay consistent with core rows.
+
+** TODO Recursive file discovery ~(find_org_files)~
 
 Acceptance criteria:
 
@@ -331,11 +508,11 @@ Acceptance criteria:
 - Ignored directories can be configured.
 - Symlink behavior is decided.
 - Only ~.org~ files are collected by default.
+- Hidden files/directories behavior is documented.
 
 ** TODO Add change detection
 
-Goal:
-Avoid reparsing unchanged files unnecessarily.
+Goal: Avoid reparsing unchanged files unnecessarily.
 
 Signals:
 
@@ -349,13 +526,13 @@ Acceptance criteria:
 - Changed files are parsed again.
 - ~mtime_ns~ and ~size~ are used as a fast check.
 - ~content_hash~ is used when stronger verification is needed.
-- Explicitly document what goes into ~content_hash~ (e.g., pure file content bytes, excluding metadata) to ensure stable deduplication. Tending to use file contents only.
+- ~content_hash~ is explicitly defined as file content bytes unless decided otherwise.
 - Deleted files are removed from the DB or marked as missing.
+- Tests cover unchanged, changed, and deleted files.
 
 ** TODO Optimize transaction batching
 
-Goal:
-Index multiple files efficiently without losing database consistency.
+Goal: Index multiple files efficiently without losing database consistency.
 
 Acceptance criteria:
 
@@ -364,41 +541,39 @@ Acceptance criteria:
 - DB remains consistent even on interruption.
 - Derived/cache tables are kept consistent with core rows.
 - Optional FTS rows are kept consistent only when FTS5 is enabled.
+- Tests or manual checks cover partial failure behavior.
 
 ** TODO Evaluate parallelization with Rayon
 
-Goal:
-Parallelize parsing while keeping DB writes controlled, either serial or batched.
+Goal: Parallelize parsing while keeping DB writes controlled, either serial or batched.
 
-Note:
-Define performance targets only after benchmarking. The earlier target "5,000 files in < 1 second" is too risky as a hard initial target and should only be made concrete after measurements.
+Note: Define performance targets only after benchmarking. Avoid hard performance claims before measurement.
 
 Acceptance criteria:
 
 - Benchmark baseline exists.
 - Parsing and DB writing are cleanly separated.
-- There are no race conditions while writing.
 - DB writes remain transactional and deterministic.
+- There are no race conditions while writing.
+- Parallel behavior can be disabled or limited if needed.
 
 ** TODO Optimize SQLite indexes
 
-Goal:
-Speed up common queries.
+Goal: Speed up common queries.
 
 Acceptance criteria:
 
 - Important indexes are defined.
-- ~EXPLAIN QUERY PLAN~ was checked for typical queries.
+- ~EXPLAIN QUERY PLAN~ is checked for typical queries.
 - Typical queries include TODO, tags, properties, links, planning, outline/subtree lookups, and FTS if enabled.
 - Results are documented.
+- Index changes are based on observed query plans or clear expected workloads.
 
 ** TODO Evaluate SQLite query performance
 
-Goal:
-Check whether the current SQLite schema is fast enough for the intended query workload.
+Goal: Check whether the current SQLite schema is fast enough for the intended query workload.
 
-Note:
-The project is query-oriented, but a separate data warehouse is probably unnecessary unless measurements show a real bottleneck.
+Note: The project is query-oriented, but a separate data warehouse is probably unnecessary unless measurements show a real bottleneck.
 
 Acceptance criteria:
 
@@ -411,45 +586,57 @@ Acceptance criteria:
 
 * Phase 7: Watcher for incremental updates
 
-Goal of this phase:
-Detect file changes and index selectively.
+Goal of this phase: Detect file changes and index selectively.
 
-** TODO Integrate file watcher via `notify`
+General rules:
+
+- Selective reparse should use the same parser adapter and DB write path as full rebuild.
+- A file update replaces all rows belonging to that file inside one transaction.
+- Link resolution updates may be deferred but must be documented.
+
+** TODO Integrate file watcher via ~notify~
 
 Acceptance criteria:
 
 - Changes to Org files are detected.
 - New files are detected.
 - Deleted files are detected.
+- Ignored directories are respected if file discovery supports them.
+- Watcher errors are reported clearly.
 
 ** TODO Implement debounce mechanism
 
-Goal:
-Combine editor save events.
+Goal: Combine editor save events.
 
 Acceptance criteria:
 
 - Multiple quick events lead to one reparse.
 - Debounce duration is configurable or sensibly fixed.
+- Behavior is deterministic enough for tests or documented manual checks.
 
 ** TODO Selective reparse
 
-Goal:
-When a file changes, reparse exactly the affected file through the parser adapter and replace it in the DB through a transaction.
+Goal: When a file changes, reparse exactly the affected file through the parser adapter and replace it in the DB through a transaction.
 
 Acceptance criteria:
 
 - Only the affected file is reindexed.
 - Old headings, TODO keywords, tags, keywords, properties, timestamps, links, bodies, outline rows, and FTS rows for the file are replaced where applicable.
-- Link resolution is then updated for affected targets or explicitly marked as later work.
+- Link resolution is updated for affected targets or explicitly marked as later work.
 - Level 0 heading is recreated consistently.
 - Selective reparse works when FTS5 is disabled.
 - Selective reparse updates FTS rows when FTS5 is enabled.
+- Tests cover modified, created, and deleted files where practical.
 
 * Phase 8: Emacs integration
 
-Goal of this phase:
-Make the SQLite/CLI layer usable from Emacs.
+Goal of this phase: Make the SQLite/CLI layer usable from Emacs.
+
+General rules:
+
+- Emacs integration should stay thin until the CLI/API is stable.
+- Results should include file path and byte offsets for editor jumps.
+- UTF-8 byte offset behavior must be documented and tested.
 
 ** TODO Write Elisp wrapper for CLI communication
 
@@ -464,8 +651,7 @@ Acceptance criteria:
 
 ** TODO Implement Emacs jump to result
 
-Goal:
-Use DB byte offsets to jump to headings or links from Emacs.
+Goal: Use DB byte offsets to jump to headings or links from Emacs.
 
 Acceptance criteria:
 
@@ -473,12 +659,13 @@ Acceptance criteria:
 - Emacs can jump to ~byte_start~.
 - UTF-8 byte offsets are handled correctly.
 - Fallback behavior using ~line_number~ is documented.
+- Manual or automated checks cover non-ASCII text.
 
 ** TODO Plan interactive Emacs commands
 
 Possible commands:
 
-- search by heading
+- search by heading title
 - full-text search title/body when FTS5 is enabled
 - search by TODO state
 - search by TODO type
@@ -487,18 +674,26 @@ Possible commands:
 - show broken links
 - jump to ancestor/descendant result
 
+Acceptance criteria:
+
+- MVP command set is chosen.
+- Commands map cleanly to CLI/API calls.
+- Unsupported query features fail clearly.
+
 ** TODO Evaluate thin Emacs module wrapper
 
-Note:
-Optional. Check only after the CLI is stable.
+Note: Optional. Check only after the CLI is stable.
+
+Acceptance criteria:
+
+- Decision is documented: not needed, later, or useful.
+- Added complexity is justified by concrete performance or UX benefits.
 
 * Phase 9: Testing and regression
 
-Goal of this phase:
-Finally consolidate the test and regression base, close gaps, and make it maintainable long term.
+Goal of this phase: Consolidate the test and regression base, close gaps, and make it maintainable long term.
 
-Important:
-Testing is not a late special block. Every ~PLAN~, ~BUILD~, ~NEXT~, and ~CONTINUE~ task must include suitable checks, tests, or a justified reason why testing is not applicable.
+Important: Testing is not a late special block. Every ~PLAN~, ~BUILD~, ~NEXT~, and ~CONTINUE~ task must include suitable checks, tests, or a justified reason why testing is not applicable.
 
 New features should each receive their own tests, fixtures, or documented manual checks.
 
@@ -528,10 +723,16 @@ Possible sources to check:
 - selected Orgize test cases
 - own real Org files, if they can be anonymized
 
+Acceptance criteria:
+
+- A fixture inventory exists.
+- Each fixture has a short purpose.
+- Known deviations are documented.
+- Fixtures are reusable across parser, DB, and query tests where practical.
+
 ** TODO Set up snapshot tests for parser output
 
-Goal:
-Compare parser output in a stable way.
+Goal: Compare parser output in a stable way.
 
 Acceptance criteria:
 
@@ -540,14 +741,13 @@ Acceptance criteria:
 - Differences are reviewable.
 - Known parser deviations are documented.
 - Snapshot includes byte offsets where stable enough.
+- Snapshot output avoids unstable ordering.
 
-** TODO Compare with Emacs `org-element-parse-buffer`
+** TODO Compare with Emacs ~org-element-parse-buffer~
 
-Goal:
-For selected fixtures, check how Emacs Org-mode interprets the same data.
+Goal: For selected fixtures, check how Emacs Org-mode interprets the same data.
 
-Note:
-This is a reference check, but not a blocker for the MVP.
+Note: This is a reference check, but not a blocker for the MVP.
 
 Acceptance criteria:
 
@@ -556,6 +756,7 @@ Acceptance criteria:
 - Relevance for DB import is evaluated.
 - Planning and link cases are included.
 - Org-mode default TODO behavior is checked.
+- Known Orgize issues can be linked from the parser risk register.
 
 ** TODO DB schema tests
 
@@ -568,6 +769,7 @@ Acceptance criteria:
 - FTS-disabled schema behavior is tested.
 - FTS-enabled schema behavior is tested if supported by SQLite.
 - Outline path table references valid headings.
+- Important indexes are present.
 
 ** TODO DB integrity tests
 
@@ -592,6 +794,7 @@ Acceptance criteria:
 - FTS5 queries are tested when FTS5 is enabled.
 - FTS-dependent operators return clear errors when FTS5 is disabled.
 - Outline path ancestor/descendant queries are tested.
+- Direct vs effective property query behavior is tested once supported.
 
 ** TODO Watcher tests
 
@@ -607,8 +810,7 @@ Acceptance criteria:
 
 ** TODO Emacs offset tests
 
-Goal:
-Verify that stored byte offsets are usable for editor jumps.
+Goal: Verify that stored byte offsets are usable for editor jumps.
 
 Acceptance criteria:
 
@@ -619,8 +821,13 @@ Acceptance criteria:
 
 * Phase 10: Documentation
 
-Goal of this phase:
-Document the project so it is usable and maintainable.
+Goal of this phase: Document the project so it is usable and maintainable.
+
+General rules:
+
+- Documentation should reference actual schema/API files where possible.
+- Level 0 file scope must be documented consistently.
+- Parser limitations and Orgize deviations should not be hidden.
 
 ** TODO Write README
 
@@ -634,6 +841,12 @@ Contents:
 - current status
 - known limitations
 - optional FTS5 behavior
+
+Acceptance criteria:
+
+- README contains a minimal indexing example.
+- README shows at least one query/search example.
+- Current limitations are honest and easy to find.
 
 ** TODO Write architecture documentation
 
@@ -654,8 +867,15 @@ Contents:
 - indexer pipeline
 - DB schema
 - core tables vs derived/cache tables
+- direct facts vs effective semantics
 - query layer
 - why Orgize is encapsulated
+
+Acceptance criteria:
+
+- Architecture document explains why Orgize is encapsulated.
+- Architecture document distinguishes parser facts from query-time semantics.
+- Level 0 behavior is explained once and used consistently elsewhere.
 
 ** TODO Write SQLite schema documentation
 
@@ -693,6 +913,7 @@ Acceptance criteria:
 - Level 0 file scope is explicitly documented.
 - Byte offsets and Emacs jump behavior are documented.
 - Org-mode TODO defaults are documented.
+- Direct vs effective properties are documented.
 - Optional FTS5 behavior is documented.
 
 ** TODO Write API specification
@@ -708,6 +929,13 @@ Contents:
 - byte offset fields for editor integrations
 - behavior of FTS-dependent APIs when FTS5 is disabled
 
+Acceptance criteria:
+
+- JSON examples exist for core commands.
+- Error format is consistent.
+- Level 0 inclusion/exclusion behavior is explicit.
+- FTS-disabled behavior is explicit.
+
 ** TODO Maintain parser risk register
 
 Possible file:
@@ -716,9 +944,7 @@ Possible file:
 docs/parser-risks.org
 #+end_src
 
-Purpose:
-
-Maintain and extend the central parser risk register once it exists.
+Purpose: Maintain and extend the central parser risk register once it exists.
 
 This is follow-up work after ~Create parser risk list~ has established the initial document. Do not create a second competing parser-risk document.
 
@@ -736,12 +962,48 @@ Contents:
 - byte offset reliability
 - optional FTS5 assumptions
 
+Acceptance criteria:
+
+- Known parser deviations are recorded with minimal repros.
+- Workarounds are linked to tests where possible.
+- Upstream issues are linked when available.
+
 ** TODO Maintain CHANGELOG
 
-Rule:
-User-visible changes are documented in [[../../CHANGELOG.org][CHANGELOG.org]] only after review.
+Rule: User-visible changes are documented in [[../../CHANGELOG.org][CHANGELOG.org]] only after review.
+
+Acceptance criteria:
+
+- User-visible changes are added after review.
+- Internal-only changes are not overdocumented.
+- Breaking changes are clearly marked.
 
 * Backlog
+
+** TODO Add clocking?
+
+Goal: Decide whether Org clock lines should be parsed and stored.
+
+Example:
+
+#+begin_src org
+  CLOCK: [2024-01-02 Tue 22:33]--[2024-01-02 Tue 23:48] => 1:15
+#+end_src
+
+Orgize seems to expose clock syntax in detail:
+
+#+begin_src text
+CLOCK
+  TEXT "CLOCK:"
+  TIMESTAMP_INACTIVE
+    ...
+#+end_src
+
+Acceptance criteria:
+
+- Decision is documented: MVP, later, or not supported.
+- If supported, a clock model and table are proposed.
+- Tests cover open and closed clock ranges if implemented.
 
 ** TODO Extended org-ql query language
 
@@ -763,6 +1025,14 @@ Possible operators:
 (text ...)
 #+end_src
 
+Goal: Evaluate how far the query language should follow org-ql and where project-specific extensions are useful.
+
+Acceptance criteria:
+
+- Supported v0 operators are distinguished from later operators.
+- Unsupported operators fail clearly.
+- Potential org-ql compatibility is documented.
+
 ** TODO Make parser backend exchangeable
 
 Possible backends:
@@ -772,9 +1042,113 @@ Possible backends:
 - Tree-sitter
 - Emacs-based import
 
+Goal: Keep the internal parser model independent enough that Orgize can be replaced or supplemented later if needed.
+
+Acceptance criteria:
+
+- Parser adapter boundary is documented.
+- Internal data model does not expose Orgize types.
+- Known backend-specific assumptions are documented.
+
 ** TODO Prepare upstream issues for Orgize
 
 Only for reproducible, minimal fixtures.
+
+*** Empty property
+
+Title: Empty node property ~:KEY:~ is not parsed as NODE_PROPERTY unless trailing whitespace is present
+
+Issue draft:
+
+#+begin_src markdown
+Hi, I noticed that Orgize does not seem to classify a `PROPERTIES` drawer as a `PROPERTY_DRAWER` when it contains an empty node property written without whitespace after the property colon.
+
+### Minimal reproduction
+
+```org
+,* Test
+:PROPERTIES:
+:EMPTY:
+:END:
+```
+
+### Actual Orgize parse result
+
+Orgize parses this as a generic drawer:
+
+```text
+DOCUMENT@0..33
+  HEADLINE@0..33
+    HEADLINE_STARS@0..1 "*"
+    WHITESPACE@1..2 " "
+    HEADLINE_TITLE@2..6
+      TEXT@2..6 "Test"
+    NEW_LINE@6..7 "\n"
+    SECTION@7..33
+      DRAWER@7..33
+        DRAWER_BEGIN@7..20
+          COLON@7..8 ":"
+          TEXT@8..18 "PROPERTIES"
+          COLON@18..19 ":"
+          NEW_LINE@19..20 "\n"
+        DRAWER_CONTENT@20..28
+          PARAGRAPH@20..28
+            TEXT@20..28 ":EMPTY:\n"
+        DRAWER_END@28..33
+          COLON@28..29 ":"
+          TEXT@29..32 "END"
+          COLON@32..33 ":"
+```
+
+So the `:EMPTY:` line is not exposed as a `NODE_PROPERTY`.
+
+### Expected behavior
+
+Emacs Org treats `:EMPTY:` as a valid node property with an empty string value.
+
+For the same input, `org-element-parse-buffer` produces a `property-drawer` with a `node-property` whose key is `EMPTY` and whose value is the empty string.
+
+So I would expect Orgize to classify the drawer as a `PROPERTY_DRAWER` and expose the node property roughly as:
+
+```text
+PROPERTY_DRAWER
+  NODE_PROPERTY
+    key = "EMPTY"
+    value = ""
+```
+
+### Comparison: trailing whitespace works
+
+If there is whitespace after the second colon, Orgize does classify it as a property drawer:
+
+```org
+,* Test
+:PROPERTIES:
+:EMPTY: 
+:NEXT: Value
+:END:
+```
+
+Orgize output includes `PROPERTY_DRAWER` and `NODE_PROPERTY` entries.
+
+This means the classification currently depends on trailing whitespace after the property key, but Emacs Org accepts both forms.
+
+### Why this matters
+
+Org property syntax allows empty properties, and Emacs Org represents `:EMPTY:` as a node property with an empty string value. Code using Orgize as the syntax source currently has to either ignore such valid Org properties or add a compatibility fallback for generic `PROPERTIES` drawers.
+
+### Suggested fix
+
+Allow node property lines without a value and without trailing whitespace after the property colon:
+
+```org
+:KEY:
+```
+
+to be parsed as valid `NODE_PROPERTY` entries with an empty string value.
+
+Thanks for maintaining Orgize!
+#+end_src
 
 ** TODO Define benchmarks
 
@@ -789,13 +1163,18 @@ Possible benchmarks:
 - FTS search latency when FTS5 is enabled
 - subtree query latency
 
+Acceptance criteria:
+
+- Benchmark data set is defined.
+- Measurement command is documented.
+- Results are reproducible enough for before/after comparisons.
+- Performance targets are based on measurements, not guesses.
+
 ** TODO Evaluate external-content FTS5
 
-Goal:
-Check whether SQLite FTS5 external-content tables are worth using instead of manually maintained FTS rows.
+Goal: Check whether SQLite FTS5 external-content tables are worth using instead of manually maintained FTS rows.
 
-Note:
-Manual FTS maintenance is preferred initially because the indexer already controls full rebuilds per file.
+Note: Manual FTS maintenance is preferred initially because the indexer already controls full rebuilds per file.
 
 Acceptance criteria:
 
@@ -805,11 +1184,32 @@ Acceptance criteria:
 
 ** TODO Evaluate normalized vs cached tag output
 
-Goal:
-Decide whether ~headings.all_tags_json~ remains as a cache in addition to normalized ~tags~ rows.
+Goal: Decide whether ~headings.all_tags_json~ remains as a cache in addition to normalized ~tags~ rows.
+
+Acceptance criteria:
+
+- Query/API needs are listed.
+- Normalized-only and cached-output approaches are compared.
+- Cache invalidation/rebuild behavior is considered.
+- Decision is documented.
 
 ** TODO Evaluate richer property inheritance model
 
-Goal:
-Decide how inherited/effective properties should be represented once real query needs are clearer.
+Goal: Decide whether the effective property semantics from Phase 5 are sufficient or whether richer caching, diagnostics, or API support is needed.
 
+Context: Basic direct-vs-effective property behavior belongs to Phase 5. This backlog task is for later extensions after real query needs are clearer.
+
+Possible topics:
+
+- dedicated ~effective_properties~ cache table
+- SQL views for effective properties
+- diagnostics for duplicate IDs
+- diagnostics for ambiguous inherited values
+- performance of property queries on large files
+- API options for direct vs effective properties
+
+Acceptance criteria:
+
+- Real query needs are reviewed.
+- Caching is only added if measurements or UX needs justify it.
+- Direct property rows remain the source of truth.

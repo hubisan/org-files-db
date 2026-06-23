@@ -44,12 +44,28 @@ Extend the data model enough to represent real Org workflows meaningfully, witho
 
 [[./archive/2026-06-19--parse-planning-lines.org]]
 
-** TODO Parse properties drawer and file-level properties
+** DONE [2026-06-23 Tue 16:37] Parse properties drawer and file-level properties
+
+[[./archive/2026-06-23--parse-properties-drawer-and-file-level-properties.org]]
 
 Goal:
-Extract properties from heading drawers and file-level property declarations.
+Extract direct Org properties from property drawers and file-level property declarations, store them as queryable property rows, and attach buffer-level properties to the synthetic level 0 heading.
+
+This task stores direct property definitions only. It does not materialize inherited or effective properties.
 
 Sources:
+
+- buffer-level property drawer before the first regular heading:
+  #+begin_src org
+    :PROPERTIES:
+    :CATEGORY: Level 0 Category Property
+    :WHATEVER: test
+    :ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+    :END:
+    ,#+TITLE: Test
+
+    ,* Heading level 1
+  #+end_src
 
 - heading property drawers:
   #+begin_src org
@@ -57,28 +73,322 @@ Sources:
     :PROPERTIES:
     :ID: abc
     :CUSTOM_ID: task
+    :Effort: 0:30
     :END:
   #+end_src
 
 - file-level property keywords:
   #+begin_src org
-    ,#+PROPERTY: Effort_ALL 0:10 0:30 1:00
-    ,#+CATEGORY: project
+    #+PROPERTY: Effort_ALL 0:10 0:30 1:00
+    #+PROPERTY: var foo=1
+    #+PROPERTY: var+ bar=2
+    #+CATEGORY: project
   #+end_src
+
+Implementation notes:
+
+- Prefer Orgize syntax nodes for property drawers and node properties instead of reimplementing Org property drawer parsing with custom regex/FSM logic.
+- If Orgize does not parse a malformed drawer as a property drawer, ignore it for this task.
+- The parser/DB should store direct source facts. Effective property resolution, inheritance, overwrite semantics, and append resolution are query/API concerns and are explicitly deferred.
+- Keep ~keywords~ and ~properties~ separate:
+  - ~keywords~ stores raw Org keyword lines such as ~#+TITLE~, ~#+STARTUP~, ~#+PROPERTY~, and ~#+CATEGORY~.
+  - ~properties~ stores queryable property definitions.
+- Semantic keyword lines may be represented twice:
+  - ~#+PROPERTY~ is stored as a raw keyword and additionally as a property with source ~property_keyword~.
+  - ~#+CATEGORY~ is stored as a raw keyword and additionally as a property with source ~category_keyword~.
+- File-level ~#+PROPERTY~ lines may occur anywhere in the buffer. Store them as properties attached to the synthetic level 0 heading.
+- Buffer-level property drawers before the first regular heading are attached to the synthetic level 0 heading.
+- Heading property drawers are attached to the corresponding regular heading.
+- Keys are normalized before DB insertion by converting to uppercase only. Do not otherwise rewrite key characters.
+  - ~drawer_prop~ becomes ~DRAWER_PROP~
+  - ~Custom_Id~ becomes ~CUSTOM_ID~
+  - ~add-value~ becomes ~ADD-VALUE~
+- A trailing ~+~ on a property key is an append operator, not part of the key.
+  - ~:var+: value~ becomes key ~VAR~, value ~value~, append = 1.
+  - ~#+PROPERTY: var+ value~ becomes key ~VAR~, value ~value~, append = 1.
+- Do not compute inherited properties in this task.
+- Do not store inherited/effective rows in the ~properties~ table.
+- If effective properties are needed later, implement them as SQL/API logic, a view, or a separate cache table.
+
+Suggested schema adjustment:
+
+#+begin_src sql
+CREATE TABLE IF NOT EXISTS properties (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    key             TEXT NOT NULL,
+    value           TEXT,
+    source          TEXT NOT NULL CHECK (
+                        source IN (
+                            'property_drawer',
+                            'property_keyword',
+                            'category_keyword'
+                        )
+                    ),
+    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+);
+#+end_src
+
+Suggested indexes:
+
+#+begin_src sql
+CREATE INDEX IF NOT EXISTS idx_properties_heading_key
+ON properties (heading_id, key);
+
+CREATE INDEX IF NOT EXISTS idx_properties_key_value
+ON properties (key, value);
+
+CREATE INDEX IF NOT EXISTS idx_properties_id_lookup
+ON properties (value)
+WHERE key = 'ID';
+
+CREATE INDEX IF NOT EXISTS idx_properties_custom_id_lookup
+ON properties (value)
+WHERE key = 'CUSTOM_ID';
+#+end_src
 
 Acceptance criteria:
 
-- Properties are assigned to the correct heading.
-- File-level properties are assigned to the synthetic level 0 heading.
-- File-level ~#+CATEGORY~ can be stored as a property on the level 0 heading.
+- Property drawers parsed by Orgize are extracted.
+- Properties from heading drawers are assigned to the correct regular heading.
+- Buffer-level property drawers before the first regular heading are assigned to the synthetic level 0 heading.
+- File-level ~#+PROPERTY~ declarations are assigned to the synthetic level 0 heading as properties with source ~property_keyword~.
+- File-level ~#+CATEGORY~ declarations are assigned to the synthetic level 0 heading as properties with source ~category_keyword~.
+- ~#+PROPERTY~ and ~#+CATEGORY~ may still be stored as raw rows in the ~keywords~ table.
 - ~ID~ and ~CUSTOM_ID~ are directly queryable through indexes.
 - Additional properties are preserved.
-- Keys are normalized (e.g., converted to uppercase) before DB insertion to handle Org-mode's case-insensitivity.
-- Inherited/effective properties are represented or explicitly deferred.
-- A test with multiple properties exists.
-- A test with file-level properties exists.
+- Property keys are normalized to uppercase before DB insertion.
+- The append operator ~+~ is represented explicitly with ~append = 1~ and is not stored as part of the key.
+- Duplicate direct property definitions are preserved as separate rows.
+- No uniqueness constraint drops earlier property definitions.
+- Inherited/effective properties are explicitly deferred.
+- Tests cover multiple heading properties.
+- Tests cover a buffer-level property drawer.
+- Tests cover file-level ~#+PROPERTY~.
+- Tests cover file-level ~#+CATEGORY~.
+- Tests cover case-insensitive property keys.
+- Tests cover duplicate direct property definitions.
+- Tests cover the property append operator ~+~.
 
-** TODO Parse file-level keywords
+Suggested tests:
+
+*** Test: heading property drawer with multiple properties
+
+Input:
+
+#+begin_src org
+,* Task
+:PROPERTIES:
+:ID: abc
+:CUSTOM_ID: task
+:Effort: 0:30
+:Owner: Alice
+:END:
+Body text
+#+end_src
+
+Expected:
+
+- The regular heading ~Task~ has direct properties:
+  - key ~ID~, value ~abc~, source ~property_drawer~, append = 0
+  - key ~CUSTOM_ID~, value ~task~, source ~property_drawer~, append = 0
+  - key ~EFFORT~, value ~0:30~, source ~property_drawer~, append = 0
+  - key ~OWNER~, value ~Alice~, source ~property_drawer~, append = 0
+- The properties are not attached to the level 0 heading.
+- Keys are stored uppercase.
+
+*** Test: buffer-level property drawer
+
+Input:
+
+#+begin_src org
+:PROPERTIES:
+:CATEGORY: Level 0 Category Property
+:WHATEVER: test
+:ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+:END:
+#+TITLE: Test
+
+,* Heading level 1
+#+end_src
+
+Expected:
+
+- The synthetic level 0 heading has direct properties:
+  - key ~CATEGORY~, value ~Level 0 Category Property~, source ~property_drawer~, append = 0
+  - key ~WHATEVER~, value ~test~, source ~property_drawer~, append = 0
+  - key ~ID~, value ~7dad9b62-a3cc-43ec-a60f-e650bdaeae6d~, source ~property_drawer~, append = 0
+- The regular heading ~Heading level 1~ does not directly receive these properties.
+- No inherited/effective property rows are created.
+
+*** Test: file-level PROPERTY keyword
+
+Input:
+
+#+begin_src org
+#+PROPERTY: Effort_ALL 0:10 0:30 1:00
+
+,* Task
+#+end_src
+
+Expected:
+
+- The raw keyword line may be stored in ~keywords~:
+  - keyword ~PROPERTY~
+  - value ~Effort_ALL 0:10 0:30 1:00~
+- The synthetic level 0 heading has a property:
+  - key ~EFFORT_ALL~
+  - value ~0:10 0:30 1:00~
+  - source ~property_keyword~
+  - append = 0
+- The regular heading ~Task~ does not directly receive this property.
+- Effective inheritance from level 0 is not materialized in this task.
+
+*** Test: file-level CATEGORY keyword
+
+Input:
+
+#+begin_src org
+#+CATEGORY: project
+
+,* Task
+#+end_src
+
+Expected:
+
+- The raw keyword line may be stored in ~keywords~:
+  - keyword ~CATEGORY~
+  - value ~project~
+- The synthetic level 0 heading has a property:
+  - key ~CATEGORY~
+  - value ~project~
+  - source ~category_keyword~
+  - append = 0
+- The regular heading ~Task~ does not directly receive this property.
+
+*** Test: property key case normalization
+
+Input:
+
+#+begin_src org
+,* Task
+:PROPERTIES:
+:id: abc
+:Custom_Id: task
+:drawer_prop: valid
+:END:
+#+end_src
+
+Expected:
+
+- Keys are stored as:
+  - ~ID~
+  - ~CUSTOM_ID~
+  - ~DRAWER_PROP~
+- Lookup must not depend on the original key casing.
+
+*** Test: duplicate direct property definitions are preserved
+
+Input:
+
+#+begin_src org
+,* Task
+:PROPERTIES:
+:defined_twice: invalid
+:defined_twice: valid
+:END:
+#+end_src
+
+Expected:
+
+- Two direct property rows are stored for key ~DEFINED_TWICE~.
+- The first row has value ~invalid~.
+- The second row has value ~valid~.
+- The parser does not collapse them.
+- Effective overwrite behavior is deferred to query/API logic.
+
+*** Test: PROPERTY keyword duplicate definitions are preserved
+
+Input:
+
+#+begin_src org
+#+PROPERTY: keyword_overwritten_by_second invalid
+#+PROPERTY: keyword_overwritten_by_second valid
+
+,* Task
+#+end_src
+
+Expected:
+
+- Two direct property rows are stored on the synthetic level 0 heading.
+- Both rows have key ~KEYWORD_OVERWRITTEN_BY_SECOND~.
+- The first row has value ~invalid~.
+- The second row has value ~valid~.
+- Both rows have source ~property_keyword~.
+- Effective overwrite behavior is deferred.
+
+*** Test: property append operator in drawer
+
+Input:
+
+#+begin_src org
+,* Task
+:PROPERTIES:
+:add-value: is
+:add-value+: valid
+:END:
+#+end_src
+
+Expected:
+
+- Two direct property rows are stored for the regular heading ~Task~:
+  - key ~ADD-VALUE~, value ~is~, source ~property_drawer~, append = 0
+  - key ~ADD-VALUE~, value ~valid~, source ~property_drawer~, append = 1
+- The ~+~ is not stored as part of the key.
+- The parser does not compute the final value ~is valid~ in this task.
+
+*** Test: property append operator in PROPERTY keyword
+
+Input:
+
+#+begin_src org
+#+PROPERTY: var foo=1
+#+PROPERTY: var+ bar=2
+
+,* Task
+#+end_src
+
+Expected:
+
+- Two direct property rows are stored on the synthetic level 0 heading:
+  - key ~VAR~, value ~foo=1~, source ~property_keyword~, append = 0
+  - key ~VAR~, value ~bar=2~, source ~property_keyword~, append = 1
+- The ~+~ is not stored as part of the key.
+- The parser does not compute the final value ~foo=1 bar=2~ in this task.
+
+*** Test: malformed property drawer is ignored if Orgize does not parse it
+
+Input:
+
+#+begin_src org
+,* Task
+:PROPERTIES:
+:props-dont-work: invalid
+
+:END:
+#+end_src
+
+Expected:
+
+- If Orgize does not expose this as a valid ~PROPERTY_DRAWER~ with ~NODE_PROPERTY~ children, no properties are stored from it.
+- The implementation does not add separate regex/FSM recovery for malformed drawers in this task.
+
+
+** TODO Parse keywords
 
 Goal:
 Extract Org keyword lines such as ~#+TITLE~, ~#+AUTHOR~, ~#+STARTUP~, ~#+OPTIONS~, and ~#+EXPORT_FILE_NAME~.
@@ -92,6 +402,7 @@ Acceptance criteria:
 - Keyword name and raw value are preserved.
 - ~#+TODO:~ may be stored as raw keyword and additionally normalized into ~todo_keywords~.
 - A test with ~#+TITLE~ and ~#+STARTUP~ exists.
+- I am not sure: Keywords kann be anywhere in the file and still count, as file level keywords. there is no keywords for headings.
 
 ** TODO Parse tags and FILETAGS
 

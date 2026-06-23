@@ -2,7 +2,7 @@
 # note: Link extraction is not part of the current internal parser model; keep this fixture ready for future link assertions.
 document.title=Link Edge Cases
 heading_count=3
-diagnostic_count=1
+diagnostic_count=0
 heading.0.level=0
 heading.0.title=Link Edge Cases
 heading.0.is_root=true
@@ -12,3 +12,7 @@ heading.1.parent_index=0
 heading.2.level=2
 heading.2.title=Local Target
 heading.2.property_count=1
+heading.2.property.0.key=CUSTOM_ID
+heading.2.property.0.value=local-target
+heading.2.property.0.source=property_drawer
+heading.2.property.0.append=false

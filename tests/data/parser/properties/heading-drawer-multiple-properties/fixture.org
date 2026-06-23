@@ -1,0 +1,9 @@
+#+TITLE: Heading Property Drawer
+* Task
+:PROPERTIES:
+:ID: abc
+:CUSTOM_ID: task
+:Effort: 0:30
+:Owner: Alice
+:END:
+Body text

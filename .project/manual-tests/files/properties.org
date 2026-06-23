@@ -1,0 +1,102 @@
+:PROPERTIES:
+:CATEGORY: Level 0 Category Property
+:WHATEVER: level 0 drawer property
+:ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+:END:
+#+TITLE: Org Property and Keyword Test
+#+STARTUP: showall
+#+CATEGORY: category_keyword_value
+#+PROPERTY: Effort_ALL 0:10 0:30 1:00
+#+PROPERTY: keyword_property valid
+#+PROPERTY: keyword_overwritten_by_second invalid
+#+PROPERTY: keyword_overwritten_by_second valid
+#+PROPERTY: keyword_append foo=1
+#+PROPERTY: keyword_append+ bar=2
+
+* Task with multiple drawer properties
+:PROPERTIES:
+:ID: abc
+:CUSTOM_ID: task-custom-id
+:Effort: 0:30
+:Owner: Alice
+:drawer_prop: valid
+:END:
+Body text for the first task.
+
+* Task with duplicate drawer properties
+:PROPERTIES:
+:defined_twice: invalid
+:defined_twice: valid
+:END:
+Expected raw/direct storage:
+- both DEFINED_TWICE rows should be preserved
+- no overwrite should be computed here
+
+* Task with append operator in drawer
+:PROPERTIES:
+:add-value: is
+:add-value+: valid
+:END:
+Expected raw/direct storage:
+- ADD-VALUE = is, append = 0
+- ADD-VALUE = valid, append = 1
+- final value "is valid" is not computed in this task
+
+* Task with mixed-case keys
+:PROPERTIES:
+:id: lowercase-id
+:Custom_Id: mixed-case-custom-id
+:drawer_prop: valid
+:add-value+: appended
+:END:
+Expected normalized keys:
+- ID
+- CUSTOM_ID
+- DRAWER_PROP
+- ADD-VALUE
+
+* Task with empty property accepted by Orgize
+:PROPERTIES:
+:EMPTY: 
+:END:
+Expected:
+- key EMPTY
+- value ""
+- source property_drawer
+
+* Task with Orgize empty-property limitation
+:PROPERTIES:
+:EMPTY:
+:END:
+Expected for now:
+- Orgize may expose this as a generic drawer, not PROPERTY_DRAWER
+- parser should not add fallback parsing in this task
+- no property row is expected if Orgize does not expose NODE_PROPERTY
+
+* Task after file-level property keywords
+This heading should not directly receive file-level #+PROPERTY or #+CATEGORY rows.
+Those belong to the synthetic level 0 heading only.
+
+#+PROPERTY: later_keyword_property works_everywhere
+#+CATEGORY: later_category_keyword
+
+* Task after later file-level keywords
+This heading still should not directly receive those keyword properties.
+They should be stored on level 0 as:
+- LATER_KEYWORD_PROPERTY = works_everywhere, source property_keyword
+- CATEGORY = later_category_keyword, source category_keyword
+
+* Boundary: property-like but not properties
+#+FILETAGS: :project:work:
+#+TAGS: work(w) home(h)
+#+COLUMNS: %TODO %50ITEM %Effort{:} %CLOCKSUM
+#+CONSTANTS: c=299792458
+#+AUTHOR: Jane Doe
+#+OPTIONS: toc:nil num:t
+
+These keyword lines should not create property rows in this task.
+FILETAGS belongs to the later tags task.
+TAGS may later become tag-definition metadata.
+COLUMNS references properties but does not define property values.
+CONSTANTS belongs to table/formula semantics.
+AUTHOR and OPTIONS remain raw keywords.
