@@ -234,6 +234,71 @@ Validation:
 [[./archive/2026-06-23--refine-heading-body-extraction-to-exclude-structured-metadata.org]]
 
 ** TODO Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode only if the safe-subset approach is chosen. Add a strictly data-only `.dir-locals.el` parser for Org TODO keywords, reject unsupported or unsafe Lisp forms without evaluation, define and test precedence with existing TODO keyword sources, document the safety boundary, and avoid unrelated parser refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Consider Safe Parsing Of Emacs `.dir-locals.el` For Org TODO Keywords
+
+  ## Summary
+  This task should evaluate whether the project can safely read Org TODO keyword configuration from Emacs `.dir-locals.el` files without executing arbitrary Lisp. The likely outcome is either a narrowly scoped data-only parser for a safe subset, or a documented decision to reject the feature if the safety/complexity tradeoff is poor.
+
+  ## Files / Functions To Inspect
+  - [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs)
+    Existing TODO keyword configuration path and defaults
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    Where parse options are assembled and applied during rebuild
+  - [src/parser.rs](/home/hubisan/projects/coding/org-files-db/src/parser.rs), [src/parser/model.rs](/home/hubisan/projects/coding/org-files-db/src/parser/model.rs)
+    `TodoKeywordConfig`, file-local TODO keyword handling, and parse-option flow
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org) and [docs/parser-risks.org](/home/hubisan/projects/coding/org-files-db/docs/parser-risks.org)
+    Current documented stance on TODO keyword sources and safety boundaries
+  - Repo instruction note in [.project/agents/repository.org](/home/hubisan/projects/coding/org-files-db/.project/agents/repository.org)
+    It already warns against evaluating unsafe Emacs Lisp and suggests only a safe data-only subset
+
+  ## Exact Changes Likely Needed
+  - Decide feature scope first:
+    support only a minimal data-only subset of `.dir-locals.el` sufficient to extract Org TODO keyword settings,
+    or explicitly decline support and document why.
+  - If implemented, add a dedicated parser that reads `.dir-locals.el` as plain text and accepts only a constrained structural subset, not arbitrary Lisp evaluation.
+  - Support only the exact variables needed for TODO keywords, likely `org-todo-keywords` and possibly `org-todo-keyword-faces` only if required later.
+  - Reject or ignore any forms outside the allowed subset:
+    `eval`, function calls, reader macros, computed expressions, backquote forms, non-literal lists, and unrelated modes/variables.
+  - Merge `.dir-locals.el` TODO keywords into rebuild parse options with explicit precedence relative to config defaults and in-file `#+TODO`.
+  - Surface clear diagnostics when a `.dir-locals.el` file exists but uses unsupported or unsafe constructs.
+
+  ## Proposed Function Names Or Types
+  - `DirLocalsTodoConfig`
+  - `DirLocalsParseError`
+  - `fn load_dir_locals_todo_config(path: &Path) -> Result<Option<DirLocalsTodoConfig>, DirLocalsParseError>`
+  - `fn extract_safe_org_todo_keywords(source: &str) -> Result<Option<TodoKeywordConfig>, DirLocalsParseError>`
+  - `fn merge_todo_keyword_sources(...) -> TodoKeywordConfig`
+
+  Recommended default: parse only a tiny literal subset and return `Option<TodoKeywordConfig>`.
+
+  ## Test Cases To Add
+  - Safe `.dir-locals.el` with literal `org-todo-keywords` list is accepted and affects parsing.
+  - Unsupported Lisp constructs are rejected without evaluation.
+  - `eval` forms are rejected explicitly.
+  - Missing `.dir-locals.el` leaves behavior unchanged.
+  - Precedence test between config defaults, `.dir-locals.el`, and in-file `#+TODO`.
+  - Directory-scope test: nested Org files inherit the nearest applicable `.dir-locals.el` only if that is the chosen semantics.
+
+  ## Risks / Open Questions
+  - The biggest risk is accidental execution or partial interpretation of unsafe Lisp; the parser must stay strictly data-only.
+  - Emacs `.dir-locals.el` semantics are richer than this project likely needs; full compatibility is probably not worth the complexity.
+  - Need to decide precedence and directory lookup behavior up front.
+  - Open question: whether this should be implemented at all versus documented as intentionally unsupported. Recommended default: only implement if the accepted subset is very small and clearly safe.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode only if the safe-subset approach is chosen. Add a strictly data-only `.dir-locals.el` parser for Org TODO keywords, reject unsupported or unsafe Lisp forms without evaluation, define and test precedence with existing TODO keyword sources, document the safety boundary, and avoid unrelated parser refactors.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
 
 Goal:
 Decide whether `org-files-db` should support directory-local Org TODO keyword
@@ -266,6 +331,79 @@ Non-goal:
 
 ** TODO Define DB schema versioning
 
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode. Define and codify DB schema versioning around SQLite `user_version`, make the current schema version explicit, add clear handling for older and newer on-disk versions, document the versioning policy for future migrations, add focused regression tests, and avoid unrelated DB refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Define DB Schema Versioning
+
+  ## Summary
+  The project already uses SQLite `user_version` and schema application logic, but the versioning policy itself likely remains implicit. This task should define a clear schema versioning contract: what increments the version, how migrations are sequenced, what compatibility guarantees exist, and how callers should behave when opening older or newer databases.
+
+  ## Files / Functions To Inspect
+  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    `open_database`, `open_database_with_schema`, `initialize_database`, `DbError`, `user_version` handling
+  - [src/db/schema.rs](/home/hubisan/projects/coding/org-files-db/src/db/schema.rs)
+    `SchemaDefinition`, `version`, `apply`, SQL rendering/migration assumptions
+  - Existing migration tests in [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    Current upgrade behavior and legacy-schema coverage
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org) or DB-related docs
+    Whether schema compatibility is currently documented at all
+
+  ## Exact Changes Likely Needed
+  - Define a written versioning policy for the DB schema:
+    when to bump `user_version`,
+    what counts as a schema change,
+    whether data migrations and index-table changes require bumps,
+    and whether backward compatibility is expected.
+  - Make `SchemaDefinition` the explicit single source of current schema version.
+  - Separate concepts if needed:
+    current schema version,
+    minimum supported on-disk version,
+    and unsupported future-version behavior.
+  - Add explicit open-time checks for:
+    older DBs that can be migrated,
+    older DBs that are too old if such a floor is introduced,
+    newer DBs created by a future binary.
+  - Ensure migration sequencing is documented and testable rather than implicit in `apply`.
+  - Add developer documentation for how to add the next schema change safely.
+
+  ## Proposed Function Names Or Types
+  - `const CURRENT_SCHEMA_VERSION: u32`
+  - Optional if needed:
+    `const MIN_SUPPORTED_SCHEMA_VERSION: u32`
+  - Error variants:
+    `DbError::UnsupportedSchemaVersion`
+    `DbError::FutureSchemaVersion`
+  - Helper functions:
+    `fn read_schema_version(connection: &Connection) -> Result<u32, DbError>`
+    `fn validate_schema_version(version: u32, schema: &SchemaDefinition) -> Result<(), DbError>`
+
+  Recommended default: introduce `CURRENT_SCHEMA_VERSION` plus an explicit “future version not supported” check.
+
+  ## Test Cases To Add
+  - Opening a DB at the current version succeeds without migration.
+  - Opening an older supported DB migrates to the current version.
+  - Opening a DB with a newer `user_version` fails with a clear error.
+  - Schema version is updated only after successful migration/application.
+  - A targeted regression test for the documented version bump path when adding a new migration fixture.
+
+  ## Risks / Open Questions
+  - Need to decide whether every structural change requires a version bump, including FTS/index-only changes. Recommended default: yes for any persistent on-disk schema change.
+  - Need a policy for future-version DBs: fail closed is the safe default.
+  - If the project has not yet published any compatibility guarantees, this task will effectively establish them.
+  - Open question: whether minimum supported version should be explicit now or deferred until there are enough historical versions to justify it.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Define and codify DB schema versioning around SQLite `user_version`, make the current schema version explicit, add clear handling for older and newer on-disk versions, document the versioning policy for future migrations, add focused regression tests, and avoid unrelated DB refactors.
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 Goal:
 Define a code-level DB schema version and store the applied version in SQLite.
 
@@ -278,6 +416,82 @@ Acceptance criteria:
 - Tests cover missing, matching, and mismatched versions.
 
 ** TODO Finalize DB schema and JSON API for v0.1
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode after the pending DB/CLI contract cleanup tasks are complete. Finalize and document the `v0.1` SQLite schema versioning and `headings --json` response shape, fix any remaining contract inconsistencies before freezing them, add focused contract regression tests, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Finalize DB Schema And JSON API For v0.1
+
+  ## Summary
+  This task should lock down the on-disk SQLite schema and the CLI JSON output shape for the `v0.1` release so follow-up work stops changing them opportunistically. The goal is not a broad redesign, but a deliberate freeze of the currently intended contract, with any last required cleanups identified and completed before treating both surfaces as stable.
+
+  ## Files / Functions To Inspect
+  - [src/db/schema.rs](/home/hubisan/projects/coding/org-files-db/src/db/schema.rs)
+    Current table layout, columns, indexes, FTS shape, and migration assumptions
+  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    Schema application, `user_version`, open/init behavior, exported DB types
+  - [src/db/reader.rs](/home/hubisan/projects/coding/org-files-db/src/db/reader.rs)
+    `HeadingListRow` and the DB-to-read-model boundary
+  - [src/db/writer.rs](/home/hubisan/projects/coding/org-files-db/src/db/writer.rs)
+    Insert/update expectations that define what data must remain representable
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    `headings --json` output shape, filtering, field naming, and error behavior
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org)
+    Any documented JSON examples or DB-facing claims
+  - Existing end-to-end and DB tests in [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs) and [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    Current contract coverage
+
+  ## Exact Changes Likely Needed
+  - Review the current DB schema and decide which tables/columns are part of the supported `v0.1` on-disk contract versus internal implementation details that may still change.
+  - Finalize the JSON output schema for `headings --json`:
+    field names,
+    scalar vs array/object representation,
+    nullability,
+    inclusion/exclusion of synthetic level-0 rows by default,
+    and handling of tags/timestamps/planning fields.
+  - Resolve any known contract mismatches before freezing, especially:
+    double-encoded JSON fields,
+    sentinel/root-row semantics,
+    unstable field naming,
+    or accidental exposure of internal-only DB conventions.
+  - Add explicit documentation stating that the DB schema and JSON API are treated as `v0.1` contracts after this task.
+  - Ensure schema versioning is defined and aligned with the freeze, so later DB changes require deliberate version bumps and migrations.
+  - Prefer additive clarification and final cleanup over structural redesign unless a known flaw would make the `v0.1` contract unsafe to freeze.
+
+  ## Proposed Function Names Or Types
+  - JSON API type:
+    `CliHeadingRow`
+    if a dedicated CLI-facing output type is not already in place
+  - Schema/version constants:
+    `CURRENT_SCHEMA_VERSION`
+  - Optional contract-focused doc helpers/constants:
+    `SYNTHETIC_ROOT_LEVEL`
+    only if that behavior is part of the frozen contract
+
+  Recommended default: define a dedicated CLI output type and treat it as the canonical JSON contract boundary.
+
+  ## Test Cases To Add
+  - Golden-style CLI JSON test covering one realistic heading row with tags, TODO state, planning timestamps, and expected null fields.
+  - CLI JSON test covering default exclusion of synthetic level-0 headings and inclusion with `--include-root`.
+  - CLI regression test proving arrays/JSON-valued fields are emitted as proper JSON, not encoded strings.
+  - DB regression tests covering current schema creation and migration to the finalized `CURRENT_SCHEMA_VERSION`.
+  - If the repo is comfortable with it, add a contract-style test that asserts the exact set of JSON keys for `headings --json`.
+
+  ## Risks / Open Questions
+  - Freezing too early can lock in accidental quirks; the known behavioral/API cleanup tasks should land first.
+  - Need to decide how much of the SQLite schema is a public promise versus an internal persistence format. Recommended default: treat the full on-disk schema as versioned/stable enough for the project itself, but document the CLI JSON as the primary user-facing contract.
+  - Any field rename or representation change in JSON is a breaking change once frozen.
+  - Open question: whether `v0.1` stability means “documented but still experimental” or “expected to remain compatible until a version bump”. Recommended default: compatibility expected within `v0.x` unless explicitly versioned otherwise.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode after the pending DB/CLI contract cleanup tasks are complete. Finalize and document the `v0.1` SQLite schema versioning and `headings --json` response shape, fix any remaining contract inconsistencies before freezing them, add focused contract regression tests, and avoid unrelated refactors.
+#+END_SRC
+
+Content of Todo before Codex made the plan:
 
 Goal:
 Define the schema and JSON output for the first stable internal version.
@@ -293,9 +507,11 @@ Acceptance criteria:
 - README contains a minimal example.
 - DB schema documentation references the actual schema file.
   
-** TODO Repo durch Codex/ChatGPT prüfen lassen
+** Repo durch Codex/ChatGPT prüfen lassen
 
 Erste identizierte Sachen von Codex und ChatGPT:
+
+*** TODO ChatGPT nochmals den Code prüfen lassen
 
 *** TODO [#A] Make CLI read commands truly read-only
 :PROPERTIES:
@@ -303,6 +519,68 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Medium
 :BEHAVIOR_API_CHANGE: Yes
 :END:
+
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement the plan in BUILD mode. Make `headings --json` use a truly read-only SQLite open path, keep `rebuild` on the writable path, add the focused DB/CLI regression tests described in the plan, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Make CLI Read Commands Truly Read-Only
+
+  ## Summary
+  `headings --json` currently opens the SQLite DB through the write-capable path in [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs) -> `open_headings_database()` -> `open_database()` in [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs). That path always runs initialization, sets pragmas, updates `user_version`, and applies schema, so the read command is not actually read-only. The implementation should split DB opening into explicit read-only vs read-write paths and move `headings` onto the read-only one.
+
+  ## Files / Functions To Inspect
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    `Command::Headings`, `headings_json_rows`, `open_headings_database`, CLI tests around `rebuild_and_headings_json_cover_minimal_end_to_end_slice`
+  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    `open_database`, `open_database_with_schema`, `initialize_database`, `DbError`
+  - [src/db/reader.rs](/home/hubisan/projects/coding/org-files-db/src/db/reader.rs)
+    Confirm reads need no schema mutation and can fail cleanly if schema is missing/incompatible
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    Confirm rebuild continues using the write-capable open path
+
+  ## Exact Code Changes Likely Needed
+  - Add a dedicated read-only DB open path in `src/db.rs` that uses SQLite read-only flags instead of `Connection::open`.
+  - Keep schema initialization and pragma mutation only in the existing write-capable path used by rebuild/indexing.
+  - Change CLI `headings` to call the new read-only opener instead of `open_database`.
+  - Do not auto-create a DB file, enable WAL, set `user_version`, or apply schema when running `headings`.
+  - Extend `DbError` so read-only open failures are reported clearly and do not reuse “initialize database” wording.
+  - Leave in-memory/test helper behavior unchanged unless a shared helper extraction makes the split cleaner.
+
+  ## Proposed Function Names
+  - `open_read_only_database(path: impl AsRef<Path>) -> Result<Connection, DbError>`
+  - `open_read_only_database_with_flags(...)` only if a small internal helper is useful
+  - `open_writable_database(path: impl AsRef<Path>) -> Result<Connection, DbError>` if renaming the current `open_database` improves clarity
+  - `initialize_writable_database(...)` if renaming `initialize_database` helps make mutation explicit
+  - CLI helper rename:
+    `open_headings_database_read_only(...)`
+
+  Recommended default: keep `open_database` as the existing write-capable API for minimal churn, add `open_read_only_database`, and switch only the read commands.
+
+  ## Tests To Add
+  - CLI test: `headings_json_rows` succeeds against an already-built DB opened read-only.
+  - CLI test: `headings --json` fails with a clear error when the DB file does not exist, instead of creating one.
+  - CLI test: `headings --json` fails cleanly against an empty/non-schema SQLite file, proving it does not initialize schema on read.
+  - DB test: `open_read_only_database` does not create a new file on missing path.
+  - DB test: read-only open does not change `journal_mode` / `user_version` / schema state of an existing DB.
+  - Regression test: `rebuild` still uses the writable path and still creates/initializes the DB as before.
+
+  ## Risks / Open Questions
+  - If current UX relied on `headings` implicitly creating an empty DB, this will become a deliberate breaking change; likely correct for “truly read-only”.
+  - SQLite URI/flag handling in `rusqlite` must be chosen carefully so “read-only” is enforced by SQLite, not just by convention.
+  - If future read commands need compatibility checks, decide whether to add a lightweight schema/version validation helper or rely on query failures.
+  - If any tests currently assume `open_database` for both read and write semantics, they may need renaming to make intent explicit.
+
+  ## Next Codex Prompt
+  Implement the plan in BUILD mode. Make `headings --json` use a truly read-only SQLite open path, keep `rebuild` on the writable path, add the focused DB/CLI regression tests described in the plan, and avoid unrelated refactors.
+#+END_SRC
+ 
+Previous todo content:
+
 - Area: ~src/cli.rs~, ~src/db.rs~, ~src/config.rs~
 - Problem: ~headings~ currently opens the database through ~open_database~, which uses a writable connection and initializes/applies schema.
 - Additional problem: ~headings --config~ loads the full config and validates configured source files/directories even though it only needs ~db_path~.
@@ -325,6 +603,66 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Medium
 :BEHAVIOR_API_CHANGE: Yes
 :END:
+
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement the plan in BUILD mode. Keep DB storage unchanged, introduce a CLI-facing heading row type that parses stored tag JSON into a real JSON array, update `headings --json` to emit that shape, add focused regression tests for tagged and empty-tag headings plus invalid stored tag JSON, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Replace Double-Encoded Tag JSON In CLI Output
+
+  ## Summary
+  The CLI currently serializes DB rows directly, and `HeadingListRow` carries `all_tags_json` as a `String`, so JSON output likely contains a JSON string that itself contains encoded JSON. The fix should keep DB storage unchanged and introduce a CLI-facing output type that exposes tags as a real JSON array.
+
+  ## Files / Functions To Inspect
+  - [src/db/reader.rs](/home/hubisan/projects/coding/org-files-db/src/db/reader.rs)
+    `HeadingListRow`, `DbReader::list_headings`
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    `headings_json_rows`, `headings_rows_for_json`, JSON writing path, current CLI tests
+  - Possibly [src/db/writer.rs](/home/hubisan/projects/coding/org-files-db/src/db/writer.rs)
+    Only to confirm DB continues storing tags as JSON text
+
+  ## Exact Code Changes Likely Needed
+  - Leave DB schema/storage as-is: `all_tags_json` remains stored as JSON text in SQLite.
+  - Add a CLI/output mapping layer that converts `HeadingListRow` into a JSON-ready struct with parsed tags.
+  - Parse `all_tags_json` with `serde_json` into `Vec<String>` or a dedicated tag type before serializing CLI output.
+  - Change `headings_json_rows` / `headings_rows_for_json` to return the CLI-facing row type instead of raw `HeadingListRow`.
+  - Add a dedicated CLI error for invalid stored tag JSON, unless reusing `CliError::Json` is cleaner and still yields a precise message.
+
+  ## Proposed Function Names / Types
+  - Type:
+    `CliHeadingRow`
+  - Field change in CLI-facing type:
+    `all_tags: Vec<String>`
+  - Mapping/helper functions:
+    `impl TryFrom<HeadingListRow> for CliHeadingRow`
+    or `fn map_heading_row_for_cli(row: HeadingListRow) -> Result<CliHeadingRow, CliError>`
+  - Error variant if added:
+    `CliError::InvalidStoredJson`
+    or more specific `CliError::InvalidTagsJson`
+
+  Recommended default: use `CliHeadingRow` plus `TryFrom<HeadingListRow>`.
+
+  ## Test Cases To Add
+  - CLI test: heading with tags serializes `all_tags` as a JSON array, not a quoted JSON string.
+  - CLI test: empty tags serialize as `[]`.
+  - CLI test: multiple tags preserve order if current DB/query behavior already defines one; otherwise assert set membership only.
+  - CLI test: invalid `all_tags_json` in stored DB row returns a clear CLI error instead of emitting malformed output.
+  - Update existing end-to-end `headings --json` assertions to check parsed array output.
+
+  ## Risks / Open Questions
+  - Output shape change is user-visible: decide whether field name stays `all_tags_json` for compatibility or changes to `all_tags` for correctness. Recommended default: rename to `all_tags`.
+  - If external consumers already depend on the old string field, this is a breaking change and may need changelog/docs updates.
+  - If other JSON-encoded DB columns are exposed directly later, this pattern should be generalized rather than repeated ad hoc.
+
+  ## Next Codex Prompt
+  Implement the plan in BUILD mode. Keep DB storage unchanged, introduce a CLI-facing heading row type that parses stored tag JSON into a real JSON array, update `headings --json` to emit that shape, add focused regression tests for tagged and empty-tag headings plus invalid stored tag JSON, and avoid unrelated refactors.
+
+#+END_SRC
+
 - Area: ~src/db/reader.rs~, ~src/cli.rs~
 - Problem: ~HeadingListRow.all_tags_json~ is a ~String~, and CLI JSON serializes it as a JSON string rather than an array.
 - Why it matters: JSON consumers get awkward output and must decode nested JSON manually.
@@ -343,6 +681,64 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Medium
 :BEHAVIOR_API_CHANGE: Possibly
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement the plan in BUILD mode. Strengthen config path normalization in src/config.rs so configured files and directories are resolved relative to the config file and canonicalized consistently, handle non-existent db_path by canonicalizing its parent directory without requiring the DB file to exist, add focused config/path regression tests, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Canonicalize Configured Paths More Robustly
+
+  ## Summary
+  Path handling appears centered in config loading, where configured `db_path`, `files`, and `dirs` are resolved relative to the config file and lightly validated. The likely improvement is to make normalization more consistent and filesystem-aware so equivalent paths resolve to one canonical form, reducing duplicate indexing, mismatched comparisons, and fragile relative-path behavior.
+
+  ## Files / Functions To Inspect
+  - [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs)
+    `Config::load_from_file`, `from_raw_with_home_dir`, `resolve_path`, `absolute_base_dir`, `validate_file_paths`, `validate_dir_paths`
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    `discover_org_files`, any deduplication or path-comparison logic using configured paths
+  - Possibly [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    Only if config-loaded paths are surfaced directly in user-facing output
+
+  ## Exact Code Changes Likely Needed
+  - Centralize configured-path normalization in `src/config.rs` instead of spreading assumptions across load/validation steps.
+  - Canonicalize existing configured file and directory paths using `std::fs::canonicalize` after `~` expansion and relative-to-config resolution.
+  - For `db_path`, avoid strict `canonicalize` when the file may not exist yet; instead canonicalize the parent directory and rejoin the filename, or introduce a “canonicalize as far as possible” helper.
+  - Normalize path handling so semantically identical inputs like `./notes.org`, `../project/notes.org`, and symlinked directory traversals converge to the same stored path when possible.
+  - Preserve current validation semantics for missing configured files/directories unless the task explicitly wants looser behavior.
+  - If deduplication is currently string-based, switch it to use canonicalized `PathBuf`s.
+
+  ## Proposed Function Names / Types
+  - `fn canonicalize_existing_path(path: &Path) -> Result<PathBuf, ConfigError>`
+  - `fn canonicalize_parent_preserving_leaf(path: &Path) -> Result<PathBuf, ConfigError>`
+  - `fn resolve_and_canonicalize_path(...) -> Result<PathBuf, ConfigError>`
+  - `fn resolve_and_canonicalize_existing_file(...) -> Result<PathBuf, ConfigError>`
+  - `fn resolve_and_canonicalize_existing_dir(...) -> Result<PathBuf, ConfigError>`
+
+  Recommended default: keep `resolve_path` small or replace it with `resolve_and_canonicalize_path`, plus one helper for the non-existent DB file case.
+
+  ## Test Cases To Add
+  - Config test: relative file path resolves against the config directory and ends up canonicalized.
+  - Config test: relative directory path with `..` segments canonicalizes to a stable absolute path.
+  - Config test: `~/...` expansion still works and the resulting path is canonicalized.
+  - Config test: `db_path` canonicalizes via existing parent directory even when the DB file does not yet exist.
+  - Config/indexer test: duplicate configured paths that differ only syntactically do not produce duplicate work.
+  - Symlink test, if the repo already uses symlink-aware tests: configured file/dir through a symlink resolves to the canonical target path.
+
+  ## Risks / Open Questions
+  - Canonicalization changes visible paths, so tests or CLI output that currently expect lexical paths may need updating.
+  - `std::fs::canonicalize` is platform-sensitive; confirm expected path formatting on Linux/macOS and avoid over-specifying separators in tests.
+  - Decide whether preserving user-written lexical paths matters anywhere for UX; if so, canonicalize for internal matching only.
+  - Symlink canonicalization may surprise users if they expect source config text to remain reflected in outputs.
+
+  ## Next Codex Prompt
+  Implement the plan in BUILD mode. Strengthen config path normalization in `src/config.rs` so configured files and directories are resolved relative to the config file and canonicalized consistently, handle non-existent `db_path` by canonicalizing its parent directory without requiring the DB file to exist, add focused config/path regression tests, and avoid unrelated refactors.
+#+END_SRC
+
+Previous todo content:
+
 - Area: ~src/config.rs~, ~src/indexer.rs~
 - Problem: Path normalization removes ~.~ but not ~..~ or other equivalent path aliases.
 - Why it matters: The same file can be indexed under multiple syntactic paths, weakening deduplication and stale-row cleanup.
@@ -361,6 +757,73 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Low
 :BEHAVIOR_API_CHANGE: No
 :END:
+
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this documentation task in BUILD mode. Update `README.org` and `docs/parser-risks.org` so they match the current CLI, config, indexer, and parser behavior exactly, remove stale or speculative claims, keep the wording conservative where behavior is not guaranteed, and avoid any non-documentation changes.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Refresh README And Parser Risk Docs To Match Current Implementation
+
+  ## Summary
+  This task should bring the documentation in line with the actual current behavior of the CLI, config loading, indexing, and parser support. The focus is `README.org` and `docs/parser-risks.org`; changes should describe the implemented state, not introduce new product decisions.
+
+  ## Files / Functions To Inspect
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org)
+    Current CLI description, setup, examples, feature claims
+  - [docs/parser-risks.org](/home/hubisan/projects/coding/org-files-db/docs/parser-risks.org)
+    Existing parser risk assumptions, known limitations, and caveats
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    Actual CLI subcommands, flags, and output shape
+  - [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs)
+    Real config fields and defaults
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    Rebuild behavior, file discovery, and indexing scope
+  - [src/parser.rs](/home/hubisan/projects/coding/org-files-db/src/parser.rs), [src/parser/orgize_adapter.rs](/home/hubisan/projects/coding/org-files-db/src/parser/orgize_adapter.rs), [src/parser/model.rs](/home/hubisan/projects/coding/org-files-db/src/parser/model.rs)
+    Supported parser data and likely current limitations
+  - Optional confirmation sources:
+    [tests/parser_contract.rs](/home/hubisan/projects/coding/org-files-db/tests/parser_contract.rs),
+    [tests/orgize_adapter.rs](/home/hubisan/projects/coding/org-files-db/tests/orgize_adapter.rs)
+
+  ## Exact Changes Likely Needed
+  - Update `README.org` so it documents only currently implemented CLI commands and flags, especially `rebuild` and `headings`.
+  - Remove or soften outdated claims about features, roadmap items, or parser behavior that no longer match the code.
+  - Correct or add a concise example of current `headings --json` output if the existing example is stale.
+  - Align config documentation with `src/config.rs`:
+    `db_path`, `files`, `dirs`, `recursive`, `todo`, and `search`.
+  - Update `docs/parser-risks.org` to reflect real current parser risks:
+    known gaps, intentional non-goals, likely Orgize-vs-Emacs differences, and any indexing consequences of partial parsing.
+  - Remove risks that are already resolved, or mark them as historical if that context is still useful.
+  - Ensure support claims for level-0 file headings, TODO keyword configuration, planning timestamps, properties, tags, and body indexing match the implemented code and tests.
+
+  ## Proposed Function Names Or Types
+  No production code changes are expected.
+
+  If a small internal documentation structure is useful during editing, keep it purely textual; no new code symbols should be introduced by default.
+
+  ## Test Cases / Validation To Add
+  - No Cargo test additions required if this remains documentation-only.
+  - Manually verify every README command and flag against `src/cli.rs`.
+  - Manually verify every documented config field against `src/config.rs`.
+  - Manually verify parser capability/risk statements against parser code and existing parser tests.
+  - Confirm that the docs do not promise unsupported search, write, or parser capabilities.
+
+  ## Risks / Open Questions
+  - The docs should describe the implemented state conservatively when intent and code differ.
+  - If existing tests and current docs disagree, default to the code and tests rather than preserving older wording.
+  - Some parser-risk statements may require judgment if behavior is only indirectly covered by tests; avoid overstating guarantees.
+  - Open question: whether `parser-risks.org` should remain a risk register only, or also include current mitigations. Recommended default: keep it focused on current risks and limitations.
+
+  ## Next Codex Prompt
+  Implement this documentation task in BUILD mode. Update `README.org` and `docs/parser-risks.org` so they match the current CLI, config, indexer, and parser behavior exactly, remove stale or speculative claims, keep the wording conservative where behavior is not guaranteed, and avoid any non-documentation changes.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 - Area: ~README.org~, ~docs/parser-risks.org~
 - Problem: README still describes implemented components as placeholders; parser risk docs still list some resolved parser gaps as open.
 - Why it matters: New contributors and AI agents will work from an outdated mental model.
@@ -377,6 +840,78 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Medium
 :BEHAVIOR_API_CHANGE: Yes
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode. Narrow the crate’s public API by replacing broad module exports in `src/lib.rs` with a small intentional surface, keep `src/main.rs` working, preserve only justified public types or re-exports, update affected imports/tests, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Narrow The Public Library Surface
+
+  ## Summary
+  The crate root in [src/lib.rs](/home/hubisan/projects/coding/org-files-db/src/lib.rs) currently exports whole modules: `cli`, `config`, `db`, `indexer`, `parser`, and `query`. That likely exposes many internal types and helpers that are only needed inside the binary or tests. The implementation should define a smaller intentional public API and make the rest crate-private or module-private without breaking the binary target.
+
+  ## Files / Functions To Inspect
+  - [src/lib.rs](/home/hubisan/projects/coding/org-files-db/src/lib.rs)
+    Current crate root exports
+  - [src/main.rs](/home/hubisan/projects/coding/org-files-db/src/main.rs)
+    What the binary actually needs from the library
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    Which CLI items must stay reachable from `main`
+  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs), [src/db/reader.rs](/home/hubisan/projects/coding/org-files-db/src/db/reader.rs), [src/db/writer.rs](/home/hubisan/projects/coding/org-files-db/src/db/writer.rs)
+    Current exported DB API vs internal-only write/schema helpers
+  - [src/parser.rs](/home/hubisan/projects/coding/org-files-db/src/parser.rs), [src/parser/model.rs](/home/hubisan/projects/coding/org-files-db/src/parser/model.rs)
+    Which parser types are truly intended as library API
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs), [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs), [src/query.rs](/home/hubisan/projects/coding/org-files-db/src/query.rs)
+    Whether these are meant as public entry points or just implementation modules
+
+  ## Exact Code Changes Likely Needed
+  - Replace broad `pub mod ...` exports in `src/lib.rs` with a narrower combination of:
+    private modules,
+    `pub(crate)` modules for internal sharing,
+    and selective `pub use` re-exports for the intended external API.
+  - Keep only the binary-facing entry points public enough for `src/main.rs`, most likely a small CLI entry such as `run`.
+  - Hide internal DB write/schema helpers unless there is a clear supported library use case for them.
+  - Hide parser internals that are not part of a deliberate API contract, especially low-level model types if they are currently exposed only because the whole module is public.
+  - Decide whether `query` should remain public at all; it currently appears minimal and may be an unfinished/internal surface.
+  - Update intra-crate imports after visibility tightening, likely switching some paths to `crate::...` or `super::...`.
+  - If tests outside the defining module depend on now-hidden items, move those tests inward or expose only a minimal testable seam rather than re-opening the whole module.
+
+  ## Proposed Function Names Or Types
+  Recommended public surface direction:
+  - `pub fn run() -> ExitCode`
+  - Optional re-export if needed:
+    `pub use cli::run`
+  - Optional small supported types only if justified by actual external use:
+    `Config`
+    `ConfigError`
+    `Indexer`
+    `IndexerError`
+    `RebuildReport`
+
+  Recommended default: make `cli` module private and re-export only `run`; keep other modules non-public unless there is a clear library use case already exercised by docs or integration tests.
+
+  ## Test Cases To Add
+  - Compile-level test via existing crate build: `src/main.rs` still compiles against the narrowed library API.
+  - Add or update a small integration test that uses only the intended public API, proving the supported surface is sufficient.
+  - Add a regression test if needed for any public re-export chosen as the supported entry point.
+  - If there are current external-style integration tests importing broad modules, update them to use the new public surface and confirm no unnecessary items remain public.
+
+  ## Risks / Open Questions
+  - This may be a breaking change for any external users of the crate as a library, even if the current API was accidental.
+  - Without existing public API documentation, the main decision is what should remain supported versus what should become internal.
+  - Integration tests in `tests/` may rely on currently public modules; that pressure should not automatically define the long-term public API.
+  - Open question: whether this crate is intended to be a reusable library at all, or primarily a binary with a minimal library shim. Recommended default: optimize for a minimal stable surface around the binary entry point.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Narrow the crate’s public API by replacing broad module exports in `src/lib.rs` with a small intentional surface, keep `src/main.rs` working, preserve only justified public types or re-exports, update affected imports/tests, and avoid unrelated refactors.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 - Area: ~src/lib.rs~, ~src/query.rs~, ~src/parser/model.rs~, ~src/db.rs~
 - Problem: The crate exports broad internal modules directly, including placeholder ~query~.
 - Why it matters: This creates a semver/API surface before the project appears ready to support it.
@@ -392,6 +927,93 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Low
 :BEHAVIOR_API_CHANGE: No
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this refactor in BUILD mode after the current behavior-fix tasks are complete. Split the largest modules by responsibility, keep external behavior and public APIs stable unless a visibility fix is strictly necessary, move tests closer to the code they cover where practical, and avoid mixing structural refactors with semantic changes.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Split Oversized Modules After Behavior Fixes
+
+  ## Summary
+  Several modules are already large, especially `src/indexer.rs`, `src/db.rs`, `src/cli.rs`, and the parser model area. This task should be treated as a structural refactor only after the current behavior-fix queue lands, so the split does not get tangled with active semantic changes. The goal is to reduce file size and improve locality without changing behavior or widening the public API.
+
+  ## Files / Functions To Inspect
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    Large mixed responsibilities: config-driven rebuild entry, file discovery, normalization, indexing, diagnostics/reporting, and extensive tests
+  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    DB open/init logic, schema wiring, re-exports, errors, and many tests
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    Argument parsing, command dispatch, output formatting, config/db opening helpers, and tests
+  - [src/parser/model.rs](/home/hubisan/projects/coding/org-files-db/src/parser/model.rs)
+    Many parser data types and helper methods in one file
+  - Also inspect [src/parser.rs](/home/hubisan/projects/coding/org-files-db/src/parser.rs) and module boundaries in [src/lib.rs](/home/hubisan/projects/coding/org-files-db/src/lib.rs)
+
+  ## Exact Code Changes Likely Needed
+  - Split large modules by responsibility, not by arbitrary line count.
+  - `src/indexer.rs` likely becomes submodules for:
+    rebuild orchestration,
+    file discovery,
+    document normalization/mapping,
+    write-side indexing,
+    diagnostics/report types.
+  - `src/cli.rs` likely becomes submodules for:
+    clap definitions,
+    command handlers,
+    JSON/output mapping,
+    error types.
+  - `src/db.rs` likely keeps crate-level DB entry points and moves details into smaller submodules such as:
+    open/init,
+    errors,
+    test helpers,
+    with `reader`, `writer`, and `schema` remaining separate.
+  - `src/parser/model.rs` likely splits into focused type groups such as:
+    document/headings,
+    TODO config,
+    timestamps/planning,
+    properties/keywords.
+  - Move tests with the code they exercise where possible, instead of keeping large monolithic test sections at the bottom of already-large files.
+  - Preserve behavior and naming where practical; this task should not mix in API redesign unless required by the file split.
+
+  ## Proposed Function Names Or Types
+  Likely new internal module names:
+  - `indexer::discover`
+  - `indexer::normalize`
+  - `indexer::rebuild`
+  - `indexer::report`
+  - `cli::args`
+  - `cli::commands`
+  - `cli::output`
+  - `cli::error`
+  - `db::open`
+  - `db::error`
+  - `parser::model::document`
+  - `parser::model::timestamps`
+  - `parser::model::todo`
+
+  Recommended default: keep external-facing function/type names stable and introduce only internal module boundaries.
+
+  ## Test Cases To Add
+  - No new behavior-focused tests required if existing coverage is preserved.
+  - Run the existing relevant test suites after each module split to catch accidental visibility or import regressions.
+  - If any tests must move because visibility becomes tighter, keep assertions unchanged and only relocate them.
+  - Add a minimal smoke test only if the refactor introduces a new internal seam that is otherwise untested.
+
+  ## Risks / Open Questions
+  - Doing this before pending behavior fixes will create unnecessary merge conflict churn; it should stay sequenced after those fixes.
+  - Large-file splits often accidentally change visibility and import paths; compile errors are expected and should be resolved without relaxing encapsulation.
+  - There is a risk of mixing structural cleanup with semantic cleanup; that should be avoided.
+  - Open question: define “oversized” by responsibility and maintainability, not just line count. Recommended default: split the worst offenders first rather than forcing every file under a hard limit.
+
+  ## Next Codex Prompt
+  Implement this refactor in BUILD mode after the current behavior-fix tasks are complete. Split the largest modules by responsibility, keep external behavior and public APIs stable unless a visibility fix is strictly necessary, move tests closer to the code they cover where practical, and avoid mixing structural refactors with semantic changes.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 - Area: ~src/indexer.rs~, ~src/parser/orgize_adapter.rs~
 - Problem: Core modules are large, especially ~src/indexer.rs~.
 - Why it matters: Large modules increase review cost and make behavior changes riskier.
@@ -406,6 +1028,70 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Medium
 :BEHAVIOR_API_CHANGE: Yes
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode. Add a rebuild guard that fails before any DB-destructive work when the configured input scope is empty or resolves to zero Org files, propagate clear user-facing errors through the CLI, add regression tests proving the DB is not cleared in those cases, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Guard Rebuild Against Accidental Empty Input Scope
+
+  ## Summary
+  `rebuild` currently loads config, discovers Org files, and rebuilds the database from that result set. If the configured input scope is empty or resolves to no files, rebuild may still proceed and clear indexed data, which is risky. The fix should add an explicit guard so rebuild fails safely before destructive write work when the input scope is accidentally empty.
+
+  ## Files / Functions To Inspect
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    `rebuild_from_config_path`, `rebuild`, `discover_org_files`
+  - [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs)
+    Config fields that define scope: `files`, `dirs`, `recursive`
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    `rebuild`, `CliError`, user-facing error rendering
+  - Possibly [README.org](/home/hubisan/projects/coding/org-files-db/README.org)
+    Only if rebuild behavior is documented and needs follow-up later
+
+  ## Exact Code Changes Likely Needed
+  - Detect empty rebuild scope before any DB mutation begins.
+  - Treat both cases as guarded failures:
+    config declares no input sources at all (`files` and `dirs` both empty),
+    configured scope exists but discovery resolves to zero Org files.
+  - Return a dedicated `IndexerError` for the empty-scope condition instead of silently continuing.
+  - Ensure the guard runs before opening a write transaction or calling `DbWriter::delete_all_indexed_data`.
+  - Propagate that error through CLI unchanged or with a small CLI wrapper so the user gets a clear actionable message.
+  - Keep explicit destructive rebuild behavior unchanged when at least one input file is discovered.
+
+  ## Proposed Function Names Or Types
+  - Error variants:
+    `IndexerError::EmptyInputScope`
+    or split into
+    `IndexerError::MissingInputScope`
+    `IndexerError::NoFilesDiscovered`
+  - Helper functions:
+    `fn ensure_rebuild_scope_configured(config: &Config) -> Result<(), IndexerError>`
+    `fn ensure_rebuild_targets_found(paths: &[PathBuf]) -> Result<(), IndexerError>`
+
+  Recommended default: use two distinct error variants so misconfiguration and empty discovery are distinguishable.
+
+  ## Test Cases To Add
+  - Rebuild fails when config has no `files` and no `dirs`.
+  - Rebuild fails when configured directory/file scope is valid but discovery finds zero Org files.
+  - Rebuild failure does not clear an existing populated database in either empty-scope case.
+  - Rebuild still succeeds normally with one valid Org file.
+  - CLI test: `rebuild` prints a clear error message for each empty-scope condition.
+
+  ## Risks / Open Questions
+  - This is a behavioral change: previously a user may have relied on “empty rebuild clears DB”; that should now be treated as unsafe by default.
+  - Need to decide whether “zero discovered files” should always be fatal or only fatal when the config had at least one input entry. Recommended default: fatal in both accidental-empty cases above.
+  - If future use cases need intentional clearing, that should be a separate explicit command or flag, not implicit rebuild behavior.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Add a rebuild guard that fails before any DB-destructive work when the configured input scope is empty or resolves to zero Org files, propagate clear user-facing errors through the CLI, add regression tests proving the DB is not cleared in those cases, and avoid unrelated refactors.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 - Area: ~src/config.rs~, ~src/indexer.rs~, ~src/cli.rs~
 - Problem: A config with only ~db_path~ and no configured ~files~ or ~dirs~ can load successfully. ~rebuild~ then discovers an empty file list and proceeds to delete all indexed data.
 - Why it matters: A misconfigured or incomplete config can accidentally wipe the index contents, turning a configuration mistake into destructive state change.
@@ -427,6 +1113,64 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Medium
 :BEHAVIOR_API_CHANGE: No
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+This might have been solved already in ~Define DB schema versioning~. At least parts of it.
+Implement this in BUILD mode. Make DB schema application and migrations atomic by wrapping schema mutation in a transaction, update `user_version` only after successful completion, preserve current caller-facing behavior, add rollback-focused regression tests for failed schema application and successful legacy migrations, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Make Schema Application And Migrations Atomic
+
+  ## Summary
+  Schema setup in `src/db.rs` currently happens during DB open and appears to mix pragma changes, `user_version` updates, and schema application in a multi-step sequence. This task should make initialization and migrations atomic so a failure cannot leave the database half-upgraded or with `user_version` advanced before the schema is fully applied.
+
+  ## Files / Functions To Inspect
+  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    `open_database`, `open_database_with_schema`, `open_in_memory_database_with_schema`, `initialize_database`, `DbError`
+  - [src/db/schema.rs](/home/hubisan/projects/coding/org-files-db/src/db/schema.rs)
+    `SchemaDefinition::apply`, `render_sql`, migration sequencing assumptions
+  - Existing DB migration tests in [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
+    Legacy upgrade tests already cover several migration paths and should be extended, not replaced
+
+  ## Exact Code Changes Likely Needed
+  - Wrap schema application and migration work in an explicit SQLite transaction.
+  - Move `user_version` update to the end of successful schema application, not before it.
+  - Keep connection-level pragmas that must be set outside the transaction separate from schema mutation steps.
+  - Ensure any schema/migration failure rolls back all DDL/data migration changes done in that initialization pass.
+  - Keep writable DB open behavior the same from the caller’s perspective, but make partial initialization impossible.
+  - If `SchemaDefinition::apply` currently executes many statements directly on `&Connection`, consider changing it to operate on a transaction or a generic executor abstraction accepted by both connection and transaction contexts.
+
+  ## Proposed Function Names Or Types
+  - `fn initialize_database_atomically(...) -> Result<(), DbError>`
+  - `fn apply_schema_in_transaction(...) -> Result<(), DbError>`
+  - If needed in `schema.rs`:
+    `SchemaDefinition::apply_to_transaction(...)`
+    or rename current API to something executor-neutral like `SchemaDefinition::apply_to(...)`
+
+  Recommended default: keep the public open functions stable and introduce one internal atomic initialization helper.
+
+  ## Test Cases To Add
+  - Regression test: successful open still creates/applies schema and sets `user_version` correctly.
+  - Failure test: if schema application fails mid-run, no partial schema/data changes remain committed.
+  - Failure test: `user_version` is not advanced when schema application fails.
+  - Migration regression test: existing legacy upgrade paths still succeed under the transactional initialization path.
+  - If feasible with current test style, inject a deliberately failing schema definition to prove rollback behavior.
+
+  ## Risks / Open Questions
+  - SQLite DDL is transactional in common cases, but confirm all statements used by `SchemaDefinition::apply` behave correctly inside a transaction.
+  - Some pragmas are connection-scoped and should not be forced into the migration transaction.
+  - If `journal_mode` setup interacts with transaction timing, keep that sequencing explicit and conservative.
+  - A rollback-focused test may require a controllable failing schema fixture or a test-only schema definition variant.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Make DB schema application and migrations atomic by wrapping schema mutation in a transaction, update `user_version` only after successful completion, preserve current caller-facing behavior, add rollback-focused regression tests for failed schema application and successful legacy migrations, and avoid unrelated refactors.
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 - Area: ~src/db.rs~, ~src/db/schema.rs~, ~sql/schema.sql~
 - Problem: ~user_version~ is set before schema application finishes. If schema creation or migration fails, the database may be left with an advanced version marker despite incomplete schema changes.
 - Why it matters: Partial schema state can make later opens confusing or unsafe, especially once real migrations are added.
@@ -447,6 +1191,77 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Low
 :BEHAVIOR_API_CHANGE: No
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode. Document the synthetic level-0 heading sentinel clearly, add focused DB/CLI regression tests that lock down its creation and filtering behavior, keep the current sentinel semantics unless a minimal clarification is required, and avoid unrelated refactors.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Document And Test DB-Level Sentinel For Synthetic Level-0 Headings
+
+  ## Summary
+  The DB currently stores a synthetic level-0 heading row for each file, and the CLI already treats it as a special case via `include_root`. This task should make that sentinel explicit in docs and tests so its purpose, shape, and handling are stable and not just implicit behavior.
+
+  ## Files / Functions To Inspect
+  - [src/db/writer.rs](/home/hubisan/projects/coding/org-files-db/src/db/writer.rs)
+    `insert_level0_heading`, any assumptions about sentinel field values
+  - [src/db/reader.rs](/home/hubisan/projects/coding/org-files-db/src/db/reader.rs)
+    `HeadingListRow`, ordering and returned field shape
+  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
+    Where synthetic root rows are created during rebuild
+  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
+    `headings_rows_for_json`, `include_root` filtering, existing end-to-end tests
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org) or DB/schema docs if present
+    Best place to document sentinel semantics for users/developers
+
+  ## Exact Code Changes Likely Needed
+  - Add documentation describing the synthetic level-0 heading sentinel:
+    one row per file,
+    `level = 0`,
+    not user-authored,
+    used for outline/file-root bookkeeping.
+  - Document the sentinel’s key field conventions, especially title/path behavior and parent/root expectations.
+  - Add or tighten tests that assert sentinel creation during rebuild and stable filtering in CLI output.
+  - If current code relies on scattered comments, consolidate that into one canonical doc location and one brief inline comment near the DB/CLI boundary.
+  - Do not change sentinel behavior unless tests reveal current behavior is underspecified and needs a minimal clarification.
+
+  ## Proposed Function Names Or Types
+  No production API change is required by default.
+
+  If a small helper improves test clarity:
+  - `fn assert_level0_heading_sentinel(...)`
+  - `fn synthetic_root_heading_row(...)` for test setup only
+
+  If a constant would reduce magic values and is justified:
+  - `pub(crate) const SYNTHETIC_ROOT_LEVEL: i64 = 0`
+
+  Recommended default: add tests and docs first, introduce a constant only if the implementation currently repeats raw sentinel values enough to justify it.
+
+  ## Test Cases To Add
+  - Rebuild creates exactly one synthetic level-0 heading per indexed file.
+  - Sentinel row has the expected structural properties:
+    `level == 0`,
+    `parent_id == None`,
+    file linkage is correct,
+    non-user-authored semantics are preserved.
+  - CLI `headings --json` excludes the sentinel by default.
+  - CLI `headings --json --include-root` includes the sentinel and keeps normal headings alongside it.
+  - Multi-file rebuild test: one sentinel per file, with stable ordering expectations only if current query order already guarantees them.
+
+  ## Risks / Open Questions
+  - Need to decide where the canonical documentation belongs: README, DB docs, or both. Recommended default: brief README note plus more precise developer-facing DB/schema doc.
+  - Some sentinel field values may be conventional rather than explicitly specified today; documenting them may effectively freeze behavior.
+  - If downstream consumers already rely on current sentinel shape, tests should codify existing behavior rather than redesign it here.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Document the synthetic level-0 heading sentinel clearly, add focused DB/CLI regression tests that lock down its creation and filtering behavior, keep the current sentinel semantics unless a minimal clarification is required, and avoid unrelated refactors.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
+
 - Area: ~src/parser/model.rs~, ~src/parser/orgize_adapter.rs~, ~src/indexer.rs~, ~sql/schema.sql~, parser/indexer tests
 - Problem: The parser model represents synthetic level-0 headings with ~byte_start = 0~, but the indexer stores DB-level synthetic level-0 headings with ~byte_start = -1~.
 - Why it matters: The difference may be intentional to avoid conflicts with real headings at byte offset ~0~, but the schema/comments and model contract should make this explicit.
@@ -467,6 +1282,69 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Low
 :BEHAVIOR_API_CHANGE: No
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode. Add conservative package metadata to `Cargo.toml`, using only values that are already supported by the repository’s existing files and known project identity, avoid inventing URLs or claims, and make no dependency or behavior changes.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Add Package Metadata To `Cargo.toml`
+
+  ## Summary
+  This task should enrich `Cargo.toml` with standard package metadata so the crate is better described for tooling, packaging, and future publishing. The change should stay limited to metadata fields and avoid dependency, feature, or build-behavior changes.
+
+  ## Files / Functions To Inspect
+  - [Cargo.toml](/home/hubisan/projects/coding/org-files-db/Cargo.toml)
+    Current `[package]` section and any existing metadata
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org)
+    Candidate source for `description` and possibly `readme`
+  - [LICENSE](/home/hubisan/projects/coding/org-files-db/LICENSE)
+    License identifier/source
+  - Optionally [.project/agents/repository.org](/home/hubisan/projects/coding/org-files-db/.project/agents/repository.org)
+    Only if repo-specific publishing/documentation conventions need confirmation
+
+  ## Exact Code Changes Likely Needed
+  - Add missing descriptive fields under `[package]` in `Cargo.toml`.
+  - Likely include:
+    `description`,
+    `license` or `license-file`,
+    `readme`,
+    `repository` if the canonical repo URL is known,
+    `homepage` only if distinct from `repository`,
+    `documentation` only if a real docs URL exists,
+    `keywords`,
+    `categories`.
+  - Keep metadata conservative and factual; do not invent URLs or publication claims.
+  - Prefer `license-file = "LICENSE"` if SPDX mapping is uncertain from the existing license text.
+  - Do not change dependencies, editions, crate name, features, or publish settings unless the file already signals a missing required companion field.
+
+  ## Proposed Function Names Or Types
+  No Rust code changes expected.
+
+  If a package-level policy decision is needed, capture it only in metadata fields, not new symbols.
+
+  ## Test Cases To Add
+  - No Rust tests required.
+  - Validation should be lightweight:
+    ensure `Cargo.toml` remains syntactically valid TOML,
+    ensure referenced files like `README.org` or `LICENSE` actually exist,
+    ensure keywords/categories are plausible Cargo values if added.
+  - If the repo later allows it, `cargo metadata` or `cargo package --list` would be the natural verification, but not required for the plan.
+
+  ## Risks / Open Questions
+  - Repository/homepage/documentation URLs should not be guessed; if not already known in-repo, omit them.
+  - `README.org` is valid as a file reference, but crates.io rendering expectations may differ from Markdown; decide whether `readme` should still point to it or be omitted. Recommended default: keep `readme = "README.org"` if the file is already the canonical project overview.
+  - Keywords and categories are user-visible taxonomy choices; keep them minimal and accurate rather than aspirational.
+  - Open question: whether this crate is intended for publishing at all. Recommended default: add useful metadata without adding `publish = false` unless the repo already indicates that policy.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Add conservative package metadata to `Cargo.toml`, using only values that are already supported by the repository’s existing files and known project identity, avoid inventing URLs or claims, and make no dependency or behavior changes.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
 - Area: ~Cargo.toml~, ~LICENSE~, ~README.org~
 - Problem: ~Cargo.toml~ has minimal package metadata and does not declare fields such as ~license~, ~description~, ~repository~, ~readme~, or ~keywords~.
 - Why it matters: The project already has a license file and README, but Cargo metadata does not expose that information to tooling or future publication workflows.
@@ -487,6 +1365,70 @@ Erste identizierte Sachen von Codex und ChatGPT:
 :RISK: Low
 :BEHAVIOR_API_CHANGE: No
 :END:
+Codex already made a plan for this [2026-06-24 Wed].
+
+Next Codex Prompt:
+Implement this in BUILD mode. Refresh the project’s top-level and major supporting documentation so it matches the current CLI, config, indexing, parser, and contributor workflow behavior, remove stale or speculative claims, keep the work documentation-only, and avoid touching archival/reference material unless it is directly misdescribed by current docs.
+
+Plan from Codex [2026-06-24 Wed]:
+
+#+BEGIN_SRC markdown
+  # Refresh Broader Project Documentation
+
+  ## Summary
+  This task is broader than the targeted README/parser-risk refresh and should bring the remaining project documentation into line with the current implementation, workflow, and project structure. The work should stay documentation-only and avoid introducing new product commitments.
+
+  ## Files / Functions To Inspect
+  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org)
+    High-level project overview and user-facing usage
+  - [CONTRIBUTING.org](/home/hubisan/projects/coding/org-files-db/CONTRIBUTING.org)
+    Contributor workflow, setup, expectations
+  - [docs/parser-risks.org](/home/hubisan/projects/coding/org-files-db/docs/parser-risks.org)
+    Parser-specific caveats and limitations
+  - [docs/reference/org.ebnf](/home/hubisan/projects/coding/org-files-db/docs/reference/org.ebnf)
+    Reference material placement and whether surrounding docs describe it correctly
+  - [CHANGELOG.org](/home/hubisan/projects/coding/org-files-db/CHANGELOG.org)
+    Format and whether doc-visible changes should be recorded
+  - Source-of-truth code for cross-checking:
+    [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs),
+    [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs),
+    [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs),
+    [src/lib.rs](/home/hubisan/projects/coding/org-files-db/src/lib.rs)
+
+  ## Exact Changes Likely Needed
+  - Update high-level project docs so they match the current CLI, config, indexing flow, parser scope, and library/binary positioning.
+  - Remove stale references to commands, features, workflows, or architecture that no longer exist.
+  - Tighten contributor docs so setup, validation expectations, and repository workflow reflect current practice.
+  - Add or correct cross-links between top-level docs and `docs/` material where useful.
+  - Make terminology consistent across docs:
+    “rebuild”, “headings”, “synthetic level-0 heading”, parser/indexer/database terminology, config field names.
+  - If there are historical or aspirational sections, either clearly label them as such or trim them to avoid presenting plans as implemented behavior.
+  - Keep reference documents like `org.ebnf` unchanged unless surrounding prose currently misdescribes them.
+
+  ## Proposed Function Names Or Types
+  No production code changes expected.
+
+  If helpful during implementation, treat this as a documentation inventory/update task only; no new Rust symbols should be introduced.
+
+  ## Test Cases / Validation To Add
+  - No Rust tests required for documentation-only work.
+  - Manual consistency check that every documented command/flag exists in `src/cli.rs`.
+  - Manual consistency check that documented config keys and defaults match `src/config.rs`.
+  - Manual consistency check that contributor workflow statements match current repo instructions and actual available commands/files.
+  - Confirm docs do not promise unsupported parser, search, or library APIs.
+
+  ## Risks / Open Questions
+  - This overlaps with the narrower README/parser-risk task; avoid duplicating effort or making conflicting edits if both tasks remain active.
+  - “Broader documentation” needs a clear stopping point; recommended default is top-level docs plus major `docs/` files that describe current behavior, not archival/reference material.
+  - If current documentation reflects intended future direction rather than implemented state, this task should prefer accuracy over ambition.
+  - Open question: whether `CHANGELOG.org` should be updated for doc-only refreshes. Recommended default: only if the repo’s existing changelog practice includes documentation changes.
+
+  ## Next Codex Prompt
+  Implement this in BUILD mode. Refresh the project’s top-level and major supporting documentation so it matches the current CLI, config, indexing, parser, and contributor workflow behavior, remove stale or speculative claims, keep the work documentation-only, and avoid touching archival/reference material unless it is directly misdescribed by current docs.
+
+#+END_SRC
+
+Content of Todo before Codex made the plan:
 - Area: ~README.org~, ~CONTRIBUTING.org~, ~CHANGELOG.org~, ~docs/parser-risks.org~
 - Problem: Multiple documentation files are stale or incomplete. ~README.org~ still describes implemented components as placeholders, ~CONTRIBUTING.org~ has an unfinished testing section, ~CHANGELOG.org~ mostly reflects early scaffold state, and ~docs/parser-risks.org~ lists some already-addressed parser gaps as open.
 - Why it matters: Contributors and AI agents may form the wrong mental model, repeat completed work, or miss real remaining risks.
