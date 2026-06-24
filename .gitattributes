@@ -3,8 +3,15 @@ Makefile linguist-detectable=false
 # Should not affect language stats
 .project/** linguist-vendored
 
-# Treat generated or fixture HTML as vendored so it does not affect language stats
-tests/fixtures/** linguist-vendored
+# Keep local/manual/archive project material in the repo,
+# but exclude it from git archive exports used for external review/release packages.
+.project/local/** export-ignore
+.project/manual-tests/** export-ignore
+.project/tasks/archive/** export-ignore
+old-files/** export-ignore
+
+# Test data / parser fixtures should not affect language stats
+tests/data/** linguist-vendored
 
 # Documentation
 docs/** linguist-documentation

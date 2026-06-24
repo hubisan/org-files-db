@@ -22,9 +22,12 @@ Before setting a task to ~REVIEW~, run:
 
 If not all checks can be run, explain why in the task file.
 
-* Folders/Files to ignore
+* Folders/Files to ignore during automated review
 
-AI ignores:
+The following paths are intentionally kept in the repository/worktree, but AI agents and automated code-review tools should ignore them unless explicitly instructed otherwise.
 
-- [[../manual-tests]]
-- [[../local]]
+These folders may contain useful local, historical, or manual reference material, but they are not part of the active product implementation.
+
+- [[../manual-tests][.project/manual-tests]]
+- [[../local][.project/local]]
+- [[../../old-files][old-files]]

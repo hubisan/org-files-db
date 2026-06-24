@@ -293,4 +293,211 @@ Acceptance criteria:
 - README contains a minimal example.
 - DB schema documentation references the actual schema file.
   
-** TODO Repo durch ChatGPT prüfen lassen
+** TODO Repo durch Codex/ChatGPT prüfen lassen
+
+Erste identizierte Sachen von Codex und ChatGPT:
+
+*** TODO [#A] Make CLI read commands truly read-only
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:BEHAVIOR_API_CHANGE: Yes
+:END:
+- Area: ~src/cli.rs~, ~src/db.rs~, ~src/config.rs~
+- Problem: ~headings~ currently opens the database through ~open_database~, which uses a writable connection and initializes/applies schema.
+- Additional problem: ~headings --config~ loads the full config and validates configured source files/directories even though it only needs ~db_path~.
+- Why it matters: Read commands should not create databases, initialize schemas, run migrations, create FTS tables, or fail because indexed source files moved while the DB still exists.
+- Suggested fix:
+  - Add a read-only/open-existing DB function using SQLite read-only flags.
+  - Do not apply schema or migrations in read-only paths.
+  - Add a lightweight config path reader for ~db_path~ only, or make config validation mode-specific.
+  - Return a clear error if the DB path does not exist.
+- Tests:
+  - Missing DB path fails and does not create a file.
+  - Existing DB can be read successfully.
+  - ~headings --config~ does not require configured ~files~ / ~dirs~ to still exist.
+  - Read command does not create optional schema artifacts such as FTS tables.
+- Notes: CLI behavior changes from "silently create/init DB" to "fail clearly".
+
+*** TODO [#A] Replace double-encoded tag JSON in CLI output
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:BEHAVIOR_API_CHANGE: Yes
+:END:
+- Area: ~src/db/reader.rs~, ~src/cli.rs~
+- Problem: ~HeadingListRow.all_tags_json~ is a ~String~, and CLI JSON serializes it as a JSON string rather than an array.
+- Why it matters: JSON consumers get awkward output and must decode nested JSON manually.
+- Suggested fix:
+  - Keep DB-reader row raw if useful internally.
+  - Add a CLI/API DTO that exposes ~all_tags~ or ~tags~ as ~Vec<String>~.
+  - Parse ~all_tags_json~ once at the boundary.
+- Tests:
+  - CLI JSON contains an array for tags.
+  - Invalid stored tag JSON returns a clear error instead of silently producing malformed output.
+- Notes: This changes public JSON output.
+
+*** TODO [#A] Canonicalize configured paths more robustly
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:BEHAVIOR_API_CHANGE: Possibly
+:END:
+- Area: ~src/config.rs~, ~src/indexer.rs~
+- Problem: Path normalization removes ~.~ but not ~..~ or other equivalent path aliases.
+- Why it matters: The same file can be indexed under multiple syntactic paths, weakening deduplication and stale-row cleanup.
+- Suggested fix:
+  - Define desired semantics first, especially for symlinks.
+  - Canonicalize existing files/dirs after config-relative resolution where appropriate.
+  - Decide separately how to normalize DB paths that may not exist yet.
+- Tests:
+  - ~./notes/../notes/file.org~ and ~notes/file.org~ resolve to one stored file path.
+  - Duplicate config entries do not create duplicate indexed files.
+  - Symlink behavior is documented and tested.
+
+*** TODO [#B] Refresh README and parser risk docs to match current implementation
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:BEHAVIOR_API_CHANGE: No
+:END:
+- Area: ~README.org~, ~docs/parser-risks.org~
+- Problem: README still describes implemented components as placeholders; parser risk docs still list some resolved parser gaps as open.
+- Why it matters: New contributors and AI agents will work from an outdated mental model.
+- Suggested fix:
+  - Rewrite README around actual CLI usage, config, DB/indexer/parser status, and test commands.
+  - Fix stale badge/project references.
+  - Update parser risk entries for file-local TODOs, synthetic level-0 heading, and body extraction.
+  - Keep unresolved link/plain-link/parser-backend risks.
+- Tests: Documentation-only; run no behavior-changing code.
+
+*** TODO [#B] Narrow the public library surface
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:BEHAVIOR_API_CHANGE: Yes
+:END:
+- Area: ~src/lib.rs~, ~src/query.rs~, ~src/parser/model.rs~, ~src/db.rs~
+- Problem: The crate exports broad internal modules directly, including placeholder ~query~.
+- Why it matters: This creates a semver/API surface before the project appears ready to support it.
+- Suggested fix:
+  - Decide whether this is primarily a binary crate or a public Rust library.
+  - Re-export only intentional public entrypoints.
+  - Hide or remove placeholder modules.
+- Notes: If external consumers already exist, create a compatibility plan first.
+
+*** TODO [#B] Split oversized modules after behavior fixes
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:BEHAVIOR_API_CHANGE: No
+:END:
+- Area: ~src/indexer.rs~, ~src/parser/orgize_adapter.rs~
+- Problem: Core modules are large, especially ~src/indexer.rs~.
+- Why it matters: Large modules increase review cost and make behavior changes riskier.
+- Suggested fix:
+  - Split only after higher-priority behavior fixes.
+  - Candidate areas: file discovery, document normalization, tag inheritance, timestamp mapping, FTS/body indexing, synthetic level-0 helpers.
+  - Keep changes mechanical and covered by existing tests.
+
+*** TODO [#A] Guard rebuild against accidental empty input scope
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:BEHAVIOR_API_CHANGE: Yes
+:END:
+- Area: ~src/config.rs~, ~src/indexer.rs~, ~src/cli.rs~
+- Problem: A config with only ~db_path~ and no configured ~files~ or ~dirs~ can load successfully. ~rebuild~ then discovers an empty file list and proceeds to delete all indexed data.
+- Why it matters: A misconfigured or incomplete config can accidentally wipe the index contents, turning a configuration mistake into destructive state change.
+- Suggested fix:
+  - Detect empty indexing scope before deleting indexed data.
+  - Fail clearly when both ~files~ and ~dirs~ are empty, unless an explicit override is provided.
+  - Consider an explicit CLI flag such as ~--allow-empty~ if intentionally clearing the index should remain possible.
+  - Make the error message explain which config fields are missing.
+- Tests:
+  - ~rebuild~ with empty ~files~ and ~dirs~ fails before deleting existing indexed data.
+  - Existing DB contents remain intact after the failed empty-scope rebuild.
+  - If an explicit override is implemented, empty rebuild only proceeds with that override.
+- Notes:
+  - This is a safety guard around destructive rebuild behavior.
+
+*** TODO [#B] Make schema application and migrations atomic
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:BEHAVIOR_API_CHANGE: No
+:END:
+- Area: ~src/db.rs~, ~src/db/schema.rs~, ~sql/schema.sql~
+- Problem: ~user_version~ is set before schema application finishes. If schema creation or migration fails, the database may be left with an advanced version marker despite incomplete schema changes.
+- Why it matters: Partial schema state can make later opens confusing or unsafe, especially once real migrations are added.
+- Suggested fix:
+  - Apply schema changes and migrations inside a transaction where possible.
+  - Set ~PRAGMA user_version~ only after schema application/migration succeeds.
+  - Ensure legacy migration steps and optional FTS setup cannot leave a misleading version marker on failure.
+- Tests:
+  - Simulate or isolate a schema-application failure and assert that ~user_version~ is not advanced.
+  - Existing initialized databases still open normally.
+  - Fresh database initialization still creates the expected schema.
+- Notes:
+  - This is mostly internal correctness and future migration safety.
+
+*** TODO [#B] Document and test DB-level sentinel for synthetic level-0 headings
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:BEHAVIOR_API_CHANGE: No
+:END:
+- Area: ~src/parser/model.rs~, ~src/parser/orgize_adapter.rs~, ~src/indexer.rs~, ~sql/schema.sql~, parser/indexer tests
+- Problem: The parser model represents synthetic level-0 headings with ~byte_start = 0~, but the indexer stores DB-level synthetic level-0 headings with ~byte_start = -1~.
+- Why it matters: The difference may be intentional to avoid conflicts with real headings at byte offset ~0~, but the schema/comments and model contract should make this explicit.
+- Suggested fix:
+  - Document that parser-level synthetic headings use byte offset ~0~ while DB-level synthetic level-0 rows use sentinel ~-1~.
+  - Update schema comments or internal docs to match actual behavior.
+  - Add a regression test proving that a real heading at byte offset ~0~ and the synthetic level-0 DB row do not conflict.
+- Tests:
+  - File starting with a real heading at byte offset ~0~ indexes successfully.
+  - Synthetic level-0 DB row uses the expected sentinel.
+  - No duplicate-key conflict occurs for level-0 plus first real heading.
+- Notes:
+  - Do not change the sentinel unless there is a deliberate migration plan.
+
+*** TODO [#C] Add package metadata to ~Cargo.toml~
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:BEHAVIOR_API_CHANGE: No
+:END:
+- Area: ~Cargo.toml~, ~LICENSE~, ~README.org~
+- Problem: ~Cargo.toml~ has minimal package metadata and does not declare fields such as ~license~, ~description~, ~repository~, ~readme~, or ~keywords~.
+- Why it matters: The project already has a license file and README, but Cargo metadata does not expose that information to tooling or future publication workflows.
+- Suggested fix:
+  - Add accurate package metadata once the intended publication/library status is clear.
+  - Ensure ~license~ matches the actual license file and README badge.
+  - Add ~readme = "README.org"~ if Cargo/crates.io workflow should use it.
+  - Add repository/description/keywords only if stable and accurate.
+- Tests:
+  - Run ~cargo metadata~ after changes.
+  - Run normal test suite if Cargo metadata changes are committed.
+- Notes:
+  - Keep this low priority unless the crate will be published or shared as a library.
+
+*** TODO [#B] Refresh broader project documentation
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:BEHAVIOR_API_CHANGE: No
+:END:
+- Area: ~README.org~, ~CONTRIBUTING.org~, ~CHANGELOG.org~, ~docs/parser-risks.org~
+- Problem: Multiple documentation files are stale or incomplete. ~README.org~ still describes implemented components as placeholders, ~CONTRIBUTING.org~ has an unfinished testing section, ~CHANGELOG.org~ mostly reflects early scaffold state, and ~docs/parser-risks.org~ lists some already-addressed parser gaps as open.
+- Why it matters: Contributors and AI agents may form the wrong mental model, repeat completed work, or miss real remaining risks.
+- Suggested fix:
+  - Update ~README.org~ to describe the current CLI, parser, DB/indexer, config, and test status.
+  - Fix stale project/badge references.
+  - Complete the testing instructions in ~CONTRIBUTING.org~.
+  - Update ~CHANGELOG.org~ to reflect the current implementation state.
+  - Reconcile ~docs/parser-risks.org~ with current parser behavior and tests.
+- Tests:
+  - Documentation-only; no runtime tests required.
+  - Optionally run link/spell checks if available.
+- Notes:
+  - This can be combined with the existing docs-refresh TODO, or that TODO can be replaced by this broader one.
