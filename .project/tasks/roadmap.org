@@ -499,6 +499,7 @@ General rules:
 - Parsing and DB writing should remain cleanly separated.
 - Rebuilds should be deterministic.
 - Derived/cache tables must stay consistent with core rows.
+- Parallel parsing is tracked separately in Phase 7; Phase 6 should keep the indexer structure clean enough to enable it later.
 
 ** TODO Recursive file discovery ~(find_org_files)~
 
@@ -543,20 +544,6 @@ Acceptance criteria:
 - Optional FTS rows are kept consistent only when FTS5 is enabled.
 - Tests or manual checks cover partial failure behavior.
 
-** TODO Evaluate parallelization with Rayon
-
-Goal: Parallelize parsing while keeping DB writes controlled, either serial or batched.
-
-Note: Define performance targets only after benchmarking. Avoid hard performance claims before measurement.
-
-Acceptance criteria:
-
-- Benchmark baseline exists.
-- Parsing and DB writing are cleanly separated.
-- DB writes remain transactional and deterministic.
-- There are no race conditions while writing.
-- Parallel behavior can be disabled or limited if needed.
-
 ** TODO Optimize SQLite indexes
 
 Goal: Speed up common queries.
@@ -584,7 +571,76 @@ Acceptance criteria:
 - Findings are documented.
 - Schema changes are based on measurements, not assumptions.
 
-* Phase 7: Watcher for incremental updates
+* Phase 7: Parallel indexing pipeline
+
+Goal of this phase: Make rebuild fast on larger Org collections by parallelizing file parsing while keeping filesystem discovery, per-file context resolution, and SQLite writes deterministic.
+
+Reason for separate phase:
+
+- Parallel scanning/parsing affects indexer architecture, DB write ordering, error handling, resolver caches, and later watcher behavior.
+- It should not be mixed into `.dir-locals.el`, TODO keyword resolution, or parser correctness tasks.
+- New resolver code should already avoid global mutable state so this phase can be implemented cleanly later.
+
+General rules:
+
+- Keep parser inputs independent per file.
+- Keep DB writes serial or explicitly batched inside controlled transactions.
+- Do not share mutable parser state across files.
+- Resolver caches must be explicit, bounded, and safe to use from a future parallel pipeline.
+- Parallel behavior must be configurable or limitable.
+
+** TODO Split rebuild into discovery, parse jobs, and write jobs
+
+Goal: Make the indexing pipeline structurally ready for parallel parsing without changing parser semantics.
+
+Acceptance criteria:
+
+- File discovery is separated from per-file parse work.
+- Per-file parse inputs include content, path metadata, and effective parse options.
+- Per-file parse outputs are independent values that can be written later.
+- SQLite writes remain transactional and deterministic.
+- Error reporting preserves file path context.
+
+** TODO Make per-file context resolvers parallel-safe
+
+Goal: Ensure future sources such as config defaults, Emacs file-local variables, and `.dir-locals.el` can be resolved without blocking parallel parsing design.
+
+Acceptance criteria:
+
+- Resolver state is explicit and testable.
+- No parser-side filesystem or DB lookups are introduced.
+- Cache keys for external source files include path and relevant file metadata.
+- Cache invalidation behavior is documented.
+- Tests cover deterministic results independent of file processing order.
+
+** TODO Evaluate parallelization with Rayon
+
+Goal: Parallelize parsing while keeping DB writes controlled, either serial or batched.
+
+Note: Define performance targets only after benchmarking. Avoid hard performance claims before measurement.
+
+Acceptance criteria:
+
+- Benchmark baseline exists.
+- Parsing and DB writing are cleanly separated.
+- DB writes remain transactional and deterministic.
+- There are no race conditions while writing.
+- Parallel behavior can be disabled or limited if needed.
+- Performance and memory impact are measured before making Rayon mandatory.
+
+** TODO Benchmark rebuild performance on realistic Org collections
+
+Goal: Decide whether the parallel pipeline is worth its complexity and tune defaults based on measurements.
+
+Acceptance criteria:
+
+- Benchmark corpus size and shape are documented.
+- Baseline sequential rebuild time is measured.
+- Parallel parsing rebuild time is measured.
+- SQLite write time is measured separately where practical.
+- Results document CPU, IO, and memory tradeoffs.
+
+* Phase 8: Watcher for incremental updates
 
 Goal of this phase: Detect file changes and index selectively.
 
@@ -628,7 +684,7 @@ Acceptance criteria:
 - Selective reparse updates FTS rows when FTS5 is enabled.
 - Tests cover modified, created, and deleted files where practical.
 
-* Phase 8: Emacs integration
+* Phase 9: Emacs integration
 
 Goal of this phase: Make the SQLite/CLI layer usable from Emacs.
 
@@ -689,7 +745,7 @@ Acceptance criteria:
 - Decision is documented: not needed, later, or useful.
 - Added complexity is justified by concrete performance or UX benefits.
 
-* Phase 9: Testing and regression
+* Phase 10: Testing and regression
 
 Goal of this phase: Consolidate the test and regression base, close gaps, and make it maintainable long term.
 
@@ -697,7 +753,7 @@ Important: Testing is not a late special block. Every ~PLAN~, ~BUILD~, ~NEXT~, a
 
 New features should each receive their own tests, fixtures, or documented manual checks.
 
-Phase 9 is the final bundling, hardening, and extension of the test strategy across parser, DB, query, and watcher behavior.
+Phase 10 is the final bundling, hardening, and extension of the test strategy across parser, DB, query, and watcher behavior.
 
 ** TODO Define Org files for testing
 
@@ -819,7 +875,7 @@ Acceptance criteria:
 - Line number fallback is documented.
 - Emacs behavior is checked manually or through an automated fixture if practical.
 
-* Phase 10: Documentation
+* Phase 11: Documentation
 
 Goal of this phase: Document the project so it is usable and maintainable.
 
