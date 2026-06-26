@@ -1,0 +1,5 @@
+#+TITLE: Unsafe syntax warning test
+
+* TODO Should be open from config fallback when unsafe .dir-locals.el is ignored with warning
+* DONE Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning
+* PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable

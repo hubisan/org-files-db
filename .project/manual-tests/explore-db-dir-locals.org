@@ -1,0 +1,325 @@
+#+TITLE: Explore DB Dir Locals TODO Keywords
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run all in [[./manual-test.org]] first to rebuild the database.
+
+This file checks the manual test files under:
+
+* [[./files/dir-locals-test-structure/]]
+
+** Files from dir-locals test structure
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+  id,
+  path
+  FROM files
+  WHERE path LIKE '%dir-locals-test-structure%'
+  ORDER BY path;
+#+END_SRC
+
+#+RESULTS:
+: id  path                                                                                                                                 
+: --  -------------------------------------------------------------------------------------------------------------------------------------
+: 1   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/README.org                          
+: 2   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org   
+: 3   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org
+: 4   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                 
+: 5   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org   
+
+* Headings from dir-locals test structure
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+  f.path,
+  h.level,
+  h.todo_keyword,
+  h.todo_type,
+  h.title
+  FROM headings h
+  JOIN files f
+  ON f.id = h.file_id
+  WHERE f.path LIKE '%dir-locals-test-structure%'
+  ORDER BY
+  f.path,
+  h.byte_start,
+  h.id;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+path                                                                                                                                   level  todo_keyword  todo_type  title                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------  -----  ------------  ---------  ----------------------------------------------------------------------------------------
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/README.org                            0      NULL          NULL       dir-locals test structure                                                               
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/README.org                            1      NULL          NULL       How to use                                                                              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     0      NULL          NULL       Deepest .dir-locals wins test                                                           
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     1      NEXT          open       Should be open from notes/child/.dir-locals.el                                          
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     1      FINISHED      closed     Should be closed from notes/child/.dir-locals.el                                        
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     1      NULL          NULL       PLAN Should NOT be recognized because child .dir-locals.el wins                         
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     1      NULL          NULL       DONE Should NOT be recognized because child .dir-locals.el wins                         
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  0      NULL          NULL       Org in-buffer TODO override test                                                        
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  1      REVIEW        open       Should be open from in-buffer #+TODO                                                    
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  1      BLOCKED       open       Should also be open from in-buffer #+TODO                                               
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  1      CLOSED        closed     Should be closed from in-buffer #+TODO                                                  
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  1      NULL          NULL       PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el                   
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  1      NULL          NULL       DONE Should NOT be recognized because #+TODO overrides .dir-locals.el                   
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   0      NULL          NULL       Root dir-locals test                                                                    
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   1      PLAN          open       Should be open from .dir-locals.el                                                      
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   1      WAIT          open       Should also be open from .dir-locals.el                                                 
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   1      DONE          closed     Should be closed from .dir-locals.el                                                    
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   1      CANCEL        closed     Should also be closed from .dir-locals.el                                               
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   1      NULL          NULL       TODO Should NOT be recognized when .dir-locals.el is active                             
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org     0      NULL          NULL       Unsafe syntax warning test                                                              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org     1      TODO          open       Should be open from config fallback when unsafe .dir-locals.el is ignored with warning  
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org     1      DONE          closed     Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org     1      NULL          NULL       PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable  
+#+end_example
+
+* TODO keyword provenance
+
+This should show whether keywords came from config defaults, dir-locals, or Org in-buffer TODO declarations.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+  f.path,
+  tk.keyword,
+  tk.state_type,
+  tk.shortcut,
+  tk.sequence_no,
+  tk.source_kind,
+  tk.source_keyword,
+  tk.source_line_number
+  FROM todo_keywords tk
+  JOIN files f
+  ON f.id = tk.file_id
+  WHERE f.path LIKE '%dir-locals-test-structure%'
+  ORDER BY
+  f.path,
+  tk.sequence_no;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+path                                                                                                                                   keyword   state_type  shortcut  sequence_no  source_kind     source_keyword  source_line_number
+-------------------------------------------------------------------------------------------------------------------------------------  --------  ----------  --------  -----------  --------------  --------------  ------------------
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/README.org                            TODO      open        NULL      0            config_default  NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/README.org                            DONE      closed      NULL      1            config_default  NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     NEXT      open        n         0            dir_locals      NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org     FINISHED  closed      f         1            dir_locals      NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  REVIEW    open        r         0            org_keyword     TODO            2                 
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  BLOCKED   open        b         1            org_keyword     TODO            2                 
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org  CLOSED    closed      c         2            org_keyword     TODO            2                 
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   PLAN      open        p         0            dir_locals      NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   WAIT      open        w         1            dir_locals      NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   DONE      closed      d         2            dir_locals      NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                   CANCEL    closed      c         3            dir_locals      NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org     TODO      open        NULL      0            config_default  NULL            NULL              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org     DONE      closed      NULL      1            config_default  NULL            NULL              
+#+end_example
+
+* Check root .dir-locals.el
+
+Expected:
+
+- ~PLAN~ open
+- ~WAIT~ open
+- ~DONE~ closed
+- ~CANCEL~ closed
+- ~TODO~ not recognized as a TODO keyword
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+  h.todo_keyword,
+  h.todo_type,
+  h.title
+  FROM headings h
+  JOIN files f
+  ON f.id = h.file_id
+  WHERE f.path LIKE '%dir-locals-test-structure/notes/root-test.org'
+  ORDER BY
+  h.byte_start,
+  h.id;
+#+END_SRC
+
+#+RESULTS:
+: todo_keyword  todo_type  title                                                      
+: ------------  ---------  -----------------------------------------------------------
+: NULL          NULL       Root dir-locals test                                       
+: PLAN          open       Should be open from .dir-locals.el                         
+: WAIT          open       Should also be open from .dir-locals.el                    
+: DONE          closed     Should be closed from .dir-locals.el                       
+: CANCEL        closed     Should also be closed from .dir-locals.el                  
+: NULL          NULL       TODO Should NOT be recognized when .dir-locals.el is active
+
+* Check deepest .dir-locals.el wins
+
+Expected:
+
+- ~NEXT~ open
+- ~FINISHED~ closed
+- ~PLAN~ not recognized
+- ~DONE~ not recognized
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+SELECT
+h.todo_keyword,
+h.todo_type,
+h.title
+FROM headings h
+JOIN files f
+ON f.id = h.file_id
+WHERE f.path LIKE '%dir-locals-test-structure/notes/child/deepest-wins-test.org'
+ORDER BY
+h.byte_start,
+h.id;
+#+END_SRC
+
+#+RESULTS:
+: todo_keyword  todo_type  title                                                          
+: ------------  ---------  ---------------------------------------------------------------
+: NULL          NULL       Deepest .dir-locals wins test                                  
+: NEXT          open       Should be open from notes/child/.dir-locals.el                 
+: FINISHED      closed     Should be closed from notes/child/.dir-locals.el               
+: NULL          NULL       PLAN Should NOT be recognized because child .dir-locals.el wins
+: NULL          NULL       DONE Should NOT be recognized because child .dir-locals.el wins
+
+* Check Org in-buffer TODO override
+
+Expected:
+
+- ~REVIEW~ open
+- ~BLOCKED~ open
+- ~CLOSED~ closed
+- ~PLAN~ not recognized
+- ~DONE~ not recognized
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+SELECT
+h.todo_keyword,
+h.todo_type,
+h.title
+FROM headings h
+JOIN files f
+ON f.id = h.file_id
+WHERE f.path LIKE '%dir-locals-test-structure/notes/override/org-override-test.org'
+ORDER BY
+h.byte_start,
+h.id;
+#+END_SRC
+
+#+RESULTS:
+: todo_keyword  todo_type  title                                                                
+: ------------  ---------  ---------------------------------------------------------------------
+: NULL          NULL       Org in-buffer TODO override test                                     
+: REVIEW        open       Should be open from in-buffer #+TODO                                 
+: BLOCKED       open       Should also be open from in-buffer #+TODO                            
+: CLOSED        closed     Should be closed from in-buffer #+TODO                               
+: NULL          NULL       PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el
+: NULL          NULL       DONE Should NOT be recognized because #+TODO overrides .dir-locals.el
+
+* Check unsafe .dir-locals.el fallback
+
+With ~unsupported = "warn"~, unsafe reader syntax in ~org-todo-keywords~ should be ignored with a warning during rebuild.
+
+Expected in DB:
+
+- ~TODO~ open from config fallback
+- ~DONE~ closed from config fallback
+- ~PLAN~ not recognized
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+SELECT
+h.todo_keyword,
+h.todo_type,
+h.title
+FROM headings h
+JOIN files f
+ON f.id = h.file_id
+WHERE f.path LIKE '%dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org'
+ORDER BY
+h.byte_start,
+h.id;
+#+END_SRC
+
+#+RESULTS:
+: todo_keyword  todo_type  title                                                                                   
+: ------------  ---------  ----------------------------------------------------------------------------------------
+: NULL          NULL       Unsafe syntax warning test                                                              
+: TODO          open       Should be open from config fallback when unsafe .dir-locals.el is ignored with warning  
+: DONE          closed     Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning
+: NULL          NULL       PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable  
+
+* Expected source_kind summary
+
+This groups the effective TODO keyword sources.
+
+Expected:
+
+- Some rows with ~dir_locals~
+- Some rows with ~org_keyword~
+- Some rows with ~config_default~ for the unsafe fallback file
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+SELECT
+tk.source_kind,
+COUNT(*) AS keyword_rows
+FROM todo_keywords tk
+JOIN files f
+ON f.id = tk.file_id
+WHERE f.path LIKE '%dir-locals-test-structure%'
+GROUP BY tk.source_kind
+ORDER BY tk.source_kind;
+#+END_SRC
+
+#+RESULTS:
+: source_kind     keyword_rows
+: --------------  ------------
+: config_default  4           
+: dir_locals      6           
+: org_keyword     3           
+
+* Compact verification table
+
+This is the quickest overview.
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+SELECT
+replace(f.path, '/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/', '') AS test_file,
+h.todo_keyword,
+h.todo_type,
+h.title
+FROM headings h
+JOIN files f
+ON f.id = h.file_id
+WHERE f.path LIKE '%dir-locals-test-structure%'
+AND h.level > 0
+ORDER BY
+f.path,
+h.byte_start,
+h.id;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+test_file                             todo_keyword  todo_type  title                                                                                   
+------------------------------------  ------------  ---------  ----------------------------------------------------------------------------------------
+README.org                            NULL          NULL       How to use                                                                              
+notes/child/deepest-wins-test.org     NEXT          open       Should be open from notes/child/.dir-locals.el                                          
+notes/child/deepest-wins-test.org     FINISHED      closed     Should be closed from notes/child/.dir-locals.el                                        
+notes/child/deepest-wins-test.org     NULL          NULL       PLAN Should NOT be recognized because child .dir-locals.el wins                         
+notes/child/deepest-wins-test.org     NULL          NULL       DONE Should NOT be recognized because child .dir-locals.el wins                         
+notes/override/org-override-test.org  REVIEW        open       Should be open from in-buffer #+TODO                                                    
+notes/override/org-override-test.org  BLOCKED       open       Should also be open from in-buffer #+TODO                                               
+notes/override/org-override-test.org  CLOSED        closed     Should be closed from in-buffer #+TODO                                                  
+notes/override/org-override-test.org  NULL          NULL       PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el                   
+notes/override/org-override-test.org  NULL          NULL       DONE Should NOT be recognized because #+TODO overrides .dir-locals.el                   
+notes/root-test.org                   PLAN          open       Should be open from .dir-locals.el                                                      
+notes/root-test.org                   WAIT          open       Should also be open from .dir-locals.el                                                 
+notes/root-test.org                   DONE          closed     Should be closed from .dir-locals.el                                                    
+notes/root-test.org                   CANCEL        closed     Should also be closed from .dir-locals.el                                               
+notes/root-test.org                   NULL          NULL       TODO Should NOT be recognized when .dir-locals.el is active                             
+notes/unsafe/unsafe-warn-test.org     TODO          open       Should be open from config fallback when unsafe .dir-locals.el is ignored with warning  
+notes/unsafe/unsafe-warn-test.org     DONE          closed     Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning
+notes/unsafe/unsafe-warn-test.org     NULL          NULL       PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable  
+#+end_example

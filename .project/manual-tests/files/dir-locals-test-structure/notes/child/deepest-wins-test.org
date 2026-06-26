@@ -1,0 +1,6 @@
+#+TITLE: Deepest .dir-locals wins test
+
+* NEXT Should be open from notes/child/.dir-locals.el
+* FINISHED Should be closed from notes/child/.dir-locals.el
+* PLAN Should NOT be recognized because child .dir-locals.el wins
+* DONE Should NOT be recognized because child .dir-locals.el wins

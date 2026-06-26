@@ -1,0 +1,8 @@
+#+TITLE: Org in-buffer TODO override test
+#+TODO: REVIEW(r) BLOCKED(b) | CLOSED(c)
+
+* REVIEW Should be open from in-buffer #+TODO
+* BLOCKED Should also be open from in-buffer #+TODO
+* CLOSED Should be closed from in-buffer #+TODO
+* PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el
+* DONE Should NOT be recognized because #+TODO overrides .dir-locals.el

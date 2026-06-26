@@ -1,0 +1,225 @@
+#+TITLE: Explore DB Properties and Keywords
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
+
+* Properties
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+    h.file_id,
+    h.id AS heading_id,
+    p.key,
+    p.value,
+    p.source,
+    p.append,
+    p.line_number
+  FROM headings h
+  JOIN properties p
+    ON p.heading_id = h.id
+  ORDER BY
+    h.file_id,
+    p.line_number,
+    p.id;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+file_id  heading_id  key                            value                                 source            append  line_number
+-------  ----------  -----------------------------  ------------------------------------  ----------------  ------  -----------
+7        42          BEFORE_PROP                    before-value                          property_keyword  0       4          
+7        42          CATEGORY                       before-category                       category_keyword  0       5          
+7        42          AFTER_PROP                     after-value                           property_keyword  0       12         
+7        42          REPEATED_PROP                  first                                 property_keyword  0       13         
+7        42          REPEATED_PROP                  second                                property_keyword  0       14         
+7        42          APPENDED_PROP                  base                                  property_keyword  0       15         
+7        42          APPENDED_PROP                  extra                                 property_keyword  1       16         
+7        42          CATEGORY                       after-category                        category_keyword  0       17         
+10       68          CATEGORY                       Level 0 Category Property             property_drawer   0       2          
+10       68          WHATEVER                       level 0 drawer property               property_drawer   0       3          
+10       68          ID                             7dad9b62-a3cc-43ec-a60f-e650bdaeae6d  property_drawer   0       4          
+10       68          CATEGORY                       category_keyword_value                category_keyword  0       8          
+10       68          EFFORT_ALL                     0:10 0:30 1:00                        property_keyword  0       9          
+10       68          KEYWORD_PROPERTY               valid                                 property_keyword  0       10         
+10       68          KEYWORD_OVERWRITTEN_BY_SECOND  invalid                               property_keyword  0       11         
+10       68          KEYWORD_OVERWRITTEN_BY_SECOND  valid                                 property_keyword  0       12         
+10       68          KEYWORD_APPEND                 foo=1                                 property_keyword  0       13         
+10       68          KEYWORD_APPEND                 bar=2                                 property_keyword  1       14         
+10       69          ID                             abc                                   property_drawer   0       18         
+10       69          CUSTOM_ID                      task-custom-id                        property_drawer   0       19         
+10       69          EFFORT                         0:30                                  property_drawer   0       20         
+10       69          OWNER                          Alice                                 property_drawer   0       21         
+10       69          DRAWER_PROP                    valid                                 property_drawer   0       22         
+10       70          DEFINED_TWICE                  invalid                               property_drawer   0       28         
+10       70          DEFINED_TWICE                  valid                                 property_drawer   0       29         
+10       71          ADD-VALUE                      is                                    property_drawer   0       37         
+10       71          ADD-VALUE                      valid                                 property_drawer   1       38         
+10       72          ID                             lowercase-id                          property_drawer   0       47         
+10       72          CUSTOM_ID                      mixed-case-custom-id                  property_drawer   0       48         
+10       72          DRAWER_PROP                    valid                                 property_drawer   0       49         
+10       72          ADD-VALUE                      appended                              property_drawer   1       50         
+10       73          EMPTY                                                                property_drawer   0       60         
+10       68          LATER_KEYWORD_PROPERTY         works_everywhere                      property_keyword  0       80         
+10       68          CATEGORY                       later_category_keyword                category_keyword  0       81         
+#+end_example
+
+* PROPERTY and CATEGORY keywords
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+    h.file_id,
+    h.id AS heading_id,
+    k.keyword,
+    k.value,
+    k.line_number
+  FROM headings h
+  JOIN keywords k
+    ON k.heading_id = h.id
+  ORDER BY
+    h.file_id,
+    k.line_number,
+    k.id;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+file_id  heading_id  keyword           value                                        line_number
+-------  ----------  ----------------  -------------------------------------------  -----------
+1        1           TITLE             dir-locals test structure                    1          
+2        3           TITLE             Deepest .dir-locals wins test                1          
+3        8           TITLE             Org in-buffer TODO override test             1          
+3        8           TODO              REVIEW(r) BLOCKED(b) | CLOSED(c)             2          
+4        14          TITLE             Root dir-locals test                         1          
+5        20          TITLE             Unsafe syntax warning test                   1          
+6        24          TITLE             File-local TODO keywords                     1          
+6        24          STARTUP           showall                                      2          
+6        24          TODO              one(t) two(n) | three(d) four(w@)            3          
+6        24          TODO              FIVE SIX |                                   4          
+6        24          TYP_TODO          seven | eight                                5          
+6        24          SEQ_TODO          nine | ten                                   6          
+6        24          TODO              | eleven(c)                                  30         
+6        24          TODO              late_open | late_done                        34         
+7        42          TITLE             Keyword Parsing Fixture                      1          
+7        42          STARTUP           showall                                      2          
+7        42          AUTHOR            First Author                                 3          
+7        42          PROPERTY          before_prop before-value                     4          
+7        42          CATEGORY          before-category                              5          
+7        42          AUTHOR            Later Author                                 10         
+7        42          OPTIONS           toc:nil num:t                                11         
+7        42          PROPERTY          after_prop after-value                       12         
+7        42          PROPERTY          repeated_prop first                          13         
+7        42          PROPERTY          repeated_prop second                         14         
+7        42          PROPERTY          appended_prop base                           15         
+7        42          PROPERTY          appended_prop+ extra                         16         
+7        42          CATEGORY          after-category                               17         
+7        42          TITLE             Later Title                                  22         
+7        42          EXPORT_FILE_NAME  later-export-name                            23         
+7        42          STARTUP           content                                      24         
+7        42          TODO              TODO NEXT | DONE CANCELED                    29         
+7        42          SEQ_TODO          IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)  30         
+7        42          TYP_TODO          WAITING(w) | CANCELED(c)                     31         
+8        48          TITLE             Title can span                               1          
+8        48          TITLE             multiple lines,                              2          
+8        48          AUTHOR            Hubisan                                      3          
+8        48          TITLE             even here                                    9          
+9        50          TITLE             Planning timestamp                           1          
+9        50          STARTUP           showall                                      2          
+10       68          TITLE             Org Property and Keyword Test                6          
+10       68          STARTUP           showall                                      7          
+10       68          CATEGORY          category_keyword_value                       8          
+10       68          PROPERTY          Effort_ALL 0:10 0:30 1:00                    9          
+10       68          PROPERTY          keyword_property valid                       10         
+10       68          PROPERTY          keyword_overwritten_by_second invalid        11         
+10       68          PROPERTY          keyword_overwritten_by_second valid          12         
+10       68          PROPERTY          keyword_append foo=1                         13         
+10       68          PROPERTY          keyword_append+ bar=2                        14         
+10       68          PROPERTY          later_keyword_property works_everywhere      80         
+10       68          CATEGORY          later_category_keyword                       81         
+10       68          FILETAGS          :project:work:                               90         
+10       68          TAGS              work(w) home(h)                              91         
+10       68          COLUMNS           %TODO %50ITEM %Effort{:} %CLOCKSUM           92         
+10       68          CONSTANTS         c=299792458                                  93         
+10       68          AUTHOR            Jane Doe                                     94         
+10       68          OPTIONS           toc:nil num:t                                95         
+11       78          TITLE             Tags and FILETAGS Fixture                    1          
+11       78          STARTUP           showall                                      2          
+11       78          FILETAGS          :file:project:                               3          
+11       78          FILETAGS          :later:extra:                                20         
+13       129         TITLE             Timestamps                                   1          
+13       129         STARTUP           showall                                      2          
+#+end_example
+
+* Keywords
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT * FROM keywords;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  heading_id  keyword           value                                        line_number
+--  ----------  ----------------  -------------------------------------------  -----------
+1   1           TITLE             dir-locals test structure                    1          
+2   3           TITLE             Deepest .dir-locals wins test                1          
+3   8           TITLE             Org in-buffer TODO override test             1          
+4   8           TODO              REVIEW(r) BLOCKED(b) | CLOSED(c)             2          
+5   14          TITLE             Root dir-locals test                         1          
+6   20          TITLE             Unsafe syntax warning test                   1          
+7   24          TITLE             File-local TODO keywords                     1          
+8   24          STARTUP           showall                                      2          
+9   24          TODO              one(t) two(n) | three(d) four(w@)            3          
+10  24          TODO              FIVE SIX |                                   4          
+11  24          TYP_TODO          seven | eight                                5          
+12  24          SEQ_TODO          nine | ten                                   6          
+13  24          TODO              | eleven(c)                                  30         
+14  24          TODO              late_open | late_done                        34         
+15  42          TITLE             Keyword Parsing Fixture                      1          
+16  42          STARTUP           showall                                      2          
+17  42          AUTHOR            First Author                                 3          
+18  42          PROPERTY          before_prop before-value                     4          
+19  42          CATEGORY          before-category                              5          
+20  42          AUTHOR            Later Author                                 10         
+21  42          OPTIONS           toc:nil num:t                                11         
+22  42          PROPERTY          after_prop after-value                       12         
+23  42          PROPERTY          repeated_prop first                          13         
+24  42          PROPERTY          repeated_prop second                         14         
+25  42          PROPERTY          appended_prop base                           15         
+26  42          PROPERTY          appended_prop+ extra                         16         
+27  42          CATEGORY          after-category                               17         
+28  42          TITLE             Later Title                                  22         
+29  42          EXPORT_FILE_NAME  later-export-name                            23         
+30  42          STARTUP           content                                      24         
+31  42          TODO              TODO NEXT | DONE CANCELED                    29         
+32  42          SEQ_TODO          IDEA(i) WURST(w) PLAN(p) BUILD(b) | DONE(d)  30         
+33  42          TYP_TODO          WAITING(w) | CANCELED(c)                     31         
+34  48          TITLE             Title can span                               1          
+35  48          TITLE             multiple lines,                              2          
+36  48          AUTHOR            Hubisan                                      3          
+37  48          TITLE             even here                                    9          
+38  50          TITLE             Planning timestamp                           1          
+39  50          STARTUP           showall                                      2          
+40  68          TITLE             Org Property and Keyword Test                6          
+41  68          STARTUP           showall                                      7          
+42  68          CATEGORY          category_keyword_value                       8          
+43  68          PROPERTY          Effort_ALL 0:10 0:30 1:00                    9          
+44  68          PROPERTY          keyword_property valid                       10         
+45  68          PROPERTY          keyword_overwritten_by_second invalid        11         
+46  68          PROPERTY          keyword_overwritten_by_second valid          12         
+47  68          PROPERTY          keyword_append foo=1                         13         
+48  68          PROPERTY          keyword_append+ bar=2                        14         
+49  68          PROPERTY          later_keyword_property works_everywhere      80         
+50  68          CATEGORY          later_category_keyword                       81         
+51  68          FILETAGS          :project:work:                               90         
+52  68          TAGS              work(w) home(h)                              91         
+53  68          COLUMNS           %TODO %50ITEM %Effort{:} %CLOCKSUM           92         
+54  68          CONSTANTS         c=299792458                                  93         
+55  68          AUTHOR            Jane Doe                                     94         
+56  68          OPTIONS           toc:nil num:t                                95         
+57  78          TITLE             Tags and FILETAGS Fixture                    1          
+58  78          STARTUP           showall                                      2          
+59  78          FILETAGS          :file:project:                               3          
+60  78          FILETAGS          :later:extra:                                20         
+61  129         TITLE             Timestamps                                   1          
+62  129         STARTUP           showall                                      2          
+#+end_example

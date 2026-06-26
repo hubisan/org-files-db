@@ -1,0 +1,16 @@
+db_path = "test.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+unsupported = "warn"
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = true
