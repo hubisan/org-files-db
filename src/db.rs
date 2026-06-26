@@ -306,6 +306,80 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
     }
 
     #[test]
+    fn migrates_todo_keywords_table_to_allow_dir_locals_source_kind() {
+        let schema = SchemaDefinition::new(1, false);
+        let connection = Connection::open_in_memory().expect("legacy database should open");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL UNIQUE,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE todo_keywords (
+    file_id         INTEGER NOT NULL,
+    keyword         TEXT NOT NULL,
+    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
+    shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
+    sequence_no     INTEGER NOT NULL,
+    source_kind     TEXT NOT NULL CHECK (
+                        source_kind IN ('config_default', 'org_keyword')
+                    ),
+    source_keyword  TEXT CHECK (
+                        source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
+                        OR source_keyword IS NULL
+                    ),
+    source_line_number INTEGER CHECK (
+                        source_line_number IS NULL
+                        OR source_line_number > 0
+                    ),
+    CHECK (
+        (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
+        OR
+        (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
+    ),
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (file_id, keyword)
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
+INSERT INTO todo_keywords (
+    file_id,
+    keyword,
+    state_type,
+    shortcut,
+    sequence_no,
+    source_kind,
+    source_keyword,
+    source_line_number
+)
+VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
+"#,
+            )
+            .expect("legacy schema should seed");
+
+        schema
+            .apply(&connection)
+            .expect("schema migration should succeed");
+
+        connection
+            .execute(
+                "INSERT INTO todo_keywords
+                 (file_id, keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number)
+                 VALUES (1, 'WAIT', 'open', 'w', 1, 'dir_locals', NULL, NULL)",
+                [],
+            )
+            .expect("dir_locals source_kind should be accepted after migration");
+    }
+
+    #[test]
     fn applies_schema_with_fts_when_supported() {
         let probe = Connection::open_in_memory().expect("probe connection should open");
         if !sqlite_supports_fts5(&probe) {

@@ -227,7 +227,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_headings_file_level0
     Order of the keyword within the active TODO keyword configuration.
 
   source_kind:
-    config_default or org_keyword.
+    config_default, dir_locals, or org_keyword.
 
   source_keyword:
     The source keyword line that produced the row, for example TODO, SEQ_TODO,
@@ -243,7 +243,7 @@ CREATE TABLE IF NOT EXISTS todo_keywords (
     shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
     sequence_no     INTEGER NOT NULL,
     source_kind     TEXT NOT NULL CHECK (
-                        source_kind IN ('config_default', 'org_keyword')
+                        source_kind IN ('config_default', 'dir_locals', 'org_keyword')
                     ),
     source_keyword  TEXT CHECK (
                         source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
@@ -255,6 +255,8 @@ CREATE TABLE IF NOT EXISTS todo_keywords (
                     ),
     CHECK (
         (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
+        OR
+        (source_kind = 'dir_locals' AND source_keyword IS NULL AND source_line_number IS NULL)
         OR
         (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
     ),

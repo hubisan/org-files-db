@@ -1,0 +1,107 @@
+#+TITLE: Safe .dir-locals TODO keyword support
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-26 Fri 16:47]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: implement the smallest safe BUILD slice for ~.dir-locals.el~ TODO keyword support.
+- Constraints from chat:
+  - Keep parser architecture unchanged.
+  - Keep external TODO source resolution outside the parser.
+  - Do not implement Emacs file-local variables, ~.dir-locals-2.el~, nested directory-specific rules, or arbitrary Lisp evaluation.
+  - Add explicit config gating under ~[parse.dir_locals]~.
+  - Keep DB provenance on effective ~todo_keywords~ rows and add ~dir_locals~ as a valid source kind.
+- Active task entry from ~todo.org~:
+  - *BUILD [#A] Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords*
+
+* Planning
+
+** Problem summary
+The project already resolves effective per-file TODO keywords before parsing, but it has no safe external resolver for ~.dir-locals.el~ defaults.
+
+** Goals
+- Add config-gated, data-only ~.dir-locals.el~ TODO keyword support outside the parser.
+- Keep Org in-buffer TODO declarations as highest precedence.
+- Store effective provenance with ~source_kind = dir_locals~ when directory locals provide the defaults.
+
+** Non-goals
+- No Emacs file-local variables.
+- No ~.dir-locals-2.el~.
+- No full Emacs Lisp reader or evaluator.
+- No parser-side filesystem access.
+- No separate ~todo_keyword_sources~ table.
+
+** Architecture
+- Add a dedicated resolver module outside the parser.
+- Extend config with typed ~parse.dir_locals~ settings.
+- Extend TODO keyword resolution to accept a default source kind.
+- Integrate resolver use in the indexer before parsing each file.
+
+** Execution plan
+1. Add typed parse config for directory locals and tests for parsing/defaults.
+2. Add a strict, data-only ~.dir-locals.el~ parser/resolver plus focused unit tests.
+3. Wire the resolver into the indexer with bounded root lookup and effective provenance.
+4. Extend schema constraints for ~source_kind = dir_locals~.
+5. Add end-to-end indexer tests for enabled, disabled, inheritance, precedence, and provenance.
+
+** Risks & assumptions
+- The safest minimal reader is a tiny parser for the supported literal subset, not a general Lisp parser.
+- For explicitly configured files, ancestor search should stop at the file's parent directory unless the file also falls under a configured directory root.
+- Unsupported forms should produce warnings or hard errors only when directory-local parsing is enabled.
+
+** Open questions
+None for this slice.
+
+** Proposed checks
+- ~cargo test~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a new ~dir_locals~ resolver module outside the parser.
+- Extended config with typed ~parse.dir_locals~ settings and conservative defaults.
+- Wired per-file directory-local TODO defaults into the indexer before parsing.
+- Kept Org in-buffer TODO keywords as the highest-precedence override.
+- Extended effective TODO provenance to allow ~source_kind = dir_locals~.
+- Tightened edge semantics so unparseable or unsafe reader input now follows the configured ~unsupported~ policy instead of always failing.
+- Added safe semicolon comment skipping without broadening the parser beyond comments.
+- Adjusted scan-root precedence so a configured directory root is preferred over an explicit file-parent root when both discover the same file.
+
+** Changed files
+- ~src/config.rs~
+- ~src/db.rs~
+- ~src/db/schema.rs~
+- ~src/dir_locals.rs~
+- ~src/indexer.rs~
+- ~src/lib.rs~
+- ~src/todo_keywords.rs~
+- ~sql/schema.sql~
+
+** Checks performed
+- ~cargo test --lib~
+- ~cargo test~
+- ~cargo fmt --all~
+- ~cargo fmt --all --check~
+- ~make ci~
+
+** Test results
+- All unit, integration, clippy, formatting, and build checks passed through ~make ci~.
+- Added focused config tests for ~parse.dir_locals~ defaults, parsing, and invalid policy values.
+- Added focused ~.dir-locals.el~ parser/resolver tests for safe literal parsing, unsupported ~type~, rejected reader syntax, preserved fast keys, and unsupported variables.
+- Added focused tests for semicolon comments, warn/ignore/error behavior on unparseable input, and the explicit-file-plus-configured-dir scan-root case.
+- Added end-to-end indexer tests for disabled behavior, enabled behavior, missing files, inheritance on and off, deepest match wins, warning diagnostics, Org override precedence, and ~dir_locals~ provenance rows.
+- Added a DB migration regression test to ensure older ~todo_keywords~ provenance constraints are upgraded to allow ~dir_locals~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Emacs file-local variables remain intentionally deferred.
+- ~.dir-locals-2.el~, nested directory-specific rules, and ~subdirs . nil~ remain intentionally deferred.
+- ~org-todo-keywords~ ~type~ forms remain intentionally deferred.

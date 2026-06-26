@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     error::Error,
     fmt, fs,
     path::{Path, PathBuf},
@@ -16,12 +16,16 @@ use crate::{
         PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord,
         TodoKeywordRecord,
     },
+    dir_locals::{DirLocalsDiagnostic, DirLocalsError, DirLocalsResolver},
     parser::{
         DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
         ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
-    todo_keywords::{resolve_todo_keywords, ResolvedTodoKeywordEntry, ResolvedTodoKeywords},
+    todo_keywords::{
+        resolve_todo_keywords_with_default_source, ResolvedTodoKeywordEntry, ResolvedTodoKeywords,
+        TodoKeywordSourceKind,
+    },
 };
 
 #[derive(Debug)]
@@ -55,8 +59,10 @@ where
     ) -> Result<RebuildReport, IndexerError> {
         let paths = discover_org_files(config)?;
         let parse_options = config.parse_options();
+        let dir_locals_resolver = DirLocalsResolver::new(config.parse.dir_locals.clone());
         let mut pending = Vec::with_capacity(paths.len());
-        for path in paths {
+        for discovered in paths {
+            let path = discovered.path;
             let metadata = fs::metadata(&path).map_err(|source| IndexerError::ReadFile {
                 path: path.clone(),
                 source,
@@ -65,8 +71,23 @@ where
                 path: path.clone(),
                 source,
             })?;
-            let resolved_todo_keywords =
-                resolve_todo_keywords(&content, &parse_options.todo_keywords);
+            let dir_locals_resolution = dir_locals_resolver
+                .resolve_for_file(&path, &discovered.scan_root)
+                .map_err(IndexerError::DirLocals)?;
+            let (default_todo_keywords, default_source_kind) =
+                if let Some(todo_keywords) = dir_locals_resolution.todo_keywords.as_ref() {
+                    (todo_keywords, TodoKeywordSourceKind::DirLocals)
+                } else {
+                    (
+                        &parse_options.todo_keywords,
+                        TodoKeywordSourceKind::ConfigDefault,
+                    )
+                };
+            let resolved_todo_keywords = resolve_todo_keywords_with_default_source(
+                &content,
+                default_todo_keywords,
+                default_source_kind,
+            );
             let document = self
                 .parser
                 .parse_document_core(
@@ -86,6 +107,7 @@ where
                 path,
                 document: normalized,
                 todo_keywords: resolved_todo_keywords,
+                diagnostics: dir_locals_diagnostics(&dir_locals_resolution.diagnostics),
                 file_record,
             });
         }
@@ -114,6 +136,9 @@ where
                 heading_count,
             };
 
+            report
+                .diagnostics
+                .extend(pending_file.diagnostics.iter().cloned());
             report.diagnostics.extend(
                 pending_file
                     .document
@@ -136,7 +161,20 @@ struct PendingRebuildFile {
     path: PathBuf,
     document: ParsedOrgDocument,
     todo_keywords: ResolvedTodoKeywords,
+    diagnostics: Vec<IndexDiagnostic>,
     file_record: FileRecordInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DiscoveredOrgFile {
+    path: PathBuf,
+    scan_root: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ScanRootKind {
+    ExplicitFile,
+    ConfiguredDir,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -177,6 +215,7 @@ impl From<ParseDiagnostic> for IndexDiagnostic {
 pub enum IndexerError {
     Config(ConfigError),
     Database(DbError),
+    DirLocals(DirLocalsError),
     Discover {
         path: PathBuf,
         source: std::io::Error,
@@ -206,6 +245,7 @@ impl fmt::Display for IndexerError {
         match self {
             Self::Config(source) => write!(f, "{source}"),
             Self::Database(source) => write!(f, "{source}"),
+            Self::DirLocals(source) => write!(f, "{source}"),
             Self::Discover { path, source } => {
                 write!(
                     f,
@@ -244,6 +284,7 @@ impl Error for IndexerError {
         match self {
             Self::Config(source) => Some(source),
             Self::Database(source) => Some(source),
+            Self::DirLocals(source) => Some(source),
             Self::Discover { source, .. } => Some(source),
             Self::InvalidDocument(_) => None,
             Self::InvalidFileMetadata { .. } => None,
@@ -255,24 +296,34 @@ impl Error for IndexerError {
     }
 }
 
-fn discover_org_files(config: &Config) -> Result<Vec<PathBuf>, IndexerError> {
-    let mut paths = BTreeSet::new();
+fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, IndexerError> {
+    let mut paths = BTreeMap::new();
 
     for file in &config.files {
-        paths.insert(file.clone());
+        let scan_root = file.parent().unwrap_or(file.as_path()).to_path_buf();
+        insert_discovered_path(
+            &mut paths,
+            file.clone(),
+            scan_root,
+            ScanRootKind::ExplicitFile,
+        );
     }
 
     for dir in &config.dirs {
-        collect_org_files(dir, config.recursive, &mut paths)?;
+        collect_org_files(dir, dir, config.recursive, &mut paths)?;
     }
 
-    Ok(paths.into_iter().collect())
+    Ok(paths
+        .into_iter()
+        .map(|(path, (scan_root, _))| DiscoveredOrgFile { path, scan_root })
+        .collect())
 }
 
 fn collect_org_files(
+    scan_root: &Path,
     dir: &Path,
     recursive: bool,
-    output: &mut BTreeSet<PathBuf>,
+    output: &mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
 ) -> Result<(), IndexerError> {
     let mut entries = fs::read_dir(dir)
         .map_err(|source| IndexerError::Discover {
@@ -299,14 +350,61 @@ fn collect_org_files(
                 .and_then(|value| value.to_str())
                 .is_some_and(|value| value.eq_ignore_ascii_case("org"))
             {
-                output.insert(path);
+                insert_discovered_path(
+                    output,
+                    path,
+                    scan_root.to_path_buf(),
+                    ScanRootKind::ConfiguredDir,
+                );
             }
         } else if recursive && file_type.is_dir() {
-            collect_org_files(&path, recursive, output)?;
+            collect_org_files(scan_root, &path, recursive, output)?;
         }
     }
 
     Ok(())
+}
+
+fn insert_discovered_path(
+    output: &mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
+    path: PathBuf,
+    scan_root: PathBuf,
+    scan_root_kind: ScanRootKind,
+) {
+    match output.get_mut(&path) {
+        Some((existing_root, existing_kind)) => {
+            let prefer_new_root = match (scan_root_kind, *existing_kind) {
+                (ScanRootKind::ConfiguredDir, ScanRootKind::ExplicitFile) => true,
+                (ScanRootKind::ExplicitFile, ScanRootKind::ConfiguredDir) => false,
+                _ => path_depth(&scan_root) > path_depth(existing_root),
+            };
+
+            if prefer_new_root {
+                *existing_root = scan_root;
+                *existing_kind = scan_root_kind;
+            }
+        }
+        None => {
+            output.insert(path, (scan_root, scan_root_kind));
+        }
+    }
+}
+
+fn path_depth(path: &Path) -> usize {
+    path.components().count()
+}
+
+fn dir_locals_diagnostics(diagnostics: &[DirLocalsDiagnostic]) -> Vec<IndexDiagnostic> {
+    diagnostics
+        .iter()
+        .map(|diagnostic| IndexDiagnostic {
+            severity: DiagnosticSeverity::Warning,
+            message: format!("unsupported .dir-locals content: {}", diagnostic.message),
+            file_path: Some(diagnostic.path.clone()),
+            line_number: None,
+            byte_range: None,
+        })
+        .collect()
 }
 
 fn build_file_record(
@@ -956,6 +1054,15 @@ mod tests {
     );
     type PropertyRow = (i64, String, Option<String>, String, i64, Option<i64>);
     type KeywordRow = (String, Option<String>, Option<i64>);
+    type TodoProvenanceRow = (
+        String,
+        String,
+        Option<String>,
+        i64,
+        String,
+        Option<String>,
+        Option<i64>,
+    );
 
     struct TestDir {
         path: PathBuf,
@@ -1052,7 +1159,7 @@ index_body_text = false
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[1].all_tags_json, "[\"rust\"]");
 
-        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
+        let todo_rows: Vec<TodoProvenanceRow> = query_rows(
             &connection,
             "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
              FROM todo_keywords
@@ -1690,7 +1797,7 @@ index_body_text = false
         assert_eq!(headings[3].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[3].todo_type.as_deref(), Some("closed"));
 
-        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
+        let todo_rows: Vec<TodoProvenanceRow> = query_rows(
             &connection,
             "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
              FROM todo_keywords
@@ -2200,7 +2307,7 @@ index_body_text = false
             .expect("rebuild should succeed");
 
         let connection = Connection::open(&db_path).expect("db should open");
-        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
+        let todo_rows: Vec<TodoProvenanceRow> = query_rows(
             &connection,
             "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
              FROM todo_keywords
@@ -2236,6 +2343,460 @@ index_body_text = false
                     "config_default".to_string(),
                     None,
                     None,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_ignores_dir_locals_when_disabled() {
+        let test_dir = TestDir::new("dir-locals-disabled");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+        );
+        write_file(&org_path, "* PLAN me\n* DONE me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = false
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].title, "PLAN me");
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
+
+        let todo_rows: Vec<(String, String)> = query_rows(
+            &connection,
+            "SELECT keyword, source_kind FROM todo_keywords ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                ("TODO".to_string(), "config_default".to_string()),
+                ("DONE".to_string(), "config_default".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_uses_dir_locals_defaults_when_enabled() {
+        let test_dir = TestDir::new("dir-locals-enabled");
+        let notes_dir = test_dir.path().join("notes");
+        let child_dir = notes_dir.join("child");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = child_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+        );
+        write_file(&org_path, "* PLAN me\n* DONE me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
+
+        let todo_rows: Vec<(String, String, Option<String>, Option<i64>)> = query_rows(
+            &connection,
+            "SELECT keyword, source_kind, source_keyword, source_line_number
+             FROM todo_keywords
+             ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                ("PLAN".to_string(), "dir_locals".to_string(), None, None),
+                ("DONE".to_string(), "dir_locals".to_string(), None, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_preserves_behavior_when_enabled_but_dir_locals_is_missing() {
+        let test_dir = TestDir::new("dir-locals-missing");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("task.org");
+
+        write_file(&org_path, "* TODO me\n* DONE me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let todo_rows: Vec<(String, String)> = query_rows(
+            &connection,
+            "SELECT keyword, source_kind FROM todo_keywords ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                ("TODO".to_string(), "config_default".to_string()),
+                ("DONE".to_string(), "config_default".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_does_not_inherit_dir_locals_when_disabled_by_config() {
+        let test_dir = TestDir::new("dir-locals-no-inherit");
+        let notes_dir = test_dir.path().join("notes");
+        let child_dir = notes_dir.join("child");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = child_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+        );
+        write_file(&org_path, "* PLAN me\n* DONE me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = false
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].title, "PLAN me");
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
+    }
+
+    #[test]
+    fn rebuild_uses_deepest_matching_dir_locals() {
+        let test_dir = TestDir::new("dir-locals-deepest");
+        let notes_dir = test_dir.path().join("notes");
+        let child_dir = notes_dir.join("child");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = child_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+        );
+        write_file(
+            &child_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "WAIT(w)" "|" "CANCEL(c)"))))))"#,
+        );
+        write_file(&org_path, "* WAIT me\n* CANCEL me\n* PLAN nope\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("WAIT"));
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("CANCEL"));
+        assert_eq!(headings[3].todo_keyword, None);
+
+        let todo_rows: Vec<String> = query_rows(
+            &connection,
+            "SELECT keyword FROM todo_keywords ORDER BY sequence_no",
+            |row| row.get(0),
+        );
+        assert_eq!(todo_rows, vec!["WAIT".to_string(), "CANCEL".to_string()]);
+    }
+
+    #[test]
+    fn rebuild_prefers_configured_dir_root_over_explicit_file_parent_for_inheritance() {
+        let test_dir = TestDir::new("dir-locals-files-and-dirs");
+        let notes_dir = test_dir.path().join("notes");
+        let child_dir = notes_dir.join("child");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = child_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+        );
+        write_file(&org_path, "* PLAN me\n* DONE me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["notes/child/task.org"]
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
+
+        let todo_rows: Vec<(String, String)> = query_rows(
+            &connection,
+            "SELECT keyword, source_kind FROM todo_keywords ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                ("PLAN".to_string(), "dir_locals".to_string()),
+                ("DONE".to_string(), "dir_locals".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_warns_for_unsupported_dir_locals_and_continues() {
+        let test_dir = TestDir::new("dir-locals-warn");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("task.org");
+        let dir_locals_path = notes_dir.join(".dir-locals.el");
+
+        write_file(
+            &dir_locals_path,
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))) (eval . (danger)))))"#,
+        );
+        write_file(&org_path, "* PLAN me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+unsupported = "warn"
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].file_path, Some(dir_locals_path));
+        assert!(report.diagnostics[0]
+            .message
+            .contains("unsupported .dir-locals content"));
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
+    }
+
+    #[test]
+    fn rebuild_org_keywords_override_dir_locals_defaults() {
+        let test_dir = TestDir::new("dir-locals-org-override");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+        );
+        write_file(
+            &org_path,
+            "#+TODO: REVIEW(r) | CLOSED(c)\n* REVIEW me\n* CLOSED me\n* PLAN nope\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("REVIEW"));
+        assert_eq!(headings[2].todo_keyword.as_deref(), Some("CLOSED"));
+        assert_eq!(headings[3].todo_keyword, None);
+
+        let todo_rows: Vec<(String, String, Option<String>, Option<i64>)> = query_rows(
+            &connection,
+            "SELECT keyword, source_kind, source_keyword, source_line_number
+             FROM todo_keywords
+             ORDER BY sequence_no",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            todo_rows,
+            vec![
+                (
+                    "REVIEW".to_string(),
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(1),
+                ),
+                (
+                    "CLOSED".to_string(),
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(1),
                 ),
             ]
         );
@@ -2291,7 +2852,7 @@ index_body_text = false
         assert_eq!(headings[5].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[5].todo_type.as_deref(), Some("closed"));
 
-        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
+        let todo_rows: Vec<TodoProvenanceRow> = query_rows(
             &connection,
             "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
              FROM todo_keywords
@@ -2449,6 +3010,7 @@ index_body_text = false
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -2488,6 +3050,7 @@ index_body_text = false
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -2568,6 +3131,7 @@ index_body_text = false
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -2627,6 +3191,7 @@ index_body_text = false
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -2683,6 +3248,7 @@ index_body_text = false
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -2765,6 +3331,7 @@ index_body_text = false
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -2949,6 +3516,7 @@ index_body_text = true
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -3071,6 +3639,7 @@ index_body_text = true
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -3107,6 +3676,7 @@ index_body_text = true
             files: vec![org_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -3202,6 +3772,7 @@ index_body_text = true
             files: vec![good_path.clone(), bad_path.clone()],
             dirs: Vec::new(),
             recursive: false,
+            parse: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,

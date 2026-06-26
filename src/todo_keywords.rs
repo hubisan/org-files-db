@@ -25,9 +25,17 @@ pub struct ResolvedTodoKeywordEntry {
     pub source_line_number: Option<u32>,
 }
 
+#[derive(Debug, Clone)]
+struct KeywordSource {
+    keyword: Option<String>,
+    line_number: Option<u32>,
+    kind: TodoKeywordSourceKind,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TodoKeywordSourceKind {
     ConfigDefault,
+    DirLocals,
     OrgKeyword,
 }
 
@@ -35,6 +43,7 @@ impl TodoKeywordSourceKind {
     pub fn as_db_str(self) -> &'static str {
         match self {
             Self::ConfigDefault => "config_default",
+            Self::DirLocals => "dir_locals",
             Self::OrgKeyword => "org_keyword",
         }
     }
@@ -53,10 +62,22 @@ pub fn resolve_todo_keywords(
     content: &str,
     default_keywords: &TodoKeywordConfig,
 ) -> ResolvedTodoKeywords {
+    resolve_todo_keywords_with_default_source(
+        content,
+        default_keywords,
+        TodoKeywordSourceKind::ConfigDefault,
+    )
+}
+
+pub fn resolve_todo_keywords_with_default_source(
+    content: &str,
+    default_keywords: &TodoKeywordConfig,
+    default_source_kind: TodoKeywordSourceKind,
+) -> ResolvedTodoKeywords {
     let org = Org::parse(content);
     let keywords = collect_document_keywords(&org.document(), content);
     resolve_todo_keywords_from_keywords(&keywords)
-        .unwrap_or_else(|| resolved_from_default_keywords(default_keywords))
+        .unwrap_or_else(|| resolved_from_default_keywords(default_keywords, default_source_kind))
 }
 
 pub(crate) fn resolve_todo_keywords_from_keywords(
@@ -82,12 +103,16 @@ pub(crate) fn resolve_todo_keywords_from_keywords(
         let source_keyword = Some(keyword.key.to_ascii_uppercase());
         let source_line_number = keyword.line_number;
 
+        let source = KeywordSource {
+            keyword: source_keyword,
+            line_number: source_line_number,
+            kind: TodoKeywordSourceKind::OrgKeyword,
+        };
+
         append_keyword_entries(
             &line_config.open,
             "open",
-            source_keyword.clone(),
-            source_line_number,
-            TodoKeywordSourceKind::OrgKeyword,
+            &source,
             &mut seen,
             &mut open,
             &mut open_entries,
@@ -95,9 +120,7 @@ pub(crate) fn resolve_todo_keywords_from_keywords(
         append_keyword_entries(
             &line_config.closed,
             "closed",
-            source_keyword,
-            source_line_number,
-            TodoKeywordSourceKind::OrgKeyword,
+            &source,
             &mut seen,
             &mut closed,
             &mut closed_entries,
@@ -133,7 +156,10 @@ pub(crate) fn collect_document_keywords(
         .collect()
 }
 
-fn resolved_from_default_keywords(default_keywords: &TodoKeywordConfig) -> ResolvedTodoKeywords {
+fn resolved_from_default_keywords(
+    default_keywords: &TodoKeywordConfig,
+    source_kind: TodoKeywordSourceKind,
+) -> ResolvedTodoKeywords {
     let default_keywords = default_keywords.clone().deduplicated();
     let mut open_entries = Vec::with_capacity(default_keywords.open.len());
     let mut closed_entries = Vec::with_capacity(default_keywords.closed.len());
@@ -143,7 +169,7 @@ fn resolved_from_default_keywords(default_keywords: &TodoKeywordConfig) -> Resol
             keyword: keyword.name.clone(),
             state_type: "open".to_string(),
             shortcut: keyword.fast_key,
-            source_kind: TodoKeywordSourceKind::ConfigDefault,
+            source_kind,
             source_keyword: None,
             source_line_number: None,
         });
@@ -153,7 +179,7 @@ fn resolved_from_default_keywords(default_keywords: &TodoKeywordConfig) -> Resol
             keyword: keyword.name.clone(),
             state_type: "closed".to_string(),
             shortcut: keyword.fast_key,
-            source_kind: TodoKeywordSourceKind::ConfigDefault,
+            source_kind,
             source_keyword: None,
             source_line_number: None,
         });
@@ -195,9 +221,7 @@ fn parse_todo_keyword_line(value: &str) -> Option<TodoKeywordConfig> {
 fn append_keyword_entries(
     keywords: &[TodoKeyword],
     state_type: &str,
-    source_keyword: Option<String>,
-    source_line_number: Option<u32>,
-    source_kind: TodoKeywordSourceKind,
+    source: &KeywordSource,
     seen: &mut HashSet<String>,
     keywords_out: &mut Vec<TodoKeyword>,
     entries_out: &mut Vec<ResolvedTodoKeywordEntryDraft>,
@@ -212,9 +236,9 @@ fn append_keyword_entries(
             keyword: keyword.name.clone(),
             state_type: state_type.to_string(),
             shortcut: keyword.fast_key,
-            source_kind,
-            source_keyword: source_keyword.clone(),
-            source_line_number,
+            source_kind: source.kind,
+            source_keyword: source.keyword.clone(),
+            source_line_number: source.line_number,
         });
     }
 }

@@ -242,36 +242,57 @@ Validation:
 
 [[file:archive/2026-06-26--tighten-shared-todo-keyword-parsing.org]]
 
-** TODO [#A] Persist TODO keyword source metadata separately from effective keywords
+** DONE [#A] Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
 :PROPERTIES:
 :PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
+:RISK: High
+:BEHAVIOR_API_CHANGE: Yes
+:SECURITY_SENSITIVE: Yes
 :END:
 
-Context:
+[[./archive/2026-06-26--safe-dir-locals-todo-keywords.org]]
 
-- Future TODO sources include Org in-buffer declarations, Emacs file-local variables, ~.dir-locals.el~, ~config.toml~, and built-in defaults.
-- Queries and diagnostics should be able to explain why a TODO keyword was considered open or closed.
-- Raw source facts should not be mixed with the final effective keyword set.
+** TODO [#B] Add separate TODO keyword source table when external sources exist
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:BLOCKED_BY: Emacs file-local variables or .dir-locals.el support
+:END:
 
-Goal:
+Current state:
 
-- Store TODO keyword source metadata in SQLite after parsing/resolution.
-- Keep the current effective keyword rows available for query behavior.
-- Make later behavior changes possible without reparsing source files unnecessarily when only query interpretation changes.
+- Effective TODO keywords are stored in ~todo_keywords~.
+- Minimal effective provenance is already stored on those rows via ~source_kind~, ~source_keyword~, and ~source_line_number~.
+- That is enough for current sources: ~config.toml~ defaults and Org in-buffer ~#+TODO~, ~#+SEQ_TODO~, and ~#+TYP_TODO~ declarations.
 
-Possible schema direction:
+Decision:
+
+- Defer a separate ~todo_keyword_sources~ table until there are external or unsupported TODO sources to record.
+- Do not build this as a standalone schema task right now, because it would mostly duplicate the current effective provenance columns.
+- Revisit this when adding Emacs file-local variables, ~.dir-locals.el~, unsupported-source diagnostics, overridden-source auditing, or selective reindexing based on changed source files.
+
+Future goal:
+
+- Keep ~todo_keywords~ as the effective keyword table used for query behavior.
+- Add ~todo_keyword_sources~ as a raw source/audit table once there are multiple source layers worth recording separately.
+- Raw source facts should remain conceptually separate from the final effective keyword set.
+
+Possible future schema direction:
 
 - ~todo_keyword_sources~:
   - ~file_id~
   - ~source_type~: ~org_keyword~, ~emacs_file_local~, ~dir_locals~, ~config~, ~builtin~
   - ~source_path~ optional
+  - ~source_keyword~ optional
+  - ~source_line_number~ optional
   - ~priority~
   - ~raw_value~ optional
   - ~supported~
   - ~diagnostic~ optional
-- Existing or future effective keyword rows should reference the chosen source where useful.
+  - ~status~: ~used~, ~overridden~, ~ignored~, ~unsupported~
+- Effective keyword rows may reference the chosen source later if that remains useful.
+- Existing ~todo_keywords.source_*~ columns can remain as denormalized effective provenance until a later migration has a clear benefit.
 
 Rules:
 
@@ -279,117 +300,15 @@ Rules:
 - Rebuild computes sources again and writes them transactionally.
 - Unsupported sources are diagnosable, not silently confused with defaults.
 - Raw source rows and effective keyword rows remain conceptually separate.
+- Do not add this table before there is a concrete external-source implementation that needs it.
 
-Tests:
+Future tests:
 
-- Effective keyword rows match parser classification.
-- Source metadata records config-derived TODO keywords.
+- Effective keyword rows still match parser classification.
+- Source metadata records config-derived, Org-derived, and external TODO sources.
 - Source metadata can record unsupported future sources without changing parser behavior.
 - Rebuild replaces old source rows for a file transactionally.
-
-** TODO Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
-Codex already made a plan for this [2026-06-24 Wed].
-
-Revised decision [2026-06-26 Fri]:
-
-Do not implement this directly until per-file TODO keyword resolution and TODO source metadata are in place. `.dir-locals.el` support should be an external resolver/input source, not parser-side filesystem discovery.
-
-Next Codex Prompt after prerequisite tasks are complete:
-Implement this in BUILD mode only if the safe-subset approach is still chosen. Add a strictly data-only `.dir-locals.el` resolver for Org TODO keywords, reject unsupported or unsafe Lisp forms without evaluation, feed the resolved TODO defaults into per-file `ParseOptions`, persist source metadata after parsing, document the safety boundary, and avoid unrelated parser refactors.
-
-Plan from Codex [2026-06-24 Wed]:
-
-#+BEGIN_SRC markdown
-  # Consider Safe Parsing Of Emacs `.dir-locals.el` For Org TODO Keywords
-
-  ## Summary
-  This task should evaluate whether the project can safely read Org TODO keyword configuration from Emacs `.dir-locals.el` files without executing arbitrary Lisp. The likely outcome is either a narrowly scoped data-only parser for a safe subset, or a documented decision to reject the feature if the safety/complexity tradeoff is poor.
-
-  ## Files / Functions To Inspect
-  - [src/config.rs](/home/hubisan/projects/coding/org-files-db/src/config.rs)
-    Existing TODO keyword configuration path and defaults
-  - [src/indexer.rs](/home/hubisan/projects/coding/org-files-db/src/indexer.rs)
-    Where parse options are assembled and applied during rebuild
-  - [src/parser.rs](/home/hubisan/projects/coding/org-files-db/src/parser.rs), [src/parser/model.rs](/home/hubisan/projects/coding/org-files-db/src/parser/model.rs)
-    `TodoKeywordConfig`, file-local TODO keyword handling, and parse-option flow
-  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org) and [docs/parser-risks.org](/home/hubisan/projects/coding/org-files-db/docs/parser-risks.org)
-    Current documented stance on TODO keyword sources and safety boundaries
-  - Repo instruction note in [.project/agents/repository.org](/home/hubisan/projects/coding/org-files-db/.project/agents/repository.org)
-    It already warns against evaluating unsafe Emacs Lisp and suggests only a safe data-only subset
-
-  ## Exact Changes Likely Needed
-  - Decide feature scope first:
-    support only a minimal data-only subset of `.dir-locals.el` sufficient to extract Org TODO keyword settings,
-    or explicitly decline support and document why.
-  - If implemented, add a dedicated parser that reads `.dir-locals.el` as plain text and accepts only a constrained structural subset, not arbitrary Lisp evaluation.
-  - Support only the exact variables needed for TODO keywords, likely `org-todo-keywords` and possibly `org-todo-keyword-faces` only if required later.
-  - Reject or ignore any forms outside the allowed subset:
-    `eval`, function calls, reader macros, computed expressions, backquote forms, non-literal lists, and unrelated modes/variables.
-  - Merge `.dir-locals.el` TODO keywords into rebuild parse options with explicit precedence relative to config defaults and in-file `#+TODO`.
-  - Surface clear diagnostics when a `.dir-locals.el` file exists but uses unsupported or unsafe constructs.
-
-  ## Proposed Function Names Or Types
-  - `DirLocalsTodoConfig`
-  - `DirLocalsParseError`
-  - `fn load_dir_locals_todo_config(path: &Path) -> Result<Option<DirLocalsTodoConfig>, DirLocalsParseError>`
-  - `fn extract_safe_org_todo_keywords(source: &str) -> Result<Option<TodoKeywordConfig>, DirLocalsParseError>`
-  - `fn merge_todo_keyword_sources(...) -> TodoKeywordConfig`
-
-  Recommended default: parse only a tiny literal subset and return `Option<TodoKeywordConfig>`.
-
-  ## Test Cases To Add
-  - Safe `.dir-locals.el` with literal `org-todo-keywords` list is accepted and affects parsing.
-  - Unsupported Lisp constructs are rejected without evaluation.
-  - `eval` forms are rejected explicitly.
-  - Missing `.dir-locals.el` leaves behavior unchanged.
-  - Precedence test between config defaults, `.dir-locals.el`, and in-file `#+TODO`.
-  - Directory-scope test: nested Org files inherit the nearest applicable `.dir-locals.el` only if that is the chosen semantics.
-
-  ## Risks / Open Questions
-  - The biggest risk is accidental execution or partial interpretation of unsafe Lisp; the parser must stay strictly data-only.
-  - Emacs `.dir-locals.el` semantics are richer than this project likely needs; full compatibility is probably not worth the complexity.
-  - Need to decide precedence and directory lookup behavior up front.
-  - Open question: whether this should be implemented at all versus documented as intentionally unsupported. Recommended default: only implement if the accepted subset is very small and clearly safe.
-
-  ## Next Codex Prompt
-  Implement this in BUILD mode only if the safe-subset approach is chosen. Add a strictly data-only `.dir-locals.el` parser for Org TODO keywords, reject unsupported or unsafe Lisp forms without evaluation, define and test precedence with existing TODO keyword sources, document the safety boundary, and avoid unrelated parser refactors.
-
-#+END_SRC
-
-Content of Todo before Codex made the plan:
-
-Goal:
-Decide whether `org-files-db` should support directory-local Org TODO keyword
-defaults by safely parsing `.dir-locals.el`.
-
-Possible supported subset:
-
-#+begin_src emacs-lisp
-((org-mode . ((org-todo-keywords . ((sequence "TODO(t)" "NEXT(n)" "|" "DONE(d)" "CANCEL(c)"))))))
-#+end_src
-
-Rules:
-
-- Parse only data, do not evaluate Emacs Lisp.
-- Support only `org-mode` / `nil` entries.
-- Support only `org-todo-keywords`.
-- Support `sequence` first; optionally `type` later.
-- Treat keywords before `|` as open and after `|` as closed.
-- Preserve fast-selection keys when supported.
-- Ignore or warn on unsupported forms.
-- Define precedence separately:
-  1. Org in-buffer `#+TODO:`, `#+SEQ_TODO:`, and `#+TYP_TODO:`
-  2. Emacs file-local variables in the current file, once supported
-  3. nearest supported `.dir-locals.el`
-  4. `config.toml`
-  5. built-in defaults
-- Resolve `.dir-locals.el` outside the parser and pass the result into per-file `ParseOptions`.
-- Persist source metadata after parsing for diagnostics and later query decisions.
-
-Non-goal:
-- Do not execute `.dir-locals.el`.
-- Do not support arbitrary Emacs directory-local variables.
-- Do not make the parser access the filesystem or database to discover external TODO sources.
+- Overridden sources remain queryable without affecting effective keyword behavior.
 
 ** TODO Define DB schema versioning
 

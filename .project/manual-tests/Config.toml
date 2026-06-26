@@ -6,3 +6,8 @@ recursive = true
 [search]
 fts5_enabled = false
 index_body_text = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+unsupported = "warn"

@@ -99,7 +99,7 @@ CREATE TABLE todo_keywords (
     shortcut            TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
     sequence_no         INTEGER NOT NULL,
     source_kind         TEXT NOT NULL CHECK (
-                            source_kind IN ('config_default', 'org_keyword')
+                            source_kind IN ('config_default', 'dir_locals', 'org_keyword')
                         ),
     source_keyword      TEXT CHECK (
                             source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
@@ -111,6 +111,8 @@ CREATE TABLE todo_keywords (
                         ),
     CHECK (
         (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
+        OR
+        (source_kind = 'dir_locals' AND source_keyword IS NULL AND source_line_number IS NULL)
         OR
         (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
     ),
@@ -351,7 +353,9 @@ fn migrate_legacy_todo_keywords_table(connection: &Connection) -> rusqlite::Resu
     }
 
     let columns = table_columns(connection, "todo_keywords")?;
-    if todo_keywords_table_uses_provenance_columns(&columns) {
+    if todo_keywords_table_uses_provenance_columns(&columns)
+        && todo_keywords_table_supports_dir_locals(connection)?
+    {
         return Ok(());
     }
 
@@ -404,6 +408,18 @@ fn todo_keywords_table_uses_provenance_columns(columns: &[String]) -> bool {
     ]
     .iter()
     .all(|required| columns.iter().any(|column| column == required))
+}
+
+fn todo_keywords_table_supports_dir_locals(connection: &Connection) -> rusqlite::Result<bool> {
+    let sql: Option<String> = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'todo_keywords'",
+        [],
+        |row| row.get(0),
+    )?;
+
+    Ok(sql
+        .as_deref()
+        .is_some_and(|statement| statement.contains("'dir_locals'")))
 }
 
 fn properties_table_uses_append_column(columns: &[String]) -> bool {
