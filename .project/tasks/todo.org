@@ -233,93 +233,14 @@ Validation:
 
 [[./archive/2026-06-23--refine-heading-body-extraction-to-exclude-structured-metadata.org]]
 
-** TODO [#A] Introduce per-file TODO keyword resolution before external TODO sources
+** DONE [#A] Introduce per-file TODO keyword resolution before external TODO sources
 :PROPERTIES:
 :PRIORITY: High
 :RISK: Medium
 :ARCHITECTURE: Yes
 :END:
 
-Context:
-
-- The parser must know the effective TODO keywords before parsing, otherwise Orgize may classify TODO states using only defaults.
-- The parser should still not discover ~.dir-locals.el~, read project config, or access SQLite.
-- External TODO sources need to be resolved by the indexer/resolver layer before parsing and persisted after parsing.
-
-Goal:
-
-- Add a small resolver layer that computes effective per-file ~TodoKeywordConfig~ before parsing.
-- Keep parser input-based: ~content + ParseOptions -> ParsedDocument~.
-- Build per-file ~ParseOptions~ in the indexer/resolver layer.
-- Keep Org in-buffer ~#+TODO~, ~#+SEQ_TODO~, and ~#+TYP_TODO~ as highest-priority overrides.
-
-Proposed design:
-
-- Add a helper such as ~TodoKeywordResolver~ or ~resolve_effective_todo_keywords(...)~.
-- Inputs:
-  - built-in defaults
-  - ~config.toml~ defaults
-  - future Emacs file-local variables result
-  - future ~.dir-locals.el~ result
-  - Org in-buffer TODO declarations, if this is already available before final classification
-- Output:
-  - effective ~TodoKeywordConfig~
-  - selected source metadata
-  - diagnostics for unsupported or conflicting sources
-
-Precedence:
-
-1. Org in-buffer ~#+TODO~, ~#+SEQ_TODO~, ~#+TYP_TODO~
-2. Emacs file-local variables, once supported
-3. nearest supported ~.dir-locals.el~, once supported
-4. ~config.toml~
-5. built-in defaults
-
-Important boundary:
-
-- Parser may receive effective TODO keywords through ~ParseOptions~.
-- Parser must not locate or parse ~.dir-locals.el~.
-- Parser must not query the DB.
-- DB rows are an audit/query/cache result of indexing, not a prerequisite for parsing during a rebuild from an empty database.
-
-Tests:
-
-- Config TODO keywords are passed into the parser per file.
-- Org ~#+TODO~ overrides config defaults.
-- Rebuild from an empty DB works without stored TODO-source rows.
-- Effective TODO keyword behavior and stored DB rows agree.
-- Resolver code is deterministic and does not rely on global mutable state.
-
-Next Codex Prompt:
-
-#+BEGIN_SRC markdown
-  Implement the smallest architecture slice for per-file TODO keyword resolution.
-
-  Scope:
-  - Do not implement `.dir-locals.el` parsing yet.
-  - Do not implement Emacs file-local variable parsing yet.
-  - Do not implement parallel scanning yet.
-  - Do not make the parser access the database.
-
-  Required behavior:
-  - Keep the parser input-based: content plus ParseOptions produces ParsedDocument.
-  - Build effective per-file ParseOptions in the indexer/resolver layer before parsing.
-  - Preserve existing Org `#+TODO`, `#+SEQ_TODO`, and `#+TYP_TODO` precedence as the highest-priority override.
-  - Ensure config TODO keyword defaults are applied per file through ParseOptions.
-  - Add a small resolver abstraction or function that can later accept file-local and dir-local TODO sources.
-  - Keep the implementation future-compatible with parallel parsing: no global mutable state, no parser-side DB access, and no hidden filesystem lookups from parser code.
-
-  DB behavior:
-  - Store enough effective TODO keyword information after parsing to let users inspect what the indexer used.
-  - Do not make stored TODO-source rows an input dependency for parsing during rebuild.
-
-  Tests:
-  - Config TODO keywords are passed into the parser per file.
-  - Org `#+TODO` overrides config defaults.
-  - Rebuild from an empty DB works.
-  - Stored effective TODO keyword rows match parser behavior.
-  - Existing TODO keyword tests still pass.
-#+END_SRC
+[[file:archive/2026-06-26--tighten-shared-todo-keyword-parsing.org]]
 
 ** TODO [#A] Persist TODO keyword source metadata separately from effective keywords
 :PROPERTIES:

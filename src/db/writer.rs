@@ -45,6 +45,9 @@ pub struct TodoKeywordRecord {
     pub state_type: String,
     pub shortcut: Option<char>,
     pub sequence_no: i64,
+    pub source_kind: String,
+    pub source_keyword: Option<String>,
+    pub source_line_number: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -278,14 +281,19 @@ impl DbWriter {
         for row in rows {
             connection
                 .execute(
-                    "INSERT INTO todo_keywords (file_id, keyword, state_type, shortcut, sequence_no)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    "INSERT INTO todo_keywords
+                     (file_id, keyword, state_type, shortcut, sequence_no, source_kind,
+                      source_keyword, source_line_number)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         row.file_id,
                         row.keyword,
                         row.state_type,
                         row.shortcut.map(|value| value.to_string()),
-                        row.sequence_no
+                        row.sequence_no,
+                        row.source_kind,
+                        row.source_keyword,
+                        row.source_line_number,
                     ],
                 )
                 .map_err(|source| DbWriteError::Write {
@@ -637,6 +645,9 @@ mod tests {
                     state_type: "open".to_string(),
                     shortcut: None,
                     sequence_no: 0,
+                    source_kind: "config_default".to_string(),
+                    source_keyword: None,
+                    source_line_number: None,
                 }],
             )?;
             Ok(())
@@ -701,6 +712,9 @@ mod tests {
                 state_type: "open".to_string(),
                 shortcut: Some('t'),
                 sequence_no: 0,
+                source_kind: "config_default".to_string(),
+                source_keyword: None,
+                source_line_number: None,
             }],
         )
         .expect("todo keyword should insert");

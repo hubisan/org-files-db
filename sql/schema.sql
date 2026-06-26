@@ -225,6 +225,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_headings_file_level0
 
   sequence_no:
     Order of the keyword within the active TODO keyword configuration.
+
+  source_kind:
+    config_default or org_keyword.
+
+  source_keyword:
+    The source keyword line that produced the row, for example TODO, SEQ_TODO,
+    or TYP_TODO. NULL for config defaults.
+
+  source_line_number:
+    1-based line number of the source keyword line. NULL for config defaults.
 */
 CREATE TABLE IF NOT EXISTS todo_keywords (
     file_id         INTEGER NOT NULL,
@@ -232,6 +242,22 @@ CREATE TABLE IF NOT EXISTS todo_keywords (
     state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
     shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
     sequence_no     INTEGER NOT NULL,
+    source_kind     TEXT NOT NULL CHECK (
+                        source_kind IN ('config_default', 'org_keyword')
+                    ),
+    source_keyword  TEXT CHECK (
+                        source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
+                        OR source_keyword IS NULL
+                    ),
+    source_line_number INTEGER CHECK (
+                        source_line_number IS NULL
+                        OR source_line_number > 0
+                    ),
+    CHECK (
+        (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
+        OR
+        (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
+    ),
     FOREIGN KEY (file_id)
         REFERENCES files(id)
         ON DELETE CASCADE,

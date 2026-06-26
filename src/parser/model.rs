@@ -6,15 +6,36 @@ use std::{
 use serde::Serialize;
 
 use super::diagnostics::ParseDiagnostic;
+use crate::todo_keywords::resolve_todo_keywords_from_keywords;
 
-pub trait OrgParser {
-    fn parse_document(
+pub trait OrgParserCore {
+    fn parse_document_core(
         &self,
         path: &Path,
         content: &str,
         options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic>;
 }
+
+pub trait OrgParser: OrgParserCore {
+    fn parse_document(
+        &self,
+        path: &Path,
+        content: &str,
+        options: &ParseOptions,
+    ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+        let resolved = crate::todo_keywords::resolve_todo_keywords(content, &options.todo_keywords);
+        self.parse_document_core(
+            path,
+            content,
+            &ParseOptions {
+                todo_keywords: resolved.effective,
+            },
+        )
+    }
+}
+
+impl<T: OrgParserCore> OrgParser for T {}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParseOptions {
@@ -62,97 +83,13 @@ impl Default for TodoKeywordConfig {
 }
 
 pub fn file_local_todo_keyword_config(keywords: &[ParsedKeyword]) -> Option<TodoKeywordConfig> {
-    let mut open = Vec::new();
-    let mut closed = Vec::new();
-    let mut seen = HashSet::new();
-
-    for keyword in keywords.iter().filter(|keyword| {
-        keyword.key.eq_ignore_ascii_case("TODO")
-            || keyword.key.eq_ignore_ascii_case("SEQ_TODO")
-            || keyword.key.eq_ignore_ascii_case("TYP_TODO")
-    }) {
-        let Some(value) = keyword.value.as_deref() else {
-            continue;
-        };
-        let Some(line_config) = parse_file_local_todo_keyword_line(value) else {
-            continue;
-        };
-
-        for todo_keyword in line_config.open {
-            if seen.insert(todo_keyword.name.clone()) {
-                open.push(todo_keyword);
-            }
-        }
-        for todo_keyword in line_config.closed {
-            if seen.insert(todo_keyword.name.clone()) {
-                closed.push(todo_keyword);
-            }
-        }
-    }
-
-    if open.is_empty() && closed.is_empty() {
-        None
-    } else {
-        Some(TodoKeywordConfig { open, closed })
-    }
+    resolve_todo_keywords_from_keywords(keywords).map(|resolved| resolved.effective)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TodoKeyword {
     pub name: String,
     pub fast_key: Option<char>,
-}
-
-fn parse_todo_keyword_token(token: &str) -> Option<TodoKeyword> {
-    if let Some((name, suffix)) = token.split_once('(') {
-        let name = name.trim();
-        if name.is_empty() {
-            return None;
-        }
-
-        let fast_key = suffix
-            .strip_suffix(')')
-            .and_then(|value| value.chars().next());
-        if let Some(fast_key) = fast_key {
-            Some(TodoKeyword::with_fast_key(name, fast_key))
-        } else {
-            Some(TodoKeyword::new(name))
-        }
-    } else {
-        let name = token.trim();
-        if name.is_empty() {
-            None
-        } else {
-            Some(TodoKeyword::new(name))
-        }
-    }
-}
-
-fn parse_file_local_todo_keyword_line(value: &str) -> Option<TodoKeywordConfig> {
-    let tokens: Vec<&str> = value.split_whitespace().collect();
-    if tokens.is_empty() {
-        return None;
-    }
-
-    let mut open = Vec::new();
-    let mut closed = Vec::new();
-
-    if let Some(separator_index) = tokens.iter().position(|token| *token == "|") {
-        for token in &tokens[..separator_index] {
-            open.push(parse_todo_keyword_token(token)?);
-        }
-        for token in &tokens[separator_index + 1..] {
-            closed.push(parse_todo_keyword_token(token)?);
-        }
-    } else {
-        let (closed_token, open_tokens) = tokens.split_last()?;
-        for token in open_tokens {
-            open.push(parse_todo_keyword_token(token)?);
-        }
-        closed.push(parse_todo_keyword_token(closed_token)?);
-    }
-
-    Some(TodoKeywordConfig { open, closed })
 }
 
 impl TodoKeyword {

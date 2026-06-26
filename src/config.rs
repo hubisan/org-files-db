@@ -6,7 +6,10 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::parser::{ParseOptions, TodoKeyword, TodoKeywordConfig};
+use crate::{
+    parser::{ParseOptions, TodoKeyword, TodoKeywordConfig},
+    todo_keywords::parse_todo_keyword_spec,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -81,13 +84,13 @@ impl Config {
                     .default_open_keywords
                     .unwrap_or_else(default_open_keyword_specs)
                     .into_iter()
-                    .map(parse_todo_keyword_spec)
+                    .map(|spec| parse_todo_keyword_spec(&spec))
                     .collect(),
                 default_closed_keywords: todo
                     .default_closed_keywords
                     .unwrap_or_else(default_closed_keyword_specs)
                     .into_iter()
-                    .map(parse_todo_keyword_spec)
+                    .map(|spec| parse_todo_keyword_spec(&spec))
                     .collect(),
             },
             search: SearchConfig {
@@ -268,34 +271,15 @@ fn default_closed_keyword_specs() -> Vec<String> {
 fn default_open_keywords() -> Vec<TodoKeyword> {
     default_open_keyword_specs()
         .into_iter()
-        .map(parse_todo_keyword_spec)
+        .map(|spec| parse_todo_keyword_spec(&spec))
         .collect()
 }
 
 fn default_closed_keywords() -> Vec<TodoKeyword> {
     default_closed_keyword_specs()
         .into_iter()
-        .map(parse_todo_keyword_spec)
+        .map(|spec| parse_todo_keyword_spec(&spec))
         .collect()
-}
-
-fn parse_todo_keyword_spec(spec: String) -> TodoKeyword {
-    if let Some((name, fast_key)) = split_todo_keyword_spec(&spec) {
-        TodoKeyword::with_fast_key(name, fast_key)
-    } else {
-        TodoKeyword::new(spec)
-    }
-}
-
-fn split_todo_keyword_spec(spec: &str) -> Option<(&str, char)> {
-    let open_paren = spec.rfind('(')?;
-    let close_paren = spec.rfind(')')?;
-    if close_paren != spec.len() - 1 || open_paren + 2 != close_paren {
-        return None;
-    }
-
-    let fast_key = spec[open_paren + 1..close_paren].chars().next()?;
-    Some((&spec[..open_paren], fast_key))
 }
 
 // Relative paths in the config are resolved relative to the config file location.
@@ -542,6 +526,37 @@ db_path = "db.sqlite"
 [todo]
 default_open_keywords = ["TODO(t)", "NEXT(n)"]
 default_closed_keywords = ["DONE(d)"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.todo.default_open_keywords,
+            vec![
+                TodoKeyword::with_fast_key("TODO", 't'),
+                TodoKeyword::with_fast_key("NEXT", 'n'),
+            ]
+        );
+        assert_eq!(
+            config.todo.default_closed_keywords,
+            vec![TodoKeyword::with_fast_key("DONE", 'd')]
+        );
+    }
+
+    #[test]
+    fn fast_selection_keys_trim_outer_whitespace_in_config() {
+        let test_dir = TestDir::new("todo-fast-keys-trimmed");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[todo]
+default_open_keywords = [" TODO(t) ", " NEXT(n) "]
+default_closed_keywords = [" DONE(d) "]
 "#,
         );
 

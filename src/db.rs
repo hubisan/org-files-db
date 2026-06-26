@@ -238,6 +238,74 @@ mod tests {
     }
 
     #[test]
+    fn migrates_legacy_todo_keywords_table_to_store_provenance() {
+        let schema = SchemaDefinition::new(1, false);
+        let connection = Connection::open_in_memory().expect("legacy database should open");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL UNIQUE,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE todo_keywords (
+    file_id         INTEGER NOT NULL,
+    keyword         TEXT NOT NULL,
+    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
+    shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
+    sequence_no     INTEGER NOT NULL,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (file_id, keyword)
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
+INSERT INTO todo_keywords (file_id, keyword, state_type, shortcut, sequence_no)
+VALUES (1, 'PLAN', 'open', 'p', 0);
+"#,
+            )
+            .expect("legacy schema should seed");
+
+        schema
+            .apply(&connection)
+            .expect("schema migration should succeed");
+
+        let columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(todo_keywords)")
+                .expect("todo_keywords pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("todo_keywords pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("todo_keywords columns should collect")
+        };
+        assert!(columns.iter().any(|column| column == "source_kind"));
+        assert!(columns.iter().any(|column| column == "source_keyword"));
+        assert!(columns.iter().any(|column| column == "source_line_number"));
+
+        let provenance: (String, Option<String>, Option<i64>) = connection
+            .query_row(
+                "SELECT source_kind, source_keyword, source_line_number
+                 FROM todo_keywords
+                 WHERE file_id = 1 AND keyword = 'PLAN'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("todo keyword provenance should be queryable");
+
+        assert_eq!(provenance.0, "config_default");
+        assert_eq!(provenance.1, None);
+        assert_eq!(provenance.2, None);
+    }
+
+    #[test]
     fn applies_schema_with_fts_when_supported() {
         let probe = Connection::open_in_memory().expect("probe connection should open");
         if !sqlite_supports_fts5(&probe) {
@@ -1269,9 +1337,20 @@ VALUES
 
         connection
             .execute(
-                "INSERT INTO todo_keywords (file_id, keyword, state_type, shortcut, sequence_no)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                (1_i64, "TODO", "open", Option::<String>::None, 0_i64),
+                "INSERT INTO todo_keywords
+                 (file_id, keyword, state_type, shortcut, sequence_no, source_kind,
+                  source_keyword, source_line_number)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    1_i64,
+                    "TODO",
+                    "open",
+                    Option::<String>::None,
+                    0_i64,
+                    "config_default",
+                    Option::<String>::None,
+                    Option::<i64>::None,
+                ),
             )
             .expect("todo keyword insert should succeed");
         connection

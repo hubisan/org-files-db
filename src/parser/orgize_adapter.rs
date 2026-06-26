@@ -11,12 +11,12 @@ use orgize::{
 
 use super::diagnostics::ParseDiagnostic;
 use super::model::{
-    file_local_todo_keyword_config, OrgParser, ParseOptions, ParsedHeading, ParsedKeyword,
-    ParsedOrgDocument, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
-    ParsedTimestampModifier, ParsedTimestampModifierKind, ParsedTimestampModifierType,
-    ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit,
-    TodoKeywordConfig, TodoType,
+    OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty,
+    ParsedPropertySource, ParsedTimestamp, ParsedTimestampModifier, ParsedTimestampModifierKind,
+    ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
+    ParsedTimestampType, ParsedTimestampUnit, TodoKeywordConfig, TodoType,
 };
+use crate::todo_keywords::collect_document_keywords;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OrgizeAdapter;
@@ -27,8 +27,8 @@ impl OrgizeAdapter {
     }
 }
 
-impl OrgParser for OrgizeAdapter {
-    fn parse_document(
+impl OrgParserCore for OrgizeAdapter {
+    fn parse_document_core(
         &self,
         path: &Path,
         content: &str,
@@ -40,9 +40,6 @@ impl OrgParser for OrgizeAdapter {
 
         parsed.metadata.title = combined_document_title(&document);
         parsed.metadata.keywords = collect_document_keywords(&document, content);
-
-        let active_todo_keywords = file_local_todo_keyword_config(&parsed.metadata.keywords)
-            .unwrap_or_else(|| options.todo_keywords.clone());
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
         populate_heading_body(document.section(), content, &mut level_zero);
@@ -64,7 +61,7 @@ impl OrgParser for OrgizeAdapter {
             document.headlines(),
             path,
             content,
-            &active_todo_keywords,
+            &options.todo_keywords,
             &mut parsed.headings,
             Some(0),
         );
@@ -971,26 +968,6 @@ fn is_supported_title_markup(kind: SyntaxKind) -> bool {
             | SyntaxKind::VERBATIM
             | SyntaxKind::CODE
     )
-}
-
-fn collect_document_keywords(document: &OrgDocument, content: &str) -> Vec<ParsedKeyword> {
-    document
-        .syntax()
-        .descendants()
-        .filter_map(Keyword::cast)
-        .map(|keyword| parsed_keyword_from_orgize(&keyword, content))
-        .collect()
-}
-
-fn parsed_keyword_from_orgize(keyword: &Keyword, content: &str) -> ParsedKeyword {
-    ParsedKeyword {
-        key: keyword.key().to_string(),
-        value: Some(keyword.value().trim().to_string()).filter(|value| !value.is_empty()),
-        line_number: Some(line_number_for_offset(
-            content,
-            usize::from(keyword.start()),
-        )),
-    }
 }
 
 fn file_level_properties_from_keywords(keywords: &[ParsedKeyword]) -> Vec<ParsedProperty> {

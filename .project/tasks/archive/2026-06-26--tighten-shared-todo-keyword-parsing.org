@@ -1,0 +1,64 @@
+#+TITLE: Tighten shared TODO keyword parsing
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-26 Fri 15:46]
+#+TASK_COMPLETED: [2026-06-26 Fri 15:46]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: review and tighten the shared TODO keyword token parser only.
+- Scope constraints: preserve current resolver/indexer/parser architecture, keep parser-side TODO precedence out, do not add ~.dir-locals.el~ or Emacs file-local variables, and cover malformed or unusual fast-key suffixes.
+- Covered cases: ~TODO()~, ~TODO(ab)~, ~TODO(t~, ~TODO)t~, and whitespace-trimmed config values such as ~" TODO(t) "~.
+
+* Planning
+
+** Problem summary
+Shared TODO spec parsing had drifted far enough that centralizing it could change malformed suffix behavior.
+
+** Goals
+Keep the parser-independent shared TODO token parser narrow, compatible, and covered by focused tests.
+
+** Non-goals
+No architecture changes, no directory-local support, no parser-side precedence restoration, no DB coupling changes.
+
+** Architecture
+One shared parser helper in ~src/todo_keywords.rs~, reused by config and Org keyword resolution.
+
+** Execution plan
+1. Tighten shared spec parsing only.
+2. Add unit tests for malformed and whitespace-trimmed specs.
+3. Add one config-level regression test for trimmed defaults.
+
+** Risks & assumptions
+Assumed that trimming outer whitespace is a safe compatibility improvement and that legacy note-log suffixes like ~w@~ should remain valid.
+
+** Open questions
+None.
+
+** Proposed checks
+~cargo fmt --all~ and ~cargo test~.
+
+* Results
+
+** Approach
+Trim outer whitespace in the shared spec parser, keep malformed multi-letter suffixes literal, and preserve accepted Org-style suffixes like ~w@~.
+
+** Changed files
+- ~src/todo_keywords.rs~
+- ~src/config.rs~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test~
+
+** Test results
+All tests passed, including config, parser, orgize adapter, and indexer coverage for TODO keywords.
+
+** Blockers
+None.
+
+** Follow-ups
+None.

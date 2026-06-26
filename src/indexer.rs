@@ -17,11 +17,11 @@ use crate::{
         TodoKeywordRecord,
     },
     parser::{
-        file_local_todo_keyword_config, DiagnosticSeverity, OrgParser, ParseDiagnostic,
-        ParsedHeading, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
-        ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoKeywordConfig,
-        TodoType,
+        DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
+        ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
+        ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
+    todo_keywords::{resolve_todo_keywords, ResolvedTodoKeywordEntry, ResolvedTodoKeywords},
 };
 
 #[derive(Debug)]
@@ -31,7 +31,7 @@ pub struct Indexer<P> {
 
 impl<P> Indexer<P>
 where
-    P: OrgParser,
+    P: OrgParserCore,
 {
     pub fn new(parser: P) -> Self {
         Self { parser }
@@ -54,6 +54,7 @@ where
         config: &Config,
     ) -> Result<RebuildReport, IndexerError> {
         let paths = discover_org_files(config)?;
+        let parse_options = config.parse_options();
         let mut pending = Vec::with_capacity(paths.len());
         for path in paths {
             let metadata = fs::metadata(&path).map_err(|source| IndexerError::ReadFile {
@@ -64,21 +65,27 @@ where
                 path: path.clone(),
                 source,
             })?;
+            let resolved_todo_keywords =
+                resolve_todo_keywords(&content, &parse_options.todo_keywords);
             let document = self
                 .parser
-                .parse_document(&path, &content, &config.parse_options())
+                .parse_document_core(
+                    &path,
+                    &content,
+                    &ParseOptions {
+                        todo_keywords: resolved_todo_keywords.effective.clone(),
+                    },
+                )
                 .map_err(|diagnostic| IndexerError::Parse {
                     path: path.clone(),
                     diagnostic,
                 })?;
             let normalized = normalize_document(document, &path, &content);
-            let todo_keywords =
-                active_todo_keywords(&normalized, &config.parse_options().todo_keywords);
             let file_record = build_file_record(&path, &metadata)?;
             pending.push(PendingRebuildFile {
                 path,
                 document: normalized,
-                todo_keywords,
+                todo_keywords: resolved_todo_keywords,
                 file_record,
             });
         }
@@ -128,7 +135,7 @@ where
 struct PendingRebuildFile {
     path: PathBuf,
     document: ParsedOrgDocument,
-    todo_keywords: TodoKeywordConfig,
+    todo_keywords: ResolvedTodoKeywords,
     file_record: FileRecordInput,
 }
 
@@ -302,15 +309,6 @@ fn collect_org_files(
     Ok(())
 }
 
-fn active_todo_keywords(
-    document: &ParsedOrgDocument,
-    default_keywords: &TodoKeywordConfig,
-) -> TodoKeywordConfig {
-    file_local_todo_keyword_config(&document.metadata.keywords)
-        .unwrap_or_else(|| default_keywords.clone())
-        .deduplicated()
-}
-
 fn build_file_record(
     path: &Path,
     metadata: &fs::Metadata,
@@ -452,7 +450,7 @@ fn index_document(
     connection: &Connection,
     file_id: i64,
     document: &ParsedOrgDocument,
-    todo_keywords: &TodoKeywordConfig,
+    todo_keywords: &ResolvedTodoKeywords,
     fts5_enabled: bool,
     index_body_text: bool,
 ) -> Result<usize, DbWriteError> {
@@ -551,7 +549,7 @@ fn index_document(
             line_number: keyword.line_number.map(i64::from),
         })
         .collect::<Vec<_>>();
-    let todo_rows = todo_keyword_rows(file_id, todo_keywords);
+    let todo_rows = todo_keyword_rows(file_id, &todo_keywords.entries);
     let tag_rows = document
         .headings
         .iter()
@@ -836,31 +834,22 @@ fn merge_effective_tags(inherited: &[String], local: &[String]) -> Vec<String> {
     merged
 }
 
-fn todo_keyword_rows(file_id: i64, todo_keywords: &TodoKeywordConfig) -> Vec<TodoKeywordRecord> {
+fn todo_keyword_rows(
+    file_id: i64,
+    todo_keywords: &[ResolvedTodoKeywordEntry],
+) -> Vec<TodoKeywordRecord> {
     todo_keywords
-        .open
         .iter()
-        .enumerate()
-        .map(|(sequence_no, keyword)| TodoKeywordRecord {
+        .map(|keyword| TodoKeywordRecord {
             file_id,
-            keyword: keyword.name.clone(),
-            state_type: "open".to_string(),
-            shortcut: keyword.fast_key,
-            sequence_no: sequence_no as i64,
+            keyword: keyword.keyword.clone(),
+            state_type: keyword.state_type.clone(),
+            shortcut: keyword.shortcut,
+            sequence_no: keyword.sequence_no,
+            source_kind: keyword.source_kind.as_db_str().to_string(),
+            source_keyword: keyword.source_keyword.clone(),
+            source_line_number: keyword.source_line_number.map(i64::from),
         })
-        .chain(
-            todo_keywords
-                .closed
-                .iter()
-                .enumerate()
-                .map(|(sequence_no, keyword)| TodoKeywordRecord {
-                    file_id,
-                    keyword: keyword.name.clone(),
-                    state_type: "closed".to_string(),
-                    shortcut: keyword.fast_key,
-                    sequence_no: (todo_keywords.open.len() + sequence_no) as i64,
-                }),
-        )
         .collect()
 }
 
@@ -944,7 +933,7 @@ mod tests {
     use crate::{
         config::Config,
         db::{sqlite_supports_fts5, DbReader},
-        parser::{OrgParser, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
+        parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
     use rusqlite::Connection;
     use std::{
@@ -1063,10 +1052,22 @@ index_body_text = false
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[1].all_tags_json, "[\"rust\"]");
 
-        let todo_rows: Vec<(String, String, Option<String>, i64)> = query_rows(
+        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
             &connection,
-            "SELECT keyword, state_type, shortcut, sequence_no FROM todo_keywords ORDER BY sequence_no",
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
+             FROM todo_keywords
+             ORDER BY sequence_no",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
         );
         assert_eq!(
             todo_rows,
@@ -1075,13 +1076,19 @@ index_body_text = false
                     "PLAN".to_string(),
                     "open".to_string(),
                     Some("p".to_string()),
-                    0
+                    0,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(2),
                 ),
                 (
                     "DONE".to_string(),
                     "closed".to_string(),
                     Some("d".to_string()),
-                    1
+                    1,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(2),
                 ),
             ]
         );
@@ -1683,19 +1690,69 @@ index_body_text = false
         assert_eq!(headings[3].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[3].todo_type.as_deref(), Some("closed"));
 
-        let todo_rows: Vec<(String, String, Option<String>, i64)> = query_rows(
+        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
             &connection,
-            "SELECT keyword, state_type, shortcut, sequence_no FROM todo_keywords ORDER BY sequence_no",
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
+             FROM todo_keywords
+             ORDER BY sequence_no",
+            |row| Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            )),
         );
         assert_eq!(
             todo_rows,
             vec![
-                ("TODO".to_string(), "open".to_string(), None, 0,),
-                ("NEXT".to_string(), "open".to_string(), None, 1,),
-                ("WAIT".to_string(), "open".to_string(), None, 2,),
-                ("DONE".to_string(), "closed".to_string(), None, 3,),
-                ("CANCELED".to_string(), "closed".to_string(), None, 4,),
+                (
+                    "TODO".to_string(),
+                    "open".to_string(),
+                    None,
+                    0,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(2),
+                ),
+                (
+                    "NEXT".to_string(),
+                    "open".to_string(),
+                    None,
+                    1,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(2),
+                ),
+                (
+                    "WAIT".to_string(),
+                    "open".to_string(),
+                    None,
+                    2,
+                    "org_keyword".to_string(),
+                    Some("SEQ_TODO".to_string()),
+                    Some(3),
+                ),
+                (
+                    "DONE".to_string(),
+                    "closed".to_string(),
+                    None,
+                    3,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(2),
+                ),
+                (
+                    "CANCELED".to_string(),
+                    "closed".to_string(),
+                    None,
+                    4,
+                    "org_keyword".to_string(),
+                    Some("SEQ_TODO".to_string()),
+                    Some(3),
+                ),
             ]
         );
     }
@@ -2110,6 +2167,81 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_records_config_default_todo_keyword_provenance() {
+        let test_dir = TestDir::new("config-default-todo");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("default.org");
+
+        write_file(
+            &org_path,
+            "#+TITLE: Defaults\n* TODO Inbox\n* DONE Closed\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
+            &connection,
+            "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
+             FROM todo_keywords
+             ORDER BY sequence_no",
+            |row| Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            )),
+        );
+
+        assert_eq!(
+            todo_rows,
+            vec![
+                (
+                    "TODO".to_string(),
+                    "open".to_string(),
+                    Some("t".to_string()),
+                    0,
+                    "config_default".to_string(),
+                    None,
+                    None,
+                ),
+                (
+                    "DONE".to_string(),
+                    "closed".to_string(),
+                    Some("d".to_string()),
+                    1,
+                    "config_default".to_string(),
+                    None,
+                    None,
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn rebuild_handles_manual_file_local_todo_fixture() {
         let test_dir = TestDir::new("manual-file-local-todo");
         let org_path = test_dir.path().join("test.org");
@@ -2159,10 +2291,22 @@ index_body_text = false
         assert_eq!(headings[5].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[5].todo_type.as_deref(), Some("closed"));
 
-        let todo_rows: Vec<(String, String, Option<String>, i64)> = query_rows(
+        let todo_rows: Vec<(String, String, Option<String>, i64, String, Option<String>, Option<i64>)> = query_rows(
             &connection,
-            "SELECT keyword, state_type, shortcut, sequence_no FROM todo_keywords ORDER BY sequence_no",
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            "SELECT keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number
+             FROM todo_keywords
+             ORDER BY sequence_no",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
         );
         assert_eq!(
             todo_rows,
@@ -2171,31 +2315,46 @@ index_body_text = false
                     "TODO".to_string(),
                     "open".to_string(),
                     Some("t".to_string()),
-                    0
+                    0,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(3),
                 ),
                 (
                     "NEXT".to_string(),
                     "open".to_string(),
                     Some("n".to_string()),
-                    1
+                    1,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(3),
                 ),
                 (
                     "PLAN".to_string(),
                     "open".to_string(),
                     Some("p".to_string()),
-                    2
+                    2,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(3),
                 ),
                 (
                     "DONE".to_string(),
                     "closed".to_string(),
                     Some("d".to_string()),
-                    3
+                    3,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(3),
                 ),
                 (
                     "CANCEL".to_string(),
                     "closed".to_string(),
                     Some("c".to_string()),
-                    4
+                    4,
+                    "org_keyword".to_string(),
+                    Some("TODO".to_string()),
+                    Some(3),
                 ),
             ]
         );
@@ -3014,8 +3173,8 @@ index_body_text = true
     fn faulty_file_stops_cleanly_with_clear_error() {
         struct FailingParser;
 
-        impl OrgParser for FailingParser {
-            fn parse_document(
+        impl OrgParserCore for FailingParser {
+            fn parse_document_core(
                 &self,
                 path: &Path,
                 _content: &str,

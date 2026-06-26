@@ -1,10 +1,12 @@
 use std::path::Path;
 
 use org_files_db::parser::{
-    OrgParser, OrgizeAdapter, ParseOptions, ParsedPropertySource, ParsedTimestampModifierKind,
-    ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
-    ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig, TodoType,
+    OrgParser, OrgParserCore, OrgizeAdapter, ParseOptions, ParsedPropertySource,
+    ParsedTimestampModifierKind, ParsedTimestampModifierType, ParsedTimestampRangeType,
+    ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig,
+    TodoType,
 };
+use org_files_db::todo_keywords::resolve_todo_keywords;
 
 #[test]
 fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
@@ -763,6 +765,43 @@ fn orgize_adapter_treats_file_local_todo_keywords_as_overrides() {
     assert_eq!(document.headings[3].todo_type, None);
     assert_eq!(document.headings[3].title, "REVIEW Mist");
     assert_eq!(document.headings[3].title_raw, "REVIEW Mist");
+}
+
+#[test]
+fn orgize_adapter_core_parser_uses_only_effective_todo_keywords() {
+    let content = "#+TODO: PLAN(p) | DONE(d)\n* PLAN me\n* DONE me\n";
+
+    let parsed = OrgizeAdapter::new()
+        .parse_document_core(
+            Path::new("notes/core-todo.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("core parser should parse");
+
+    assert_eq!(parsed.headings[1].todo_keyword, None);
+    assert_eq!(parsed.headings[1].title, "PLAN me");
+    assert_eq!(parsed.headings[2].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(parsed.headings[2].todo_type, Some(TodoType::Closed));
+    assert_eq!(parsed.headings[2].title, "me");
+
+    let resolved = resolve_todo_keywords(content, &ParseOptions::default().todo_keywords);
+    let parsed = OrgizeAdapter::new()
+        .parse_document_core(
+            Path::new("notes/core-todo.org"),
+            content,
+            &ParseOptions {
+                todo_keywords: resolved.effective,
+            },
+        )
+        .expect("core parser should use effective TODO keywords");
+
+    assert_eq!(parsed.headings[1].todo_keyword.as_deref(), Some("PLAN"));
+    assert_eq!(parsed.headings[1].todo_type, Some(TodoType::Open));
+    assert_eq!(parsed.headings[1].title, "me");
+    assert_eq!(parsed.headings[2].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(parsed.headings[2].todo_type, Some(TodoType::Closed));
+    assert_eq!(parsed.headings[2].title, "me");
 }
 
 #[test]

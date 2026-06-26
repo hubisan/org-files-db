@@ -91,6 +91,35 @@ CREATE TABLE properties (
         ON DELETE CASCADE
 )
 "#;
+const TODO_KEYWORDS_TABLE_SQL: &str = r#"
+CREATE TABLE todo_keywords (
+    file_id             INTEGER NOT NULL,
+    keyword             TEXT NOT NULL,
+    state_type          TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
+    shortcut            TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
+    sequence_no         INTEGER NOT NULL,
+    source_kind         TEXT NOT NULL CHECK (
+                            source_kind IN ('config_default', 'org_keyword')
+                        ),
+    source_keyword      TEXT CHECK (
+                            source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
+                            OR source_keyword IS NULL
+                        ),
+    source_line_number  INTEGER CHECK (
+                            source_line_number IS NULL
+                            OR source_line_number > 0
+                        ),
+    CHECK (
+        (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
+        OR
+        (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
+    ),
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (file_id, keyword)
+)
+"#;
 const TAGS_TABLE_SQL: &str = r#"
 CREATE TABLE tags (
     heading_id      INTEGER NOT NULL,
@@ -128,6 +157,7 @@ impl SchemaDefinition {
 
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
         migrate_legacy_timestamp_repeaters(connection)?;
+        migrate_legacy_todo_keywords_table(connection)?;
         migrate_legacy_properties_table(connection)?;
         migrate_legacy_tags_table(connection)?;
         connection.execute_batch(&self.render_sql(connection))
@@ -313,6 +343,67 @@ DROP TABLE properties_legacy;
     )?;
 
     Ok(())
+}
+
+fn migrate_legacy_todo_keywords_table(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "todo_keywords")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "todo_keywords")?;
+    if todo_keywords_table_uses_provenance_columns(&columns) {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+ALTER TABLE todo_keywords RENAME TO todo_keywords_legacy;
+"#,
+    )?;
+    connection.execute_batch(TODO_KEYWORDS_TABLE_SQL)?;
+    connection.execute_batch(
+        r#"
+INSERT INTO todo_keywords (
+    file_id,
+    keyword,
+    state_type,
+    shortcut,
+    sequence_no,
+    source_kind,
+    source_keyword,
+    source_line_number
+)
+SELECT
+    file_id,
+    keyword,
+    state_type,
+    shortcut,
+    sequence_no,
+    'config_default',
+    NULL,
+    NULL
+FROM todo_keywords_legacy;
+
+DROP TABLE todo_keywords_legacy;
+"#,
+    )?;
+
+    Ok(())
+}
+
+fn todo_keywords_table_uses_provenance_columns(columns: &[String]) -> bool {
+    [
+        "file_id",
+        "keyword",
+        "state_type",
+        "shortcut",
+        "sequence_no",
+        "source_kind",
+        "source_keyword",
+        "source_line_number",
+    ]
+    .iter()
+    .all(|required| columns.iter().any(|column| column == required))
 }
 
 fn properties_table_uses_append_column(columns: &[String]) -> bool {

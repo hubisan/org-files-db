@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use org_files_db::parser::{
-    DiagnosticSeverity, OrgParser, OrgizeAdapter, ParseDiagnostic, ParseOptions,
+    DiagnosticSeverity, OrgParser, OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions,
     ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning,
     ParsedProperty, ParsedPropertySource, ParsedTimestamp, ParsedTimestampRangeType,
     ParsedTimestampRole, ParsedTimestampType, TodoKeyword, TodoKeywordConfig, TodoType,
@@ -64,8 +64,8 @@ where
 
 struct StubFixtureParser;
 
-impl OrgParser for StubFixtureParser {
-    fn parse_document(
+impl OrgParserCore for StubFixtureParser {
+    fn parse_document_core(
         &self,
         path: &Path,
         content: &str,
