@@ -38,9 +38,10 @@ impl DirLocalsResolver {
                 path: dir_locals_path.clone(),
                 source,
             })?;
-        // Parse failures come from malformed or explicitly unsafe syntax in the
-        // restricted reader. Under warn/ignore we continue with config defaults
-        // and treat the .dir-locals source as unusable for this file.
+        // Structural parse failures are still fatal for the source file, but
+        // targeted TODO extraction failures are reported separately as
+        // diagnostics. Under warn/ignore we continue with config defaults and
+        // treat the .dir-locals source as unusable for this file.
         let parsed = match parse_dir_locals(&content) {
             Ok(parsed) => parsed,
             Err(message) => match self.config.unsupported {
@@ -169,6 +170,7 @@ enum Expr {
     String(String),
     List(Vec<Expr>),
     DottedPair(Box<Expr>, Box<Expr>),
+    ReaderSyntax(Box<Expr>),
 }
 
 fn find_dir_locals_path(file_path: &Path, scan_root: &Path, inherit: bool) -> Option<PathBuf> {
@@ -210,51 +212,37 @@ fn extract_todo_keywords(expr: Expr) -> Result<ParsedDirLocals, String> {
 
     for entry in entries {
         let Expr::DottedPair(mode, vars) = entry else {
-            diagnostics.push("top-level entries must be dotted pairs".to_string());
             continue;
         };
 
         let Some(mode_name) = symbol_name(&mode) else {
-            diagnostics.push("mode entry must use a symbol key".to_string());
             continue;
         };
 
         if mode_name != "nil" && mode_name != "org-mode" {
-            diagnostics.push(format!("unsupported mode entry: {mode_name}"));
             continue;
         }
 
         let Some(variable_entries) = list_items(&vars) else {
-            diagnostics.push(format!(
-                "mode entry {mode_name} must map to a list of variable entries"
-            ));
             continue;
         };
 
         let mut mode_todo_keywords = None;
         for variable_entry in variable_entries {
             let Expr::DottedPair(variable, value) = variable_entry else {
-                diagnostics.push(format!(
-                    "mode entry {mode_name} contains a non-pair variable entry"
-                ));
                 continue;
             };
 
             let Some(variable_name) = symbol_name(variable) else {
-                diagnostics.push(format!(
-                    "mode entry {mode_name} contains a variable without a symbol name"
-                ));
                 continue;
             };
 
             if variable_name == "org-todo-keywords" {
-                match extract_org_todo_keywords(value) {
+                match extract_org_todo_keywords(value.as_ref()) {
                     Ok(Some(config)) => mode_todo_keywords = Some(config),
                     Ok(None) => {}
                     Err(message) => diagnostics.push(message),
                 }
-            } else {
-                diagnostics.push(format!("unsupported variable: {variable_name}"));
             }
         }
 
@@ -272,27 +260,47 @@ fn extract_todo_keywords(expr: Expr) -> Result<ParsedDirLocals, String> {
 }
 
 fn extract_org_todo_keywords(value: &Expr) -> Result<Option<TodoKeywordConfig>, String> {
+    if matches!(value, Expr::ReaderSyntax(_)) {
+        return Err(unsafe_org_todo_keywords_error(
+            "reader syntax is not supported",
+        ));
+    }
+
     let Some(forms) = list_items(value) else {
-        return Err("org-todo-keywords must map to a list of forms".to_string());
+        return Err(unsafe_org_todo_keywords_error(
+            "org-todo-keywords must map to a list of forms",
+        ));
     };
 
     let mut open = Vec::new();
     let mut closed = Vec::new();
 
     for form in forms {
+        if matches!(form, Expr::ReaderSyntax(_)) {
+            return Err(unsafe_org_todo_keywords_error(
+                "reader syntax is not supported",
+            ));
+        }
+
         let Some(items) = list_items(form) else {
-            return Err("org-todo-keywords forms must be lists".to_string());
+            return Err(unsafe_org_todo_keywords_error(
+                "org-todo-keywords forms must be lists",
+            ));
         };
 
         let Some(Expr::Symbol(kind)) = items.first() else {
-            return Err("org-todo-keywords form must start with a symbol".to_string());
+            return Err(unsafe_org_todo_keywords_error(
+                "org-todo-keywords form must start with a symbol",
+            ));
         };
 
         if kind != "sequence" {
-            return Err(format!("unsupported org-todo-keywords form: {kind}"));
+            return Err(unsafe_org_todo_keywords_error(format!(
+                "unsupported org-todo-keywords form: {kind}"
+            )));
         }
 
-        let sequence = parse_sequence_items(&items[1..])?;
+        let sequence = parse_sequence_items(&items[1..]).map_err(unsafe_org_todo_keywords_error)?;
         open.extend(sequence.open);
         closed.extend(sequence.closed);
     }
@@ -310,6 +318,10 @@ fn parse_sequence_items(items: &[Expr]) -> Result<TodoKeywordConfig, String> {
     let mut seen_separator = false;
 
     for item in items {
+        if matches!(item, Expr::ReaderSyntax(_)) {
+            return Err("reader syntax is not supported".to_string());
+        }
+
         let Expr::String(value) = item else {
             return Err("sequence items must be literal strings".to_string());
         };
@@ -338,6 +350,10 @@ fn parse_sequence_items(items: &[Expr]) -> Result<TodoKeywordConfig, String> {
     }
 
     Ok(TodoKeywordConfig { open, closed })
+}
+
+fn unsafe_org_todo_keywords_error(message: impl Into<String>) -> String {
+    format!("ignored unsafe org-todo-keywords value: {}", message.into())
 }
 
 fn list_items(expr: &Expr) -> Option<&[Expr]> {
@@ -379,7 +395,7 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some('(') => self.parse_list(),
             Some('"') => self.parse_string().map(Expr::String),
-            Some('#') => Err("reader syntax is not supported".to_string()),
+            Some('#') => self.parse_reader_syntax(),
             Some('\'') => Err("quote syntax is not supported".to_string()),
             Some('`') => Err("backquote syntax is not supported".to_string()),
             Some(',') => Err("unquote syntax is not supported".to_string()),
@@ -416,6 +432,19 @@ impl<'a> Parser<'a> {
         }
         self.expect(')')?;
         Ok(Expr::List(items))
+    }
+
+    fn parse_reader_syntax(&mut self) -> Result<Expr, String> {
+        self.expect('#')?;
+        match self.peek() {
+            Some('.') => {
+                self.bump();
+                let expr = self.parse_expr()?;
+                Ok(Expr::ReaderSyntax(Box::new(expr)))
+            }
+            Some(_) => Err("reader syntax is not supported".to_string()),
+            None => Err("reader syntax is not supported".to_string()),
+        }
     }
 
     fn parse_string(&mut self) -> Result<String, String> {
@@ -643,12 +672,15 @@ mod tests {
         assert_eq!(parsed.todo_keywords, None);
         assert_eq!(
             parsed.diagnostics,
-            vec!["unsupported org-todo-keywords form: type".to_string()]
+            vec![
+                "ignored unsafe org-todo-keywords value: unsupported org-todo-keywords form: type"
+                    .to_string()
+            ]
         );
     }
 
     #[test]
-    fn eval_variable_is_rejected_without_evaluation() {
+    fn eval_variable_is_ignored_without_evaluation() {
         let parsed = parse_dir_locals(
             r#"((org-mode . ((eval . (dangerous-call)) (org-todo-keywords . ((sequence "TODO" "|" "DONE"))))))"#,
         )
@@ -661,18 +693,22 @@ mod tests {
                 closed: vec![TodoKeyword::new("DONE")],
             })
         );
-        assert_eq!(
-            parsed.diagnostics,
-            vec!["unsupported variable: eval".to_string()]
-        );
+        assert!(parsed.diagnostics.is_empty());
     }
 
     #[test]
-    fn reader_eval_forms_are_rejected() {
-        let error = parse_dir_locals(r#"((org-mode . ((org-todo-keywords . #.(boom)))))"#)
-            .expect_err("reader syntax should be rejected");
+    fn unsafe_org_todo_keywords_reader_syntax_is_reported() {
+        let parsed = parse_dir_locals(r#"((org-mode . ((org-todo-keywords . #.(boom)))))"#)
+            .expect("dir locals should parse as data");
 
-        assert!(error.contains("reader syntax is not supported"));
+        assert_eq!(parsed.todo_keywords, None);
+        assert_eq!(
+            parsed.diagnostics,
+            vec![
+                "ignored unsafe org-todo-keywords value: reader syntax is not supported"
+                    .to_string()
+            ]
+        );
     }
 
     #[test]
@@ -689,14 +725,11 @@ mod tests {
                 closed: vec![TodoKeyword::new("DONE")],
             })
         );
-        assert_eq!(
-            parsed.diagnostics,
-            vec!["unsupported variable: org-special".to_string()]
-        );
+        assert!(parsed.diagnostics.is_empty());
     }
 
     #[test]
-    fn resolver_warns_for_unsupported_forms() {
+    fn resolver_warns_for_unsafe_org_todo_keywords_values() {
         let test_dir = TestDir::new("resolver-warn");
         let notes_dir = test_dir.path().join("notes");
         let org_path = notes_dir.join("file.org");
@@ -704,7 +737,7 @@ mod tests {
         write_file(&org_path, "* TODO Test\n");
         write_file(
             &dir_locals_path,
-            r#"((org-mode . ((org-todo-keywords . ((sequence "TODO" "|" "DONE"))) (eval . (danger)))))"#,
+            r#"((org-mode . ((org-todo-keywords . #.(boom)) (eval . (danger)))))"#,
         );
 
         let resolver = DirLocalsResolver::new(DirLocalsConfig {
@@ -718,17 +751,14 @@ mod tests {
 
         assert_eq!(resolution.source_path, Some(dir_locals_path));
         assert_eq!(resolution.diagnostics.len(), 1);
-        assert_eq!(
-            resolution.todo_keywords,
-            Some(TodoKeywordConfig {
-                open: vec![TodoKeyword::new("TODO")],
-                closed: vec![TodoKeyword::new("DONE")],
-            })
-        );
+        assert!(resolution.diagnostics[0]
+            .message
+            .contains("ignored unsafe org-todo-keywords value: reader syntax is not supported"));
+        assert_eq!(resolution.todo_keywords, None);
     }
 
     #[test]
-    fn resolver_warns_and_ignores_unparseable_input() {
+    fn resolver_warns_and_ignores_unsafe_org_todo_keywords_under_warn_policy() {
         let test_dir = TestDir::new("resolver-unparseable-warn");
         let notes_dir = test_dir.path().join("notes");
         let org_path = notes_dir.join("file.org");
@@ -736,7 +766,7 @@ mod tests {
         write_file(&org_path, "* TODO Test\n");
         write_file(
             &dir_locals_path,
-            r#"((org-mode . ((org-todo-keywords . #.(boom)))))"#,
+            r#"((org-mode . ((org-todo-keywords . ((sequence "TODO" "|" #.(boom)))))))"#,
         );
 
         let resolver = DirLocalsResolver::new(DirLocalsConfig {
@@ -753,7 +783,7 @@ mod tests {
         assert_eq!(resolution.diagnostics.len(), 1);
         assert!(resolution.diagnostics[0]
             .message
-            .contains("reader syntax is not supported"));
+            .contains("ignored unsafe org-todo-keywords value: reader syntax is not supported"));
     }
 
     #[test]
@@ -788,7 +818,7 @@ mod tests {
         write_file(&org_path, "* TODO Test\n");
         write_file(
             &dir_locals_path,
-            r#"((org-mode . ((org-todo-keywords . #.(boom)))))"#,
+            r#"((org-mode . ((org-todo-keywords . ((sequence "TODO" "|" #.(boom)))))))"#,
         );
 
         let resolver = DirLocalsResolver::new(DirLocalsConfig {
@@ -803,7 +833,9 @@ mod tests {
         match error {
             super::DirLocalsError::Unsupported { path, message } => {
                 assert_eq!(path, dir_locals_path);
-                assert!(message.contains("reader syntax is not supported"));
+                assert!(message.contains(
+                    "ignored unsafe org-todo-keywords value: reader syntax is not supported"
+                ));
             }
             other => panic!("unexpected error: {other}"),
         }

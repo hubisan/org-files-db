@@ -399,7 +399,7 @@ fn dir_locals_diagnostics(diagnostics: &[DirLocalsDiagnostic]) -> Vec<IndexDiagn
         .iter()
         .map(|diagnostic| IndexDiagnostic {
             severity: DiagnosticSeverity::Warning,
-            message: format!("unsupported .dir-locals content: {}", diagnostic.message),
+            message: diagnostic.message.clone(),
             file_path: Some(diagnostic.path.clone()),
             line_number: None,
             byte_range: None,
@@ -2679,7 +2679,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_warns_for_unsupported_dir_locals_and_continues() {
+    fn rebuild_warns_for_unsafe_org_todo_keywords_values_and_continues() {
         let test_dir = TestDir::new("dir-locals-warn");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
@@ -2689,7 +2689,7 @@ index_body_text = false
 
         write_file(
             &dir_locals_path,
-            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))) (eval . (danger)))))"#,
+            r#"((org-mode . ((org-todo-keywords . #.(boom)) (eval . (danger)))))"#,
         );
         write_file(&org_path, "* PLAN me\n");
         write_config(
@@ -2720,9 +2720,55 @@ index_body_text = false
 
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.diagnostics[0].file_path, Some(dir_locals_path));
-        assert!(report.diagnostics[0]
-            .message
-            .contains("unsupported .dir-locals content"));
+        assert_eq!(
+            report.diagnostics[0].message,
+            "ignored unsafe org-todo-keywords value: reader syntax is not supported"
+        );
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), None);
+    }
+
+    #[test]
+    fn rebuild_uses_config_defaults_for_eval_only_dir_locals_without_warning() {
+        let test_dir = TestDir::new("dir-locals-eval-only");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((eval . (message "danger")))))"#,
+        );
+        write_file(&org_path, "* PLAN me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["PLAN"]
+default_closed_keywords = ["DONE"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
@@ -2739,7 +2785,7 @@ index_body_text = false
 
         write_file(
             &notes_dir.join(".dir-locals.el"),
-            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))))))"#,
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))) (eval . (message "danger")))))"#,
         );
         write_file(
             &org_path,
@@ -2766,9 +2812,11 @@ index_body_text = false
 "#,
         );
 
-        Indexer::new(OrgizeAdapter::new())
+        let report = Indexer::new(OrgizeAdapter::new())
             .rebuild_from_config_path(&config_path)
             .expect("rebuild should succeed");
+
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");

@@ -252,76 +252,9 @@ Validation:
 
 [[./archive/2026-06-26--safe-dir-locals-todo-keywords.org]]
 
-** BUILD Reduce noisy warnings for irrelevant ~.dir-locals.el~ forms
+** DONE [2026-06-27 Sat 01:13] Reduce noisy warnings for irrelevant ~.dir-locals.el~ forms
 
-Tighten ~.dir-locals.el~ warning semantics for TODO keyword extraction.
-
-Current behavior:
-
-The resolver warns about unsupported ~.dir-locals.el~ content even when the unsupported content is irrelevant to org-files-db, such as unrelated variables or ~eval~ forms next to a valid ~org-todo-keywords~ entry.
-
-Desired user-facing behavior:
-
-The resolver should behave as a targeted extractor, not as a validator for the whole ~.dir-locals.el~ file.
-
-Rules:
-
-- Only extract supported ~org-todo-keywords~ values from ~org-mode~ or ~nil~ entries.
-- Ignore unrelated variables, including ~eval~, without warning by default.
-- Never evaluate any Lisp.
-- Do not warn merely because the file contains unsupported variables that are irrelevant to TODO keyword extraction.
-- Warn only when a relevant ~org-todo-keywords~ value was present but could not be safely extracted.
-- Keep ~unsupported = "ignore"~ silent.
-- For ~unsupported = "warn"~, warn only for relevant extraction failures.
-- For ~unsupported = "error"~, fail only for relevant extraction failures, not for unrelated variables.
-- Keep warning messages user-facing and specific, for example:
-  ~ignored unsafe org-todo-keywords value: reader syntax is not supported~
-
-Examples:
-
-1. This should extract ~PLAN~/~DONE~ and produce no warning:
-
-#+begin_src emacs-lisp
-((org-mode . ((org-todo-keywords . ((sequence "PLAN" "|" "DONE")))
-              (eval . (message "danger")))))
-#+end_src
-
-2. This should warn or error depending on policy because ~org-todo-keywords~ itself is unsafe:
-
-#+begin_src emacs-lisp
-((org-mode . ((org-todo-keywords . #.(message "danger")))))
-#+end_src
-
-3. This should produce no warning and no TODO override:
-
-#+begin_src emacs-lisp
-((org-mode . ((eval . (message "danger")))))
-#+end_src
-
-Implementation guidance:
-
-- Prefer a targeted extraction path over whole-file validation.
-- If the current parser cannot distinguish irrelevant unsupported forms from relevant ~org-todo-keywords~ failures, adjust it minimally.
-- Do not broaden supported ~.dir-locals.el~ semantics beyond what is needed for this warning behavior.
-- It is acceptable to keep rejecting unsafe reader syntax when it appears directly in the ~org-todo-keywords~ value.
-- It is not necessary to report unrelated unsupported variables.
-
-Do not:
-
-- Broaden supported ~.dir-locals.el~ semantics.
-- Add Emacs file-local variables.
-- Add ~.dir-locals-2.el~.
-- Add ~subdirs . nil~.
-- Move logic into the parser.
-- Add a separate TODO source table.
-
-Update tests accordingly:
-
-- Unrelated ~eval~ next to valid ~org-todo-keywords~ is ignored silently.
-- Unsafe ~org-todo-keywords~ value warns under ~unsupported = "warn"~.
-- Unsafe ~org-todo-keywords~ value errors under ~unsupported = "error"~.
-- Eval-only dir-locals does not warn and falls back to config defaults.
-- Existing valid ~.dir-locals.el~ extraction tests still pass.
+[[./archive/2026-06-27--reduce-noisy-warnings-for-irrelevant-dir-locals-forms.org]]
 
 ** TODO [#B] Add separate TODO keyword source table when external sources exist
 :PROPERTIES:

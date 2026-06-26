@@ -1,0 +1,5 @@
+#+TITLE: Eval next to valid org-todo-keywords test
+
+* PLAN Should be open from valid org-todo-keywords despite eval
+* DONE Should be closed from valid org-todo-keywords despite eval
+* TODO Should NOT be recognized because dir-locals TODOs are active

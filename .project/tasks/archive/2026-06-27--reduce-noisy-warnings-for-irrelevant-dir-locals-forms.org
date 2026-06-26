@@ -1,0 +1,85 @@
+#+TITLE: Reduce noisy warnings for irrelevant .dir-locals.el forms
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 00:56]
+#+TASK_COMPLETED: [2026-06-27 Sat 01:13]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: tighten ~.dir-locals.el~ warning semantics so TODO keyword extraction stays targeted and does not warn about unrelated forms.
+- Scope copied from ~todo.org~:
+  - Current behavior warns about unsupported ~.dir-locals.el~ content even when it is irrelevant to ~org-files-db~.
+  - Only extract supported ~org-todo-keywords~ values from ~org-mode~ or ~nil~ entries.
+  - Ignore unrelated variables, including ~eval~, without warning by default.
+  - Never evaluate any Lisp.
+  - Warn or error only when a relevant ~org-todo-keywords~ value was present but could not be safely extracted.
+  - Keep ~unsupported = "ignore"~ silent and keep valid extraction, inheritance, deepest-match precedence, Org ~#+TODO~ override, and config fallback working.
+
+* Planning
+
+** Problem summary
+The current dir-locals resolver still behaves like a broad validator and emits warnings for unrelated forms next to valid TODO keyword data.
+
+** Goals
+- Make dir-locals TODO extraction targeted to ~org-todo-keywords~.
+- Silence irrelevant unsupported variables, including ~eval~.
+- Keep warnings and errors for unsafe relevant TODO values only.
+- Preserve existing successful TODO extraction behavior.
+
+** Non-goals
+- Do not evaluate Lisp.
+- Do not broaden supported ~.dir-locals.el~ semantics.
+- Do not add Emacs file-local variables, ~.dir-locals-2.el~, ~subdirs . nil~, or a separate TODO source table.
+- Do not move the logic into the parser module.
+
+** Execution plan
+1. Narrow the dir-locals extraction path so irrelevant forms are skipped silently.
+2. Preserve safe extraction of valid ~org-todo-keywords~ values and keep unsafe relevant values diagnostic.
+3. Update resolver and indexer warnings to surface only relevant extraction failures.
+4. Refresh tests for silent irrelevant ~eval~, unsafe TODO values, and config fallback.
+
+** Risks & assumptions
+- A minimal parser tweak is acceptable if it only makes reader syntax opaque outside the relevant TODO extraction path.
+- Unsupported modes and unrelated variables should remain non-fatal and non-diagnostic unless a relevant TODO value fails.
+
+** Open questions
+None.
+
+** Proposed checks
+- ~cargo test dir_locals~
+- If needed, ~cargo test~
+
+* Results
+
+** Approach
+- Narrowed the dir-locals extractor to only record diagnostics for unsafe ~org-todo-keywords~ values.
+- Kept unrelated variables, including ~eval~, silent by default.
+- Made reader syntax opaque outside the relevant TODO extraction path and surfaced a specific unsafe-value message when the TODO value itself was unreadable.
+- Updated indexer warning text to pass the resolver message through unchanged.
+
+** Changed files
+- ~src/dir_locals.rs~
+- ~src/indexer.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-27--reduce-noisy-warnings-for-irrelevant-dir-locals-forms.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test dir_locals~
+- ~cargo test~
+
+** Test results
+- Full test suite passed.
+- Valid ~org-todo-keywords~ extraction still works for ~org-mode~ and ~nil~ entries.
+- Unrelated ~eval~ forms no longer produce warnings.
+- Unsafe ~org-todo-keywords~ values now warn or error only when the relevant value is unsafe.
+- Eval-only ~.dir-locals.el~ files fall back to config defaults without warnings.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.
