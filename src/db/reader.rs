@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct HeadingListRow {
+pub(crate) struct HeadingListRow {
     pub id: i64,
     pub file_id: i64,
     pub file_path: String,
@@ -30,14 +30,12 @@ pub struct HeadingListRow {
 }
 
 #[derive(Debug, Default)]
-pub struct DbReader;
+pub(crate) struct DbReader;
 
 impl DbReader {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn list_headings(connection: &Connection) -> Result<Vec<HeadingListRow>, DbReadError> {
+    pub(crate) fn list_headings(
+        connection: &Connection,
+    ) -> Result<Vec<HeadingListRow>, DbReadError> {
         let mut statement = connection
             .prepare(
                 "SELECT
@@ -114,7 +112,7 @@ impl DbReader {
 }
 
 #[derive(Debug)]
-pub enum DbReadError {
+pub(crate) enum DbReadError {
     Query {
         operation: &'static str,
         source: rusqlite::Error,

@@ -1,0 +1,152 @@
+#+TITLE: Narrow the public library surface
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 23:51]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: plan how to narrow the public Rust library surface without changing behavior.
+- Scope inspected from chat and =todo.org=:
+  - Inspect =src/lib.rs=, =src/db.rs=, =src/db/reader.rs=, =src/db/writer.rs=, =src/cli.rs=, parser modules, indexer modules, integration tests under =tests/=, and public docs/examples.
+  - Do not make code changes.
+  - Do not use =.project/manual-tests=.
+  - Do not perform broad module restructuring.
+  - Produce a narrow BUILD prompt in English.
+
+*** REVIEW [#B] Narrow the public library surface
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Plan how to narrow the crate's public Rust API surface.
+- Avoid accidentally freezing internal implementation details as public library API.
+- Produce a narrow BUILD prompt.
+
+Context:
+
+- The CLI JSON contract is the primary user-facing contract.
+- The Rust library API should remain conservative unless intentionally supported.
+- Recent tasks added or exposed DB helpers such as read-only DB open helpers.
+- Some types/functions may be public only because tests or modules needed them.
+- This PLAN should inspect actual usage before deciding what can be made private or ~pub(crate)~.
+
+Questions:
+
+- Which items are publicly exported from ~src/lib.rs~?
+- Which items are publicly re-exported from ~src/db.rs~?
+- Which public types/functions are used only internally?
+- Which public types/functions are used by integration tests?
+- Which public items are intended as user-facing library API for now?
+- Is ~open_existing_database_read_only~ intended as public crate API or only CLI-internal?
+- Should ~HeadingListRow~ remain public after CLI JSON now uses a dedicated output type?
+- Which writer/input structs are intentionally public?
+- Are parser/indexer types intentionally public, or only needed internally/tests?
+- Can integration tests be moved to unit tests or adjusted without broad churn?
+- What is the smallest safe BUILD scope?
+
+* Planning
+
+** Problem summary
+
+The crate currently exports every top-level module from =src/lib.rs=, and =src/db.rs= re-exports a broad set of helpers, row structs, and writer input types. The integration tests only exercise the parser-facing API plus =todo_keywords::resolve_todo_keywords=, so much of the DB and indexer surface appears public by convenience rather than by an explicit support decision.
+
+** Goals
+
+- Identify the current de facto public library surface.
+- Separate parser-facing items that are actively exercised from DB/indexer helpers that look internal.
+- Produce a narrow BUILD scope that reduces accidental API exposure without changing behavior or requiring broad test migration.
+
+** Non-goals
+
+- Do not redesign the library API.
+- Do not change CLI, parser, indexer, or DB behavior.
+- Do not privatize the parser model surface in this pass.
+- Do not perform top-level module restructuring unless a change is trivially safe and clearly unused.
+
+** Architecture
+
+- Treat =parser= as the only clearly exercised external library surface for now, because all integration tests import parser traits, parser model types, =OrgizeAdapter=, and parser diagnostics through =org_files_db::parser=.
+- Treat =todo_keywords::resolve_todo_keywords= as externally exercised for now because an integration test imports it directly.
+- Treat most =db= row structs, writer input structs, read-only open helpers, and schema-specific constructor helpers as internal implementation details unless README or tests show a stronger support signal.
+- Keep =src/lib.rs= module exports unchanged in the first narrowing pass unless an entire module is obviously unused externally and can be hidden without touching tests.
+
+** Execution plan
+
+1. In the BUILD, inventory the =db= re-exports and classify each item as parser-facing, CLI-only, test-only, or genuinely reusable library API.
+2. Narrow the DB surface first:
+   - make =open_existing_database_read_only= and =open_existing_database_read_only_with_schema= =pub(crate)= if they are only used by =cli= and internal tests
+   - make =HeadingListRow= and possibly =DbReader= =pub(crate)= if they are only used by =cli=, =indexer= tests, and DB unit tests
+   - make writer row/input structs =pub(crate)= when they are only consumed by =indexer=, =cli= unit tests, and DB unit tests
+3. Review =cli= helpers:
+   - keep =cli::run= public for the binary entry point
+   - consider making =run_with_args= and =rebuild= private or =pub(crate)= if they are not needed outside the crate
+4. Review =indexer= conservatively:
+   - only narrow =Indexer=, =RebuildReport=, =IndexedFile=, and =IndexerError= if no integration tests, docs, or public callers depend on them
+   - if this looks semantically larger than the DB-only cleanup, defer indexer narrowing to a follow-up
+5. Leave =parser= exports and =todo_keywords::resolve_todo_keywords= unchanged in this pass to avoid moving integration tests or creating test-only shims.
+6. Run =make ci= and adjust any unit tests that need to move inside their owning modules after visibility is reduced.
+
+** Risks & assumptions
+
+- Narrowing visibility is an API-contract change even if behavior is unchanged, so the BUILD should stay intentionally small.
+- Because integration tests live outside the crate boundary, any parser-surface narrowing would require either test migration or test-only support helpers; that is broader than this task needs.
+- =SchemaDefinition= and =CURRENT_SCHEMA_VERSION= are mentioned in =README.org=, which is weak evidence of intentional support. The BUILD should avoid narrowing them unless there is a strong reason.
+- Top-level modules like =config=, =dir_locals=, and =query= are not used by integration tests, but hiding them from =src/lib.rs= is a broader contract decision than narrowing obvious DB internals.
+
+** Open questions
+
+- Whether =Indexer= should remain public for future embedding use, even though current tests and docs do not establish it as supported API.
+- Whether =Config= should be treated as intentionally public because it represents a stable file format contract, or left unchanged simply to avoid unrelated churn.
+
+** Proposed checks
+
+- Inspect visibility errors after narrowing and move any affected helper tests from integration tests to unit tests only if strictly necessary.
+- Run =make ci=.
+
+* Results
+
+** Approach
+- Narrowed the public surface only in the DB and CLI layers.
+- Kept the parser surface and =todo_keywords::resolve_todo_keywords= unchanged to avoid integration-test churn.
+- Reduced DB visibility by making =reader= and =writer= crate-private modules, limiting their row/input structs and helper types to crate-private visibility, and keeping only =DbWriteError= publicly visible because =IndexerError= still exposes it.
+- Reduced CLI visibility by keeping =cli::run= public while making =run_with_args=, =rebuild=, and =CliError= internal.
+- Marked purely test-only DB helpers as =#[cfg(test)]= instead of leaving them in the production surface.
+
+** Changed files
+- =src/db.rs=
+- =src/db/reader.rs=
+- =src/db/writer.rs=
+- =src/cli.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-27--narrow-the-public-library-surface.org=
+
+** Checks performed
+- Read =AGENTS.md=, =.project/agents/AGENTS.md=, =.project/agents/repository.org=, and the active =todo.org= entry.
+- Inspected public exports and their usage across =src/=, =tests/=, and =README.org=.
+- Ran =make ci=.
+
+** Test results
+- =make ci= passed.
+- =cargo fmt --all --check= passed.
+- =cargo clippy --all-targets --all-features -- -D warnings= passed after narrowing visibility and marking test-only helpers with =#[cfg(test)]=.
+- =cargo test --all-targets --all-features= passed:
+  - =113= unit tests in =src/lib.rs=
+  - =28= tests in =tests/orgize_adapter.rs=
+  - =7= tests in =tests/parser_contract.rs=
+  - =2= tests in =tests/parser_fixtures.rs=
+- =cargo build --all-targets --all-features= passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Parser-facing exports remain intentionally untouched in this pass.
+- =Indexer= and related report/error types remain public for now; narrowing that surface should be a separate follow-up if still desired.

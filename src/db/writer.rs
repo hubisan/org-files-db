@@ -1,11 +1,13 @@
 use std::{fmt, path::PathBuf};
 
-use rusqlite::{params, Connection, Transaction};
+#[cfg(test)]
+use rusqlite::Transaction;
+use rusqlite::{params, Connection};
 
 use super::schema::sqlite_supports_fts5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileRecordInput {
+pub(crate) struct FileRecordInput {
     pub path: PathBuf,
     pub mtime_ns: i64,
     pub size: i64,
@@ -14,7 +16,7 @@ pub struct FileRecordInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HeadingRecord {
+pub(crate) struct HeadingRecord {
     pub id: Option<i64>,
     pub file_id: i64,
     pub parent_id: Option<i64>,
@@ -39,7 +41,7 @@ pub struct HeadingRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TodoKeywordRecord {
+pub(crate) struct TodoKeywordRecord {
     pub file_id: i64,
     pub keyword: String,
     pub state_type: String,
@@ -51,13 +53,13 @@ pub struct TodoKeywordRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TagRecord {
+pub(crate) struct TagRecord {
     pub heading_id: i64,
     pub tag: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TimestampRecord {
+pub(crate) struct TimestampRecord {
     pub heading_id: i64,
     pub role: Option<String>,
     pub start_ts: Option<i64>,
@@ -71,7 +73,7 @@ pub struct TimestampRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TimestampRepeaterRecord {
+pub(crate) struct TimestampRepeaterRecord {
     pub timestamp_id: i64,
     pub repeater_type: Option<String>,
     pub repeater_value: Option<i64>,
@@ -84,7 +86,7 @@ pub struct TimestampRepeaterRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeywordRecord {
+pub(crate) struct KeywordRecord {
     pub heading_id: i64,
     pub keyword: String,
     pub value: Option<String>,
@@ -92,7 +94,7 @@ pub struct KeywordRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PropertyRecord {
+pub(crate) struct PropertyRecord {
     pub heading_id: i64,
     pub key: String,
     pub value: Option<String>,
@@ -102,7 +104,7 @@ pub struct PropertyRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutlinePathRecord {
+pub(crate) struct OutlinePathRecord {
     pub heading_id: i64,
     pub file_id: i64,
     pub parent_id: Option<i64>,
@@ -112,7 +114,7 @@ pub struct OutlinePathRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HeadingBodyRecord {
+pub(crate) struct HeadingBodyRecord {
     pub heading_id: i64,
     pub body_text: String,
     pub body_byte_start: Option<i64>,
@@ -120,21 +122,18 @@ pub struct HeadingBodyRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HeadingFtsRecord {
+pub(crate) struct HeadingFtsRecord {
     pub heading_id: i64,
     pub title: String,
     pub body: String,
 }
 
 #[derive(Debug, Default)]
-pub struct DbWriter;
+pub(crate) struct DbWriter;
 
 impl DbWriter {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn rebuild_file<T, F>(
+    #[cfg(test)]
+    pub(crate) fn rebuild_file<T, F>(
         connection: &mut Connection,
         file: &FileRecordInput,
         operation: F,
@@ -153,7 +152,7 @@ impl DbWriter {
         Ok((file_id, value))
     }
 
-    pub fn upsert_file(
+    pub(crate) fn upsert_file(
         connection: &Connection,
         file: &FileRecordInput,
     ) -> Result<i64, DbWriteError> {
@@ -191,7 +190,11 @@ impl DbWriter {
             })
     }
 
-    pub fn delete_file_data(connection: &Connection, file_id: i64) -> Result<(), DbWriteError> {
+    #[cfg(test)]
+    pub(crate) fn delete_file_data(
+        connection: &Connection,
+        file_id: i64,
+    ) -> Result<(), DbWriteError> {
         if heading_fts_table_exists(connection)? {
             connection
                 .execute(
@@ -220,7 +223,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn delete_all_indexed_data(connection: &Connection) -> Result<(), DbWriteError> {
+    pub(crate) fn delete_all_indexed_data(connection: &Connection) -> Result<(), DbWriteError> {
         if heading_fts_table_exists(connection)? {
             connection
                 .execute("DELETE FROM heading_fts", [])
@@ -240,7 +243,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_level0_heading(
+    pub(crate) fn insert_level0_heading(
         connection: &Connection,
         heading: &HeadingRecord,
     ) -> Result<i64, DbWriteError> {
@@ -253,7 +256,7 @@ impl DbWriter {
         insert_heading(connection, heading, "insert_level0_heading")
     }
 
-    pub fn insert_headings(
+    pub(crate) fn insert_headings(
         connection: &Connection,
         headings: &[HeadingRecord],
     ) -> Result<Vec<i64>, DbWriteError> {
@@ -274,7 +277,7 @@ impl DbWriter {
         Ok(ids)
     }
 
-    pub fn insert_todo_keywords(
+    pub(crate) fn insert_todo_keywords(
         connection: &Connection,
         rows: &[TodoKeywordRecord],
     ) -> Result<(), DbWriteError> {
@@ -304,7 +307,10 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_tags(connection: &Connection, rows: &[TagRecord]) -> Result<(), DbWriteError> {
+    pub(crate) fn insert_tags(
+        connection: &Connection,
+        rows: &[TagRecord],
+    ) -> Result<(), DbWriteError> {
         for row in rows {
             connection
                 .execute(
@@ -319,7 +325,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_timestamps(
+    pub(crate) fn insert_timestamps(
         connection: &Connection,
         rows: &[TimestampRecord],
     ) -> Result<Vec<i64>, DbWriteError> {
@@ -353,7 +359,7 @@ impl DbWriter {
         Ok(ids)
     }
 
-    pub fn insert_timestamp_repeaters(
+    pub(crate) fn insert_timestamp_repeaters(
         connection: &Connection,
         rows: &[TimestampRepeaterRecord],
     ) -> Result<(), DbWriteError> {
@@ -385,7 +391,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_keywords(
+    pub(crate) fn insert_keywords(
         connection: &Connection,
         rows: &[KeywordRecord],
     ) -> Result<(), DbWriteError> {
@@ -404,7 +410,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_properties(
+    pub(crate) fn insert_properties(
         connection: &Connection,
         rows: &[PropertyRecord],
     ) -> Result<(), DbWriteError> {
@@ -430,7 +436,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_outline_path(
+    pub(crate) fn insert_outline_path(
         connection: &Connection,
         rows: &[OutlinePathRecord],
     ) -> Result<(), DbWriteError> {
@@ -457,7 +463,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_heading_fts(
+    pub(crate) fn insert_heading_fts(
         connection: &Connection,
         rows: &[HeadingFtsRecord],
     ) -> Result<(), DbWriteError> {
@@ -479,7 +485,7 @@ impl DbWriter {
         Ok(())
     }
 
-    pub fn insert_heading_bodies(
+    pub(crate) fn insert_heading_bodies(
         connection: &Connection,
         rows: &[HeadingBodyRecord],
     ) -> Result<(), DbWriteError> {

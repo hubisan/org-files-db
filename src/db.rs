@@ -6,29 +6,33 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags};
 
-pub mod reader;
+pub(crate) mod reader;
 pub mod schema;
-pub mod writer;
+pub(crate) mod writer;
 
-pub use reader::{DbReadError, DbReader, HeadingListRow};
+pub(crate) use reader::{DbReadError, DbReader, HeadingListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
-pub use writer::{
-    DbWriteError, DbWriter, FileRecordInput, HeadingBodyRecord, HeadingFtsRecord, HeadingRecord,
-    KeywordRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
-    TimestampRepeaterRecord, TodoKeywordRecord,
+pub use writer::DbWriteError;
+pub(crate) use writer::{
+    DbWriter, FileRecordInput, HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord,
+    OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord,
+    TodoKeywordRecord,
 };
 
-pub const IN_MEMORY_DATABASE: &str = ":memory:";
+#[cfg(test)]
+const IN_MEMORY_DATABASE: &str = ":memory:";
 
 pub fn open_database(path: impl AsRef<Path>) -> Result<Connection, DbError> {
     open_database_with_schema(path, &SchemaDefinition::default())
 }
 
-pub fn open_existing_database_read_only(path: impl AsRef<Path>) -> Result<Connection, DbError> {
+pub(crate) fn open_existing_database_read_only(
+    path: impl AsRef<Path>,
+) -> Result<Connection, DbError> {
     open_existing_database_read_only_with_schema(path, &SchemaDefinition::default())
 }
 
-pub fn open_database_with_schema(
+pub(crate) fn open_database_with_schema(
     path: impl AsRef<Path>,
     schema: &SchemaDefinition,
 ) -> Result<Connection, DbError> {
@@ -42,7 +46,7 @@ pub fn open_database_with_schema(
     Ok(connection)
 }
 
-pub fn open_existing_database_read_only_with_schema(
+pub(crate) fn open_existing_database_read_only_with_schema(
     path: impl AsRef<Path>,
     schema: &SchemaDefinition,
 ) -> Result<Connection, DbError> {
@@ -63,11 +67,13 @@ pub fn open_existing_database_read_only_with_schema(
     Ok(connection)
 }
 
-pub fn open_in_memory_database() -> Result<Connection, DbError> {
+#[cfg(test)]
+pub(crate) fn open_in_memory_database() -> Result<Connection, DbError> {
     open_in_memory_database_with_schema(&SchemaDefinition::default())
 }
 
-pub fn open_in_memory_database_with_schema(
+#[cfg(test)]
+pub(crate) fn open_in_memory_database_with_schema(
     schema: &SchemaDefinition,
 ) -> Result<Connection, DbError> {
     let connection =

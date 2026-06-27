@@ -293,53 +293,9 @@ Validation:
 :RISK: Medium
 :END:
 
-*** TODO [#B] Narrow the public library surface
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Maybe
-:END:
+*** DONE [#B] Narrow the public library surface
 
-Goal:
-
-- Review and narrow what the crate exposes publicly.
-- Avoid accidentally freezing internal implementation details as public Rust API.
-
-Context:
-
-- Recent tasks added or exposed DB helpers such as read-only DB open helpers.
-- Some types/functions may be public only because tests or modules needed them.
-- The CLI JSON contract is the primary user-facing contract; Rust library API should remain conservative unless intentionally supported.
-
-Scope:
-
-- Inspect public exports in:
-  - ~src/lib.rs~
-  - ~src/db.rs~
-  - ~src/db/reader.rs~
-  - ~src/db/writer.rs~
-  - ~src/cli.rs~
-  - parser/indexer modules
-- Identify exports that should remain public for current use.
-- Make internal-only helpers private or ~pub(crate)~ where possible.
-- Do not break integration tests unnecessarily.
-- Do not change behavior.
-- Avoid broad module restructuring.
-
-Questions:
-
-- Is ~open_existing_database_read_only~ intended as public crate API or only CLI-internal?
-- Should ~HeadingListRow~ remain public after CLI JSON now uses a separate output type?
-- Which writer/input structs are intentionally public?
-
-Recommended status:
-
-#+begin_src text
-Status: PLAN
-Model: GPT-5.4
-Reasoning: Medium
-Plan mode: On
-#+end_src
+[[./archive/2026-06-27--narrow-the-public-library-surface.org]]
 
 *** TODO [#A] Guard rebuild against accidental empty input scope
 :PROPERTIES:

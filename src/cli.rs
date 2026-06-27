@@ -55,7 +55,7 @@ pub fn run() -> ExitCode {
     }
 }
 
-pub fn run_with_args<I, T>(args: I) -> Result<(), CliError>
+fn run_with_args<I, T>(args: I) -> Result<(), CliError>
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
@@ -84,7 +84,7 @@ where
     }
 }
 
-pub fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport, CliError> {
+fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport, CliError> {
     Indexer::new(OrgizeAdapter::new())
         .rebuild_from_config_path(config_path)
         .map_err(CliError::Indexer)
@@ -146,7 +146,7 @@ fn print_diagnostics(report: &RebuildReport) {
 }
 
 #[derive(Debug)]
-pub enum CliError {
+enum CliError {
     Parse(clap::Error),
     MissingJsonFlag,
     Config(ConfigError),
