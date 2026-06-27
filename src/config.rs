@@ -74,9 +74,6 @@ impl Config {
             index_body_text: None,
         });
 
-        validate_file_paths(&files)?;
-        validate_dir_paths(&dirs)?;
-
         Ok(Self {
             db_path,
             files,
@@ -443,24 +440,6 @@ fn current_home_dir() -> Option<PathBuf> {
     }
 }
 
-fn validate_file_paths(files: &[PathBuf]) -> Result<(), ConfigError> {
-    for path in files {
-        if !path.is_file() {
-            return Err(ConfigError::MissingFile { path: path.clone() });
-        }
-    }
-    Ok(())
-}
-
-fn validate_dir_paths(dirs: &[PathBuf]) -> Result<(), ConfigError> {
-    for path in dirs {
-        if !path.is_dir() {
-            return Err(ConfigError::MissingDirectory { path: path.clone() });
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -786,9 +765,10 @@ dirs = ["{}"]
     }
 
     #[test]
-    fn reports_missing_file_errors() {
+    fn loads_missing_file_paths_without_validation() {
         let test_dir = TestDir::new("missing-file");
         let config_path = test_dir.path().join("config.toml");
+        let missing_file = test_dir.path().join("missing.org");
 
         write_file(
             &config_path,
@@ -798,20 +778,16 @@ files = ["missing.org"]
 "#,
         );
 
-        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+        let config = Config::load_from_file(&config_path).expect("config should load");
 
-        match error {
-            ConfigError::MissingFile { path } => {
-                assert_eq!(path, test_dir.path().join("missing.org"));
-            }
-            other => panic!("unexpected error: {other}"),
-        }
+        assert_eq!(config.files, vec![missing_file]);
     }
 
     #[test]
-    fn reports_missing_directory_errors() {
+    fn loads_missing_directory_paths_without_validation() {
         let test_dir = TestDir::new("missing-dir");
         let config_path = test_dir.path().join("config.toml");
+        let missing_dir = test_dir.path().join("missing-dir");
 
         write_file(
             &config_path,
@@ -821,14 +797,9 @@ dirs = ["missing-dir"]
 "#,
         );
 
-        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+        let config = Config::load_from_file(&config_path).expect("config should load");
 
-        match error {
-            ConfigError::MissingDirectory { path } => {
-                assert_eq!(path, test_dir.path().join("missing-dir"));
-            }
-            other => panic!("unexpected error: {other}"),
-        }
+        assert_eq!(config.dirs, vec![missing_dir]);
     }
 
     #[test]

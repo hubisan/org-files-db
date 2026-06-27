@@ -1,0 +1,81 @@
+#+TITLE: Canonicalize configured paths more robustly
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 22:14]
+#+TASK_COMPLETED: [2026-06-27 Sat 22:33]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: implement the planned path-resolution task and keep the change narrow.
+- Scope agreed in the plan:
+  - resolve configured paths relative to the config file
+  - keep read-only commands from validating source paths
+  - move existence checks to rebuild/indexing
+  - canonicalize configured sources more robustly before indexing
+
+* Planning
+
+** Problem summary
+Config loading currently validates source paths too early, while rebuild discovery still relies on syntactic path forms that miss =..= and symlink-equivalent duplicates.
+
+** Goals
+- Keep config loading permissive for missing sources.
+- Make rebuild/indexing validate and canonicalize source paths before discovery.
+- Preserve read-only DB queries as non-mutating and source-path agnostic.
+
+** Non-goals
+- Do not change parser semantics.
+- Do not change DB schema or JSON contracts.
+- Do not redesign configuration fields.
+
+** Architecture
+- Config loading resolves paths syntactically against the config file location.
+- Rebuild discovery canonicalizes configured files and directories before scanning.
+- Discovery deduplicates on canonical paths so equivalent configured inputs collapse to one file row.
+
+** Execution plan
+1. Remove source existence validation from config loading.
+2. Canonicalize configured files and directories during rebuild discovery.
+3. Update path-related tests to cover missing-source permissiveness and rebuild-time validation.
+4. Document the path policy in README.
+
+** Risks & assumptions
+- Canonicalization may change stored file paths to filesystem-canonical absolute paths; that is acceptable and preferred for deduplication.
+- Read-only commands should continue to work as long as the DB exists, even if configured source paths do not.
+
+** Open questions
+None.
+
+** Proposed checks
+- =make ci=
+
+* Results
+
+** Approach
+- Removed source existence validation from =Config::load_from_file=.
+- Canonicalized configured files and directories during rebuild discovery before deduplication and file reads.
+- Kept =db_path= syntactic-only and left read-only DB queries untouched.
+
+** Changed files
+- =src/config.rs=
+- =src/indexer.rs=
+- =README.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-27--canonicalize-configured-paths-more-robustly.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =make ci=
+
+** Test results
+- =make ci= passed.
+- Added coverage for config loading with missing source paths, rebuild-time failures for missing files/directories, and canonicalization of equivalent configured file and directory paths.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

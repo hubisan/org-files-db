@@ -45,6 +45,14 @@ The current codebase is intentionally a minimal scaffold around the parser-first
 - =links= exists in the schema as a reserved/deferred table, but it is not part of the populated =v0.1= indexing contract yet.
 - Read-only CLI queries such as =headings --json= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
 
+** Configured Paths
+
+- Relative configured paths are resolved against the config file location, not the current shell directory.
+- =db_path= is normalized syntactically only. It is not required to exist during config loading.
+- =files= and =dirs= are resolved syntactically during config loading, but rebuild/indexing validates that they exist and canonicalizes them before discovery.
+- Rebuild-time canonicalization collapses equivalent configured paths, including paths that differ only by =..= segments or symlink traversal.
+- Read-only commands such as =headings --json= load the config without requiring configured source paths to exist.
+
 ** headings --json Contract
 
 - =orgfdb headings --json= returns a top-level JSON array.

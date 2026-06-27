@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     error::Error,
-    fmt, fs,
+    fmt, fs, io,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -283,17 +283,22 @@ fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, Indexer
     let mut paths = BTreeMap::new();
 
     for file in &config.files {
-        let scan_root = file.parent().unwrap_or(file.as_path()).to_path_buf();
+        let canonical_file = canonicalize_existing_file(file)?;
+        let scan_root = canonical_file
+            .parent()
+            .unwrap_or(canonical_file.as_path())
+            .to_path_buf();
         insert_discovered_path(
             &mut paths,
-            file.clone(),
+            canonical_file,
             scan_root,
             ScanRootKind::ExplicitFile,
         );
     }
 
     for dir in &config.dirs {
-        collect_org_files(dir, dir, config.recursive, &mut paths)?;
+        let canonical_dir = canonicalize_existing_dir(dir)?;
+        collect_org_files(&canonical_dir, &canonical_dir, config.recursive, &mut paths)?;
     }
 
     Ok(paths
@@ -333,15 +338,17 @@ fn collect_org_files(
                 .and_then(|value| value.to_str())
                 .is_some_and(|value| value.eq_ignore_ascii_case("org"))
             {
+                let canonical_path = canonicalize_existing_file(&path)?;
                 insert_discovered_path(
                     output,
-                    path,
+                    canonical_path,
                     scan_root.to_path_buf(),
                     ScanRootKind::ConfiguredDir,
                 );
             }
         } else if recursive && file_type.is_dir() {
-            collect_org_files(scan_root, &path, recursive, output)?;
+            let canonical_dir = canonicalize_existing_dir(&path)?;
+            collect_org_files(scan_root, &canonical_dir, recursive, output)?;
         }
     }
 
@@ -375,6 +382,45 @@ fn insert_discovered_path(
 
 fn path_depth(path: &Path) -> usize {
     path.components().count()
+}
+
+fn canonicalize_existing_file(path: &Path) -> Result<PathBuf, IndexerError> {
+    let canonical = fs::canonicalize(path).map_err(|source| IndexerError::Discover {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let metadata = fs::metadata(&canonical).map_err(|source| IndexerError::Discover {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if !metadata.is_file() {
+        return Err(IndexerError::Discover {
+            path: path.to_path_buf(),
+            source: io::Error::new(io::ErrorKind::InvalidInput, "configured path is not a file"),
+        });
+    }
+    Ok(canonical)
+}
+
+fn canonicalize_existing_dir(path: &Path) -> Result<PathBuf, IndexerError> {
+    let canonical = fs::canonicalize(path).map_err(|source| IndexerError::Discover {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let metadata = fs::metadata(&canonical).map_err(|source| IndexerError::Discover {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if !metadata.is_dir() {
+        return Err(IndexerError::Discover {
+            path: path.to_path_buf(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "configured path is not a directory",
+            ),
+        });
+    }
+    Ok(canonical)
 }
 
 fn build_file_record(
@@ -1000,7 +1046,10 @@ mod tests {
     use super::{IndexedFile, Indexer, IndexerError};
     use crate::{
         config::Config,
-        db::{sqlite_supports_fts5, DbReader},
+        db::{
+            open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, SchemaDefinition,
+            CURRENT_SCHEMA_VERSION,
+        },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
     use rusqlite::Connection;
@@ -1092,7 +1141,7 @@ mod tests {
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+dirs = ["notes/../notes"]
 recursive = true
 
 [todo]
@@ -2067,7 +2116,7 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-files = ["././files/a.org", "files/a.org"]
+files = ["././files/a.org", "files/../files/a.org"]
 
 [search]
 fts5_enabled = false
@@ -2108,7 +2157,7 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-files = ["././files/a.org"]
+files = ["././files/a.org", "./files/../files/a.org"]
 
 [search]
 fts5_enabled = false
@@ -2189,6 +2238,80 @@ index_body_text = false
                 .collect::<Vec<_>>(),
             vec!["Current".to_string(), "Fresh".to_string()]
         );
+    }
+
+    #[test]
+    fn rebuild_reports_missing_configured_files_at_rebuild_time() {
+        let test_dir = TestDir::new("missing-configured-file");
+        let config_path = test_dir.path().join("config.toml");
+        let missing_file = test_dir.path().join("missing.org");
+
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["missing.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+
+        let error = Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect_err("rebuild should fail for a missing configured file");
+
+        match error {
+            IndexerError::Discover { path, .. } => {
+                assert_eq!(path, missing_file);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn rebuild_reports_missing_configured_directories_at_rebuild_time() {
+        let test_dir = TestDir::new("missing-configured-dir");
+        let config_path = test_dir.path().join("config.toml");
+        let missing_dir = test_dir.path().join("missing-dir");
+
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["missing-dir"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+
+        let error = Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect_err("rebuild should fail for a missing configured directory");
+
+        match error {
+            IndexerError::Discover { path, .. } => {
+                assert_eq!(path, missing_dir);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]

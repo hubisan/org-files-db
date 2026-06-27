@@ -279,44 +279,122 @@ Validation:
 
 ** Repo durch Codex/ChatGPT prüfen lassen
 
-*** PLAN [#A] Canonicalize configured paths more robustly
+*** DONE [2026-06-27 Sat 22:33] Canonicalize configured paths more robustly
+
+[[./archive/2026-06-27--canonicalize-configured-paths-more-robustly.org]]
+
+*** BUILD [#B] Clean up stale TODO keyword test names and .dir-locals configuration leftovers
 :PROPERTIES:
-:PRIORITY: High
-:RISK: High
+:PRIORITY: Medium
+:RISK: Medium
+:SECURITY_SENSITIVE: Yes
 :CONFIG_CHANGE: Maybe
+:DB_SCHEMA_CHANGE: No
 :END:
 
 Goal:
 
-- Decide and document robust path-resolution semantics for configured paths.
-- Produce a narrow BUILD prompt.
-- Do not implement yet.
+- Clean up stale or misleading TODO keyword test names and `.dir-locals.el` configuration leftovers.
+- Preserve current TODO keyword semantics.
+- Do not re-enable unsupported Emacs file-local or `.dir-locals.el` TODO keyword behavior.
 
-Key design decisions:
+Context:
 
-- Whether relative ~db_path~ is resolved relative to the config file or current working directory.
-- Whether relative source/root paths are resolved relative to the config file or current working directory.
-- Which paths require existence during config loading.
-- Which paths should be normalized without requiring existence.
-- Which paths should be strictly canonicalized before indexing.
-- Whether read-only commands validate source/root paths at all.
+- Org in-buffer `#+TODO`, `#+SEQ_TODO`, and `#+TYP_TODO` declarations are supported.
+- These should remain effective TODO keyword sources with `source_kind = org_keyword`.
+- Emacs file-local variables for `org-todo-keywords` are not supported.
+- `.dir-locals.el` is ignored completely during indexing/rebuild.
+- Some tests still use names like `file_local_todo` even though they actually test Org in-buffer `#+TODO` declarations.
+- Some config/tests may still mention `[parse.dir_locals]`, which may now be a deprecated/no-op compatibility setting.
 
-Constraints:
+Scope:
 
-- Read-only CLI commands such as ~headings --json~ must not require source/root paths to exist just to query an existing DB.
-- Read-only commands must not reintroduce schema initialization, rebuild, or write-path behavior.
-- Rebuild/indexing may validate source/root paths more strictly.
-- Avoid broad config refactors.
-- Avoid changing parser or DB schema behavior.
+- Rename misleading tests that say `file_local` but actually test Org in-buffer TODO declarations.
+- Keep or improve tests that assert `.dir-locals.el` is ignored.
+- Review `[parse.dir_locals]` handling.
+- Decide whether it remains accepted as a deprecated/no-op compatibility setting or should be removed in a separate config-breaking task.
+- Prefer compatibility/no-op for now unless removal is clearly safe.
+- Do not change parser/indexer behavior.
+- Do not change DB schema.
+- Do not bump `CURRENT_SCHEMA_VERSION`.
 
 Codex settings:
 
 #+begin_src text
-Status: PLAN
-Model: GPT-5.4
+Status: BUILD
+Model: GPT-5.4-Mini
 Reasoning: Medium
-Plan mode: On
+Plan mode: Off
 #+end_src
+
+Codex BUILD prompt:
+
+#+begin_src text
+You are working in the org-files-db Rust repository.
+
+Task: Clean up stale TODO keyword test names and .dir-locals configuration leftovers.
+
+Context:
+Recent work clarified TODO keyword semantics:
+- Org in-buffer #+TODO / #+SEQ_TODO / #+TYP_TODO declarations are supported and should remain source_kind = org_keyword.
+- Emacs file-local variables for org-todo-keywords are not supported.
+- .dir-locals.el is ignored completely for indexing/rebuild/TODO keyword behavior.
+- Existing tests may still contain confusing names such as file_local_todo for tests that actually use Org in-buffer #+TODO declarations.
+- Existing config/tests may still mention [parse.dir_locals], which may now be no-op compatibility behavior.
+
+Goal:
+Clean up naming and test intent without changing behavior.
+
+Before editing:
+Briefly inspect:
+- src/indexer.rs
+- src/config.rs
+- tests/data/parser/todo-keywords if present
+- README.org or docs if they mention file-local or dir-locals behavior
+
+Do not use .project/manual-tests.
+Do not perform broad refactors.
+
+Required behavior:
+- Do not add Emacs file-local org-todo-keywords support.
+- Do not re-enable .dir-locals.el parsing or TODO keyword behavior.
+- Preserve Org in-buffer #+TODO / #+SEQ_TODO / #+TYP_TODO behavior.
+- Preserve source_kind = org_keyword for Org in-buffer TODO declarations.
+- Rename tests that say file_local but actually test Org in-buffer #+TODO declarations.
+- Prefer names such as:
+  - rebuild_respects_in_buffer_todo_keywords_as_overrides
+  - rebuild_handles_overlapping_in_buffer_todo_keyword_lines_without_duplicate_rows
+  - rebuild_handles_manual_in_buffer_todo_fixture
+  - rebuild_supports_simplified_in_buffer_todo_keyword_lines
+- If fixture directory names contain file-local but actually mean Org in-buffer keyword lines, either rename fixtures if low-risk or leave paths unchanged with a short comment explaining the historical name.
+- Keep .dir-locals tests that assert .dir-locals.el is ignored, but ensure test names and comments clearly say it is intentionally ignored.
+- Review [parse.dir_locals] config handling:
+  - If removing it would be a breaking config change or broad cleanup, keep it as a deprecated/no-op compatibility setting for now.
+  - If kept, document in code/tests that it no longer enables .dir-locals.el behavior.
+  - Do not silently make it active again.
+- Remove only dead helper code that is clearly unused and low-risk.
+- Do not change DB schema.
+- Do not bump CURRENT_SCHEMA_VERSION.
+- Do not change path canonicalization behavior.
+
+Tests:
+- Existing tests must continue to pass.
+- Tests for Org in-buffer TODO declarations should still assert org_keyword provenance.
+- Tests for .dir-locals.el should assert no diagnostics and no effective TODO keyword effect.
+- If [parse.dir_locals] remains accepted, add or keep a test showing it is a no-op compatibility setting.
+- Avoid large fixture rewrites.
+
+Validation:
+- Run make ci.
+- Do not use .project/manual-tests.
+
+Completion report:
+Summarize:
+- tests renamed
+- fixture names changed or intentionally left unchanged
+- .dir-locals config handling decision
+- behavior preserved
+- exact commands run and results
 
 *** TODO [#B] Refresh README and parser risk docs to match current implementation
 :PROPERTIES:
