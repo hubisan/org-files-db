@@ -8,10 +8,11 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use rusqlite::Connection;
+use serde::Serialize;
 
 use crate::{
     config::{Config, ConfigError},
-    db::{open_database, DbError, DbReader, HeadingListRow},
+    db::{open_existing_database_read_only, DbError, DbReader, HeadingListRow},
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
 };
@@ -86,7 +87,7 @@ fn headings_json_rows(
     json: bool,
     include_root: bool,
     config_path: Option<&Path>,
-) -> Result<Vec<HeadingListRow>, CliError> {
+) -> Result<Vec<HeadingJsonRow>, CliError> {
     if !json {
         return Err(CliError::MissingJsonFlag);
     }
@@ -98,14 +99,14 @@ fn headings_json_rows(
 fn headings_rows_for_json(
     connection: &Connection,
     include_root: bool,
-) -> Result<Vec<HeadingListRow>, CliError> {
+) -> Result<Vec<HeadingJsonRow>, CliError> {
     // Keep CLI JSON focused on user-authored headings; the synthetic level 0 file row
     // stays available in the DB for rebuild and outline bookkeeping.
     let mut rows = DbReader::list_headings(connection).map_err(CliError::DbRead)?;
     if !include_root {
         rows.retain(|row| row.level > 0);
     }
-    Ok(rows)
+    rows.into_iter().map(HeadingJsonRow::try_from).collect()
 }
 
 fn open_headings_database(config_path: Option<&std::path::Path>) -> Result<Connection, CliError> {
@@ -116,7 +117,7 @@ fn open_headings_database(config_path: Option<&std::path::Path>) -> Result<Conne
     } else {
         Config::default().db_path
     };
-    open_database(&db_path).map_err(CliError::Database)
+    open_existing_database_read_only(&db_path).map_err(CliError::Database)
 }
 
 fn print_diagnostics(report: &RebuildReport) {
@@ -147,6 +148,10 @@ pub enum CliError {
     Database(DbError),
     DbRead(crate::db::DbReadError),
     Indexer(IndexerError),
+    InvalidHeadingTags {
+        heading_id: i64,
+        source: serde_json::Error,
+    },
     Json(serde_json::Error),
     Io(io::Error),
 }
@@ -159,6 +164,7 @@ impl CliError {
             | Self::Database(_)
             | Self::DbRead(_)
             | Self::Indexer(_)
+            | Self::InvalidHeadingTags { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
         }
@@ -176,6 +182,13 @@ impl fmt::Display for CliError {
             Self::Database(source) => write!(f, "{source}"),
             Self::DbRead(source) => write!(f, "{source}"),
             Self::Indexer(source) => write!(f, "{source}"),
+            Self::InvalidHeadingTags { heading_id, source } => {
+                write!(
+                    f,
+                    "failed to decode heading tags for heading {}: {}",
+                    heading_id, source
+                )
+            }
             Self::Json(source) => write!(f, "failed to render JSON output: {source}"),
             Self::Io(source) => write!(f, "failed to write CLI output: {source}"),
         }
@@ -191,9 +204,74 @@ impl Error for CliError {
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
             Self::Indexer(source) => Some(source),
+            Self::InvalidHeadingTags { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct HeadingJsonRow {
+    id: i64,
+    file_id: i64,
+    file_path: String,
+    parent_id: Option<i64>,
+    level: i64,
+    line_number: Option<i64>,
+    byte_start: i64,
+    byte_end: i64,
+    title: String,
+    title_raw: String,
+    todo_keyword: Option<String>,
+    todo_type: Option<String>,
+    priority: Option<char>,
+    scheduled_raw: Option<String>,
+    scheduled_ts: Option<i64>,
+    deadline_raw: Option<String>,
+    deadline_ts: Option<i64>,
+    closed_raw: Option<String>,
+    closed_ts: Option<i64>,
+    archivedp: bool,
+    footnote_section_p: bool,
+    all_tags: Vec<String>,
+}
+
+impl TryFrom<HeadingListRow> for HeadingJsonRow {
+    type Error = CliError;
+
+    fn try_from(row: HeadingListRow) -> Result<Self, Self::Error> {
+        let all_tags = serde_json::from_str(&row.all_tags_json).map_err(|source| {
+            CliError::InvalidHeadingTags {
+                heading_id: row.id,
+                source,
+            }
+        })?;
+
+        Ok(Self {
+            id: row.id,
+            file_id: row.file_id,
+            file_path: row.file_path,
+            parent_id: row.parent_id,
+            level: row.level,
+            line_number: row.line_number,
+            byte_start: row.byte_start,
+            byte_end: row.byte_end,
+            title: row.title,
+            title_raw: row.title_raw,
+            todo_keyword: row.todo_keyword,
+            todo_type: row.todo_type,
+            priority: row.priority,
+            scheduled_raw: row.scheduled_raw,
+            scheduled_ts: row.scheduled_ts,
+            deadline_raw: row.deadline_raw,
+            deadline_ts: row.deadline_ts,
+            closed_raw: row.closed_raw,
+            closed_ts: row.closed_ts,
+            archivedp: row.archivedp,
+            footnote_section_p: row.footnote_section_p,
+            all_tags,
+        })
     }
 }
 
@@ -201,10 +279,12 @@ impl Error for CliError {
 mod tests {
     use super::{rebuild, Cli, CliError};
     use crate::db::{
-        open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
-        HeadingRecord, SchemaDefinition,
+        open_database, open_in_memory_database_with_schema, DbError, DbWriter, FileRecordInput,
+        HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
     use clap::Parser;
+    use rusqlite::Connection;
+    use serde_json::Value;
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -306,7 +386,7 @@ mod tests {
 
     #[test]
     fn headings_json_excludes_level_zero_rows_by_default() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let mut connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file = FileRecordInput {
@@ -377,16 +457,23 @@ mod tests {
         let rows = super::headings_rows_for_json(&connection, false).expect("rows should load");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].level, 1);
+        assert_eq!(rows[0].all_tags, vec!["rust".to_string()]);
 
         let json = serde_json::to_value(&rows).expect("rows should serialize");
         let array = json.as_array().expect("rows should serialize as an array");
         assert_eq!(array.len(), 1);
         assert_eq!(array[0]["level"], 1);
+        assert_eq!(
+            array[0]["all_tags"],
+            Value::Array(vec![Value::String("rust".to_string())])
+        );
+        assert!(array[0].get("all_tags_json").is_none());
+        assert_eq!(sorted_object_keys(&array[0]), expected_heading_json_keys());
     }
 
     #[test]
     fn headings_json_can_include_level_zero_rows() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let mut connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file = FileRecordInput {
@@ -458,6 +545,8 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].level, 0);
         assert_eq!(rows[1].level, 1);
+        assert!(rows[0].all_tags.is_empty());
+        assert_eq!(rows[1].all_tags, vec!["rust".to_string()]);
     }
 
     #[test]
@@ -544,7 +633,9 @@ db_path = "../db.sqlite"
         )
         .expect("configured db should be populated");
 
-        let rows = super::headings_rows_for_json(&configured_db, false)
+        drop(configured_db);
+
+        let rows = super::headings_json_rows(true, false, Some(&config_path))
             .expect("rows should load from configured db");
 
         assert_eq!(rows.len(), 1);
@@ -593,6 +684,7 @@ index_body_text = false
         assert_eq!(json_rows[0].scheduled_ts, Some(1_732_094_100));
         assert!(json_rows[0].deadline_raw.is_none());
         assert!(json_rows[0].closed_raw.is_none());
+        assert!(json_rows[0].all_tags.is_empty());
 
         let all_rows = super::headings_json_rows(true, true, Some(&config_path))
             .expect("all rows should load");
@@ -601,6 +693,7 @@ index_body_text = false
         assert_eq!(all_rows[0].title, "Minimal Slice");
         assert_eq!(all_rows[0].title_raw, "Minimal Slice");
         assert!(all_rows[0].scheduled_raw.is_none());
+        assert!(all_rows[0].all_tags.is_empty());
         assert_eq!(all_rows[1].level, 1);
         assert_eq!(all_rows[1].title, "Inbox");
 
@@ -612,9 +705,231 @@ index_body_text = false
     }
 
     #[test]
+    fn headings_json_read_only_open_does_not_create_missing_database() {
+        let test_dir = TestDir::new("headings-missing-db");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("missing.sqlite");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "./missing.sqlite"
+"#,
+        );
+
+        let error = super::headings_json_rows(true, false, Some(&config_path))
+            .expect_err("missing database should fail");
+        assert!(
+            matches!(error, CliError::Database(DbError::Open { .. })),
+            "expected read-only open error, got {error}"
+        );
+        assert!(
+            !db_path.exists(),
+            "read-only headings should not create a database"
+        );
+    }
+
+    #[test]
+    fn headings_json_read_only_open_leaves_current_database_unchanged() {
+        let test_dir = TestDir::new("headings-read-only-current");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        let org_path = test_dir.path().join("notes.org");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+"#,
+        );
+
+        let mut connection = open_database(&db_path).expect("database should open");
+        DbWriter::rebuild_file(
+            &mut connection,
+            &FileRecordInput {
+                path: org_path.clone(),
+                mtime_ns: 10,
+                size: 100,
+                content_hash: None,
+                indexed_at: None,
+            },
+            |tx, file_id| {
+                let level0_id = DbWriter::insert_level0_heading(
+                    tx,
+                    &HeadingRecord {
+                        id: None,
+                        file_id,
+                        parent_id: None,
+                        level: 0,
+                        line_number: None,
+                        byte_start: -1,
+                        byte_end: 100,
+                        title: org_path.display().to_string(),
+                        title_raw: org_path.display().to_string(),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[]".to_string(),
+                    },
+                )?;
+                DbWriter::insert_headings(
+                    tx,
+                    &[HeadingRecord {
+                        id: None,
+                        file_id,
+                        parent_id: Some(level0_id),
+                        level: 1,
+                        line_number: Some(1),
+                        byte_start: 0,
+                        byte_end: 9,
+                        title: "Heading".to_string(),
+                        title_raw: "Heading".to_string(),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[\"tagged\"]".to_string(),
+                    }],
+                )?;
+                Ok(())
+            },
+        )
+        .expect("configured db should be populated");
+
+        let version_before: u32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("user_version should load");
+        let heading_fts_before: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'heading_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("heading_fts existence should load");
+        drop(connection);
+
+        let rows = super::headings_json_rows(true, false, Some(&config_path))
+            .expect("rows should load from existing database");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].all_tags, vec!["tagged".to_string()]);
+
+        let reopened = Connection::open(&db_path).expect("database should reopen");
+        let version_after: u32 = reopened
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("user_version should load after read-only query");
+        let heading_fts_after: i64 = reopened
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'heading_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("heading_fts existence should load after read-only query");
+
+        assert_eq!(version_before, CURRENT_SCHEMA_VERSION);
+        assert_eq!(version_after, version_before);
+        assert_eq!(heading_fts_after, heading_fts_before);
+    }
+
+    #[test]
+    fn headings_json_read_only_open_rejects_future_schema_versions() {
+        let test_dir = TestDir::new("headings-future-db");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("future.sqlite");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "./future.sqlite"
+"#,
+        );
+
+        let connection = Connection::open(&db_path).expect("future database should open");
+        connection
+            .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION + 1))
+            .expect("future user_version should seed");
+        drop(connection);
+
+        let error = super::headings_json_rows(true, false, Some(&config_path))
+            .expect_err("future schema version should fail closed");
+        match error {
+            CliError::Database(DbError::UnsupportedFutureSchemaVersion {
+                on_disk_version,
+                supported_version,
+                ..
+            }) => {
+                assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION + 1);
+                assert_eq!(supported_version, CURRENT_SCHEMA_VERSION);
+            }
+            other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
+        }
+
+        let reopened = Connection::open(&db_path).expect("future database should reopen");
+        let version_after: u32 = reopened
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("future schema version should remain unchanged");
+        assert_eq!(version_after, CURRENT_SCHEMA_VERSION + 1);
+    }
+
+    #[test]
     fn rebuild_helper_propagates_indexer_errors() {
         let error = rebuild(Path::new("missing-config.toml")).expect_err("rebuild should fail");
 
         assert!(matches!(error, CliError::Indexer(_)));
+    }
+
+    fn sorted_object_keys(value: &Value) -> Vec<String> {
+        let mut keys = value
+            .as_object()
+            .expect("JSON value should be an object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.sort();
+        keys
+    }
+
+    fn expected_heading_json_keys() -> Vec<String> {
+        vec![
+            "all_tags",
+            "archivedp",
+            "byte_end",
+            "byte_start",
+            "closed_raw",
+            "closed_ts",
+            "deadline_raw",
+            "deadline_ts",
+            "file_id",
+            "file_path",
+            "footnote_section_p",
+            "id",
+            "level",
+            "line_number",
+            "parent_id",
+            "priority",
+            "scheduled_raw",
+            "scheduled_ts",
+            "title",
+            "title_raw",
+            "todo_keyword",
+            "todo_type",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
     }
 }

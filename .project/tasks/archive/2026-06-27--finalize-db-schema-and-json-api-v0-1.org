@@ -1,0 +1,84 @@
+#+TITLE: Finalize DB schema and JSON API for v0.1
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 12:23]
+#+TASK_COMPLETED: [2026-06-27 Sat 12:27]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: switch the planned ~v0.1~ DB/CLI contract task into BUILD and implement the narrowed scope from the reviewed BUILD prompt.
+- Scope copied from ~todo.org~ and the accepted BUILD remarks:
+  - Finalize the populated SQLite schema contract for ~v0.1~.
+  - Keep ~links~ deferred and do not implement link indexing in this task.
+  - Move ~headings --json~ onto a read-only/non-mutating DB open path.
+  - Expose tags as a real JSON array field, preferably named ~all_tags~.
+  - Keep root headings excluded by default and included with ~--include-root~.
+  - Add focused documentation and regression tests.
+
+* Planning
+
+** Problem summary
+The current contract is close to freeze-ready, but ~headings --json~ still uses a write-capable DB open path and still exposes ~all_tags_json~ as a double-encoded string.
+
+** Goals
+- Freeze the intended populated ~v0.1~ SQLite schema contract.
+- Freeze the ~headings --json~ API contract with a read-only open path and array-shaped tags.
+- Add concise README contract documentation and focused regression tests.
+
+** Non-goals
+- Do not implement link indexing.
+- Do not redesign field names beyond replacing public ~all_tags_json~ exposure with ~all_tags~.
+- Do not perform unrelated DB, parser, indexer, or CLI refactors.
+
+** Architecture
+- Separate public CLI JSON output from internal DB row shape with a small CLI-facing JSON type if needed.
+- Keep the internal DB schema unchanged unless a persistent-schema bug is discovered.
+- Add an explicit read-only DB open helper in ~src/db.rs~ and route ~headings~ to it.
+
+** Execution plan
+1. Add a read-only DB open path for ~headings~ that does not initialize or migrate schema.
+2. Add a CLI-facing JSON row type with ~all_tags~ as an array and preserve current root filtering semantics.
+3. Tighten README contract documentation for schema population, deferred tables, and CLI JSON shape.
+4. Update existing CLI/DB tests and run ~make ci~.
+
+** Risks & assumptions
+- Since this task should not change the persistent schema, ~CURRENT_SCHEMA_VERSION~ should not be bumped.
+- Deferred ~links~ can be documented explicitly without blocking the ~v0.1~ freeze.
+
+** Open questions
+None.
+
+** Proposed checks
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a read-only DB open path for =headings --json= so headings queries inspect existing databases without initializing, migrating, or mutating schema state.
+- Introduced a CLI-facing JSON row type that keeps the existing heading fields but exposes =all_tags= as a real JSON array instead of leaking internal =all_tags_json= storage.
+- Documented the =v0.1= populated schema contract, the deferred =links= table, optional =heading_fts= behavior, and the frozen =headings --json= field shape in =README.org=.
+
+** Changed files
+- =src/db.rs=
+- =src/cli.rs=
+- =README.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-27--finalize-db-schema-and-json-api-v0-1.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =make ci=
+
+** Test results
+- =make ci= passed.
+- The full test suite passed with =111= unit tests in =src/lib.rs=, =28= tests in =tests/orgize_adapter.rs=, =7= tests in =tests/parser_contract.rs=, and =2= tests in =tests/parser_fixtures.rs=.
+- Added CLI regression coverage for exact JSON keys, =all_tags= array typing, default root exclusion, =--include-root= inclusion, missing DB read-only failure, current DB non-mutation, and future-version rejection.
+
+** Blockers
+- None.
+
+** Follow-ups
+- =links= remains schema-reserved and intentionally unpopulated for =v0.1=.

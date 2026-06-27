@@ -273,98 +273,10 @@ Validation:
 
 [[./archive/2026-06-27--define-db-schema-versioning.org]]
 
-** TODO Finalize DB schema and JSON API for v0.1
-Codex already made a plan for this [2026-06-24 Wed].
+** DONE [2026-06-27 Sat 12:27] Finalize DB schema and JSON API for v0.1
 
-Next Codex Prompt:
-Implement this in BUILD mode after the pending DB/CLI contract cleanup tasks are complete. Finalize and document the `v0.1` SQLite schema versioning and `headings --json` response shape, fix any remaining contract inconsistencies before freezing them, add focused contract regression tests, and avoid unrelated refactors.
+[[./archive/2026-06-27--finalize-db-schema-and-json-api-v0-1.org]]
 
-Plan from Codex [2026-06-24 Wed]:
-
-#+BEGIN_SRC markdown
-  # Finalize DB Schema And JSON API For v0.1
-
-  ## Summary
-  This task should lock down the on-disk SQLite schema and the CLI JSON output shape for the `v0.1` release so follow-up work stops changing them opportunistically. The goal is not a broad redesign, but a deliberate freeze of the currently intended contract, with any last required cleanups identified and completed before treating both surfaces as stable.
-
-  ## Files / Functions To Inspect
-  - [src/db/schema.rs](/home/hubisan/projects/coding/org-files-db/src/db/schema.rs)
-    Current table layout, columns, indexes, FTS shape, and migration assumptions
-  - [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
-    Schema application, `user_version`, open/init behavior, exported DB types
-  - [src/db/reader.rs](/home/hubisan/projects/coding/org-files-db/src/db/reader.rs)
-    `HeadingListRow` and the DB-to-read-model boundary
-  - [src/db/writer.rs](/home/hubisan/projects/coding/org-files-db/src/db/writer.rs)
-    Insert/update expectations that define what data must remain representable
-  - [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs)
-    `headings --json` output shape, filtering, field naming, and error behavior
-  - [README.org](/home/hubisan/projects/coding/org-files-db/README.org)
-    Any documented JSON examples or DB-facing claims
-  - Existing end-to-end and DB tests in [src/cli.rs](/home/hubisan/projects/coding/org-files-db/src/cli.rs) and [src/db.rs](/home/hubisan/projects/coding/org-files-db/src/db.rs)
-    Current contract coverage
-
-  ## Exact Changes Likely Needed
-  - Review the current DB schema and decide which tables/columns are part of the supported `v0.1` on-disk contract versus internal implementation details that may still change.
-  - Finalize the JSON output schema for `headings --json`:
-    field names,
-    scalar vs array/object representation,
-    nullability,
-    inclusion/exclusion of synthetic level-0 rows by default,
-    and handling of tags/timestamps/planning fields.
-  - Resolve any known contract mismatches before freezing, especially:
-    double-encoded JSON fields,
-    sentinel/root-row semantics,
-    unstable field naming,
-    or accidental exposure of internal-only DB conventions.
-  - Add explicit documentation stating that the DB schema and JSON API are treated as `v0.1` contracts after this task.
-  - Ensure schema versioning is defined and aligned with the freeze, so later DB changes require deliberate version bumps and migrations.
-  - Prefer additive clarification and final cleanup over structural redesign unless a known flaw would make the `v0.1` contract unsafe to freeze.
-
-  ## Proposed Function Names Or Types
-  - JSON API type:
-    `CliHeadingRow`
-    if a dedicated CLI-facing output type is not already in place
-  - Schema/version constants:
-    `CURRENT_SCHEMA_VERSION`
-  - Optional contract-focused doc helpers/constants:
-    `SYNTHETIC_ROOT_LEVEL`
-    only if that behavior is part of the frozen contract
-
-  Recommended default: define a dedicated CLI output type and treat it as the canonical JSON contract boundary.
-
-  ## Test Cases To Add
-  - Golden-style CLI JSON test covering one realistic heading row with tags, TODO state, planning timestamps, and expected null fields.
-  - CLI JSON test covering default exclusion of synthetic level-0 headings and inclusion with `--include-root`.
-  - CLI regression test proving arrays/JSON-valued fields are emitted as proper JSON, not encoded strings.
-  - DB regression tests covering current schema creation and migration to the finalized `CURRENT_SCHEMA_VERSION`.
-  - If the repo is comfortable with it, add a contract-style test that asserts the exact set of JSON keys for `headings --json`.
-
-  ## Risks / Open Questions
-  - Freezing too early can lock in accidental quirks; the known behavioral/API cleanup tasks should land first.
-  - Need to decide how much of the SQLite schema is a public promise versus an internal persistence format. Recommended default: treat the full on-disk schema as versioned/stable enough for the project itself, but document the CLI JSON as the primary user-facing contract.
-  - Any field rename or representation change in JSON is a breaking change once frozen.
-  - Open question: whether `v0.1` stability means “documented but still experimental” or “expected to remain compatible until a version bump”. Recommended default: compatibility expected within `v0.x` unless explicitly versioned otherwise.
-
-  ## Next Codex Prompt
-  Implement this in BUILD mode after the pending DB/CLI contract cleanup tasks are complete. Finalize and document the `v0.1` SQLite schema versioning and `headings --json` response shape, fix any remaining contract inconsistencies before freezing them, add focused contract regression tests, and avoid unrelated refactors.
-#+END_SRC
-
-Content of Todo before Codex made the plan:
-
-Goal:
-Define the schema and JSON output for the first stable internal version.
-
-Acceptance criteria:
-
-- ~files~, ~headings~, ~todo_keywords~, ~keywords~, ~properties~, ~tags~, ~timestamps~, ~timestamp_repeaters~, ~links~, ~heading_bodies~, and ~outline_path~ are defined or explicitly deferred.
-- ~heading_fts~ is defined as optional and controlled by ~search.fts5_enabled~.
-- Schema versioning behavior is decided.
-- Level 0 heading behavior is documented.
-- Optional FTS5 behavior is documented.
-- JSON output for headings documents whether level 0 headings are included by default.
-- README contains a minimal example.
-- DB schema documentation references the actual schema file.
-  
 ** Repo durch Codex/ChatGPT prüfen lassen
 
 Erste identizierte Sachen von Codex und ChatGPT:
@@ -964,7 +876,7 @@ Content of Todo before Codex made the plan:
   - If an explicit override is implemented, empty rebuild only proceeds with that override.
 - Notes:
   - This is a safety guard around destructive rebuild behavior.
-
+    
 *** TODO [#B] Make schema application and migrations atomic
 :PROPERTIES:
 :PRIORITY: Medium

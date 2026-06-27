@@ -27,6 +27,54 @@ The current codebase is intentionally a minimal scaffold around the parser-first
 - Successful schema application or migration updates =user_version= only after the schema work succeeds.
 - Manual or local test databases may need to be rebuilt after a schema version bump.
 
+** SQLite Schema Contract
+
+- The schema definition lives in =sql/schema.sql= and is applied by =SchemaDefinition= in =src/db/schema.rs=.
+- The current =v0.1= populated schema contract covers these tables:
+  - =files=
+  - =headings=
+  - =todo_keywords=
+  - =keywords=
+  - =properties=
+  - =tags=
+  - =timestamps=
+  - =timestamp_repeaters=
+  - =heading_bodies=
+  - =outline_path=
+- =heading_fts= is optional. It is created only when rebuild/indexing enables FTS and the local SQLite build supports FTS5.
+- =links= exists in the schema as a reserved/deferred table, but it is not part of the populated =v0.1= indexing contract yet.
+- Read-only CLI queries such as =headings --json= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
+
+** headings --json Contract
+
+- =orgfdb headings --json= returns a top-level JSON array.
+- Each row currently exposes these fields:
+  - =id=: integer
+  - =file_id=: integer
+  - =file_path=: string
+  - =parent_id=: integer or =null=
+  - =level=: integer
+  - =line_number=: integer or =null=
+  - =byte_start=: integer
+  - =byte_end=: integer
+  - =title=: string
+  - =title_raw=: string
+  - =todo_keyword=: string or =null=
+  - =todo_type=: string or =null=
+  - =priority=: one-character string or =null=
+  - =scheduled_raw=: string or =null=
+  - =scheduled_ts=: integer Unix timestamp or =null=
+  - =deadline_raw=: string or =null=
+  - =deadline_ts=: integer Unix timestamp or =null=
+  - =closed_raw=: string or =null=
+  - =closed_ts=: integer Unix timestamp or =null=
+  - =archivedp=: boolean
+  - =footnote_section_p=: boolean
+  - =all_tags=: JSON array of strings
+- Synthetic level-0/root rows are excluded by default.
+- Passing =--include-root= includes the synthetic level-0/root rows in the JSON output.
+- The public JSON contract uses =all_tags= as an array. Internal DB storage may still use =all_tags_json=, but that string is not part of the CLI API.
+
 ** Features
 
 -----

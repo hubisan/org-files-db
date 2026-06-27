@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OpenFlags};
 
 pub mod reader;
 pub mod schema;
@@ -24,6 +24,10 @@ pub fn open_database(path: impl AsRef<Path>) -> Result<Connection, DbError> {
     open_database_with_schema(path, &SchemaDefinition::default())
 }
 
+pub fn open_existing_database_read_only(path: impl AsRef<Path>) -> Result<Connection, DbError> {
+    open_existing_database_read_only_with_schema(path, &SchemaDefinition::default())
+}
+
 pub fn open_database_with_schema(
     path: impl AsRef<Path>,
     schema: &SchemaDefinition,
@@ -35,6 +39,27 @@ pub fn open_database_with_schema(
         source,
     })?;
     initialize_database(&connection, &target, schema)?;
+    Ok(connection)
+}
+
+pub fn open_existing_database_read_only_with_schema(
+    path: impl AsRef<Path>,
+    schema: &SchemaDefinition,
+) -> Result<Connection, DbError> {
+    let path = path.as_ref();
+    let target = path.display().to_string();
+    let connection =
+        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|source| {
+            DbError::Open {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    let on_disk_version = read_schema_version(&connection).map_err(|source| DbError::Inspect {
+        target: target.clone(),
+        source,
+    })?;
+    validate_schema_version(on_disk_version, schema, &target)?;
     Ok(connection)
 }
 
@@ -130,6 +155,10 @@ pub enum DbError {
         target: String,
         source: rusqlite::Error,
     },
+    Inspect {
+        target: String,
+        source: rusqlite::Error,
+    },
     UnsupportedFutureSchemaVersion {
         target: String,
         on_disk_version: u32,
@@ -158,6 +187,9 @@ impl fmt::Display for DbError {
                     target, source
                 )
             }
+            Self::Inspect { target, source } => {
+                write!(f, "failed to inspect SQLite database {}: {}", target, source)
+            }
             Self::UnsupportedFutureSchemaVersion {
                 target,
                 on_disk_version,
@@ -176,7 +208,8 @@ impl Error for DbError {
         match self {
             Self::Open { source, .. }
             | Self::OpenInMemory { source }
-            | Self::Initialize { source, .. } => Some(source),
+            | Self::Initialize { source, .. }
+            | Self::Inspect { source, .. } => Some(source),
             Self::UnsupportedFutureSchemaVersion { .. } => None,
         }
     }
