@@ -8,19 +8,19 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org',1782504536000000000,286,NULL,1782515157);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/irrelevant-unsupported/eval-next-to-valid-test.org',1782515075226690860,250,NULL,1782515157);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org',1782504536000000000,374,NULL,1782515157);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org',1782504536000000000,277,NULL,1782515157);
-INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org',1782504536000000000,316,NULL,1782515157);
-INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782515157);
-INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org',1782237960833303823,2276,NULL,1782515157);
-INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782515157);
-INSERT INTO files VALUES(9,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782515157);
-INSERT INTO files VALUES(10,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org',1782218329407221851,2783,NULL,1782515157);
-INSERT INTO files VALUES(11,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org',1782243198853649058,1307,NULL,1782515157);
-INSERT INTO files VALUES(12,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782515157);
-INSERT INTO files VALUES(13,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782515157);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org',1782504536000000000,286,NULL,1782552522);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/irrelevant-unsupported/eval-next-to-valid-test.org',1782515075226690860,250,NULL,1782552522);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org',1782504536000000000,374,NULL,1782552522);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org',1782504536000000000,277,NULL,1782552522);
+INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org',1782504536000000000,316,NULL,1782552522);
+INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org',1781808483955605322,1188,NULL,1782552522);
+INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org',1782237960833303823,2276,NULL,1782552522);
+INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org',1781809982908544855,321,NULL,1782552522);
+INSERT INTO files VALUES(9,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org',1782129087807207205,1163,NULL,1782552522);
+INSERT INTO files VALUES(10,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org',1782218329407221851,2783,NULL,1782552522);
+INSERT INTO files VALUES(11,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org',1782243198853649058,1307,NULL,1782552522);
+INSERT INTO files VALUES(12,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org',1782159459016426918,1626,NULL,1782552522);
+INSERT INTO files VALUES(13,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org',1782153027780066037,299,NULL,1782552522);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -57,14 +57,14 @@ CREATE TABLE headings (
     UNIQUE (file_id, byte_start)
 );
 INSERT INTO headings VALUES(1,1,NULL,0,1,-1,286,'Deepest .dir-locals wins test','Deepest .dir-locals wins test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(2,1,1,1,3,40,94,'Should be open from notes/child/.dir-locals.el','Should be open from notes/child/.dir-locals.el','NEXT','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(3,1,1,1,4,94,154,'Should be closed from notes/child/.dir-locals.el','Should be closed from notes/child/.dir-locals.el','FINISHED','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(2,1,1,1,3,40,94,'NEXT Should be open from notes/child/.dir-locals.el','NEXT Should be open from notes/child/.dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(3,1,1,1,4,94,154,'FINISHED Should be closed from notes/child/.dir-locals.el','FINISHED Should be closed from notes/child/.dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(4,1,1,1,5,154,220,'PLAN Should NOT be recognized because child .dir-locals.el wins','PLAN Should NOT be recognized because child .dir-locals.el wins',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(5,1,1,1,6,220,286,'DONE Should NOT be recognized because child .dir-locals.el wins','DONE Should NOT be recognized because child .dir-locals.el wins',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(5,1,1,1,6,220,286,'Should NOT be recognized because child .dir-locals.el wins','Should NOT be recognized because child .dir-locals.el wins','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(6,2,NULL,0,1,-1,250,'Eval next to valid org-todo-keywords test','Eval next to valid org-todo-keywords test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(7,2,6,1,3,52,116,'Should be open from valid org-todo-keywords despite eval','Should be open from valid org-todo-keywords despite eval','PLAN','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(7,2,6,1,3,52,116,'PLAN Should be open from valid org-todo-keywords despite eval','PLAN Should be open from valid org-todo-keywords despite eval',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(8,2,6,1,4,116,182,'Should be closed from valid org-todo-keywords despite eval','Should be closed from valid org-todo-keywords despite eval','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(9,2,6,1,5,182,250,'TODO Should NOT be recognized because dir-locals TODOs are active','TODO Should NOT be recognized because dir-locals TODOs are active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(9,2,6,1,5,182,250,'Should NOT be recognized because dir-locals TODOs are active','Should NOT be recognized because dir-locals TODOs are active','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(10,3,NULL,0,1,-1,374,'Org in-buffer TODO override test','Org in-buffer TODO override test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(11,3,10,1,4,84,130,'Should be open from in-buffer #+TODO','Should be open from in-buffer #+TODO','REVIEW','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(12,3,10,1,5,130,182,'Should also be open from in-buffer #+TODO','Should also be open from in-buffer #+TODO','BLOCKED','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
@@ -72,11 +72,11 @@ INSERT INTO headings VALUES(13,3,10,1,6,182,230,'Should be closed from in-buffer
 INSERT INTO headings VALUES(14,3,10,1,7,230,302,'PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el','PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(15,3,10,1,8,302,374,'DONE Should NOT be recognized because #+TODO overrides .dir-locals.el','DONE Should NOT be recognized because #+TODO overrides .dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(16,4,NULL,0,1,-1,277,'Root dir-locals test','Root dir-locals test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(17,4,16,1,3,31,73,'Should be open from .dir-locals.el','Should be open from .dir-locals.el','PLAN','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(18,4,16,1,4,73,120,'Should also be open from .dir-locals.el','Should also be open from .dir-locals.el','WAIT','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(17,4,16,1,3,31,73,'PLAN Should be open from .dir-locals.el','PLAN Should be open from .dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(18,4,16,1,4,73,120,'WAIT Should also be open from .dir-locals.el','WAIT Should also be open from .dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(19,4,16,1,5,120,164,'Should be closed from .dir-locals.el','Should be closed from .dir-locals.el','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(20,4,16,1,6,164,215,'Should also be closed from .dir-locals.el','Should also be closed from .dir-locals.el','CANCEL','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(21,4,16,1,7,215,277,'TODO Should NOT be recognized when .dir-locals.el is active','TODO Should NOT be recognized when .dir-locals.el is active',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(20,4,16,1,6,164,215,'CANCEL Should also be closed from .dir-locals.el','CANCEL Should also be closed from .dir-locals.el',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(21,4,16,1,7,215,277,'Should NOT be recognized when .dir-locals.el is active','Should NOT be recognized when .dir-locals.el is active','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(22,5,NULL,0,1,-1,316,'Unsafe syntax warning test','Unsafe syntax warning test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(23,5,22,1,3,37,131,'Should be open from config fallback when unsafe .dir-locals.el is ignored with warning','Should be open from config fallback when unsafe .dir-locals.el is ignored with warning','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(24,5,22,1,4,131,227,'Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning','Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
@@ -191,82 +191,6 @@ INSERT INTO headings VALUES(132,13,131,1,4,40,91,'Meet Peter at the movies','Mee
 INSERT INTO headings VALUES(133,13,131,1,7,91,152,'Discussion on climate change','Discussion on climate change',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(134,13,131,1,10,152,201,'My days off','My days off',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 INSERT INTO headings VALUES(135,13,131,1,14,201,299,'Can be anywhere','Can be anywhere',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-CREATE TABLE todo_keywords (
-    file_id         INTEGER NOT NULL,
-    keyword         TEXT NOT NULL,
-    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
-    shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
-    sequence_no     INTEGER NOT NULL,
-    source_kind     TEXT NOT NULL CHECK (
-                        source_kind IN ('config_default', 'dir_locals', 'org_keyword')
-                    ),
-    source_keyword  TEXT CHECK (
-                        source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
-                        OR source_keyword IS NULL
-                    ),
-    source_line_number INTEGER CHECK (
-                        source_line_number IS NULL
-                        OR source_line_number > 0
-                    ),
-    CHECK (
-        (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
-        OR
-        (source_kind = 'dir_locals' AND source_keyword IS NULL AND source_line_number IS NULL)
-        OR
-        (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
-    ),
-    FOREIGN KEY (file_id)
-        REFERENCES files(id)
-        ON DELETE CASCADE,
-    PRIMARY KEY (file_id, keyword)
-);
-INSERT INTO todo_keywords VALUES(1,'NEXT','open','n',0,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(1,'FINISHED','closed','f',1,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(2,'PLAN','open','p',0,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(2,'DONE','closed','d',1,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(3,'REVIEW','open','r',0,'org_keyword','TODO',2);
-INSERT INTO todo_keywords VALUES(3,'BLOCKED','open','b',1,'org_keyword','TODO',2);
-INSERT INTO todo_keywords VALUES(3,'CLOSED','closed','c',2,'org_keyword','TODO',2);
-INSERT INTO todo_keywords VALUES(4,'PLAN','open','p',0,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'WAIT','open','w',1,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'DONE','closed','d',2,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'CANCEL','closed','c',3,'dir_locals',NULL,NULL);
-INSERT INTO todo_keywords VALUES(5,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(5,'DONE','closed',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(6,'one','open','t',0,'org_keyword','TODO',3);
-INSERT INTO todo_keywords VALUES(6,'two','open','n',1,'org_keyword','TODO',3);
-INSERT INTO todo_keywords VALUES(6,'FIVE','open',NULL,2,'org_keyword','TODO',4);
-INSERT INTO todo_keywords VALUES(6,'SIX','open',NULL,3,'org_keyword','TODO',4);
-INSERT INTO todo_keywords VALUES(6,'seven','open',NULL,4,'org_keyword','TYP_TODO',5);
-INSERT INTO todo_keywords VALUES(6,'nine','open',NULL,5,'org_keyword','SEQ_TODO',6);
-INSERT INTO todo_keywords VALUES(6,'late_open','open',NULL,6,'org_keyword','TODO',34);
-INSERT INTO todo_keywords VALUES(6,'three','closed','d',7,'org_keyword','TODO',3);
-INSERT INTO todo_keywords VALUES(6,'four','closed','w',8,'org_keyword','TODO',3);
-INSERT INTO todo_keywords VALUES(6,'eight','closed',NULL,9,'org_keyword','TYP_TODO',5);
-INSERT INTO todo_keywords VALUES(6,'ten','closed',NULL,10,'org_keyword','SEQ_TODO',6);
-INSERT INTO todo_keywords VALUES(6,'eleven','closed','c',11,'org_keyword','TODO',30);
-INSERT INTO todo_keywords VALUES(6,'late_done','closed',NULL,12,'org_keyword','TODO',34);
-INSERT INTO todo_keywords VALUES(7,'TODO','open',NULL,0,'org_keyword','TODO',29);
-INSERT INTO todo_keywords VALUES(7,'NEXT','open',NULL,1,'org_keyword','TODO',29);
-INSERT INTO todo_keywords VALUES(7,'IDEA','open','i',2,'org_keyword','SEQ_TODO',30);
-INSERT INTO todo_keywords VALUES(7,'WURST','open','w',3,'org_keyword','SEQ_TODO',30);
-INSERT INTO todo_keywords VALUES(7,'PLAN','open','p',4,'org_keyword','SEQ_TODO',30);
-INSERT INTO todo_keywords VALUES(7,'BUILD','open','b',5,'org_keyword','SEQ_TODO',30);
-INSERT INTO todo_keywords VALUES(7,'WAITING','open','w',6,'org_keyword','TYP_TODO',31);
-INSERT INTO todo_keywords VALUES(7,'DONE','closed',NULL,7,'org_keyword','TODO',29);
-INSERT INTO todo_keywords VALUES(7,'CANCELED','closed',NULL,8,'org_keyword','TODO',29);
-INSERT INTO todo_keywords VALUES(8,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(8,'DONE','closed',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(9,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(9,'DONE','closed',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(10,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(10,'DONE','closed',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(11,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(11,'DONE','closed',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(12,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(12,'DONE','closed',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(13,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(13,'DONE','closed',NULL,1,'config_default',NULL,NULL);
 CREATE TABLE timestamps (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -691,14 +615,14 @@ CREATE TABLE outline_path (
         ON DELETE SET NULL
 );
 INSERT INTO outline_path VALUES(1,1,NULL,0,'0000','["Deepest .dir-locals wins test"]');
-INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Deepest .dir-locals wins test","Should be open from notes/child/.dir-locals.el"]');
-INSERT INTO outline_path VALUES(3,1,1,1,'0000.0002','["Deepest .dir-locals wins test","Should be closed from notes/child/.dir-locals.el"]');
+INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Deepest .dir-locals wins test","NEXT Should be open from notes/child/.dir-locals.el"]');
+INSERT INTO outline_path VALUES(3,1,1,1,'0000.0002','["Deepest .dir-locals wins test","FINISHED Should be closed from notes/child/.dir-locals.el"]');
 INSERT INTO outline_path VALUES(4,1,1,1,'0000.0003','["Deepest .dir-locals wins test","PLAN Should NOT be recognized because child .dir-locals.el wins"]');
-INSERT INTO outline_path VALUES(5,1,1,1,'0000.0004','["Deepest .dir-locals wins test","DONE Should NOT be recognized because child .dir-locals.el wins"]');
+INSERT INTO outline_path VALUES(5,1,1,1,'0000.0004','["Deepest .dir-locals wins test","Should NOT be recognized because child .dir-locals.el wins"]');
 INSERT INTO outline_path VALUES(6,2,NULL,0,'0000','["Eval next to valid org-todo-keywords test"]');
-INSERT INTO outline_path VALUES(7,2,6,1,'0000.0001','["Eval next to valid org-todo-keywords test","Should be open from valid org-todo-keywords despite eval"]');
+INSERT INTO outline_path VALUES(7,2,6,1,'0000.0001','["Eval next to valid org-todo-keywords test","PLAN Should be open from valid org-todo-keywords despite eval"]');
 INSERT INTO outline_path VALUES(8,2,6,1,'0000.0002','["Eval next to valid org-todo-keywords test","Should be closed from valid org-todo-keywords despite eval"]');
-INSERT INTO outline_path VALUES(9,2,6,1,'0000.0003','["Eval next to valid org-todo-keywords test","TODO Should NOT be recognized because dir-locals TODOs are active"]');
+INSERT INTO outline_path VALUES(9,2,6,1,'0000.0003','["Eval next to valid org-todo-keywords test","Should NOT be recognized because dir-locals TODOs are active"]');
 INSERT INTO outline_path VALUES(10,3,NULL,0,'0000','["Org in-buffer TODO override test"]');
 INSERT INTO outline_path VALUES(11,3,10,1,'0000.0001','["Org in-buffer TODO override test","Should be open from in-buffer #+TODO"]');
 INSERT INTO outline_path VALUES(12,3,10,1,'0000.0002','["Org in-buffer TODO override test","Should also be open from in-buffer #+TODO"]');
@@ -706,11 +630,11 @@ INSERT INTO outline_path VALUES(13,3,10,1,'0000.0003','["Org in-buffer TODO over
 INSERT INTO outline_path VALUES(14,3,10,1,'0000.0004','["Org in-buffer TODO override test","PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el"]');
 INSERT INTO outline_path VALUES(15,3,10,1,'0000.0005','["Org in-buffer TODO override test","DONE Should NOT be recognized because #+TODO overrides .dir-locals.el"]');
 INSERT INTO outline_path VALUES(16,4,NULL,0,'0000','["Root dir-locals test"]');
-INSERT INTO outline_path VALUES(17,4,16,1,'0000.0001','["Root dir-locals test","Should be open from .dir-locals.el"]');
-INSERT INTO outline_path VALUES(18,4,16,1,'0000.0002','["Root dir-locals test","Should also be open from .dir-locals.el"]');
+INSERT INTO outline_path VALUES(17,4,16,1,'0000.0001','["Root dir-locals test","PLAN Should be open from .dir-locals.el"]');
+INSERT INTO outline_path VALUES(18,4,16,1,'0000.0002','["Root dir-locals test","WAIT Should also be open from .dir-locals.el"]');
 INSERT INTO outline_path VALUES(19,4,16,1,'0000.0003','["Root dir-locals test","Should be closed from .dir-locals.el"]');
-INSERT INTO outline_path VALUES(20,4,16,1,'0000.0004','["Root dir-locals test","Should also be closed from .dir-locals.el"]');
-INSERT INTO outline_path VALUES(21,4,16,1,'0000.0005','["Root dir-locals test","TODO Should NOT be recognized when .dir-locals.el is active"]');
+INSERT INTO outline_path VALUES(20,4,16,1,'0000.0004','["Root dir-locals test","CANCEL Should also be closed from .dir-locals.el"]');
+INSERT INTO outline_path VALUES(21,4,16,1,'0000.0005','["Root dir-locals test","Should NOT be recognized when .dir-locals.el is active"]');
 INSERT INTO outline_path VALUES(22,5,NULL,0,'0000','["Unsafe syntax warning test"]');
 INSERT INTO outline_path VALUES(23,5,22,1,'0000.0001','["Unsafe syntax warning test","Should be open from config fallback when unsafe .dir-locals.el is ignored with warning"]');
 INSERT INTO outline_path VALUES(24,5,22,1,'0000.0002','["Unsafe syntax warning test","Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning"]');
@@ -825,6 +749,78 @@ INSERT INTO outline_path VALUES(132,13,131,1,'0000.0001','["Timestamps","Meet Pe
 INSERT INTO outline_path VALUES(133,13,131,1,'0000.0002','["Timestamps","Discussion on climate change"]');
 INSERT INTO outline_path VALUES(134,13,131,1,'0000.0003','["Timestamps","My days off"]');
 INSERT INTO outline_path VALUES(135,13,131,1,'0000.0004','["Timestamps","Can be anywhere"]');
+CREATE TABLE todo_keywords (
+    file_id             INTEGER NOT NULL,
+    keyword             TEXT NOT NULL,
+    state_type          TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
+    shortcut            TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
+    sequence_no         INTEGER NOT NULL,
+    source_kind         TEXT NOT NULL CHECK (
+                            source_kind IN ('config_default', 'org_keyword')
+                        ),
+    source_keyword      TEXT CHECK (
+                            source_keyword IN ('TODO', 'SEQ_TODO', 'TYP_TODO')
+                            OR source_keyword IS NULL
+                        ),
+    source_line_number  INTEGER CHECK (
+                            source_line_number IS NULL
+                            OR source_line_number > 0
+                        ),
+    CHECK (
+        (source_kind = 'config_default' AND source_keyword IS NULL AND source_line_number IS NULL)
+        OR
+        (source_kind = 'org_keyword' AND source_keyword IS NOT NULL AND source_line_number IS NOT NULL)
+    ),
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (file_id, keyword)
+);
+INSERT INTO todo_keywords VALUES(1,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(1,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(2,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(2,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(3,'REVIEW','open','r',0,'org_keyword','TODO',2);
+INSERT INTO todo_keywords VALUES(3,'BLOCKED','open','b',1,'org_keyword','TODO',2);
+INSERT INTO todo_keywords VALUES(3,'CLOSED','closed','c',2,'org_keyword','TODO',2);
+INSERT INTO todo_keywords VALUES(4,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(4,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(5,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(5,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(6,'one','open','t',0,'org_keyword','TODO',3);
+INSERT INTO todo_keywords VALUES(6,'two','open','n',1,'org_keyword','TODO',3);
+INSERT INTO todo_keywords VALUES(6,'FIVE','open',NULL,2,'org_keyword','TODO',4);
+INSERT INTO todo_keywords VALUES(6,'SIX','open',NULL,3,'org_keyword','TODO',4);
+INSERT INTO todo_keywords VALUES(6,'seven','open',NULL,4,'org_keyword','TYP_TODO',5);
+INSERT INTO todo_keywords VALUES(6,'nine','open',NULL,5,'org_keyword','SEQ_TODO',6);
+INSERT INTO todo_keywords VALUES(6,'late_open','open',NULL,6,'org_keyword','TODO',34);
+INSERT INTO todo_keywords VALUES(6,'three','closed','d',7,'org_keyword','TODO',3);
+INSERT INTO todo_keywords VALUES(6,'four','closed','w',8,'org_keyword','TODO',3);
+INSERT INTO todo_keywords VALUES(6,'eight','closed',NULL,9,'org_keyword','TYP_TODO',5);
+INSERT INTO todo_keywords VALUES(6,'ten','closed',NULL,10,'org_keyword','SEQ_TODO',6);
+INSERT INTO todo_keywords VALUES(6,'eleven','closed','c',11,'org_keyword','TODO',30);
+INSERT INTO todo_keywords VALUES(6,'late_done','closed',NULL,12,'org_keyword','TODO',34);
+INSERT INTO todo_keywords VALUES(7,'TODO','open',NULL,0,'org_keyword','TODO',29);
+INSERT INTO todo_keywords VALUES(7,'NEXT','open',NULL,1,'org_keyword','TODO',29);
+INSERT INTO todo_keywords VALUES(7,'IDEA','open','i',2,'org_keyword','SEQ_TODO',30);
+INSERT INTO todo_keywords VALUES(7,'WURST','open','w',3,'org_keyword','SEQ_TODO',30);
+INSERT INTO todo_keywords VALUES(7,'PLAN','open','p',4,'org_keyword','SEQ_TODO',30);
+INSERT INTO todo_keywords VALUES(7,'BUILD','open','b',5,'org_keyword','SEQ_TODO',30);
+INSERT INTO todo_keywords VALUES(7,'WAITING','open','w',6,'org_keyword','TYP_TODO',31);
+INSERT INTO todo_keywords VALUES(7,'DONE','closed',NULL,7,'org_keyword','TODO',29);
+INSERT INTO todo_keywords VALUES(7,'CANCELED','closed',NULL,8,'org_keyword','TODO',29);
+INSERT INTO todo_keywords VALUES(8,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(8,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(9,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(9,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(10,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(10,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(11,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(11,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(12,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(12,'DONE','closed',NULL,1,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(13,'TODO','open',NULL,0,'config_default',NULL,NULL);
+INSERT INTO todo_keywords VALUES(13,'DONE','closed',NULL,1,'config_default',NULL,NULL);
 CREATE UNIQUE INDEX uq_headings_file_level0
     ON headings(file_id)
     WHERE level = 0;
@@ -852,8 +848,6 @@ CREATE INDEX idx_headings_deadline
     ON headings(deadline_ts);
 CREATE INDEX idx_headings_closed
     ON headings(closed_ts);
-CREATE INDEX idx_todo_keywords_file_state
-    ON todo_keywords(file_id, state_type);
 CREATE INDEX idx_keywords_heading
     ON keywords(heading_id);
 CREATE INDEX idx_keywords_keyword
@@ -884,4 +878,6 @@ CREATE INDEX idx_outline_file_materialized_path
     ON outline_path(file_id, materialized_path);
 CREATE INDEX idx_outline_parent
     ON outline_path(parent_id);
+CREATE INDEX idx_todo_keywords_file_state
+    ON todo_keywords(file_id, state_type);
 COMMIT;

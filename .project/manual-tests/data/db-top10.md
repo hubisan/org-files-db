@@ -4,16 +4,16 @@
 
 | id |                                                                           path                                                                            |      mtime_ns       | size | content_hash | indexed_at |
 |----|-----------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org                        | 1782504536000000000 | 286  |              | 1782515157 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/irrelevant-unsupported/eval-next-to-valid-test.org | 1782515075226690860 | 250  |              | 1782515157 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org                     | 1782504536000000000 | 374  |              | 1782515157 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                                      | 1782504536000000000 | 277  |              | 1782515157 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org                        | 1782504536000000000 | 316  |              | 1782515157 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org                                                       | 1781808483955605322 | 1188 |              | 1782515157 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                                                                       | 1782237960833303823 | 2276 |              | 1782515157 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org                                                         | 1781809982908544855 | 321  |              | 1782515157 |
-| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org                                                                 | 1782129087807207205 | 1163 |              | 1782515157 |
-| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org                                                                     | 1782218329407221851 | 2783 |              | 1782515157 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org                        | 1782504536000000000 | 286  |              | 1782552522 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/irrelevant-unsupported/eval-next-to-valid-test.org | 1782515075226690860 | 250  |              | 1782552522 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org                     | 1782504536000000000 | 374  |              | 1782552522 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org                                      | 1782504536000000000 | 277  |              | 1782552522 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org                        | 1782504536000000000 | 316  |              | 1782552522 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org                                                       | 1781808483955605322 | 1188 |              | 1782552522 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                                                                       | 1782237960833303823 | 2276 |              | 1782552522 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org                                                         | 1781809982908544855 | 321  |              | 1782552522 |
+| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org                                                                 | 1782129087807207205 | 1163 |              | 1782552522 |
+| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org                                                                     | 1782218329407221851 | 2783 |              | 1782552522 |
 
 ## heading_bodies
 
@@ -57,18 +57,18 @@
 
 ## headings
 
-| id | file_id | parent_id | level | line_number | byte_start | byte_end |                               title                               |                             title_raw                             | todo_keyword | todo_type | priority | scheduled_raw | scheduled_ts | deadline_raw | deadline_ts | closed_raw | closed_ts | archivedp | footnote_section_p | all_tags_json |
-|----|---------|-----------|-------|-------------|------------|----------|-------------------------------------------------------------------|-------------------------------------------------------------------|--------------|-----------|----------|---------------|--------------|--------------|-------------|------------|-----------|-----------|--------------------|---------------|
-| 1  | 1       |           | 0     | 1           | -1         | 286      | Deepest .dir-locals wins test                                     | Deepest .dir-locals wins test                                     |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 2  | 1       | 1         | 1     | 3           | 40         | 94       | Should be open from notes/child/.dir-locals.el                    | Should be open from notes/child/.dir-locals.el                    | NEXT         | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 3  | 1       | 1         | 1     | 4           | 94         | 154      | Should be closed from notes/child/.dir-locals.el                  | Should be closed from notes/child/.dir-locals.el                  | FINISHED     | closed    |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 4  | 1       | 1         | 1     | 5           | 154        | 220      | PLAN Should NOT be recognized because child .dir-locals.el wins   | PLAN Should NOT be recognized because child .dir-locals.el wins   |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 5  | 1       | 1         | 1     | 6           | 220        | 286      | DONE Should NOT be recognized because child .dir-locals.el wins   | DONE Should NOT be recognized because child .dir-locals.el wins   |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 6  | 2       |           | 0     | 1           | -1         | 250      | Eval next to valid org-todo-keywords test                         | Eval next to valid org-todo-keywords test                         |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 7  | 2       | 6         | 1     | 3           | 52         | 116      | Should be open from valid org-todo-keywords despite eval          | Should be open from valid org-todo-keywords despite eval          | PLAN         | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 8  | 2       | 6         | 1     | 4           | 116        | 182      | Should be closed from valid org-todo-keywords despite eval        | Should be closed from valid org-todo-keywords despite eval        | DONE         | closed    |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 9  | 2       | 6         | 1     | 5           | 182        | 250      | TODO Should NOT be recognized because dir-locals TODOs are active | TODO Should NOT be recognized because dir-locals TODOs are active |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 10 | 3       |           | 0     | 1           | -1         | 374      | Org in-buffer TODO override test                                  | Org in-buffer TODO override test                                  |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| id | file_id | parent_id | level | line_number | byte_start | byte_end |                              title                              |                            title_raw                            | todo_keyword | todo_type | priority | scheduled_raw | scheduled_ts | deadline_raw | deadline_ts | closed_raw | closed_ts | archivedp | footnote_section_p | all_tags_json |
+|----|---------|-----------|-------|-------------|------------|----------|-----------------------------------------------------------------|-----------------------------------------------------------------|--------------|-----------|----------|---------------|--------------|--------------|-------------|------------|-----------|-----------|--------------------|---------------|
+| 1  | 1       |           | 0     | 1           | -1         | 286      | Deepest .dir-locals wins test                                   | Deepest .dir-locals wins test                                   |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 2  | 1       | 1         | 1     | 3           | 40         | 94       | NEXT Should be open from notes/child/.dir-locals.el             | NEXT Should be open from notes/child/.dir-locals.el             |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 3  | 1       | 1         | 1     | 4           | 94         | 154      | FINISHED Should be closed from notes/child/.dir-locals.el       | FINISHED Should be closed from notes/child/.dir-locals.el       |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 4  | 1       | 1         | 1     | 5           | 154        | 220      | PLAN Should NOT be recognized because child .dir-locals.el wins | PLAN Should NOT be recognized because child .dir-locals.el wins |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 5  | 1       | 1         | 1     | 6           | 220        | 286      | Should NOT be recognized because child .dir-locals.el wins      | Should NOT be recognized because child .dir-locals.el wins      | DONE         | closed    |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 6  | 2       |           | 0     | 1           | -1         | 250      | Eval next to valid org-todo-keywords test                       | Eval next to valid org-todo-keywords test                       |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 7  | 2       | 6         | 1     | 3           | 52         | 116      | PLAN Should be open from valid org-todo-keywords despite eval   | PLAN Should be open from valid org-todo-keywords despite eval   |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 8  | 2       | 6         | 1     | 4           | 116        | 182      | Should be closed from valid org-todo-keywords despite eval      | Should be closed from valid org-todo-keywords despite eval      | DONE         | closed    |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 9  | 2       | 6         | 1     | 5           | 182        | 250      | Should NOT be recognized because dir-locals TODOs are active    | Should NOT be recognized because dir-locals TODOs are active    | TODO         | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 10 | 3       |           | 0     | 1           | -1         | 374      | Org in-buffer TODO override test                                | Org in-buffer TODO override test                                |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
 
 ## keywords
 
@@ -90,18 +90,18 @@
 
 ## outline_path
 
-| heading_id | file_id | parent_id | depth | materialized_path |                                                 breadcrumbs_json                                                  |
-|------------|---------|-----------|-------|-------------------|-------------------------------------------------------------------------------------------------------------------|
-| 1          | 1       |           | 0     | 0000              | ["Deepest .dir-locals wins test"]                                                                                 |
-| 2          | 1       | 1         | 1     | 0000.0001         | ["Deepest .dir-locals wins test","Should be open from notes/child/.dir-locals.el"]                                |
-| 3          | 1       | 1         | 1     | 0000.0002         | ["Deepest .dir-locals wins test","Should be closed from notes/child/.dir-locals.el"]                              |
-| 4          | 1       | 1         | 1     | 0000.0003         | ["Deepest .dir-locals wins test","PLAN Should NOT be recognized because child .dir-locals.el wins"]               |
-| 5          | 1       | 1         | 1     | 0000.0004         | ["Deepest .dir-locals wins test","DONE Should NOT be recognized because child .dir-locals.el wins"]               |
-| 6          | 2       |           | 0     | 0000              | ["Eval next to valid org-todo-keywords test"]                                                                     |
-| 7          | 2       | 6         | 1     | 0000.0001         | ["Eval next to valid org-todo-keywords test","Should be open from valid org-todo-keywords despite eval"]          |
-| 8          | 2       | 6         | 1     | 0000.0002         | ["Eval next to valid org-todo-keywords test","Should be closed from valid org-todo-keywords despite eval"]        |
-| 9          | 2       | 6         | 1     | 0000.0003         | ["Eval next to valid org-todo-keywords test","TODO Should NOT be recognized because dir-locals TODOs are active"] |
-| 10         | 3       |           | 0     | 0000              | ["Org in-buffer TODO override test"]                                                                              |
+| heading_id | file_id | parent_id | depth | materialized_path |                                               breadcrumbs_json                                                |
+|------------|---------|-----------|-------|-------------------|---------------------------------------------------------------------------------------------------------------|
+| 1          | 1       |           | 0     | 0000              | ["Deepest .dir-locals wins test"]                                                                             |
+| 2          | 1       | 1         | 1     | 0000.0001         | ["Deepest .dir-locals wins test","NEXT Should be open from notes/child/.dir-locals.el"]                       |
+| 3          | 1       | 1         | 1     | 0000.0002         | ["Deepest .dir-locals wins test","FINISHED Should be closed from notes/child/.dir-locals.el"]                 |
+| 4          | 1       | 1         | 1     | 0000.0003         | ["Deepest .dir-locals wins test","PLAN Should NOT be recognized because child .dir-locals.el wins"]           |
+| 5          | 1       | 1         | 1     | 0000.0004         | ["Deepest .dir-locals wins test","Should NOT be recognized because child .dir-locals.el wins"]                |
+| 6          | 2       |           | 0     | 0000              | ["Eval next to valid org-todo-keywords test"]                                                                 |
+| 7          | 2       | 6         | 1     | 0000.0001         | ["Eval next to valid org-todo-keywords test","PLAN Should be open from valid org-todo-keywords despite eval"] |
+| 8          | 2       | 6         | 1     | 0000.0002         | ["Eval next to valid org-todo-keywords test","Should be closed from valid org-todo-keywords despite eval"]    |
+| 9          | 2       | 6         | 1     | 0000.0003         | ["Eval next to valid org-todo-keywords test","Should NOT be recognized because dir-locals TODOs are active"]  |
+| 10         | 3       |           | 0     | 0000              | ["Org in-buffer TODO override test"]                                                                          |
 
 ## properties
 
@@ -165,18 +165,18 @@
 
 ## todo_keywords
 
-| file_id | keyword  | state_type | shortcut | sequence_no | source_kind | source_keyword | source_line_number |
-|---------|----------|------------|----------|-------------|-------------|----------------|--------------------|
-| 1       | NEXT     | open       | n        | 0           | dir_locals  |                |                    |
-| 1       | FINISHED | closed     | f        | 1           | dir_locals  |                |                    |
-| 2       | PLAN     | open       | p        | 0           | dir_locals  |                |                    |
-| 2       | DONE     | closed     | d        | 1           | dir_locals  |                |                    |
-| 3       | REVIEW   | open       | r        | 0           | org_keyword | TODO           | 2                  |
-| 3       | BLOCKED  | open       | b        | 1           | org_keyword | TODO           | 2                  |
-| 3       | CLOSED   | closed     | c        | 2           | org_keyword | TODO           | 2                  |
-| 4       | PLAN     | open       | p        | 0           | dir_locals  |                |                    |
-| 4       | WAIT     | open       | w        | 1           | dir_locals  |                |                    |
-| 4       | DONE     | closed     | d        | 2           | dir_locals  |                |                    |
+| file_id | keyword | state_type | shortcut | sequence_no |  source_kind   | source_keyword | source_line_number |
+|---------|---------|------------|----------|-------------|----------------|----------------|--------------------|
+| 1       | TODO    | open       |          | 0           | config_default |                |                    |
+| 1       | DONE    | closed     |          | 1           | config_default |                |                    |
+| 2       | TODO    | open       |          | 0           | config_default |                |                    |
+| 2       | DONE    | closed     |          | 1           | config_default |                |                    |
+| 3       | REVIEW  | open       | r        | 0           | org_keyword    | TODO           | 2                  |
+| 3       | BLOCKED | open       | b        | 1           | org_keyword    | TODO           | 2                  |
+| 3       | CLOSED  | closed     | c        | 2           | org_keyword    | TODO           | 2                  |
+| 4       | TODO    | open       |          | 0           | config_default |                |                    |
+| 4       | DONE    | closed     |          | 1           | config_default |                |                    |
+| 5       | TODO    | open       |          | 0           | config_default |                |                    |
 
 <!--
 Local Variables:

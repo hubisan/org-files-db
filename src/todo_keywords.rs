@@ -35,7 +35,6 @@ struct KeywordSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TodoKeywordSourceKind {
     ConfigDefault,
-    DirLocals,
     OrgKeyword,
 }
 
@@ -43,7 +42,6 @@ impl TodoKeywordSourceKind {
     pub fn as_db_str(self) -> &'static str {
         match self {
             Self::ConfigDefault => "config_default",
-            Self::DirLocals => "dir_locals",
             Self::OrgKeyword => "org_keyword",
         }
     }

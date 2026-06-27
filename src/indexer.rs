@@ -16,7 +16,6 @@ use crate::{
         PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord,
         TodoKeywordRecord,
     },
-    dir_locals::{DirLocalsDiagnostic, DirLocalsError, DirLocalsResolver},
     parser::{
         DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
         ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
@@ -59,7 +58,6 @@ where
     ) -> Result<RebuildReport, IndexerError> {
         let paths = discover_org_files(config)?;
         let parse_options = config.parse_options();
-        let dir_locals_resolver = DirLocalsResolver::new(config.parse.dir_locals.clone());
         let mut pending = Vec::with_capacity(paths.len());
         for discovered in paths {
             let path = discovered.path;
@@ -71,22 +69,10 @@ where
                 path: path.clone(),
                 source,
             })?;
-            let dir_locals_resolution = dir_locals_resolver
-                .resolve_for_file(&path, &discovered.scan_root)
-                .map_err(IndexerError::DirLocals)?;
-            let (default_todo_keywords, default_source_kind) =
-                if let Some(todo_keywords) = dir_locals_resolution.todo_keywords.as_ref() {
-                    (todo_keywords, TodoKeywordSourceKind::DirLocals)
-                } else {
-                    (
-                        &parse_options.todo_keywords,
-                        TodoKeywordSourceKind::ConfigDefault,
-                    )
-                };
             let resolved_todo_keywords = resolve_todo_keywords_with_default_source(
                 &content,
-                default_todo_keywords,
-                default_source_kind,
+                &parse_options.todo_keywords,
+                TodoKeywordSourceKind::ConfigDefault,
             );
             let document = self
                 .parser
@@ -107,7 +93,7 @@ where
                 path,
                 document: normalized,
                 todo_keywords: resolved_todo_keywords,
-                diagnostics: dir_locals_diagnostics(&dir_locals_resolution.diagnostics),
+                diagnostics: Vec::new(),
                 file_record,
             });
         }
@@ -215,7 +201,6 @@ impl From<ParseDiagnostic> for IndexDiagnostic {
 pub enum IndexerError {
     Config(ConfigError),
     Database(DbError),
-    DirLocals(DirLocalsError),
     Discover {
         path: PathBuf,
         source: std::io::Error,
@@ -245,7 +230,6 @@ impl fmt::Display for IndexerError {
         match self {
             Self::Config(source) => write!(f, "{source}"),
             Self::Database(source) => write!(f, "{source}"),
-            Self::DirLocals(source) => write!(f, "{source}"),
             Self::Discover { path, source } => {
                 write!(
                     f,
@@ -284,7 +268,6 @@ impl Error for IndexerError {
         match self {
             Self::Config(source) => Some(source),
             Self::Database(source) => Some(source),
-            Self::DirLocals(source) => Some(source),
             Self::Discover { source, .. } => Some(source),
             Self::InvalidDocument(_) => None,
             Self::InvalidFileMetadata { .. } => None,
@@ -392,19 +375,6 @@ fn insert_discovered_path(
 
 fn path_depth(path: &Path) -> usize {
     path.components().count()
-}
-
-fn dir_locals_diagnostics(diagnostics: &[DirLocalsDiagnostic]) -> Vec<IndexDiagnostic> {
-    diagnostics
-        .iter()
-        .map(|diagnostic| IndexDiagnostic {
-            severity: DiagnosticSeverity::Warning,
-            message: diagnostic.message.clone(),
-            file_path: Some(diagnostic.path.clone()),
-            line_number: None,
-            byte_range: None,
-        })
-        .collect()
 }
 
 fn build_file_record(
@@ -2381,9 +2351,10 @@ index_body_text = false
 "#,
         );
 
-        Indexer::new(OrgizeAdapter::new())
+        let report = Indexer::new(OrgizeAdapter::new())
             .rebuild_from_config_path(&config_path)
             .expect("rebuild should succeed");
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
@@ -2406,7 +2377,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_uses_dir_locals_defaults_when_enabled() {
+    fn rebuild_ignores_dir_locals_todo_keywords_when_enabled() {
         let test_dir = TestDir::new("dir-locals-enabled");
         let notes_dir = test_dir.path().join("notes");
         let child_dir = notes_dir.join("child");
@@ -2440,13 +2411,15 @@ index_body_text = false
 "#,
         );
 
-        Indexer::new(OrgizeAdapter::new())
+        let report = Indexer::new(OrgizeAdapter::new())
             .rebuild_from_config_path(&config_path)
             .expect("rebuild should succeed");
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].title, "PLAN me");
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
 
         let todo_rows: Vec<(String, String, Option<String>, Option<i64>)> = query_rows(
@@ -2459,14 +2432,14 @@ index_body_text = false
         assert_eq!(
             todo_rows,
             vec![
-                ("PLAN".to_string(), "dir_locals".to_string(), None, None),
-                ("DONE".to_string(), "dir_locals".to_string(), None, None),
+                ("TODO".to_string(), "config_default".to_string(), None, None),
+                ("DONE".to_string(), "config_default".to_string(), None, None),
             ]
         );
     }
 
     #[test]
-    fn rebuild_preserves_behavior_when_enabled_but_dir_locals_is_missing() {
+    fn rebuild_preserves_behavior_when_dir_locals_is_missing() {
         let test_dir = TestDir::new("dir-locals-missing");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
@@ -2517,7 +2490,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_does_not_inherit_dir_locals_when_disabled_by_config() {
+    fn rebuild_ignores_dir_locals_even_when_inherit_is_disabled() {
         let test_dir = TestDir::new("dir-locals-no-inherit");
         let notes_dir = test_dir.path().join("notes");
         let child_dir = notes_dir.join("child");
@@ -2563,7 +2536,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_uses_deepest_matching_dir_locals() {
+    fn rebuild_ignores_deepest_matching_dir_locals_todo_keywords() {
         let test_dir = TestDir::new("dir-locals-deepest");
         let notes_dir = test_dir.path().join("notes");
         let child_dir = notes_dir.join("child");
@@ -2601,14 +2574,17 @@ index_body_text = false
 "#,
         );
 
-        Indexer::new(OrgizeAdapter::new())
+        let report = Indexer::new(OrgizeAdapter::new())
             .rebuild_from_config_path(&config_path)
             .expect("rebuild should succeed");
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[1].todo_keyword.as_deref(), Some("WAIT"));
-        assert_eq!(headings[2].todo_keyword.as_deref(), Some("CANCEL"));
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].title, "WAIT me");
+        assert_eq!(headings[2].todo_keyword, None);
+        assert_eq!(headings[2].title, "CANCEL me");
         assert_eq!(headings[3].todo_keyword, None);
 
         let todo_rows: Vec<String> = query_rows(
@@ -2616,11 +2592,11 @@ index_body_text = false
             "SELECT keyword FROM todo_keywords ORDER BY sequence_no",
             |row| row.get(0),
         );
-        assert_eq!(todo_rows, vec!["WAIT".to_string(), "CANCEL".to_string()]);
+        assert_eq!(todo_rows, vec!["TODO".to_string(), "DONE".to_string()]);
     }
 
     #[test]
-    fn rebuild_prefers_configured_dir_root_over_explicit_file_parent_for_inheritance() {
+    fn rebuild_ignores_dir_locals_for_explicit_files_inside_configured_dirs() {
         let test_dir = TestDir::new("dir-locals-files-and-dirs");
         let notes_dir = test_dir.path().join("notes");
         let child_dir = notes_dir.join("child");
@@ -2655,13 +2631,15 @@ index_body_text = false
 "#,
         );
 
-        Indexer::new(OrgizeAdapter::new())
+        let report = Indexer::new(OrgizeAdapter::new())
             .rebuild_from_config_path(&config_path)
             .expect("rebuild should succeed");
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].title, "PLAN me");
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
 
         let todo_rows: Vec<(String, String)> = query_rows(
@@ -2672,23 +2650,21 @@ index_body_text = false
         assert_eq!(
             todo_rows,
             vec![
-                ("PLAN".to_string(), "dir_locals".to_string()),
-                ("DONE".to_string(), "dir_locals".to_string()),
+                ("TODO".to_string(), "config_default".to_string()),
+                ("DONE".to_string(), "config_default".to_string()),
             ]
         );
     }
 
     #[test]
-    fn rebuild_warns_for_unsafe_org_todo_keywords_values_and_continues() {
+    fn rebuild_emits_no_dir_locals_warning_for_unsafe_reader_syntax() {
         let test_dir = TestDir::new("dir-locals-warn");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
         let config_path = test_dir.path().join("config.toml");
         let org_path = notes_dir.join("task.org");
-        let dir_locals_path = notes_dir.join(".dir-locals.el");
-
         write_file(
-            &dir_locals_path,
+            &notes_dir.join(".dir-locals.el"),
             r#"((org-mode . ((org-todo-keywords . #.(boom)) (eval . (danger)))))"#,
         );
         write_file(&org_path, "* PLAN me\n");
@@ -2718,16 +2694,12 @@ index_body_text = false
             .rebuild_from_config_path(&config_path)
             .expect("rebuild should succeed");
 
-        assert_eq!(report.diagnostics.len(), 1);
-        assert_eq!(report.diagnostics[0].file_path, Some(dir_locals_path));
-        assert_eq!(
-            report.diagnostics[0].message,
-            "ignored unsafe org-todo-keywords value: reader syntax is not supported"
-        );
+        assert!(report.diagnostics.is_empty());
 
         let connection = Connection::open(&db_path).expect("db should open");
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[1].todo_keyword.as_deref(), None);
+        assert_eq!(headings[1].todo_keyword, None);
+        assert_eq!(headings[1].title, "PLAN me");
     }
 
     #[test]
@@ -2776,7 +2748,55 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_org_keywords_override_dir_locals_defaults() {
+    fn rebuild_dir_locals_todo_keywords_do_not_override_config_defaults() {
+        let test_dir = TestDir::new("dir-locals-config-defaults");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("task.org");
+
+        write_file(
+            &notes_dir.join(".dir-locals.el"),
+            r#"((org-mode . ((org-todo-keywords . ((sequence "PLAN(p)" "|" "DONE(d)"))) (eval . (message "danger")))))"#,
+        );
+        write_file(&org_path, "* TODO me\n* PLAN nope\n* DONE me\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[parse.dir_locals]
+enabled = true
+inherit = true
+
+[todo]
+default_open_keywords = ["TODO(t)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+        assert_eq!(headings[1].todo_keyword.as_deref(), Some("TODO"));
+        assert_eq!(headings[2].todo_keyword, None);
+        assert_eq!(headings[2].title, "PLAN nope");
+        assert_eq!(headings[3].todo_keyword.as_deref(), Some("DONE"));
+    }
+
+    #[test]
+    fn rebuild_org_keywords_override_config_defaults_even_when_dir_locals_exists() {
         let test_dir = TestDir::new("dir-locals-org-override");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");

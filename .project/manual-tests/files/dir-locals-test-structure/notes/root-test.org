@@ -1,7 +1,0 @@
-#+TITLE: Root dir-locals test
-
-* PLAN Should be open from .dir-locals.el
-* WAIT Should also be open from .dir-locals.el
-* DONE Should be closed from .dir-locals.el
-* CANCEL Should also be closed from .dir-locals.el
-* TODO Should NOT be recognized when .dir-locals.el is active

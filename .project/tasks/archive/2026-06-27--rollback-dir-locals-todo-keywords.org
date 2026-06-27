@@ -1,0 +1,88 @@
+#+TITLE: Roll back .dir-locals.el org-todo-keywords as effective TODO source
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 10:32]
+#+TASK_COMPLETED: [2026-06-27 Sat 11:33]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: roll back ~.dir-locals.el~ ~org-todo-keywords~ as an effective TODO keyword source so behavior stays aligned with ~org-agenda~.
+- Scope copied from ~todo.org~:
+  - Effective precedence must be Org in-buffer TODO declarations first, then config defaults.
+  - ~.dir-locals.el~ TODO keywords must not create effective ~todo_keywords~ rows or override config defaults or in-buffer Org TODO declarations.
+  - Do not add Emacs file-local TODO support, ~source_kind = emacs_file_local~, or ~todo_keyword_sources~.
+  - Preserve existing Org in-buffer TODO provenance and config fallback behavior.
+  - Keep unrelated ~.dir-locals.el~ support and diagnostics behavior consistent.
+
+* Planning
+
+** Problem summary
+The indexer currently treats parsed ~.dir-locals.el~ ~org-todo-keywords~ as the default effective TODO set, which diverges from ~org-agenda~ semantics.
+
+** Goals
+- Remove ~.dir-locals.el~ TODO keywords from effective resolution and precedence.
+- Keep Org in-buffer TODO declarations and config-default provenance unchanged.
+- Remove todo-keyword schema support that exists only for ~dir_locals~ provenance.
+- Rewrite tests so the ignored behavior is explicit and regression-covered.
+
+** Non-goals
+- Do not add Emacs file-local TODO keyword support.
+- Do not add a new TODO source table or provenance kind.
+- Do not remove unrelated ~.dir-locals.el~ parsing or diagnostics behavior.
+- Do not refactor unrelated parser, DB, CLI, or query paths.
+
+** Execution plan
+1. Stop the indexer from feeding ~.dir-locals.el~ TODO keywords into effective resolution.
+2. Remove ~dir_locals~ from todo-keyword provenance/schema constraints and migration expectations.
+3. Update regression tests to assert that ~.dir-locals.el~ TODO keywords are intentionally ignored.
+4. Run ~cargo test~ and record the result.
+
+** Risks & assumptions
+- Existing databases with ~dir_locals~ todo provenance can be migrated through the existing table rewrite path.
+- Keeping the parser/extractor is acceptable even if effective TODO resolution no longer consumes its extracted value.
+
+** Open questions
+None.
+
+** Proposed checks
+- ~cargo test~
+
+* Results
+
+** Approach
+- Removed the indexer branch that treated parsed ~.dir-locals.el~ TODO keywords as the default effective TODO source.
+- Kept ~.dir-locals.el~ resolution active for diagnostics and parser tests, but effective TODO resolution now always uses Org in-buffer declarations first and config defaults second.
+- Tightened the ~todo_keywords~ schema and migration expectations so TODO provenance only allows ~config_default~ and ~org_keyword~.
+- Rewrote the affected indexer and DB tests to document that ~.dir-locals.el~ TODO keywords are intentionally ignored because ~org-agenda~ ignores them.
+
+** Changed files
+- ~src/indexer.rs~
+- ~src/todo_keywords.rs~
+- ~src/db/schema.rs~
+- ~src/db.rs~
+- ~sql/schema.sql~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-27--rollback-dir-locals-todo-keywords.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test~
+
+** Test results
+- ~cargo test~ passed.
+- Result summary:
+  - ~src/lib.rs~ unit tests: 103 passed, 0 failed
+  - ~src/main.rs~ unit tests: 0 passed, 0 failed
+  - ~tests/orgize_adapter.rs~: 28 passed, 0 failed
+  - ~tests/parser_contract.rs~: 7 passed, 0 failed
+  - ~tests/parser_fixtures.rs~: 2 passed, 0 failed
+  - doc-tests: 0 passed, 0 failed
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

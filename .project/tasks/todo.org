@@ -256,63 +256,261 @@ Validation:
 
 [[./archive/2026-06-27--reduce-noisy-warnings-for-irrelevant-dir-locals-forms.org]]
 
-** TODO [#B] Add separate TODO keyword source table when external sources exist
+** DONE [2026-06-27 Sat 11:33] Roll back .dir-locals.el org-todo-keywords as effective TODO source
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:SECURITY_SENSITIVE: Yes
+:DB_SCHEMA_CHANGE: Maybe
+:END:
+
+[[./archive/2026-06-27--rollback-dir-locals-todo-keywords.org]]
+
+Goal:
+
+- Roll back `.dir-locals.el` `org-todo-keywords` as an effective TODO keyword source.
+- Keep `org-files-db` aligned with `org-agenda` behavior.
+- Manual testing showed that `org-agenda` ignores `.dir-locals.el` `org-todo-keywords` for effective TODO keyword semantics.
+- Therefore `org-files-db` must not interpret TODO states differently from `org-agenda`.
+
+Important scope note:
+
+- Emacs file-local `org-todo-keywords` support does not exist in the schema yet.
+- Do not add Emacs file-local support.
+- Do not add `source_kind = emacs_file_local`.
+- Do not add `todo_keyword_sources`.
+- This task is only about rolling back `.dir-locals.el` as an effective `org-todo-keywords` source.
+
+Target behavior:
+
+- Effective `org-todo-keywords` precedence must be:
+
+  1. Org in-buffer `#+TODO`, `#+SEQ_TODO`, `#+TYP_TODO`
+  2. Config defaults
+
+- `.dir-locals.el` `org-todo-keywords` must not create effective `todo_keywords` rows.
+- `.dir-locals.el` `org-todo-keywords` must not override config defaults.
+- `.dir-locals.el` `org-todo-keywords` must not override Org in-buffer TODO declarations.
+- Existing Org in-buffer TODO provenance must remain `source_kind = org_keyword`.
+- Config fallback behavior and provenance must remain unchanged.
+- Keep unrelated `.dir-locals.el` support only if it is still used for other behavior.
+- Do not remove unrelated `.dir-locals.el` parser code unless it becomes fully unused.
+- Do not perform broad refactors.
+
+Codex settings:
+
+#+begin_src text
+Status: BUILD
+Model: GPT-5.4
+Reasoning: Medium
+Plan mode: Off
+#+end_src
+
+** DONE [2026-06-27 Sat 11:33] Ignore .dir-locals.el completely during indexing
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
-:BLOCKED_BY: Emacs file-local variables or .dir-locals.el support
+:SECURITY_SENSITIVE: Yes
+:DB_SCHEMA_CHANGE: Maybe
 :END:
 
-Current state:
+[[./archive/2026-06-27--ignore-dir-locals-during-indexing.org]]
 
-- Effective TODO keywords are stored in ~todo_keywords~.
-- Minimal effective provenance is already stored on those rows via ~source_kind~, ~source_keyword~, and ~source_line_number~.
-- That is enough for current sources: ~config.toml~ defaults and Org in-buffer ~#+TODO~, ~#+SEQ_TODO~, and ~#+TYP_TODO~ declarations.
+Goal:
 
-Decision:
+- Make ~org-files-db~ ignore ~.dir-locals.el~ completely during indexing/rebuild.
+- Do not parse, validate, apply, or warn about ~.dir-locals.el~.
+- Keep TODO keyword behavior aligned with ~org-agenda~.
 
-- Defer a separate ~todo_keyword_sources~ table until there are external or unsupported TODO sources to record.
-- Do not build this as a standalone schema task right now, because it would mostly duplicate the current effective provenance columns.
-- Revisit this when adding Emacs file-local variables, ~.dir-locals.el~, unsupported-source diagnostics, overridden-source auditing, or selective reindexing based on changed source files.
+Codex BUILD prompt:
 
-Future goal:
+#+begin_src text
+  You are working in the org-files-db Rust repository.
 
-- Keep ~todo_keywords~ as the effective keyword table used for query behavior.
-- Add ~todo_keyword_sources~ as a raw source/audit table once there are multiple source layers worth recording separately.
-- Raw source facts should remain conceptually separate from the final effective keyword set.
+  Task: Roll back .dir-locals.el org-todo-keywords as an effective TODO keyword source.
 
-Possible future schema direction:
+  Context:
+  Manual testing showed that org-agenda ignores org-todo-keywords from .dir-locals.el for effective TODO keyword semantics. org-files-db should stay aligned with org-agenda and must not interpret TODO states differently.
 
-- ~todo_keyword_sources~:
-  - ~file_id~
-  - ~source_type~: ~org_keyword~, ~emacs_file_local~, ~dir_locals~, ~config~, ~builtin~
-  - ~source_path~ optional
-  - ~source_keyword~ optional
-  - ~source_line_number~ optional
-  - ~priority~
-  - ~raw_value~ optional
-  - ~supported~
-  - ~diagnostic~ optional
-  - ~status~: ~used~, ~overridden~, ~ignored~, ~unsupported~
-- Effective keyword rows may reference the chosen source later if that remains useful.
-- Existing ~todo_keywords.source_*~ columns can remain as denormalized effective provenance until a later migration has a clear benefit.
+  Important scope note:
+  Emacs file-local org-todo-keywords support does not exist in the schema yet. Do not add it. Do not add source_kind = emacs_file_local. Do not add todo_keyword_sources. This task is only about rolling back .dir-locals.el as an effective org-todo-keywords source.
 
-Rules:
+  Goal:
+  Remove .dir-locals.el org-todo-keywords from effective todo_keywords behavior and precedence.
 
-- DB is not an input dependency for parsing.
-- Rebuild computes sources again and writes them transactionally.
-- Unsupported sources are diagnosable, not silently confused with defaults.
-- Raw source rows and effective keyword rows remain conceptually separate.
-- Do not add this table before there is a concrete external-source implementation that needs it.
+  Before editing:
+  Briefly inspect the relevant existing files and conventions, especially:
+  - todo keyword parsing and precedence
+  - .dir-locals.el parsing and integration
+  - indexer/rebuild flow
+  - DB schema/source_kind constraints
+  - existing tests for org keywords, config defaults, .dir-locals.el, diagnostics, and provenance
 
-Future tests:
+  Do not write a long plan. Do not perform broad refactors.
 
-- Effective keyword rows still match parser classification.
-- Source metadata records config-derived, Org-derived, and external TODO sources.
-- Source metadata can record unsupported future sources without changing parser behavior.
-- Rebuild replaces old source rows for a file transactionally.
-- Overridden sources remain queryable without affecting effective keyword behavior.
+  Required behavior:
+  - Effective org-todo-keywords precedence must be:
+    1. Org in-buffer #+TODO / #+SEQ_TODO / #+TYP_TODO declarations
+    2. config defaults
+  - .dir-locals.el org-todo-keywords must not create effective todo_keywords rows.
+  - .dir-locals.el org-todo-keywords must not override config defaults.
+  - .dir-locals.el org-todo-keywords must not override or alter Org in-buffer TODO behavior.
+  - Do not add support for Emacs file-local org-todo-keywords.
+  - Do not add source_kind = emacs_file_local.
+  - Do not add todo_keyword_sources.
+  - Preserve existing Org in-buffer TODO keyword behavior and provenance.
+  - Existing Org in-buffer TODO rows must continue to use source_kind = org_keyword.
+  - Config fallback behavior and provenance must remain unchanged.
+  - Unsupported or ignored .dir-locals.el org-todo-keywords must not be silently represented as .dir-locals-derived effective rows.
+  - If diagnostics already exist for unsafe .dir-locals.el org-todo-keywords, keep or adjust them consistently.
+  - If source_kind = dir_locals exists only for todo_keywords and is no longer used anywhere, remove it from todo_keywords-related constraints/types/tests where appropriate.
+  - If source_kind = dir_locals is still used elsewhere, do not remove it globally.
+  - Do not delete the .dir-locals.el parser unless it is now completely unused.
+  - Do not remove unrelated .dir-locals.el support.
+  - Do not change unrelated parser, DB, CLI, config, or query behavior.
+
+  Tests:
+  - Org #+TODO overrides config defaults.
+  - Config defaults apply when no Org in-buffer TODO keywords exist.
+  - .dir-locals.el org-todo-keywords is ignored for effective todo_keywords rows.
+  - .dir-locals.el org-todo-keywords does not override config defaults.
+  - .dir-locals.el org-todo-keywords does not override or alter Org in-buffer #+TODO behavior.
+  - Existing Org in-buffer #+TODO provenance remains source_kind = org_keyword.
+  - Existing config fallback tests continue to pass.
+  - Existing .dir-locals.el tests unrelated to effective todo_keywords continue to pass.
+  - Remove or rewrite tests that previously expected .dir-locals.el org-todo-keywords to be effective.
+  - Add a regression test or clear test name documenting that .dir-locals.el org-todo-keywords is intentionally ignored because org-agenda ignores it.
+
+  Run:
+  - cargo test
+
+  Completion report:
+  At the end, summarize:
+  - files changed
+  - behavior removed
+  - behavior preserved
+  - tests added/updated/removed
+  - exact cargo test result
+  - whether any .dir-locals.el parser code remains and why
+#+end_src
+
+*** REVIEW [#B] Ignore .dir-locals.el completely during indexing
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:SECURITY_SENSITIVE: Yes
+:DB_SCHEMA_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Make `org-files-db` ignore `.dir-locals.el` completely during indexing/rebuild.
+- Do not parse, validate, apply, or warn about `.dir-locals.el`.
+- Keep TODO keyword behavior aligned with `org-agenda`.
+
+Context:
+
+- Manual testing showed that `org-agenda` ignores `.dir-locals.el` `org-todo-keywords` for effective TODO keyword semantics.
+- `.dir-locals.el` support is no longer desired in `org-files-db`.
+- Current rebuild still warns about unsafe `.dir-locals.el` `org-todo-keywords`, even though `.dir-locals.el` should no longer affect effective TODO behavior.
+
+Target behavior:
+
+- `.dir-locals.el` files are ignored completely.
+- No `.dir-locals.el` parsing.
+- No `.dir-locals.el` validation.
+- No `.dir-locals.el` diagnostics or warnings.
+- No effective TODO keyword rows from `.dir-locals.el`.
+- No `source_kind = dir_locals` rows for effective TODO keywords.
+- Effective `org-todo-keywords` precedence must be:
+
+  1. Org in-buffer `#+TODO`, `#+SEQ_TODO`, `#+TYP_TODO`
+  2. Config defaults
+
+- Existing Org in-buffer TODO provenance must remain `source_kind = org_keyword`.
+- Config fallback behavior and provenance must remain unchanged.
+- Do not add Emacs file-local variable support.
+- Do not add `source_kind = emacs_file_local`.
+- Do not add `todo_keyword_sources`.
+
+Codex settings:
+
+#+begin_src text
+Status: BUILD
+Model: GPT-5.4
+Reasoning: Medium
+Plan mode: Off
+#+end_src
+
+Codex BUILD prompt:
+
+#+begin_src text
+You are working in the org-files-db Rust repository.
+
+Task: Ignore .dir-locals.el completely during indexing/rebuild.
+
+Context:
+Manual testing showed that org-agenda ignores .dir-locals.el org-todo-keywords for effective TODO keyword semantics. .dir-locals.el support is no longer desired in org-files-db. Current rebuild still emits warnings for unsafe .dir-locals.el org-todo-keywords, but .dir-locals.el should no longer be parsed, validated, applied, or diagnosed at all.
+
+Goal:
+Remove .dir-locals.el from the indexing/rebuild behavior entirely.
+
+Before editing:
+Briefly inspect the relevant existing files and conventions, especially:
+- .dir-locals.el discovery/parsing/integration
+- todo keyword precedence
+- indexer/rebuild flow
+- diagnostics/warning emission
+- DB schema/source_kind constraints
+- tests and manual test fixtures for .dir-locals.el
+
+Do not write a long plan. Do not perform broad refactors.
+
+Required behavior:
+- .dir-locals.el files must be ignored completely during indexing/rebuild.
+- Do not discover .dir-locals.el for configuration.
+- Do not parse .dir-locals.el.
+- Do not validate .dir-locals.el.
+- Do not emit diagnostics or warnings for .dir-locals.el contents, including unsafe reader syntax.
+- .dir-locals.el org-todo-keywords must not create effective todo_keywords rows.
+- .dir-locals.el org-todo-keywords must not override config defaults.
+- .dir-locals.el org-todo-keywords must not override or alter Org in-buffer TODO behavior.
+- Effective org-todo-keywords precedence must be:
+  1. Org in-buffer #+TODO / #+SEQ_TODO / #+TYP_TODO declarations
+  2. config defaults
+- Existing Org in-buffer TODO rows must continue to use source_kind = org_keyword.
+- Config fallback behavior and provenance must remain unchanged.
+- Do not add Emacs file-local org-todo-keywords support.
+- Do not add source_kind = emacs_file_local.
+- Do not add todo_keyword_sources.
+- If source_kind = dir_locals exists only for removed .dir-locals.el TODO keyword support, remove it from todo_keywords-related constraints/types/tests where appropriate.
+- If removing source_kind = dir_locals would require a risky migration or broad schema churn, keep the allowed value but ensure it is no longer produced.
+- Remove dead .dir-locals.el code only when clearly unused after the behavior is removed.
+- Do not change unrelated parser, DB, CLI, config, or query behavior.
+
+Tests:
+- Rebuild with .dir-locals.el files containing unsafe reader syntax emits no .dir-locals.el warnings.
+- .dir-locals.el org-todo-keywords is ignored for effective todo_keywords rows.
+- .dir-locals.el org-todo-keywords does not override config defaults.
+- .dir-locals.el org-todo-keywords does not override or alter Org in-buffer #+TODO behavior.
+- No effective todo_keywords rows use source_kind = dir_locals.
+- Config defaults apply when no Org in-buffer TODO declarations exist.
+- Org in-buffer #+TODO declarations still override config defaults and keep source_kind = org_keyword.
+- Remove or rewrite tests that expected .dir-locals.el parsing, warnings, or effective behavior.
+- Keep unrelated tests passing.
+
+Run:
+- cargo test
+
+Completion report:
+At the end, summarize:
+- files changed
+- .dir-locals.el behavior removed
+- behavior preserved
+- tests added/updated/removed
+- exact cargo test result
+- whether any .dir-locals.el code remains and why
+#+end_src
 
 ** TODO Define DB schema versioning
 

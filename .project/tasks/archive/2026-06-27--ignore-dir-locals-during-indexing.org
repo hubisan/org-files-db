@@ -1,0 +1,78 @@
+#+TITLE: Ignore .dir-locals.el completely during indexing
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 11:09]
+#+TASK_COMPLETED: [2026-06-27 Sat 11:33]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: create a subtask and make indexing/rebuild ignore ~.dir-locals.el~ completely, including unsafe warning emission.
+- Scope copied from ~todo.org~:
+  - Do not discover, parse, validate, apply, or warn about ~.dir-locals.el~ during indexing.
+  - Effective TODO precedence remains Org in-buffer declarations first, then config defaults.
+  - No effective TODO rows may come from ~.dir-locals.el~, and no TODO provenance may use ~dir_locals~.
+  - Preserve Org in-buffer provenance and config fallback behavior.
+
+* Planning
+
+** Problem summary
+The previous rollback removed ~.dir-locals.el~ as an effective TODO source, but the indexer still resolves ~.dir-locals.el~ and emits diagnostics during rebuild.
+
+** Goals
+- Remove all ~.dir-locals.el~ interaction from indexing/rebuild.
+- Keep TODO keyword semantics at Org in-buffer override, then config fallback.
+- Rewrite rebuild tests so silent ignore behavior is explicit.
+
+** Non-goals
+- Do not add Emacs file-local TODO keyword support.
+- Do not change unrelated config parsing, CLI, DB, or query behavior.
+- Do not do broad refactors outside the indexing path.
+
+** Execution plan
+1. Remove the indexer resolver/diagnostic path for ~.dir-locals.el~.
+2. Update rebuild tests to assert complete ignore behavior and no warnings.
+3. Run ~cargo test~ and record the result.
+
+** Risks & assumptions
+- Leaving inert ~.dir-locals.el~ config and parser code in the repo is acceptable if indexing no longer reaches it.
+
+** Open questions
+None.
+
+** Proposed checks
+- ~cargo test~
+
+* Results
+
+** Approach
+- Removed the indexer-only ~.dir-locals.el~ integration path so rebuild no longer discovers, parses, validates, or diagnoses ~.dir-locals.el~ files.
+- Kept effective TODO resolution at two sources only during indexing: Org in-buffer TODO declarations first, then configured defaults.
+- Rewrote the rebuild tests that still exercised ~.dir-locals.el~ inheritance or warning behavior so they now assert complete ignore semantics and zero diagnostics.
+
+** Changed files
+- ~src/indexer.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-27--ignore-dir-locals-during-indexing.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test~
+
+** Test results
+- ~cargo test~ passed.
+- Result summary:
+  - ~src/lib.rs~ unit tests: 103 passed, 0 failed
+  - ~src/main.rs~ unit tests: 0 passed, 0 failed
+  - ~tests/orgize_adapter.rs~: 28 passed, 0 failed
+  - ~tests/parser_contract.rs~: 7 passed, 0 failed
+  - ~tests/parser_fixtures.rs~: 2 passed, 0 failed
+  - doc-tests: 0 passed, 0 failed
+
+** Blockers
+- None.
+
+** Follow-ups
+- ~src/dir_locals.rs~ and ~parse.dir_locals~ config parsing still remain in the codebase, but indexing no longer uses them. They can be removed later in a separate cleanup task if desired.

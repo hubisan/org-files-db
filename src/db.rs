@@ -306,7 +306,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
     }
 
     #[test]
-    fn migrates_todo_keywords_table_to_allow_dir_locals_source_kind() {
+    fn migrates_todo_keywords_table_to_remove_dir_locals_source_kind() {
         let schema = SchemaDefinition::new(1, false);
         let connection = Connection::open_in_memory().expect("legacy database should open");
         connection
@@ -370,13 +370,36 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
             .expect("schema migration should succeed");
 
         connection
-            .execute(
-                "INSERT INTO todo_keywords
-                 (file_id, keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number)
-                 VALUES (1, 'WAIT', 'open', 'w', 1, 'dir_locals', NULL, NULL)",
+            .query_row(
+                "SELECT source_kind, source_keyword, source_line_number
+                 FROM todo_keywords
+                 WHERE file_id = 1 AND keyword = 'PLAN'",
                 [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                },
             )
-            .expect("dir_locals source_kind should be accepted after migration");
+            .map(|(source_kind, source_keyword, source_line_number)| {
+                assert_eq!(source_kind, "config_default");
+                assert_eq!(source_keyword, None);
+                assert_eq!(source_line_number, None);
+            })
+            .expect("legacy todo keyword row should be migrated to config_default provenance");
+
+        let insert_result = connection.execute(
+            "INSERT INTO todo_keywords
+             (file_id, keyword, state_type, shortcut, sequence_no, source_kind, source_keyword, source_line_number)
+             VALUES (1, 'WAIT', 'open', 'w', 1, 'dir_locals', NULL, NULL)",
+            [],
+        );
+        assert!(
+            insert_result.is_err(),
+            "dir_locals source_kind should be rejected after migration"
+        );
     }
 
     #[test]
