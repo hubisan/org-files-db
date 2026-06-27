@@ -1,0 +1,96 @@
+#+TITLE: Define DB schema versioning
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 11:47]
+#+TASK_COMPLETED: [2026-06-27 Sat 12:02]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: implement the BUILD for explicit SQLite schema versioning around ~PRAGMA user_version~.
+- Scope copied from ~todo.org~:
+  - Define the current schema version as the single source of truth in code.
+  - Read and validate on-disk ~user_version~ during DB open/init.
+  - Treat ~user_version = 0~ explicitly as missing/unversioned and migrate/init to current.
+  - Fail closed on future/newer DB versions.
+  - Write ~user_version~ only after successful schema application/migration.
+  - Add focused tests and concise developer documentation.
+
+* Planning
+
+** Problem summary
+DB schema versioning currently exists only implicitly. ~src/db.rs~ writes ~user_version~ before schema application, and the open/init path does not explicitly reject future DB versions.
+
+** Goals
+- Make schema versioning explicit and testable around SQLite ~PRAGMA user_version~.
+- Define a single code-level current schema version constant.
+- Reject newer on-disk schema versions clearly.
+- Preserve current legacy migration behavior for supported older or unversioned DBs.
+
+** Non-goals
+- Do not introduce a separate migration framework.
+- Do not change unrelated parser, CLI, indexer, or config behavior.
+- Do not use ~.project/manual-tests~ for validation.
+
+** Architecture
+- Keep the source of truth in ~src/db/schema.rs~ alongside ~SchemaDefinition~.
+- Keep open/init orchestration in ~src/db.rs~ with small helper functions for version read, validation, and write.
+- Reuse the existing schema-application path for supported older/unversioned databases.
+
+** Execution plan
+1. Add ~CURRENT_SCHEMA_VERSION~ and wire ~SchemaDefinition::default()~ to it.
+2. Update DB initialization to read, validate, apply, then set ~user_version~ only on success.
+3. Add regression tests for fresh/current/unversioned/future/failing initialization cases.
+4. Document the versioning policy in ~README.org~ and run ~make ci~.
+
+** Risks & assumptions
+- With the current schema version still at ~1~, the only supported older on-disk state is effectively ~0~ / unversioned legacy databases.
+- Existing migration helpers remain the compatibility path and do not need separate version-step dispatch yet.
+
+** Open questions
+None.
+
+** Proposed checks
+- ~make ci~
+
+* Results
+
+** Approach
+- Added =CURRENT_SCHEMA_VERSION= in =src/db/schema.rs= and made =SchemaDefinition::default()= derive its version from that constant.
+- Moved schema-version handling in =src/db.rs= to an explicit read/validate/apply/write sequence: read on-disk =user_version=, reject future versions, run schema application or legacy migrations, and update =user_version= only after success.
+- Added a targeted future-version error variant and regression tests for fresh, current, unversioned, legacy, future, and failing initialization cases.
+- Documented the versioning policy in =README.org= so future schema-affecting changes have a clear bump-and-migrate contract.
+
+** Changed files
+- ~src/db.rs~
+- ~src/db/schema.rs~
+- ~README.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-27--define-db-schema-versioning.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~make ci~
+- ~cargo test~
+
+** Test results
+- ~make ci~ passed:
+  - ~cargo fmt --all --check~ passed
+  - ~cargo clippy --all-targets --all-features -- -D warnings~ passed
+  - ~cargo test --all-targets --all-features~ passed
+  - ~cargo build --all-targets --all-features~ passed
+- ~cargo test~ passed again after the final test-consistency cleanup:
+  - ~src/lib.rs~ unit tests: 108 passed, 0 failed
+  - ~src/main.rs~ unit tests: 0 passed, 0 failed
+  - ~tests/orgize_adapter.rs~: 28 passed, 0 failed
+  - ~tests/parser_contract.rs~: 7 passed, 0 failed
+  - ~tests/parser_fixtures.rs~: 2 passed, 0 failed
+  - doc-tests: 0 passed, 0 failed
+
+** Blockers
+- None.
+
+** Follow-ups
+- No minimum supported historical schema version is introduced yet. The current contract supports unversioned or older-compatible databases via the existing schema/migration path and rejects only future/newer versions explicitly.

@@ -16,6 +16,17 @@ The current codebase is intentionally a minimal scaffold around the parser-first
 - =src/db/=, =src/query/=, and =src/cli/= are present as compilable placeholders for later tasks
 - =main.rs= remains thin and delegates directly to the CLI module
 
+** DB Schema Versioning
+
+- SQLite =PRAGMA user_version= is the on-disk schema version for =org-files-db= databases.
+- =CURRENT_SCHEMA_VERSION= in =src/db/schema.rs= is the code-level source of truth for the current persistent schema version.
+- Any persistent schema change must bump =CURRENT_SCHEMA_VERSION=.
+- Changes to tables, columns, indexes, constraints, FTS tables, or other persisted schema structures require a version bump.
+- Older supported databases are upgraded through the existing schema application and legacy migration path during DB open/initialization.
+- Databases with a newer =user_version= than the running binary supports fail closed and are not opened or downgraded silently.
+- Successful schema application or migration updates =user_version= only after the schema work succeeds.
+- Manual or local test databases may need to be rebuilt after a schema version bump.
+
 ** Features
 
 -----

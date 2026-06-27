@@ -1,5 +1,7 @@
 use rusqlite::Connection;
 
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
 CREATE VIRTUAL TABLE IF NOT EXISTS heading_fts
@@ -167,7 +169,7 @@ impl SchemaDefinition {
 impl Default for SchemaDefinition {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: CURRENT_SCHEMA_VERSION,
             enable_fts: true,
         }
     }

@@ -11,7 +11,7 @@ pub mod schema;
 pub mod writer;
 
 pub use reader::{DbReadError, DbReader, HeadingListRow};
-pub use schema::{sqlite_supports_fts5, SchemaDefinition};
+pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::{
     DbWriteError, DbWriter, FileRecordInput, HeadingBodyRecord, HeadingFtsRecord, HeadingRecord,
     KeywordRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
@@ -68,18 +68,52 @@ PRAGMA synchronous = NORMAL;
             target: target.to_string(),
             source,
         })?;
-    connection
-        .pragma_update(None, "user_version", schema.version)
-        .map_err(|source| DbError::Initialize {
+
+    let on_disk_version =
+        read_schema_version(connection).map_err(|source| DbError::Initialize {
             target: target.to_string(),
             source,
         })?;
+    validate_schema_version(on_disk_version, schema, target)?;
+
     schema
         .apply(connection)
         .map_err(|source| DbError::Initialize {
             target: target.to_string(),
             source,
         })?;
+
+    if on_disk_version != schema.version {
+        set_schema_version(connection, schema.version).map_err(|source| DbError::Initialize {
+            target: target.to_string(),
+            source,
+        })?;
+    }
+
+    Ok(())
+}
+
+fn read_schema_version(connection: &Connection) -> rusqlite::Result<u32> {
+    connection.pragma_query_value(None, "user_version", |row| row.get(0))
+}
+
+fn set_schema_version(connection: &Connection, version: u32) -> rusqlite::Result<()> {
+    connection.pragma_update(None, "user_version", version)
+}
+
+fn validate_schema_version(
+    on_disk_version: u32,
+    schema: &SchemaDefinition,
+    target: &str,
+) -> Result<(), DbError> {
+    if on_disk_version > schema.version {
+        return Err(DbError::UnsupportedFutureSchemaVersion {
+            target: target.to_string(),
+            on_disk_version,
+            supported_version: schema.version,
+        });
+    }
+
     Ok(())
 }
 
@@ -95,6 +129,11 @@ pub enum DbError {
     Initialize {
         target: String,
         source: rusqlite::Error,
+    },
+    UnsupportedFutureSchemaVersion {
+        target: String,
+        on_disk_version: u32,
+        supported_version: u32,
     },
 }
 
@@ -119,6 +158,15 @@ impl fmt::Display for DbError {
                     target, source
                 )
             }
+            Self::UnsupportedFutureSchemaVersion {
+                target,
+                on_disk_version,
+                supported_version,
+            } => write!(
+                f,
+                "failed to open SQLite database {}: unsupported future schema version {} (this binary supports up to {})",
+                target, on_disk_version, supported_version
+            ),
         }
     }
 }
@@ -129,6 +177,7 @@ impl Error for DbError {
             Self::Open { source, .. }
             | Self::OpenInMemory { source }
             | Self::Initialize { source, .. } => Some(source),
+            Self::UnsupportedFutureSchemaVersion { .. } => None,
         }
     }
 }
@@ -136,8 +185,9 @@ impl Error for DbError {
 #[cfg(test)]
 mod tests {
     use super::{
-        open_database, open_in_memory_database, open_in_memory_database_with_schema,
-        sqlite_supports_fts5, SchemaDefinition,
+        initialize_database, open_database, open_in_memory_database,
+        open_in_memory_database_with_schema, read_schema_version, sqlite_supports_fts5, DbError,
+        SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
     use rusqlite::Connection;
     use std::{
@@ -213,12 +263,12 @@ mod tests {
 
         assert_eq!(foreign_keys, 1);
         assert_eq!(synchronous, 1);
-        assert_eq!(user_version, 1);
+        assert_eq!(user_version, i64::from(CURRENT_SCHEMA_VERSION));
     }
 
     #[test]
     fn applies_schema_idempotently_without_fts() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -238,8 +288,154 @@ mod tests {
     }
 
     #[test]
+    fn opens_existing_database_at_current_schema_version() {
+        let test_dir = TestDir::new("current-schema-version");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = open_database(&db_path).expect("database should open");
+        let initial_version = read_schema_version(&connection).expect("schema version should load");
+        assert_eq!(initial_version, CURRENT_SCHEMA_VERSION);
+        drop(connection);
+
+        let reopened = open_database(&db_path).expect("database should reopen");
+        let reopened_version =
+            read_schema_version(&reopened).expect("schema version should load after reopen");
+        assert_eq!(reopened_version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn opens_explicitly_unversioned_database_and_sets_current_schema_version() {
+        let test_dir = TestDir::new("unversioned-schema-version");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = Connection::open(&db_path).expect("seed database should open");
+        connection
+            .pragma_update(None, "user_version", 0_i64)
+            .expect("user_version should seed");
+        drop(connection);
+
+        let opened =
+            open_database(&db_path).expect("database should initialize from user_version 0");
+        let version = read_schema_version(&opened).expect("schema version should load");
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn opens_legacy_database_and_migrates_it_to_current_schema_version() {
+        let test_dir = TestDir::new("legacy-schema-version");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = Connection::open(&db_path).expect("legacy database should open");
+        connection
+            .execute_batch(
+                r#"
+PRAGMA user_version = 0;
+
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL UNIQUE,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE todo_keywords (
+    file_id         INTEGER NOT NULL,
+    keyword         TEXT NOT NULL,
+    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed')),
+    shortcut        TEXT CHECK (shortcut IS NULL OR length(shortcut) = 1),
+    sequence_no     INTEGER NOT NULL,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (file_id, keyword)
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
+INSERT INTO todo_keywords (file_id, keyword, state_type, shortcut, sequence_no)
+VALUES (1, 'PLAN', 'open', 'p', 0);
+"#,
+            )
+            .expect("legacy schema should seed");
+        drop(connection);
+
+        let opened = open_database(&db_path).expect("legacy database should migrate");
+        let version = read_schema_version(&opened).expect("schema version should load");
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+
+        let provenance: (String, Option<String>, Option<i64>) = opened
+            .query_row(
+                "SELECT source_kind, source_keyword, source_line_number
+                 FROM todo_keywords
+                 WHERE file_id = 1 AND keyword = 'PLAN'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("migrated todo keyword provenance should remain queryable");
+        assert_eq!(provenance, ("config_default".to_string(), None, None));
+    }
+
+    #[test]
+    fn rejects_databases_with_future_schema_versions() {
+        let test_dir = TestDir::new("future-schema-version");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = Connection::open(&db_path).expect("future database should open");
+        connection
+            .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION + 1))
+            .expect("future user_version should seed");
+        drop(connection);
+
+        let error = open_database(&db_path).expect_err("future schema version should fail closed");
+        match error {
+            DbError::UnsupportedFutureSchemaVersion {
+                on_disk_version,
+                supported_version,
+                ..
+            } => {
+                assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION + 1);
+                assert_eq!(supported_version, CURRENT_SCHEMA_VERSION);
+            }
+            other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
+        }
+    }
+
+    #[test]
+    fn does_not_advance_schema_version_when_initialization_fails() {
+        let connection = Connection::open_in_memory().expect("broken legacy database should open");
+        connection
+            .execute_batch(
+                r#"
+PRAGMA user_version = 0;
+
+CREATE TABLE todo_keywords (
+    file_id         INTEGER NOT NULL,
+    keyword         TEXT NOT NULL,
+    state_type      TEXT NOT NULL CHECK (state_type IN ('open', 'closed'))
+);
+"#,
+            )
+            .expect("broken legacy schema should seed");
+
+        let error = initialize_database(
+            &connection,
+            ":memory:",
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect_err("broken legacy schema should fail initialization");
+        assert!(
+            matches!(error, DbError::Initialize { .. }),
+            "expected initialize error, got {error}"
+        );
+
+        let user_version = read_schema_version(&connection).expect("schema version should load");
+        assert_eq!(user_version, 0);
+    }
+
+    #[test]
     fn migrates_legacy_todo_keywords_table_to_store_provenance() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection = Connection::open_in_memory().expect("legacy database should open");
         connection
             .execute_batch(
@@ -307,7 +503,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
 
     #[test]
     fn migrates_todo_keywords_table_to_remove_dir_locals_source_kind() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection = Connection::open_in_memory().expect("legacy database should open");
         connection
             .execute_batch(
@@ -409,7 +605,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
             return;
         }
 
-        let schema = SchemaDefinition::new(1, true);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, true);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -640,7 +836,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
 
     #[test]
     fn enforces_unique_file_paths() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -677,7 +873,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
 
     #[test]
     fn enforces_level_zero_constraints() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -745,7 +941,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
 
     #[test]
     fn cascades_source_rows_when_file_is_deleted() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -816,7 +1012,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
 
     #[test]
     fn deleting_resolved_targets_keeps_source_links() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -854,7 +1050,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
 
     #[test]
     fn supports_per_file_rebuild_while_keeping_file_row() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -936,7 +1132,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
 
     #[test]
     fn heading_bodies_exist_without_fts() {
-        let schema = SchemaDefinition::new(1, false);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
@@ -989,7 +1185,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
             return;
         }
 
-        let schema = SchemaDefinition::new(1, true);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, true);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
 
