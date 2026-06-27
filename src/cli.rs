@@ -34,6 +34,11 @@ enum Command {
         #[arg(long)]
         json: bool,
         #[arg(long)]
+        no_root: bool,
+        #[arg(
+            long,
+            help = "Deprecated compatibility flag; root rows are included by default"
+        )]
         include_root: bool,
         #[arg(long)]
         config: Option<PathBuf>,
@@ -64,10 +69,12 @@ where
         }
         Command::Headings {
             json,
+            no_root,
             include_root,
             config,
         } => {
-            let rows = headings_json_rows(json, include_root, config.as_deref())?;
+            let _deprecated_include_root = include_root;
+            let rows = headings_json_rows(json, no_root, config.as_deref())?;
             let stdout = io::stdout();
             let mut handle = stdout.lock();
             serde_json::to_writer_pretty(&mut handle, &rows).map_err(CliError::Json)?;
@@ -85,7 +92,7 @@ pub fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport
 
 fn headings_json_rows(
     json: bool,
-    include_root: bool,
+    exclude_root: bool,
     config_path: Option<&Path>,
 ) -> Result<Vec<HeadingJsonRow>, CliError> {
     if !json {
@@ -93,17 +100,15 @@ fn headings_json_rows(
     }
 
     let connection = open_headings_database(config_path)?;
-    headings_rows_for_json(&connection, include_root)
+    headings_rows_for_json(&connection, exclude_root)
 }
 
 fn headings_rows_for_json(
     connection: &Connection,
-    include_root: bool,
+    exclude_root: bool,
 ) -> Result<Vec<HeadingJsonRow>, CliError> {
-    // Keep CLI JSON focused on user-authored headings; the synthetic level 0 file row
-    // stays available in the DB for rebuild and outline bookkeeping.
     let mut rows = DbReader::list_headings(connection).map_err(CliError::DbRead)?;
-    if !include_root {
+    if exclude_root {
         rows.retain(|row| row.level > 0);
     }
     rows.into_iter().map(HeadingJsonRow::try_from).collect()
@@ -346,9 +351,13 @@ mod tests {
 
         match cli.command {
             super::Command::Headings {
-                json, include_root, ..
+                json,
+                no_root,
+                include_root,
+                ..
             } => {
                 assert!(json);
+                assert!(!no_root);
                 assert!(!include_root);
             }
             other => panic!("unexpected command: {other:?}"),
@@ -359,10 +368,31 @@ mod tests {
 
         match cli.command {
             super::Command::Headings {
-                json, include_root, ..
+                json,
+                no_root,
+                include_root,
+                ..
             } => {
                 assert!(json);
+                assert!(!no_root);
                 assert!(include_root);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["orgfdb", "headings", "--json", "--no-root"])
+            .expect("headings no-root args should parse");
+
+        match cli.command {
+            super::Command::Headings {
+                json,
+                no_root,
+                include_root,
+                ..
+            } => {
+                assert!(json);
+                assert!(no_root);
+                assert!(!include_root);
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -373,10 +403,12 @@ mod tests {
         match cli.command {
             super::Command::Headings {
                 json,
+                no_root,
                 include_root,
                 config,
             } => {
                 assert!(json);
+                assert!(!no_root);
                 assert!(!include_root);
                 assert_eq!(config, Some(PathBuf::from("config.toml")));
             }
@@ -385,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn headings_json_excludes_level_zero_rows_by_default() {
+    fn headings_json_includes_level_zero_rows_by_default() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let mut connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
@@ -455,24 +487,29 @@ mod tests {
         .expect("rebuild should succeed");
 
         let rows = super::headings_rows_for_json(&connection, false).expect("rows should load");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].level, 1);
-        assert_eq!(rows[0].all_tags, vec!["rust".to_string()]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].level, 0);
+        assert_eq!(rows[0].all_tags, Vec::<String>::new());
+        assert_eq!(rows[1].level, 1);
+        assert_eq!(rows[1].all_tags, vec!["rust".to_string()]);
 
         let json = serde_json::to_value(&rows).expect("rows should serialize");
         let array = json.as_array().expect("rows should serialize as an array");
-        assert_eq!(array.len(), 1);
-        assert_eq!(array[0]["level"], 1);
+        assert_eq!(array.len(), 2);
+        assert_eq!(array[0]["level"], 0);
+        assert_eq!(array[0]["all_tags"], Value::Array(vec![]));
+        assert_eq!(sorted_object_keys(&array[0]), expected_heading_json_keys());
+        assert_eq!(array[1]["level"], 1);
         assert_eq!(
-            array[0]["all_tags"],
+            array[1]["all_tags"],
             Value::Array(vec![Value::String("rust".to_string())])
         );
-        assert!(array[0].get("all_tags_json").is_none());
-        assert_eq!(sorted_object_keys(&array[0]), expected_heading_json_keys());
+        assert!(array[1].get("all_tags_json").is_none());
+        assert_eq!(sorted_object_keys(&array[1]), expected_heading_json_keys());
     }
 
     #[test]
-    fn headings_json_can_include_level_zero_rows() {
+    fn headings_json_excludes_level_zero_rows_with_no_root() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let mut connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
@@ -542,11 +579,9 @@ mod tests {
         .expect("rebuild should succeed");
 
         let rows = super::headings_rows_for_json(&connection, true).expect("rows should load");
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].level, 0);
-        assert_eq!(rows[1].level, 1);
-        assert!(rows[0].all_tags.is_empty());
-        assert_eq!(rows[1].all_tags, vec!["rust".to_string()]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].level, 1);
+        assert_eq!(rows[0].all_tags, vec!["rust".to_string()]);
     }
 
     #[test]
@@ -638,8 +673,9 @@ db_path = "../db.sqlite"
         let rows = super::headings_json_rows(true, false, Some(&config_path))
             .expect("rows should load from configured db");
 
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].title, "Heading");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].level, 0);
+        assert_eq!(rows[1].title, "Heading");
     }
 
     #[test]
@@ -671,31 +707,38 @@ index_body_text = false
 
         let json_rows = super::headings_json_rows(true, false, Some(&config_path))
             .expect("json rows should load");
-        assert_eq!(json_rows.len(), 1);
-        assert_eq!(json_rows[0].level, 1);
-        assert_eq!(json_rows[0].title, "Inbox");
-        assert_eq!(json_rows[0].todo_keyword.as_deref(), Some("PLAN"));
-        assert_eq!(json_rows[0].todo_type.as_deref(), Some("open"));
-        assert_eq!(json_rows[0].file_path, org_path.display().to_string());
+        assert_eq!(json_rows.len(), 2);
+        assert_eq!(json_rows[0].level, 0);
+        assert_eq!(json_rows[1].level, 1);
+        assert_eq!(json_rows[1].title, "Inbox");
+        assert_eq!(json_rows[1].todo_keyword.as_deref(), Some("PLAN"));
+        assert_eq!(json_rows[1].todo_type.as_deref(), Some("open"));
+        assert_eq!(json_rows[1].file_path, org_path.display().to_string());
         assert_eq!(
-            json_rows[0].scheduled_raw.as_deref(),
+            json_rows[1].scheduled_raw.as_deref(),
             Some("<2024-11-20 Wed 09:15>")
         );
-        assert_eq!(json_rows[0].scheduled_ts, Some(1_732_094_100));
-        assert!(json_rows[0].deadline_raw.is_none());
-        assert!(json_rows[0].closed_raw.is_none());
-        assert!(json_rows[0].all_tags.is_empty());
+        assert_eq!(json_rows[1].scheduled_ts, Some(1_732_094_100));
+        assert!(json_rows[1].deadline_raw.is_none());
+        assert!(json_rows[1].closed_raw.is_none());
+        assert!(json_rows[1].all_tags.is_empty());
 
-        let all_rows = super::headings_json_rows(true, true, Some(&config_path))
-            .expect("all rows should load");
-        assert_eq!(all_rows.len(), 2);
-        assert_eq!(all_rows[0].level, 0);
-        assert_eq!(all_rows[0].title, "Minimal Slice");
-        assert_eq!(all_rows[0].title_raw, "Minimal Slice");
-        assert!(all_rows[0].scheduled_raw.is_none());
-        assert!(all_rows[0].all_tags.is_empty());
-        assert_eq!(all_rows[1].level, 1);
-        assert_eq!(all_rows[1].title, "Inbox");
+        let excluded_rows = super::headings_json_rows(true, true, Some(&config_path))
+            .expect("excluded rows should load");
+        assert_eq!(excluded_rows.len(), 1);
+        assert_eq!(excluded_rows[0].level, 1);
+        assert_eq!(excluded_rows[0].title, "Inbox");
+
+        let include_root_rows = super::headings_json_rows(true, false, Some(&config_path))
+            .expect("included rows should load");
+        assert_eq!(include_root_rows.len(), 2);
+        assert_eq!(include_root_rows[0].level, 0);
+        assert_eq!(include_root_rows[0].title, "Minimal Slice");
+        assert_eq!(include_root_rows[0].title_raw, "Minimal Slice");
+        assert!(include_root_rows[0].scheduled_raw.is_none());
+        assert!(include_root_rows[0].all_tags.is_empty());
+        assert_eq!(include_root_rows[1].level, 1);
+        assert_eq!(include_root_rows[1].title, "Inbox");
 
         let connection = open_database(&db_path).expect("database should open");
         let heading_count: i64 = connection
@@ -825,8 +868,9 @@ db_path = "./db.sqlite"
 
         let rows = super::headings_json_rows(true, false, Some(&config_path))
             .expect("rows should load from existing database");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].all_tags, vec!["tagged".to_string()]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].level, 0);
+        assert_eq!(rows[1].all_tags, vec!["tagged".to_string()]);
 
         let reopened = Connection::open(&db_path).expect("database should reopen");
         let version_after: u32 = reopened

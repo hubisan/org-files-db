@@ -11,10 +11,23 @@ This repository contains AI-specific development instructions in [[./AGENTS.md]]
 
 The current codebase is intentionally a minimal scaffold around the parser-first architecture described in =.project/tasks/todo.org=.
 
-- =src/parser/= owns the internal parser trait, data model, diagnostics, and the placeholder Orgize adapter
+- =src/parser/= owns the internal parser trait, data model, diagnostics, and the Orgize implementation adapter
 - =src/indexer/= orchestrates parser access without Orgize-specific logic
 - =src/db/=, =src/query/=, and =src/cli/= are present as compilable placeholders for later tasks
 - =main.rs= remains thin and delegates directly to the CLI module
+
+** Parser Contract Notes
+
+- Orgize is the implementation parser in =src/parser/orgize_adapter.rs=.
+- Emacs Org-mode is used as a reference oracle for tricky semantics when that helps confirm parser behavior.
+- Unsafe Emacs Lisp, diary expressions, and arbitrary =.dir-locals.el= forms must not be evaluated.
+- TODO keyword precedence is:
+  1. Org in-buffer =#+TODO= / =#+SEQ_TODO= / =#+TYP_TODO= declarations
+  2. config defaults
+- =.dir-locals.el= is ignored completely during indexing and rebuild.
+- Emacs file-local =org-todo-keywords= are not supported.
+- The parser and indexer produce synthetic level-0/root rows for file and document roots; =headings --json= includes them by default and =--no-root= excludes them.
+- Planning lines populate the supported =scheduled=, =deadline=, and =closed= fields, while body timestamps remain available as parsed timestamp rows.
 
 ** DB Schema Versioning
 
@@ -79,8 +92,9 @@ The current codebase is intentionally a minimal scaffold around the parser-first
   - =archivedp=: boolean
   - =footnote_section_p=: boolean
   - =all_tags=: JSON array of strings
-- Synthetic level-0/root rows are excluded by default.
-- Passing =--include-root= includes the synthetic level-0/root rows in the JSON output.
+- Synthetic level-0/root rows exist for file and document roots and are included by default.
+- Passing =--no-root= excludes the synthetic level-0/root rows from the JSON output.
+- =--include-root= is retained only as a compatibility no-op and is not needed for the default behavior.
 - The public JSON contract uses =all_tags= as an array. Internal DB storage may still use =all_tags_json=, but that string is not part of the CLI API.
 
 ** Features

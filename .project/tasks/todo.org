@@ -287,50 +287,11 @@ Validation:
 
 [[./archive/2026-06-27--clean-up-stale-todo-keyword-test-names-and-dir-locals-configuration-leftovers.org]]
 
-*** TODO [#B] Refresh README and parser risk docs to match current implementation
+*** DONE [#B] Refresh README and parser risk docs to match current implementation
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
 :END:
-
-Goal:
-
-- Refresh README and parser-risk documentation so they match the current implementation.
-- Keep this focused; do not rewrite all project documentation.
-
-Context:
-
-- README was recently updated for:
-  - DB schema versioning
-  - ~v0.1~ SQLite schema contract
-  - ~headings --json~ contract
-- Parser behavior and parser-risk docs may still lag behind the current implementation.
-
-Scope:
-
-- Review and update:
-  - ~README.org~
-  - parser-risk docs if present
-  - relevant developer docs
-- Ensure documentation reflects current behavior for:
-  - Orgize as implementation parser
-  - Emacs as reference oracle for tricky Org semantics
-  - TODO keyword precedence
-  - ignored ~.dir-locals.el~
-  - level-0/root headings
-  - timestamps/planning behavior
-  - parser limitations and known divergences
-- Avoid broad README restructuring unless necessary.
-- Do not change code behavior.
-
-Recommended status:
-
-#+begin_src text
-Status: BUILD
-Model: GPT-5.4-Mini
-Reasoning: Medium
-Plan mode: Off
-#+end_src
 
 *** TODO [#B] Narrow the public library surface
 :PROPERTIES:
@@ -487,7 +448,7 @@ Goal:
 
 Context:
 
-- ~headings --json~ excludes synthetic level-0/root rows by default and includes them with ~--include-root~.
+- ~headings --json~ includes synthetic level-0/root rows by default and excludes them with ~--no-root~.
 - That CLI/API behavior is now documented and tested.
 - This task is about DB-level invariants, especially sentinel values such as ~level = 0~ and ~byte_start = -1~.
 

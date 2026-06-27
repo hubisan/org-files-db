@@ -15,7 +15,7 @@
   - Keep ~links~ deferred and do not implement link indexing in this task.
   - Move ~headings --json~ onto a read-only/non-mutating DB open path.
   - Expose tags as a real JSON array field, preferably named ~all_tags~.
-  - Keep root headings excluded by default and included with ~--include-root~.
+  - Keep root headings included by default and allow ~--no-root~ to exclude them.
   - Add focused documentation and regression tests.
 
 * Planning
@@ -75,7 +75,7 @@ None.
 ** Test results
 - =make ci= passed.
 - The full test suite passed with =111= unit tests in =src/lib.rs=, =28= tests in =tests/orgize_adapter.rs=, =7= tests in =tests/parser_contract.rs=, and =2= tests in =tests/parser_fixtures.rs=.
-- Added CLI regression coverage for exact JSON keys, =all_tags= array typing, default root exclusion, =--include-root= inclusion, missing DB read-only failure, current DB non-mutation, and future-version rejection.
+- Added CLI regression coverage for exact JSON keys, =all_tags= array typing, default root inclusion, =--no-root= exclusion, ~--include-root~ compatibility, missing DB read-only failure, current DB non-mutation, and future-version rejection.
 
 ** Blockers
 - None.

@@ -12,6 +12,9 @@ This register covers parser backend behavior and parser-contract risks. It does 
 - Current parser backend: ~Orgize~
 - Current Orgize crate version: ~0.10.0-alpha.10~
 - Current adapter boundary: ~src/parser/orgize_adapter.rs~
+- Emacs Org-mode is used as a reference oracle for tricky semantics when that helps confirm parser behavior.
+- Unsafe Emacs Lisp, diary expressions, and arbitrary ~.dir-locals.el~ forms must never be evaluated.
+- ~.dir-locals.el~ is ignored completely during indexing and rebuild, so file-local ~org-todo-keywords~ are intentionally out of scope.
 
 Status labels used in this file:
 
@@ -58,19 +61,20 @@ Decision labels used in this file:
   - [[file:../.project/tasks/archive/2026-06-16--evaluate-minimal-orgize-adapter.org][Evaluate minimal Orgize adapter]]
 - Follow-up: When the project introduces a ~ParsedLink~ model, decide whether Orgize is sufficient with adapter-local supplementation or whether a narrower upstream issue is warranted.
 
-** File-local TODO keyword handling
+** Org in-buffer TODO keyword handling
 
-- Risk: File-local ~#+TODO:~ declarations are captured as keywords, but current heading normalization does not yet apply custom TODO sequences when deriving heading state.
-- Current status: ~contract gap~
-- Observed behavior: The active fixture shows that ~document.keyword.TODO~ is preserved, while the heading title still contains the raw custom keyword text and does not normalize it into heading TODO state as intended by the architecture decisions.
-- Why it matters: TODO interpretation is a core parser contract. Without per-file TODO normalization, heading state, DB import, and later queries will disagree with Org-mode semantics for customized files.
-- Current decision: ~work around locally~ in the parser layer during future TODO normalization work.
-- Workaround / containment: Preserve the file-local declaration in metadata today, keep the fixture deliberately marked as unsupported, and do not pretend that Orgize defaults are the project contract.
+- Risk: TODO keyword normalization must stay aligned with Org in-buffer declarations while ignoring file-local and =.dir-locals.el= TODO sources.
+- Current status: ~accepted contract~
+- Observed behavior: The current parser and indexer honor in-buffer ~#+TODO:/#+SEQ_TODO:/#+TYP_TODO:~ declarations first, then fall back to config defaults. File-local ~org-todo-keywords~ are not supported, and ~.dir-locals.el~ never participates in effective TODO keyword resolution.
+- Why it matters: TODO interpretation is a core parser contract. If precedence drifts, heading state, DB import, and later queries will disagree with Org-mode semantics for customized files.
+- Current decision: ~accept~ this precedence as the project contract and keep file-local TODO behavior out of scope.
+- Workaround / containment: Keep the precedence explicit in parser, indexer, and CLI contract tests so later work does not reintroduce file-local TODO sources by accident.
 - Fixtures / tests:
   - [[file:../tests/data/parser/todo-keywords/custom-sequence/fixture.org][custom-sequence fixture]]
   - [[file:../tests/data/parser/todo-keywords/custom-sequence/expected.txt][custom-sequence expectation]]
+  - [[file:../tests/data/parser/todo-keywords/simplified-file-local-lines/fixture.org][simplified-file-local-lines fixture]]
   - [[file:../.project/tasks/todo.org][Architecture decisions in todo.org]]
-- Follow-up: Implement per-file TODO normalization in the parser contract, then tighten the fixture so the custom sequence is reflected in normalized heading data.
+- Follow-up: Revisit only if the project intentionally adds a new file-local TODO source or changes the precedence contract.
 
 ** File-scope / synthetic level 0 heading
 
