@@ -1,0 +1,66 @@
+#+TITLE: Complete atomic schema/migration transaction handling
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED:
+#+TASK_COMPLETED: [2026-06-28 Sun 00:56]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry from ~todo.org~:
+
+** DONE [2026-06-28 Sun 00:56] Complete atomic schema/migration transaction handling
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:DB_SCHEMA_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Make schema application and legacy migrations atomic where possible.
+- Ensure partial migration/application cannot leave the DB in an inconsistent state.
+
+Context:
+
+- DB schema versioning now writes ~PRAGMA user_version~ only after schema application/migration succeeds.
+- That part is already handled.
+- Remaining question: whether schema application and legacy migration steps themselves should run inside an explicit transaction.
+
+* Planning
+
+** Problem summary
+Schema application and legacy migrations could leave partially applied DDL behind if a later step fails, even when =user_version= stays unchanged.
+
+** Goals
+- Wrap schema application and legacy migrations in an explicit SQLite transaction.
+- Keep =user_version= updates inside the same transactional unit.
+- Preserve all successful migration behavior.
+
+** Results
+
+** Approach
+- Switched DB initialization to use a mutable connection and an explicit transaction.
+- Ran legacy migration helpers and core schema application on the transaction.
+- Wrote =PRAGMA user_version= inside the transaction before commit.
+- Extended the failure test to assert rollback of the broken legacy =todo_keywords= migration.
+
+** Changed files
+- ~src/db.rs~
+- ~src/db/schema.rs~
+- ~README.org~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+- ~cargo test~
+
+** Test results
+- Passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

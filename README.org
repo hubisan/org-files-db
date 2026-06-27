@@ -37,6 +37,7 @@ The current codebase is intentionally a minimal scaffold around the parser-first
 - Changes to tables, columns, indexes, constraints, FTS tables, or other persisted schema structures require a version bump.
 - Older supported databases are upgraded through the existing schema application and legacy migration path during DB open/initialization.
 - Databases with a newer =user_version= than the running binary supports fail closed and are not opened or downgraded silently.
+- Schema application, legacy migrations, and the final =PRAGMA user_version= update run inside one transaction; the transaction is committed only after all schema work succeeds.
 - Successful schema application or migration updates =user_version= only after the schema work succeeds.
 - Manual or local test databases may need to be rebuilt after a schema version bump.
 

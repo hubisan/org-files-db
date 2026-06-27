@@ -301,52 +301,9 @@ Validation:
 
 [[./archive/2026-06-28--guard-rebuild-against-accidental-empty-input-scope.org]]
 
-*** TODO [#B] Complete atomic schema/migration transaction handling
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: High
-:DB_SCHEMA_CHANGE: Maybe
-:END:
+*** DONE [2026-06-28 Sun 00:56] Complete atomic schema/migration transaction handling
 
-Goal:
-
-- Make schema application and legacy migrations atomic where possible.
-- Ensure partial migration/application cannot leave the DB in an inconsistent state.
-
-Context:
-
-- DB schema versioning now writes ~PRAGMA user_version~ only after schema application/migration succeeds.
-- That part is already handled.
-- Remaining question: whether schema application and legacy migration steps themselves should run inside an explicit transaction.
-
-Scope:
-
-- Inspect:
-  - ~src/db.rs~
-  - ~src/db/schema.rs~
-  - migration helpers
-  - tests for failing schema initialization
-- Determine whether current schema/migration operations are atomic enough.
-- If not, wrap schema application/migration in an appropriate transaction.
-- Preserve existing successful migration behavior.
-- Avoid a new migration framework.
-- Avoid unrelated DB refactors.
-
-Questions:
-
-- Can all current schema application statements run inside one transaction with SQLite?
-- Do any statements require autocommit mode?
-- What happens if a legacy table is renamed and a later insert fails?
-- Can tests simulate a migration failure and assert rollback?
-
-Recommended status:
-
-#+begin_src text
-Status: PLAN
-Model: GPT-5.4
-Reasoning: Medium
-Plan mode: On
-#+end_src
+[[./archive/2026-06-28--complete-atomic-schema-migration-transaction-handling.org]]
 
 *** TODO [#B] Document and test DB-level sentinel for synthetic level-0 headings
 :PROPERTIES:

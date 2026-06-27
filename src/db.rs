@@ -38,11 +38,11 @@ pub(crate) fn open_database_with_schema(
 ) -> Result<Connection, DbError> {
     let path = path.as_ref();
     let target = path.display().to_string();
-    let connection = Connection::open(path).map_err(|source| DbError::Open {
+    let mut connection = Connection::open(path).map_err(|source| DbError::Open {
         path: path.to_path_buf(),
         source,
     })?;
-    initialize_database(&connection, &target, schema)?;
+    initialize_database(&mut connection, &target, schema)?;
     Ok(connection)
 }
 
@@ -76,14 +76,14 @@ pub(crate) fn open_in_memory_database() -> Result<Connection, DbError> {
 pub(crate) fn open_in_memory_database_with_schema(
     schema: &SchemaDefinition,
 ) -> Result<Connection, DbError> {
-    let connection =
+    let mut connection =
         Connection::open_in_memory().map_err(|source| DbError::OpenInMemory { source })?;
-    initialize_database(&connection, IN_MEMORY_DATABASE, schema)?;
+    initialize_database(&mut connection, IN_MEMORY_DATABASE, schema)?;
     Ok(connection)
 }
 
 fn initialize_database(
-    connection: &Connection,
+    connection: &mut Connection,
     target: &str,
     schema: &SchemaDefinition,
 ) -> Result<(), DbError> {
@@ -107,29 +107,35 @@ PRAGMA synchronous = NORMAL;
         })?;
     validate_schema_version(on_disk_version, schema, target)?;
 
-    schema
-        .apply(connection)
+    let tx = connection
+        .transaction()
         .map_err(|source| DbError::Initialize {
             target: target.to_string(),
             source,
         })?;
+    schema.apply(&tx).map_err(|source| DbError::Initialize {
+        target: target.to_string(),
+        source,
+    })?;
 
     if on_disk_version != schema.version {
-        set_schema_version(connection, schema.version).map_err(|source| DbError::Initialize {
-            target: target.to_string(),
-            source,
-        })?;
+        tx.pragma_update(None, "user_version", schema.version)
+            .map_err(|source| DbError::Initialize {
+                target: target.to_string(),
+                source,
+            })?;
     }
+
+    tx.commit().map_err(|source| DbError::Initialize {
+        target: target.to_string(),
+        source,
+    })?;
 
     Ok(())
 }
 
 fn read_schema_version(connection: &Connection) -> rusqlite::Result<u32> {
     connection.pragma_query_value(None, "user_version", |row| row.get(0))
-}
-
-fn set_schema_version(connection: &Connection, version: u32) -> rusqlite::Result<()> {
-    connection.pragma_update(None, "user_version", version)
 }
 
 fn validate_schema_version(
@@ -442,7 +448,8 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
 
     #[test]
     fn does_not_advance_schema_version_when_initialization_fails() {
-        let connection = Connection::open_in_memory().expect("broken legacy database should open");
+        let mut connection =
+            Connection::open_in_memory().expect("broken legacy database should open");
         connection
             .execute_batch(
                 r#"
@@ -458,7 +465,7 @@ CREATE TABLE todo_keywords (
             .expect("broken legacy schema should seed");
 
         let error = initialize_database(
-            &connection,
+            &mut connection,
             ":memory:",
             &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
         )
@@ -470,6 +477,23 @@ CREATE TABLE todo_keywords (
 
         let user_version = read_schema_version(&connection).expect("schema version should load");
         assert_eq!(user_version, 0);
+
+        let todo_keywords_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'todo_keywords'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("todo_keywords existence should load");
+        let legacy_todo_keywords_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'todo_keywords_legacy'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("legacy todo_keywords existence should load");
+        assert_eq!(todo_keywords_exists, 1);
+        assert_eq!(legacy_todo_keywords_exists, 0);
     }
 
     #[test]
