@@ -44,11 +44,19 @@ where
         &self,
         config_path: impl AsRef<Path>,
     ) -> Result<RebuildReport, IndexerError> {
+        self.rebuild_from_config_path_with_options(config_path, false)
+    }
+
+    pub(crate) fn rebuild_from_config_path_with_options(
+        &self,
+        config_path: impl AsRef<Path>,
+        allow_empty: bool,
+    ) -> Result<RebuildReport, IndexerError> {
         let config = Config::load_from_file(config_path).map_err(IndexerError::Config)?;
         let schema = SchemaDefinition::new(1, config.search.fts5_enabled);
         let mut connection =
             open_database_with_schema(&config.db_path, &schema).map_err(IndexerError::Database)?;
-        self.rebuild(&mut connection, &config)
+        self.rebuild_with_options(&mut connection, &config, allow_empty)
     }
 
     pub fn rebuild(
@@ -56,7 +64,28 @@ where
         connection: &mut Connection,
         config: &Config,
     ) -> Result<RebuildReport, IndexerError> {
+        self.rebuild_with_options(connection, config, false)
+    }
+
+    pub(crate) fn rebuild_with_options(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+        allow_empty: bool,
+    ) -> Result<RebuildReport, IndexerError> {
         let paths = discover_org_files(config)?;
+        if paths.is_empty() {
+            let existing_indexed_files = existing_indexed_file_count(connection)?;
+            if existing_indexed_files == 0 {
+                return Ok(RebuildReport::default());
+            }
+            if !allow_empty {
+                return Err(IndexerError::RefusedEmptyRebuild {
+                    existing_indexed_files,
+                });
+            }
+        }
+
         let parse_options = config.parse_options();
         let mut pending = Vec::with_capacity(paths.len());
         for discovered in paths {
@@ -222,6 +251,9 @@ pub enum IndexerError {
         field: &'static str,
         source: serde_json::Error,
     },
+    RefusedEmptyRebuild {
+        existing_indexed_files: usize,
+    },
     Write(DbWriteError),
 }
 
@@ -258,6 +290,12 @@ impl fmt::Display for IndexerError {
             Self::Serialize { field, source } => {
                 write!(f, "failed to serialize {field} for DB write: {source}")
             }
+            Self::RefusedEmptyRebuild {
+                existing_indexed_files,
+            } => write!(
+                f,
+                "rebuild found zero input Org files and was refused to avoid deleting {existing_indexed_files} indexed file(s); rerun with --allow-empty if this is intentional"
+            ),
             Self::Write(source) => write!(f, "{source}"),
         }
     }
@@ -274,6 +312,7 @@ impl Error for IndexerError {
             Self::Parse { .. } => None,
             Self::ReadFile { source, .. } => Some(source),
             Self::Serialize { source, .. } => Some(source),
+            Self::RefusedEmptyRebuild { .. } => None,
             Self::Write(source) => Some(source),
         }
     }
@@ -305,6 +344,19 @@ fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, Indexer
         .into_iter()
         .map(|(path, (scan_root, _))| DiscoveredOrgFile { path, scan_root })
         .collect())
+}
+
+fn existing_indexed_file_count(connection: &Connection) -> Result<usize, IndexerError> {
+    let count = connection
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get::<_, i64>(0))
+        .map_err(|source| {
+            IndexerError::Database(DbError::Inspect {
+                target: "existing indexed files".to_string(),
+                source,
+            })
+        })?;
+
+    Ok(count as usize)
 }
 
 fn collect_org_files(
@@ -1045,10 +1097,10 @@ fn db_write_invalid_input(message: &'static str) -> DbWriteError {
 mod tests {
     use super::{IndexedFile, Indexer, IndexerError};
     use crate::{
-        config::Config,
+        config::{Config, SearchConfig},
         db::{
-            open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, SchemaDefinition,
-            CURRENT_SCHEMA_VERSION,
+            open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
+            FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
@@ -1123,6 +1175,48 @@ mod tests {
 
     fn write_config(path: &Path, body: &str) {
         write_file(path, body);
+    }
+
+    fn seed_indexed_file(connection: &Connection) {
+        let file_id = DbWriter::upsert_file(
+            connection,
+            &FileRecordInput {
+                path: PathBuf::from("/tmp/existing.org"),
+                mtime_ns: 1,
+                size: 1,
+                content_hash: None,
+                indexed_at: None,
+            },
+        )
+        .expect("file should insert");
+
+        DbWriter::insert_level0_heading(
+            connection,
+            &HeadingRecord {
+                id: None,
+                file_id,
+                parent_id: None,
+                level: 0,
+                line_number: Some(1),
+                byte_start: -1,
+                byte_end: 1,
+                title: "Existing".to_string(),
+                title_raw: "Existing".to_string(),
+                todo_keyword: None,
+                todo_type: None,
+                priority: None,
+                scheduled_raw: None,
+                scheduled_ts: None,
+                deadline_raw: None,
+                deadline_ts: None,
+                closed_raw: None,
+                closed_ts: None,
+                archivedp: false,
+                footnote_section_p: false,
+                all_tags_json: "[]".to_string(),
+            },
+        )
+        .expect("heading should insert");
     }
 
     #[test]
@@ -2275,6 +2369,167 @@ index_body_text = false
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn rebuild_refuses_zero_input_when_existing_indexed_data_would_be_deleted() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        seed_indexed_file(&connection);
+
+        let config = Config {
+            db_path: PathBuf::from("db.sqlite"),
+            files: Vec::new(),
+            dirs: Vec::new(),
+            recursive: false,
+            parse: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+
+        let error = Indexer::new(OrgizeAdapter::new())
+            .rebuild_with_options(&mut connection, &config, false)
+            .expect_err("rebuild should refuse to wipe existing data");
+
+        match &error {
+            IndexerError::RefusedEmptyRebuild {
+                existing_indexed_files,
+            } => {
+                assert_eq!(*existing_indexed_files, 1);
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+
+        let message = error.to_string();
+        assert!(message.contains("zero input Org files"));
+        assert!(message.contains("avoid deleting 1 indexed file"));
+        assert!(message.contains("--allow-empty"));
+
+        let files_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        let headings_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
+            .expect("heading count should load");
+
+        assert_eq!(files_count, 1);
+        assert_eq!(headings_count, 1);
+    }
+
+    #[test]
+    fn rebuild_allows_zero_input_when_existing_database_is_empty() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+
+        let config = Config {
+            db_path: PathBuf::from("db.sqlite"),
+            files: Vec::new(),
+            dirs: Vec::new(),
+            recursive: false,
+            parse: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_with_options(&mut connection, &config, false)
+            .expect("rebuild should succeed for an empty database");
+
+        assert!(report.indexed_files.is_empty());
+        assert!(report.diagnostics.is_empty());
+
+        let files_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        let headings_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
+            .expect("heading count should load");
+
+        assert_eq!(files_count, 0);
+        assert_eq!(headings_count, 0);
+    }
+
+    #[test]
+    fn rebuild_from_config_path_allows_zero_input_on_fresh_database() {
+        let test_dir = TestDir::new("zero-input-fresh-db");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        write_config(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path_with_options(&config_path, false)
+            .expect("fresh database rebuild should succeed");
+
+        assert!(report.indexed_files.is_empty());
+        assert!(report.diagnostics.is_empty());
+
+        let connection = crate::db::open_database(&db_path).expect("database should open");
+        let files_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        assert_eq!(files_count, 0);
+    }
+
+    #[test]
+    fn rebuild_with_allow_empty_clears_existing_indexed_data() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        seed_indexed_file(&connection);
+
+        let config = Config {
+            db_path: PathBuf::from("db.sqlite"),
+            files: Vec::new(),
+            dirs: Vec::new(),
+            recursive: false,
+            parse: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_with_options(&mut connection, &config, true)
+            .expect("rebuild should allow empty input with override");
+
+        assert!(report.indexed_files.is_empty());
+        assert!(report.diagnostics.is_empty());
+
+        let files_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        let headings_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
+            .expect("heading count should load");
+
+        assert_eq!(files_count, 0);
+        assert_eq!(headings_count, 0);
     }
 
     #[test]

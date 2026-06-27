@@ -1,0 +1,77 @@
+#+TITLE: Guard rebuild against accidental empty input scope
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED:
+#+TASK_COMPLETED: [2026-06-28 Sun 00:45]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry from ~todo.org~:
+
+** DONE [2026-06-28 Sun 00:45] Guard rebuild against accidental empty input scope
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DATA_LOSS_RISK: Yes
+:END:
+
+Goal:
+
+- Prevent accidental destructive rebuilds when the configured input scope is empty or unexpectedly resolves to no files.
+- Add a safety guard around rebuild behavior.
+
+Context:
+
+- Rebuild can delete/replace indexed DB contents.
+- If configuration, path resolution, ignore rules, or source discovery accidentally yields zero input files, rebuild should not silently wipe the DB.
+- This is a safety feature and should be prioritized before broad cleanup.
+
+Target behavior:
+
+- Rebuild should detect when the effective input scope is empty.
+- Rebuild should refuse to proceed if an existing DB has indexed files and the new scan finds zero files, unless an explicit override is provided.
+- Fresh DB initialization with zero files may be allowed only if clearly intentional and documented.
+- The error message should explain:
+  - zero input files were found
+  - rebuild was refused to avoid accidental data loss
+  - how to proceed intentionally if an override exists or is added
+- Add focused tests.
+
+* Planning
+
+** Problem summary
+Accidental empty-input rebuilds can wipe indexed data. The implementation needs a guard that refuses destructive no-input rebuilds while still allowing intentional empty rebuilds on fresh or already-empty databases.
+
+** Goals
+- Refuse empty-input rebuilds when existing indexed data would be deleted.
+- Allow empty-input rebuilds on empty or fresh databases.
+- Keep the override narrow and explicit.
+
+** Results
+
+** Approach
+- Added the guard in rebuild orchestration before any delete/write work.
+- Counted existing indexed files with a private query helper.
+- Added a CLI override for intentional empty rebuilds.
+- Covered refusal, empty-db, fresh-db, and override cases with focused tests.
+
+** Changed files
+- ~src/indexer.rs~
+- ~src/cli.rs~
+- ~README.org~
+
+** Checks performed
+- ~cargo test~
+- ~make ci~
+
+** Test results
+- Both validation commands passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

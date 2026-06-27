@@ -29,6 +29,8 @@ enum Command {
     Rebuild {
         #[arg(long)]
         config: PathBuf,
+        #[arg(long)]
+        allow_empty: bool,
     },
     Headings {
         #[arg(long)]
@@ -62,8 +64,11 @@ where
 {
     let cli = Cli::try_parse_from(args).map_err(CliError::Parse)?;
     match cli.command {
-        Command::Rebuild { config } => {
-            let report = rebuild(&config)?;
+        Command::Rebuild {
+            config,
+            allow_empty,
+        } => {
+            let report = rebuild_with_options(&config, allow_empty)?;
             print_diagnostics(&report);
             Ok(())
         }
@@ -84,9 +89,17 @@ where
     }
 }
 
+#[cfg(test)]
 fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport, CliError> {
+    rebuild_with_options(config_path, false)
+}
+
+fn rebuild_with_options(
+    config_path: impl AsRef<std::path::Path>,
+    allow_empty: bool,
+) -> Result<RebuildReport, CliError> {
     Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path(config_path)
+        .rebuild_from_config_path_with_options(config_path, allow_empty)
         .map_err(CliError::Indexer)
 }
 
@@ -340,8 +353,32 @@ mod tests {
             .expect("rebuild args should parse");
 
         match cli.command {
-            super::Command::Rebuild { config } => {
+            super::Command::Rebuild {
+                config,
+                allow_empty,
+            } => {
                 assert_eq!(config, PathBuf::from("config.toml"));
+                assert!(!allow_empty);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "rebuild",
+            "--config",
+            "config.toml",
+            "--allow-empty",
+        ])
+        .expect("rebuild allow-empty args should parse");
+
+        match cli.command {
+            super::Command::Rebuild {
+                config,
+                allow_empty,
+            } => {
+                assert_eq!(config, PathBuf::from("config.toml"));
+                assert!(allow_empty);
             }
             other => panic!("unexpected command: {other:?}"),
         }

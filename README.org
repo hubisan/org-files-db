@@ -64,6 +64,7 @@ The current codebase is intentionally a minimal scaffold around the parser-first
 - =db_path= is normalized syntactically only. It is not required to exist during config loading.
 - =files= and =dirs= are resolved syntactically during config loading, but rebuild/indexing validates that they exist and canonicalizes them before discovery.
 - Rebuild-time canonicalization collapses equivalent configured paths, including paths that differ only by =..= segments or symlink traversal.
+- Rebuild refuses to wipe an existing indexed database when discovery finds zero input files unless =--allow-empty= is passed explicitly.
 - Read-only commands such as =headings --json= load the config without requiring configured source paths to exist.
 
 ** headings --json Contract

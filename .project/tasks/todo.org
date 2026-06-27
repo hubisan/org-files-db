@@ -297,50 +297,9 @@ Validation:
 
 [[./archive/2026-06-27--narrow-the-public-library-surface.org]]
 
-*** TODO [#A] Guard rebuild against accidental empty input scope
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DATA_LOSS_RISK: Yes
-:END:
+*** DONE [2026-06-28 Sun 00:45] Guard rebuild against accidental empty input scope
 
-Goal:
-
-- Prevent accidental destructive rebuilds when the configured input scope is empty or unexpectedly resolves to no files.
-- Add a safety guard around rebuild behavior.
-
-Context:
-
-- Rebuild can delete/replace indexed DB contents.
-- If configuration, path resolution, ignore rules, or source discovery accidentally yields zero input files, rebuild should not silently wipe the DB.
-- This is a safety feature and should be prioritized before broad cleanup.
-
-Target behavior:
-
-- Rebuild should detect when the effective input scope is empty.
-- Rebuild should refuse to proceed if an existing DB has indexed files and the new scan finds zero files, unless an explicit override is provided.
-- Fresh DB initialization with zero files may be allowed only if clearly intentional and documented.
-- The error message should explain:
-  - zero input files were found
-  - rebuild was refused to avoid accidental data loss
-  - how to proceed intentionally if an override exists or is added
-- Add focused tests.
-
-Questions:
-
-- Is there already a CLI flag suitable as explicit override?
-- Should the override be added now, e.g. ~--allow-empty~ or ~--force-empty~?
-- Should the guard live in CLI, indexer, or DB writer layer?
-- What should happen for a brand-new empty DB?
-
-Recommended status:
-
-#+begin_src text
-Status: PLAN
-Model: GPT-5.4
-Reasoning: Medium
-Plan mode: On
-#+end_src
+[[./archive/2026-06-28--guard-rebuild-against-accidental-empty-input-scope.org]]
 
 *** TODO [#B] Complete atomic schema/migration transaction handling
 :PROPERTIES:
