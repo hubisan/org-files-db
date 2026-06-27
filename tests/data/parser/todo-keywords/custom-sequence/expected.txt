@@ -1,5 +1,5 @@
 # classification: org-special-case
-# note: File-local TODO keyword declarations override configured defaults for this file.
+# note: Org in-buffer TODO keyword declarations override configured defaults for this file.
 document.title=Custom TODO Fixture
 document.keyword.TODO=PLAN(p) BUILD(b) REVIEW(r) | DONE(d) CANCEL(c)
 heading_count=3

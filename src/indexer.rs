@@ -1765,8 +1765,8 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_handles_overlapping_file_local_todo_keyword_lines_without_duplicate_rows() {
-        let test_dir = TestDir::new("overlapping-file-local-todo");
+    fn rebuild_handles_overlapping_org_todo_keyword_lines_without_duplicate_rows() {
+        let test_dir = TestDir::new("overlapping-org-todo");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
         let config_path = test_dir.path().join("config.toml");
@@ -2315,8 +2315,8 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_respects_file_local_todo_keywords_as_overrides() {
-        let test_dir = TestDir::new("file-local-todo");
+    fn rebuild_respects_org_todo_keywords_as_overrides() {
+        let test_dir = TestDir::new("org-todo-overrides");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
         let config_path = test_dir.path().join("config.toml");
@@ -2994,8 +2994,8 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_handles_manual_file_local_todo_fixture() {
-        let test_dir = TestDir::new("manual-file-local-todo");
+    fn rebuild_handles_manual_org_todo_fixture() {
+        let test_dir = TestDir::new("manual-org-todo");
         let org_path = test_dir.path().join("test.org");
         let db_path = test_dir.path().join("db.sqlite");
         let config_path = test_dir.path().join("config.toml");
@@ -3113,8 +3113,8 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_supports_simplified_file_local_todo_keyword_lines() {
-        let test_dir = TestDir::new("simplified-file-local-todo");
+    fn rebuild_supports_simplified_org_todo_keyword_lines() {
+        let test_dir = TestDir::new("simplified-org-todo");
         let org_path = test_dir.path().join("test.org");
         let db_path = test_dir.path().join("db.sqlite");
         let config_path = test_dir.path().join("config.toml");

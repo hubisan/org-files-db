@@ -1,5 +1,5 @@
 # classification: org-special-case
-# note: Overlapping file-local TODO declarations are accepted and the resulting TODO config remains usable.
+# note: Overlapping Org in-buffer TODO declarations are accepted and the resulting TODO config remains usable.
 document.title=Overlapping TODO Fixture
 heading_count=4
 diagnostic_count=0

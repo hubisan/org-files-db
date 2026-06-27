@@ -1,5 +1,5 @@
 # classification: org-special-case
-# note: Simplified file-local TODO keyword lines accumulate globally and override defaults.
+# note: Simplified Org in-buffer TODO keyword lines accumulate globally and override defaults.
 document.title=Testing local keywords
 document.keyword.TODO=one(t) two(n) | three(d) four(w@)
 document.keyword.TYP_TODO=seven | eight

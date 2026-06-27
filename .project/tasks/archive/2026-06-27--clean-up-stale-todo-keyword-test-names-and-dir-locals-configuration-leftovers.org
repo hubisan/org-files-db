@@ -1,0 +1,80 @@
+#+TITLE: Clean up stale TODO keyword test names and .dir-locals configuration leftovers
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-27 Sat 22:37]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: clean up stale TODO keyword test names and `.dir-locals` configuration leftovers without changing behavior.
+- Scope implemented:
+  - rename misleading `file-local`-style TODO keyword tests that actually exercise Org in-buffer `#+TODO` declarations
+  - keep `.dir-locals.el` ignored and leave `parse.dir_locals` behavior unchanged
+  - update fixture notes to describe Org in-buffer TODO declarations instead of file-local behavior
+
+* Planning
+
+** Problem summary
+Some tests and fixture notes still use `file-local` wording even though they exercise Org in-buffer TODO declarations. That wording is now misleading after the `.dir-locals.el` behavior changes.
+
+** Goals
+- Make test names reflect actual behavior.
+- Keep `.dir-locals.el` ignored.
+- Avoid any behavior changes or broader cleanup.
+
+** Non-goals
+- Do not add file-local TODO support.
+- Do not change `.dir-locals.el` parsing or indexing behavior.
+- Do not touch DB schema or parser logic.
+
+** Architecture
+- Keep the existing test coverage and fixture inputs.
+- Change only naming and short explanatory text where it was stale.
+
+** Execution plan
+1. Rename misleading TODO keyword test functions and test directory labels.
+2. Update fixture note lines from `file-local` wording to Org in-buffer wording.
+3. Run the full CI check.
+
+** Risks & assumptions
+- Fixture file paths with `file-local` in the directory name may remain for now if renaming them would be wider than needed.
+- `parse.dir_locals` remains supported as compatibility/no-op config for now.
+
+** Open questions
+None.
+
+** Proposed checks
+- =make ci=
+
+* Results
+
+** Approach
+- Renamed the stale `file-local` TODO keyword test functions in `src/indexer.rs` and `tests/orgize_adapter.rs` to describe Org in-buffer TODO declarations.
+- Updated fixture note text to mention Org in-buffer TODO declarations instead of file-local behavior.
+- Left `.dir-locals.el` handling and `parse.dir_locals` compatibility untouched.
+
+** Changed files
+- =src/indexer.rs=
+- =tests/orgize_adapter.rs=
+- =tests/data/parser/todo-keywords/custom-sequence/expected.txt=
+- =tests/data/parser/todo-keywords/overlapping-file-local-lines/expected.txt=
+- =tests/data/parser/todo-keywords/simplified-file-local-lines/expected.txt=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-27--clean-up-stale-todo-keyword-test-names-and-dir-locals-configuration-leftovers.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =make ci=
+
+** Test results
+- =make ci= passed.
+- The full test suite passed after the rename-only cleanup.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Optional later cleanup: rename fixture directory names that still contain `file-local` if we decide that is worth the extra churn.

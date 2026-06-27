@@ -711,7 +711,7 @@ fn orgize_adapter_uses_configured_project_todo_keywords() {
 }
 
 #[test]
-fn orgize_adapter_prefers_file_local_todo_keywords_over_configured_defaults() {
+fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults() {
     let content = include_str!("data/parser/todo-keywords/custom-sequence/fixture.org");
     let options = ParseOptions {
         todo_keywords: TodoKeywordConfig {
@@ -726,7 +726,7 @@ fn orgize_adapter_prefers_file_local_todo_keywords_over_configured_defaults() {
             content,
             &options,
         )
-        .expect("orgize adapter should respect file-local todo keywords");
+        .expect("orgize adapter should respect org todo keywords");
 
     assert_eq!(document.headings.len(), 3);
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
@@ -739,7 +739,7 @@ fn orgize_adapter_prefers_file_local_todo_keywords_over_configured_defaults() {
 }
 
 #[test]
-fn orgize_adapter_treats_file_local_todo_keywords_as_overrides() {
+fn orgize_adapter_treats_org_todo_keywords_as_overrides() {
     let content = "#+TODO: PLAN(p) | DONE(d)\n* PLAN me\n* DONE me\n* REVIEW Mist\n";
     let options = ParseOptions {
         todo_keywords: TodoKeywordConfig {
@@ -750,7 +750,7 @@ fn orgize_adapter_treats_file_local_todo_keywords_as_overrides() {
 
     let document = OrgizeAdapter::new()
         .parse_document(Path::new("notes/override.org"), content, &options)
-        .expect("orgize adapter should respect file-local todo keywords");
+        .expect("orgize adapter should respect org todo keywords");
 
     assert_eq!(document.headings.len(), 4);
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
@@ -1056,7 +1056,7 @@ fn orgize_adapter_excludes_structured_metadata_from_body_text() {
 }
 
 #[test]
-fn orgize_adapter_supports_simplified_file_local_todo_keyword_lines() {
+fn orgize_adapter_supports_simplified_org_todo_keyword_lines() {
     let content = include_str!("data/parser/todo-keywords/simplified-file-local-lines/fixture.org");
     let options = ParseOptions {
         todo_keywords: TodoKeywordConfig {
@@ -1071,7 +1071,7 @@ fn orgize_adapter_supports_simplified_file_local_todo_keyword_lines() {
             content,
             &options,
         )
-        .expect("simplified file-local todo lines should parse");
+        .expect("simplified org todo lines should parse");
 
     assert_eq!(document.headings.len(), 14);
 
