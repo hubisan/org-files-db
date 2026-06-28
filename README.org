@@ -58,6 +58,11 @@ The current codebase is intentionally a minimal scaffold around the parser-first
 - =heading_fts= is optional. It is created only when rebuild/indexing enables FTS and the local SQLite build supports FTS5.
 - =links= exists in the schema as a reserved/deferred table, but it is not part of the populated =v0.1= indexing contract yet.
 - Read-only CLI queries such as =headings --json= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
+- Synthetic level-0/root rows are DB/indexing sentinels for file/document roots, not parser-level Org headings.
+- Persisted synthetic root rows use =level = 0=, =parent_id = NULL=, and =byte_start = -1=.
+- Rebuild/indexing creates one synthetic root row per indexed file and attaches file-level keywords, file-level properties, file tags, and other file-scope facts to that row.
+- Real Org headings start at =level >= 1= and are stored under the synthetic root when they are top-level headings.
+- =outline_path= includes the synthetic root row: depth =0= uses materialized path =0000= and breadcrumbs start with the root title.
 
 ** Configured Paths
 

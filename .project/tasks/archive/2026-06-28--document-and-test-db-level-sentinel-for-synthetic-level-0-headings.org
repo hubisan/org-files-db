@@ -1,0 +1,125 @@
+#+TITLE: Document and test DB-level sentinel for synthetic level-0 headings
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-28 Sun 12:18]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Document and test DB-level sentinel semantics for synthetic level-0/root headings.
+  - Confirm whether the task builds directly; report if not.
+  - Preserve current CLI and parser behavior unless a real mismatch is found.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,*** BUILD [#B] Document and test DB-level sentinel for synthetic level-0 headings
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Document and test the DB-level sentinel semantics for synthetic level-0/root headings.
+- Avoid confusion between parser-level headings and DB-internal synthetic root rows.
+
+Context:
+
+- ~headings --json~ includes synthetic level-0/root rows by default and excludes them with ~--no-root~.
+- That CLI/API behavior is already documented and tested.
+- This task is about DB-level invariants, especially sentinel values such as ~level = 0~ and ~byte_start = -1~.
+- Parser-level Org headings are not level-0 headings; level-0 rows are synthetic DB/file-root rows.
+
+Scope:
+
+- Document DB-level meaning of synthetic root rows.
+- Add focused DB/indexer tests if missing.
+- Ensure constraints/invariants are intentional and clear.
+- Confirm whether level-0 rows participate in outline paths.
+- Do not change CLI JSON root behavior unless a mismatch is found.
+- Do not change parser semantics.
+- Do not change DB schema unless a serious mismatch is found.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The DB/indexer behavior for synthetic level-0 headings already exists, but the documentation is inconsistent: the SQL schema comments still describe =byte_start = 0= for level-0 rows while the indexer stores =byte_start = -1=.
+- Existing tests cover CLI root inclusion and some outline behavior, but they do not clearly document the DB-level sentinel contract in one focused place.
+
+** Goals
+- Make the DB-level synthetic-root contract explicit in repo docs.
+- Add focused tests for one synthetic root row per file, =parent_id = NULL=, and =byte_start = -1=.
+- Confirm and document whether =outline_path= includes the root row.
+
+** Non-goals
+- No parser behavior changes.
+- No CLI JSON behavior changes unless a regression is found.
+- No schema structure changes or version bump unless required by a serious mismatch.
+
+** Architecture
+- Keep the existing parser/indexer split.
+- Document DB semantics in =README.org= and SQL schema comments.
+- Add or tighten tests close to the writing/indexing layers.
+
+** Execution plan
+- Inspect current DB writer/indexer/schema behavior and existing tests.
+- Update documentation where it contradicts the actual stored sentinel semantics.
+- Add focused DB/indexer tests and align stale test fixtures with the current invariant.
+- Run =make ci= and record the result.
+
+** Risks & assumptions
+- Assumption: =byte_start = -1= is already the intended persisted sentinel because the indexer and CLI tests use it consistently.
+- Risk: some older unit-test fixtures may still encode pre-sentinel assumptions and need alignment.
+
+** Open questions
+- None at planning time; the code inspection should answer whether outline paths include root rows.
+
+** Proposed checks
+- =make ci=
+
+* Results
+
+** Approach
+- Documented the persisted synthetic-root contract in =README.org= and in the authoritative SQL schema comments.
+- Added a focused indexer test that inspects stored DB rows directly across multiple files.
+- Aligned stale DB-reader/DB-writer test fixtures with the persisted =byte_start = -1= sentinel already used by the indexer and CLI tests.
+
+** Changed files
+- =README.org=
+- =sql/schema.sql=
+- =src/indexer.rs=
+- =src/db/reader.rs=
+- =src/db/writer.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-28--document-and-test-db-level-sentinel-for-synthetic-level-0-headings.org=
+
+** Checks performed
+- =cargo test rebuild_persists_one_synthetic_root_row_per_file_with_db_sentinels=
+- =cargo test list_headings_returns_stable_rows_for_cli_json=
+- =cargo test outline_rows_remain_consistent_after_rebuild=
+- =cargo test headings_json_includes_level_zero_rows_by_default=
+- =cargo fmt --all=
+- =make ci=
+
+** Test results
+- Focused DB/indexer coverage now proves:
+  - rebuild creates one synthetic level-0 row per indexed file
+  - persisted synthetic root rows use =parent_id = NULL=
+  - persisted synthetic root rows use =byte_start = -1=
+  - real Org headings remain at =level >= 1= and attach below the synthetic root
+  - =outline_path= includes the synthetic root row with depth =0= and materialized path =0000=
+- No schema structure or version changes were required.
+- =make ci= passed after one initial =cargo fmt --all --check= failure caused by rustfmt formatting in =src/indexer.rs=; rerunning after =cargo fmt --all= succeeded fully.
+
+** Blockers
+- None.
+
+** Follow-ups
+- On approval, move the task to archive and mark the todo entry =DONE= per workflow.

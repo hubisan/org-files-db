@@ -61,10 +61,11 @@ CREATE TABLE IF NOT EXISTS files (
 
   Level 0 heading:
 
-    A level 0 heading is created for every file. It represents the file-level
-    scope. This allows file-wide elements such as keywords, file tags,
-    properties, file-level links, and file-level full-text content to be stored
-    in the same hierarchy as regular headings.
+    A level 0 heading is created by indexing for every file. It is a
+    DB/internal synthetic file-root row, not parser-level Org syntax. This row
+    represents the file-level scope. It allows file-wide elements such as
+    keywords, file tags, properties, file-level links, and file-level full-text
+    content to be stored in the same hierarchy as regular headings.
 
     For each file, exactly one level 0 heading should exist.
 
@@ -92,8 +93,9 @@ CREATE TABLE IF NOT EXISTS files (
   byte_start / byte_end:
     UTF-8 byte offsets into the original file.
     For regular headings, byte_start points to the beginning of the heading.
-    For the level 0 heading, byte_start should normally be 0 and byte_end should
-    normally be the file length.
+    For the level 0 heading, byte_start uses the DB sentinel value -1 because
+    it does not correspond to a parser heading position in the file. byte_end
+    normally spans the file length.
 
   title:
     Normalized display title.
@@ -182,7 +184,10 @@ CREATE TABLE IF NOT EXISTS headings (
   Enforce exactly one synthetic level 0 heading per file.
 
   SQLite partial unique indexes are used because normal headings may have many
-  rows per file, but level 0 must be unique.
+  rows per file, but level 0 must be unique. The SQL schema also enforces
+  level = 0 => parent_id IS NULL. The byte_start = -1 sentinel is an
+  indexer-level invariant documented here and covered by tests, not a SQL CHECK
+  constraint.
 */
 CREATE UNIQUE INDEX IF NOT EXISTS uq_headings_file_level0
     ON headings(file_id)
@@ -694,7 +699,9 @@ CREATE TABLE IF NOT EXISTS heading_bodies (
 
   breadcrumbs_json:
     JSON array containing breadcrumb titles from the level 0 heading to this
-    heading.
+    heading. Synthetic level 0 rows participate in outline_path, so the root
+    row has depth 0, materialized_path 0000, and a one-element breadcrumb array
+    containing the file/document root title.
 
     Example:
       ["todo", "Project", "Phase 1", "Analysis"]

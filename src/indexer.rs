@@ -1751,6 +1751,145 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_persists_one_synthetic_root_row_per_file_with_db_sentinels() {
+        let test_dir = TestDir::new("synthetic-root-sentinels");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let alpha_path = notes_dir.join("alpha.org");
+        let beta_path = notes_dir.join("nested/beta.org");
+
+        write_file(
+            &alpha_path,
+            "#+TITLE: Alpha Root\n* Alpha Top\n** Alpha Child\n",
+        );
+        write_file(&beta_path, "* Beta Top\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 2);
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings: Vec<(String, i64, Option<i64>, i64, i64, String)> = query_rows(
+            &connection,
+            "SELECT files.path, headings.id, headings.parent_id, headings.level, headings.byte_start, headings.title
+             FROM headings
+             INNER JOIN files ON files.id = headings.file_id
+             ORDER BY files.path, headings.level, headings.byte_start, headings.id",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        );
+
+        let alpha_rows = headings
+            .iter()
+            .filter(|(path, ..)| path == &alpha_path.display().to_string())
+            .collect::<Vec<_>>();
+        let beta_rows = headings
+            .iter()
+            .filter(|(path, ..)| path == &beta_path.display().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(alpha_rows.len(), 3);
+        assert_eq!(beta_rows.len(), 2);
+
+        let alpha_root = alpha_rows
+            .iter()
+            .find(|(_, _, _, level, _, _)| *level == 0)
+            .expect("alpha root should exist");
+        let alpha_top = alpha_rows
+            .iter()
+            .find(|(_, _, _, level, _, title)| *level == 1 && title == "Alpha Top")
+            .expect("alpha top heading should exist");
+        let alpha_child = alpha_rows
+            .iter()
+            .find(|(_, _, _, level, _, title)| *level == 2 && title == "Alpha Child")
+            .expect("alpha child heading should exist");
+        let beta_root = beta_rows
+            .iter()
+            .find(|(_, _, _, level, _, _)| *level == 0)
+            .expect("beta root should exist");
+        let beta_top = beta_rows
+            .iter()
+            .find(|(_, _, _, level, _, title)| *level == 1 && title == "Beta Top")
+            .expect("beta top heading should exist");
+
+        assert_eq!(alpha_root.2, None);
+        assert_eq!(alpha_root.4, -1);
+        assert_eq!(alpha_root.5, "Alpha Root");
+        assert_eq!(alpha_top.2, Some(alpha_root.1));
+        assert_eq!(alpha_top.4, 20);
+        assert_eq!(alpha_child.2, Some(alpha_top.1));
+        assert_eq!(alpha_child.4, 32);
+
+        assert_eq!(beta_root.2, None);
+        assert_eq!(beta_root.4, -1);
+        assert_eq!(beta_root.5, "beta");
+        assert_eq!(beta_top.2, Some(beta_root.1));
+        assert_eq!(beta_top.4, 0);
+
+        let root_outline_rows: Vec<(String, i64, Option<i64>, String, String)> = query_rows(
+            &connection,
+            "SELECT files.path, outline_path.depth, outline_path.parent_id, outline_path.materialized_path, outline_path.breadcrumbs_json
+             FROM outline_path
+             INNER JOIN files ON files.id = outline_path.file_id
+             WHERE outline_path.depth = 0
+             ORDER BY files.path",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            root_outline_rows,
+            vec![
+                (
+                    alpha_path.display().to_string(),
+                    0,
+                    None,
+                    "0000".to_string(),
+                    "[\"Alpha Root\"]".to_string(),
+                ),
+                (
+                    beta_path.display().to_string(),
+                    0,
+                    None,
+                    "0000".to_string(),
+                    "[\"beta\"]".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn rebuild_stores_generic_raw_keywords_on_the_synthetic_level_zero_heading() {
         let test_dir = TestDir::new("rebuild-generic-raw-keywords");
         let notes_dir = test_dir.path().join("notes");

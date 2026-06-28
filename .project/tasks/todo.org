@@ -305,7 +305,7 @@ Validation:
 
 [[./archive/2026-06-28--complete-atomic-schema-migration-transaction-handling.org]]
 
-*** BUILD [#B] Document and test DB-level sentinel for synthetic level-0 headings
+*** DONE [#B] Document and test DB-level sentinel for synthetic level-0 headings
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -313,118 +313,7 @@ Validation:
 :API_CONTRACT_CHANGE: Maybe
 :END:
 
-Goal:
-
-- Document and test the DB-level sentinel semantics for synthetic level-0/root headings.
-- Avoid confusion between parser-level headings and DB-internal synthetic root rows.
-
-Context:
-
-- `headings --json` includes synthetic level-0/root rows by default and excludes them with `--no-root`.
-- That CLI/API behavior is already documented and tested.
-- This task is about DB-level invariants, especially sentinel values such as `level = 0` and `byte_start = -1`.
-- Parser-level Org headings are not level-0 headings; level-0 rows are synthetic DB/file-root rows.
-
-Scope:
-
-- Document DB-level meaning of synthetic root rows.
-- Add focused DB/indexer tests if missing.
-- Ensure constraints/invariants are intentional and clear.
-- Confirm whether level-0 rows participate in outline paths.
-- Do not change CLI JSON root behavior unless a mismatch is found.
-- Do not change parser semantics.
-- Do not change DB schema unless a serious mismatch is found.
-
-Questions:
-
-- Is `byte_start = -1` the intended stable DB sentinel for synthetic level-0 rows?
-- Should level-0 rows always have `parent_id = NULL`?
-- Should level-0 rows always represent file/document roots?
-- Should level-0 rows be included in outline paths?
-- Are constraints already enforcing enough of this?
-- Are current tests sufficient, or do they only test CLI output behavior?
-
-Codex settings:
-
-#+begin_src text
-Status: BUILD
-Model: GPT-5.4
-Reasoning: Medium
-Plan mode: Off
-#+end_src
-
-Codex BUILD prompt:
-
-#+begin_src text
-You are working in the org-files-db Rust repository.
-
-Task: Document and test DB-level sentinel semantics for synthetic level-0 headings.
-
-Context:
-headings --json now includes synthetic level-0/root rows by default and excludes them with --no-root. That CLI/API behavior is already documented and tested. This task is about the DB-level invariants behind those synthetic rows, especially level = 0, parent_id = NULL, and byte_start = -1.
-
-Goal:
-Make the DB-level meaning of synthetic root rows explicit and add focused tests if the invariants are not already covered.
-
-Before editing:
-Briefly inspect:
-- src/indexer.rs
-- src/db/schema.rs
-- src/db/writer.rs
-- src/db/reader.rs
-- README.org
-- existing tests around level-0/root headings and headings --json
-
-Do not use .project/manual-tests.
-Do not perform broad refactors.
-Do not change parser behavior.
-Do not change CLI JSON root behavior unless a mismatch is found.
-Do not change DB schema unless a serious mismatch is found.
-Do not bump CURRENT_SCHEMA_VERSION.
-
-Required behavior to preserve or document:
-- Synthetic level-0/root rows represent file/document roots.
-- Parser-level Org headings are not level-0 headings.
-- Synthetic root rows use level = 0.
-- Synthetic root rows use parent_id = NULL.
-- Synthetic root rows use byte_start = -1 as the DB sentinel.
-- Synthetic root rows are created by indexing/rebuild, not by the parser.
-- headings --json includes synthetic root rows by default and excludes them with --no-root.
-- all_tags for synthetic root rows remains a JSON array in public CLI output.
-
-Implementation guidance:
-- Prefer documentation and focused tests over schema changes.
-- If schema constraints already encode some invariants, document them.
-- If schema constraints do not encode all invariants, do not add new constraints unless the current code clearly relies on them and the change is tiny.
-- Add DB/indexer tests that inspect stored rows directly if current tests only cover CLI JSON output.
-- Avoid broad README restructuring.
-
-Tests to add/update:
-- Rebuild creates one synthetic level-0 root row per indexed file.
-- Synthetic level-0 root rows have parent_id = NULL.
-- Synthetic level-0 root rows have byte_start = -1.
-- Real Org headings have level >= 1 and parent_id pointing under the synthetic root where applicable.
-- If outline paths include synthetic root rows, test and document that behavior.
-- If outline paths intentionally exclude synthetic root rows, test and document that behavior.
-- Existing headings --json default and --no-root tests must continue to pass.
-
-Documentation:
-- Add or update a concise README/developer-doc note explaining DB-level synthetic root rows.
-- Make clear that this is a DB/indexing sentinel, not parser syntax.
-- Mention the public CLI behavior only as context, not as the main focus.
-
-Validation:
-- Run make ci.
-- Do not use .project/manual-tests.
-
-Completion report:
-Summarize:
-- DB-level sentinel behavior documented
-- tests added/updated
-- whether outline paths include root rows
-- whether any schema constraints were changed
-- exact make ci result
-#+end_src
+[[./archive/2026-06-28--document-and-test-db-level-sentinel-for-synthetic-level-0-headings.org]]
 
 *** TODO [#C] Refresh project docs and package metadata
 :PROPERTIES:

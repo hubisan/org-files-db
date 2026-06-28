@@ -910,7 +910,7 @@ mod tests {
             parent_id: None,
             level: 0,
             line_number: None,
-            byte_start: 0,
+            byte_start: -1,
             byte_end: 100,
             title: path.to_string(),
             title_raw: path.to_string(),
