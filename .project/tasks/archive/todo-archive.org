@@ -2,7 +2,7 @@
 #+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
 #+STARTUP: showall
 
-* Phase 0: Foundation and parser risks
+* DONE Phase 0: Foundation and parser risks
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
@@ -16,21 +16,21 @@ Therefore, an adapter layer is built first and protected with representative fix
 
 ** DONE [2026-06-16 Tue 22:14] Define parser abstraction and internal data model
 
-[[./2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
+[[./phase-0--foundation-and-parser-risks/2026-06-16--define-parser-abstraction-and-internal-data-model.org]]
 
 ** DONE [2026-06-16 Tue 23:15] Evaluate minimal Orgize adapter
 
-[[./2026-06-16--evaluate-minimal-orgize-adapter.org]]
+[[./phase-0--foundation-and-parser-risks/2026-06-16--evaluate-minimal-orgize-adapter.org]]
 
 ** DONE [2026-06-17 Wed 11:14] Structure test fixtures for parser regressions
 
-[[./2026-06-17--structure-parser-regression-fixtures.org]]
+[[./phase-0--foundation-and-parser-risks/2026-06-17--structure-parser-regression-fixtures.org]]
 
 ** DONE [2026-06-17 Wed 11:46] Create parser risk list
 
-[[./2026-06-17--create-parser-risk-list.org]]
+[[./phase-0--foundation-and-parser-risks/2026-06-17--create-parser-risk-list.org]]
 
-* Phase 1: Minimal end-to-end slice
+* DONE Phase 1: Minimal end-to-end slice
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
@@ -55,80 +55,380 @@ config
 
 ** DONE [2026-06-17 Wed 12:56] Define minimal config
 
-[[./2026-06-17--define-minimal-config.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-17--define-minimal-config.org]]
 
 ** DONE [2026-06-17 Wed 13:24] Define configurable TODO keyword model
 
-[[./2026-06-17--define-configurable-todo-keyword-model.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-17--define-configurable-todo-keyword-model.org]]
 
 ** DONE [2026-06-17 Wed 13:53] Define minimal `ParsedHeading` / `OrgHeading`
 
-[[./2026-06-17--define-minimal-parsed-heading.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-17--define-minimal-parsed-heading.org]]
 
 ** DONE [2026-06-17 Wed 23:00] Open SQLite and enable WAL
 
-[[./2026-06-17--open-sqlite-and-enable-wal.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-17--open-sqlite-and-enable-wal.org]]
 
 ** DONE [2026-06-18 Thu 00:10] Review and improve SQLite schema
 
-[[./2026-06-17--review-and-improve-sqlite-schema.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-17--review-and-improve-sqlite-schema.org]]
 
 ** DONE [2026-06-18 Thu 00:21] Implement minimal DB schema migration
 
-[[./2026-06-18--implement-minimal-db-schema-migration.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-minimal-db-schema-migration.org]]
 
 ** DONE [2026-06-18 Thu 00:36] Implement minimal DB functions
 
-[[./2026-06-18--implement-minimal-db-functions.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-minimal-db-functions.org]]
 
 ** DONE [2026-06-18 Thu 11:28] Implement Orgize adapter for headings and priorities
 
-[[./2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-orgize-adapter-for-headings-and-priorities.org]]
 
 ** DONE [2026-06-18 Thu 11:28] Implement indexer for full rebuild
 
-[[./2026-06-18--implement-indexer-for-full-rebuild.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--implement-indexer-for-full-rebuild.org]]
 
 ** DONE [2026-06-18 Thu 16:36] Set up CLI with Clap
 
-[[./2026-06-18--set-up-cli-with-clap.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--set-up-cli-with-clap.org]]
 
-** DONE [2026-06-18 Thu] Implement a small CLI follow-up for level-0/root heading output.
+** DONE [2026-06-18 Thu] Implement a small CLI follow-up for level-0/root heading output./phase-1--minimal-end-to-end-slice
 
-[[./2026-06-18--feat-cli-implement-include-root.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--feat-cli-implement-include-root.org]]
 
 ** DONE [2026-06-18 Thu] Expand `~` in config paths
 
-[[./2026-06-18--expand-tilde-in-config-paths.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--expand-tilde-in-config-paths.org]]
 
 ** DONE [2026-06-18 Thu] Add `--config` support to `headings --json`
 
-[[./2026-06-18--add-config-support-to-headings-json.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--add-config-support-to-headings-json.org]]
 
 ** DONE Normalize `title` and preserve `title_raw` for headings
 
-[[./2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--normalize-title-and-preserve-title-raw-for-headings.org]]
 
 ** DONE Respect file-local TODO keyword config in parser/indexer pipeline
 
-[[./2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--respect-file-local-todo-keyword-config-in-parser-indexer-pipeline.org]]
 
 ** DONE Compute inherited tags for `all_tags_json`
 
-[[./2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-18--compute-inherited-tags-for-all-tags-json.org]]
 
 ** DONE Support simplified file-local TODO keyword lines
 
-[[./2026-06-19--support-simplified-file-local-todo-keyword-lines.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-19--support-simplified-file-local-todo-keyword-lines.org]]
 
 ** DONE [2026-06-19 Fri 13:15] Support multiple file-wide `#+TITLE:` keywords
 
-[[./2026-06-19--support-multiple-file-wide-title-keywords.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-19--support-multiple-file-wide-title-keywords.org]]
 
 ** DONE [2026-06-19 Fri 14:41] Normalize resolved config paths syntactically
 
-[[./2026-06-19--normalize-resolved-config-paths-syntactically.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-19--normalize-resolved-config-paths-syntactically.org]]
 
 ** DONE Verify minimal end-to-end slice
 
-[[./2026-06-19--verify-minimal-end-to-end-slice.org]]
+[[./phase-1--minimal-end-to-end-slice/2026-06-19--verify-minimal-end-to-end-slice.org]]
+
+* DONE Phase 2: Complete parser data model v0.1
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal of this phase:
+Extend the data model enough to represent real Org workflows meaningfully, without already building the full query engine.
+
+** DONE [2026-06-19 Fri 16:17] Compute parent-child structure
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-19--compute-parent-child-structure.org]]
+
+** DONE [2026-06-19 Fri 16:50] Store materialized outline path
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-19--store-materialized-outline-path.org]]
+
+** DONE [2026-06-23 Tue 00:01] Parse Org timestamps and planning fields
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-19--parse-planning-lines.org]]
+
+** DONE [2026-06-23 Tue 16:37] Parse properties drawer and file-level properties
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--parse-properties-drawer-and-file-level-properties.org]]
+
+** DONE [2026-06-23 Tue 20:17] Fix PROPERTY and CATEGORY normalization to use whole-file keyword scan
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--fix-property-and-category-normalization-to-use-whole-file-keyword-scan.org]]
+
+Goal: Ensure that normalized property rows created from ~#+PROPERTY~ and ~#+CATEGORY~ are based on keyword lines from the whole Org document, not only on keywords before the first regular heading.
+
+Context: Org keyword lines can appear later in the buffer and still be recognized by Org-mode. The raw keyword parser/indexer stores keyword rows on the synthetic level 0 heading. Property normalization for ~#+PROPERTY~ and ~#+CATEGORY~ must use the same parsed keyword source, but this task must not change TODO keyword semantics.
+
+Important regression context: A previous attempt changed the central keyword collection path too broadly and caused ~todo_keywords~ insertion to fail with a uniqueness error. This task must avoid that regression.
+
+Do not change:
+
+- Do not change normalized ~TODO~, ~SEQ_TODO~, or ~TYP_TODO~ behavior.
+- Do not remove existing TODO keyword deduplication or merge logic.
+- Do not change the ~todo_keywords~ schema.
+- Do not change the uniqueness behavior of ~todo_keywords~.
+- Do not modify manual SQLite database files.
+- Do not modify task tracking files such as ~.project/tasks/todo.org~, except for moving this task through the workflow if explicitly required by the project process.
+- Do not implement a second independent raw-text scanner if a parsed keyword list already exists.
+- Do not compute effective or inherited property values in this task.
+
+Problem:
+
+#+begin_src org
+  ,#+PROPERTY: var before
+
+  ,* First heading
+
+  ,#+PROPERTY: var after
+  ,#+CATEGORY: later-category
+
+  ,* Second heading
+#+end_src
+
+Expected parser/indexer behavior:
+
+- Both ~#+PROPERTY~ rows are stored as raw keyword rows.
+- The later ~#+CATEGORY~ row is stored as a raw keyword row.
+- Both ~#+PROPERTY~ rows also create normalized rows in ~properties~ with ~source = property_keyword~.
+- The ~#+CATEGORY~ row also creates a normalized row in ~properties~ with ~source = category_keyword~.
+- All normalized rows are attached to the synthetic level 0 heading.
+- No normalized row is attached directly to ~First heading~ or ~Second heading~.
+
+Scope:
+
+- Reuse the existing parsed keyword collection used for raw keyword insertion, if available.
+- If the existing parser has special whole-buffer keyword logic for ~TODO~, ~SEQ_TODO~, ~TYP_TODO~, ~PROPERTY~, or ~CATEGORY~, preserve it unless a test proves it is wrong.
+- Do not replace the central keyword collector with a broad ~syntax().descendants().filter_map(Keyword::cast)~ implementation unless all existing keyword/TODO tests still pass and no duplicate ~todo_keywords~ rows are produced.
+- Do not limit ~#+PROPERTY~ or ~#+CATEGORY~ normalization to the preamble before the first regular heading.
+- Preserve duplicate raw keyword rows.
+- Preserve duplicate normalized property rows.
+- Preserve source order through ~line_number~ and/or insertion order.
+- Keep keyword rows and property rows separate.
+- Store ~#+PROPERTY~ and ~#+CATEGORY~ twice: once as raw ~keywords~ rows and once as normalized ~properties~ rows.
+- Attach normalized ~property_keyword~ and ~category_keyword~ rows only to the synthetic level 0 heading.
+- Do not attach normalized keyword-derived property rows to surrounding regular headings.
+
+Normalization rules:
+
+- ~#+PROPERTY: key value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 0, and heading_id = synthetic level 0 heading.
+- ~#+PROPERTY: key+ value~ creates a row in ~properties~ with key ~KEY~, value ~value~, source ~property_keyword~, append = 1, and heading_id = synthetic level 0 heading.
+- ~#+CATEGORY: value~ creates a row in ~properties~ with key ~CATEGORY~, value ~value~, source ~category_keyword~, append = 0, and heading_id = synthetic level 0 heading.
+- The trailing ~+~ append marker is not part of the stored key.
+- Property keys are normalized consistently with the existing property implementation.
+
+Required regression fixture:
+
+#+begin_src org
+  ,#+TITLE: Keyword and Property Normalization Fixture
+  ,#+STARTUP: showall
+  ,#+PROPERTY: before_prop before-value
+  ,#+CATEGORY: before-category
+
+  ,* First heading
+  This heading has body text before later keywords.
+
+  ,#+AUTHOR: Later Author
+  ,#+OPTIONS: toc:nil num:t
+  ,#+PROPERTY: after_prop after-value
+  ,#+PROPERTY: repeated_prop first
+  ,#+PROPERTY: repeated_prop second
+  ,#+PROPERTY: appended_prop base
+  ,#+PROPERTY: appended_prop+ extra
+  ,#+CATEGORY: after-category
+
+  ,** Child heading
+  This child should not directly receive keyword or property rows created from later file-level keywords.
+
+  ,#+TITLE: Later Title
+  ,#+EXPORT_FILE_NAME: later-export-name
+
+  ,* Second heading
+  This heading appears after later keywords.
+
+  ,#+PROPERTY: second_after_heading works
+  ,#+CATEGORY: second-category
+#+end_src
+
+Expected normalized property rows on level 0:
+
+#+begin_src text
+BEFORE_PROP          | before-value    | property_keyword | append = 0
+CATEGORY             | before-category | category_keyword | append = 0
+AFTER_PROP           | after-value     | property_keyword | append = 0
+REPEATED_PROP        | first           | property_keyword | append = 0
+REPEATED_PROP        | second          | property_keyword | append = 0
+APPENDED_PROP        | base            | property_keyword | append = 0
+APPENDED_PROP        | extra           | property_keyword | append = 1
+CATEGORY             | after-category  | category_keyword | append = 0
+SECOND_AFTER_HEADING | works           | property_keyword | append = 0
+CATEGORY             | second-category | category_keyword | append = 0
+#+end_src
+
+Expected attachment behavior:
+
+- All rows above are attached to the synthetic level 0 heading.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~First heading~.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~Child heading~.
+- No ~property_keyword~ or ~category_keyword~ row is attached to ~Second heading~.
+
+Required TODO regression fixture:
+
+#+begin_src org
+  ,#+TODO: TODO NEXT | DONE
+  ,#+SEQ_TODO: TODO WAIT | DONE CANCELED
+
+  ,* TODO First heading
+  ,* NEXT Second heading
+  ,* DONE Finished heading
+#+end_src
+
+Expected TODO behavior:
+
+- Rebuild must not fail with ~UNIQUE constraint failed: todo_keywords.file_id, todo_keywords.keyword~.
+- Raw keyword rows may preserve both TODO-related keyword declarations.
+- Normalized ~todo_keywords~ rows must remain valid for the existing schema.
+- If duplicate normalized TODO keywords occur, keep the existing project behavior for deduplication or conflict handling.
+- Do not change TODO keyword semantics unless an existing test is wrong and the change is explicitly justified.
+
+Acceptance criteria:
+
+- A test proves that ~#+PROPERTY~ after a regular heading creates a ~properties~ row on the level 0 heading.
+- A test proves that ~#+CATEGORY~ after a regular heading creates a ~properties~ row on the level 0 heading.
+- A test proves that raw ~keywords~ rows are still stored for those later keyword lines.
+- A test proves that no ~property_keyword~ or ~category_keyword~ row is attached to the surrounding regular heading.
+- Duplicate ~#+PROPERTY~ rows from different positions are preserved.
+- Append syntax with ~#+PROPERTY: key+ value~ is preserved as ~append = 1~.
+- Existing TODO keyword tests still pass.
+- A regression test proves that rebuild does not fail with duplicate or overlapping TODO declarations.
+- The implementation uses the same keyword source as raw keyword insertion, or clearly documents why that is not possible.
+- The test fails on the old implementation if ~#+PROPERTY~ or ~#+CATEGORY~ is only scanned before the first regular heading.
+
+Validation:
+
+- Run the new parser/indexer tests.
+- Run all existing TODO keyword tests.
+- Run the rebuild command that previously failed, if available:
+  #+begin_src shell
+    cargo run -- rebuild --config ./Config.toml
+  #+end_src
+- Run the project standard validation command if available, for example:
+  #+begin_src shell
+    make ci
+  #+end_src
+
+** DONE [2026-06-23 Tue 20:45] Verify and complete raw keyword parsing contract
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--verify-and-complete-raw-keyword-parsing-contract.org]]
+
+** DONE [2026-06-23 Tue 21:53] Parse direct heading tags and FILETAGS as normalized tag facts
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--parse-direct-heading-tags-and-filetags-as-normalized-tag-facts.org]]
+
+** DONE [2026-06-23 Tue 22:02] Simplify tags schema to direct tag facts only
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--simplify-tags-schema-to-direct-tag-facts-only.org]]
+
+** DONE Store optional body text per heading
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--store-optional-body-text-per-heading.org]]
+
+** DONE [2026-06-23 Tue 23:24] Refine heading body extraction to exclude structured metadata
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-23--refine-heading-body-extraction-to-exclude-structured-metadata.org]]
+
+** DONE [#A] Introduce per-file TODO keyword resolution before external TODO sources
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:ARCHITECTURE: Yes
+:END:
+
+[[file:phase-2--complete-parser-data-model-v0.1/2026-06-26--tighten-shared-todo-keyword-parsing.org]]
+
+** DONE [#A] Consider safe parsing of Emacs `.dir-locals.el` for Org TODO keywords
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:BEHAVIOR_API_CHANGE: Yes
+:SECURITY_SENSITIVE: Yes
+:END:
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-26--safe-dir-locals-todo-keywords.org]]
+
+** DONE [2026-06-27 Sat 01:13] Reduce noisy warnings for irrelevant ~.dir-locals.el~ forms
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--reduce-noisy-warnings-for-irrelevant-dir-locals-forms.org]]
+
+** DONE [2026-06-27 Sat 11:33] Roll back .dir-locals.el org-todo-keywords as effective TODO source
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--rollback-dir-locals-todo-keywords.org]]
+
+** DONE [2026-06-27 Sat 11:33] Ignore .dir-locals.el completely during indexing
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--ignore-dir-locals-during-indexing.org]]
+
+
+*** DONE [#B] Ignore .dir-locals.el completely during indexing
+
+[[file:phase-2--complete-parser-data-model-v0.1/2026-06-27--rollback-dir-locals-todo-keywords.org][Roll back .dir-locals.el org-todo-keywords as effective TODO source]]
+
+** DONE [2026-06-27 Sat 12:02] Define DB schema versioning
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--define-db-schema-versioning.org]]
+
+** DONE [2026-06-27 Sat 12:27] Finalize DB schema and JSON API for v0.1
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--finalize-db-schema-and-json-api-v0-1.org]]
+
+** Repo durch Codex/ChatGPT prüfen lassen
+
+*** DONE [2026-06-27 Sat 22:33] Canonicalize configured paths more robustly
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--canonicalize-configured-paths-more-robustly.org]]
+
+*** DONE [#B] Clean up stale TODO keyword test names and .dir-locals configuration leftovers
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--clean-up-stale-todo-keyword-test-names-and-dir-locals-configuration-leftovers.org]]
+
+*** DONE [#B] Refresh README and parser risk docs to match current implementation
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:END:
+
+*** DONE [#B] Narrow the public library surface
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-27--narrow-the-public-library-surface.org]]
+
+*** DONE [2026-06-28 Sun 00:45] Guard rebuild against accidental empty input scope
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--guard-rebuild-against-accidental-empty-input-scope.org]]
+
+*** DONE [2026-06-28 Sun 00:56] Complete atomic schema/migration transaction handling
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--complete-atomic-schema-migration-transaction-handling.org]]
+
+*** DONE [#B] Document and test DB-level sentinel for synthetic level-0 headings
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--document-and-test-db-level-sentinel-for-synthetic-level-0-headings.org]]
+
+*** DONE [#C] Refresh project docs and package metadata
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:DOCS_ONLY: Mostly
+:END:
+
+[[./phase-2--complete-parser-data-model-v0.1/2026-06-28--refresh-project-docs-and-package-metadata.org]]

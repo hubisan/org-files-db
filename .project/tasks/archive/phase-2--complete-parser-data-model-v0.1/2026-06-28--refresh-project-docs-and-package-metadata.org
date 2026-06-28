@@ -1,0 +1,94 @@
+#+TITLE: Refresh project docs and package metadata
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-28 Sun 12:51]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Refresh the next BUILD task.
+  - Keep the work documentation and package-metadata focused.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,*** BUILD [#C] Refresh project docs and package metadata
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:DOCS_ONLY: Mostly
+:END:
+
+Direct: BUILD mit Mini-Medium
+
+Goal:
+
+- Refresh broader project documentation after recent parser, DB, CLI, and contract stabilization work.
+- Add missing package metadata to ~Cargo.toml~.
+- Keep the task focused on project hygiene and release readiness.
+#+end_src
+
+* Planning
+
+** Problem summary
+- README content still contained stale repository and architecture references.
+- `Cargo.toml` was missing standard package metadata that improves crate discovery and packaging.
+
+** Goals
+- Update project docs so they match the current codebase.
+- Add conservative, accurate package metadata to `Cargo.toml`.
+
+** Non-goals
+- No runtime behavior changes.
+- No dependency changes.
+- No broad documentation rewrite.
+
+** Architecture
+- Keep the README focused on current repo structure and current contracts.
+- Add only package metadata that is known from the repository itself.
+
+** Execution plan
+- Update README wording and remove stale links.
+- Add package metadata fields in `Cargo.toml`.
+- Run `make ci` and record the result.
+
+** Risks & assumptions
+- Assumption: the repository license is the checked-in GPLv3 text in `LICENSE`, so `license-file` is the safest metadata choice.
+- Risk: broad metadata changes can accidentally become stale again if the repository naming changes later.
+
+** Open questions
+- None.
+
+** Proposed checks
+- =make ci=
+
+* Results
+
+** Approach
+- Updated the top-level README to reflect the current end-to-end architecture and removed the stale external badge link.
+- Added conservative, repo-backed Cargo metadata fields.
+- Kept the scope to documentation and package metadata only.
+
+** Changed files
+- =Cargo.toml=
+- =README.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-28--refresh-project-docs-and-package-metadata.org=
+
+** Checks performed
+- =make ci=
+
+** Test results
+- =make ci= passed cleanly after the documentation and metadata updates.
+- No runtime code changes were made.
+- No dependencies were changed.
+- No schema or API behavior was changed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- If the repository gains a GitHub Actions workflow later, the README can add a fresh workflow badge again.

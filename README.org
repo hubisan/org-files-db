@@ -1,19 +1,21 @@
 #+STARTUP: showall
 * Org
 
-[[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]] [[https://github.com/hubisan/woerterbuch/actions/workflows/tests.yml][https://github.com/hubisan/woerterbuch/actions/workflows/tests.yml/badge.svg]]
+[[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]] [[https://github.com/hubisan/org-files-db][GitHub repository]]
 
 ** AI Agent Instructions
 
 This repository contains AI-specific development instructions in [[./AGENTS.md]] =AGENTS.md=. AI agents must read =AGENTS.md= before making changes.
 
-** Current Architecture Baseline
+** Current Architecture
 
-The current codebase is intentionally a minimal scaffold around the parser-first architecture described in =.project/tasks/todo.org=.
+The codebase now implements the end-to-end indexing flow described in =.project/tasks/todo.org=.
 
 - =src/parser/= owns the internal parser trait, data model, diagnostics, and the Orgize implementation adapter
-- =src/indexer/= orchestrates parser access without Orgize-specific logic
-- =src/db/=, =src/query/=, and =src/cli/= are present as compilable placeholders for later tasks
+- =src/indexer.rs= orchestrates parsing, normalization, and DB writes
+- =src/db/= owns the SQLite schema, reader, and writer layers
+- =src/query.rs= contains query-side helpers used by the CLI and tests
+- =src/cli.rs= exposes the supported rebuild and headings commands
 - =main.rs= remains thin and delegates directly to the CLI module
 
 ** Parser Contract Notes

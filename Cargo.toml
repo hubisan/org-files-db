@@ -2,6 +2,12 @@
 name = "org-files-db"
 version = "0.1.0"
 edition = "2021"
+description = "SQLite index and query tool for Org files"
+license-file = "LICENSE"
+repository = "https://github.com/hubisan/org-files-db"
+readme = "README.org"
+keywords = ["org-mode", "sqlite", "cli", "indexer"]
+categories = ["command-line-interface", "database", "parsing", "text-processing"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
