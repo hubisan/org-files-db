@@ -33,3 +33,825 @@ Archived in [[./archive/todo-archive.org]]
 :END:
 
 Archived in [[./archive/todo-archive.org]]
+
+* Phase 3: Org link extractor
+
+** Goal of this phase
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Extract Org links as raw source facts and store them in SQLite without depending on Orgize's link support being complete. Link resolution to files, headings, IDs, CUSTOM_IDs, org-id-locations, or relationship graphs belongs to later phases.
+
+Core rules:
+
+- Store source facts only.
+- Do not resolve link targets in Phase 3.
+- Do not execute action-like links such as ~shell:~ or ~elisp:~.
+- Keep raw link text and byte ranges as the source of truth.
+- Use Orgize for document structure where useful, but do not rely on Orgize as the only source of links.
+- Implement a dh-owned raw-text scanner for link tokens.
+- Bracket links, angle links, and configured plain links are the supported Phase 3 formats.
+- Radio targets, link abbreviations, and relationship extraction are postponed.
+- Multi-line bracket links are postponed unless explicitly enabled later.
+- Links outside regular headings attach to the synthetic level-0/root heading.
+- User-facing CLI output should expose enough source location data for editor jumps.
+
+** TODO SPEC [#A] Define supported Org link syntax and Orgize fallback policy
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: Maybe
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Define exactly which Org link forms Phase 3 supports, ignores, or preserves for later.
+- Decide how dh behaves when Orgize does not expose or misparses link objects.
+
+Context:
+
+- Older notes already define a custom lexer/parser spec for bracket, angle, and plain links.
+- Older fixtures cover internal links, external links, custom link types, search options, ignored regions, escaping, line breaks, and Unicode.
+- Orgize may not expose all links needed by dh, especially plain links and edge cases.
+- Phase 3 should extract source link facts, not resolve targets.
+
+Scope:
+
+- Review the old link lexer/parser spec.
+- Review the old org link test fixture.
+- Define Phase 3-supported formats:
+  - bracket links: ~[[target]]~ and ~[[target][description]]~
+  - angle links: ~<type:path>~
+  - plain links: ~type:path~
+- Define postponed formats:
+  - radio targets
+  - link abbreviations
+  - relationship markers in descriptions
+  - multi-line bracket links
+- Define built-in protocols.
+- Define configurable custom protocols.
+- Define default plain-link protocols.
+- Define ignored regions:
+  - code/verbatim markup
+  - source blocks
+  - example blocks
+  - comment blocks and comment lines
+  - export blocks
+  - inline source/export forms where feasible
+- Decide whether property drawer links are parsed as a deliberate dh-specific deviation.
+- Decide whether keyword links such as ~#+TITLE: https://example.com~ are parsed.
+- Document Orgize mismatch policy.
+- Do not implement link extraction in this task.
+
+Questions:
+
+- Are multi-line bracket links out of scope for the whole Phase 3 or only disabled by default?
+- Are property drawer links intentionally parsed?
+- Are links in file-level keywords intentionally parsed?
+- Is ~doi~ a built-in protocol or only supported through config?
+- Are action protocols such as ~shell~ and ~elisp~ stored as source facts, disabled by default, or ignored?
+- Should unknown typed bracket links become ~fuzzy~ or be ignored?
+- Should plain-link protocols default to only ~http~, ~https~, and ~file~?
+- Should ~attachment~, ~docview~, and ~id~ search options be split in Phase 3 or postponed to resolution?
+
+Acceptance criteria:
+
+- A support matrix lists supported, configurable, postponed, and ignored link forms.
+- Orgize dependency boundaries are documented.
+- Known Orgize mismatches are listed with minimal examples.
+- Phase 3 implementation is allowed to use a dh-owned raw-text scanner.
+- Upstream issue policy is documented.
+- No link resolution is implemented.
+
+** TODO DECIDE [#A] Define Orgize upstream and friendly-fork policy
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Decide when to report Orgize issues upstream, when to work around them locally, and when a friendly fork would be justified.
+
+Context:
+
+- Orgize may ignore or misparse some link forms required by dh.
+- Orgize maintainer responsiveness appears uncertain.
+- Known Orgize issues and edge cases should not block Phase 3.
+
+Scope:
+
+- Document that dh does not block on upstream Orgize fixes for link extraction.
+- Prefer local adapter/workaround code for dh-specific indexing behavior.
+- Report general parser bugs upstream with minimal reproducible examples.
+- Keep a friendly fork as a last resort.
+- Do not create a fork in this task.
+- Do not vendor Orgize changes in this task.
+
+Suggested policy:
+
+- Use Orgize for structural context:
+  - headings
+  - section/body ranges
+  - skipped structural areas if reliable
+- Use a dh-owned scanner for link tokens.
+- Treat Orgize link nodes as optional cross-checks, not as the contract.
+- Open upstream issues or PRs only for general Orgize correctness bugs.
+- Fork only if:
+  - the fix belongs generally in Orgize,
+  - the patch is small and well-tested,
+  - upstream remains inactive after a reasonable attempt,
+  - maintaining a fork is cheaper than keeping the behavior isolated in dh.
+
+Acceptance criteria:
+
+- Orgize mismatch policy is documented.
+- Fork criteria are documented.
+- Phase 3 can proceed without upstream changes.
+- Existing Orgize issues relevant to links are referenced in project notes.
+- A minimal-repro style for future upstream reports is documented.
+
+** TODO SPEC [#A] Define links config contract
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Define config variables controlling custom link types and plain-link extraction.
+
+Scope:
+
+- Define default plain-link protocols.
+- Define custom protocols.
+- Define whether property drawer parsing is configurable.
+- Define whether multi-line bracket links are configurable or hard-disabled for Phase 3.
+- Ensure bracket links are not disabled by the plain-link config.
+- Ensure angle links use recognized built-in and custom protocols.
+- Do not implement config loading in this task unless trivial.
+
+Suggested config:
+
+#+begin_src toml
+[links]
+plain_protocols = ["http", "https", "file"]
+custom_protocols = []
+parse_property_drawers = true
+parse_keyword_values = false
+parse_multiline_bracket_links = false
+#+end_src
+
+Notes:
+
+- Empty ~plain_protocols~ disables plain-link extraction.
+- Missing ~plain_protocols~ uses the default.
+- ~custom_protocols~ affects bracket, angle, and plain links.
+- Bracket links with unknown typed targets may still be stored as ~fuzzy~ depending on the syntax decision.
+- Action-like protocols may be stored as source facts but must never be executed.
+
+Acceptance criteria:
+
+- Config keys and defaults are documented.
+- Empty list behavior is documented.
+- Custom protocol behavior is documented.
+- Plain-link extraction can be disabled without disabling bracket or angle links.
+- Dangerous/action protocol behavior is documented.
+- Tests are planned for enabled, disabled, and custom protocols.
+
+** TODO [#A] Create links DB table and storage functions
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Add the SQLite representation for raw link source facts.
+- Support delete-and-reinsert per file during rebuild.
+
+Scope:
+
+- Add or finalize the ~links~ table.
+- Add insert/delete helpers.
+- Wire storage into the per-file rebuild transaction.
+- Preserve existing schema versioning and migration behavior.
+- Keep Phase 4 resolution fields nullable.
+- Do not implement target resolution.
+
+Suggested source fields:
+
+- ~id~
+- ~file_id~
+- ~heading_id~
+- ~byte_start~
+- ~byte_end~
+- ~line~
+- ~format~
+- ~raw~
+- ~raw_target~
+- ~raw_description~
+- ~type~
+- ~path~
+- ~search_option~
+- ~description~
+
+Suggested later/resolution fields:
+
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+
+Questions:
+
+- Should ~relation~ exist now as nullable/preserved-later, or wait until relationship extraction is accepted?
+- Should ~raw_description~ and ~description~ both exist, or should Phase 3 only store raw description?
+- Should ~type~ be called ~link_type~ to avoid SQL/API ambiguity?
+
+Acceptance criteria:
+
+- DB table is created through the normal schema path.
+- Links can be deleted and reinserted per file.
+- Link rows reference ~file_id~ and ~heading_id~.
+- Resolution target fields are nullable and untouched in Phase 3.
+- Storage tests cover regular heading links.
+- Storage tests cover synthetic level-0/root links.
+- Existing schema-version tests continue to pass.
+
+** TODO [#A] Implement dh-owned link scanner skeleton
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Implement a small scanner over raw Org source text that detects link tokens independently of Orgize link support.
+
+Scope:
+
+- Scan left-to-right over raw source bytes/text.
+- Try link formats in this order:
+  1. bracket link
+  2. angle link
+  3. plain link
+- Return raw link tokens with byte ranges.
+- Preserve line number for the token start.
+- Accept parser context from the outer Org parser where needed.
+- Do not store links yet unless storage wiring is already available.
+- Do not implement all edge cases in this skeleton.
+
+Scanner priority:
+
+#+begin_src text
+1. If current position starts with [[, try parse bracket link.
+2. Else if current char is <, try parse angle link.
+3. Else try parse plain link.
+4. Otherwise advance by one character.
+#+end_src
+
+Acceptance criteria:
+
+- Scanner has unit tests for basic bracket, angle, and plain candidates.
+- Failed bracket parses advance safely and continue scanning.
+- Byte offsets are deterministic.
+- Unicode text before links does not corrupt byte positions.
+- No dependency on Orgize link nodes exists in the scanner core.
+
+** TODO [#A] Extract bracket links as raw source facts
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Extract supported Org bracket links and store them as source facts.
+
+Examples:
+
+#+begin_src org
+[[target]]
+[[target][description]]
+[[file:notes.org]]
+[[./notes.org]]
+[[#custom-id]]
+[[*Heading]]
+#+end_src
+
+Scope:
+
+- Parse ~[[target]]~.
+- Parse ~[[target][description]]~.
+- Preserve raw link text.
+- Preserve raw target.
+- Preserve raw description when present.
+- Store ~format = bracket~.
+- Derive basic ~type~ and ~path~.
+- Treat implicit file targets as ~type = file~ when target starts with:
+  - ~./~
+  - ~../~
+  - ~/~
+  - ~~/~
+- Treat ~#custom-id~ as ~custom-id~ source fact.
+- Treat heading/dedicated/named/fallback internal links as ~fuzzy~ source facts.
+- Store byte positions and line number.
+- Attach links to containing heading.
+- Attach links outside regular headings to synthetic level-0/root heading.
+- Do not resolve targets.
+
+Out of scope:
+
+- Target file lookup.
+- Heading lookup.
+- CUSTOM_ID lookup.
+- org-id-locations lookup.
+- Multi-line bracket links.
+- Relationship extraction.
+
+Acceptance criteria:
+
+- Fixture tests cover typed bracket links.
+- Fixture tests cover target-only bracket links.
+- Fixture tests cover described bracket links.
+- Fixture tests cover implicit file bracket links.
+- Fixture tests cover ~#custom-id~ links.
+- Fixture tests cover fuzzy links such as ~[[*Heading]]~ and ~[[dedicated target]]~.
+- Fixture tests cover links before the first heading.
+- Raw link, raw target, and raw description are preserved.
+- Existing heading/root/sentinel tests continue to pass.
+
+** TODO [#A] Handle bracket-link escaping and weird delimiter cases
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Make bracket-link parsing deterministic for escaped brackets, backslashes, invalid targets, and zero-width delimiter breakers.
+
+Scope:
+
+- Implement odd/even backslash escaping for target delimiters.
+- Reject unescaped ~[~ and ~]~ in the target.
+- Allow escaped ~\[~ and ~\]~ in the target.
+- Allow permissive description text.
+- Close description only at the first valid unescaped adjacent ~]]~ delimiter.
+- Treat zero-width characters between brackets as normal text, not as closing delimiters.
+- Preserve raw text exactly.
+- Do not normalize description text unless separately accepted.
+
+Acceptance criteria:
+
+- Escaped target brackets are tested.
+- Invalid target brackets are tested.
+- Description containing bracket-looking text is tested.
+- Zero-width-space delimiter breaker is tested.
+- Garbage before a later valid link does not prevent detecting the valid link.
+- Byte positions remain correct with Unicode and zero-width characters.
+
+** TODO [#B] Split search options for file-like link source facts
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Split ~path::search_option~ for file-like links without resolving the target.
+
+Scope:
+
+- Apply to ~file~ and implicit file links.
+- Decide whether ~attachment~, ~docview~, and ~id~ are included now or documented for later.
+- Split at the first ~::~.
+- Preserve raw link and raw target unchanged.
+- Allow empty path in cases such as ~file:::10~.
+- Store ~search_option~ separately.
+- Do not validate whether the search option exists.
+
+Examples:
+
+#+begin_src org
+[[file:~/code/main.c::255]]
+[[file:~/xx.org::*My Target]]
+[[file:~/xx.org::#my-custom-id]]
+[[file:~/xx.org::/regexp/]]
+[[file:::find me]]
+[[./org-test-links.org::10]]
+#+end_src
+
+Acceptance criteria:
+
+- Numeric search options are tested.
+- Heading search options are tested.
+- CUSTOM_ID search options are tested.
+- Regexp search options are tested.
+- Empty-path current-file search options are tested.
+- Raw link remains preserved.
+- Phase 4 resolution fields remain untouched.
+
+** TODO [#B] Extract angle links
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Extract supported Org angle links and store them as source facts.
+
+Examples:
+
+#+begin_src org
+<https://example.com/some path with spaces>
+<file:~/code/main.c::255>
+<jira:ABC-123>
+<shell:ls *.org>
+#+end_src
+
+Scope:
+
+- Parse ~<type:path>~.
+- Require a recognized built-in or custom protocol.
+- Allow spaces inside the path.
+- Require closing ~>~ on the same line for Phase 3.
+- Store ~format = angle~.
+- Store ~description = NULL~.
+- Split search options for accepted file-like types.
+- Do not execute or resolve action-like protocols.
+
+Acceptance criteria:
+
+- Angle links with spaces are tested.
+- Angle file links with search options are tested.
+- Custom protocol angle links are tested.
+- Unterminated angle links are ignored.
+- Angle links with unknown protocols are ignored or handled according to the support matrix.
+- No link target is resolved.
+
+** TODO [#B] Extract plain links with configurable protocols
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Detect plain Org links from text after bracket and angle links are stable.
+- Make plain-link protocol detection configurable to avoid hard-coded project policy.
+
+Default protocols:
+
+- ~http~
+- ~https~
+- ~file~
+
+Optional/default-off candidates:
+
+- ~attachment~
+- ~docview~
+- ~id~
+- ~mailto~
+- ~ftp~
+- ~news~
+- ~help~
+- ~info~
+- ~shell~
+- ~elisp~
+- custom protocols
+
+Scope:
+
+- Use ~links.plain_protocols~ from config.
+- Use ~links.custom_protocols~ where enabled.
+- Store detected plain links as ~format = plain~.
+- Only detect plain links whose protocol is enabled.
+- Keep bracket and angle link parsing independent of this config.
+- Stop plain links at whitespace.
+- Avoid matching inside already parsed bracket or angle tokens.
+- Do not implement full Org plain-link regex equivalence unless accepted by the spec.
+- Do not execute or resolve targets.
+
+Acceptance criteria:
+
+- Plain links are detected only for configured protocols.
+- Empty ~plain_protocols~ disables plain-link extraction.
+- Bracket links are unaffected by plain-link config.
+- Angle links are unaffected by plain-link config.
+- Custom protocol plain links are tested.
+- False positives and ignored forms are documented in fixtures.
+- Unicode plain links are tested.
+- Phase 4 resolution fields remain untouched.
+
+** TODO [#B] Implement ignored-region filtering for links
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Avoid extracting links from Org regions where links should not count as document links.
+
+Scope:
+
+- Ignore links inside:
+  - verbatim/code markup
+  - source blocks
+  - example blocks
+  - comment blocks
+  - export blocks
+  - comment lines
+  - inline source forms where feasible
+  - inline export forms where feasible
+- Parse links inside:
+  - headings
+  - paragraphs
+  - quote/verse/center-like blocks
+  - normal drawers
+- Decide and implement config-driven behavior for property drawers.
+- Decide and implement behavior for file-level keyword values.
+- Prefer using Orgize structural ranges if reliable.
+- Fall back to dh-owned range detection where needed.
+
+Acceptance criteria:
+
+- Links in source blocks are ignored.
+- Links in example blocks and colon example lines are ignored.
+- Links in comment blocks and comment lines are ignored.
+- Links in export blocks are ignored.
+- Links in headings are parsed.
+- Links in quote/verse/center-like blocks are parsed.
+- Links in normal drawers are parsed.
+- Property drawer behavior is deliberate and tested.
+- Keyword behavior is deliberate and tested.
+
+** TODO [#B] Add old link fixture as Phase 3 regression fixture
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Turn the old Org link test document into a stable Phase 3 regression fixture.
+
+Scope:
+
+- Import or adapt the old link fixture.
+- Mark expected Phase 3 behavior per section:
+  - supported
+  - postponed
+  - ignored
+  - known deviation
+- Reduce fixture size if necessary by splitting into focused fixtures.
+- Preserve Unicode and byte-position examples.
+- Preserve ignored-region examples.
+- Preserve custom-protocol examples.
+- Preserve search-option examples.
+- Do not require full org-element equivalence.
+
+Suggested fixture groups:
+
+- ~links_bracket_basic.org~
+- ~links_bracket_escaping.org~
+- ~links_angle.org~
+- ~links_plain.org~
+- ~links_search_options.org~
+- ~links_ignored_regions.org~
+- ~links_unicode.org~
+- ~links_postponed.org~
+
+Acceptance criteria:
+
+- Fixture expectations are explicit.
+- Each supported behavior has at least one focused test.
+- Each ignored/postponed behavior has at least one test documenting that decision.
+- Unicode tests assert byte offsets, not only character positions.
+- Fixture names make failures easy to interpret.
+
+** TODO [#B] Wire link extraction into file rebuild
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Run link extraction during file rebuild and store link rows transactionally.
+
+Scope:
+
+- Run scanner after headings are known.
+- Attach links to containing heading by byte range.
+- Attach links outside regular headings to synthetic level-0/root heading.
+- Delete old links for the file before inserting new links.
+- Keep rebuild transactional.
+- Keep read-only commands read-only.
+- Do not trigger rebuild from query commands.
+
+Acceptance criteria:
+
+- Rebuilding a file inserts expected links.
+- Rebuilding the same file twice does not duplicate links.
+- Removing a link from a file removes its DB row on rebuild.
+- Links before the first heading attach to level-0/root.
+- Links under headings attach to the correct heading.
+- Existing rebuild/idempotency tests continue to pass.
+
+** TODO [#B] Provide minimal read-only CLI command links --json
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Expose stored link source facts through a read-only CLI command.
+
+Command:
+
+#+begin_src shell
+orgfdb links --json
+#+end_src
+
+Scope:
+
+- Output stored source facts.
+- Include:
+  - file path or file id
+  - heading id
+  - heading title/path if already cheap and stable
+  - format
+  - type
+  - raw
+  - raw_target
+  - raw_description
+  - path
+  - search_option
+  - description
+  - byte_start
+  - byte_end
+  - line
+- Decide and document whether synthetic level-0/root links are included by default.
+- Optional filters may be added only if small:
+  - ~--file~
+  - ~--format~
+  - ~--type~
+  - ~--no-root~
+- Do not resolve targets.
+- Do not mutate the database.
+- Do not rebuild.
+
+Acceptance criteria:
+
+- JSON output contract is tested.
+- CLI output includes enough source location data for editor jumps.
+- Level-0/root link behavior is deliberate and tested.
+- Command is read-only.
+- Command does not rebuild.
+- Command does not migrate unexpectedly.
+- Output ordering is deterministic.
+
+** TODO [#B] Compare dh scanner behavior against Orgize and Emacs org-element
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Compare dh's accepted Phase 3 link behavior against Orgize and Emacs org-element where useful.
+
+Scope:
+
+- Pick a small representative fixture set.
+- Compare bracket links.
+- Compare angle links.
+- Compare plain links.
+- Compare ignored regions.
+- Compare multiline behavior as a known deviation.
+- Document mismatches.
+- Open upstream Orgize issues only for general parser bugs.
+- Do not block Phase 3 on upstream fixes.
+
+Acceptance criteria:
+
+- Expected mismatches are documented.
+- Unexpected mismatches either get tests or follow-up tasks.
+- Orgize-specific issues are captured with minimal repro examples.
+- dh scanner contract remains independent of Orgize internals.
+
+** TODO [#C] Decide relationship syntax in link descriptions
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Decide whether project-specific relationship markers inside link descriptions belong to the MVP, a later phase, or external tooling.
+
+Context:
+
+- This idea has already been mentioned publicly.
+- The syntax is not standard Org-mode link syntax.
+- Phase 3 should primarily extract source link facts.
+- Relationship extraction may belong to a later semantic/resolution phase.
+
+Example:
+
+#+begin_src org
+[[https://www.example.com][Example (->Owner)]]
+#+end_src
+
+Scope:
+
+- Review existing examples and intended use cases.
+- Decide whether relationship markers should be parsed during link extraction or later from stored descriptions.
+- Decide whether normal link descriptions must remain preserved unchanged.
+- Decide whether a future relationship table is needed.
+- Do not implement relationship extraction in this task unless the decision explicitly creates a separate BUILD task.
+- Do not change bracket/plain/angle link extraction behavior.
+
+Questions:
+
+- Is the marker syntax stable enough to document?
+- Should relationship markers be opt-in via config?
+- Should parsing happen from ~raw_description~ after link extraction instead of during scanner traversal?
+- Should invalid or ambiguous markers be ignored, warned about, or stored as raw metadata?
+- Should relation extraction strip the marker from displayed description or keep description unchanged?
+
+Acceptance criteria:
+
+- Decision is documented: MVP, later phase, or not supported.
+- If postponed, Phase 3 still preserves descriptions exactly enough to enable future parsing.
+- If accepted, a separate BUILD task is created for relationship extraction.
+- Normal Org link descriptions remain available unchanged.
+
+** TODO [#C] Decide multiline bracket-link support
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Decide whether dh should support multiline bracket links in a later phase.
+
+Context:
+
+- Org may parse some multiline bracket links.
+- The older custom parser spec intentionally does not parse links across newlines.
+- Multiline links complicate byte ranges, description normalization, indentation handling, and ignored-region behavior.
+
+Scope:
+
+- Review old multiline examples.
+- Decide whether current Phase 3 behavior remains single-line only.
+- Decide whether a future config flag should enable multiline parsing.
+- Do not implement multiline parsing in this task.
+
+Acceptance criteria:
+
+- Single-line Phase 3 behavior is either confirmed or revised.
+- Known multiline examples are marked supported, postponed, or ignored.
+- If future support is desired, a separate later BUILD task is created.
