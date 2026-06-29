@@ -715,7 +715,7 @@ Acceptance criteria:
   - angle links unaffected by plain-link config
   - action-like protocols never being executed
 
-** TODO [#A] Create links DB table and storage functions
+** DONE [#A] Create links DB table and storage functions
 :PROPERTIES:
 :PRIORITY: High
 :RISK: Medium
@@ -723,104 +723,7 @@ Acceptance criteria:
 :API_CONTRACT_CHANGE: Maybe
 :END:
 
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-
-Goal:
-
-- Add the SQLite representation for raw link source facts.
-- Support delete-and-reinsert per file during rebuild.
-- Keep Phase 4 resolution fields nullable.
-- Do not implement target resolution.
-
-Contract copied from Phase 3 SPEC:
-
-- Store source facts only.
-- Store ~link_type~, not ~type~.
-- Store ~raw_description~ only.
-- Do not add normalized ~description~ in Phase 3.
-- Do not add ~relation~ in Phase 3.
-- Always store ~source_context~.
-- Preserve raw source text exactly.
-- Normalize ~link_type~ to ASCII lowercase.
-- Store unknown explicit types as their lowercase prefix.
-- Use zero-based half-open byte ranges: ~[byte_start, byte_end)~.
-- Store 1-based ~line~.
-- Links should always reference ~file_id~ and ~heading_id~.
-- Links before the first regular heading attach to the synthetic level-0/root heading.
-- If a link cannot be attached to any heading including root, that is an indexing invariant violation.
-- No stored link target may be executed or evaluated.
-- All link writes must use parameterized SQL.
-
-Required source fields:
-
-- ~id~
-- ~file_id~
-- ~heading_id~
-- ~byte_start~
-- ~byte_end~
-- ~line~
-- ~source_context~
-- ~format~
-- ~raw~
-- ~raw_target~
-- ~raw_description~
-- ~link_type~
-- ~path~
-- ~search_option~
-
-Suggested later/resolution fields:
-
-- ~path_absolute~
-- ~target_file_id~
-- ~target_heading_id~
-- ~target_custom_id~
-- ~target_id~
-
-Allowed ~format~ values:
-
-- ~bracket~
-- ~angle~
-- ~plain~
-
-Required ~source_context~ values:
-
-- ~normal~
-- ~heading~
-- ~property_drawer~
-- ~drawer~
-- ~verse_block~
-- ~quote_block~
-- ~center_block~
-- ~justify_block~
-
-Out of scope:
-
-- Target file lookup.
-- Heading lookup.
-- CUSTOM_ID lookup.
-- org-id-locations lookup.
-- Dedicated target indexing.
-- Relationship extraction.
-- Normalized descriptions.
-- Drawer name storage.
-- Property name storage.
-
-Acceptance criteria:
-
-- DB table is created through the normal schema path.
-- Links can be deleted and reinserted per file.
-- Link rows reference ~file_id~ and ~heading_id~.
-- Root-level links reference the synthetic level-0/root heading.
-- Resolution target fields are nullable and untouched in Phase 3.
-- No ~relation~ field is added for relationship markers.
-- No normalized ~description~ field is required in Phase 3.
-- Storage tests cover regular heading links.
-- Storage tests cover synthetic level-0/root links.
-- Storage tests cover ~source_context~ values for property drawers and normal drawers.
-- Storage tests cover ~link_type~, not ~type~.
-- Existing schema-version tests continue to pass.
+Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.org]]
 
 ** TODO [#A] Implement project-owned link scanner skeleton
 :PROPERTIES:

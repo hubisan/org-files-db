@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -162,6 +162,7 @@ impl SchemaDefinition {
         migrate_legacy_todo_keywords_table(connection)?;
         migrate_legacy_properties_table(connection)?;
         migrate_legacy_tags_table(connection)?;
+        migrate_legacy_links_table(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
 }
@@ -463,6 +464,82 @@ fn tags_table_uses_direct_facts(columns: &[String]) -> bool {
         && columns.iter().any(|column| column == "tag")
 }
 
+fn migrate_legacy_links_table(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "links")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "links")?;
+    if links_table_matches_phase3_contract(&columns) {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+ALTER TABLE links RENAME TO links_legacy;
+"#,
+    )?;
+    drop_indexes_for_table(connection, "links_legacy")?;
+    connection.execute_batch(CORE_SCHEMA_SQL)?;
+    connection.execute_batch(
+        r#"
+INSERT INTO links (
+    id,
+    file_id,
+    heading_id,
+    byte_start,
+    byte_end,
+    line,
+    source_context,
+    format,
+    raw,
+    raw_target,
+    raw_description,
+    link_type,
+    path,
+    search_option,
+    path_absolute,
+    target_file_id,
+    target_heading_id,
+    target_custom_id,
+    target_id
+)
+SELECT
+    id,
+    file_id,
+    heading_id,
+    byte_start,
+    byte_end,
+    COALESCE(line_number, 1) AS line,
+    'normal' AS source_context,
+    COALESCE(format, 'plain') AS format,
+    raw_link AS raw,
+    CASE
+        WHEN link_type IS NOT NULL AND search_option IS NOT NULL
+            THEN lower(link_type) || ':' || target || '::' || search_option
+        WHEN link_type IS NOT NULL
+            THEN lower(link_type) || ':' || target
+        ELSE target
+    END AS raw_target,
+    description AS raw_description,
+    COALESCE(lower(link_type), 'unknown') AS link_type,
+    target AS path,
+    search_option,
+    target_absolute AS path_absolute,
+    resolved_file_id AS target_file_id,
+    resolved_heading_id AS target_heading_id,
+    NULL AS target_custom_id,
+    NULL AS target_id
+FROM links_legacy;
+
+DROP TABLE links_legacy;
+"#,
+    )?;
+    ensure_links_indexes(connection)?;
+
+    Ok(())
+}
+
 fn table_exists(connection: &Connection, table_name: &str) -> rusqlite::Result<bool> {
     connection.query_row(
         "SELECT EXISTS(
@@ -481,4 +558,75 @@ fn table_columns(connection: &Connection, table_name: &str) -> rusqlite::Result<
         .query_map([], |row| row.get(1))?
         .collect::<Result<Vec<String>, _>>()?;
     Ok(columns)
+}
+
+fn links_table_matches_phase3_contract(columns: &[String]) -> bool {
+    columns.iter().any(|column| column == "line")
+        && columns.iter().any(|column| column == "source_context")
+        && columns.iter().any(|column| column == "raw")
+        && columns.iter().any(|column| column == "raw_target")
+        && columns.iter().any(|column| column == "raw_description")
+        && columns.iter().any(|column| column == "link_type")
+        && columns.iter().any(|column| column == "path")
+        && columns.iter().any(|column| column == "path_absolute")
+        && columns.iter().any(|column| column == "target_file_id")
+        && columns.iter().any(|column| column == "target_heading_id")
+        && columns.iter().any(|column| column == "target_custom_id")
+        && columns.iter().any(|column| column == "target_id")
+        && !columns.iter().any(|column| column == "line_number")
+        && !columns.iter().any(|column| column == "target")
+        && !columns.iter().any(|column| column == "raw_link")
+        && !columns.iter().any(|column| column == "description")
+        && !columns.iter().any(|column| column == "relation")
+        && !columns.iter().any(|column| column == "resolved_file_id")
+        && !columns.iter().any(|column| column == "resolved_heading_id")
+        && !columns.iter().any(|column| column == "resolved")
+        && !columns.iter().any(|column| column == "broken")
+        && !columns.iter().any(|column| column == "diagnostic")
+}
+
+fn drop_indexes_for_table(connection: &Connection, table_name: &str) -> rusqlite::Result<()> {
+    let index_names = index_names_for_table(connection, table_name)?;
+    for index_name in index_names {
+        let quoted_index_name = quote_sqlite_identifier(&index_name);
+        connection.execute_batch(&format!("DROP INDEX IF EXISTS {quoted_index_name};"))?;
+    }
+    Ok(())
+}
+
+fn index_names_for_table(
+    connection: &Connection,
+    table_name: &str,
+) -> rusqlite::Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT name
+         FROM sqlite_master
+         WHERE type = 'index' AND tbl_name = ?1 AND sql IS NOT NULL",
+    )?;
+    let index_names = statement
+        .query_map([table_name], |row| row.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    Ok(index_names)
+}
+
+fn ensure_links_indexes(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+CREATE INDEX IF NOT EXISTS idx_links_heading
+    ON links(heading_id);
+
+CREATE INDEX IF NOT EXISTS idx_links_path
+    ON links(path);
+
+CREATE INDEX IF NOT EXISTS idx_links_target_file
+    ON links(target_file_id);
+
+CREATE INDEX IF NOT EXISTS idx_links_target_heading
+    ON links(target_heading_id);
+"#,
+    )
+}
+
+fn quote_sqlite_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
 }

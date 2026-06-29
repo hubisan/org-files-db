@@ -121,6 +121,25 @@ pub(crate) struct HeadingBodyRecord {
     pub body_byte_end: Option<i64>,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LinkRecord {
+    pub id: Option<i64>,
+    pub file_id: i64,
+    pub heading_id: i64,
+    pub byte_start: i64,
+    pub byte_end: i64,
+    pub line: i64,
+    pub source_context: String,
+    pub format: String,
+    pub raw: String,
+    pub raw_target: String,
+    pub raw_description: Option<String>,
+    pub link_type: String,
+    pub path: String,
+    pub search_option: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HeadingFtsRecord {
     pub heading_id: i64,
@@ -463,6 +482,50 @@ impl DbWriter {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn insert_links(
+        connection: &Connection,
+        rows: &[LinkRecord],
+    ) -> Result<(), DbWriteError> {
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO links
+                     (id, file_id, heading_id, byte_start, byte_end, line, source_context, format,
+                      raw, raw_target, raw_description, link_type, path, search_option,
+                      path_absolute, target_file_id, target_heading_id, target_custom_id, target_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                             ?15, ?16, ?17, ?18, ?19)",
+                    params![
+                        row.id,
+                        row.file_id,
+                        row.heading_id,
+                        row.byte_start,
+                        row.byte_end,
+                        row.line,
+                        row.source_context,
+                        row.format,
+                        row.raw,
+                        row.raw_target,
+                        row.raw_description,
+                        row.link_type,
+                        row.path,
+                        row.search_option,
+                        Option::<String>::None,
+                        Option::<i64>::None,
+                        Option::<i64>::None,
+                        Option::<String>::None,
+                        Option::<String>::None
+                    ],
+                )
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_links",
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn insert_heading_fts(
         connection: &Connection,
         rows: &[HeadingFtsRecord],
@@ -626,11 +689,24 @@ fn heading_fts_table_exists(connection: &Connection) -> Result<bool, DbWriteErro
 mod tests {
     use super::{
         DbWriteError, DbWriter, FileRecordInput, HeadingFtsRecord, HeadingRecord, KeywordRecord,
-        OutlinePathRecord, PropertyRecord, TagRecord, TodoKeywordRecord,
+        LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord, TodoKeywordRecord,
     };
-    use crate::db::{open_in_memory_database_with_schema, sqlite_supports_fts5, SchemaDefinition};
+    use crate::db::{
+        open_in_memory_database_with_schema, sqlite_supports_fts5, SchemaDefinition,
+        CURRENT_SCHEMA_VERSION,
+    };
     use rusqlite::Connection;
     use std::path::PathBuf;
+
+    type StoredLinkRow = (
+        i64,
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+    );
 
     #[test]
     fn rebuild_of_one_file_is_idempotent() {
@@ -773,23 +849,27 @@ mod tests {
                 (child_id, "Body", 12_i64, 16_i64),
             )
             .expect("body should insert");
-        connection
-            .execute(
-                "INSERT INTO links
-                 (file_id, heading_id, byte_start, byte_end, target, raw_link, resolved, broken)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                (
-                    file_id,
-                    child_id,
-                    17_i64,
-                    25_i64,
-                    "target",
-                    "file:target",
-                    0_i64,
-                    0_i64,
-                ),
-            )
-            .expect("link should insert");
+        DbWriter::insert_links(
+            &connection,
+            &[LinkRecord {
+                id: None,
+                file_id,
+                heading_id: child_id,
+                byte_start: 17,
+                // "[[file:target]]" is 15 bytes, so [17, 32) is the correct half-open range.
+                byte_end: 32,
+                line: 3,
+                source_context: "normal".to_string(),
+                format: "bracket".to_string(),
+                raw: "[[file:target]]".to_string(),
+                raw_target: "file:target".to_string(),
+                raw_description: None,
+                link_type: "file".to_string(),
+                path: "target".to_string(),
+                search_option: None,
+            }],
+        )
+        .expect("link should insert");
 
         if sqlite_supports_fts5(&connection) {
             DbWriter::insert_heading_fts(
@@ -864,6 +944,189 @@ mod tests {
 
         assert_eq!(heading_count, 2);
         assert_eq!(child_title, "Inbox");
+    }
+
+    #[test]
+    fn insert_links_persists_phase3_source_fact_fields() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        let file_id = DbWriter::upsert_file(&connection, &file_record("/tmp/project.org", 10, 100))
+            .expect("file should upsert");
+        let level0_id = DbWriter::insert_level0_heading(
+            &connection,
+            &level0_heading(file_id, "/tmp/project.org"),
+        )
+        .expect("level0 should insert");
+
+        DbWriter::insert_links(
+            &connection,
+            &[
+                LinkRecord {
+                    id: Some(11),
+                    file_id,
+                    heading_id: level0_id,
+                    byte_start: 0,
+                    // "[[file:notes.org::42]]" is 22 bytes, so [0, 22) is correct.
+                    byte_end: 22,
+                    line: 1,
+                    source_context: "property_drawer".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[file:notes.org::42]]".to_string(),
+                    raw_target: "file:notes.org::42".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "notes.org".to_string(),
+                    search_option: Some("42".to_string()),
+                },
+                LinkRecord {
+                    id: Some(12),
+                    file_id,
+                    heading_id: level0_id,
+                    byte_start: 30,
+                    // "id:abc123" is 9 bytes, so [30, 39) is correct.
+                    byte_end: 39,
+                    line: 2,
+                    source_context: "drawer".to_string(),
+                    format: "plain".to_string(),
+                    raw: "id:abc123".to_string(),
+                    raw_target: "id:abc123".to_string(),
+                    raw_description: None,
+                    link_type: "id".to_string(),
+                    path: "abc123".to_string(),
+                    search_option: None,
+                },
+            ],
+        )
+        .expect("links should insert");
+
+        let rows: Vec<StoredLinkRow> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT line, source_context, raw_target, path, search_option, format, raw_description
+                     FROM links
+                     ORDER BY id",
+                )
+                .expect("query should prepare");
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ))
+                })
+                .expect("query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("rows should collect")
+        };
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    1,
+                    "property_drawer".to_string(),
+                    "file:notes.org::42".to_string(),
+                    "notes.org".to_string(),
+                    Some("42".to_string()),
+                    "bracket".to_string(),
+                    None,
+                ),
+                (
+                    2,
+                    "drawer".to_string(),
+                    "id:abc123".to_string(),
+                    "abc123".to_string(),
+                    None,
+                    "plain".to_string(),
+                    None,
+                ),
+            ]
+        );
+
+        let deferred_target_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM links
+                 WHERE path_absolute IS NOT NULL
+                    OR target_file_id IS NOT NULL
+                    OR target_heading_id IS NOT NULL
+                    OR target_custom_id IS NOT NULL
+                    OR target_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("deferred target fields should be queryable");
+        assert_eq!(deferred_target_count, 0);
+    }
+
+    #[test]
+    fn insert_links_rejects_negative_byte_start_and_schema_rejects_missing_link_type() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        let file_id = DbWriter::upsert_file(&connection, &file_record("/tmp/project.org", 10, 100))
+            .expect("file should upsert");
+        let level0_id = DbWriter::insert_level0_heading(
+            &connection,
+            &level0_heading(file_id, "/tmp/project.org"),
+        )
+        .expect("level0 should insert");
+
+        let negative_byte_start = DbWriter::insert_links(
+            &connection,
+            &[LinkRecord {
+                id: Some(21),
+                file_id,
+                heading_id: level0_id,
+                byte_start: -1,
+                byte_end: 8,
+                line: 1,
+                source_context: "normal".to_string(),
+                format: "plain".to_string(),
+                raw: "id:abc".to_string(),
+                raw_target: "id:abc".to_string(),
+                raw_description: None,
+                link_type: "id".to_string(),
+                path: "abc".to_string(),
+                search_option: None,
+            }],
+        )
+        .expect_err("negative link byte_start should fail");
+        match negative_byte_start {
+            DbWriteError::Write { .. } => {}
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        let missing_link_type = connection
+            .execute(
+                "INSERT INTO links
+                 (file_id, heading_id, byte_start, byte_end, line, source_context, format,
+                  raw, raw_target, raw_description, link_type, path, search_option)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                (
+                    file_id,
+                    level0_id,
+                    0_i64,
+                    6_i64,
+                    1_i64,
+                    "normal",
+                    "plain",
+                    "id:abc",
+                    "id:abc",
+                    Option::<String>::None,
+                    Option::<String>::None,
+                    "abc",
+                    Option::<String>::None,
+                ),
+            )
+            .expect_err("NULL link_type should fail");
+        assert!(missing_link_type.to_string().contains("NOT NULL"));
     }
 
     #[test]

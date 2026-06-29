@@ -541,33 +541,42 @@ CREATE TABLE IF NOT EXISTS tags (
     UTF-8 byte offsets into the original file. byte_start can be used by Emacs
     or other editor integrations to jump to the link.
 
-  line_number:
-    Source line number for the link when available.
+  line:
+    1-based source line number for the start of the link.
 
   link_type:
     Link type/protocol, for example file, https, http, id, custom-id,
     attachment. May be NULL for links where the parser has not classified the
     type yet.
 
-  target:
-    Link target/path without description.
+  source_context:
+    Structural source region the link came from.
+    Supported Phase 3 values:
+      normal
+      heading
+      property_drawer
+      drawer
+      verse_block
+      quote_block
+      center_block
+      justify_block
+
+  raw:
+    Original raw link text exactly as it appeared in the source.
+    Examples:
+      [[https://www.example.com][Example]] -> [[https://www.example.com][Example]]
+      <file:example.org::255>              -> <file:example.org::255>
+      https://example.org                  -> https://example.org
+
+  raw_target:
+    Original target portion exactly as it appeared inside the link syntax.
     Examples:
       [[https://www.example.com][Example]] -> https://www.example.com
-      [[file:example.org]]                 -> example.org
-      [[file:./example.org]]               -> ./example.org
+      [[file:example.org][Example]]        -> file:example.org
+      [[example.org]]                      -> example.org
 
-  target_absolute:
-    Absolute path for file links when resolvable.
-
-  raw_link:
-    Original link target with protocol syntax where applicable.
-    Examples:
-      [[https://www.example.com][Example]] -> https://www.example.com
-      [[file:example.org][Example]]      -> file:example.org
-      [[example.org]]                    -> example.org
-
-  description:
-    Optional link description.
+  raw_description:
+    Optional raw link description preserved exactly.
     Example:
       [[https://www.example.com][Example]] -> Example
 
@@ -579,53 +588,59 @@ CREATE TABLE IF NOT EXISTS tags (
     Example:
       [[file:~/example.org::255]] -> 255
 
-  relation:
-    Optional project-specific relation extracted from the description.
-    Example:
-      [[https://www.example.com][Example (->Owner)]] -> Owner
+  path:
+    Target path portion used for later resolution work.
+    For explicit typed links this is the part after the first colon.
+    For minimally classified fuzzy links this preserves the raw target.
 
-  resolved_file_id / resolved_heading_id:
-    Resolution targets if the link can be resolved to known indexed data.
+  path_absolute:
+    Absolute path for file-like links when later resolution populates it.
 
-  resolved:
-    1 if the link target was resolved to indexed data, otherwise 0.
-
-  broken:
-    1 if the link target is known to be broken, otherwise 0.
-
-  diagnostic:
-    Optional diagnostic explaining resolution or parse issues for this link.
+  path_absolute / target_file_id / target_heading_id / target_custom_id / target_id:
+    Deferred nullable Phase 4 resolution fields. They remain untouched in
+    Phase 3.
 */
 CREATE TABLE IF NOT EXISTS links (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
     heading_id          INTEGER NOT NULL,
-    byte_start          INTEGER NOT NULL,
+    byte_start          INTEGER NOT NULL CHECK (byte_start >= 0),
     byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
-    line_number         INTEGER,
-    link_type           TEXT,
-    target              TEXT NOT NULL,
-    target_absolute     TEXT,
-    raw_link            TEXT NOT NULL,
-    description         TEXT,
-    format              TEXT CHECK (format IN ('plain', 'bracket', 'angle') OR format IS NULL),
+    line                INTEGER NOT NULL CHECK (line > 0),
+    source_context      TEXT NOT NULL CHECK (
+                            source_context IN (
+                                'normal',
+                                'heading',
+                                'property_drawer',
+                                'drawer',
+                                'verse_block',
+                                'quote_block',
+                                'center_block',
+                                'justify_block'
+                            )
+                        ),
+    format              TEXT NOT NULL CHECK (format IN ('plain', 'bracket', 'angle')),
+    raw                 TEXT NOT NULL,
+    raw_target          TEXT NOT NULL,
+    raw_description     TEXT,
+    link_type           TEXT NOT NULL,
+    path                TEXT NOT NULL,
     search_option       TEXT,
-    relation            TEXT,
-    resolved_file_id    INTEGER,
-    resolved_heading_id INTEGER,
-    resolved            INTEGER NOT NULL DEFAULT 0 CHECK (resolved IN (0, 1)),
-    broken              INTEGER NOT NULL DEFAULT 0 CHECK (broken IN (0, 1)),
-    diagnostic          TEXT,
+    path_absolute       TEXT,
+    target_file_id      INTEGER,
+    target_heading_id   INTEGER,
+    target_custom_id    TEXT,
+    target_id           TEXT,
     FOREIGN KEY (file_id)
         REFERENCES files(id)
         ON DELETE CASCADE,
     FOREIGN KEY (heading_id)
         REFERENCES headings(id)
         ON DELETE CASCADE,
-    FOREIGN KEY (resolved_file_id)
+    FOREIGN KEY (target_file_id)
         REFERENCES files(id)
         ON DELETE SET NULL,
-    FOREIGN KEY (resolved_heading_id)
+    FOREIGN KEY (target_heading_id)
         REFERENCES headings(id)
         ON DELETE SET NULL,
     UNIQUE (file_id, byte_start)
@@ -833,14 +848,14 @@ CREATE INDEX IF NOT EXISTS idx_tags_heading
 CREATE INDEX IF NOT EXISTS idx_links_heading
     ON links(heading_id);
 
-CREATE INDEX IF NOT EXISTS idx_links_target
-    ON links(target);
+CREATE INDEX IF NOT EXISTS idx_links_path
+    ON links(path);
 
-CREATE INDEX IF NOT EXISTS idx_links_resolved_file
-    ON links(resolved_file_id);
+CREATE INDEX IF NOT EXISTS idx_links_target_file
+    ON links(target_file_id);
 
-CREATE INDEX IF NOT EXISTS idx_links_resolved_heading
-    ON links(resolved_heading_id);
+CREATE INDEX IF NOT EXISTS idx_links_target_heading
+    ON links(target_heading_id);
 
 --------------------------------------------------
 -- INDEXES: OUTLINE PATH

@@ -234,7 +234,7 @@ mod tests {
         open_in_memory_database_with_schema, read_schema_version, sqlite_supports_fts5, DbError,
         SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
-    use rusqlite::Connection;
+    use rusqlite::{params, Connection};
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -260,7 +260,6 @@ mod tests {
         Option<i64>,
         Option<String>,
     );
-
     struct TestDir {
         path: PathBuf,
     }
@@ -1074,7 +1073,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
     }
 
     #[test]
-    fn deleting_resolved_targets_keeps_source_links() {
+    fn deleting_deferred_targets_keeps_source_links() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
@@ -1085,30 +1084,28 @@ VALUES (1, 'PLAN', 'open', 'p', 0, 'config_default', NULL, NULL);
             .execute("DELETE FROM headings WHERE id = 3", [])
             .expect("resolved target heading should delete");
 
-        let (source_link_count, resolved_heading_id): (i64, Option<i64>) = connection
+        let (source_link_count, target_heading_id): (i64, Option<i64>) = connection
             .query_row(
-                "SELECT COUNT(*), MIN(resolved_heading_id) FROM links WHERE id = 1",
+                "SELECT COUNT(*), MIN(target_heading_id) FROM links WHERE id = 1",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("source link should remain queryable");
 
         assert_eq!(source_link_count, 1);
-        assert_eq!(resolved_heading_id, None);
+        assert_eq!(target_heading_id, None);
 
         connection
             .execute("DELETE FROM files WHERE id = 2", [])
             .expect("resolved target file should delete");
 
-        let resolved_file_id: Option<i64> = connection
-            .query_row(
-                "SELECT resolved_file_id FROM links WHERE id = 1",
-                [],
-                |row| row.get(0),
-            )
+        let target_file_id: Option<i64> = connection
+            .query_row("SELECT target_file_id FROM links WHERE id = 1", [], |row| {
+                row.get(0)
+            })
             .expect("source link should remain queryable");
 
-        assert_eq!(resolved_file_id, None);
+        assert_eq!(target_file_id, None);
     }
 
     #[test]
@@ -1634,6 +1631,176 @@ VALUES
         );
     }
 
+    #[test]
+    fn open_database_upgrades_legacy_links_table() {
+        let test_dir = TestDir::new("legacy-links");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org');
+
+DROP TABLE links;
+
+CREATE TABLE links (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    heading_id          INTEGER NOT NULL,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL,
+    line_number         INTEGER,
+    link_type           TEXT,
+    target              TEXT NOT NULL,
+    target_absolute     TEXT,
+    raw_link            TEXT NOT NULL,
+    description         TEXT,
+    format              TEXT,
+    search_option       TEXT,
+    relation            TEXT,
+    resolved_file_id    INTEGER,
+    resolved_heading_id INTEGER,
+    resolved            INTEGER NOT NULL DEFAULT 0,
+    broken              INTEGER NOT NULL DEFAULT 0,
+    diagnostic          TEXT
+);
+
+CREATE INDEX idx_links_heading ON links(heading_id);
+CREATE INDEX idx_links_target ON links(target);
+CREATE INDEX idx_links_resolved_file ON links(resolved_file_id);
+CREATE INDEX idx_links_resolved_heading ON links(resolved_heading_id);
+
+INSERT INTO links
+    (id, file_id, heading_id, byte_start, byte_end, line_number, link_type, target,
+     target_absolute, raw_link, description, format, search_option,
+     resolved_file_id, resolved_heading_id)
+VALUES
+    (1, 1, 1, 4, 24, 3, 'file', 'notes.org', '/tmp/notes.org',
+     '[[file:notes.org::42][Notes]]', 'Notes', 'bracket', '42', NULL, NULL);
+
+PRAGMA user_version = 1;
+"#,
+                )
+                .expect("legacy links schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+        let schema_version = read_schema_version(&connection).expect("schema version should load");
+        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+
+        let columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(links)")
+                .expect("links pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("links pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("links columns should collect")
+        };
+        assert!(columns.iter().any(|column| column == "line"));
+        assert!(columns.iter().any(|column| column == "source_context"));
+        assert!(columns.iter().any(|column| column == "raw"));
+        assert!(columns.iter().any(|column| column == "raw_target"));
+        assert!(columns.iter().any(|column| column == "raw_description"));
+        assert!(columns.iter().any(|column| column == "path"));
+        assert!(columns.iter().any(|column| column == "path_absolute"));
+        assert!(columns.iter().any(|column| column == "target_file_id"));
+        assert!(columns.iter().any(|column| column == "target_heading_id"));
+        assert!(!columns.iter().any(|column| column == "line_number"));
+        assert!(!columns.iter().any(|column| column == "raw_link"));
+        assert!(!columns.iter().any(|column| column == "resolved_file_id"));
+        assert!(columns.iter().any(|column| column == "link_type"));
+
+        let migrated_row = connection
+            .query_row(
+                "SELECT line, source_context, format, raw, raw_target, raw_description,
+                        link_type, path, search_option, path_absolute, target_file_id,
+                        target_heading_id, target_custom_id, target_id
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, Option<String>>(8)?,
+                        row.get::<_, Option<String>>(9)?,
+                        row.get::<_, Option<i64>>(10)?,
+                        row.get::<_, Option<i64>>(11)?,
+                        row.get::<_, Option<String>>(12)?,
+                        row.get::<_, Option<String>>(13)?,
+                    ))
+                },
+            )
+            .expect("migrated link row should be queryable");
+        let (
+            line,
+            source_context,
+            format,
+            raw,
+            raw_target,
+            raw_description,
+            link_type,
+            path,
+            search_option,
+            path_absolute,
+            target_file_id,
+            target_heading_id,
+            target_custom_id,
+            target_id,
+        ) = migrated_row;
+        assert_eq!(line, 3);
+        assert_eq!(source_context, "normal");
+        assert_eq!(format, "bracket");
+        assert_eq!(raw, "[[file:notes.org::42][Notes]]");
+        // Legacy migration reconstructs raw_target on a best-effort basis for typed links.
+        assert_eq!(raw_target, "file:notes.org::42");
+        assert_eq!(raw_description, Some("Notes".to_string()));
+        assert_eq!(link_type, "file".to_string());
+        assert_eq!(path, "notes.org");
+        assert_eq!(search_option, Some("42".to_string()));
+        assert_eq!(path_absolute, Some("/tmp/notes.org".to_string()));
+        assert_eq!(target_file_id, None);
+        assert_eq!(target_heading_id, None);
+        assert_eq!(target_custom_id, None);
+        assert_eq!(target_id, None);
+
+        let migrated_index_names: Vec<String> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT name
+                     FROM sqlite_master
+                     WHERE type = 'index' AND tbl_name = 'links'
+                     ORDER BY name",
+                )
+                .expect("links indexes query should prepare");
+            statement
+                .query_map([], |row| row.get(0))
+                .expect("links indexes query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("links indexes should collect")
+        };
+        assert!(migrated_index_names.contains(&"idx_links_heading".to_string()));
+        assert!(migrated_index_names.contains(&"idx_links_path".to_string()));
+        assert!(migrated_index_names.contains(&"idx_links_target_file".to_string()));
+        assert!(migrated_index_names.contains(&"idx_links_target_heading".to_string()));
+    }
+
     fn insert_fixture_graph(connection: &Connection) {
         connection
             .execute(
@@ -1739,21 +1906,32 @@ VALUES
         connection
             .execute(
                 "INSERT INTO links
-                 (id, file_id, heading_id, byte_start, byte_end, target, raw_link, resolved_file_id, resolved_heading_id, resolved, broken)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                (
+                 (id, file_id, heading_id, byte_start, byte_end, line, source_context, format,
+                  raw, raw_target, raw_description, link_type, path, search_option,
+                  path_absolute, target_file_id, target_heading_id, target_custom_id, target_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                         ?15, ?16, ?17, ?18, ?19)",
+                params![
                     1_i64,
                     1_i64,
                     2_i64,
                     5_i64,
                     15_i64,
-                    "target.org",
+                    2_i64,
+                    "heading",
+                    "bracket",
+                    "[[file:target.org]]",
                     "file:target.org",
+                    Option::<String>::None,
+                    Some("file".to_string()),
+                    "target.org",
+                    Option::<String>::None,
+                    Option::<String>::None,
                     Some(2_i64),
                     Some(3_i64),
-                    1_i64,
-                    0_i64,
-                ),
+                    Option::<String>::None,
+                    Option::<String>::None,
+                ],
             )
             .expect("link insert should succeed");
         connection

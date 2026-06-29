@@ -1,0 +1,179 @@
+#+TITLE: Create links DB table and storage functions
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 00:24]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Create links DB table and storage functions=.
+  - Review the previously completed tasks first.
+  - Follow the =Phase 3 link extraction contract=, especially =[[#phase3-link-contract][Phase 3 link extraction contract]]=.
+  - Follow =AGENTS.md= as usual.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** BUILD [#A] Create links DB table and storage functions
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[#phase3-link-contract][Phase 3 link extraction contract]]
+
+Goal:
+
+- Add the SQLite representation for raw link source facts.
+- Support delete-and-reinsert per file during rebuild.
+- Keep Phase 4 resolution fields nullable.
+- Do not implement target resolution.
+
+Contract copied from Phase 3 SPEC:
+
+- Store source facts only.
+- Store ~link_type~, not ~type~.
+- Store ~raw_description~ only.
+- Do not add normalized ~description~ in Phase 3.
+- Do not add ~relation~ in Phase 3.
+- Always store ~source_context~.
+- Preserve raw source text exactly.
+- Normalize ~link_type~ to ASCII lowercase.
+- Store unknown explicit types as their lowercase prefix.
+- Use zero-based half-open byte ranges: ~[byte_start, byte_end)~.
+- Store 1-based ~line~.
+- Links should always reference ~file_id~ and ~heading_id~.
+- Links before the first regular heading attach to the synthetic level-0/root heading.
+- If a link cannot be attached to any heading including root, that is an indexing invariant violation.
+- No stored link target may be executed or evaluated.
+- All link writes must use parameterized SQL.
+
+Required source fields:
+
+- ~id~
+- ~file_id~
+- ~heading_id~
+- ~byte_start~
+- ~byte_end~
+- ~line~
+- ~source_context~
+- ~format~
+- ~raw~
+- ~raw_target~
+- ~raw_description~
+- ~link_type~
+- ~path~
+- ~search_option~
+
+Suggested later/resolution fields:
+
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+#+end_src
+
+* Planning
+
+** Problem summary
+- The repository still has an older placeholder =links= table that mixes source facts and deferred resolution state under names like =target=, =raw_link=, =description=, =relation=, =resolved_file_id=, and =resolved_heading_id=.
+- The current Phase 3 contract requires a narrower source-fact schema plus nullable Phase 4 target fields with different names, and the DB writer/test suite still seeds the old shape directly.
+
+** Goals
+- Align the persisted =links= schema with the Phase 3 link extraction contract.
+- Add DB writer input/storage support for inserting source-fact link rows with parameterized SQL.
+- Keep per-file delete-and-reinsert behavior intact for rebuilds.
+- Preserve forward-looking nullable resolution columns without implementing resolution logic.
+
+** Non-goals
+- No scanner or parser-side link extraction yet.
+- No link resolution or normalization beyond the stored source-fact contract.
+- No CLI query surface for links in this task.
+
+** Architecture
+- Update the authoritative SQL schema and README contract together.
+- Add schema migration logic for legacy =links= tables so older DBs upgrade transactionally.
+- Introduce a dedicated link row struct and insert helper in =DbWriter=, mirroring the existing keyword/property/tag insertion helpers.
+- Refresh DB unit tests to assert the new column contract and deletion semantics.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Inspect current schema, migrations, writer helpers, and existing links-related tests.
+- Replace the legacy =links= shape with the Phase 3 source-fact shape plus nullable Phase 4 target columns.
+- Add/adjust migrations and DB writer APIs/tests.
+- Update README/schema comments as needed and run focused tests plus =make ci= if feasible.
+
+** Risks & assumptions
+- Assumption: schema version must bump because the persisted =links= table contract changes materially.
+- Risk: existing legacy-schema tests may need new seed SQL for the changed =links= table, because current fixtures encode old resolution columns.
+
+** Open questions
+- None after inspection; the task scope is fully defined by the contract and existing schema versioning rules.
+
+** Proposed checks
+- =cargo test db_writer=
+- =cargo test db::
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Replaced the legacy placeholder =links= schema with the Phase 3 source-fact contract fields and kept the deferred Phase 4 target columns nullable.
+- Added a transactional legacy-links migration that maps old link rows into the new schema shape during DB open/initialization.
+- Added a dedicated =LinkRecord= plus =DbWriter::insert_links= so later scanner/rebuild tasks can write link rows through parameterized SQL instead of ad-hoc statements.
+- Updated DB tests and fixtures to assert per-file deletion, deferred-target nulling, and legacy-schema upgrade behavior under the new contract.
+- Review fixes tightened the Phase 3 contract further:
+  - =links.byte_start= now enforces =byte_start >= 0=
+  - =links.link_type= is now =TEXT NOT NULL=
+  - =DbWriter::insert_links= now writes only Phase 3 source fields and forces all deferred Phase 4 target columns to =NULL=
+  - legacy-links migration now recreates/ensures the new =links= indexes after dropping legacy index definitions that would otherwise block them
+  - half-open byte-range fixtures were corrected to match the stored =raw= byte lengths
+
+** Changed files
+- =README.org=
+- =sql/schema.sql=
+- =src/db.rs=
+- =src/db/schema.rs=
+- =src/db/writer.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-30--create-links-db-table-and-storage-functions.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test db_writer -- --nocapture=
+- =cargo test db:: -- --nocapture=
+- =make ci=
+
+** Test results
+- The persisted =links= table now stores:
+  - required Phase 3 source fields =line=, =source_context=, =format=, =raw=, =raw_target=, =raw_description=, =link_type=, =path=, and =search_option=
+  - nullable deferred Phase 4 fields =path_absolute=, =target_file_id=, =target_heading_id=, =target_custom_id=, and =target_id=
+- Schema versioning now bumps to =CURRENT_SCHEMA_VERSION = 2= because the on-disk =links= contract changed.
+- Focused DB tests pass for:
+  - source-link deletion during per-file rebuild cleanup
+  - preserving source links when deferred target rows are deleted
+  - inserting Phase 3 link source-fact rows through =DbWriter=
+  - upgrading legacy =links= tables into the new schema shape
+- Review-specific coverage now also proves:
+  - negative link =byte_start= values are rejected
+  - =link_type = NULL= is rejected by schema
+  - =DbWriter::insert_links= leaves =path_absolute=, =target_file_id=, =target_heading_id=, =target_custom_id=, and =target_id= as =NULL=
+  - legacy =links= migration upgrades a simulated =user_version = 1= database to =CURRENT_SCHEMA_VERSION = 2=
+  - expected named =links= indexes exist on the migrated new =links= table
+- =make ci= passed fully, including =cargo fmt --check=, =clippy -D warnings=, the full test suite, and =cargo build --all-targets --all-features=.
+
+** Blockers
+- None.
+
+** Follow-ups
+- The next link tasks can reuse =DbWriter::insert_links= directly when the scanner and rebuild wiring land.
+- On approval, set the todo entry to =DONE= and archive this task file per workflow.
