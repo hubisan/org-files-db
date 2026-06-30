@@ -12,13 +12,13 @@ use crate::{
     config::{Config, ConfigError},
     db::{
         open_database_with_schema, DbError, DbWriteError, DbWriter, FileRecordInput,
-        HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord, OutlinePathRecord,
-        PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord,
-        TodoKeywordRecord,
+        HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord, LinkRecord,
+        OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
+        TimestampRepeaterRecord, TodoKeywordRecord,
     },
     parser::{
         DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
-        ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
+        ParsedLink, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
     todo_keywords::{
@@ -773,6 +773,13 @@ fn index_document(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_write_invalid_input)?;
+    let link_rows = document
+        .links
+        .iter()
+        .filter(|link| link.format == "bracket")
+        .map(|link| link_record(file_id, &heading_ids, &document.headings, link))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_write_invalid_input)?;
 
     DbWriter::insert_todo_keywords(connection, &todo_rows)?;
     DbWriter::insert_keywords(connection, &keyword_rows)?;
@@ -780,6 +787,7 @@ fn index_document(
     DbWriter::insert_properties(connection, &property_rows)?;
     DbWriter::insert_outline_path(connection, &outline_rows)?;
     DbWriter::insert_heading_bodies(connection, &body_rows)?;
+    DbWriter::insert_links(connection, &link_rows)?;
     let timestamp_ids = DbWriter::insert_timestamps(connection, &timestamp_rows)?;
     let timestamp_repeater_rows = document
         .headings
@@ -818,6 +826,45 @@ fn timestamp_record(
             .map_err(|_| "timestamp byte_end out of range")?,
         line_number: timestamp.line_number.map(i64::from),
     })
+}
+
+fn link_record(
+    file_id: i64,
+    heading_ids: &[i64],
+    headings: &[ParsedHeading],
+    link: &ParsedLink,
+) -> Result<LinkRecord, &'static str> {
+    let heading_index = owning_heading_index(headings, link.byte_start)
+        .ok_or("link byte range must attach to a heading including root")?;
+
+    Ok(LinkRecord {
+        id: None,
+        file_id,
+        heading_id: heading_ids
+            .get(heading_index)
+            .copied()
+            .ok_or("link heading index must reference an inserted heading")?,
+        byte_start: i64::try_from(link.byte_start).map_err(|_| "link byte_start out of range")?,
+        byte_end: i64::try_from(link.byte_end).map_err(|_| "link byte_end out of range")?,
+        line: i64::from(link.line),
+        source_context: "normal".to_string(),
+        format: link.format.clone(),
+        raw: link.raw.clone(),
+        raw_target: link.raw_target.clone(),
+        raw_description: link.raw_description.clone(),
+        link_type: link.link_type.clone(),
+        path: link.path.clone(),
+        search_option: link.search_option.clone(),
+    })
+}
+
+fn owning_heading_index(headings: &[ParsedHeading], byte_start: usize) -> Option<usize> {
+    headings
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, heading)| heading.byte_start <= byte_start && byte_start < heading.byte_end)
+        .map(|(index, _)| index)
 }
 
 fn timestamp_repeater_record(
@@ -1110,6 +1157,24 @@ mod tests {
         path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct StoredLinkRow {
+        heading_title: String,
+        format: String,
+        raw: String,
+        raw_target: String,
+        raw_description: Option<String>,
+        link_type: String,
+        path: String,
+        search_option: Option<String>,
+        source_context: String,
+        path_absolute: Option<String>,
+        target_file_id: Option<i64>,
+        target_heading_id: Option<i64>,
+        target_custom_id: Option<String>,
+        target_id: Option<String>,
+    }
 
     type TimestampRow = (String, String, String, String, Option<i64>, Option<i64>);
     type RepeaterRow = (
@@ -3582,6 +3647,282 @@ index_body_text = false
                     )
                 })
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn rebuild_stores_bracket_links_as_source_facts() {
+        let test_dir = TestDir::new("bracket-links");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("links.org");
+
+        write_file(
+            &org_path,
+            "\
+#+TITLE: Bracket Links
+[[FILE:notes.org::42]]
+[[unknown:foo]]
+[[target][description]]
+[[./local.org::10]]
+[[../parent.org]]
+[[~/home.org]]
+[[/tmp/system.org]]
+[[#custom-id]]
+[[*Heading]]
+[[dedicated target]]
+[[notes.org]]
+* Heading
+[[shell:ls]]
+https://example.org
+<https://example.org>
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["notes/links.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert_eq!(report.indexed_files[0].path, org_path);
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<StoredLinkRow> = query_rows(
+            &connection,
+            "SELECT h.title, l.format, l.raw, l.raw_target, l.raw_description, l.link_type,
+                    l.path, l.search_option, l.source_context, l.path_absolute,
+                    l.target_file_id, l.target_heading_id, l.target_custom_id, l.target_id
+             FROM links l
+             JOIN headings h ON h.id = l.heading_id
+             ORDER BY l.byte_start",
+            |row| {
+                Ok(StoredLinkRow {
+                    heading_title: row.get(0)?,
+                    format: row.get(1)?,
+                    raw: row.get(2)?,
+                    raw_target: row.get(3)?,
+                    raw_description: row.get(4)?,
+                    link_type: row.get(5)?,
+                    path: row.get(6)?,
+                    search_option: row.get(7)?,
+                    source_context: row.get(8)?,
+                    path_absolute: row.get(9)?,
+                    target_file_id: row.get(10)?,
+                    target_heading_id: row.get(11)?,
+                    target_custom_id: row.get(12)?,
+                    target_id: row.get(13)?,
+                })
+            },
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[FILE:notes.org::42]]".to_string(),
+                    raw_target: "FILE:notes.org::42".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "notes.org".to_string(),
+                    search_option: Some("42".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[unknown:foo]]".to_string(),
+                    raw_target: "unknown:foo".to_string(),
+                    raw_description: None,
+                    link_type: "unknown".to_string(),
+                    path: "foo".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[target][description]]".to_string(),
+                    raw_target: "target".to_string(),
+                    raw_description: Some("description".to_string()),
+                    link_type: "fuzzy".to_string(),
+                    path: "target".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[./local.org::10]]".to_string(),
+                    raw_target: "./local.org::10".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "./local.org".to_string(),
+                    search_option: Some("10".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[../parent.org]]".to_string(),
+                    raw_target: "../parent.org".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "../parent.org".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[~/home.org]]".to_string(),
+                    raw_target: "~/home.org".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "~/home.org".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[/tmp/system.org]]".to_string(),
+                    raw_target: "/tmp/system.org".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "/tmp/system.org".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[#custom-id]]".to_string(),
+                    raw_target: "#custom-id".to_string(),
+                    raw_description: None,
+                    link_type: "custom-id".to_string(),
+                    path: "#custom-id".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[*Heading]]".to_string(),
+                    raw_target: "*Heading".to_string(),
+                    raw_description: None,
+                    link_type: "fuzzy".to_string(),
+                    path: "*Heading".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[dedicated target]]".to_string(),
+                    raw_target: "dedicated target".to_string(),
+                    raw_description: None,
+                    link_type: "fuzzy".to_string(),
+                    path: "dedicated target".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[notes.org]]".to_string(),
+                    raw_target: "notes.org".to_string(),
+                    raw_description: None,
+                    link_type: "fuzzy".to_string(),
+                    path: "notes.org".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Heading".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[shell:ls]]".to_string(),
+                    raw_target: "shell:ls".to_string(),
+                    raw_description: None,
+                    link_type: "shell".to_string(),
+                    path: "ls".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+            ]
         );
     }
 

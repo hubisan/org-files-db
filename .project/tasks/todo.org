@@ -729,95 +729,9 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--implement-project-owned-link-scanner-skeleton.org]]
 
-** TODO Extract bracket links as raw source facts
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE Extract bracket links as raw source facts
 
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
-- [[*Create links DB table and storage functions][Create links DB table and storage functions]]
-
-Goal:
-
-- Extract supported Org bracket links and store them as raw source facts.
-
-Contract copied from Phase 3 SPEC:
-
-- Bracket links are syntax-driven.
-- If bracket syntax is valid, extract the link.
-- Supported:
-  - ~[[target]]~
-  - ~[[target][description]]~
-- Store ~format = bracket~.
-- Preserve ~raw~.
-- Preserve ~raw_target~.
-- Preserve ~raw_description~ when present.
-- Use ~link_type~, not ~type~.
-- Do not store normalized ~description~.
-- Explicit typed targets store the prefix before the first ~:~ as ~link_type~.
-- Unknown explicit types are preserved as their ASCII-lowercase prefix.
-- Store ~path~ as the part after the first ~:~ for explicit typed links.
-- Targets without explicit type are classified minimally:
-  - ~[[#custom-id]]~ => ~link_type = custom-id~
-  - ~[[*Heading]]~ => ~link_type = fuzzy~
-  - ~[[dedicated]]~ => ~link_type = fuzzy~
-- Implicit file bracket links are classified as file-like only when the target starts with:
-  - ~./~
-  - ~../~
-  - ~/~
-  - ~/~ 
-- ~[[notes.org]]~ remains fuzzy, not file.
-- Split ~path::search_option~ only for file-like links.
-- Do not resolve targets.
-
-Examples:
-
-#+begin_src org
-  [[target]]
-  [[target][description]]
-  [[file:notes.org]]
-  [[./notes.org]]
-  [[../notes.org]]
-  [[~/notes.org]]
-  [[/tmp/notes.org]]
-  [[#custom-id]]
-  [[*Heading]]
-  [[dedicated]]
-  [[unknown:foo]]
-  [[shell:ls]]
-#+end_src
-
-Out of scope:
-
-- Target file lookup.
-- Heading lookup.
-- CUSTOM_ID lookup.
-- org-id-locations lookup.
-- Dedicated target indexing.
-- Multi-line bracket links.
-- Relationship extraction.
-- Normalized descriptions.
-
-Acceptance criteria:
-
-- Fixture tests cover typed bracket links.
-- Fixture tests cover unknown typed bracket links.
-- Fixture tests cover target-only bracket links.
-- Fixture tests cover described bracket links.
-- Fixture tests cover implicit file bracket links.
-- Fixture tests cover ~#custom-id~ links.
-- Fixture tests cover fuzzy links such as ~[[*Heading]]~ and ~[[dedicated target]]~.
-- Fixture tests cover ~[[notes.org]]~ remaining fuzzy.
-- Fixture tests cover links before the first heading attaching to root.
-- Raw link, raw target, and raw description are preserved.
-- ~link_type~ is lowercase normalized.
-- Existing heading/root/sentinel tests continue to pass.
+[[./archive/2026-06-30--extract-bracket-links-as-raw-source-facts.org]]
 
 ** TODO [#A] Handle bracket-link escaping and weird delimiter cases
 :PROPERTIES:

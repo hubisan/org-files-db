@@ -136,7 +136,7 @@ fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<Par
             (inner.to_string(), None)
         }
     };
-    let (link_type, path) = classify_bracket_target(&raw_target);
+    let (link_type, path, search_option) = classify_bracket_target(&raw_target);
 
     Some(ParsedLink {
         format: "bracket".to_string(),
@@ -145,7 +145,7 @@ fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<Par
         raw_description,
         link_type,
         path,
-        search_option: None,
+        search_option,
         byte_start: offset,
         byte_end,
         line,
@@ -239,9 +239,9 @@ fn try_parse_plain_link(
     })
 }
 
-fn classify_bracket_target(target: &str) -> (String, String) {
+fn classify_bracket_target(target: &str) -> (String, String, Option<String>) {
     if let Some((link_type, path)) = split_explicit_type(target) {
-        return (link_type, path);
+        return finalize_bracket_target(link_type, path);
     }
 
     if target.starts_with("./")
@@ -249,14 +249,34 @@ fn classify_bracket_target(target: &str) -> (String, String) {
         || target.starts_with("~/")
         || target.starts_with('/')
     {
-        return ("file".to_string(), target.to_string());
+        return finalize_bracket_target("file".to_string(), target.to_string());
     }
 
     if target.starts_with('#') {
-        return ("custom-id".to_string(), target.to_string());
+        return ("custom-id".to_string(), target.to_string(), None);
     }
 
-    ("fuzzy".to_string(), target.to_string())
+    ("fuzzy".to_string(), target.to_string(), None)
+}
+
+fn finalize_bracket_target(link_type: String, path: String) -> (String, String, Option<String>) {
+    if bracket_target_is_file_like(&link_type) {
+        let (path, search_option) = split_search_option(path);
+        return (link_type, path, search_option);
+    }
+
+    (link_type, path, None)
+}
+
+fn bracket_target_is_file_like(link_type: &str) -> bool {
+    matches!(link_type, "file" | "file+sys" | "file+emacs")
+}
+
+fn split_search_option(path: String) -> (String, Option<String>) {
+    match path.split_once("::") {
+        Some((path, search_option)) => (path.to_string(), Some(search_option.to_string())),
+        None => (path, None),
+    }
 }
 
 fn split_explicit_type(raw_target: &str) -> Option<(String, String)> {
@@ -433,6 +453,122 @@ mod tests {
         assert_eq!(links[0].raw_description.as_deref(), Some("Example"));
         assert_eq!(links[0].path, "//example.org");
         assert_eq!(links[0].search_option, None);
+    }
+
+    #[test]
+    fn bracket_links_classify_supported_targets_and_split_file_like_search_options() {
+        let content = "\
+[[file:notes.org::42]]
+[[unknown:foo]]
+[[shell:ls]]
+[[target]]
+[[./notes.org::10]]
+[[../notes.org]]
+[[~/notes.org]]
+[[/tmp/notes.org]]
+[[#custom-id]]
+[[*Heading]]
+[[dedicated target]]
+[[notes.org]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let bracket_links = links
+            .into_iter()
+            .filter(|link| link.format == "bracket")
+            .collect::<Vec<_>>();
+
+        assert_eq!(bracket_links.len(), 12);
+        assert_eq!(
+            bracket_links
+                .iter()
+                .map(|link| {
+                    (
+                        link.raw_target.clone(),
+                        link.link_type.clone(),
+                        link.path.clone(),
+                        link.search_option.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "file:notes.org::42".to_string(),
+                    "file".to_string(),
+                    "notes.org".to_string(),
+                    Some("42".to_string()),
+                ),
+                (
+                    "unknown:foo".to_string(),
+                    "unknown".to_string(),
+                    "foo".to_string(),
+                    None,
+                ),
+                (
+                    "shell:ls".to_string(),
+                    "shell".to_string(),
+                    "ls".to_string(),
+                    None,
+                ),
+                (
+                    "target".to_string(),
+                    "fuzzy".to_string(),
+                    "target".to_string(),
+                    None,
+                ),
+                (
+                    "./notes.org::10".to_string(),
+                    "file".to_string(),
+                    "./notes.org".to_string(),
+                    Some("10".to_string()),
+                ),
+                (
+                    "../notes.org".to_string(),
+                    "file".to_string(),
+                    "../notes.org".to_string(),
+                    None,
+                ),
+                (
+                    "~/notes.org".to_string(),
+                    "file".to_string(),
+                    "~/notes.org".to_string(),
+                    None,
+                ),
+                (
+                    "/tmp/notes.org".to_string(),
+                    "file".to_string(),
+                    "/tmp/notes.org".to_string(),
+                    None,
+                ),
+                (
+                    "#custom-id".to_string(),
+                    "custom-id".to_string(),
+                    "#custom-id".to_string(),
+                    None,
+                ),
+                (
+                    "*Heading".to_string(),
+                    "fuzzy".to_string(),
+                    "*Heading".to_string(),
+                    None,
+                ),
+                (
+                    "dedicated target".to_string(),
+                    "fuzzy".to_string(),
+                    "dedicated target".to_string(),
+                    None,
+                ),
+                (
+                    "notes.org".to_string(),
+                    "fuzzy".to_string(),
+                    "notes.org".to_string(),
+                    None,
+                ),
+            ]
+        );
     }
 
     #[test]

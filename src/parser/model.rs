@@ -113,6 +113,7 @@ pub struct ParsedOrgDocument {
     pub file_path: PathBuf,
     pub metadata: ParsedDocumentMetadata,
     pub headings: Vec<ParsedHeading>,
+    pub links: Vec<ParsedLink>,
     pub diagnostics: Vec<ParseDiagnostic>,
 }
 
@@ -122,6 +123,7 @@ impl ParsedOrgDocument {
             file_path: file_path.into(),
             metadata: ParsedDocumentMetadata::default(),
             headings: Vec::new(),
+            links: Vec::new(),
             diagnostics: Vec::new(),
         }
     }

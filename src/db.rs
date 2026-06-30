@@ -15,8 +15,8 @@ pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION}
 pub use writer::DbWriteError;
 pub(crate) use writer::{
     DbWriter, FileRecordInput, HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord,
-    OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord,
-    TodoKeywordRecord,
+    LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
+    TimestampRepeaterRecord, TodoKeywordRecord,
 };
 
 #[cfg(test)]

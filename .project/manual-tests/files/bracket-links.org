@@ -1,0 +1,130 @@
+#+TITLE: Bracket Link Fixture
+#+STARTUP: content
+
+# Links before the first real heading should attach to synthetic root.
+[[FILE:root-notes.org::42]]
+[[root target][root description]]
+https://example.org/root-plain-should-not-be-stored
+<https://example.org/root-angle-should-not-be-stored>
+
+* Internal bracket links
+:PROPERTIES:
+:CUSTOM_ID: internal-link-to-custom-id
+:END:
+
+** Custom ID links
+- [[#internal-link-to-custom-id]]
+- [[#internal-link-to-custom-id][description: internal-link-to-custom-id]]
+
+** Fuzzy heading links
+- [[*Internal bracket links]]
+- [[*Internal bracket links][description: heading link]]
+
+** Dedicated target links
+<<dedicated target>>
+- [[dedicated target]]
+- [[dedicated target][description: dedicated target]]
+
+** Named target style fuzzy links
+#+NAME: named target
+- [[named target]]
+- [[named target][description: named target]]
+
+** Fuzzy fallback
+- [[no matching target]]
+- [[no matching target][description: no matching target]]
+- [[notes.org]]
+
+* File-like bracket links
+
+** Explicit file links
+- [[file:/etc]]
+- [[file:/etc][description: /etc]]
+- [[file:/etc/]]
+- [[file:/etc/host.conf]]
+- [[file:../]]
+- [[file:../../sql]]
+- [[file:../../sql/]]
+- [[file:../parser_test.rs]]
+- [[file:./org-test-links.org]]
+- [[file:~/.emacs.d]]
+- [[file:~/.emacs.d/]]
+- [[file:~/.emacs.d/init.el]]
+
+** Explicit file variants
+- [[file+sys:/etc]]
+- [[file+emacs:/etc]]
+- [[file+sys:/etc][description: file+sys:/etc]]
+- [[file+emacs:/etc][description: file+emacs:/etc]]
+
+** Implicit file links
+- [[/etc]]
+- [[/etc/]]
+- [[/etc/host.conf]]
+- [[../]]
+- [[../../sql]]
+- [[../../sql/]]
+- [[../parser_test.rs]]
+- [[./org-test-links.org]]
+- [[~/memento]]
+
+** File search options
+- [[file:./org-test-links.org::10]]
+- [[file:./org-test-links.org::#internal-link-to-custom-id]]
+- [[file:./org-test-links.org::dedicated target]]
+- [[file:./org-test-links.org::*Internal bracket links]]
+- [[file:./org-test-links.org::/*.File-like.*/]]
+- [[./org-test-links.org::10]]
+- [[./org-test-links.org::#internal-link-to-custom-id]]
+- [[./org-test-links.org::dedicated target]]
+- [[./org-test-links.org::*Internal bracket links]]
+- [[./org-test-links.org::/*.File-like.*/]]
+- [[file:::10]]
+- [[file:::*Internal bracket links]]
+
+* Typed bracket links
+
+** Built-in typed links
+- [[http://orgmode.org]]
+- [[http://orgmode.org][description: http://orgmode.org]]
+- [[https://orgmode.org]]
+- [[https://orgmode.org][description: https://orgmode.org]]
+- [[news:comp.emacs]]
+- [[mailto:emacs-orgmode@gnu.org]]
+- [[help:org-store-link]]
+- [[info:org#External Link]]
+- [[shell:ls *.org  ]]
+- [[elisp:(find-file "~/.emacs.d/init.el")]]
+
+** Unknown and custom typed links
+- [[unknown:foo]]
+- [[unknown:foo][description: unknown type]]
+- [[customlink:test]]
+- [[customlink:test][description: customlink:test]]
+- [[doi:10.1000/182]]
+- [[irc:/irc.com/#emacs/bob]]
+
+* Negative non-bracket examples
+
+These should not be stored by the current bracket-link storage task.
+
+- http://orgmode.org
+- https://orgmode.org
+- mailto:emacs-orgmode@gnu.org
+- file:./org-test-links.org::10
+- <file:::*Negative non-bracket examples>
+- <shell:ls *.org>
+- <https://orgmode.org/ spaces >
+
+* Unicode bracket links
+
+Text with: äöü ÄÖÜ 😀😇🤖
+
+** Übung 🚀 Ein Titel mit Umlaut und Emoji                         :foo:bar:
+
+Some body text with bracket links:
+
+- [[file:sub/äöü.txt::target][A file link with Umlaut]]
+- [[https://orgmode.org/🔥]]
+- [[https://orgmode.org/🔥][Emoji description 😀]]
+- [[dedicated target äöü]]

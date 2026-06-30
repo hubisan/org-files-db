@@ -10,6 +10,7 @@ use orgize::{
 };
 
 use super::diagnostics::ParseDiagnostic;
+use super::link_scanner::{scan_links, LinkScanContext, LinkScannerConfig};
 use super::model::{
     OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty,
     ParsedPropertySource, ParsedTimestamp, ParsedTimestampModifier, ParsedTimestampModifierKind,
@@ -65,6 +66,14 @@ impl OrgParserCore for OrgizeAdapter {
             &mut parsed.headings,
             Some(0),
         );
+        parsed.links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        )
+        .into_iter()
+        .filter(|link| link.format == "bracket")
+        .collect();
 
         Ok(parsed)
     }

@@ -1136,6 +1136,40 @@ fn orgize_adapter_normalizes_described_link_titles() {
 }
 
 #[test]
+fn orgize_adapter_collects_bracket_links_via_project_scanner() {
+    let content = "\
+#+TITLE: Links
+[[FILE:notes.org::42]]
+[[target][description]]
+<https://example.org>
+https://example.org
+* Heading
+[[shell:ls]]";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/links.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("adapter should parse bracket-link fixture");
+
+    assert_eq!(document.links.len(), 3);
+    assert!(document.links.iter().all(|link| link.format == "bracket"));
+    assert_eq!(document.links[0].raw, "[[FILE:notes.org::42]]");
+    assert_eq!(document.links[0].raw_target, "FILE:notes.org::42");
+    assert_eq!(document.links[0].link_type, "file");
+    assert_eq!(document.links[0].path, "notes.org");
+    assert_eq!(document.links[0].search_option.as_deref(), Some("42"));
+    assert_eq!(
+        document.links[1].raw_description.as_deref(),
+        Some("description")
+    );
+    assert_eq!(document.links[2].link_type, "shell");
+    assert_eq!(document.links[2].path, "ls");
+}
+
+#[test]
 fn orgize_adapter_normalizes_undescribed_link_titles() {
     let document = OrgizeAdapter::new()
         .parse_document(

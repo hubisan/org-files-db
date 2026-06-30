@@ -1,0 +1,158 @@
+#+TITLE: Extract bracket links as raw source facts
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 10:47]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the Phase 3 =BUILD= task =Extract bracket links as raw source facts=.
+  - Reuse the existing project-owned scanner and the existing links DB storage pipeline.
+  - Implement bracket-link extraction/storage only; angle/plain storage stays out of scope.
+  - Follow the local workflow from =AGENTS.md= and the Phase 3 link extraction contract.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** BUILD Extract bracket links as raw source facts
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- [[#phase3-link-contract][Phase 3 link extraction contract]]
+- [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
+- [[*Create links DB table and storage functions][Create links DB table and storage functions]]
+
+Goal:
+
+- Extract supported Org bracket links and store them as raw source facts.
+
+Contract copied from Phase 3 SPEC:
+
+- Bracket links are syntax-driven.
+- If bracket syntax is valid, extract the link.
+- Supported:
+  - ~[[target]]~
+  - ~[[target][description]]~
+- Store ~format = bracket~.
+- Preserve ~raw~.
+- Preserve ~raw_target~.
+- Preserve ~raw_description~ when present.
+- Use ~link_type~, not ~type~.
+- Do not store normalized ~description~.
+- Explicit typed targets store the prefix before the first ~:~ as ~link_type~.
+- Unknown explicit types are preserved as their ASCII-lowercase prefix.
+- Store ~path~ as the part after the first ~:~ for explicit typed links.
+- Targets without explicit type are classified minimally:
+  - ~[[#custom-id]]~ => ~link_type = custom-id~
+  - ~[[*Heading]]~ => ~link_type = fuzzy~
+  - ~[[dedicated]]~ => ~link_type = fuzzy~
+- Implicit file bracket links are classified as file-like only when the target starts with:
+  - ~./~
+  - ~../~
+  - ~~/~
+  - ~/~ 
+- ~[[notes.org]]~ remains fuzzy, not file.
+- Split ~path::search_option~ only for file-like links.
+- Do not resolve targets.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The repository already has a project-owned raw-text scanner and a DB link schema, but bracket links are not yet exposed on parsed documents or written during indexing.
+- This task needs the smallest end-to-end bracket-link path: scanner output -> parsed document -> heading/root ownership -> DB rows.
+
+** Goals
+- Expose bracket links through the parser-owned document model.
+- Persist only bracket links through the existing indexer/storage pipeline.
+- Keep classification, raw field preservation, and file-like search-option splitting aligned with the Phase 3 contract.
+
+** Non-goals
+- No angle-link storage.
+- No plain-link storage.
+- No target resolution or target lookup.
+- No advanced bracket escaping or delimiter edge cases beyond the current task contract.
+
+** Architecture
+- Extend =ParsedOrgDocument= with a parser-owned =links= collection.
+- Let =OrgizeAdapter= populate document links via the project scanner, filtered to =format = bracket=.
+- Let the indexer map link byte positions onto already-normalized heading/root ranges and persist them via =DbWriter::insert_links= with =source_context = normal= for now.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Extend the document model and adapter to surface bracket links.
+- Update scanner bracket classification and file-like search-option splitting where required by the contract.
+- Wire bracket-link persistence into the indexer with heading/root ownership.
+- Add focused scanner and indexer regression tests.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: storing =source_context = normal= for this task is acceptable until ignored-region/source-context refinement lands.
+- Risk: heading ownership depends on preorder subtree byte ranges; tests need to lock this down so later link tasks do not regress it.
+
+** Open questions
+- None after local inspection.
+
+** Proposed checks
+- =cargo test link_scanner -- --nocapture=
+- =cargo test rebuild_stores_bracket_links_as_source_facts -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Extended the parser-owned document model with =links= so scanner output can travel through parsing and indexing without a parallel side channel.
+- Reused the existing project-owned scanner in =OrgizeAdapter= and filtered its output to =format = bracket=, keeping link-token ownership outside Orgize link-node support.
+- Refined bracket-link classification in the scanner to:
+  - lowercase explicit link types
+  - keep unknown explicit types
+  - classify implicit file-like targets only for =./=, =../=, =~/=, and =/=
+  - keep =[[notes.org]]= fuzzy
+  - split =path::search_option= only for file-like bracket links
+- Wired parsed bracket links into the indexer by attaching each link to the deepest containing heading range, falling back to the synthetic root for pre-heading links, and persisting them through =DbWriter::insert_links= with =source_context = normal=.
+- Added scanner, adapter, and indexer regressions so the task now covers classification, raw-field preservation, root/heading attachment, and unresolved target columns staying =NULL=.
+** Changed files
+- =src/db.rs=
+- =src/indexer.rs=
+- =src/parser/model.rs=
+- =src/parser/link_scanner.rs=
+- =src/parser/orgize_adapter.rs=
+- =tests/orgize_adapter.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-30--extract-bracket-links-as-raw-source-facts.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_scanner -- --nocapture=
+- =cargo test orgize_adapter_collects_bracket_links_via_project_scanner -- --nocapture=
+- =cargo test rebuild_stores_bracket_links_as_source_facts -- --nocapture=
+- =make ci=
+** Test results
+- Focused bracket-link checks passed:
+  - =9= scanner unit tests under =link_scanner=
+  - =1= focused adapter regression
+  - =1= focused indexer/storage regression
+- =make ci= passed fully:
+  - =cargo fmt --all --check=
+  - =cargo clippy --all-targets --all-features -- -D warnings=
+  - =cargo test --all-targets --all-features=
+  - =cargo build --all-targets --all-features=
+- Full suite after this task:
+  - =131= unit tests in =src/lib.rs=
+  - =29= tests in =tests/orgize_adapter.rs=
+  - =8= tests in =tests/parser_contract.rs=
+  - =2= tests in =tests/parser_fixtures.rs=
+** Blockers
+- None.
+** Follow-ups
+- =source_context= is currently stored as =normal= for all persisted bracket links; later ignored-region/source-context tasks can refine that without changing stored field names.
+- Advanced bracket delimiter/escaping cases remain deferred to the dedicated follow-up task for weird delimiter handling.
