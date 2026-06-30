@@ -1,0 +1,90 @@
+#+TITLE: Align default plain-link protocols with Phase 3 config contract
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 17:10]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry:
+
+#+begin_quote
+** BUILD [#B] Align default plain-link protocols with Phase 3 config contract
+
+Goal:
+
+- Align the documented Phase 3 link config contract and scanner default plain-link protocol list.
+- Include Org built-in external link types that are safe/useful for default plain-link extraction.
+- Keep action-like protocols out of the default plain-link set.
+#+end_quote
+
+Active contract notes:
+
+- Default plain-link protocols should include the expanded Org built-in set.
+- `shell` and `elisp` stay excluded by default.
+- Plain-link matching remains protocol-list-driven and case-insensitive.
+
+* Planning
+
+** Problem summary
+The scanner still uses the shorter Phase 3 default plain-link protocol list. The contract in `todo.org` already describes the expanded set, so the implementation and focused tests need to match it.
+
+** Goals
+- Update `DEFAULT_PLAIN_LINK_PROTOCOLS` to the documented Phase 3 list.
+- Add scanner coverage for the newly included default plain protocols.
+- Verify `shell` and `elisp` stay excluded by default and can still be enabled explicitly.
+- Keep bracket and angle extraction untouched.
+
+** Non-goals
+- No plain-link storage work.
+- No changes to bracket or angle parsing.
+- No config-file loading changes.
+
+** Architecture
+The scanner already lowercases configured plain protocols before matching, so this task is a small data-and-test alignment. The existing `LinkScannerConfig` and `try_parse_plain_link` path should remain unchanged except for the default protocol constant and test expectations.
+
+** Execution plan
+1. Expand `DEFAULT_PLAIN_LINK_PROTOCOLS`.
+2. Update the default-list assertion test.
+3. Add a focused plain-link test that covers the new defaults and the action-like exclusions.
+4. Run formatter and scanner-focused tests, then `make ci` if it remains feasible.
+
+** Risks & assumptions
+- Risk is low: the change is isolated to default configuration and tests.
+- Assumption: plain-link storage remains intentionally out of scope, so only scanner behavior needs coverage here.
+
+** Open questions
+- None.
+
+** Proposed checks
+- `cargo fmt --all`
+- focused `cargo test` for `src/parser/link_scanner.rs`
+- `make ci`
+
+* Results
+
+** Approach
+Expanded `DEFAULT_PLAIN_LINK_PROTOCOLS` to match the Phase 3 contract, then added focused scanner tests for the new default plain protocols and the explicitly enabled `shell` / `elisp` cases. No bracket or angle parsing code changed.
+
+** Changed files
+- `src/parser/link_scanner.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-06-30--align-default-plain-link-protocols-with-phase-3-config-contract.org`
+
+** Checks performed
+- `cargo fmt --all`
+- `cargo test --lib link_scanner`
+- `make ci`
+
+** Test results
+- Focused scanner tests passed.
+- `make ci` passed.
+
+** Blockers
+None.
+
+** Follow-ups
+None.

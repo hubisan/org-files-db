@@ -705,12 +705,20 @@ plain_protocols = [
   "file+sys",
   "file+emacs",
   "ftp",
-  "news",
-  "mailto",
+  "attachment",
+  "bbdb",
+  "docview",
+  "doi",
+  "gnus",
+  "rmail",
+  "mhe",
   "help",
+  "id",
   "info",
+  "irc",
+  "mailto",
+  "news",
   "shortdoc",
-  "id"
 ]
 
 custom_protocols = []
@@ -769,150 +777,9 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--extract-angle-links.org]]
 
-** BUILD [#B] Align default plain-link protocols with Phase 3 config contract
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Low
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Align default plain-link protocols with Phase 3 config contract
 
-=BUILD with 5.4 mini=
-
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
-
-Goal:
-
-- Align the documented Phase 3 link config contract and scanner default plain-link protocol list.
-- Include Org built-in external link types that are safe/useful for default plain-link extraction.
-- Keep action-like protocols out of the default plain-link set.
-
-Context:
-
-- The current scanner default list is too small.
-- Bracket and angle links remain syntax-driven and do not require protocol/type config.
-- Plain links remain protocol-list-driven.
-- Unknown explicit bracket and angle types are still extracted as raw source facts for project convenience.
-- This is an intentional project-owned scanner behavior and may extract more raw source facts than Org/Emacs visually highlights without custom link type registration.
-
-Contract update:
-
-- Default plain-link protocols should be:
-
-  - ~http~
-  - ~https~
-  - ~file~
-  - ~file+sys~
-  - ~file+emacs~
-  - ~ftp~
-  - ~attachment~
-  - ~bbdb~
-  - ~docview~
-  - ~doi~
-  - ~gnus~
-  - ~rmail~
-  - ~mhe~
-  - ~help~
-  - ~id~
-  - ~info~
-  - ~irc~
-  - ~mailto~
-  - ~news~
-  - ~shortdoc~
-
-- Do not include action-like protocols by default:
-  - ~shell~
-  - ~elisp~
-
-Config semantics to document:
-
-- Missing ~plain_protocols~ uses the default list.
-- ~plain_protocols = []~ disables the default plain-link protocols only.
-- ~custom_protocols~ remains active even when ~plain_protocols = []~.
-- Effective plain-link protocols are ~plain_protocols + custom_protocols~.
-- Protocol matching is ASCII-case-insensitive for extraction.
-- Stored ~link_type~ is ASCII-lowercase.
-- Duplicate protocols after lowercase normalization are ignored.
-- To disable all plain-link extraction, set both:
-  - ~plain_protocols = []~
-  - ~custom_protocols = []~
-- ~custom_protocols~ affects plain-link detection only.
-- ~custom_protocols~ does not affect bracket links.
-- ~custom_protocols~ does not affect angle links.
-- Bracket links and angle links do not require their protocol/type to be listed in config.
-- Bracket links with unknown explicit types are still extracted.
-- Angle links with unknown explicit types are still extracted.
-- Action-like protocols such as ~shell~ and ~elisp~ are not enabled by default for plain links.
-- Action-like protocols may be enabled for plain-link extraction explicitly through ~plain_protocols~ or ~custom_protocols~.
-- Action-like protocols may still be stored when they occur in bracket or angle syntax.
-- Action-like protocols are never executed.
-
-Scope:
-
-- Update Phase 3 config/spec documentation.
-- Update ~DEFAULT_PLAIN_LINK_PROTOCOLS~ in the scanner.
-- Update existing tests that assert the default protocol list.
-- Add or adjust focused scanner tests to prove:
-  - newly added default protocols are recognized as plain links
-  - ~shell~ and ~elisp~ are not recognized as plain links by default
-  - ~shell~ and ~elisp~ can still be recognized if explicitly configured
-- Do not implement full config-file loading unless it already exists and only needs a trivial default update.
-- Do not change bracket or angle extraction behavior.
-- Do not store plain links in this task unless plain-link storage is already implemented.
-- Do not execute or resolve any link target.
-
-Suggested code change:
-
-#+begin_src rust
-pub const DEFAULT_PLAIN_LINK_PROTOCOLS: &[&str] = &[
-    "http",
-    "https",
-    "file",
-    "file+sys",
-    "file+emacs",
-    "ftp",
-    "attachment",
-    "bbdb",
-    "docview",
-    "doi",
-    "gnus",
-    "rmail",
-    "mhe",
-    "help",
-    "id",
-    "info",
-    "irc",
-    "mailto",
-    "news",
-    "shortdoc",
-];
-#+end_src
-
-Acceptance criteria:
-
-- Phase 3 link config contract documents the expanded default list.
-- ~DEFAULT_PLAIN_LINK_PROTOCOLS~ matches the documented list.
-- Existing scanner tests pass after updating expected defaults.
-- Plain-link scanner recognizes at least representative newly added defaults:
-  - ~attachment:projects.org~
-  - ~doi:10.1000/182~
-  - ~irc:/irc.com/#emacs/bob~
-  - ~bbdb:R.*Stallman~
-- Plain-link scanner does not recognize ~shell:ls~ or ~elisp:org-todo~ by default.
-- Plain-link scanner recognizes ~shell:ls~ or ~elisp:org-todo~ when explicitly configured.
-- Bracket and angle behavior is unchanged.
-- ~cargo fmt --all~ passes.
-- Focused scanner tests pass.
-- ~make ci~ passes if feasible.
-
-When done:
-
-- Create/update the task file for this task.
-- Move the task from TODO to REVIEW.
-- Include changed files, checks run, test results, blockers, and follow-ups in the task file.
+[[./archive/2026-06-30--align-default-plain-link-protocols-with-phase-3-config-contract.org]]
 
 ** TODO [#B] Extract plain links with configurable protocols
 :PROPERTIES:
@@ -965,12 +832,20 @@ plain_protocols = [
   "file+sys",
   "file+emacs",
   "ftp",
-  "news",
-  "mailto",
+  "attachment",
+  "bbdb",
+  "docview",
+  "doi",
+  "gnus",
+  "rmail",
+  "mhe",
   "help",
+  "id",
   "info",
+  "irc",
+  "mailto",
+  "news",
   "shortdoc",
-  "id"
 ]
 #+end_src
 

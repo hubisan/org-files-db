@@ -9,12 +9,20 @@ pub const DEFAULT_PLAIN_LINK_PROTOCOLS: &[&str] = &[
     "file+sys",
     "file+emacs",
     "ftp",
-    "news",
-    "mailto",
+    "attachment",
+    "bbdb",
+    "docview",
+    "doi",
+    "gnus",
+    "rmail",
+    "mhe",
     "help",
-    "info",
-    "shortdoc",
     "id",
+    "info",
+    "irc",
+    "mailto",
+    "news",
+    "shortdoc",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -608,6 +616,76 @@ mod tests {
     }
 
     #[test]
+    fn plain_link_detection_uses_expanded_default_protocols_and_excludes_actions() {
+        let content = "\
+attachment:projects.org doi:10.1000/182 irc:/irc.com/#emacs/bob bbdb:R.*Stallman shell:ls elisp:org-todo";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| (link.raw.clone(), link.link_type.clone(), link.path.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "attachment:projects.org".to_string(),
+                    "attachment".to_string(),
+                    "projects.org".to_string(),
+                ),
+                (
+                    "doi:10.1000/182".to_string(),
+                    "doi".to_string(),
+                    "10.1000/182".to_string(),
+                ),
+                (
+                    "irc:/irc.com/#emacs/bob".to_string(),
+                    "irc".to_string(),
+                    "/irc.com/#emacs/bob".to_string(),
+                ),
+                (
+                    "bbdb:R.*Stallman".to_string(),
+                    "bbdb".to_string(),
+                    "R.*Stallman".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_link_detection_accepts_explicit_action_protocols_case_insensitively() {
+        let content = "shell:ls elisp:org-todo";
+        let config = LinkScannerConfig {
+            plain_link_protocols: vec!["SHELL".to_string(), "ElIsP".to_string()],
+        };
+
+        let links = scan_links(content, &config, &LinkScanContext::default());
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| (link.raw.clone(), link.link_type.clone(), link.path.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "shell:ls".to_string(),
+                    "shell".to_string(),
+                    "ls".to_string(),
+                ),
+                (
+                    "elisp:org-todo".to_string(),
+                    "elisp".to_string(),
+                    "org-todo".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn ignores_links_inside_configured_ignored_ranges() {
         let content = "https://example.org [[file:kept.org]]";
         let ignored_end = "https://example.org".len();
@@ -927,12 +1005,20 @@ mod tests {
                 "file+sys",
                 "file+emacs",
                 "ftp",
-                "news",
-                "mailto",
+                "attachment",
+                "bbdb",
+                "docview",
+                "doi",
+                "gnus",
+                "rmail",
+                "mhe",
                 "help",
-                "info",
-                "shortdoc",
                 "id",
+                "info",
+                "irc",
+                "mailto",
+                "news",
+                "shortdoc",
             ]
         );
     }
