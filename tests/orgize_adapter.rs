@@ -1136,12 +1136,13 @@ fn orgize_adapter_normalizes_described_link_titles() {
 }
 
 #[test]
-fn orgize_adapter_collects_bracket_links_via_project_scanner() {
+fn orgize_adapter_collects_project_owned_bracket_and_angle_links() {
     let content = "\
 #+TITLE: Links
 [[FILE:notes.org::42]]
 [[target][description]]
-<https://example.org>
+<file:~/code/main.c::255>
+<shell:ls *.org>
 https://example.org
 * Heading
 [[shell:ls]]";
@@ -1152,10 +1153,9 @@ https://example.org
             content,
             &ParseOptions::default(),
         )
-        .expect("adapter should parse bracket-link fixture");
+        .expect("adapter should parse link fixture");
 
-    assert_eq!(document.links.len(), 3);
-    assert!(document.links.iter().all(|link| link.format == "bracket"));
+    assert_eq!(document.links.len(), 5);
     assert_eq!(document.links[0].raw, "[[FILE:notes.org::42]]");
     assert_eq!(document.links[0].raw_target, "FILE:notes.org::42");
     assert_eq!(document.links[0].link_type, "file");
@@ -1165,8 +1165,15 @@ https://example.org
         document.links[1].raw_description.as_deref(),
         Some("description")
     );
-    assert_eq!(document.links[2].link_type, "shell");
-    assert_eq!(document.links[2].path, "ls");
+    assert_eq!(document.links[2].format, "angle");
+    assert_eq!(document.links[2].raw, "<file:~/code/main.c::255>");
+    assert_eq!(document.links[2].search_option.as_deref(), Some("255"));
+    assert_eq!(document.links[3].format, "angle");
+    assert_eq!(document.links[3].link_type, "shell");
+    assert_eq!(document.links[3].path, "ls *.org");
+    assert_eq!(document.links[4].format, "bracket");
+    assert_eq!(document.links[4].link_type, "shell");
+    assert_eq!(document.links[4].path, "ls");
 }
 
 #[test]

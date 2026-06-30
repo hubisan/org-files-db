@@ -214,18 +214,26 @@ Final Phase 3 config contract:
 #+begin_src toml
   [links]
   plain_protocols = [
-    "http",
-    "https",
-    "file",
-    "file+sys",
-    "file+emacs",
-    "ftp",
-    "news",
-    "mailto",
-    "help",
-    "info",
-    "shortdoc",
-    "id"
+      "http",
+      "https",
+      "file",
+      "file+sys",
+      "file+emacs",
+      "ftp",
+      "attachment",
+      "bbdb",
+      "docview",
+      "doi",
+      "gnus",
+      "rmail",
+      "mhe",
+      "help",
+      "id",
+      "info",
+      "irc",
+      "mailto",
+      "news",
+      "shortdoc"
   ]
 
   custom_protocols = []
@@ -233,12 +241,16 @@ Final Phase 3 config contract:
   parse_keyword_values = false
 #+end_src
 
+
 Config semantics:
 
 - Missing ~plain_protocols~ uses the default list.
 - ~plain_protocols = []~ disables the default plain-link protocols only.
 - ~custom_protocols~ remains active even when ~plain_protocols = []~.
 - Effective plain-link protocols are ~plain_protocols + custom_protocols~.
+- Protocol matching is ASCII-case-insensitive for extraction.
+- Stored ~link_type~ is ASCII-lowercase.
+- Duplicate protocols after lowercase normalization are ignored.
 - To disable all plain-link extraction, set both:
   - ~plain_protocols = []~
   - ~custom_protocols = []~
@@ -248,9 +260,19 @@ Config semantics:
 - Bracket links and angle links do not require their protocol/type to be listed in config.
 - Bracket links with unknown explicit types are still extracted.
 - Angle links with unknown explicit types are still extracted.
+- This intentionally allows the project scanner to extract more raw source facts than Org/Emacs may visually highlight when a custom link type is not registered.
 - Action-like protocols such as ~shell~ and ~elisp~ are not enabled by default for plain links.
+- Action-like protocols may be enabled for plain-link extraction explicitly through ~plain_protocols~ or ~custom_protocols~.
 - Action-like protocols may still be stored when they occur in bracket or angle syntax.
 - Action-like protocols are never executed.
+
+Default plain-link protocol rationale:
+
+- The default list follows Org's common built-in external link types where plain-link extraction is useful as a raw source fact.
+- ~file+sys~ and ~file+emacs~ are included as file-like variants.
+- ~ftp~ is included for compatibility with Org's plain-link recognition behavior.
+- ~shell~ and ~elisp~ are intentionally excluded from default plain-link extraction because they are action-like.
+- Bracket and angle syntax can still store ~shell~ and ~elisp~ as raw source facts because explicit delimiters make the author's intent clearer.
 
 *** Search option splitting
 
@@ -737,7 +759,7 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--handle-bracket-link-escaping-and-weird-delimiter-cases.org]]
 
-** TODO [#B] Split search options for file-like link source facts
+** DONE Extract angle links
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -745,116 +767,152 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-Depends on:
+[[./archive/2026-06-30--extract-angle-links.org]]
 
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Extract bracket links as raw source facts][Extract bracket links as raw source facts]]
-- [[*Extract angle links][Extract angle links]]
-- [[*Extract plain links with configurable protocols][Extract plain links with configurable protocols]]
-
-Goal:
-
-- Split ~path::search_option~ for file-like links without resolving the target.
-
-Contract copied from Phase 3 SPEC:
-
-- Split ~path::search_option~ only for file-like links.
-- File-like links include:
-  - explicit ~file~
-  - explicit ~file+sys~
-  - explicit ~file+emacs~
-  - implicit file bracket links starting with ~./~, ~../~, ~~/~, or ~/~
-- Split at the first ~::~.
-- Preserve ~raw~ unchanged.
-- Preserve ~raw_target~ unchanged.
-- Store ~path~ and ~search_option~ separately.
-- Do not validate whether the search option exists.
-- Do not resolve the search option.
-- Do not split search options for ~id~, ~attachment~, ~docview~, or arbitrary custom types in Phase 3.
-
-Examples:
-
-#+begin_src org
-  [[file:~/code/main.c::255]]
-  [[file:~/xx.org::*My Target]]
-  [[file:~/xx.org::#my-custom-id]]
-  [[file:~/xx.org::/regexp/]]
-  [[file:::find me]]
-  [[./org-test-links.org::10]]
-  <file:~/code/main.c::255>
-  file:~/code/main.c::255
-#+end_src
-
-Acceptance criteria:
-
-- Numeric search options are tested.
-- Heading search options are tested.
-- CUSTOM_ID-looking search options are tested.
-- Regexp search options are tested.
-- Empty-path current-file search options are tested.
-- Explicit ~file+sys~ and ~file+emacs~ cases are tested.
-- Implicit file bracket link search options are tested.
-- Non-file-like ~id~, ~attachment~, ~docview~, and custom types are not split.
-- Raw link remains preserved.
-- Raw target remains preserved.
-- Phase 4 resolution fields remain untouched.
-
-** TODO [#B] Extract angle links
+** BUILD [#B] Align default plain-link protocols with Phase 3 config contract
 :PROPERTIES:
 :PRIORITY: Medium
-:RISK: Medium
+:RISK: Low
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Yes
 :END:
+
+=BUILD with 5.4 mini=
 
 Depends on:
 
 - [[#phase3-link-contract][Phase 3 link extraction contract]]
 - [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
-- [[*Create links DB table and storage functions][Create links DB table and storage functions]]
 
 Goal:
 
-- Extract supported Org angle links and store them as raw source facts.
+- Align the documented Phase 3 link config contract and scanner default plain-link protocol list.
+- Include Org built-in external link types that are safe/useful for default plain-link extraction.
+- Keep action-like protocols out of the default plain-link set.
 
-Contract copied from Phase 3 SPEC:
+Context:
 
-- Angle links are syntax-driven.
-- Supported form: ~<type:path>~.
-- The type is the substring before the first ~:~.
-- The type does not need to be predefined.
-- Unknown explicit types are preserved as their ASCII-lowercase prefix.
-- The closing ~>~ must be on the same line.
-- Spaces inside the path are allowed.
-- Store ~format = angle~.
-- Store ~raw_description = NULL~.
-- Store ~link_type~ as the lowercase type prefix.
-- Store ~path~ as the part after the first ~:~.
-- Split search options only for file-like types.
-- Do not execute or resolve action-like protocols.
-- Do not rely on Orgize exposing angle links.
+- The current scanner default list is too small.
+- Bracket and angle links remain syntax-driven and do not require protocol/type config.
+- Plain links remain protocol-list-driven.
+- Unknown explicit bracket and angle types are still extracted as raw source facts for project convenience.
+- This is an intentional project-owned scanner behavior and may extract more raw source facts than Org/Emacs visually highlights without custom link type registration.
 
-Examples:
+Contract update:
 
-#+begin_src org
-  <https://example.com/some path with spaces>
-  <file:~/code/main.c::255>
-  <jira:ABC-123>
-  <unknown:foo>
-  <shell:ls *.org>
+- Default plain-link protocols should be:
+
+  - ~http~
+  - ~https~
+  - ~file~
+  - ~file+sys~
+  - ~file+emacs~
+  - ~ftp~
+  - ~attachment~
+  - ~bbdb~
+  - ~docview~
+  - ~doi~
+  - ~gnus~
+  - ~rmail~
+  - ~mhe~
+  - ~help~
+  - ~id~
+  - ~info~
+  - ~irc~
+  - ~mailto~
+  - ~news~
+  - ~shortdoc~
+
+- Do not include action-like protocols by default:
+  - ~shell~
+  - ~elisp~
+
+Config semantics to document:
+
+- Missing ~plain_protocols~ uses the default list.
+- ~plain_protocols = []~ disables the default plain-link protocols only.
+- ~custom_protocols~ remains active even when ~plain_protocols = []~.
+- Effective plain-link protocols are ~plain_protocols + custom_protocols~.
+- Protocol matching is ASCII-case-insensitive for extraction.
+- Stored ~link_type~ is ASCII-lowercase.
+- Duplicate protocols after lowercase normalization are ignored.
+- To disable all plain-link extraction, set both:
+  - ~plain_protocols = []~
+  - ~custom_protocols = []~
+- ~custom_protocols~ affects plain-link detection only.
+- ~custom_protocols~ does not affect bracket links.
+- ~custom_protocols~ does not affect angle links.
+- Bracket links and angle links do not require their protocol/type to be listed in config.
+- Bracket links with unknown explicit types are still extracted.
+- Angle links with unknown explicit types are still extracted.
+- Action-like protocols such as ~shell~ and ~elisp~ are not enabled by default for plain links.
+- Action-like protocols may be enabled for plain-link extraction explicitly through ~plain_protocols~ or ~custom_protocols~.
+- Action-like protocols may still be stored when they occur in bracket or angle syntax.
+- Action-like protocols are never executed.
+
+Scope:
+
+- Update Phase 3 config/spec documentation.
+- Update ~DEFAULT_PLAIN_LINK_PROTOCOLS~ in the scanner.
+- Update existing tests that assert the default protocol list.
+- Add or adjust focused scanner tests to prove:
+  - newly added default protocols are recognized as plain links
+  - ~shell~ and ~elisp~ are not recognized as plain links by default
+  - ~shell~ and ~elisp~ can still be recognized if explicitly configured
+- Do not implement full config-file loading unless it already exists and only needs a trivial default update.
+- Do not change bracket or angle extraction behavior.
+- Do not store plain links in this task unless plain-link storage is already implemented.
+- Do not execute or resolve any link target.
+
+Suggested code change:
+
+#+begin_src rust
+pub const DEFAULT_PLAIN_LINK_PROTOCOLS: &[&str] = &[
+    "http",
+    "https",
+    "file",
+    "file+sys",
+    "file+emacs",
+    "ftp",
+    "attachment",
+    "bbdb",
+    "docview",
+    "doi",
+    "gnus",
+    "rmail",
+    "mhe",
+    "help",
+    "id",
+    "info",
+    "irc",
+    "mailto",
+    "news",
+    "shortdoc",
+];
 #+end_src
 
 Acceptance criteria:
 
-- Angle links with spaces are tested.
-- Angle file links with search options are tested.
-- Unknown type angle links are tested and stored.
-- Custom-looking type angle links are tested without requiring config.
-- Action-like angle links are stored but never executed.
-- Unterminated angle links are ignored.
-- Multi-line angle candidates are ignored.
-- No link target is resolved.
-- Scanner behavior is independent of Orgize link-node support.
+- Phase 3 link config contract documents the expanded default list.
+- ~DEFAULT_PLAIN_LINK_PROTOCOLS~ matches the documented list.
+- Existing scanner tests pass after updating expected defaults.
+- Plain-link scanner recognizes at least representative newly added defaults:
+  - ~attachment:projects.org~
+  - ~doi:10.1000/182~
+  - ~irc:/irc.com/#emacs/bob~
+  - ~bbdb:R.*Stallman~
+- Plain-link scanner does not recognize ~shell:ls~ or ~elisp:org-todo~ by default.
+- Plain-link scanner recognizes ~shell:ls~ or ~elisp:org-todo~ when explicitly configured.
+- Bracket and angle behavior is unchanged.
+- ~cargo fmt --all~ passes.
+- Focused scanner tests pass.
+- ~make ci~ passes if feasible.
+
+When done:
+
+- Create/update the task file for this task.
+- Move the task from TODO to REVIEW.
+- Include changed files, checks run, test results, blockers, and follow-ups in the task file.
 
 ** TODO [#B] Extract plain links with configurable protocols
 :PROPERTIES:
@@ -952,6 +1010,68 @@ Acceptance criteria:
 - Plain links trim deterministic trailing punctuation.
 - False positives and ignored forms are documented in fixtures.
 - Unicode plain links are tested.
+- Phase 4 resolution fields remain untouched.
+
+** TODO Split search options for file-like link source facts
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- [[#phase3-link-contract][Phase 3 link extraction contract]]
+- [[*Extract bracket links as raw source facts][Extract bracket links as raw source facts]]
+- [[*Extract angle links][Extract angle links]]
+- [[*Extract plain links with configurable protocols][Extract plain links with configurable protocols]]
+
+Goal:
+
+- Split ~path::search_option~ for file-like links without resolving the target.
+
+Contract copied from Phase 3 SPEC:
+
+- Split ~path::search_option~ only for file-like links.
+- File-like links include:
+  - explicit ~file~
+  - explicit ~file+sys~
+  - explicit ~file+emacs~
+  - implicit file bracket links starting with ~./~, ~../~, ~~/~, or ~/~
+- Split at the first ~::~.
+- Preserve ~raw~ unchanged.
+- Preserve ~raw_target~ unchanged.
+- Store ~path~ and ~search_option~ separately.
+- Do not validate whether the search option exists.
+- Do not resolve the search option.
+- Do not split search options for ~id~, ~attachment~, ~docview~, or arbitrary custom types in Phase 3.
+
+Examples:
+
+#+begin_src org
+  [[file:~/code/main.c::255]]
+  [[file:~/xx.org::*My Target]]
+  [[file:~/xx.org::#my-custom-id]]
+  [[file:~/xx.org::/regexp/]]
+  [[file:::find me]]
+  [[./org-test-links.org::10]]
+  <file:~/code/main.c::255>
+  file:~/code/main.c::255
+#+end_src
+
+Acceptance criteria:
+
+- Numeric search options are tested.
+- Heading search options are tested.
+- CUSTOM_ID-looking search options are tested.
+- Regexp search options are tested.
+- Empty-path current-file search options are tested.
+- Explicit ~file+sys~ and ~file+emacs~ cases are tested.
+- Implicit file bracket link search options are tested.
+- Non-file-like ~id~, ~attachment~, ~docview~, and custom types are not split.
+- Raw link remains preserved.
+- Raw target remains preserved.
 - Phase 4 resolution fields remain untouched.
 
 ** TODO [#B] Implement ignored-region filtering for links

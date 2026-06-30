@@ -776,7 +776,7 @@ fn index_document(
     let link_rows = document
         .links
         .iter()
-        .filter(|link| link.format == "bracket")
+        .filter(|link| matches!(link.format.as_str(), "bracket" | "angle"))
         .map(|link| link_record(file_id, &heading_ids, &document.headings, link))
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_write_invalid_input)?;
@@ -3651,7 +3651,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_stores_bracket_links_as_source_facts() {
+    fn rebuild_stores_bracket_and_angle_links_as_source_facts() {
         let test_dir = TestDir::new("bracket-links");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
@@ -3673,7 +3673,17 @@ index_body_text = false
 [[*Heading]]
 [[dedicated target]]
 [[notes.org]]
+<https://example.com/some path with spaces>
+<file:~/code/main.c::255>
+<file:~/xx.org::*My Target>
+<file:~/xx.org::#my-custom-id>
+<file:~/xx.org::/regexp/>
+<file+sys:~/sys/path::7>
+<file+emacs:~/emacs/path::*Target>
+<unknown:foo>
+<jira:ABC-123>
 * Heading
+<shell:ls *.org>
 [[shell:ls]]
 https://example.org
 <https://example.org>
@@ -3907,6 +3917,166 @@ index_body_text = false
                     target_id: None,
                 },
                 StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<https://example.com/some path with spaces>".to_string(),
+                    raw_target: "https://example.com/some path with spaces".to_string(),
+                    raw_description: None,
+                    link_type: "https".to_string(),
+                    path: "//example.com/some path with spaces".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<file:~/code/main.c::255>".to_string(),
+                    raw_target: "file:~/code/main.c::255".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "~/code/main.c".to_string(),
+                    search_option: Some("255".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<file:~/xx.org::*My Target>".to_string(),
+                    raw_target: "file:~/xx.org::*My Target".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "~/xx.org".to_string(),
+                    search_option: Some("*My Target".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<file:~/xx.org::#my-custom-id>".to_string(),
+                    raw_target: "file:~/xx.org::#my-custom-id".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "~/xx.org".to_string(),
+                    search_option: Some("#my-custom-id".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<file:~/xx.org::/regexp/>".to_string(),
+                    raw_target: "file:~/xx.org::/regexp/".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "~/xx.org".to_string(),
+                    search_option: Some("/regexp/".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<file+sys:~/sys/path::7>".to_string(),
+                    raw_target: "file+sys:~/sys/path::7".to_string(),
+                    raw_description: None,
+                    link_type: "file+sys".to_string(),
+                    path: "~/sys/path".to_string(),
+                    search_option: Some("7".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<file+emacs:~/emacs/path::*Target>".to_string(),
+                    raw_target: "file+emacs:~/emacs/path::*Target".to_string(),
+                    raw_description: None,
+                    link_type: "file+emacs".to_string(),
+                    path: "~/emacs/path".to_string(),
+                    search_option: Some("*Target".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<unknown:foo>".to_string(),
+                    raw_target: "unknown:foo".to_string(),
+                    raw_description: None,
+                    link_type: "unknown".to_string(),
+                    path: "foo".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<jira:ABC-123>".to_string(),
+                    raw_target: "jira:ABC-123".to_string(),
+                    raw_description: None,
+                    link_type: "jira".to_string(),
+                    path: "ABC-123".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Heading".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<shell:ls *.org>".to_string(),
+                    raw_target: "shell:ls *.org".to_string(),
+                    raw_description: None,
+                    link_type: "shell".to_string(),
+                    path: "ls *.org".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
                     heading_title: "Heading".to_string(),
                     format: "bracket".to_string(),
                     raw: "[[shell:ls]]".to_string(),
@@ -3914,6 +4084,22 @@ index_body_text = false
                     raw_description: None,
                     link_type: "shell".to_string(),
                     path: "ls".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Heading".to_string(),
+                    format: "angle".to_string(),
+                    raw: "<https://example.org>".to_string(),
+                    raw_target: "https://example.org".to_string(),
+                    raw_description: None,
+                    link_type: "https".to_string(),
+                    path: "//example.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
                     path_absolute: None,

@@ -196,6 +196,7 @@ fn try_parse_angle_link(content: &str, offset: usize, line: u32) -> Option<Parse
     let byte_end = offset + close + 1;
     let raw_target = &content[offset + 1..byte_end - 1];
     let (link_type, path) = split_explicit_type(raw_target)?;
+    let (path, search_option) = finalize_explicit_target(&link_type, path);
 
     Some(ParsedLink {
         format: "angle".to_string(),
@@ -204,7 +205,7 @@ fn try_parse_angle_link(content: &str, offset: usize, line: u32) -> Option<Parse
         raw_description: None,
         link_type,
         path,
-        search_option: None,
+        search_option,
         byte_start: offset,
         byte_end,
         line,
@@ -274,7 +275,8 @@ fn try_parse_plain_link(
 
 fn classify_bracket_target(target: &str) -> (String, String, Option<String>) {
     if let Some((link_type, path)) = split_explicit_type(target) {
-        return finalize_bracket_target(link_type, path);
+        let (path, search_option) = finalize_explicit_target(&link_type, path);
+        return (link_type, path, search_option);
     }
 
     if target.starts_with("./")
@@ -282,7 +284,8 @@ fn classify_bracket_target(target: &str) -> (String, String, Option<String>) {
         || target.starts_with("~/")
         || target.starts_with('/')
     {
-        return finalize_bracket_target("file".to_string(), target.to_string());
+        let (path, search_option) = split_search_option(target.to_string());
+        return ("file".to_string(), path, search_option);
     }
 
     if target.starts_with('#') {
@@ -292,17 +295,16 @@ fn classify_bracket_target(target: &str) -> (String, String, Option<String>) {
     ("fuzzy".to_string(), target.to_string(), None)
 }
 
-fn finalize_bracket_target(link_type: String, path: String) -> (String, String, Option<String>) {
-    if bracket_target_is_file_like(&link_type) {
-        let (path, search_option) = split_search_option(path);
-        return (link_type, path, search_option);
-    }
-
-    (link_type, path, None)
+fn link_type_is_file_like(link_type: &str) -> bool {
+    matches!(link_type, "file" | "file+sys" | "file+emacs")
 }
 
-fn bracket_target_is_file_like(link_type: &str) -> bool {
-    matches!(link_type, "file" | "file+sys" | "file+emacs")
+fn finalize_explicit_target(link_type: &str, path: String) -> (String, Option<String>) {
+    if link_type_is_file_like(link_type) {
+        split_search_option(path)
+    } else {
+        (path, None)
+    }
 }
 
 fn split_search_option(path: String) -> (String, Option<String>) {
@@ -412,6 +414,7 @@ mod tests {
         assert_eq!(links[1].raw_target, "https://example.com/a path");
         assert_eq!(links[1].link_type, "https");
         assert_eq!(links[1].path, "//example.com/a path");
+        assert_eq!(links[1].search_option, None);
 
         assert_eq!(links[2].format, "plain");
         assert_eq!(links[2].raw, "https://example.com");
@@ -437,6 +440,139 @@ mod tests {
         assert_eq!(links[1].format, "angle");
         assert_eq!(links[1].raw, "<mailto:person@example.com>");
         assert_eq!(links[1].line, 4);
+    }
+
+    #[test]
+    fn angle_links_support_spaces_and_file_like_search_options() {
+        let content = "\
+<https://example.com/some path with spaces>
+<file:~/code/main.c::255>
+<file:~/xx.org::*My Target>
+<file:~/xx.org::#my-custom-id>
+<file:~/xx.org::/regexp/>
+<file+sys:~/sys/path::7>
+<file+emacs:~/emacs/path::*Target>";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let angle_links = links
+            .into_iter()
+            .filter(|link| link.format == "angle")
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            angle_links
+                .iter()
+                .map(|link| {
+                    (
+                        link.raw.clone(),
+                        link.raw_target.clone(),
+                        link.link_type.clone(),
+                        link.path.clone(),
+                        link.search_option.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "<https://example.com/some path with spaces>".to_string(),
+                    "https://example.com/some path with spaces".to_string(),
+                    "https".to_string(),
+                    "//example.com/some path with spaces".to_string(),
+                    None,
+                ),
+                (
+                    "<file:~/code/main.c::255>".to_string(),
+                    "file:~/code/main.c::255".to_string(),
+                    "file".to_string(),
+                    "~/code/main.c".to_string(),
+                    Some("255".to_string()),
+                ),
+                (
+                    "<file:~/xx.org::*My Target>".to_string(),
+                    "file:~/xx.org::*My Target".to_string(),
+                    "file".to_string(),
+                    "~/xx.org".to_string(),
+                    Some("*My Target".to_string()),
+                ),
+                (
+                    "<file:~/xx.org::#my-custom-id>".to_string(),
+                    "file:~/xx.org::#my-custom-id".to_string(),
+                    "file".to_string(),
+                    "~/xx.org".to_string(),
+                    Some("#my-custom-id".to_string()),
+                ),
+                (
+                    "<file:~/xx.org::/regexp/>".to_string(),
+                    "file:~/xx.org::/regexp/".to_string(),
+                    "file".to_string(),
+                    "~/xx.org".to_string(),
+                    Some("/regexp/".to_string()),
+                ),
+                (
+                    "<file+sys:~/sys/path::7>".to_string(),
+                    "file+sys:~/sys/path::7".to_string(),
+                    "file+sys".to_string(),
+                    "~/sys/path".to_string(),
+                    Some("7".to_string()),
+                ),
+                (
+                    "<file+emacs:~/emacs/path::*Target>".to_string(),
+                    "file+emacs:~/emacs/path::*Target".to_string(),
+                    "file+emacs".to_string(),
+                    "~/emacs/path".to_string(),
+                    Some("*Target".to_string()),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn angle_links_preserve_unknown_and_action_like_types_without_splitting() {
+        let content = "<unknown:foo> <jira:ABC-123> <shell:ls *.org>";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let angle_links = links
+            .into_iter()
+            .filter(|link| link.format == "angle")
+            .collect::<Vec<_>>();
+
+        assert_eq!(angle_links.len(), 3);
+        assert_eq!(angle_links[0].link_type, "unknown");
+        assert_eq!(angle_links[0].path, "foo");
+        assert_eq!(angle_links[0].search_option, None);
+        assert_eq!(angle_links[1].link_type, "jira");
+        assert_eq!(angle_links[1].path, "ABC-123");
+        assert_eq!(angle_links[1].search_option, None);
+        assert_eq!(angle_links[2].link_type, "shell");
+        assert_eq!(angle_links[2].path, "ls *.org");
+        assert_eq!(angle_links[2].search_option, None);
+    }
+
+    #[test]
+    fn angle_candidates_ignore_unterminated_and_multiline_cases_and_recover() {
+        let content = "<https://example.com\n<broken\n<https://example.org/ok>";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let angle_links = links
+            .into_iter()
+            .filter(|link| link.format == "angle")
+            .collect::<Vec<_>>();
+
+        assert_eq!(angle_links.len(), 1);
+        assert_eq!(angle_links[0].raw, "<https://example.org/ok>");
+        assert_eq!(angle_links[0].line, 3);
     }
 
     #[test]

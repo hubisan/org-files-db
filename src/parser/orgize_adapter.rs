@@ -72,7 +72,7 @@ impl OrgParserCore for OrgizeAdapter {
             &LinkScanContext::default(),
         )
         .into_iter()
-        .filter(|link| link.format == "bracket")
+        .filter(|link| matches!(link.format.as_str(), "bracket" | "angle"))
         .collect();
 
         Ok(parsed)

@@ -1,0 +1,143 @@
+#+TITLE: Extract angle links
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 16:06]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - The previous task is already completed by the user.
+  - Continue with the next Phase 3 task =Extract angle links=.
+  - Reuse the project-owned scanner and existing parser/indexer/storage path.
+  - Store bracket and angle links end-to-end, but still not plain links.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** TODO Extract angle links
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+=BUILD with 5.4 medium=
+
+Goal:
+
+- Extract supported Org angle links and store them as raw source facts.
+
+Contract:
+
+- Angle links are syntax-driven.
+- Supported form: ~<type:path>~.
+- The type is the substring before the first ~:~.
+- The type does not need to be predefined.
+- Unknown explicit types are preserved as their ASCII-lowercase prefix.
+- The closing ~>~ must be on the same line.
+- Spaces inside the path are allowed.
+- Store ~format = angle~.
+- Store ~raw~ exactly, including surrounding angle brackets.
+- Store ~raw_target~ as the content inside the angle brackets.
+- Store ~raw_description = NULL~.
+- Store ~link_type~ as the lowercase type prefix.
+- Store ~path~ as the part after the first ~:~.
+- Split ~path::search_option~ only for file-like types.
+- File-like angle types for Phase 3 are:
+  - ~file~
+  - ~file+sys~
+  - ~file+emacs~
+- Do not split search options for ~id~, ~attachment~, ~docview~, ~shell~, unknown, or arbitrary custom types in Phase 3.
+- Do not execute or resolve action-like protocols.
+- Do not resolve file paths.
+- Do not populate Phase 4 resolution fields.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The scanner already emits basic angle links, but the adapter and indexer currently persist only bracket links.
+- Angle links also still need file-like =path::search_option= splitting aligned with the existing bracket behavior.
+
+** Goals
+- Refine scanner angle parsing to meet the Phase 3 contract.
+- Expose angle links through the parser-owned document model.
+- Persist bracket and angle links together through the existing storage path while still excluding plain links.
+
+** Non-goals
+- No plain-link storage.
+- No target resolution.
+- No config redesign.
+- No Orgize angle-link dependency.
+
+** Architecture
+- Reuse =ParsedLink= and the project scanner.
+- Share file-like target finalization logic between bracket and angle parsing.
+- Broaden the current adapter/indexer filters from bracket-only to bracket-or-angle.
+
+** Execution plan
+- Create and link the active task file.
+- Refine angle parsing and shared search-option splitting in =src/parser/link_scanner.rs=.
+- Update =OrgizeAdapter= and =Indexer= to persist bracket and angle links, but still not plain links.
+- Add focused scanner, adapter, and indexer regressions.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: =source_context = normal= remains acceptable for angle links in this task, matching the current bracket-link path.
+- Risk: widening persistence from bracket-only to bracket+angle must not accidentally start storing plain links; tests need to pin that down.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_scanner -- --nocapture=
+- =cargo test orgize_adapter_collects_project_owned_bracket_and_angle_links -- --nocapture=
+- =cargo test rebuild_stores_bracket_and_angle_links_as_source_facts -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Reused the existing project-owned scanner and refined its angle-link parsing so file-like explicit types now split =path::search_option= with the same helper behavior as bracket links.
+- Broadened the parser-owned link exposure in =OrgizeAdapter= from bracket-only to bracket-or-angle, while still excluding plain links from the parser/indexer storage path.
+- Broadened the indexer’s persistence filter from bracket-only to bracket-or-angle so supported angle links now flow through the existing =ParsedLink -> LinkRecord -> links= table path unchanged.
+- Added focused scanner coverage for spaces in angle paths, file/file+sys/file+emacs search-option splitting, unknown/custom/action-like types, and safe recovery from unterminated or multiline angle candidates.
+- Added adapter and indexer regressions to pin down end-to-end storage, root/heading attachment, and Phase 4 resolution columns remaining =NULL= while plain links still stay unstored.
+** Changed files
+- =src/parser/link_scanner.rs=
+- =src/parser/orgize_adapter.rs=
+- =src/indexer.rs=
+- =tests/orgize_adapter.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-30--extract-angle-links.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_scanner -- --nocapture=
+- =cargo test orgize_adapter_collects_project_owned_bracket_and_angle_links -- --nocapture=
+- =cargo test rebuild_stores_bracket_and_angle_links_as_source_facts -- --nocapture=
+- =make ci=
+** Test results
+- Focused angle-link checks passed:
+  - =21= scanner tests under =link_scanner=
+  - =1= focused adapter regression
+  - =1= focused indexer/storage regression
+- =make ci= passed fully:
+  - =cargo fmt --all --check=
+  - =cargo clippy --all-targets --all-features -- -D warnings=
+  - =cargo test --all-targets --all-features=
+  - =cargo build --all-targets --all-features=
+- Full suite after this task:
+  - =143= unit tests in =src/lib.rs=
+  - =29= tests in =tests/orgize_adapter.rs=
+  - =8= tests in =tests/parser_contract.rs=
+  - =2= tests in =tests/parser_fixtures.rs=
+** Blockers
+- None.
+** Follow-ups
+- Plain-link storage remains intentionally excluded; the scanner still recognizes plain links, but the parser/indexer storage filter continues to suppress them until the dedicated plain-link task.
+- =source_context= remains uniformly =normal= for angle links just like bracket links; later source-context/ignored-region work can refine that without changing stored field names.
