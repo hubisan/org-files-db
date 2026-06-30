@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use org_files_db::parser::{
-    OrgParser, OrgParserCore, OrgizeAdapter, ParseOptions, ParsedPropertySource,
+    LinkScannerConfig, OrgParser, OrgParserCore, OrgizeAdapter, ParseOptions, ParsedPropertySource,
     ParsedTimestampModifierKind, ParsedTimestampModifierType, ParsedTimestampRangeType,
     ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig,
     TodoType,
@@ -694,6 +694,7 @@ fn orgize_adapter_uses_configured_project_todo_keywords() {
             open: vec![TodoKeyword::with_fast_key("PLAN", 'p')],
             closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
         },
+        ..ParseOptions::default()
     };
 
     let document = OrgizeAdapter::new()
@@ -718,6 +719,7 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults() {
             open: vec![TodoKeyword::with_fast_key("TODO", 't')],
             closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
         },
+        ..ParseOptions::default()
     };
 
     let document = OrgizeAdapter::new()
@@ -746,6 +748,7 @@ fn orgize_adapter_treats_org_todo_keywords_as_overrides() {
             open: vec![TodoKeyword::with_fast_key("REVIEW", 'r')],
             closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
         },
+        ..ParseOptions::default()
     };
 
     let document = OrgizeAdapter::new()
@@ -792,6 +795,7 @@ fn orgize_adapter_core_parser_uses_only_effective_todo_keywords() {
             content,
             &ParseOptions {
                 todo_keywords: resolved.effective,
+                ..ParseOptions::default()
             },
         )
         .expect("core parser should use effective TODO keywords");
@@ -1063,6 +1067,7 @@ fn orgize_adapter_supports_simplified_org_todo_keyword_lines() {
             open: vec![TodoKeyword::with_fast_key("TODO", 't')],
             closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
         },
+        ..ParseOptions::default()
     };
 
     let document = OrgizeAdapter::new()
@@ -1136,7 +1141,7 @@ fn orgize_adapter_normalizes_described_link_titles() {
 }
 
 #[test]
-fn orgize_adapter_collects_project_owned_bracket_and_angle_links() {
+fn orgize_adapter_collects_project_owned_links_including_plain_file_splits() {
     let content = "\
 #+TITLE: Links
 [[FILE:notes.org::42]]
@@ -1144,6 +1149,7 @@ fn orgize_adapter_collects_project_owned_bracket_and_angle_links() {
 <file:~/code/main.c::255>
 <shell:ls *.org>
 https://example.org
+file:~/plain.c::255
 * Heading
 [[shell:ls]]";
 
@@ -1155,7 +1161,7 @@ https://example.org
         )
         .expect("adapter should parse link fixture");
 
-    assert_eq!(document.links.len(), 5);
+    assert_eq!(document.links.len(), 7);
     assert_eq!(document.links[0].raw, "[[FILE:notes.org::42]]");
     assert_eq!(document.links[0].raw_target, "FILE:notes.org::42");
     assert_eq!(document.links[0].link_type, "file");
@@ -1171,9 +1177,37 @@ https://example.org
     assert_eq!(document.links[3].format, "angle");
     assert_eq!(document.links[3].link_type, "shell");
     assert_eq!(document.links[3].path, "ls *.org");
-    assert_eq!(document.links[4].format, "bracket");
-    assert_eq!(document.links[4].link_type, "shell");
-    assert_eq!(document.links[4].path, "ls");
+    assert_eq!(document.links[4].format, "plain");
+    assert_eq!(document.links[4].raw, "https://example.org");
+    assert_eq!(document.links[4].path, "//example.org");
+    assert_eq!(document.links[5].format, "plain");
+    assert_eq!(document.links[5].raw, "file:~/plain.c::255");
+    assert_eq!(document.links[5].path, "~/plain.c");
+    assert_eq!(document.links[5].search_option.as_deref(), Some("255"));
+    assert_eq!(document.links[6].format, "bracket");
+    assert_eq!(document.links[6].link_type, "shell");
+    assert_eq!(document.links[6].path, "ls");
+}
+
+#[test]
+fn orgize_adapter_can_disable_plain_links_without_affecting_bracket_or_angle_links() {
+    let content = "jira:ABC-123 <jira:ABC-123> [[jira:ABC-123]]";
+    let options = ParseOptions {
+        link_scanner: LinkScannerConfig {
+            plain_link_protocols: Vec::new(),
+        },
+        ..ParseOptions::default()
+    };
+
+    let document = OrgizeAdapter::new()
+        .parse_document(Path::new("notes/plain-disabled.org"), content, &options)
+        .expect("adapter should parse link fixture");
+
+    assert_eq!(document.links.len(), 2);
+    assert_eq!(document.links[0].format, "angle");
+    assert_eq!(document.links[0].link_type, "jira");
+    assert_eq!(document.links[1].format, "bracket");
+    assert_eq!(document.links[1].link_type, "jira");
 }
 
 #[test]

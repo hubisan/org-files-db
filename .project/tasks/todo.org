@@ -180,8 +180,33 @@ Rules:
 - Plain links are protocol-list-driven.
 - Plain links are extracted only when ~type~ is enabled through the plain-link protocol configuration.
 - Orgize plain-link support is not part of the contract.
-- Plain links stop at whitespace or another hard delimiter.
-- Deterministic trailing punctuation is trimmed from the stored link span.
+- The project config controls the protocol list; Emacs Org's built-in protocol list is not the project protocol contract.
+- Plain-link boundary and path-end behavior should follow Emacs Org's ~org-link-plain-re~ behavior where feasible.
+- Ambiguous plain-link boundary, quote, delimiter, and trailing-punctuation cases must be checked against Emacs ~org-element-parse-buffer~ before changing scanner behavior.
+- The project scanner remains the implementation contract, but any deliberate deviation from observed Org behavior must be documented explicitly with fixture examples.
+- Plain links do not contain whitespace.
+- Plain links may contain punctuation and balanced delimiter groups only where Org's plain-link grammar accepts them.
+- Deterministic trailing punctuation is not part of the stored link span.
+- The stored ~raw~, ~byte_start~, and ~byte_end~ refer to the final accepted link span.
+
+Plain-link left-boundary policy:
+
+- A plain link may start at the beginning of a line.
+- A plain link may start after whitespace.
+- A plain link may start after punctuation when Org's plain-link grammar accepts a word boundary before the protocol.
+- A plain link must not start in the middle of a word.
+- Single-quoted plain links are treated as not-a-link in Phase 3, matching observed Org behavior.
+- This is a plain-link boundary rule, not an ignored-region rule.
+
+Plain-link path/end policy:
+
+- Plain links stop at whitespace.
+- Plain links may include delimiter-like groups such as ~(...)~, ~[...]~, and ~<...>~ when Org's plain-link grammar accepts them as balanced groups.
+- A plain link may end with a non-punctuation, non-whitespace character.
+- A plain link may end with ~/~.
+- A plain link may end with ~-~.
+- A plain link may end with an Org-accepted balanced delimiter group.
+- Other deterministic trailing punctuation is trimmed from the stored link span.
 
 Trimmed trailing punctuation for plain links:
 
@@ -195,7 +220,7 @@ Trimmed trailing punctuation for plain links:
 - ~]~
 - ~}~
 
-The stored ~raw~, ~byte_start~, and ~byte_end~ refer to the final trimmed link span.
+The stored ~raw~, ~byte_start~, and ~byte_end~ refer to the final accepted and trimmed link span.
 
 Examples:
 
@@ -205,7 +230,46 @@ file:notes.org
 id:abc123
 mailto:person@example.org
 jira:ABC-123
+
+!https://www.example.com
+"https://www.example.com
+$https://www.example.com
+%https://www.example.com
+'https://www.example.com
+xhttps://www.example.com
+
+https://example.org/path with text after whitespace
+https://example.org/path<balanced-suffix>
+https://example.org/path.
+https://example.org/path/
+https://example.org/path-
 #+end_src
+
+Expected plain-link boundary and end behavior:
+
+- ~https://example.org~ stores ~https://example.org~.
+- ~file:notes.org~ stores ~file:notes.org~.
+- ~id:abc123~ stores ~id:abc123~.
+- ~mailto:person@example.org~ stores ~mailto:person@example.org~.
+- ~jira:ABC-123~ stores ~jira:ABC-123~ only when ~jira~ is configured.
+- ~!https://www.example.com~ stores ~https://www.example.com~.
+- ~"https://www.example.com~ stores ~https://www.example.com~.
+- ~$https://www.example.com~ stores no plain link, matching observed Org behavior.
+- ~%https://www.example.com~ stores no plain link, matching observed Org behavior.
+- ~'https://www.example.com~ stores no plain link, matching observed Org behavior.
+- ~xhttps://www.example.com~ stores no plain link because the protocol starts in the middle of a word.
+- ~https://example.org/path with text after whitespace~ stores ~https://example.org/path~.
+- ~https://example.org/path<balanced-suffix>~ stores ~https://example.org/path<balanced-suffix>~, matching Org plain-link behavior.
+- ~https://example.org/path.~ stores ~https://example.org/path~.
+- ~https://example.org/path/~ stores ~https://example.org/path/~.
+- ~https://example.org/path-~ stores ~https://example.org/path-~.
+
+Reference notes:
+
+- Emacs Org parses plain links through ~org-link-plain-re~ in ~org-element-link-parser~.
+- The important boundary component is Org's word-boundary assertion before the configured protocol.
+- The exact set of accepted prefix characters is syntax-table and parser-context dependent, so the contract should not maintain a complete hand-written prefix-character list.
+- Representative examples must be kept in tests and fixtures instead.
 
 *** Link config contract
 
@@ -745,6 +809,66 @@ Acceptance criteria:
   - angle links unaffected by plain-link config
   - action-like protocols never being executed
 
+** DONE Decide relationship syntax in link descriptions
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
+
+Decision:
+
+- Relationship markers in descriptions are not supported.
+- Relationship markers are removed from the Phase 3 link syntax contract.
+- No relationship syntax is parsed from descriptions.
+- No relation column is added to the ~links~ table.
+- No relationship table is added in Phase 3.
+- ~raw_description~ is preserved exactly.
+- Normal Org link descriptions remain available unchanged as raw source facts.
+
+Example that remains a normal described link only:
+
+#+begin_src org
+[[https://www.example.com][Example (->Owner)]]
+#+end_src
+
+Acceptance criteria:
+
+- Decision is documented as not supported.
+- Phase 3 preserves descriptions exactly.
+- No relationship extraction is implemented.
+- No relationship storage is added.
+- Normal Org link descriptions remain available unchanged.
+
+** DONE Decide multiline bracket-link support
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
+
+Decision:
+
+- Multi-line bracket links are not supported.
+- Multi-line angle links are not supported.
+- This is not just default-off; it is outside the Phase 3 contract.
+- Do not add ~parse_multiline_bracket_links~ in Phase 3.
+- If a bracket or angle link would require crossing a newline to close, treat it as not-a-link and continue scanning.
+- Document this as a deliberate known deviation from broader Org behavior.
+
+Acceptance criteria:
+
+- Single-line-only Phase 3 behavior is documented.
+- Multi-line examples are marked unsupported in fixtures.
+- Scanner tests confirm multi-line candidates are ignored.
+- No future BUILD task is created from this decision unless the project deliberately reopens the scope later.
+
 ** DONE Create links DB table and storage functions
 :PROPERTIES:
 :PRIORITY: High
@@ -781,173 +905,13 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--align-default-plain-link-protocols-with-phase-3-config-contract.org]]
 
-** TODO [#B] Extract plain links with configurable protocols
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Extract plain links with configurable protocols
 
-Depends on:
+[[./archive/2026-06-30--extract-plain-links-with-configurable-protocols.org]]
 
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
-- [[*Create links DB table and storage functions][Create links DB table and storage functions]]
-- [[*Define links config contract][Define links config contract]]
+** DONE Split search options for file-like link source facts
 
-Goal:
-
-- Detect plain Org links from text after bracket and angle candidates are handled.
-- Make plain-link protocol detection configurable to avoid hard-coded project policy.
-- Avoid depending on Orgize for plain links.
-
-Contract copied from Phase 3 SPEC:
-
-- Plain links are protocol-list-driven.
-- Plain links are extracted only when their protocol is enabled through config.
-- Orgize plain-link support is not part of the contract.
-- Effective plain-link protocols are ~plain_protocols + custom_protocols~.
-- Missing ~plain_protocols~ uses the default list.
-- ~plain_protocols = []~ disables the default plain-link protocols only.
-- ~custom_protocols~ remains active even when ~plain_protocols = []~.
-- To disable all plain-link extraction, set both:
-  - ~plain_protocols = []~
-  - ~custom_protocols = []~
-- ~custom_protocols~ affects plain-link detection only.
-- Bracket links and angle links are unaffected by plain-link config.
-- Action-like protocols such as ~shell~ and ~elisp~ are not enabled by default for plain links.
-- Plain links stop at whitespace or another hard delimiter.
-- Deterministic trailing punctuation is trimmed from the stored link span.
-- The stored ~raw~, ~byte_start~, and ~byte_end~ refer to the final trimmed link span.
-- Do not execute or resolve targets.
-
-Default plain-link protocols:
-
-#+begin_src toml
-plain_protocols = [
-  "http",
-  "https",
-  "file",
-  "file+sys",
-  "file+emacs",
-  "ftp",
-  "attachment",
-  "bbdb",
-  "docview",
-  "doi",
-  "gnus",
-  "rmail",
-  "mhe",
-  "help",
-  "id",
-  "info",
-  "irc",
-  "mailto",
-  "news",
-  "shortdoc",
-]
-#+end_src
-
-Trailing punctuation trimmed for plain links:
-
-- ~.~
-- ~,~
-- ~;~
-- ~:~
-- ~!~
-- ~?~
-- ~)~
-- ~]~
-- ~}~
-
-Examples:
-
-#+begin_src org
-https://example.org
-https://example.org.
-file:notes.org
-id:abc123
-mailto:person@example.org
-jira:ABC-123
-#+end_src
-
-Acceptance criteria:
-
-- Plain links are detected only for configured protocols.
-- Default plain protocols are tested.
-- Empty ~plain_protocols~ behavior is tested.
-- Custom protocol plain links are tested.
-- All-plain-link extraction disabled behavior is tested.
-- Bracket links are unaffected by plain-link config.
-- Angle links are unaffected by plain-link config.
-- Action-like protocols are not plain-link defaults.
-- Plain links trim deterministic trailing punctuation.
-- False positives and ignored forms are documented in fixtures.
-- Unicode plain links are tested.
-- Phase 4 resolution fields remain untouched.
-
-** TODO Split search options for file-like link source facts
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Extract bracket links as raw source facts][Extract bracket links as raw source facts]]
-- [[*Extract angle links][Extract angle links]]
-- [[*Extract plain links with configurable protocols][Extract plain links with configurable protocols]]
-
-Goal:
-
-- Split ~path::search_option~ for file-like links without resolving the target.
-
-Contract copied from Phase 3 SPEC:
-
-- Split ~path::search_option~ only for file-like links.
-- File-like links include:
-  - explicit ~file~
-  - explicit ~file+sys~
-  - explicit ~file+emacs~
-  - implicit file bracket links starting with ~./~, ~../~, ~~/~, or ~/~
-- Split at the first ~::~.
-- Preserve ~raw~ unchanged.
-- Preserve ~raw_target~ unchanged.
-- Store ~path~ and ~search_option~ separately.
-- Do not validate whether the search option exists.
-- Do not resolve the search option.
-- Do not split search options for ~id~, ~attachment~, ~docview~, or arbitrary custom types in Phase 3.
-
-Examples:
-
-#+begin_src org
-  [[file:~/code/main.c::255]]
-  [[file:~/xx.org::*My Target]]
-  [[file:~/xx.org::#my-custom-id]]
-  [[file:~/xx.org::/regexp/]]
-  [[file:::find me]]
-  [[./org-test-links.org::10]]
-  <file:~/code/main.c::255>
-  file:~/code/main.c::255
-#+end_src
-
-Acceptance criteria:
-
-- Numeric search options are tested.
-- Heading search options are tested.
-- CUSTOM_ID-looking search options are tested.
-- Regexp search options are tested.
-- Empty-path current-file search options are tested.
-- Explicit ~file+sys~ and ~file+emacs~ cases are tested.
-- Implicit file bracket link search options are tested.
-- Non-file-like ~id~, ~attachment~, ~docview~, and custom types are not split.
-- Raw link remains preserved.
-- Raw target remains preserved.
-- Phase 4 resolution fields remain untouched.
+[[./archive/2026-06-30--split-search-options-for-file-like-link-source-facts.org]]
 
 ** TODO [#B] Implement ignored-region filtering for links
 :PROPERTIES:
@@ -1117,7 +1081,9 @@ Scope:
 - Preserve ignored-region examples.
 - Preserve custom-protocol examples.
 - Preserve search-option examples.
+- Preserve plain-link boundary and path-end examples checked against ~org-element-parse-buffer~.
 - Do not require full org-element equivalence.
+- For plain-link boundary/end cases, document whether the project follows observed Org behavior or intentionally diverges.
 
 Acceptance criteria:
 
@@ -1129,6 +1095,7 @@ Acceptance criteria:
 - Source context tests cover headings, normal text, drawers, property drawers, and block contexts.
 - Fixture names make failures easy to interpret.
 - Known Orgize mismatches are captured as documented expectations, not accidental failures.
+- Plain-link boundary fixture expectations are explicit and reference observed ~org-element-parse-buffer~ behavior where relevant.
 
 ** TODO [#B] Wire link extraction into file rebuild
 :PROPERTIES:
@@ -1316,6 +1283,7 @@ Known mismatch candidates:
 - Permissive bracket description parsing may differ.
 - Multi-line link behavior may differ.
 - Unsupported forms such as radio targets and link abbreviations are deliberate project decisions.
+- Plain-link boundary and path-end behavior should be compared against Emacs ~org-element-parse-buffer~ for representative ambiguous cases.
 
 Relevant Orgize issues to reference in project notes:
 
@@ -1327,7 +1295,7 @@ Scope:
 - Pick a small representative fixture set.
 - Compare bracket links.
 - Compare angle links.
-- Compare plain links.
+- Compare plain links, including boundary and path-end behavior against Emacs ~org-element-parse-buffer~.
 - Compare ignored regions.
 - Compare property drawer and normal drawer behavior.
 - Compare multiline behavior as a known unsupported case.
@@ -1338,67 +1306,8 @@ Scope:
 Acceptance criteria:
 
 - Expected mismatches are documented.
+- Plain-link boundary/end expectations are documented against observed ~org-element-parse-buffer~ behavior.
 - Unexpected mismatches either get tests or follow-up tasks.
 - Orgize-specific issues are captured with minimal repro examples.
 - Scanner contract remains independent of Orgize internals.
 - Project-specific behavior is documented as local policy, not as an Orgize bug.
-
-** DONE Decide relationship syntax in link descriptions
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Relationship markers in descriptions are not supported.
-- Relationship markers are removed from the Phase 3 link syntax contract.
-- No relationship syntax is parsed from descriptions.
-- No relation column is added to the ~links~ table.
-- No relationship table is added in Phase 3.
-- ~raw_description~ is preserved exactly.
-- Normal Org link descriptions remain available unchanged as raw source facts.
-
-Example that remains a normal described link only:
-
-#+begin_src org
-[[https://www.example.com][Example (->Owner)]]
-#+end_src
-
-Acceptance criteria:
-
-- Decision is documented as not supported.
-- Phase 3 preserves descriptions exactly.
-- No relationship extraction is implemented.
-- No relationship storage is added.
-- Normal Org link descriptions remain available unchanged.
-
-** DONE Decide multiline bracket-link support
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Resolved in [[#phase3-link-contract][Phase 3 link extraction contract]].
-
-Decision:
-
-- Multi-line bracket links are not supported.
-- Multi-line angle links are not supported.
-- This is not just default-off; it is outside the Phase 3 contract.
-- Do not add ~parse_multiline_bracket_links~ in Phase 3.
-- If a bracket or angle link would require crossing a newline to close, treat it as not-a-link and continue scanning.
-- Document this as a deliberate known deviation from broader Org behavior.
-
-Acceptance criteria:
-
-- Single-line-only Phase 3 behavior is documented.
-- Multi-line examples are marked unsupported in fixtures.
-- Scanner tests confirm multi-line candidates are ignored.
-- No future BUILD task is created from this decision unless the project deliberately reopens the scope later.

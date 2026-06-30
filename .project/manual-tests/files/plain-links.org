@@ -1,0 +1,288 @@
+#+TITLE: Plain Link Fixture
+#+STARTUP: showall
+
+# Plain links before the first real heading should attach to synthetic root.
+
+Add this to config.toml:
+
+#+BEGIN_SRC conf-toml
+  [links]
+  custom_protocols = ["jira", "customlink"]
+#+END_SRC
+
+https://root.example.org
+file:root-notes.org
+FILE:root-notes.org
+jira:ROOT-123
+invalid:should-not-work
+
+# Bracket and angle links should be unaffected by plain-link config.
+[[jira:ROOT-123]]
+<jira:ROOT-123>
+
+* Plain links
+
+** Default plain protocols
+
+These should be stored with the default Phase 3 plain-link protocol list.
+
+- http://orgmode.org
+- https://orgmode.org
+- file:notes.org
+- file+sys:/etc/hosts
+- file+emacs:~/.emacs.d/init.el
+- ftp://example.org/pub/file.txt
+- attachment:projects.org
+- bbdb:R.*Stallman
+- docview:papers/last.pdf
+- doi:10.1000/182
+- gnus:group
+- rmail:folder#id
+- mhe:folder#id
+- help:org-store-link
+- id:abc123
+- info:org#External-Links
+- irc:/irc.com/#emacs/bob
+- mailto:person@example.org
+- news:comp.emacs
+- shortdoc:text-properties
+
+** Custom plain protocols
+
+These should be stored only when configured through ~custom_protocols~.
+
+- jira:ABC-123
+- jira:PROJECT-999
+- customlink:test
+- customlink:with/slash/path
+
+** Action-like plain protocols
+
+These should not be stored by default.
+
+- shell:ls
+- shell:ls *.org
+- elisp:org-todo
+- elisp:(find-file "~/.emacs.d/init.el")
+
+They may be stored only when explicitly enabled through ~plain_protocols~ or ~custom_protocols~.
+Even then, they must never be executed.
+
+** Bracket and angle links unaffected by plain config
+
+These should still be stored even if all plain-link extraction is disabled.
+
+- [[jira:ABC-123]]
+- [[shell:ls *.org]]
+- [[elisp:(find-file "~/.emacs.d/init.el")]]
+- <jira:ABC-123>
+- <shell:ls *.org>
+- <elisp:(find-file "~/.emacs.d/init.el")>
+
+** Trailing punctuation trimming
+
+The stored raw span should exclude deterministic trailing punctuation.
+
+- https://example.org.
+- https://example.org,
+- https://example.org;
+- https://example.org:
+- https://example.org!
+- https://example.org?
+- https://example.org)
+- https://example.org]
+- https://example.org}
+- mailto:person@example.org;
+- id:abc123.
+- file:notes.org,
+
+** Boundary and end behavior
+
+Representative cases checked against observed ~org-element-parse-buffer~ behavior.
+The project keeps the configured protocol list project-owned, but plain-link boundary and end semantics should stay Org-like where feasible.
+
+Org keeps balanced ~(...)~, ~[...]~, and ~<...>~ suffixes as part of the plain-link path.
+
+*** Accepted plain-link left boundaries
+
+These should store the URL without the prefix punctuation.
+
+- !https://www.example.com/bang-prefix
+- @https://www.example.com/at-prefix
+- #https://www.example.com/hash-prefix
+- ^https://www.example.com/caret-prefix
+- &https://www.example.com/ampersand-prefix
+- (https://www.example.com/open-paren-prefix
+- )https://www.example.com/close-paren-prefix
+- _https://www.example.com/underscore-prefix
+- -https://www.example.com/dash-prefix
+- =https://www.example.com/equal-prefix
+- ~https://www.example.com/tilde-prefix
+- +https://www.example.com/plus-prefix
+- "https://www.example.com/double-quote-prefix
+- Prefix:https://www.example.com/after-colon-prefix
+
+*** Rejected plain-link left boundaries
+
+These should not be stored as plain links.
+
+- $https://www.example.com/dollar-prefix
+- %https://www.example.com/percent-prefix
+- 'https://www.example.com/single-quote-prefix
+- xhttps://www.example.com/middle-of-word
+
+*** Whitespace and balanced delimiter end behavior
+
+Plain links should stop at whitespace.
+
+- https://example.org/path with text after whitespace
+
+Balanced delimiter groups should remain part of the plain-link path when complete.
+
+- https://example.org/path<balanced-suffix>
+- https://example.org/path(foo)
+- https://example.org/path[foo]
+- https://example.org/path<balanced-angle-suffix>
+
+Unbalanced or leading closer delimiter cases should stop before the delimiter.
+
+- https://example.org/path>not-part-of-plain-link
+- https://example.org/path<not-part-of-plain-link
+- https://example.org/path)not-part-of-plain-link
+- https://example.org/path]not-part-of-plain-link
+
+Curly braces are not Org plain-link balanced groups. The trailing ~}~ remains deterministic punctuation trimming, not balanced-group handling.
+
+- https://example.org/path{not-a-balanced-plain-link-group}
+- https://example.org/path}
+
+*** Emphasis and markup interaction
+
+Exact emphasis/markup interaction remains deferred to later ignored-region/source-context work.
+Observed Org behavior extracts the plain link from this emphasis object:
+
+- *https://example.org/emphasis-delimited*
+
+The final scanner/storage expectation for this case should be pinned when ignored-region/source-context handling is implemented.
+
+*** Final-character behavior
+
+Deterministic trailing punctuation should be trimmed from the stored raw span.
+
+- https://example.org/path.
+- https://example.org/path,
+- https://example.org/path;
+- https://example.org/path:
+- https://example.org/path!
+- https://example.org/path?
+
+A trailing slash or dash should remain part of the stored raw span.
+
+- https://example.org/path/
+- https://example.org/path-
+
+** Search-option-looking paths
+
+Search-option splitting for plain file-like links may be handled by the dedicated search-option task.
+Until then, these are useful manual cases.
+
+- file:./plain-links.org::10
+- file:./plain-links.org::*Plain links
+- file:./plain-links.org::#some-custom-id
+- file:./plain-links.org::/regexp/
+- file:::current file search
+- file+sys:./plain-links.org::10
+- file+emacs:./plain-links.org::10
+
+Non-file-like plain links with ~::~ should not be split in Phase 3.
+
+- id:abc123::10
+- attachment:projects.org::10
+- docview:papers/last.pdf::12
+- jira:ABC-123::10
+- customlink:file.org::10
+
+** False positives to watch
+
+These document forms that should either be ignored or treated conservatively.
+
+- notaprotocol:value
+- root:target-without-custom-config
+- shellish:ls
+- email@example.org
+- C:\Users\someone\notes.org
+
+** Ignored forms
+
+These should not be stored once ignored-region handling is wired into link scanning.
+
+Inside verbatim: ~https://example.org/verbatim~
+Inside code: =https://example.org/code=
+
+#+BEGIN_SRC sh
+https://example.org/in-source-block
+file:in-source-block.org
+jira:IN-SRC-1
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+https://example.org/in-example-block
+file:in-example-block.org
+#+END_EXAMPLE
+
+: https://example.org/colon-example-line
+: file:colon-example-line.org
+
+#+BEGIN_COMMENT
+https://example.org/in-comment-block
+file:in-comment-block.org
+#+END_COMMENT
+
+# https://example.org/comment-line
+# file:comment-line.org
+
+#+BEGIN_EXPORT HTML
+https://example.org/in-export-block
+file:in-export-block.org
+#+END_EXPORT
+
+@@html:https://example.org/inline-export@@
+
+#+PROPERTY: link_to_ignore https://example.org/property-keyword
+
+** Parsed regions
+
+These should be parsed according to the Phase 3 parsed-region policy.
+
+Paragraph with https://example.org/in-paragraph.
+
+#+BEGIN_VERSE
+https://example.org/in-verse-block
+#+END_VERSE
+
+#+BEGIN_QUOTE
+https://example.org/in-quote-block
+#+END_QUOTE
+
+#+BEGIN_CENTER
+https://example.org/in-center-block
+#+END_CENTER
+
+:PROPERTIES:
+:link_to_parse_1: https://example.org/in-property-drawer
+:END:
+
+:A_DRAWER:
+https://example.org/in-normal-drawer
+:END:
+
+* Unicode plain links
+
+Text with: äöü ÄÖÜ 😀😇🤖
+
+** Übung 🚀 Ein Titel mit Umlaut und Emoji                         :foo:bar:
+
+- https://orgmode.org/🔥
+- file:sub/äöü.txt
+- file:sub/äöü.txt::target
+- customlink:äöü-😀

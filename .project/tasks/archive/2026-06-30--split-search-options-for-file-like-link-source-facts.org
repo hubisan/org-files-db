@@ -1,0 +1,97 @@
+#+TITLE: Split search options for file-like link source facts
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 17:31]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry:
+
+#+begin_quote
+** TODO Split search options for file-like link source facts
+
+Goal:
+
+- Split ~path::search_option~ for file-like links without resolving the target.
+#+end_quote
+
+Chat context:
+
+- The user indicated that the previous plain-link task was completed already.
+- In the current branch state, plain-link config and end-to-end storage are not present yet, while bracket and angle search-option splitting already exists.
+
+* Planning
+
+** Problem summary
+The scanner already splits search options for bracket and angle file-like links, but the current branch still lacks plain-link end-to-end wiring and plain file-like search-option splitting. To deliver this task coherently on the actual branch state, the smallest missing prerequisite wiring must be added together with the search-option behavior.
+
+** Goals
+- Split ~path::search_option~ for file-like plain links.
+- Preserve bracket and angle splitting behavior.
+- Wire plain links into config, parser, adapter, and storage with the smallest practical surface.
+- Keep non-file-like types unsplit.
+
+** Non-goals
+- No link resolution.
+- No ignored-region work.
+- No Phase 4 target population.
+- No execution of action-like links.
+
+** Architecture
+Use one effective plain-link protocol list from config, pass it through ~ParseOptions~, let the project-owned scanner emit all supported formats, and persist all emitted links through the existing links table. Reuse the existing file-like split helper so bracket, angle, and plain behavior stay aligned.
+
+** Execution plan
+1. Add link config loading with missing-vs-empty plain protocol semantics.
+2. Extend ~ParseOptions~ to carry scanner config.
+3. Enable plain-link collection/storage in adapter and indexer.
+4. Apply file-like search-option splitting to plain links via the shared helper.
+5. Add focused config/scanner/adapter/indexer tests.
+
+** Risks & assumptions
+- Assumption: folding the minimal missing plain-link prerequisite wiring into this task is acceptable because the current branch does not contain the stated dependency yet.
+- Risk: changing ~ParseOptions~ and ~Config~ touches several tests; keep the edits mechanical and focused.
+
+** Open questions
+- None.
+
+** Proposed checks
+- ~cargo fmt --all~
+- focused config/parser/indexer tests
+- ~make ci~
+
+* Results
+
+** Approach
+Added the smallest missing plain-link prerequisite wiring on the current branch so file-like search-option splitting could be delivered coherently across scanner, parser options, adapter, and indexer. Reused the existing file-like split helper for bracket, angle, and plain links, and kept non-file-like targets unsplit.
+
+** Changed files
+- `src/config.rs`
+- `src/indexer.rs`
+- `src/parser/link_scanner.rs`
+- `src/parser/model.rs`
+- `src/parser/orgize_adapter.rs`
+- `tests/orgize_adapter.rs`
+- `tests/parser_contract.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-06-30--split-search-options-for-file-like-link-source-facts.org`
+
+** Checks performed
+- `cargo test --lib missing_plain_protocols_use_defaults`
+- `cargo test --lib plain_file_links_split_search_options_only_for_file_like_types`
+- `cargo test --lib rebuild_stores_phase3_links_as_source_facts`
+- `cargo fmt --all`
+- `make ci`
+
+** Test results
+- Focused config, scanner, and indexer checks passed.
+- Full `make ci` passed.
+
+** Blockers
+None.
+
+** Follow-ups
+- The task intentionally keeps ignored-region filtering out of scope; that remains the next dedicated link-extraction step.

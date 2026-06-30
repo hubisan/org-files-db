@@ -226,7 +226,7 @@ fn try_parse_plain_link(
     line: u32,
     enabled_protocols: &HashSet<String>,
 ) -> Option<ParsedLink> {
-    if offset > 0 && protocol_char(content.as_bytes()[offset - 1]) {
+    if !plain_link_has_valid_left_boundary(content, offset) {
         return None;
     }
 
@@ -247,13 +247,7 @@ fn try_parse_plain_link(
         return None;
     }
 
-    let mut end = colon + 1;
-    for (relative, ch) in slice[colon + 1..].char_indices() {
-        if ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '\'') {
-            break;
-        }
-        end = colon + 1 + relative + ch.len_utf8();
-    }
+    let end = plain_link_candidate_end(slice, colon);
 
     if end <= colon + 1 {
         return None;
@@ -266,6 +260,8 @@ fn try_parse_plain_link(
 
     let byte_end = offset + trimmed_end;
     let raw = &content[offset..byte_end];
+    let (path, search_option) =
+        finalize_explicit_target(&normalized, raw[protocol.len() + 1..].to_string());
 
     Some(ParsedLink {
         format: "plain".to_string(),
@@ -273,8 +269,8 @@ fn try_parse_plain_link(
         raw_target: raw.to_string(),
         raw_description: None,
         link_type: normalized,
-        path: raw[protocol.len() + 1..].to_string(),
-        search_option: None,
+        path,
+        search_option,
         byte_start: offset,
         byte_end,
         line,
@@ -357,6 +353,89 @@ fn protocol_char(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')
 }
 
+fn plain_link_has_valid_left_boundary(content: &str, offset: usize) -> bool {
+    let Some(previous) = content[..offset].chars().next_back() else {
+        return true;
+    };
+
+    !matches!(previous, '\'' | '$' | '%') && !previous.is_alphanumeric()
+}
+
+fn plain_link_candidate_end(slice: &str, colon: usize) -> usize {
+    let mut cursor = colon + 1;
+
+    while cursor < slice.len() {
+        let ch = slice[cursor..]
+            .chars()
+            .next()
+            .expect("cursor should remain on a char boundary");
+
+        if ch.is_whitespace() || matches!(ch, '"' | '\'') {
+            break;
+        }
+
+        if let Some(group_end) = balanced_plain_link_group_end(&slice[cursor..]) {
+            cursor += group_end;
+            continue;
+        }
+
+        if is_plain_link_group_opener(ch) || is_plain_link_group_closer(ch) {
+            break;
+        }
+
+        cursor += ch.len_utf8();
+    }
+
+    cursor
+}
+
+fn balanced_plain_link_group_end(slice: &str) -> Option<usize> {
+    let opener = slice.chars().next()?;
+    let mut expected_closers = vec![plain_link_group_closer(opener)?];
+
+    for (index, ch) in slice.char_indices().skip(1) {
+        if ch.is_whitespace() || matches!(ch, '"' | '\'') {
+            return None;
+        }
+
+        if let Some(expected) = plain_link_group_closer(ch) {
+            expected_closers.push(expected);
+            continue;
+        }
+
+        if Some(&ch) == expected_closers.last() {
+            expected_closers.pop();
+            if expected_closers.is_empty() {
+                return Some(index + ch.len_utf8());
+            }
+            continue;
+        }
+
+        if is_plain_link_group_closer(ch) {
+            return None;
+        }
+    }
+
+    None
+}
+
+fn plain_link_group_closer(ch: char) -> Option<char> {
+    match ch {
+        '(' => Some(')'),
+        '[' => Some(']'),
+        '<' => Some('>'),
+        _ => None,
+    }
+}
+
+fn is_plain_link_group_opener(ch: char) -> bool {
+    plain_link_group_closer(ch).is_some()
+}
+
+fn is_plain_link_group_closer(ch: char) -> bool {
+    matches!(ch, ')' | ']' | '>')
+}
+
 fn trim_plain_link_end(candidate: &str) -> usize {
     let mut end = candidate.len();
 
@@ -365,6 +444,9 @@ fn trim_plain_link_end(candidate: &str) -> usize {
             .chars()
             .next_back()
             .expect("candidate should be non-empty while trimming");
+        if matches!(ch, ')' | ']' | '}') && ends_with_balanced_plain_link_group(&candidate[..end]) {
+            break;
+        }
         if matches!(ch, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}') {
             end -= ch.len_utf8();
             continue;
@@ -373,6 +455,14 @@ fn trim_plain_link_end(candidate: &str) -> usize {
     }
 
     end
+}
+
+fn ends_with_balanced_plain_link_group(candidate: &str) -> bool {
+    candidate.char_indices().any(|(index, ch)| {
+        is_plain_link_group_opener(ch)
+            && balanced_plain_link_group_end(&candidate[index..])
+                .is_some_and(|group_end| index + group_end == candidate.len())
+    })
 }
 
 fn line_end_offset(content: &str, offset: usize) -> usize {
@@ -458,6 +548,7 @@ mod tests {
 <file:~/xx.org::*My Target>
 <file:~/xx.org::#my-custom-id>
 <file:~/xx.org::/regexp/>
+<file:::find me>
 <file+sys:~/sys/path::7>
 <file+emacs:~/emacs/path::*Target>";
 
@@ -519,6 +610,13 @@ mod tests {
                     "file".to_string(),
                     "~/xx.org".to_string(),
                     Some("/regexp/".to_string()),
+                ),
+                (
+                    "<file:::find me>".to_string(),
+                    "file:::find me".to_string(),
+                    "file".to_string(),
+                    "".to_string(),
+                    Some("find me".to_string()),
                 ),
                 (
                     "<file+sys:~/sys/path::7>".to_string(),
@@ -680,6 +778,89 @@ attachment:projects.org doi:10.1000/182 irc:/irc.com/#emacs/bob bbdb:R.*Stallman
                     "elisp:org-todo".to_string(),
                     "elisp".to_string(),
                     "org-todo".to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_file_links_split_search_options_only_for_file_like_types() {
+        let content = "\
+file:~/code/main.c::255 file+sys:~/sys/path::*Target file+emacs:~/emacs/path::#custom-id file:::find attachment:projects.org::10 id:abc123::10 docview:paper.pdf::12 jira:file.org::10";
+        let config = LinkScannerConfig {
+            plain_link_protocols: vec![
+                "file".to_string(),
+                "file+sys".to_string(),
+                "file+emacs".to_string(),
+                "attachment".to_string(),
+                "id".to_string(),
+                "docview".to_string(),
+                "jira".to_string(),
+            ],
+        };
+
+        let links = scan_links(content, &config, &LinkScanContext::default());
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| {
+                    (
+                        link.raw.clone(),
+                        link.link_type.clone(),
+                        link.path.clone(),
+                        link.search_option.clone(),
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    "file:~/code/main.c::255".to_string(),
+                    "file".to_string(),
+                    "~/code/main.c".to_string(),
+                    Some("255".to_string()),
+                ),
+                (
+                    "file+sys:~/sys/path::*Target".to_string(),
+                    "file+sys".to_string(),
+                    "~/sys/path".to_string(),
+                    Some("*Target".to_string()),
+                ),
+                (
+                    "file+emacs:~/emacs/path::#custom-id".to_string(),
+                    "file+emacs".to_string(),
+                    "~/emacs/path".to_string(),
+                    Some("#custom-id".to_string()),
+                ),
+                (
+                    "file:::find".to_string(),
+                    "file".to_string(),
+                    "".to_string(),
+                    Some("find".to_string()),
+                ),
+                (
+                    "attachment:projects.org::10".to_string(),
+                    "attachment".to_string(),
+                    "projects.org::10".to_string(),
+                    None,
+                ),
+                (
+                    "id:abc123::10".to_string(),
+                    "id".to_string(),
+                    "abc123::10".to_string(),
+                    None,
+                ),
+                (
+                    "docview:paper.pdf::12".to_string(),
+                    "docview".to_string(),
+                    "paper.pdf::12".to_string(),
+                    None,
+                ),
+                (
+                    "jira:file.org::10".to_string(),
+                    "jira".to_string(),
+                    "file.org::10".to_string(),
+                    None,
                 ),
             ]
         );
@@ -1036,5 +1217,133 @@ attachment:projects.org doi:10.1000/182 irc:/irc.com/#emacs/bob bbdb:R.*Stallman
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].raw, "https://example.org/test");
         assert_eq!(links[0].byte_end, content.len() - 2);
+    }
+
+    #[test]
+    fn plain_links_follow_reviewed_org_boundary_examples() {
+        let content = "\
+!https://www.example.com
+\"https://www.example.com
+_https://www.example.com
+'https://www.example.com
+$https://www.example.com
+%https://www.example.com
+xhttps://www.example.com
+Prefix:https://www.example.com";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| link.raw.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "https://www.example.com",
+                "https://www.example.com",
+                "https://www.example.com",
+                "https://www.example.com",
+            ]
+        );
+        assert_eq!(links[0].line, 1);
+        assert_eq!(links[1].line, 2);
+        assert_eq!(links[2].line, 3);
+        assert_eq!(links[3].line, 8);
+    }
+
+    #[test]
+    fn plain_links_accept_underscore_as_left_boundary_and_exclude_it_from_span() {
+        let content = "_https://www.example.com";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].raw, "https://www.example.com");
+        assert_eq!(links[0].line, 1);
+        assert_eq!(links[0].byte_start, 1);
+        assert_eq!(links[0].byte_end, content.len());
+    }
+
+    #[test]
+    fn plain_links_exclude_prefix_and_trailing_punctuation_from_byte_ranges() {
+        let bang_content = "!https://www.example.com";
+        let bang_links = scan_links(
+            bang_content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(bang_links.len(), 1);
+        assert_eq!(bang_links[0].raw, "https://www.example.com");
+        assert_eq!(bang_links[0].byte_start, 1);
+        assert_eq!(bang_links[0].byte_end, bang_content.len());
+
+        let dot_content = "https://example.org/path.";
+        let dot_links = scan_links(
+            dot_content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(dot_links.len(), 1);
+        assert_eq!(dot_links[0].raw, "https://example.org/path");
+        assert_eq!(dot_links[0].byte_start, 0);
+        assert_eq!(dot_links[0].byte_end, dot_content.len() - 1);
+    }
+
+    #[test]
+    fn plain_links_follow_reviewed_org_end_examples() {
+        let content = "\
+https://example.org/path with text after whitespace
+https://example.org/path<balanced-suffix>
+https://example.org/path(foo)
+https://example.org/path[foo]
+https://example.org/path.
+https://example.org/path,
+https://example.org/path;
+https://example.org/path:
+https://example.org/path!
+https://example.org/path?
+https://example.org/path/
+https://example.org/path-
+https://example.org/path>not-part-of-plain-link
+https://example.org/path<not-part-of-plain-link";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(
+            links
+                .iter()
+                .map(|link| link.raw.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "https://example.org/path",
+                "https://example.org/path<balanced-suffix>",
+                "https://example.org/path(foo)",
+                "https://example.org/path[foo]",
+                "https://example.org/path",
+                "https://example.org/path",
+                "https://example.org/path",
+                "https://example.org/path",
+                "https://example.org/path",
+                "https://example.org/path",
+                "https://example.org/path/",
+                "https://example.org/path-",
+                "https://example.org/path",
+                "https://example.org/path",
+            ]
+        );
     }
 }

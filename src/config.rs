@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     error::Error,
     fmt, fs,
     path::{Component, Path, PathBuf},
@@ -7,7 +8,10 @@ use std::{
 use serde::Deserialize;
 
 use crate::{
-    parser::{ParseOptions, TodoKeyword, TodoKeywordConfig},
+    parser::{
+        LinkScannerConfig, ParseOptions, TodoKeyword, TodoKeywordConfig,
+        DEFAULT_PLAIN_LINK_PROTOCOLS,
+    },
     todo_keywords::parse_todo_keyword_spec,
 };
 
@@ -18,6 +22,7 @@ pub struct Config {
     pub dirs: Vec<PathBuf>,
     pub recursive: bool,
     pub parse: ParseConfig,
+    pub links: LinkConfig,
     pub todo: TodoConfig,
     pub search: SearchConfig,
 }
@@ -51,6 +56,7 @@ impl Config {
             dirs: raw_dirs,
             recursive,
             parse,
+            links,
             todo,
             search,
         } = raw;
@@ -69,6 +75,7 @@ impl Config {
             default_closed_keywords: None,
         });
         let parse = parse.unwrap_or_default();
+        let links = links.unwrap_or_default();
         let search = search.unwrap_or(RawSearchConfig {
             fts5_enabled: None,
             index_body_text: None,
@@ -98,6 +105,12 @@ impl Config {
                         .unwrap_or_default(),
                 },
             },
+            links: LinkConfig {
+                plain_protocols: effective_plain_link_protocols(
+                    links.plain_protocols,
+                    links.custom_protocols,
+                ),
+            },
             todo: TodoConfig {
                 default_open_keywords: todo
                     .default_open_keywords
@@ -122,8 +135,16 @@ impl Config {
     pub fn parse_options(&self) -> ParseOptions {
         ParseOptions {
             todo_keywords: self.todo.to_keyword_config(),
+            link_scanner: LinkScannerConfig {
+                plain_link_protocols: self.links.plain_protocols.clone(),
+            },
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkConfig {
+    pub plain_protocols: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,8 +201,20 @@ impl Default for Config {
             dirs: Vec::new(),
             recursive: false,
             parse: ParseConfig::default(),
+            links: LinkConfig::default(),
             todo: TodoConfig::default(),
             search: SearchConfig::default(),
+        }
+    }
+}
+
+impl Default for LinkConfig {
+    fn default() -> Self {
+        Self {
+            plain_protocols: DEFAULT_PLAIN_LINK_PROTOCOLS
+                .iter()
+                .map(|protocol| (*protocol).to_string())
+                .collect(),
         }
     }
 }
@@ -292,6 +325,7 @@ struct RawConfig {
     #[serde(default)]
     recursive: bool,
     parse: Option<RawParseConfig>,
+    links: Option<RawLinksConfig>,
     todo: Option<RawTodoConfig>,
     search: Option<RawSearchConfig>,
 }
@@ -299,6 +333,12 @@ struct RawConfig {
 #[derive(Debug, Default, Deserialize)]
 struct RawParseConfig {
     dir_locals: Option<RawDirLocalsConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawLinksConfig {
+    plain_protocols: Option<Vec<String>>,
+    custom_protocols: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -344,6 +384,39 @@ fn default_closed_keywords() -> Vec<TodoKeyword> {
         .into_iter()
         .map(|spec| parse_todo_keyword_spec(&spec))
         .collect()
+}
+
+fn effective_plain_link_protocols(
+    plain_protocols: Option<Vec<String>>,
+    custom_protocols: Option<Vec<String>>,
+) -> Vec<String> {
+    let defaults_or_explicit = plain_protocols.unwrap_or_else(|| {
+        DEFAULT_PLAIN_LINK_PROTOCOLS
+            .iter()
+            .map(|protocol| (*protocol).to_string())
+            .collect()
+    });
+
+    deduplicated_protocols(
+        defaults_or_explicit
+            .into_iter()
+            .chain(custom_protocols.unwrap_or_default()),
+    )
+}
+
+fn deduplicated_protocols(protocols: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut deduplicated = Vec::new();
+
+    for protocol in protocols {
+        let normalized = protocol.to_ascii_lowercase();
+        if normalized.is_empty() || !seen.insert(normalized.clone()) {
+            continue;
+        }
+        deduplicated.push(normalized);
+    }
+
+    deduplicated
 }
 
 // Relative paths in the config are resolved relative to the config file location.
@@ -443,10 +516,10 @@ fn current_home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_path, Config, ConfigError, DirLocalsConfig, DirLocalsUnsupportedPolicy,
-        ParseConfig, RawConfig, RawParseConfig, RawSearchConfig, RawTodoConfig,
+        resolve_path, Config, ConfigError, DirLocalsConfig, DirLocalsUnsupportedPolicy, LinkConfig,
+        ParseConfig, RawConfig, RawLinksConfig, RawParseConfig, RawSearchConfig, RawTodoConfig,
     };
-    use crate::parser::{ParseOptions, TodoKeyword, TodoKeywordConfig};
+    use crate::parser::{LinkScannerConfig, ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -919,6 +992,7 @@ default_closed_keywords = ["DONE(d)"]
                     ],
                     closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
                 },
+                link_scanner: LinkScannerConfig::default(),
             }
         );
     }
@@ -948,7 +1022,47 @@ default_closed_keywords = []
                     open: vec![TodoKeyword::new("TODO")],
                     closed: vec![TodoKeyword::new("DONE")],
                 },
+                link_scanner: LinkScannerConfig::default(),
             }
+        );
+    }
+
+    #[test]
+    fn missing_plain_protocols_use_defaults() {
+        let config = Config::default();
+
+        assert_eq!(config.links, LinkConfig::default());
+        assert_eq!(
+            config.parse_options().link_scanner,
+            LinkScannerConfig::default()
+        );
+    }
+
+    #[test]
+    fn empty_plain_protocols_disable_defaults_but_keep_custom_protocols() {
+        let test_dir = TestDir::new("empty-plain-protocols");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[links]
+plain_protocols = []
+custom_protocols = ["JIRA", "jira", "shell"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.links.plain_protocols,
+            vec!["jira".to_string(), "shell".to_string()]
+        );
+        assert_eq!(
+            config.parse_options().link_scanner.plain_link_protocols,
+            vec!["jira".to_string(), "shell".to_string()]
         );
     }
 
@@ -1067,6 +1181,7 @@ default_closed_keywords = []
             dirs: dirs.into_iter().map(PathBuf::from).collect(),
             recursive: false,
             parse: Some(RawParseConfig::default()),
+            links: Some(RawLinksConfig::default()),
             todo: Some(RawTodoConfig {
                 default_open_keywords: None,
                 default_closed_keywords: None,

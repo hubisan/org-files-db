@@ -6,3 +6,6 @@ recursive = true
 [search]
 fts5_enabled = false
 index_body_text = true
+
+[links]
+custom_protocols = ["jira", "customlink"]

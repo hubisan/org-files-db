@@ -110,6 +110,7 @@ where
                     &content,
                     &ParseOptions {
                         todo_keywords: resolved_todo_keywords.effective.clone(),
+                        link_scanner: parse_options.link_scanner.clone(),
                     },
                 )
                 .map_err(|diagnostic| IndexerError::Parse {
@@ -776,7 +777,6 @@ fn index_document(
     let link_rows = document
         .links
         .iter()
-        .filter(|link| matches!(link.format.as_str(), "bracket" | "angle"))
         .map(|link| link_record(file_id, &heading_ids, &document.headings, link))
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_write_invalid_input)?;
@@ -2590,6 +2590,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: SearchConfig {
                 fts5_enabled: false,
@@ -2640,6 +2641,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: SearchConfig {
                 fts5_enabled: false,
@@ -2711,6 +2713,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: SearchConfig {
                 fts5_enabled: false,
@@ -3651,7 +3654,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_stores_bracket_and_angle_links_as_source_facts() {
+    fn rebuild_stores_phase3_links_as_source_facts() {
         let test_dir = TestDir::new("bracket-links");
         let notes_dir = test_dir.path().join("notes");
         let db_path = test_dir.path().join("db.sqlite");
@@ -3682,6 +3685,8 @@ index_body_text = false
 <file+emacs:~/emacs/path::*Target>
 <unknown:foo>
 <jira:ABC-123>
+file:~/plain.c::255
+attachment:projects.org::10
 * Heading
 <shell:ls *.org>
 [[shell:ls]]
@@ -4061,6 +4066,38 @@ index_body_text = false
                     target_id: None,
                 },
                 StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "plain".to_string(),
+                    raw: "file:~/plain.c::255".to_string(),
+                    raw_target: "file:~/plain.c::255".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "~/plain.c".to_string(),
+                    search_option: Some("255".to_string()),
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Bracket Links".to_string(),
+                    format: "plain".to_string(),
+                    raw: "attachment:projects.org::10".to_string(),
+                    raw_target: "attachment:projects.org::10".to_string(),
+                    raw_description: None,
+                    link_type: "attachment".to_string(),
+                    path: "projects.org::10".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
                     heading_title: "Heading".to_string(),
                     format: "angle".to_string(),
                     raw: "<shell:ls *.org>".to_string(),
@@ -4094,6 +4131,22 @@ index_body_text = false
                 },
                 StoredLinkRow {
                     heading_title: "Heading".to_string(),
+                    format: "plain".to_string(),
+                    raw: "https://example.org".to_string(),
+                    raw_target: "https://example.org".to_string(),
+                    raw_description: None,
+                    link_type: "https".to_string(),
+                    path: "//example.org".to_string(),
+                    search_option: None,
+                    source_context: "normal".to_string(),
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                },
+                StoredLinkRow {
+                    heading_title: "Heading".to_string(),
                     format: "angle".to_string(),
                     raw: "<https://example.org>".to_string(),
                     raw_target: "https://example.org".to_string(),
@@ -4113,6 +4166,80 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_stores_plain_links_with_reviewed_boundary_and_end_semantics() {
+        let test_dir = TestDir::new("plain-link-boundaries");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("links.org");
+
+        write_file(
+            &org_path,
+            "\
+#+TITLE: Plain Boundaries
+!https://www.example.com
+\"https://www.example.com
+_https://www.example.com
+'https://www.example.com
+$https://www.example.com
+%https://www.example.com
+xhttps://www.example.com
+Prefix:https://www.example.com
+https://example.org/path with text after whitespace
+https://example.org/path<balanced-suffix>
+https://example.org/path(foo)
+https://example.org/path[foo]
+https://example.org/path.
+https://example.org/path/
+https://example.org/path-
+https://example.org/path>not-part-of-plain-link
+https://example.org/path<not-part-of-plain-link
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["notes/links.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<String> = query_rows(
+            &connection,
+            "SELECT raw FROM links ORDER BY byte_start",
+            |row| row.get(0),
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                "https://www.example.com".to_string(),
+                "https://www.example.com".to_string(),
+                "https://www.example.com".to_string(),
+                "https://www.example.com".to_string(),
+                "https://example.org/path".to_string(),
+                "https://example.org/path<balanced-suffix>".to_string(),
+                "https://example.org/path(foo)".to_string(),
+                "https://example.org/path[foo]".to_string(),
+                "https://example.org/path".to_string(),
+                "https://example.org/path/".to_string(),
+                "https://example.org/path-".to_string(),
+                "https://example.org/path".to_string(),
+                "https://example.org/path".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn child_heading_inherits_parent_tags_in_all_tags_json() {
         let test_dir = TestDir::new("inherited-tags");
         let org_path = test_dir.path().join("tags.org");
@@ -4123,6 +4250,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4163,6 +4291,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4244,6 +4373,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4304,6 +4434,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4361,6 +4492,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4444,6 +4576,7 @@ index_body_text = false
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4629,6 +4762,7 @@ index_body_text = true
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4752,6 +4886,7 @@ index_body_text = true
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4789,6 +4924,7 @@ index_body_text = true
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,
@@ -4885,6 +5021,7 @@ index_body_text = true
             dirs: Vec::new(),
             recursive: false,
             parse: Default::default(),
+            links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
                 fts5_enabled: false,

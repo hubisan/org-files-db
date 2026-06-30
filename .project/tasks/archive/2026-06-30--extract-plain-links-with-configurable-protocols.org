@@ -1,0 +1,62 @@
+#+TITLE: Extract plain links with configurable protocols
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 21:09]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry:
+
+#+begin_quote
+** CONTINUE [#B] Extract plain links with configurable protocols
+#+end_quote
+
+Chat context:
+
+- Review follow-up scope was limited to the expanded plain-link boundary and end semantics added to the Phase 3 contract.
+- Protocol enablement remained project-owned and unchanged.
+- Emacs ~org-element-parse-buffer~ was used as the reference oracle for the ambiguous ~Prefix:~, quote-prefix, balanced-suffix, and trailing-punctuation examples.
+- Review corrections required underscore-prefix acceptance, removal of curly-brace balanced-group handling, explicit byte-range assertions, clearer fixture wording for balanced ~<...>~ suffixes, and documentation of deferred emphasis-style wrapping behavior.
+
+* Results
+
+** Approach
+Adjusted only the plain-link scanner boundary/end helpers. The scanner now accepts underscore as a valid left boundary, still rejects the reviewed non-boundary prefixes (~'~, ~$~, ~%~, and mid-word starts), preserves only the Org-like balanced plain-link groups ~(...)~, ~[...]~, and ~<...>~, and trims unmatched deterministic trailing punctuation from the stored span without treating ~{...}~ as a balanced suffix form.
+
+** Changed files
+- `src/parser/link_scanner.rs`
+- `src/indexer.rs`
+- `.project/manual-tests/files/plain-links.org`
+- `.project/tasks/2026-06-30--extract-plain-links-with-configurable-protocols.org`
+
+** Checks performed
+- `emacs --batch -Q -l /tmp/org-plain-link-check.el`
+- `emacs --batch -Q -l /tmp/org-plain-link-more.el`
+- `emacs --batch -Q -l /tmp/org-plain-link-review-2.el`
+- `cargo fmt --all`
+- `cargo test --lib missing_plain_protocols_use_defaults`
+- `cargo test --lib empty_plain_protocols_disable_defaults_but_keep_custom_protocols`
+- `cargo test --lib plain_links_follow_reviewed_org_boundary_examples`
+- `cargo test --lib plain_links_accept_underscore_as_left_boundary_and_exclude_it_from_span`
+- `cargo test --lib plain_links_exclude_prefix_and_trailing_punctuation_from_byte_ranges`
+- `cargo test --lib plain_links_follow_reviewed_org_end_examples`
+- `cargo test --lib rebuild_stores_phase3_links_as_source_facts`
+- `cargo test --lib rebuild_stores_plain_links_with_reviewed_boundary_and_end_semantics`
+- `make ci`
+
+** Test results
+- Emacs confirmed the reviewed boundary/end expectations used in the focused tests, including underscore-prefix acceptance, ~Prefix:https://...~, balanced ~<...>~, ~(...)~, and ~[...]~ suffix handling.
+- Emacs also confirmed that ~{...}~ is not an Org-like balanced plain-link group in this context; the closing ~}~ stays trimming-only behavior rather than enabling a balanced suffix.
+- Emacs also showed that ~*https://...*~ is parsed as a plain link without the surrounding stars; this follow-up documents that behavior as deferred rather than broadening the scanner into full emphasis/source-context handling.
+- Focused config, scanner, and indexer tests passed.
+- `make ci` passed.
+
+** Blockers
+None.
+
+** Follow-ups
+- Deferred: emphasis/markup interactions such as ~*https://www.example.com*~ are not fully aligned yet because ignored-region/source-context filtering remains outside this correction.

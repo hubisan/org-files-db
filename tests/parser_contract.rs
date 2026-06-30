@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use org_files_db::parser::{
-    DiagnosticSeverity, OrgParser, OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions,
-    ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedLink, ParsedOrgDocument,
-    ParsedPlanning, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
-    ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType, TodoKeyword,
-    TodoKeywordConfig, TodoType,
+    DiagnosticSeverity, LinkScannerConfig, OrgParser, OrgParserCore, OrgizeAdapter,
+    ParseDiagnostic, ParseOptions, ParsedDocumentMetadata, ParsedHeading, ParsedKeyword,
+    ParsedLink, ParsedOrgDocument, ParsedPlanning, ParsedProperty, ParsedPropertySource,
+    ParsedTimestamp, ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType,
+    TodoKeyword, TodoKeywordConfig, TodoType,
 };
 
 struct ParserFixture {
@@ -267,6 +267,7 @@ fn parse_options_default_to_org_mode_todo_keywords() {
             closed: vec![TodoKeyword::new("DONE")],
         }
     );
+    assert_eq!(options.link_scanner, LinkScannerConfig::default());
 }
 
 #[test]

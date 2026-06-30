@@ -6,6 +6,7 @@ use std::{
 use serde::Serialize;
 
 use super::diagnostics::ParseDiagnostic;
+use super::link_scanner::LinkScannerConfig;
 use crate::todo_keywords::resolve_todo_keywords_from_keywords;
 
 pub trait OrgParserCore {
@@ -30,6 +31,7 @@ pub trait OrgParser: OrgParserCore {
             content,
             &ParseOptions {
                 todo_keywords: resolved.effective,
+                link_scanner: options.link_scanner.clone(),
             },
         )
     }
@@ -40,6 +42,7 @@ impl<T: OrgParserCore> OrgParser for T {}
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParseOptions {
     pub todo_keywords: TodoKeywordConfig,
+    pub link_scanner: LinkScannerConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

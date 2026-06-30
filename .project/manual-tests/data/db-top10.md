@@ -4,16 +4,16 @@
 
 | id |                                                 path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/angle-links.org               | 1782831514259839578 | 2491 |              | 1782831528 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links--weird-ones.org | 1782827941687352485 | 1591 |              | 1782831528 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org             | 1782811598000160725 | 3503 |              | 1782831528 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org  | 1782810515620385647 | 1188 |              | 1782831528 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                  | 1782237960833303823 | 2276 |              | 1782831528 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org    | 1781809982908544855 | 321  |              | 1782831528 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org            | 1782129087807207205 | 1163 |              | 1782831528 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org                | 1782218329407221851 | 2783 |              | 1782831528 |
-| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org                      | 1782243198853649058 | 1307 |              | 1782831528 |
-| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org       | 1782159459016426918 | 1626 |              | 1782831528 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/angle-links.org               | 1782831514259839578 | 2491 |              | 1782848361 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links--weird-ones.org | 1782827941687352485 | 1591 |              | 1782848361 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org             | 1782811598000160725 | 3503 |              | 1782848361 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org  | 1782810515620385647 | 1188 |              | 1782848361 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                  | 1782237960833303823 | 2276 |              | 1782848361 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org    | 1781809982908544855 | 321  |              | 1782848361 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/plain-links.org               | 1782848059897181453 | 7513 |              | 1782848361 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org            | 1782129087807207205 | 1163 |              | 1782848361 |
+| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org                | 1782218329407221851 | 2783 |              | 1782848361 |
+| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org                      | 1782243198853649058 | 1307 |              | 1782848361 |
 
 ## heading_bodies
 
@@ -117,18 +117,18 @@
 
 ## links
 
-| id | file_id | heading_id | byte_start | byte_end | line | source_context | format  |                     raw                     |                raw_target                 | raw_description | link_type |                path                 | search_option | path_absolute | target_file_id | target_heading_id | target_custom_id | target_id |
-|----|---------|------------|------------|----------|------|----------------|---------|---------------------------------------------|-------------------------------------------|-----------------|-----------|-------------------------------------|---------------|---------------|----------------|-------------------|------------------|-----------|
-| 1  | 1       | 1          | 125        | 150      | 5    | normal         | angle   | <FILE:root-angle.org::42>                   | FILE:root-angle.org::42                   |                 | file      | root-angle.org                      | 42            |               |                |                   |                  |           |
-| 2  | 1       | 1          | 151        | 176      | 6    | normal         | angle   | <root:target with spaces>                   | root:target with spaces                   |                 | root      | target with spaces                  |               |               |                |                   |                  |           |
-| 3  | 1       | 1          | 177        | 204      | 7    | normal         | bracket | [[root:target with spaces]]                 | root:target with spaces                   |                 | root      | target with spaces                  |               |               |                |                   |                  |           |
-| 4  | 1       | 3          | 309        | 352      | 14   | normal         | angle   | <https://example.com/some path with spaces> | https://example.com/some path with spaces |                 | https     | //example.com/some path with spaces |               |               |                |                   |                  |           |
-| 5  | 1       | 3          | 355        | 385      | 15   | normal         | angle   | <https://example.org/ spaces >              | https://example.org/ spaces               |                 | https     | //example.org/ spaces               |               |               |                |                   |                  |           |
-| 6  | 1       | 3          | 388        | 412      | 16   | normal         | angle   | <info:org#External Link>                    | info:org#External Link                    |                 | info      | org#External Link                   |               |               |                |                   |                  |           |
-| 7  | 1       | 3          | 415        | 445      | 17   | normal         | angle   | <mailto:emacs-orgmode@gnu.org>              | mailto:emacs-orgmode@gnu.org              |                 | mailto    | emacs-orgmode@gnu.org               |               |               |                |                   |                  |           |
-| 8  | 1       | 4          | 494        | 519      | 20   | normal         | angle   | <file:~/code/main.c::255>                   | file:~/code/main.c::255                   |                 | file      | ~/code/main.c                       | 255           |               |                |                   |                  |           |
-| 9  | 1       | 4          | 522        | 549      | 21   | normal         | angle   | <file:~/xx.org::*My Target>                 | file:~/xx.org::*My Target                 |                 | file      | ~/xx.org                            | *My Target    |               |                |                   |                  |           |
-| 10 | 1       | 4          | 552        | 582      | 22   | normal         | angle   | <file:~/xx.org::#my-custom-id>              | file:~/xx.org::#my-custom-id              |                 | file      | ~/xx.org                            | #my-custom-id |               |                |                   |                  |           |
+| id | file_id | heading_id | byte_start | byte_end | line | source_context | format  |                         raw                         |                     raw_target                      | raw_description | link_type |                     path                      | search_option | path_absolute | target_file_id | target_heading_id | target_custom_id | target_id |
+|----|---------|------------|------------|----------|------|----------------|---------|-----------------------------------------------------|-----------------------------------------------------|-----------------|-----------|-----------------------------------------------|---------------|---------------|----------------|-------------------|------------------|-----------|
+| 1  | 1       | 1          | 125        | 150      | 5    | normal         | angle   | <FILE:root-angle.org::42>                           | FILE:root-angle.org::42                             |                 | file      | root-angle.org                                | 42            |               |                |                   |                  |           |
+| 2  | 1       | 1          | 151        | 176      | 6    | normal         | angle   | <root:target with spaces>                           | root:target with spaces                             |                 | root      | target with spaces                            |               |               |                |                   |                  |           |
+| 3  | 1       | 1          | 177        | 204      | 7    | normal         | bracket | [[root:target with spaces]]                         | root:target with spaces                             |                 | root      | target with spaces                            |               |               |                |                   |                  |           |
+| 4  | 1       | 1          | 205        | 256      | 8    | normal         | plain   | https://example.org/root-plain-should-not-be-stored | https://example.org/root-plain-should-not-be-stored |                 | https     | //example.org/root-plain-should-not-be-stored |               |               |                |                   |                  |           |
+| 5  | 1       | 3          | 309        | 352      | 14   | normal         | angle   | <https://example.com/some path with spaces>         | https://example.com/some path with spaces           |                 | https     | //example.com/some path with spaces           |               |               |                |                   |                  |           |
+| 6  | 1       | 3          | 355        | 385      | 15   | normal         | angle   | <https://example.org/ spaces >                      | https://example.org/ spaces                         |                 | https     | //example.org/ spaces                         |               |               |                |                   |                  |           |
+| 7  | 1       | 3          | 388        | 412      | 16   | normal         | angle   | <info:org#External Link>                            | info:org#External Link                              |                 | info      | org#External Link                             |               |               |                |                   |                  |           |
+| 8  | 1       | 3          | 415        | 445      | 17   | normal         | angle   | <mailto:emacs-orgmode@gnu.org>                      | mailto:emacs-orgmode@gnu.org                        |                 | mailto    | emacs-orgmode@gnu.org                         |               |               |                |                   |                  |           |
+| 9  | 1       | 4          | 494        | 519      | 20   | normal         | angle   | <file:~/code/main.c::255>                           | file:~/code/main.c::255                             |                 | file      | ~/code/main.c                                 | 255           |               |                |                   |                  |           |
+| 10 | 1       | 4          | 522        | 549      | 21   | normal         | angle   | <file:~/xx.org::*My Target>                         | file:~/xx.org::*My Target                           |                 | file      | ~/xx.org                                      | *My Target    |               |                |                   |                  |           |
 
 ## outline_path
 
@@ -147,18 +147,18 @@
 
 ## properties
 
-| id | heading_id |      key      |           value            |      source      | append | line_number |
-|----|------------|---------------|----------------------------|------------------|--------|-------------|
-| 1  | 16         | CUSTOM_ID     | internal-link-to-custom-id | property_drawer  | 0      | 12          |
-| 2  | 51         | BEFORE_PROP   | before-value               | property_keyword | 0      | 4           |
-| 3  | 51         | CATEGORY      | before-category            | category_keyword | 0      | 5           |
-| 4  | 51         | AFTER_PROP    | after-value                | property_keyword | 0      | 12          |
-| 5  | 51         | REPEATED_PROP | first                      | property_keyword | 0      | 13          |
-| 6  | 51         | REPEATED_PROP | second                     | property_keyword | 0      | 14          |
-| 7  | 51         | APPENDED_PROP | base                       | property_keyword | 0      | 15          |
-| 8  | 51         | APPENDED_PROP | extra                      | property_keyword | 1      | 16          |
-| 9  | 51         | CATEGORY      | after-category             | category_keyword | 0      | 17          |
-| 10 | 77         | CATEGORY      | Level 0 Category Property  | property_drawer  | 0      | 2           |
+| id | heading_id |      key       |                value                 |      source      | append | line_number |
+|----|------------|----------------|--------------------------------------|------------------|--------|-------------|
+| 1  | 16         | CUSTOM_ID      | internal-link-to-custom-id           | property_drawer  | 0      | 12          |
+| 2  | 51         | BEFORE_PROP    | before-value                         | property_keyword | 0      | 4           |
+| 3  | 51         | CATEGORY       | before-category                      | category_keyword | 0      | 5           |
+| 4  | 51         | AFTER_PROP     | after-value                          | property_keyword | 0      | 12          |
+| 5  | 51         | REPEATED_PROP  | first                                | property_keyword | 0      | 13          |
+| 6  | 51         | REPEATED_PROP  | second                               | property_keyword | 0      | 14          |
+| 7  | 51         | APPENDED_PROP  | base                                 | property_keyword | 0      | 15          |
+| 8  | 51         | APPENDED_PROP  | extra                                | property_keyword | 1      | 16          |
+| 9  | 51         | CATEGORY       | after-category                       | category_keyword | 0      | 17          |
+| 10 | 59         | LINK_TO_IGNORE | https://example.org/property-keyword | property_keyword | 0      | 251         |
 
 ## tags
 
@@ -168,12 +168,12 @@
 | 13         | bar     |
 | 32         | foo     |
 | 32         | bar     |
-| 77         | project |
-| 77         | work    |
-| 87         | file    |
-| 87         | project |
-| 87         | later   |
-| 87         | extra   |
+| 77         | foo     |
+| 77         | bar     |
+| 96         | project |
+| 96         | work    |
+| 106        | file    |
+| 106        | project |
 
 ## timestamp_repeaters
 
@@ -194,16 +194,16 @@
 
 | id | heading_id |   role    |  start_ts  |   end_ts   |   type   | range_type |             raw_value              | byte_start | byte_end | line_number |
 |----|------------|-----------|------------|------------|----------|------------|------------------------------------|------------|----------|-------------|
-| 1  | 61         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 93         | 109      | 7           |
-| 2  | 62         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 140        | 156      | 10          |
-| 3  | 63         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 183        | 199      | 13          |
-| 4  | 64         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 239        | 255      | 16          |
-| 5  | 64         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 267        | 283      | 16          |
-| 6  | 64         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 292        | 308      | 16          |
-| 7  | 65         | scheduled | 1732095000 |            | active   | none       | <2024-11-20 Wed 09:30>             | 334        | 356      | 19          |
-| 8  | 66         | scheduled | 1732095000 | 1732100400 | active   | time_range | <2024-11-20 Wed 09:30-11:00>       | 392        | 420      | 22          |
-| 9  | 67         | deadline  | 1733011200 | 1733184000 | active   | date_range | <2024-12-01 Sun>--<2024-12-03 Tue> | 446        | 480      | 25          |
-| 10 | 68         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed +1w>               | 505        | 525      | 28          |
+| 1  | 80         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 93         | 109      | 7           |
+| 2  | 81         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 140        | 156      | 10          |
+| 3  | 82         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 183        | 199      | 13          |
+| 4  | 83         | deadline  | 1733011200 |            | active   | none       | <2024-12-01 Sun>                   | 239        | 255      | 16          |
+| 5  | 83         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed>                   | 267        | 283      | 16          |
+| 6  | 83         | closed    | 1732147200 |            | inactive | none       | [2024-11-21 Thu]                   | 292        | 308      | 16          |
+| 7  | 84         | scheduled | 1732095000 |            | active   | none       | <2024-11-20 Wed 09:30>             | 334        | 356      | 19          |
+| 8  | 85         | scheduled | 1732095000 | 1732100400 | active   | time_range | <2024-11-20 Wed 09:30-11:00>       | 392        | 420      | 22          |
+| 9  | 86         | deadline  | 1733011200 | 1733184000 | active   | date_range | <2024-12-01 Sun>--<2024-12-03 Tue> | 446        | 480      | 25          |
+| 10 | 87         | scheduled | 1732060800 |            | active   | none       | <2024-11-20 Wed +1w>               | 505        | 525      | 28          |
 
 ## todo_keywords
 
