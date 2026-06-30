@@ -112,44 +112,77 @@ pub fn scan_links(
 
 fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<ParsedLink> {
     let line_end = line_end_offset(content, offset);
-    let slice = &content[offset..line_end];
-    let close = slice.get(2..)?.find("]]")?;
-    let byte_end = offset + 2 + close + 2;
-    let inner = &content[offset + 2..byte_end - 2];
-
-    if inner.is_empty() {
-        return None;
-    }
-
-    let (raw_target, raw_description) = match inner.find("][") {
-        Some(separator) => {
-            let target = &inner[..separator];
-            if target.is_empty() || target.contains(['[', ']']) {
-                return None;
-            }
-            (target.to_string(), Some(inner[separator + 2..].to_string()))
-        }
-        None => {
-            if inner.contains(['[', ']']) {
-                return None;
-            }
-            (inner.to_string(), None)
-        }
-    };
-    let (link_type, path, search_option) = classify_bracket_target(&raw_target);
+    let candidate = content.get(offset + 2..line_end)?;
+    let parsed = parse_bracket_inner(candidate)?;
+    let (link_type, path, search_option) = classify_bracket_target(&parsed.raw_target);
 
     Some(ParsedLink {
         format: "bracket".to_string(),
-        raw: content[offset..byte_end].to_string(),
-        raw_target,
-        raw_description,
+        raw: content[offset..offset + 2 + parsed.byte_len].to_string(),
+        raw_target: parsed.raw_target.clone(),
+        raw_description: parsed.raw_description.clone(),
         link_type,
         path,
         search_option,
         byte_start: offset,
-        byte_end,
+        byte_end: offset + 2 + parsed.byte_len,
         line,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedBracketInner {
+    raw_target: String,
+    raw_description: Option<String>,
+    byte_len: usize,
+}
+
+fn parse_bracket_inner(candidate: &str) -> Option<ParsedBracketInner> {
+    for (index, ch) in candidate.char_indices() {
+        match ch {
+            '[' => {
+                if !is_escaped(candidate, index) {
+                    return None;
+                }
+            }
+            ']' => {
+                if is_escaped(candidate, index) {
+                    continue;
+                }
+
+                match candidate.as_bytes().get(index + 1).copied() {
+                    Some(b']') => {
+                        if index == 0 {
+                            return None;
+                        }
+
+                        return Some(ParsedBracketInner {
+                            raw_target: candidate[..index].to_string(),
+                            raw_description: None,
+                            byte_len: index + 2,
+                        });
+                    }
+                    Some(b'[') => {
+                        if index == 0 {
+                            return None;
+                        }
+
+                        let description = &candidate[index + 2..];
+                        let close = description.find("]]")?;
+                        return Some(ParsedBracketInner {
+                            raw_target: candidate[..index].to_string(),
+                            raw_description: Some(description[..close].to_string()),
+                            byte_len: index + 2 + close + 2,
+                        });
+                    }
+                    _ => return None,
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn try_parse_angle_link(content: &str, offset: usize, line: u32) -> Option<ParsedLink> {
@@ -285,6 +318,22 @@ fn split_explicit_type(raw_target: &str) -> Option<(String, String)> {
         return None;
     }
     Some((prefix.to_ascii_lowercase(), path.to_string()))
+}
+
+fn is_escaped(slice: &str, index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+
+    let bytes = slice.as_bytes();
+    let mut backslashes = 0usize;
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
 }
 
 fn normalized_protocols(protocols: &[String]) -> HashSet<String> {
@@ -453,6 +502,166 @@ mod tests {
         assert_eq!(links[0].raw_description.as_deref(), Some("Example"));
         assert_eq!(links[0].path, "//example.org");
         assert_eq!(links[0].search_option, None);
+    }
+
+    #[test]
+    fn bracket_links_preserve_escaped_target_brackets() {
+        let content = r"[[https://example.org/\[section\]][desc]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].raw_target, r"https://example.org/\[section\]");
+        assert_eq!(links[0].raw_description.as_deref(), Some("desc"));
+    }
+
+    #[test]
+    fn invalid_unescaped_target_brackets_are_rejected() {
+        let content = "[[bad[target]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn odd_and_even_backslashes_control_target_delimiters() {
+        let content = "[[target\\]]] [[target\\\\]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let bracket_links = links
+            .into_iter()
+            .filter(|link| link.format == "bracket")
+            .collect::<Vec<_>>();
+
+        assert_eq!(bracket_links.len(), 2);
+        assert_eq!(bracket_links[0].raw, "[[target\\]]]");
+        assert_eq!(bracket_links[0].raw_target, r"target\]");
+        assert_eq!(bracket_links[1].raw, "[[target\\\\]]");
+        assert_eq!(bracket_links[1].raw_target, r"target\\");
+    }
+
+    #[test]
+    fn description_parsing_is_permissive_with_unescaped_brackets() {
+        let content = "[[https://example.org][desc with [brackets]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            links[0].raw_description.as_deref(),
+            Some("desc with [brackets")
+        );
+    }
+
+    #[test]
+    fn nested_looking_description_closes_at_first_same_line_delimiter() {
+        let content = "[[https://example.org][text [[https://nested.example]] more]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            links[0].raw,
+            "[[https://example.org][text [[https://nested.example]]"
+        );
+        assert_eq!(
+            links[0].raw_description.as_deref(),
+            Some("text [[https://nested.example")
+        );
+    }
+
+    #[test]
+    fn zero_width_space_between_brackets_does_not_close_candidate() {
+        let content = "ä [[https://example.org][desc]\u{200B}]\n[[target]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let bracket_links = links
+            .into_iter()
+            .filter(|link| link.format == "bracket")
+            .collect::<Vec<_>>();
+
+        assert_eq!(bracket_links.len(), 1);
+        assert_eq!(bracket_links[0].raw, "[[target]]");
+        assert_eq!(
+            bracket_links[0].byte_start,
+            content.find("[[target]]").unwrap()
+        );
+    }
+
+    #[test]
+    fn multiline_bracket_candidates_are_ignored_without_crossing_newlines() {
+        let content = "[[target][desc\n[[target]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+        let bracket_links = links
+            .into_iter()
+            .filter(|link| link.format == "bracket")
+            .collect::<Vec<_>>();
+
+        assert_eq!(bracket_links.len(), 1);
+        assert_eq!(bracket_links[0].raw, "[[target]]");
+        assert_eq!(bracket_links[0].line, 2);
+    }
+
+    #[test]
+    fn invalid_bracket_candidate_does_not_block_later_valid_link() {
+        let content = "[[bad[target]] [[target]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].raw, "[[target]]");
+        assert_eq!(links[0].byte_start, content.rfind("[[target]]").unwrap());
+    }
+
+    #[test]
+    fn unicode_before_and_inside_bracket_links_preserves_byte_positions() {
+        let content = "ä [[https://example.org/ü][dësc]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].raw_target, "https://example.org/ü");
+        assert_eq!(links[0].raw_description.as_deref(), Some("dësc"));
+        assert_eq!(links[0].byte_start, "ä ".len());
+        assert_eq!(links[0].byte_end, content.len());
     }
 
     #[test]

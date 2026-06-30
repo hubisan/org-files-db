@@ -733,56 +733,9 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--extract-bracket-links-as-raw-source-facts.org]]
 
-** TODO [#A] Handle bracket-link escaping and weird delimiter cases
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
-:END:
+** DONE Handle bracket-link escaping and weird delimiter cases
 
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Extract bracket links as raw source facts][Extract bracket links as raw source facts]]
-
-Goal:
-
-- Make bracket-link parsing deterministic for escaped brackets, backslashes, invalid targets, permissive descriptions, and zero-width delimiter breakers.
-
-Contract copied from Phase 3 SPEC:
-
-- Bracket target parsing is stricter than description parsing.
-- Reject unescaped ~[~ and ~]~ in the target.
-- Allow escaped ~\[~ and ~\]~ in the target.
-- Use odd/even backslash escaping for target delimiters.
-- Description parsing is permissive.
-- In the description part, arbitrary characters may appear, including unescaped ~[~ and ~]~.
-- Nested-looking bracket sequences in descriptions are allowed.
-- Close description only at the first valid same-line ~]]~ delimiter.
-- Treat zero-width characters between delimiter characters as normal text, not as closing delimiters.
-- Preserve raw text exactly.
-- Do not normalize description text.
-- Do not parse bracket links across newlines.
-
-Scope:
-
-- Implement deterministic target delimiter handling.
-- Implement permissive description handling.
-- Implement same-line close behavior.
-- Ensure invalid candidates do not block later valid links.
-- Preserve byte ranges correctly with Unicode and zero-width characters.
-
-Acceptance criteria:
-
-- Escaped target brackets are tested.
-- Invalid unescaped target brackets are tested.
-- Description containing bracket-looking text is tested.
-- Description containing unescaped brackets is tested.
-- Zero-width-space delimiter breaker is tested.
-- Multi-line bracket candidates are ignored.
-- Garbage before a later valid link does not prevent detecting the valid link.
-- Byte positions remain correct with Unicode and zero-width characters.
+[[./archive/2026-06-30--handle-bracket-link-escaping-and-weird-delimiter-cases.org]]
 
 ** TODO [#B] Split search options for file-like link source facts
 :PROPERTIES:

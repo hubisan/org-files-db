@@ -1,0 +1,121 @@
+#+TITLE: Handle bracket-link escaping and weird delimiter cases
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 15:32]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - The previous task is already completed by the user.
+  - Continue with the next Phase 3 =BUILD= task =Handle bracket-link escaping and weird delimiter cases=.
+  - Focus on refining bracket-link parsing only; do not redesign storage or add Orgize link-node dependencies.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** BUILD [#A] Handle bracket-link escaping and weird delimiter cases
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+=BUILD with 5.4 high=
+
+Goal:
+
+- Make bracket-link parsing deterministic for escaped brackets, backslashes, invalid targets, permissive descriptions, same-line delimiter behavior, and zero-width delimiter breakers.
+
+Contract:
+
+- Bracket target parsing is stricter than description parsing.
+- Reject unescaped ~[~ and ~]~ in the target.
+- Allow escaped ~\[~ and ~\]~ in the target.
+- Use odd/even backslash escaping for target delimiters.
+- Description parsing is permissive.
+- In the description part, arbitrary characters may appear, including unescaped ~[~ and ~]~.
+- Nested-looking bracket sequences in descriptions are allowed.
+- Close description only at the first valid same-line ~]]~ delimiter.
+- Treat zero-width characters between delimiter characters as normal text, not as closing delimiters.
+- Preserve raw text exactly.
+- Preserve ~raw_target~ exactly, including escapes.
+- Preserve ~raw_description~ exactly when present.
+- Do not normalize description text.
+- Do not parse bracket links across newlines.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The current bracket scanner uses simple substring searches for =][= and =]]=. That is sufficient for basic links, but it does not implement the required odd/even backslash escaping semantics or strict target validation.
+
+** Goals
+- Make target delimiter handling deterministic with explicit escape logic.
+- Preserve permissive description parsing and same-line close behavior.
+- Keep invalid bracket candidates non-fatal so later valid links are still detected.
+
+** Non-goals
+- No storage redesign.
+- No angle-link or plain-link storage work.
+- No link resolution.
+- No broader ignored-region work in this task.
+
+** Architecture
+- Replace the bracket parser’s substring shortcut with small helper functions that scan target text and description delimiters explicitly.
+- Keep the outer scanner left-to-right and line-local.
+- Add focused scanner tests rather than broad integration churn unless existing end-to-end tests fail.
+
+** Execution plan
+- Create and link the active task file.
+- Refine bracket parsing helpers in =src/parser/link_scanner.rs=.
+- Add focused scanner coverage for escaping, invalid targets, nested-looking descriptions, zero-width delimiter breakers, multiline rejection, and Unicode byte offsets.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: the explicit Phase 3 bracket contract is sufficient; no extra Emacs cross-check is needed unless tests reveal ambiguity.
+- Risk: delimiter edge cases are easy to regress, so tests need to lock behavior tightly.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_scanner -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Replaced the bracket parser’s simple substring matching with explicit helper logic that scans target text left-to-right and applies odd/even backslash escaping rules before accepting either =][= or =]]= as a target delimiter.
+- Kept description parsing permissive and same-line-only by closing at the first literal =]]= after a valid target/description separator, without trying to parse nested links.
+- Preserved the existing classification/storage path for valid bracket links; only the scanner’s bracket-candidate recognition changed.
+- Added focused scanner regressions for escaped target brackets, invalid unescaped target brackets, odd/even backslash delimiter behavior, permissive descriptions, nested-looking description text, zero-width delimiter breakers, multiline rejection, later-link recovery, and Unicode byte offsets.
+** Changed files
+- =src/parser/link_scanner.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-30--handle-bracket-link-escaping-and-weird-delimiter-cases.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_scanner -- --nocapture=
+- =make ci=
+** Test results
+- Focused scanner tests passed: =18= passed, =0= failed under the =link_scanner= filter.
+- =make ci= passed fully:
+  - =cargo fmt --all --check=
+  - =cargo clippy --all-targets --all-features -- -D warnings=
+  - =cargo test --all-targets --all-features=
+  - =cargo build --all-targets --all-features=
+- Full suite after this task:
+  - =140= unit tests in =src/lib.rs=
+  - =29= tests in =tests/orgize_adapter.rs=
+  - =8= tests in =tests/parser_contract.rs=
+  - =2= tests in =tests/parser_fixtures.rs=
+** Blockers
+- None.
+** Follow-ups
+- Description parsing still intentionally closes at the first same-line literal =]]=, even when later text on the same line looks like it belongs to the human-intended description; that behavior is now explicit and regression-tested.
+- Angle-link and plain-link delimiter edge cases remain out of scope for this task.

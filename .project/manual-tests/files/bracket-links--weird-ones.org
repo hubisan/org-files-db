@@ -1,0 +1,37 @@
+#+TITLE: Bracket Link Fixture
+#+STARTUP: content
+
+This results in a plain link as the \ needs to be escaped. So there is no actual ][ to make the link valid:
+- [[https://nok-no-bracket-link--plain-link.org\][Test]]
+
+Even number of backslashes don't escape and are ignored:
+- [[https://ok-even-number-of-backslashes.org\\][OK]]
+
+Brackets in the link are valid if escaped with uneven number of backslashs:
+- [[https://ok-escaped-brackets-in-path.org\]\[brackets need to be escaped \[\] in the path\]][OK]]
+- [[https://ok-escaped-brackets-in-path.org\\\]\\\[brackets need to be escaped \[\\\] in the path\]][OK]]
+
+In Description the escaping is not needed. As nested links are not allowed. Two brackets after another close the description.
+- [[https://ok-description-double-bracket-closes-link][[Test]]]]
+- [[https://ok-description-double-bracket-closes-link][[[[[[Test]]]]  
+- [[https://ok-description-double-bracket-closes-link][[][][]]]]
+- [[https://ok-description-double-bracket-closes-link][test [[https://test.com]]no more link
+
+Line breaks are =NOT= (yet) supported, or maybe never. Not sure there is a use case for having line breaks in links:
+
+Bracket links and the description can include new lines, the starting. Only inside [], not when splitting \[\[ or \]\[ or \]\].
+[[https://www.gnu.org
+][Link with new line]]
+
+In the path a newline is represented as a space.
+[[https://www.gnu.org
+][sdfdsf]]
+
+Indentation on the second line is ignored.
+[[https://www.gnu.org
+                 x    x][sdfdsf]]
+
+Noch ein Umlaut im Path:
+[[file:sub/äöü.txt::target][A file link with Umlaut]]
+
+

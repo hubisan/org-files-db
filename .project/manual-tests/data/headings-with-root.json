@@ -2,6 +2,30 @@
   {
     "id": 1,
     "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links--weird-ones.org",
+    "parent_id": null,
+    "level": 0,
+    "line_number": 1,
+    "byte_start": -1,
+    "byte_end": 1526,
+    "title": "Bracket Link Fixture",
+    "title_raw": "Bracket Link Fixture",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": []
+  },
+  {
+    "id": 2,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
     "parent_id": null,
     "level": 0,
@@ -24,10 +48,10 @@
     "all_tags": []
   },
   {
-    "id": 2,
-    "file_id": 1,
+    "id": 3,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 1,
+    "parent_id": 2,
     "level": 1,
     "line_number": 10,
     "byte_start": 290,
@@ -48,10 +72,10 @@
     "all_tags": []
   },
   {
-    "id": 3,
-    "file_id": 1,
+    "id": 4,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 2,
+    "parent_id": 3,
     "level": 2,
     "line_number": 15,
     "byte_start": 374,
@@ -72,10 +96,10 @@
     "all_tags": []
   },
   {
-    "id": 4,
-    "file_id": 1,
+    "id": 5,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 2,
+    "parent_id": 3,
     "level": 2,
     "line_number": 19,
     "byte_start": 503,
@@ -96,10 +120,10 @@
     "all_tags": []
   },
   {
-    "id": 5,
-    "file_id": 1,
+    "id": 6,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 2,
+    "parent_id": 3,
     "level": 2,
     "line_number": 23,
     "byte_start": 614,
@@ -120,10 +144,10 @@
     "all_tags": []
   },
   {
-    "id": 6,
-    "file_id": 1,
+    "id": 7,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 2,
+    "parent_id": 3,
     "level": 2,
     "line_number": 28,
     "byte_start": 739,
@@ -144,10 +168,10 @@
     "all_tags": []
   },
   {
-    "id": 7,
-    "file_id": 1,
+    "id": 8,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 2,
+    "parent_id": 3,
     "level": 2,
     "line_number": 33,
     "byte_start": 860,
@@ -168,10 +192,10 @@
     "all_tags": []
   },
   {
-    "id": 8,
-    "file_id": 1,
+    "id": 9,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 1,
+    "parent_id": 2,
     "level": 1,
     "line_number": 38,
     "byte_start": 978,
@@ -192,10 +216,10 @@
     "all_tags": []
   },
   {
-    "id": 9,
-    "file_id": 1,
+    "id": 10,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 8,
+    "parent_id": 9,
     "level": 2,
     "line_number": 40,
     "byte_start": 1005,
@@ -216,10 +240,10 @@
     "all_tags": []
   },
   {
-    "id": 10,
-    "file_id": 1,
+    "id": 11,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 8,
+    "parent_id": 9,
     "level": 2,
     "line_number": 54,
     "byte_start": 1317,
@@ -240,10 +264,10 @@
     "all_tags": []
   },
   {
-    "id": 11,
-    "file_id": 1,
+    "id": 12,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 8,
+    "parent_id": 9,
     "level": 2,
     "line_number": 60,
     "byte_start": 1486,
@@ -264,10 +288,10 @@
     "all_tags": []
   },
   {
-    "id": 12,
-    "file_id": 1,
+    "id": 13,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 8,
+    "parent_id": 9,
     "level": 2,
     "line_number": 71,
     "byte_start": 1664,
@@ -288,10 +312,10 @@
     "all_tags": []
   },
   {
-    "id": 13,
-    "file_id": 1,
+    "id": 14,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 1,
+    "parent_id": 2,
     "level": 1,
     "line_number": 85,
     "byte_start": 2222,
@@ -312,10 +336,10 @@
     "all_tags": []
   },
   {
-    "id": 14,
-    "file_id": 1,
+    "id": 15,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 13,
+    "parent_id": 14,
     "level": 2,
     "line_number": 87,
     "byte_start": 2245,
@@ -336,10 +360,10 @@
     "all_tags": []
   },
   {
-    "id": 15,
-    "file_id": 1,
+    "id": 16,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 13,
+    "parent_id": 14,
     "level": 2,
     "line_number": 99,
     "byte_start": 2619,
@@ -360,10 +384,10 @@
     "all_tags": []
   },
   {
-    "id": 16,
-    "file_id": 1,
+    "id": 17,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 1,
+    "parent_id": 2,
     "level": 1,
     "line_number": 107,
     "byte_start": 2843,
@@ -384,10 +408,10 @@
     "all_tags": []
   },
   {
-    "id": 17,
-    "file_id": 1,
+    "id": 18,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 1,
+    "parent_id": 2,
     "level": 1,
     "line_number": 119,
     "byte_start": 3147,
@@ -408,10 +432,10 @@
     "all_tags": []
   },
   {
-    "id": 18,
-    "file_id": 1,
+    "id": 19,
+    "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org",
-    "parent_id": 17,
+    "parent_id": 18,
     "level": 2,
     "line_number": 123,
     "byte_start": 3211,
@@ -435,8 +459,8 @@
     ]
   },
   {
-    "id": 19,
-    "file_id": 2,
+    "id": 20,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
     "parent_id": null,
     "level": 0,
@@ -459,10 +483,10 @@
     "all_tags": []
   },
   {
-    "id": 20,
-    "file_id": 2,
+    "id": 21,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 10,
     "byte_start": 234,
@@ -483,10 +507,10 @@
     "all_tags": []
   },
   {
-    "id": 21,
-    "file_id": 2,
+    "id": 22,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 13,
     "byte_start": 354,
@@ -507,10 +531,10 @@
     "all_tags": []
   },
   {
-    "id": 22,
-    "file_id": 2,
+    "id": 23,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 16,
     "byte_start": 479,
@@ -531,10 +555,10 @@
     "all_tags": []
   },
   {
-    "id": 23,
-    "file_id": 2,
+    "id": 24,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 17,
     "byte_start": 512,
@@ -555,10 +579,10 @@
     "all_tags": []
   },
   {
-    "id": 24,
-    "file_id": 2,
+    "id": 25,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 18,
     "byte_start": 553,
@@ -579,10 +603,10 @@
     "all_tags": []
   },
   {
-    "id": 25,
-    "file_id": 2,
+    "id": 26,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 19,
     "byte_start": 590,
@@ -603,10 +627,10 @@
     "all_tags": []
   },
   {
-    "id": 26,
-    "file_id": 2,
+    "id": 27,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 21,
     "byte_start": 636,
@@ -627,10 +651,10 @@
     "all_tags": []
   },
   {
-    "id": 27,
-    "file_id": 2,
+    "id": 28,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 22,
     "byte_start": 682,
@@ -651,10 +675,10 @@
     "all_tags": []
   },
   {
-    "id": 28,
-    "file_id": 2,
+    "id": 29,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 24,
     "byte_start": 736,
@@ -675,10 +699,10 @@
     "all_tags": []
   },
   {
-    "id": 29,
-    "file_id": 2,
+    "id": 30,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 25,
     "byte_start": 771,
@@ -699,10 +723,10 @@
     "all_tags": []
   },
   {
-    "id": 30,
-    "file_id": 2,
+    "id": 31,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 27,
     "byte_start": 809,
@@ -723,10 +747,10 @@
     "all_tags": []
   },
   {
-    "id": 31,
-    "file_id": 2,
+    "id": 32,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 28,
     "byte_start": 843,
@@ -747,10 +771,10 @@
     "all_tags": []
   },
   {
-    "id": 32,
-    "file_id": 2,
+    "id": 33,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 32,
     "byte_start": 900,
@@ -771,10 +795,10 @@
     "all_tags": []
   },
   {
-    "id": 33,
-    "file_id": 2,
+    "id": 34,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 36,
     "byte_start": 977,
@@ -795,10 +819,10 @@
     "all_tags": []
   },
   {
-    "id": 34,
-    "file_id": 2,
+    "id": 35,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 37,
     "byte_start": 1034,
@@ -819,10 +843,10 @@
     "all_tags": []
   },
   {
-    "id": 35,
-    "file_id": 2,
+    "id": 36,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 39,
     "byte_start": 1094,
@@ -843,10 +867,10 @@
     "all_tags": []
   },
   {
-    "id": 36,
-    "file_id": 2,
+    "id": 37,
+    "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org",
-    "parent_id": 19,
+    "parent_id": 20,
     "level": 1,
     "line_number": 40,
     "byte_start": 1141,
@@ -867,8 +891,8 @@
     "all_tags": []
   },
   {
-    "id": 37,
-    "file_id": 3,
+    "id": 38,
+    "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org",
     "parent_id": null,
     "level": 0,
@@ -891,10 +915,10 @@
     "all_tags": []
   },
   {
-    "id": 38,
-    "file_id": 3,
+    "id": 39,
+    "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org",
-    "parent_id": 37,
+    "parent_id": 38,
     "level": 1,
     "line_number": 7,
     "byte_start": 141,
@@ -915,10 +939,10 @@
     "all_tags": []
   },
   {
-    "id": 39,
-    "file_id": 3,
+    "id": 40,
+    "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org",
-    "parent_id": 38,
+    "parent_id": 39,
     "level": 2,
     "line_number": 19,
     "byte_start": 454,
@@ -939,10 +963,10 @@
     "all_tags": []
   },
   {
-    "id": 40,
-    "file_id": 3,
+    "id": 41,
+    "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org",
-    "parent_id": 37,
+    "parent_id": 38,
     "level": 1,
     "line_number": 26,
     "byte_start": 604,
@@ -963,10 +987,10 @@
     "all_tags": []
   },
   {
-    "id": 41,
-    "file_id": 3,
+    "id": 42,
+    "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org",
-    "parent_id": 37,
+    "parent_id": 38,
     "level": 1,
     "line_number": 33,
     "byte_start": 798,
@@ -987,10 +1011,10 @@
     "all_tags": []
   },
   {
-    "id": 42,
-    "file_id": 3,
+    "id": 43,
+    "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org",
-    "parent_id": 37,
+    "parent_id": 38,
     "level": 1,
     "line_number": 49,
     "byte_start": 1264,
@@ -1011,8 +1035,8 @@
     "all_tags": []
   },
   {
-    "id": 43,
-    "file_id": 4,
+    "id": 44,
+    "file_id": 5,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org",
     "parent_id": null,
     "level": 0,
@@ -1035,10 +1059,10 @@
     "all_tags": []
   },
   {
-    "id": 44,
-    "file_id": 4,
+    "id": 45,
+    "file_id": 5,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org",
-    "parent_id": 43,
+    "parent_id": 44,
     "level": 1,
     "line_number": 7,
     "byte_start": 136,
@@ -1059,8 +1083,8 @@
     "all_tags": []
   },
   {
-    "id": 45,
-    "file_id": 5,
+    "id": 46,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
     "parent_id": null,
     "level": 0,
@@ -1083,10 +1107,10 @@
     "all_tags": []
   },
   {
-    "id": 46,
-    "file_id": 5,
+    "id": 47,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 45,
+    "parent_id": 46,
     "level": 1,
     "line_number": 4,
     "byte_start": 49,
@@ -1107,10 +1131,10 @@
     "all_tags": []
   },
   {
-    "id": 47,
-    "file_id": 5,
+    "id": 48,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 6,
     "byte_start": 62,
@@ -1131,10 +1155,10 @@
     "all_tags": []
   },
   {
-    "id": 48,
-    "file_id": 5,
+    "id": 49,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 9,
     "byte_start": 111,
@@ -1155,10 +1179,10 @@
     "all_tags": []
   },
   {
-    "id": 49,
-    "file_id": 5,
+    "id": 50,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 12,
     "byte_start": 158,
@@ -1179,10 +1203,10 @@
     "all_tags": []
   },
   {
-    "id": 50,
-    "file_id": 5,
+    "id": 51,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 15,
     "byte_start": 201,
@@ -1203,10 +1227,10 @@
     "all_tags": []
   },
   {
-    "id": 51,
-    "file_id": 5,
+    "id": 52,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 18,
     "byte_start": 310,
@@ -1227,10 +1251,10 @@
     "all_tags": []
   },
   {
-    "id": 52,
-    "file_id": 5,
+    "id": 53,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 21,
     "byte_start": 358,
@@ -1251,10 +1275,10 @@
     "all_tags": []
   },
   {
-    "id": 53,
-    "file_id": 5,
+    "id": 54,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 24,
     "byte_start": 422,
@@ -1275,10 +1299,10 @@
     "all_tags": []
   },
   {
-    "id": 54,
-    "file_id": 5,
+    "id": 55,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 27,
     "byte_start": 482,
@@ -1299,10 +1323,10 @@
     "all_tags": []
   },
   {
-    "id": 55,
-    "file_id": 5,
+    "id": 56,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 30,
     "byte_start": 527,
@@ -1323,10 +1347,10 @@
     "all_tags": []
   },
   {
-    "id": 56,
-    "file_id": 5,
+    "id": 57,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 33,
     "byte_start": 582,
@@ -1347,10 +1371,10 @@
     "all_tags": []
   },
   {
-    "id": 57,
-    "file_id": 5,
+    "id": 58,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 46,
+    "parent_id": 47,
     "level": 2,
     "line_number": 37,
     "byte_start": 704,
@@ -1371,10 +1395,10 @@
     "all_tags": []
   },
   {
-    "id": 58,
-    "file_id": 5,
+    "id": 59,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 57,
+    "parent_id": 58,
     "level": 3,
     "line_number": 39,
     "byte_start": 718,
@@ -1395,10 +1419,10 @@
     "all_tags": []
   },
   {
-    "id": 59,
-    "file_id": 5,
+    "id": 60,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 57,
+    "parent_id": 58,
     "level": 3,
     "line_number": 44,
     "byte_start": 827,
@@ -1419,10 +1443,10 @@
     "all_tags": []
   },
   {
-    "id": 60,
-    "file_id": 5,
+    "id": 61,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 57,
+    "parent_id": 58,
     "level": 3,
     "line_number": 48,
     "byte_start": 922,
@@ -1443,10 +1467,10 @@
     "all_tags": []
   },
   {
-    "id": 61,
-    "file_id": 5,
+    "id": 62,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 57,
+    "parent_id": 58,
     "level": 3,
     "line_number": 51,
     "byte_start": 1009,
@@ -1467,10 +1491,10 @@
     "all_tags": []
   },
   {
-    "id": 62,
-    "file_id": 5,
+    "id": 63,
+    "file_id": 6,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org",
-    "parent_id": 57,
+    "parent_id": 58,
     "level": 3,
     "line_number": 54,
     "byte_start": 1078,
@@ -1491,8 +1515,8 @@
     "all_tags": []
   },
   {
-    "id": 63,
-    "file_id": 6,
+    "id": 64,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
     "parent_id": null,
     "level": 0,
@@ -1518,10 +1542,10 @@
     ]
   },
   {
-    "id": 64,
-    "file_id": 6,
+    "id": 65,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 16,
     "byte_start": 465,
@@ -1545,10 +1569,10 @@
     ]
   },
   {
-    "id": 65,
-    "file_id": 6,
+    "id": 66,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 26,
     "byte_start": 638,
@@ -1572,10 +1596,10 @@
     ]
   },
   {
-    "id": 66,
-    "file_id": 6,
+    "id": 67,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 35,
     "byte_start": 858,
@@ -1599,10 +1623,10 @@
     ]
   },
   {
-    "id": 67,
-    "file_id": 6,
+    "id": 68,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 45,
     "byte_start": 1094,
@@ -1626,10 +1650,10 @@
     ]
   },
   {
-    "id": 68,
-    "file_id": 6,
+    "id": 69,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 58,
     "byte_start": 1304,
@@ -1653,10 +1677,10 @@
     ]
   },
   {
-    "id": 69,
-    "file_id": 6,
+    "id": 70,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 67,
     "byte_start": 1437,
@@ -1680,10 +1704,10 @@
     ]
   },
   {
-    "id": 70,
-    "file_id": 6,
+    "id": 71,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 76,
     "byte_start": 1718,
@@ -1707,10 +1731,10 @@
     ]
   },
   {
-    "id": 71,
-    "file_id": 6,
+    "id": 72,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 83,
     "byte_start": 1984,
@@ -1734,10 +1758,10 @@
     ]
   },
   {
-    "id": 72,
-    "file_id": 6,
+    "id": 73,
+    "file_id": 7,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org",
-    "parent_id": 63,
+    "parent_id": 64,
     "level": 1,
     "line_number": 89,
     "byte_start": 2264,
@@ -1761,8 +1785,8 @@
     ]
   },
   {
-    "id": 73,
-    "file_id": 7,
+    "id": 74,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
     "parent_id": null,
     "level": 0,
@@ -1790,10 +1814,10 @@
     ]
   },
   {
-    "id": 74,
-    "file_id": 7,
+    "id": 75,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 5,
     "byte_start": 82,
@@ -1820,10 +1844,10 @@
     ]
   },
   {
-    "id": 75,
-    "file_id": 7,
+    "id": 76,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 74,
+    "parent_id": 75,
     "level": 2,
     "line_number": 8,
     "byte_start": 114,
@@ -1851,10 +1875,10 @@
     ]
   },
   {
-    "id": 76,
-    "file_id": 7,
+    "id": 77,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 75,
+    "parent_id": 76,
     "level": 3,
     "line_number": 11,
     "byte_start": 144,
@@ -1883,10 +1907,10 @@
     ]
   },
   {
-    "id": 77,
-    "file_id": 7,
+    "id": 78,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 14,
     "byte_start": 242,
@@ -1912,10 +1936,10 @@
     ]
   },
   {
-    "id": 78,
-    "file_id": 7,
+    "id": 79,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 17,
     "byte_start": 267,
@@ -1942,10 +1966,10 @@
     ]
   },
   {
-    "id": 79,
-    "file_id": 7,
+    "id": 80,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 22,
     "byte_start": 370,
@@ -1972,10 +1996,10 @@
     ]
   },
   {
-    "id": 80,
-    "file_id": 7,
+    "id": 81,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 25,
     "byte_start": 455,
@@ -2002,10 +2026,10 @@
     ]
   },
   {
-    "id": 81,
-    "file_id": 7,
+    "id": 82,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 80,
+    "parent_id": 81,
     "level": 2,
     "line_number": 28,
     "byte_start": 500,
@@ -2032,10 +2056,10 @@
     ]
   },
   {
-    "id": 82,
-    "file_id": 7,
+    "id": 83,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 80,
+    "parent_id": 81,
     "level": 2,
     "line_number": 31,
     "byte_start": 576,
@@ -2063,10 +2087,10 @@
     ]
   },
   {
-    "id": 83,
-    "file_id": 7,
+    "id": 84,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 82,
+    "parent_id": 83,
     "level": 3,
     "line_number": 34,
     "byte_start": 664,
@@ -2094,10 +2118,10 @@
     ]
   },
   {
-    "id": 84,
-    "file_id": 7,
+    "id": 85,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 82,
+    "parent_id": 83,
     "level": 3,
     "line_number": 37,
     "byte_start": 754,
@@ -2125,10 +2149,10 @@
     ]
   },
   {
-    "id": 85,
-    "file_id": 7,
+    "id": 86,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 41,
     "byte_start": 894,
@@ -2155,10 +2179,10 @@
     ]
   },
   {
-    "id": 86,
-    "file_id": 7,
+    "id": 87,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 85,
+    "parent_id": 86,
     "level": 2,
     "line_number": 44,
     "byte_start": 976,
@@ -2186,10 +2210,10 @@
     ]
   },
   {
-    "id": 87,
-    "file_id": 7,
+    "id": 88,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 86,
+    "parent_id": 87,
     "level": 3,
     "line_number": 47,
     "byte_start": 1062,
@@ -2217,10 +2241,10 @@
     ]
   },
   {
-    "id": 88,
-    "file_id": 7,
+    "id": 89,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 73,
+    "parent_id": 74,
     "level": 1,
     "line_number": 50,
     "byte_start": 1163,
@@ -2246,10 +2270,10 @@
     ]
   },
   {
-    "id": 89,
-    "file_id": 7,
+    "id": 90,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 88,
+    "parent_id": 89,
     "level": 2,
     "line_number": 52,
     "byte_start": 1182,
@@ -2276,10 +2300,10 @@
     ]
   },
   {
-    "id": 90,
-    "file_id": 7,
+    "id": 91,
+    "file_id": 8,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org",
-    "parent_id": 88,
+    "parent_id": 89,
     "level": 2,
     "line_number": 55,
     "byte_start": 1256,
@@ -2305,8 +2329,8 @@
     ]
   },
   {
-    "id": 91,
-    "file_id": 8,
+    "id": 92,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
     "parent_id": null,
     "level": 0,
@@ -2329,10 +2353,10 @@
     "all_tags": []
   },
   {
-    "id": 92,
-    "file_id": 8,
+    "id": 93,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 1,
     "byte_start": 0,
@@ -2353,10 +2377,10 @@
     "all_tags": []
   },
   {
-    "id": 93,
-    "file_id": 8,
+    "id": 94,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 92,
+    "parent_id": 93,
     "level": 2,
     "line_number": 3,
     "byte_start": 20,
@@ -2377,10 +2401,10 @@
     "all_tags": []
   },
   {
-    "id": 94,
-    "file_id": 8,
+    "id": 95,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 92,
+    "parent_id": 93,
     "level": 2,
     "line_number": 6,
     "byte_start": 70,
@@ -2401,10 +2425,10 @@
     "all_tags": []
   },
   {
-    "id": 95,
-    "file_id": 8,
+    "id": 96,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 92,
+    "parent_id": 93,
     "level": 2,
     "line_number": 9,
     "byte_start": 126,
@@ -2425,10 +2449,10 @@
     "all_tags": []
   },
   {
-    "id": 96,
-    "file_id": 8,
+    "id": 97,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 12,
     "byte_start": 180,
@@ -2449,10 +2473,10 @@
     "all_tags": []
   },
   {
-    "id": 97,
-    "file_id": 8,
+    "id": 98,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 96,
+    "parent_id": 97,
     "level": 2,
     "line_number": 14,
     "byte_start": 198,
@@ -2473,10 +2497,10 @@
     "all_tags": []
   },
   {
-    "id": 98,
-    "file_id": 8,
+    "id": 99,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 96,
+    "parent_id": 97,
     "level": 2,
     "line_number": 17,
     "byte_start": 248,
@@ -2497,10 +2521,10 @@
     "all_tags": []
   },
   {
-    "id": 99,
-    "file_id": 8,
+    "id": 100,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 96,
+    "parent_id": 97,
     "level": 2,
     "line_number": 20,
     "byte_start": 297,
@@ -2521,10 +2545,10 @@
     "all_tags": []
   },
   {
-    "id": 100,
-    "file_id": 8,
+    "id": 101,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 96,
+    "parent_id": 97,
     "level": 2,
     "line_number": 23,
     "byte_start": 347,
@@ -2545,10 +2569,10 @@
     "all_tags": []
   },
   {
-    "id": 101,
-    "file_id": 8,
+    "id": 102,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 96,
+    "parent_id": 97,
     "level": 2,
     "line_number": 26,
     "byte_start": 398,
@@ -2569,10 +2593,10 @@
     "all_tags": []
   },
   {
-    "id": 102,
-    "file_id": 8,
+    "id": 103,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 29,
     "byte_start": 448,
@@ -2593,10 +2617,10 @@
     "all_tags": []
   },
   {
-    "id": 103,
-    "file_id": 8,
+    "id": 104,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 102,
+    "parent_id": 103,
     "level": 2,
     "line_number": 31,
     "byte_start": 474,
@@ -2617,10 +2641,10 @@
     "all_tags": []
   },
   {
-    "id": 104,
-    "file_id": 8,
+    "id": 105,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 102,
+    "parent_id": 103,
     "level": 2,
     "line_number": 34,
     "byte_start": 540,
@@ -2641,10 +2665,10 @@
     "all_tags": []
   },
   {
-    "id": 105,
-    "file_id": 8,
+    "id": 106,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 102,
+    "parent_id": 103,
     "level": 2,
     "line_number": 37,
     "byte_start": 608,
@@ -2665,10 +2689,10 @@
     "all_tags": []
   },
   {
-    "id": 106,
-    "file_id": 8,
+    "id": 107,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 40,
     "byte_start": 677,
@@ -2689,10 +2713,10 @@
     "all_tags": []
   },
   {
-    "id": 107,
-    "file_id": 8,
+    "id": 108,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 106,
+    "parent_id": 107,
     "level": 2,
     "line_number": 42,
     "byte_start": 695,
@@ -2713,10 +2737,10 @@
     "all_tags": []
   },
   {
-    "id": 108,
-    "file_id": 8,
+    "id": 109,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 106,
+    "parent_id": 107,
     "level": 2,
     "line_number": 45,
     "byte_start": 742,
@@ -2737,10 +2761,10 @@
     "all_tags": []
   },
   {
-    "id": 109,
-    "file_id": 8,
+    "id": 110,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 106,
+    "parent_id": 107,
     "level": 2,
     "line_number": 48,
     "byte_start": 792,
@@ -2761,10 +2785,10 @@
     "all_tags": []
   },
   {
-    "id": 110,
-    "file_id": 8,
+    "id": 111,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 106,
+    "parent_id": 107,
     "level": 2,
     "line_number": 51,
     "byte_start": 846,
@@ -2785,10 +2809,10 @@
     "all_tags": []
   },
   {
-    "id": 111,
-    "file_id": 8,
+    "id": 112,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 106,
+    "parent_id": 107,
     "level": 2,
     "line_number": 54,
     "byte_start": 895,
@@ -2809,10 +2833,10 @@
     "all_tags": []
   },
   {
-    "id": 112,
-    "file_id": 8,
+    "id": 113,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 57,
     "byte_start": 944,
@@ -2833,10 +2857,10 @@
     "all_tags": []
   },
   {
-    "id": 113,
-    "file_id": 8,
+    "id": 114,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 112,
+    "parent_id": 113,
     "level": 2,
     "line_number": 59,
     "byte_start": 981,
@@ -2857,10 +2881,10 @@
     "all_tags": []
   },
   {
-    "id": 114,
-    "file_id": 8,
+    "id": 115,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 112,
+    "parent_id": 113,
     "level": 2,
     "line_number": 62,
     "byte_start": 1041,
@@ -2881,10 +2905,10 @@
     "all_tags": []
   },
   {
-    "id": 115,
-    "file_id": 8,
+    "id": 116,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 112,
+    "parent_id": 113,
     "level": 2,
     "line_number": 65,
     "byte_start": 1133,
@@ -2905,10 +2929,10 @@
     "all_tags": []
   },
   {
-    "id": 116,
-    "file_id": 8,
+    "id": 117,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 68,
     "byte_start": 1210,
@@ -2929,10 +2953,10 @@
     "all_tags": []
   },
   {
-    "id": 117,
-    "file_id": 8,
+    "id": 118,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 116,
+    "parent_id": 117,
     "level": 2,
     "line_number": 70,
     "byte_start": 1241,
@@ -2953,10 +2977,10 @@
     "all_tags": []
   },
   {
-    "id": 118,
-    "file_id": 8,
+    "id": 119,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 116,
+    "parent_id": 117,
     "level": 2,
     "line_number": 73,
     "byte_start": 1302,
@@ -2977,10 +3001,10 @@
     "all_tags": []
   },
   {
-    "id": 119,
-    "file_id": 8,
+    "id": 120,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 116,
+    "parent_id": 117,
     "level": 2,
     "line_number": 76,
     "byte_start": 1375,
@@ -3001,10 +3025,10 @@
     "all_tags": []
   },
   {
-    "id": 120,
-    "file_id": 8,
+    "id": 121,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 79,
     "byte_start": 1453,
@@ -3025,10 +3049,10 @@
     "all_tags": []
   },
   {
-    "id": 121,
-    "file_id": 8,
+    "id": 122,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 120,
+    "parent_id": 121,
     "level": 2,
     "line_number": 81,
     "byte_start": 1489,
@@ -3049,10 +3073,10 @@
     "all_tags": []
   },
   {
-    "id": 122,
-    "file_id": 8,
+    "id": 123,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 91,
+    "parent_id": 92,
     "level": 1,
     "line_number": 84,
     "byte_start": 1532,
@@ -3073,10 +3097,10 @@
     "all_tags": []
   },
   {
-    "id": 123,
-    "file_id": 8,
+    "id": 124,
+    "file_id": 9,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org",
-    "parent_id": 122,
+    "parent_id": 123,
     "level": 2,
     "line_number": 86,
     "byte_start": 1555,
@@ -3097,8 +3121,8 @@
     "all_tags": []
   },
   {
-    "id": 124,
-    "file_id": 9,
+    "id": 125,
+    "file_id": 10,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org",
     "parent_id": null,
     "level": 0,
@@ -3121,10 +3145,10 @@
     "all_tags": []
   },
   {
-    "id": 125,
-    "file_id": 9,
+    "id": 126,
+    "file_id": 10,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org",
-    "parent_id": 124,
+    "parent_id": 125,
     "level": 1,
     "line_number": 4,
     "byte_start": 40,
@@ -3145,10 +3169,10 @@
     "all_tags": []
   },
   {
-    "id": 126,
-    "file_id": 9,
+    "id": 127,
+    "file_id": 10,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org",
-    "parent_id": 124,
+    "parent_id": 125,
     "level": 1,
     "line_number": 7,
     "byte_start": 91,
@@ -3169,10 +3193,10 @@
     "all_tags": []
   },
   {
-    "id": 127,
-    "file_id": 9,
+    "id": 128,
+    "file_id": 10,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org",
-    "parent_id": 124,
+    "parent_id": 125,
     "level": 1,
     "line_number": 10,
     "byte_start": 152,
@@ -3193,10 +3217,10 @@
     "all_tags": []
   },
   {
-    "id": 128,
-    "file_id": 9,
+    "id": 129,
+    "file_id": 10,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org",
-    "parent_id": 124,
+    "parent_id": 125,
     "level": 1,
     "line_number": 14,
     "byte_start": 201,
