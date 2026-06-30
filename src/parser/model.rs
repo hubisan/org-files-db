@@ -141,6 +141,20 @@ pub struct ParsedKeyword {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ParsedLink {
+    pub format: String,
+    pub raw: String,
+    pub raw_target: String,
+    pub raw_description: Option<String>,
+    pub link_type: String,
+    pub path: String,
+    pub search_option: Option<String>,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedHeading {
     pub file_path: PathBuf,
     pub level: u8,

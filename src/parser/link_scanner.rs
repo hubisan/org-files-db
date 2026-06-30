@@ -1,0 +1,473 @@
+use std::{collections::HashSet, ops::Range};
+
+use crate::parser::ParsedLink;
+
+pub const DEFAULT_PLAIN_LINK_PROTOCOLS: &[&str] = &[
+    "http",
+    "https",
+    "file",
+    "file+sys",
+    "file+emacs",
+    "ftp",
+    "news",
+    "mailto",
+    "help",
+    "info",
+    "shortdoc",
+    "id",
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkScannerConfig {
+    pub plain_link_protocols: Vec<String>,
+}
+
+impl Default for LinkScannerConfig {
+    fn default() -> Self {
+        Self {
+            plain_link_protocols: DEFAULT_PLAIN_LINK_PROTOCOLS
+                .iter()
+                .map(|protocol| (*protocol).to_string())
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkScanContext {
+    pub ignored_byte_ranges: Vec<Range<usize>>,
+}
+
+#[derive(Debug, Default)]
+pub struct LinkScanner;
+
+impl LinkScanner {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn scan(
+        &self,
+        content: &str,
+        config: &LinkScannerConfig,
+        context: &LinkScanContext,
+    ) -> Vec<ParsedLink> {
+        let enabled_protocols = normalized_protocols(&config.plain_link_protocols);
+        let bytes = content.as_bytes();
+        let mut links = Vec::new();
+        let mut offset = 0;
+        let mut line = 1;
+
+        while offset < bytes.len() {
+            if let Some(range_end) = ignored_range_end(offset, &context.ignored_byte_ranges) {
+                line += newline_count(&bytes[offset..range_end]) as u32;
+                offset = range_end;
+                continue;
+            }
+
+            if bytes[offset] == b'[' && bytes.get(offset + 1) == Some(&b'[') {
+                if let Some(link) = try_parse_bracket_link(content, offset, line) {
+                    offset = link.byte_end;
+                    links.push(link);
+                    continue;
+                }
+            }
+
+            if bytes[offset] == b'<' {
+                if let Some(link) = try_parse_angle_link(content, offset, line) {
+                    offset = link.byte_end;
+                    links.push(link);
+                    continue;
+                }
+            }
+
+            if let Some(link) = try_parse_plain_link(content, offset, line, &enabled_protocols) {
+                offset = link.byte_end;
+                links.push(link);
+                continue;
+            }
+
+            let char_len = content[offset..]
+                .chars()
+                .next()
+                .expect("offset should remain on a char boundary")
+                .len_utf8();
+            if bytes[offset] == b'\n' {
+                line += 1;
+            }
+            offset += char_len;
+        }
+
+        links
+    }
+}
+
+pub fn scan_links(
+    content: &str,
+    config: &LinkScannerConfig,
+    context: &LinkScanContext,
+) -> Vec<ParsedLink> {
+    LinkScanner::new().scan(content, config, context)
+}
+
+fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<ParsedLink> {
+    let line_end = line_end_offset(content, offset);
+    let slice = &content[offset..line_end];
+    let close = slice.get(2..)?.find("]]")?;
+    let byte_end = offset + 2 + close + 2;
+    let inner = &content[offset + 2..byte_end - 2];
+
+    if inner.is_empty() {
+        return None;
+    }
+
+    let (raw_target, raw_description) = match inner.find("][") {
+        Some(separator) => {
+            let target = &inner[..separator];
+            if target.is_empty() || target.contains(['[', ']']) {
+                return None;
+            }
+            (target.to_string(), Some(inner[separator + 2..].to_string()))
+        }
+        None => {
+            if inner.contains(['[', ']']) {
+                return None;
+            }
+            (inner.to_string(), None)
+        }
+    };
+    let (link_type, path) = classify_bracket_target(&raw_target);
+
+    Some(ParsedLink {
+        format: "bracket".to_string(),
+        raw: content[offset..byte_end].to_string(),
+        raw_target,
+        raw_description,
+        link_type,
+        path,
+        search_option: None,
+        byte_start: offset,
+        byte_end,
+        line,
+    })
+}
+
+fn try_parse_angle_link(content: &str, offset: usize, line: u32) -> Option<ParsedLink> {
+    let line_end = line_end_offset(content, offset);
+    let slice = &content[offset..line_end];
+    let close = slice.find('>')?;
+    if close == 0 {
+        return None;
+    }
+
+    let byte_end = offset + close + 1;
+    let raw_target = &content[offset + 1..byte_end - 1];
+    let (link_type, path) = split_explicit_type(raw_target)?;
+
+    Some(ParsedLink {
+        format: "angle".to_string(),
+        raw: content[offset..byte_end].to_string(),
+        raw_target: raw_target.to_string(),
+        raw_description: None,
+        link_type,
+        path,
+        search_option: None,
+        byte_start: offset,
+        byte_end,
+        line,
+    })
+}
+
+fn try_parse_plain_link(
+    content: &str,
+    offset: usize,
+    line: u32,
+    enabled_protocols: &HashSet<String>,
+) -> Option<ParsedLink> {
+    if offset > 0 && protocol_char(content.as_bytes()[offset - 1]) {
+        return None;
+    }
+
+    let line_end = line_end_offset(content, offset);
+    let slice = &content[offset..line_end];
+    let colon = slice.find(':')?;
+    if colon == 0 {
+        return None;
+    }
+
+    let protocol = &slice[..colon];
+    if !protocol.bytes().all(protocol_char) {
+        return None;
+    }
+
+    let normalized = protocol.to_ascii_lowercase();
+    if !enabled_protocols.contains(&normalized) {
+        return None;
+    }
+
+    let mut end = colon + 1;
+    for (relative, ch) in slice[colon + 1..].char_indices() {
+        if ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '\'') {
+            break;
+        }
+        end = colon + 1 + relative + ch.len_utf8();
+    }
+
+    if end <= colon + 1 {
+        return None;
+    }
+
+    let trimmed_end = trim_plain_link_end(&slice[..end]);
+    if trimmed_end <= colon + 1 {
+        return None;
+    }
+
+    let byte_end = offset + trimmed_end;
+    let raw = &content[offset..byte_end];
+
+    Some(ParsedLink {
+        format: "plain".to_string(),
+        raw: raw.to_string(),
+        raw_target: raw.to_string(),
+        raw_description: None,
+        link_type: normalized,
+        path: raw[protocol.len() + 1..].to_string(),
+        search_option: None,
+        byte_start: offset,
+        byte_end,
+        line,
+    })
+}
+
+fn classify_bracket_target(target: &str) -> (String, String) {
+    if let Some((link_type, path)) = split_explicit_type(target) {
+        return (link_type, path);
+    }
+
+    if target.starts_with("./")
+        || target.starts_with("../")
+        || target.starts_with("~/")
+        || target.starts_with('/')
+    {
+        return ("file".to_string(), target.to_string());
+    }
+
+    if target.starts_with('#') {
+        return ("custom-id".to_string(), target.to_string());
+    }
+
+    ("fuzzy".to_string(), target.to_string())
+}
+
+fn split_explicit_type(raw_target: &str) -> Option<(String, String)> {
+    let (prefix, path) = raw_target.split_once(':')?;
+    if prefix.is_empty() || !prefix.bytes().all(protocol_char) {
+        return None;
+    }
+    Some((prefix.to_ascii_lowercase(), path.to_string()))
+}
+
+fn normalized_protocols(protocols: &[String]) -> HashSet<String> {
+    protocols
+        .iter()
+        .map(|protocol| protocol.to_ascii_lowercase())
+        .collect()
+}
+
+fn protocol_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')
+}
+
+fn trim_plain_link_end(candidate: &str) -> usize {
+    let mut end = candidate.len();
+
+    while end > 0 {
+        let ch = candidate[..end]
+            .chars()
+            .next_back()
+            .expect("candidate should be non-empty while trimming");
+        if matches!(ch, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '}') {
+            end -= ch.len_utf8();
+            continue;
+        }
+        break;
+    }
+
+    end
+}
+
+fn line_end_offset(content: &str, offset: usize) -> usize {
+    content[offset..]
+        .find('\n')
+        .map(|relative| offset + relative)
+        .unwrap_or(content.len())
+}
+
+fn ignored_range_end(offset: usize, ranges: &[Range<usize>]) -> Option<usize> {
+    ranges
+        .iter()
+        .find(|range| range.start <= offset && offset < range.end)
+        .map(|range| range.end)
+}
+
+fn newline_count(bytes: &[u8]) -> usize {
+    bytes.iter().filter(|byte| **byte == b'\n').count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        scan_links, LinkScanContext, LinkScanner, LinkScannerConfig, DEFAULT_PLAIN_LINK_PROTOCOLS,
+    };
+
+    #[test]
+    fn scans_basic_bracket_angle_and_plain_links_in_priority_order() {
+        let content = "[[file:notes.org]] <https://example.com/a path> https://example.com";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 3);
+        assert_eq!(links[0].format, "bracket");
+        assert_eq!(links[0].raw, "[[file:notes.org]]");
+        assert_eq!(links[0].raw_target, "file:notes.org");
+        assert_eq!(links[0].link_type, "file");
+        assert_eq!(links[0].path, "notes.org");
+        assert_eq!(links[0].line, 1);
+
+        assert_eq!(links[1].format, "angle");
+        assert_eq!(links[1].raw, "<https://example.com/a path>");
+        assert_eq!(links[1].raw_target, "https://example.com/a path");
+        assert_eq!(links[1].link_type, "https");
+        assert_eq!(links[1].path, "//example.com/a path");
+
+        assert_eq!(links[2].format, "plain");
+        assert_eq!(links[2].raw, "https://example.com");
+        assert_eq!(links[2].raw_target, "https://example.com");
+        assert_eq!(links[2].link_type, "https");
+        assert_eq!(links[2].path, "//example.com");
+    }
+
+    #[test]
+    fn failed_bracket_and_angle_candidates_advance_safely() {
+        let content = "[[broken\nhttps://example.com\n<broken\n<mailto:person@example.com>";
+
+        let links = LinkScanner::new().scan(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].format, "plain");
+        assert_eq!(links[0].raw, "https://example.com");
+        assert_eq!(links[0].line, 2);
+        assert_eq!(links[1].format, "angle");
+        assert_eq!(links[1].raw, "<mailto:person@example.com>");
+        assert_eq!(links[1].line, 4);
+    }
+
+    #[test]
+    fn unicode_before_link_preserves_byte_offsets() {
+        let content = "ä\nhttps://example.org";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].byte_start, "ä\n".len());
+        assert_eq!(links[0].byte_end, content.len());
+        assert_eq!(links[0].line, 2);
+    }
+
+    #[test]
+    fn plain_link_detection_uses_configured_protocols() {
+        let content = "jira:ABC-123 https://example.org";
+        let config = LinkScannerConfig {
+            plain_link_protocols: vec!["jira".to_string()],
+        };
+
+        let links = scan_links(content, &config, &LinkScanContext::default());
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].format, "plain");
+        assert_eq!(links[0].raw, "jira:ABC-123");
+        assert_eq!(links[0].link_type, "jira");
+        assert_eq!(links[0].path, "ABC-123");
+    }
+
+    #[test]
+    fn ignores_links_inside_configured_ignored_ranges() {
+        let content = "https://example.org [[file:kept.org]]";
+        let ignored_end = "https://example.org".len();
+        let context = LinkScanContext {
+            ignored_byte_ranges: std::iter::once(0..ignored_end).collect(),
+        };
+
+        let links = scan_links(content, &LinkScannerConfig::default(), &context);
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].format, "bracket");
+        assert_eq!(links[0].raw, "[[file:kept.org]]");
+    }
+
+    #[test]
+    fn bracket_links_preserve_basic_description_field() {
+        let content = "[[https://example.org][Example]]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].format, "bracket");
+        assert_eq!(links[0].raw_target, "https://example.org");
+        assert_eq!(links[0].raw_description.as_deref(), Some("Example"));
+        assert_eq!(links[0].path, "//example.org");
+        assert_eq!(links[0].search_option, None);
+    }
+
+    #[test]
+    fn default_plain_protocols_include_phase3_defaults() {
+        assert_eq!(
+            DEFAULT_PLAIN_LINK_PROTOCOLS,
+            &[
+                "http",
+                "https",
+                "file",
+                "file+sys",
+                "file+emacs",
+                "ftp",
+                "news",
+                "mailto",
+                "help",
+                "info",
+                "shortdoc",
+                "id",
+            ]
+        );
+    }
+
+    #[test]
+    fn plain_links_trim_deterministic_trailing_punctuation() {
+        let content = "See https://example.org/test.]";
+
+        let links = scan_links(
+            content,
+            &LinkScannerConfig::default(),
+            &LinkScanContext::default(),
+        );
+
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].raw, "https://example.org/test");
+        assert_eq!(links[0].byte_end, content.len() - 2);
+    }
+}

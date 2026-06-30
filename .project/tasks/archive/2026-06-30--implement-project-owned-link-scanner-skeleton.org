@@ -1,0 +1,158 @@
+#+TITLE: Implement project-owned link scanner skeleton
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 10:07]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Implement project-owned link scanner skeleton=.
+  - Follow the local =AGENTS.md= workflow and Phase 3 link extraction contract.
+  - Keep the scanner independent from Orgize link-node support.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** BUILD Implement project-owned link scanner skeleton
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+=BUILD with 5.4 high=
+
+Depends on:
+
+- [[#phase3-link-contract][Phase 3 link extraction contract]]
+
+Goal:
+
+- Implement a small scanner over raw Org source text that detects link tokens independently of Orgize link-node support.
+- Make scanner behavior deterministic before storage and full edge-case handling are implemented.
+
+Contract copied from Phase 3 SPEC:
+
+- Link-token extraction is owned by the project scanner.
+- Orgize link nodes are optional cross-checks, not the contract.
+- Bracket links and angle links are syntax-driven.
+- Plain links are protocol-list-driven.
+- Scanner must not resolve link targets.
+- Scanner must not execute link targets.
+- Scanner must return byte ranges using zero-based half-open semantics.
+- Scanner must preserve 1-based line number for token start.
+- Scanner must not parse links across newlines.
+- Scanner must avoid matching inside ignored regions once ignored-region ranges are available.
+
+Scanner priority:
+
+,#+begin_src text
+1. If current position starts with [[, try parse bracket link.
+2. Else if current char is <, try parse angle link.
+3. Else try parse configured plain link.
+4. Otherwise advance by one character.
+,#+end_src
+
+Scope:
+
+- Scan left-to-right over raw Org source bytes/text.
+- Return raw link tokens with:
+  - ~format~
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~link_type~
+  - ~path~
+  - ~search_option~
+  - ~byte_start~
+  - ~byte_end~
+  - ~line~
+- Accept structural context from the outer Org parser where needed.
+- Do not store links yet unless storage wiring is already available.
+- Do not implement every edge case in this skeleton.
+- Do not depend on Orgize link nodes in scanner core.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The repository has the Phase 3 storage contract for links but no parser-owned scanner that can extract raw link tokens independently from Orgize link AST support.
+- The scanner skeleton needs stable field names and byte/line semantics now, while deferring full edge-case handling and storage wiring to later tasks.
+
+** Goals
+- Add a parser-owned link token model with the Phase 3 field names.
+- Implement a raw-text scanner module that handles basic bracket, angle, and configured plain-link candidates in the required priority order.
+- Keep the scanner free of Orgize dependencies and make Unicode-safe byte positions explicit in tests.
+
+** Non-goals
+- No storage/indexer wiring in this task.
+- No full ignored-region extractor from structural Org parsing in this task.
+- No exhaustive bracket delimiter or file-like search-option handling beyond a deterministic skeleton.
+
+** Architecture
+- Keep the scanner in a dedicated =src/parser/link_scanner.rs= module and export it through =src/parser.rs=.
+- Define the link row shape as a parser-owned type with DB-compatible field names.
+- Accept scanner configuration and structural context as explicit inputs so later parser/indexer work can plug in ignored ranges and protocol policy without changing the scanner core API.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Add the parser-owned link model and scanner module with a small config/context API.
+- Add focused unit tests for successful basic candidates, failed candidate recovery, configured protocols, and Unicode-safe byte offsets.
+- Run formatter, focused tests, and =make ci= if feasible.
+
+** Risks & assumptions
+- Assumption: leaving =search_option = NULL= in the skeleton is acceptable until the dedicated file-like splitting task lands, as long as the field name already exists.
+- Risk: plain-link boundary behavior is intentionally conservative here and may need refinement in the later plain-link task.
+
+** Open questions
+- None after repository inspection.
+
+** Proposed checks
+- =cargo test link_scanner -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Added a parser-owned =ParsedLink= type with the Phase 3 scanner field names so later storage/indexer work can consume link rows without renaming.
+- Implemented =src/parser/link_scanner.rs= as a raw-text scanner that:
+  - scans left-to-right in the required priority order
+  - keeps zero-based half-open byte ranges
+  - preserves 1-based start lines
+  - rejects bracket and angle candidates that would cross a newline
+  - supports configurable plain-link protocols without any Orgize dependency
+- Added ignored-range input to the scanner API so later structural parsing can suppress matches in excluded regions without changing the scanner core shape.
+- Added unit coverage for basic bracket, angle, and plain links, safe recovery after failed candidates, Unicode byte offsets, configured plain protocols, ignored ranges, and deterministic plain-link punctuation trimming.
+** Changed files
+- =src/parser.rs=
+- =src/parser/model.rs=
+- =src/parser/link_scanner.rs=
+- =tests/parser_contract.rs=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-06-30--implement-project-owned-link-scanner-skeleton.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_scanner -- --nocapture=
+- =make ci=
+** Test results
+- Focused scanner unit tests passed: =8= passed, =0= failed.
+- Full repository checks passed through =make ci=:
+  - =cargo fmt --all --check=
+  - =cargo clippy --all-targets --all-features -- -D warnings=
+  - =cargo test --all-targets --all-features=
+  - =cargo build --all-targets --all-features=
+- The full test suite passed with:
+  - =129= unit tests in =src/lib.rs=
+  - =28= tests in =tests/orgize_adapter.rs=
+  - =8= tests in =tests/parser_contract.rs=
+  - =2= tests in =tests/parser_fixtures.rs=
+** Blockers
+- None.
+** Follow-ups
+- The scanner currently leaves =search_option = NULL= for all formats; the dedicated file-like splitting task can extend the existing output shape without renaming fields.
+- Bracket delimiter oddities and permissive description edge cases remain intentionally deferred to the follow-up bracket-link edge-case task.

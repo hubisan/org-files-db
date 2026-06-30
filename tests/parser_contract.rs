@@ -2,9 +2,10 @@ use std::path::{Path, PathBuf};
 
 use org_files_db::parser::{
     DiagnosticSeverity, OrgParser, OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions,
-    ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedPlanning,
-    ParsedProperty, ParsedPropertySource, ParsedTimestamp, ParsedTimestampRangeType,
-    ParsedTimestampRole, ParsedTimestampType, TodoKeyword, TodoKeywordConfig, TodoType,
+    ParsedDocumentMetadata, ParsedHeading, ParsedKeyword, ParsedLink, ParsedOrgDocument,
+    ParsedPlanning, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
+    ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType, TodoKeyword,
+    TodoKeywordConfig, TodoType,
 };
 
 struct ParserFixture {
@@ -309,4 +310,33 @@ fn parsed_heading_can_represent_synthetic_level_zero_heading() {
     assert_eq!(heading.level, 0);
     assert_eq!(heading.parent_index, None);
     assert_eq!(heading.file_path, PathBuf::from("notes/project.org"));
+}
+
+#[test]
+fn parsed_link_serializes_with_storage_ready_field_names() {
+    let link = ParsedLink {
+        format: "plain".to_string(),
+        raw: "https://example.org".to_string(),
+        raw_target: "https://example.org".to_string(),
+        raw_description: None,
+        link_type: "https".to_string(),
+        path: "//example.org".to_string(),
+        search_option: None,
+        byte_start: 4,
+        byte_end: 23,
+        line: 2,
+    };
+
+    let json = serde_json::to_value(&link).expect("link should serialize");
+
+    assert_eq!(json["format"], "plain");
+    assert_eq!(json["raw"], "https://example.org");
+    assert_eq!(json["raw_target"], "https://example.org");
+    assert!(json["raw_description"].is_null());
+    assert_eq!(json["link_type"], "https");
+    assert_eq!(json["path"], "//example.org");
+    assert!(json["search_option"].is_null());
+    assert_eq!(json["byte_start"], 4);
+    assert_eq!(json["byte_end"], 23);
+    assert_eq!(json["line"], 2);
 }

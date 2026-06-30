@@ -715,7 +715,7 @@ Acceptance criteria:
   - angle links unaffected by plain-link config
   - action-like protocols never being executed
 
-** DONE [#A] Create links DB table and storage functions
+** DONE Create links DB table and storage functions
 :PROPERTIES:
 :PRIORITY: High
 :RISK: Medium
@@ -725,76 +725,11 @@ Acceptance criteria:
 
 Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.org]]
 
-** TODO [#A] Implement project-owned link scanner skeleton
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
-:END:
+** DONE Implement project-owned link scanner skeleton
 
-Depends on:
+[[./archive/2026-06-30--implement-project-owned-link-scanner-skeleton.org]]
 
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-
-Goal:
-
-- Implement a small scanner over raw Org source text that detects link tokens independently of Orgize link-node support.
-- Make scanner behavior deterministic before storage and full edge-case handling are implemented.
-
-Contract copied from Phase 3 SPEC:
-
-- Link-token extraction is owned by the project scanner.
-- Orgize link nodes are optional cross-checks, not the contract.
-- Bracket links and angle links are syntax-driven.
-- Plain links are protocol-list-driven.
-- Scanner must not resolve link targets.
-- Scanner must not execute link targets.
-- Scanner must return byte ranges using zero-based half-open semantics.
-- Scanner must preserve 1-based line number for token start.
-- Scanner must not parse links across newlines.
-- Scanner must avoid matching inside ignored regions once ignored-region ranges are available.
-
-Scanner priority:
-
-#+begin_src text
-1. If current position starts with [[, try parse bracket link.
-2. Else if current char is <, try parse angle link.
-3. Else try parse configured plain link.
-4. Otherwise advance by one character.
-#+end_src
-
-Scope:
-
-- Scan left-to-right over raw Org source bytes/text.
-- Return raw link tokens with:
-  - ~format~
-  - ~raw~
-  - ~raw_target~
-  - ~raw_description~
-  - ~link_type~
-  - ~path~
-  - ~search_option~
-  - ~byte_start~
-  - ~byte_end~
-  - ~line~
-- Accept structural context from the outer Org parser where needed.
-- Do not store links yet unless storage wiring is already available.
-- Do not implement every edge case in this skeleton.
-- Do not depend on Orgize link nodes in scanner core.
-
-Acceptance criteria:
-
-- Scanner has unit tests for basic bracket, angle, and plain candidates.
-- Failed bracket parses advance safely and continue scanning.
-- Failed angle parses advance safely and continue scanning.
-- Byte offsets are deterministic.
-- Unicode text before links does not corrupt byte positions.
-- Plain-link detection uses configured protocols.
-- No dependency on Orgize link nodes exists in scanner core.
-- Scanner output can be consumed by the later storage task without changing field names.
-
-** TODO [#A] Extract bracket links as raw source facts
+** TODO Extract bracket links as raw source facts
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
