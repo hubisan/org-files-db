@@ -913,7 +913,7 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--split-search-options-for-file-like-link-source-facts.org]]
 
-** TODO [#B] Implement ignored-region filtering for links
+** DONE [#B] Implement ignored-region filtering for links
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: High
@@ -921,78 +921,7 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 :API_CONTRACT_CHANGE: Maybe
 :END:
 
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
-
-Goal:
-
-- Avoid extracting links from Org regions where links should not count as document links.
-- Mark parsed links with a deliberate ~source_context~.
-
-Contract copied from Phase 3 SPEC:
-
-Ignore links inside:
-
-- Verbatim markup.
-- Code markup.
-- Source blocks.
-- Inline source forms where reliably detectable.
-- Example blocks.
-- Colon example lines.
-- Comment blocks.
-- Comment lines.
-- Export blocks.
-- Inline export forms where reliably detectable.
-- File-level keywords, including ~#+PROPERTY~.
-
-Parse links inside:
-
-- Headings.
-- Normal paragraphs.
-- Verse blocks.
-- Quote blocks.
-- Center-like blocks.
-- Justify-like blocks.
-- Property drawers.
-- Normal drawers.
-
-Source context rules:
-
-- Every stored link fact has a ~source_context~.
-- Links in property drawers are stored with ~source_context = property_drawer~.
-- Links in normal drawers are stored with ~source_context = drawer~.
-- Links in headings are stored with ~source_context = heading~.
-- Links in normal paragraphs are stored with ~source_context = normal~.
-- Links in verse/quote/center/justify-like blocks use the matching block context.
-- Phase 3 does not store ~drawer_name~.
-- Phase 3 does not store ~property_name~.
-
-Implementation guidance:
-
-- Prefer using Orgize structural ranges if reliable.
-- Fall back to project-owned range detection where needed.
-- Inline source/export detection may be best-effort where reliable.
-- Known detection gaps must be documented in fixtures.
-
-Acceptance criteria:
-
-- Links in verbatim markup are ignored.
-- Links in code markup are ignored.
-- Links in source blocks are ignored.
-- Links in inline source forms are ignored where reliably detectable.
-- Links in example blocks and colon example lines are ignored.
-- Links in comment blocks and comment lines are ignored.
-- Links in export blocks are ignored.
-- Links in inline export forms are ignored where reliably detectable.
-- Links in file-level keywords are ignored.
-- ~#+PROPERTY~ is ignored.
-- Links in headings are parsed.
-- Links in quote/verse/center/justify-like blocks are parsed.
-- Links in property drawers are parsed and source-context-marked.
-- Links in normal drawers are parsed and source-context-marked.
-- Source context is tested.
+[[./archive/2026-06-30--implement-ignored-region-filtering-for-links.org]]
 
 ** TODO [#B] Add old link fixture as Phase 3 regression fixture
 :PROPERTIES:

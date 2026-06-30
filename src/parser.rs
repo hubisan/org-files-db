@@ -9,9 +9,10 @@ pub use link_scanner::{
 };
 pub use model::{
     file_local_todo_keyword_config, OrgParser, OrgParserCore, ParseOptions, ParsedDocumentMetadata,
-    ParsedHeading, ParsedKeyword, ParsedLink, ParsedOrgDocument, ParsedPlanning, ParsedProperty,
-    ParsedPropertySource, ParsedTimestamp, ParsedTimestampModifier, ParsedTimestampModifierKind,
-    ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
-    ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig, TodoType,
+    ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext, ParsedOrgDocument,
+    ParsedPlanning, ParsedProperty, ParsedPropertySource, ParsedTimestamp, ParsedTimestampModifier,
+    ParsedTimestampModifierKind, ParsedTimestampModifierType, ParsedTimestampRangeType,
+    ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig,
+    TodoType,
 };
 pub use orgize_adapter::OrgizeAdapter;

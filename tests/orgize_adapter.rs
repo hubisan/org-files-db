@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use org_files_db::parser::{
-    LinkScannerConfig, OrgParser, OrgParserCore, OrgizeAdapter, ParseOptions, ParsedPropertySource,
-    ParsedTimestampModifierKind, ParsedTimestampModifierType, ParsedTimestampRangeType,
-    ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig,
-    TodoType,
+    LinkScannerConfig, OrgParser, OrgParserCore, OrgizeAdapter, ParseOptions,
+    ParsedLinkSourceContext, ParsedPropertySource, ParsedTimestampModifierKind,
+    ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
+    ParsedTimestampType, ParsedTimestampUnit, TodoKeyword, TodoKeywordConfig, TodoType,
 };
 use org_files_db::todo_keywords::resolve_todo_keywords;
 
@@ -1168,6 +1168,10 @@ file:~/plain.c::255
     assert_eq!(document.links[0].path, "notes.org");
     assert_eq!(document.links[0].search_option.as_deref(), Some("42"));
     assert_eq!(
+        document.links[0].source_context,
+        ParsedLinkSourceContext::Normal
+    );
+    assert_eq!(
         document.links[1].raw_description.as_deref(),
         Some("description")
     );
@@ -1187,6 +1191,124 @@ file:~/plain.c::255
     assert_eq!(document.links[6].format, "bracket");
     assert_eq!(document.links[6].link_type, "shell");
     assert_eq!(document.links[6].path, "ls");
+    assert_eq!(
+        document.links[6].source_context,
+        ParsedLinkSourceContext::Normal
+    );
+}
+
+#[test]
+fn orgize_adapter_ignores_links_in_ignored_regions_and_marks_source_contexts() {
+    let content = "\
+#+TITLE: Link contexts
+#+PROPERTY: ignored https://example.org/in-property-keyword
+Paragraph with https://example.org/in-root-paragraph.
+
+* Heading with https://example.org/in-heading
+Inside code =https://example.org/in-code= and verbatim ~https://example.org/in-verbatim~.
+Inline source src_sh{https://example.org/in-inline-src}
+Inline export @@html:https://example.org/in-inline-export@@
+
+#+BEGIN_SRC text
+https://example.org/in-source-block
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+https://example.org/in-example-block
+#+END_EXAMPLE
+
+: https://example.org/in-colon-example-line
+
+#+BEGIN_COMMENT
+https://example.org/in-comment-block
+#+END_COMMENT
+
+# https://example.org/in-comment-line
+
+#+BEGIN_EXPORT HTML
+https://example.org/in-export-block
+#+END_EXPORT
+
+Paragraph with https://example.org/in-paragraph.
+
+#+BEGIN_VERSE
+https://example.org/in-verse
+#+END_VERSE
+
+#+BEGIN_QUOTE
+https://example.org/in-quote
+#+END_QUOTE
+
+#+BEGIN_CENTER
+https://example.org/in-center
+#+END_CENTER
+
+#+BEGIN_JUSTIFY
+https://example.org/in-justify
+#+END_JUSTIFY
+
+:PROPERTIES:
+:LINK: https://example.org/in-property-drawer
+:END:
+
+:A_DRAWER:
+https://example.org/in-drawer
+:END:
+";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/link-contexts.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("adapter should parse ignored-region fixture");
+
+    assert_eq!(
+        document
+            .links
+            .iter()
+            .map(|link| (link.raw.as_str(), link.source_context.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "https://example.org/in-root-paragraph",
+                ParsedLinkSourceContext::Normal,
+            ),
+            (
+                "https://example.org/in-heading",
+                ParsedLinkSourceContext::Heading,
+            ),
+            (
+                "https://example.org/in-paragraph",
+                ParsedLinkSourceContext::Normal,
+            ),
+            (
+                "https://example.org/in-verse",
+                ParsedLinkSourceContext::VerseBlock,
+            ),
+            (
+                "https://example.org/in-quote",
+                ParsedLinkSourceContext::QuoteBlock,
+            ),
+            (
+                "https://example.org/in-center",
+                ParsedLinkSourceContext::CenterBlock,
+            ),
+            (
+                "https://example.org/in-justify",
+                ParsedLinkSourceContext::JustifyBlock,
+            ),
+            (
+                "https://example.org/in-property-drawer",
+                ParsedLinkSourceContext::PropertyDrawer,
+            ),
+            (
+                "https://example.org/in-drawer",
+                ParsedLinkSourceContext::Drawer,
+            ),
+        ]
+    );
 }
 
 #[test]

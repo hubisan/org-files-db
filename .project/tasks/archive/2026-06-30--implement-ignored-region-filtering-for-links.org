@@ -1,0 +1,112 @@
+#+TITLE: Implement ignored-region filtering for links
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-06-30 Tue 22:45]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+User asked to implement the approved ignored-region filtering and ~source_context~ plan for links, keeping the scanner project-owned and using Orgize as the structural source for ignored byte ranges and allowed context spans.
+
+Copied task entry from ~todo.org~:
+
+#+begin_quote
+** BUILD [#B] Implement ignored-region filtering for links
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+#+end_quote
+
+* Planning
+
+** Problem summary
+
+Links are currently scanned from raw text without structural ignored-region filtering, and indexed links are hard-wired to ~normal~ source context.
+
+** Goals
+
+- Suppress link extraction inside ignored Org regions.
+- Annotate extracted links with explicit parser-owned ~source_context~.
+- Preserve the existing DB schema and rebuild flow.
+
+** Non-goals
+
+- No DB schema change.
+- No target resolution.
+- No bracket, angle, or plain-link semantic rewrite beyond ignored-region handling.
+
+** Architecture
+
+- Keep ~LinkScanContext~ scanner-side and limited to ignored byte ranges.
+- Use Orgize in the adapter to collect ignored ranges and allowed context spans.
+- Annotate parsed links after scanning via byte-position lookup.
+
+** Execution plan
+
+- Extend ~ParsedLink~ with a source-context enum and DB-string conversion.
+- Collect ignored ranges and context spans from Orgize structure.
+- Scan with ignored ranges, then annotate links with resolved source context.
+- Update indexer/tests/manual fixtures/task notes.
+
+** Risks & assumptions
+
+- Inline source/export are ignored only where Orgize exposes reliable structure.
+- ~JUSTIFY~ is the only special block mapped to ~justify_block~.
+- Heading context applies only to the headline title line.
+
+** Open questions
+
+- None at implementation start.
+
+** Proposed checks
+
+- ~cargo fmt --all~
+- Focused parser, adapter, and indexer tests for ignored links and ~source_context~
+- ~make ci~
+
+* Results
+
+** Approach
+
+Implemented the plan by keeping the scanner limited to ignored byte ranges, deriving structural ignore/context spans from Orgize, annotating links in the adapter, and wiring the indexed ~source_context~ through from parsed links.
+
+** Changed files
+
+- ~src/parser/model.rs~
+- ~src/parser.rs~
+- ~src/parser/link_scanner.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~tests/parser_contract.rs~
+- ~tests/orgize_adapter.rs~
+- ~.project/manual-tests/files/plain-links.org~
+- ~.project/manual-tests/files/links-ignored-regions.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-06-30--implement-ignored-region-filtering-for-links.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test --test parser_contract parsed_link_serializes_with_storage_ready_field_names~
+- ~cargo test --test orgize_adapter orgize_adapter_collects_project_owned_links_including_plain_file_splits~
+- ~cargo test --test orgize_adapter orgize_adapter_ignores_links_in_ignored_regions_and_marks_source_contexts~
+- ~cargo test --lib rebuild_ignores_links_in_ignored_regions_and_persists_source_contexts~
+- ~make ci~
+
+** Test results
+
+- All listed focused checks passed.
+- ~make ci~ passed, including ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test --all-targets --all-features~, and ~cargo build --all-targets --all-features~.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- No additional deferred behavior was needed for this task beyond the plan assumptions already recorded above.

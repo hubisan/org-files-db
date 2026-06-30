@@ -1,9 +1,10 @@
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, ops::Range, path::Path};
 
 use orgize::{
     ast::{
-        DelayType, Document as OrgDocument, Headline, Keyword, Link, NodeProperty, PropertyDrawer,
-        RepeaterType, Section, TimeUnit, Timestamp,
+        CenterBlock, CommentBlock, DelayType, Document as OrgDocument, Drawer, ExampleBlock,
+        ExportBlock, Headline, Keyword, Link, NodeProperty, PropertyDrawer, QuoteBlock,
+        RepeaterType, Section, SourceBlock, SpecialBlock, TimeUnit, Timestamp, VerseBlock,
     },
     rowan::{ast::AstNode, NodeOrToken},
     Org, SyntaxElement, SyntaxKind, SyntaxNode,
@@ -12,15 +13,28 @@ use orgize::{
 use super::diagnostics::ParseDiagnostic;
 use super::link_scanner::{scan_links, LinkScanContext};
 use super::model::{
-    OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedOrgDocument, ParsedProperty,
-    ParsedPropertySource, ParsedTimestamp, ParsedTimestampModifier, ParsedTimestampModifierKind,
-    ParsedTimestampModifierType, ParsedTimestampRangeType, ParsedTimestampRole,
-    ParsedTimestampType, ParsedTimestampUnit, TodoKeywordConfig, TodoType,
+    OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext,
+    ParsedOrgDocument, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
+    ParsedTimestampModifier, ParsedTimestampModifierKind, ParsedTimestampModifierType,
+    ParsedTimestampRangeType, ParsedTimestampRole, ParsedTimestampType, ParsedTimestampUnit,
+    TodoKeywordConfig, TodoType,
 };
 use crate::todo_keywords::collect_document_keywords;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OrgizeAdapter;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ContextSpan {
+    range: Range<usize>,
+    source_context: ParsedLinkSourceContext,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LinkStructuralContext {
+    ignored_byte_ranges: Vec<Range<usize>>,
+    context_spans: Vec<ContextSpan>,
+}
 
 impl OrgizeAdapter {
     pub fn new() -> Self {
@@ -66,10 +80,234 @@ impl OrgParserCore for OrgizeAdapter {
             &mut parsed.headings,
             Some(0),
         );
-        parsed.links = scan_links(content, &options.link_scanner, &LinkScanContext::default());
+        let structural_context = collect_link_structural_context(&document);
+        parsed.links = scan_links(
+            content,
+            &options.link_scanner,
+            &LinkScanContext {
+                ignored_byte_ranges: structural_context.ignored_byte_ranges,
+            },
+        );
+        annotate_links_source_context(&mut parsed.links, &structural_context.context_spans);
 
         Ok(parsed)
     }
+}
+
+fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralContext {
+    let mut ignored_byte_ranges = Vec::new();
+    let mut context_spans = Vec::new();
+
+    for node in document.syntax().descendants() {
+        match node.kind() {
+            SyntaxKind::KEYWORD
+            | SyntaxKind::COMMENT
+            | SyntaxKind::FIXED_WIDTH
+            | SyntaxKind::CODE
+            | SyntaxKind::VERBATIM
+            | SyntaxKind::INLINE_SRC
+            | SyntaxKind::SNIPPET => {
+                push_range(&mut ignored_byte_ranges, node_byte_range(&node));
+            }
+            SyntaxKind::SOURCE_BLOCK => {
+                if let Some(block) = SourceBlock::cast(node.clone()) {
+                    push_range(&mut ignored_byte_ranges, block_byte_range(&block));
+                }
+            }
+            SyntaxKind::COMMENT_BLOCK => {
+                if let Some(block) = CommentBlock::cast(node.clone()) {
+                    push_range(&mut ignored_byte_ranges, block_byte_range(&block));
+                }
+            }
+            SyntaxKind::EXAMPLE_BLOCK => {
+                if let Some(block) = ExampleBlock::cast(node.clone()) {
+                    push_range(&mut ignored_byte_ranges, block_byte_range(&block));
+                }
+            }
+            SyntaxKind::EXPORT_BLOCK => {
+                if let Some(block) = ExportBlock::cast(node.clone()) {
+                    push_range(&mut ignored_byte_ranges, block_byte_range(&block));
+                }
+            }
+            SyntaxKind::PROPERTY_DRAWER => {
+                if let Some(drawer) = PropertyDrawer::cast(node.clone()) {
+                    push_context_span(
+                        &mut context_spans,
+                        block_byte_range(&drawer),
+                        ParsedLinkSourceContext::PropertyDrawer,
+                    );
+                }
+            }
+            SyntaxKind::DRAWER => {
+                if let Some(drawer) = Drawer::cast(node.clone()) {
+                    let source_context = if drawer.name().eq_ignore_ascii_case("PROPERTIES") {
+                        ParsedLinkSourceContext::PropertyDrawer
+                    } else {
+                        ParsedLinkSourceContext::Drawer
+                    };
+                    push_context_span(
+                        &mut context_spans,
+                        range_from_bounds(
+                            drawer.content_start().into(),
+                            drawer.content_end().into(),
+                        ),
+                        source_context,
+                    );
+                }
+            }
+            SyntaxKind::VERSE_BLOCK => {
+                if let Some(block) = VerseBlock::cast(node.clone()) {
+                    push_context_span(
+                        &mut context_spans,
+                        range_from_bounds(block.content_start().into(), block.content_end().into()),
+                        ParsedLinkSourceContext::VerseBlock,
+                    );
+                }
+            }
+            SyntaxKind::QUOTE_BLOCK => {
+                if let Some(block) = QuoteBlock::cast(node.clone()) {
+                    push_context_span(
+                        &mut context_spans,
+                        range_from_bounds(block.content_start().into(), block.content_end().into()),
+                        ParsedLinkSourceContext::QuoteBlock,
+                    );
+                }
+            }
+            SyntaxKind::CENTER_BLOCK => {
+                if let Some(block) = CenterBlock::cast(node.clone()) {
+                    push_context_span(
+                        &mut context_spans,
+                        range_from_bounds(block.content_start().into(), block.content_end().into()),
+                        ParsedLinkSourceContext::CenterBlock,
+                    );
+                }
+            }
+            SyntaxKind::SPECIAL_BLOCK => {
+                if let Some(block) = SpecialBlock::cast(node.clone()) {
+                    if special_block_is_justify(&block) {
+                        push_context_span(
+                            &mut context_spans,
+                            range_from_bounds(
+                                block.content_start().into(),
+                                block.content_end().into(),
+                            ),
+                            ParsedLinkSourceContext::JustifyBlock,
+                        );
+                    }
+                }
+            }
+            SyntaxKind::HEADLINE_TITLE => {
+                push_context_span(
+                    &mut context_spans,
+                    node_byte_range(&node),
+                    ParsedLinkSourceContext::Heading,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    LinkStructuralContext {
+        ignored_byte_ranges: merge_ranges(ignored_byte_ranges),
+        context_spans,
+    }
+}
+
+fn annotate_links_source_context(links: &mut [ParsedLink], context_spans: &[ContextSpan]) {
+    for link in links {
+        link.source_context = resolve_link_source_context(link.byte_start, context_spans);
+    }
+}
+
+fn resolve_link_source_context(
+    byte_start: usize,
+    context_spans: &[ContextSpan],
+) -> ParsedLinkSourceContext {
+    const PRIORITY: [ParsedLinkSourceContext; 7] = [
+        ParsedLinkSourceContext::PropertyDrawer,
+        ParsedLinkSourceContext::Drawer,
+        ParsedLinkSourceContext::VerseBlock,
+        ParsedLinkSourceContext::QuoteBlock,
+        ParsedLinkSourceContext::CenterBlock,
+        ParsedLinkSourceContext::JustifyBlock,
+        ParsedLinkSourceContext::Heading,
+    ];
+
+    for expected in PRIORITY {
+        if context_spans
+            .iter()
+            .any(|span| span.source_context == expected && range_contains(&span.range, byte_start))
+        {
+            return expected;
+        }
+    }
+
+    ParsedLinkSourceContext::Normal
+}
+
+fn node_byte_range(node: &SyntaxNode) -> Range<usize> {
+    range_from_bounds(
+        usize::from(node.text_range().start()),
+        usize::from(node.text_range().end()),
+    )
+}
+
+fn block_byte_range<T: AstNode>(block: &T) -> Range<usize> {
+    let range = block.syntax().text_range();
+    range_from_bounds(usize::from(range.start()), usize::from(range.end()))
+}
+
+fn range_from_bounds(start: usize, end: usize) -> Range<usize> {
+    start..end
+}
+
+fn push_range(ranges: &mut Vec<Range<usize>>, range: Range<usize>) {
+    if range.start < range.end {
+        ranges.push(range);
+    }
+}
+
+fn push_context_span(
+    spans: &mut Vec<ContextSpan>,
+    range: Range<usize>,
+    source_context: ParsedLinkSourceContext,
+) {
+    if range.start < range.end {
+        spans.push(ContextSpan {
+            range,
+            source_context,
+        });
+    }
+}
+
+fn merge_ranges(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    ranges.sort_by_key(|range| (range.start, range.end));
+
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        if let Some(last) = merged.last_mut() {
+            if range.start <= last.end {
+                last.end = last.end.max(range.end);
+                continue;
+            }
+        }
+        merged.push(range);
+    }
+
+    merged
+}
+
+fn range_contains(range: &Range<usize>, offset: usize) -> bool {
+    range.start <= offset && offset < range.end
+}
+
+fn special_block_is_justify(block: &SpecialBlock) -> bool {
+    block
+        .syntax()
+        .children()
+        .find(|node| node.kind() == SyntaxKind::BLOCK_BEGIN)
+        .map(|begin| begin.to_string().trim().to_ascii_uppercase())
+        .is_some_and(|begin| begin.starts_with("#+BEGIN_JUSTIFY"))
 }
 
 fn combined_document_title(document: &OrgDocument) -> Option<String> {

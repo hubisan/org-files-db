@@ -847,7 +847,7 @@ fn link_record(
         byte_start: i64::try_from(link.byte_start).map_err(|_| "link byte_start out of range")?,
         byte_end: i64::try_from(link.byte_end).map_err(|_| "link byte_end out of range")?,
         line: i64::from(link.line),
-        source_context: "normal".to_string(),
+        source_context: link.source_context.as_db_str().to_string(),
         format: link.format.clone(),
         raw: link.raw.clone(),
         raw_target: link.raw_target.clone(),
@@ -4235,6 +4235,151 @@ index_body_text = false
                 "https://example.org/path-".to_string(),
                 "https://example.org/path".to_string(),
                 "https://example.org/path".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_ignores_links_in_ignored_regions_and_persists_source_contexts() {
+        let test_dir = TestDir::new("links-source-context");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("links.org");
+
+        write_file(
+            &org_path,
+            "\
+#+TITLE: Source Contexts
+#+PROPERTY: ignored https://example.org/in-property-keyword
+Before heading https://example.org/in-root-paragraph
+
+* Heading with https://example.org/in-heading
+Inline =https://example.org/in-code= and ~https://example.org/in-verbatim~
+src_sh{https://example.org/in-inline-src}
+@@html:https://example.org/in-inline-export@@
+
+#+BEGIN_SRC text
+https://example.org/in-source-block
+#+END_SRC
+
+#+BEGIN_EXAMPLE
+https://example.org/in-example-block
+#+END_EXAMPLE
+
+: https://example.org/in-colon-example-line
+
+#+BEGIN_COMMENT
+https://example.org/in-comment-block
+#+END_COMMENT
+
+# https://example.org/in-comment-line
+
+#+BEGIN_EXPORT HTML
+https://example.org/in-export-block
+#+END_EXPORT
+
+Paragraph https://example.org/in-paragraph
+
+#+BEGIN_VERSE
+https://example.org/in-verse
+#+END_VERSE
+
+#+BEGIN_QUOTE
+https://example.org/in-quote
+#+END_QUOTE
+
+#+BEGIN_CENTER
+https://example.org/in-center
+#+END_CENTER
+
+#+BEGIN_JUSTIFY
+https://example.org/in-justify
+#+END_JUSTIFY
+
+:PROPERTIES:
+:LINK: https://example.org/in-property-drawer
+:END:
+
+:A_DRAWER:
+https://example.org/in-drawer
+:END:
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["notes/links.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<(String, String, String)> = query_rows(
+            &connection,
+            "SELECT h.title, l.raw, l.source_context
+             FROM links l
+             JOIN headings h ON h.id = l.heading_id
+             ORDER BY l.byte_start",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "Source Contexts".to_string(),
+                    "https://example.org/in-root-paragraph".to_string(),
+                    "normal".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-heading".to_string(),
+                    "heading".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-paragraph".to_string(),
+                    "normal".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-verse".to_string(),
+                    "verse_block".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-quote".to_string(),
+                    "quote_block".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-center".to_string(),
+                    "center_block".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-justify".to_string(),
+                    "justify_block".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-property-drawer".to_string(),
+                    "property_drawer".to_string(),
+                ),
+                (
+                    "Heading with https://example.org/in-heading".to_string(),
+                    "https://example.org/in-drawer".to_string(),
+                    "drawer".to_string(),
+                ),
             ]
         );
     }

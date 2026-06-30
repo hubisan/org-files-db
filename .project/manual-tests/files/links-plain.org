@@ -214,7 +214,8 @@ These document forms that should either be ignored or treated conservatively.
 
 ** Ignored forms
 
-These should not be stored once ignored-region handling is wired into link scanning.
+These should not be stored. Ignored-region filtering should suppress them before
+link rows are emitted.
 
 Inside verbatim: ~https://example.org/verbatim~
 Inside code: =https://example.org/code=
@@ -252,7 +253,8 @@ file:in-export-block.org
 
 ** Parsed regions
 
-These should be parsed according to the Phase 3 parsed-region policy.
+These should be parsed according to the Phase 3 parsed-region policy and stored
+with the matching ~source_context~.
 
 Paragraph with https://example.org/in-paragraph.
 
@@ -267,6 +269,10 @@ https://example.org/in-quote-block
 #+BEGIN_CENTER
 https://example.org/in-center-block
 #+END_CENTER
+
+#+BEGIN_JUSTIFY
+https://example.org/in-justify-block
+#+END_JUSTIFY
 
 :PROPERTIES:
 :link_to_parse_1: https://example.org/in-property-drawer

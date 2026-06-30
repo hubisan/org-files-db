@@ -145,8 +145,38 @@ pub struct ParsedKeyword {
     pub line_number: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ParsedLinkSourceContext {
+    #[default]
+    Normal,
+    Heading,
+    PropertyDrawer,
+    Drawer,
+    VerseBlock,
+    QuoteBlock,
+    CenterBlock,
+    JustifyBlock,
+}
+
+impl ParsedLinkSourceContext {
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Heading => "heading",
+            Self::PropertyDrawer => "property_drawer",
+            Self::Drawer => "drawer",
+            Self::VerseBlock => "verse_block",
+            Self::QuoteBlock => "quote_block",
+            Self::CenterBlock => "center_block",
+            Self::JustifyBlock => "justify_block",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ParsedLink {
+    pub source_context: ParsedLinkSourceContext,
     pub format: String,
     pub raw: String,
     pub raw_target: String,

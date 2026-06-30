@@ -1,6 +1,6 @@
 use std::{collections::HashSet, ops::Range};
 
-use crate::parser::ParsedLink;
+use crate::parser::{ParsedLink, ParsedLinkSourceContext};
 
 pub const DEFAULT_PLAIN_LINK_PROTOCOLS: &[&str] = &[
     "http",
@@ -125,6 +125,7 @@ fn try_parse_bracket_link(content: &str, offset: usize, line: u32) -> Option<Par
     let (link_type, path, search_option) = classify_bracket_target(&parsed.raw_target);
 
     Some(ParsedLink {
+        source_context: ParsedLinkSourceContext::Normal,
         format: "bracket".to_string(),
         raw: content[offset..offset + 2 + parsed.byte_len].to_string(),
         raw_target: parsed.raw_target.clone(),
@@ -207,6 +208,7 @@ fn try_parse_angle_link(content: &str, offset: usize, line: u32) -> Option<Parse
     let (path, search_option) = finalize_explicit_target(&link_type, path);
 
     Some(ParsedLink {
+        source_context: ParsedLinkSourceContext::Normal,
         format: "angle".to_string(),
         raw: content[offset..byte_end].to_string(),
         raw_target: raw_target.to_string(),
@@ -264,6 +266,7 @@ fn try_parse_plain_link(
         finalize_explicit_target(&normalized, raw[protocol.len() + 1..].to_string());
 
     Some(ParsedLink {
+        source_context: ParsedLinkSourceContext::Normal,
         format: "plain".to_string(),
         raw: raw.to_string(),
         raw_target: raw.to_string(),

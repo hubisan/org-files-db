@@ -4,9 +4,9 @@
 
 Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
 
-This file only inspects rows belonging to ~angle-links.org~.
+This file only inspects rows belonging to ~links-angle.org~.
 
-* All stored links for angle-links.org
+* All stored links for links-angle.org
 
 #+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT l.id,
@@ -27,7 +27,7 @@ This file only inspects rows belonging to ~angle-links.org~.
     FROM links l
     JOIN files f ON f.id = l.file_id
     JOIN headings h ON h.id = l.heading_id
-   WHERE f.path LIKE '%/angle-links.org'
+   WHERE f.path LIKE '%/links-angle.org'
    ORDER BY l.byte_start;
 #+END_SRC
 

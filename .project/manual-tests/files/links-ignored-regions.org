@@ -1,0 +1,209 @@
+#+TITLE: Ignored Region And Source Context Link Fixture
+#+STARTUP: showall
+
+# Fixture for Phase 3 ignored-region filtering and source_context assignment.
+# Expected behavior:
+# - Links in ignored regions are not stored.
+# - Links in parsed regions are stored with the expected source_context.
+# - Link raw text, byte ranges, heading/root attachment, and Phase 4 resolution fields remain unchanged.
+# - Inline source/export are ignored only when Orgize exposes reliable INLINE_SRC / SNIPPET nodes.
+
+https://example.org/root-normal
+
+* Heading with https://example.org/in-heading-title
+
+Paragraph with https://example.org/in-normal-paragraph.
+
+** Parsed block contexts
+
+#+BEGIN_VERSE
+https://example.org/in-verse-block
+[[https://example.org/bracket-in-verse][bracket in verse]]
+<https://example.org/angle-in-verse>
+#+END_VERSE
+
+#+BEGIN_QUOTE
+https://example.org/in-quote-block
+[[https://example.org/bracket-in-quote][bracket in quote]]
+<https://example.org/angle-in-quote>
+#+END_QUOTE
+
+#+BEGIN_CENTER
+https://example.org/in-center-block
+[[https://example.org/bracket-in-center][bracket in center]]
+<https://example.org/angle-in-center>
+#+END_CENTER
+
+#+BEGIN_JUSTIFY
+https://example.org/in-justify-block
+[[https://example.org/bracket-in-justify][bracket in justify]]
+<https://example.org/angle-in-justify>
+#+END_JUSTIFY
+
+#+BEGIN_SPECIAL
+https://example.org/in-other-special-block
+[[https://example.org/bracket-in-other-special][bracket in other special]]
+#+END_SPECIAL
+
+Expected source_context:
+
+- Links in ~VERSE~ use ~verse_block~.
+- Links in ~QUOTE~ use ~quote_block~.
+- Links in ~CENTER~ use ~center_block~.
+- Links in ~JUSTIFY~ use ~justify_block~.
+- Links in other special blocks stay ~normal~ unless a later contract adds a specific context.
+
+** Drawer contexts
+
+:PROPERTIES:
+:link_to_parse_1: https://example.org/in-property-drawer
+:link_to_parse_2: [[https://example.org/bracket-in-property-drawer][property drawer bracket]]
+:link_to_parse_3: <https://example.org/angle-in-property-drawer>
+:END:
+
+:A_DRAWER:
+https://example.org/in-normal-drawer
+[[https://example.org/bracket-in-normal-drawer][normal drawer bracket]]
+<https://example.org/angle-in-normal-drawer>
+:END:
+
+Expected source_context:
+
+- Links inside ~:PROPERTIES:~ use ~property_drawer~.
+- Links inside normal drawers use ~drawer~.
+- Phase 3 does not store drawer names or property names.
+
+** Ignored inline markup
+
+These links should not be stored.
+
+Inside verbatim markup: ~https://example.org/in-verbatim-markup~
+Inside code markup: =https://example.org/in-code-markup=
+
+Mixed line with allowed link https://example.org/outside-markup and ignored ~https://example.org/verbatim-same-line~.
+Mixed line with allowed link https://example.org/outside-code and ignored =https://example.org/code-same-line=.
+
+** Ignored inline source and export
+
+These links should not be stored when Orgize exposes reliable inline nodes.
+
+Inline source form: src_elisp{https://example.org/in-inline-source}
+Inline source with bracket: src_elisp{[[https://example.org/bracket-in-inline-source][ignored]]}
+Inline export form: @@html:https://example.org/in-inline-export@@
+Inline export with bracket text: @@html:[[https://example.org/bracket-in-inline-export][ignored]]@@
+
+A normal link on the same section should still be stored: https://example.org/after-inline-forms
+
+** Ignored block regions
+
+Links in source blocks should not be stored.
+
+#+BEGIN_SRC sh
+https://example.org/in-source-block
+[[https://example.org/bracket-in-source][ignored]]
+<https://example.org/angle-in-source>
+file:in-source-block.org
+#+END_SRC
+
+Links in example blocks should not be stored.
+
+#+BEGIN_EXAMPLE
+https://example.org/in-example-block
+[[https://example.org/bracket-in-example][ignored]]
+<https://example.org/angle-in-example>
+file:in-example-block.org
+#+END_EXAMPLE
+
+Links in export blocks should not be stored.
+
+#+BEGIN_EXPORT HTML
+https://example.org/in-export-block
+[[https://example.org/bracket-in-export][ignored]]
+<https://example.org/angle-in-export>
+file:in-export-block.org
+#+END_EXPORT
+
+Links in comment blocks should not be stored.
+
+#+BEGIN_COMMENT
+https://example.org/in-comment-block
+[[https://example.org/bracket-in-comment-block][ignored]]
+<https://example.org/angle-in-comment-block>
+file:in-comment-block.org
+#+END_COMMENT
+
+** Ignored fixed-width and comment lines
+
+Colon example lines should not be stored.
+
+: https://example.org/in-colon-example-line
+: [[https://example.org/bracket-in-colon-example][ignored]]
+: <https://example.org/angle-in-colon-example>
+: file:colon-example-line.org
+
+Comment lines should not be stored.
+
+# https://example.org/in-comment-line
+# [[https://example.org/bracket-in-comment-line][ignored]]
+# <https://example.org/angle-in-comment-line>
+# file:comment-line.org
+
+A normal paragraph link after comments should still be stored: https://example.org/after-comment-lines
+
+** Ignored file-level keywords
+
+Links in file-level keywords should not be stored.
+
+#+TITLE: https://example.org/in-title-keyword
+#+AUTHOR: https://example.org/in-author-keyword
+#+PROPERTY: link_to_ignore https://example.org/in-property-keyword
+#+PROPERTY: bracket_to_ignore [[https://example.org/bracket-in-property-keyword][ignored]]
+#+PROPERTY: angle_to_ignore <https://example.org/angle-in-property-keyword>
+
+A normal paragraph link after keywords should still be stored: https://example.org/after-keywords
+
+** Overlap and precedence guard cases
+
+Ignored inline markup should win over normal paragraph context.
+
+Normal before markup https://example.org/before-verbatim then ~https://example.org/ignored-verbatim-overlap~ and after markup https://example.org/after-verbatim.
+
+Property drawer context should apply only to accepted links, not ignored markup inside the drawer.
+
+:PROPERTIES:
+:normal_property_link: https://example.org/property-drawer-context-link
+:ignored_property_code: =https://example.org/ignored-code-inside-property-drawer=
+:END:
+
+Normal drawer context should apply only to accepted links, not ignored markup inside the drawer.
+
+:ANOTHER_DRAWER:
+https://example.org/drawer-context-link
+~https://example.org/ignored-verbatim-inside-drawer~
+:END:
+
+** Search options and contexts should remain independent
+
+These links should be stored with their usual path/search_option behavior and the surrounding source_context.
+
+Paragraph file link: file:./ignored-regions.org::10
+
+#+BEGIN_QUOTE
+file:./ignored-regions.org::*Quoted Target
+#+END_QUOTE
+
+:PROPERTIES:
+:file_property_link: file:./ignored-regions.org::#property-target
+:END:
+
+#+BEGIN_SRC sh
+file:./ignored-regions.org::ignored-source-search-option
+#+END_SRC
+
+Expected:
+
+- Paragraph file link uses ~source_context = normal~.
+- Quote file link uses ~source_context = quote_block~.
+- Property drawer file link uses ~source_context = property_drawer~.
+- Source block file link is ignored.
+- Search-option splitting remains unchanged.

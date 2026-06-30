@@ -4,9 +4,9 @@
 
 Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
 
-This file only inspects rows belonging to ~bracket-links--weird-ones.org~.
+This file only inspects rows belonging to ~links-bracket--weird-ones.org~.
 
-* All stored links for bracket-links--weird-ones.org
+* All stored links for links-bracket--weird-ones.org
 
 #+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
   SELECT l.id,
@@ -27,7 +27,7 @@ This file only inspects rows belonging to ~bracket-links--weird-ones.org~.
     FROM links l
     JOIN files f ON f.id = l.file_id
     JOIN headings h ON h.id = l.heading_id
-   WHERE f.path LIKE '%/bracket-links--weird-ones.org'
+   WHERE f.path LIKE '%/links-bracket--weird-ones.org'
    ORDER BY l.byte_start;
 #+END_SRC
 
@@ -1027,7 +1027,7 @@ These should attach to the synthetic/root heading.
     FROM links l
     JOIN files f ON f.id = l.file_id
     JOIN headings h ON h.id = l.heading_id
-   WHERE f.path LIKE '%/bracket-links--weird-ones.org'
+   WHERE f.path LIKE '%/links-bracket--weird-ones.org'
      AND h.level = 0
    ORDER BY l.byte_start;
 #+END_SRC
@@ -1050,7 +1050,7 @@ This should return no rows for the current bracket-link storage task.
          l.path
     FROM links l
     JOIN files f ON f.id = l.file_id
-   WHERE f.path LIKE '%/bracket-links--weird-ones.org'
+   WHERE f.path LIKE '%/links-bracket--weird-ones.org'
      AND l.format <> 'bracket'
    ORDER BY l.byte_start;
 #+END_SRC
@@ -1067,7 +1067,7 @@ This should return no rows for the current bracket-link storage task.
          l.search_option
     FROM links l
     JOIN files f ON f.id = l.file_id
-   WHERE f.path LIKE '%/bracket-links--weird-ones.org'
+   WHERE f.path LIKE '%/links-bracket--weird-ones.org'
      AND l.raw = '[[notes.org]]';
 #+END_SRC
 
@@ -1086,7 +1086,7 @@ This should return no rows for the current bracket-link storage task.
          l.search_option
     FROM links l
     JOIN files f ON f.id = l.file_id
-   WHERE f.path LIKE '%/bracket-links--weird-ones.org'
+   WHERE f.path LIKE '%/links-bracket--weird-ones.org'
      AND l.search_option IS NOT NULL
    ORDER BY l.byte_start;
 #+END_SRC
@@ -1122,7 +1122,7 @@ raw                                                         raw_target          
          l.search_option
     FROM links l
     JOIN files f ON f.id = l.file_id
-   WHERE f.path LIKE '%/bracket-links--weird-ones.org'
+   WHERE f.path LIKE '%/links-bracket--weird-ones.org'
      AND l.link_type IN ('unknown', 'customlink', 'doi', 'irc', 'shell', 'elisp')
    ORDER BY l.byte_start;
 #+END_SRC
