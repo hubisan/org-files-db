@@ -4,170 +4,143 @@
 
 | id |                                                 path                                                 |      mtime_ns       | size | content_hash | indexed_at |
 |----|------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/angle-links.org               | 1782831514259839578 | 2491 |              | 1782852793 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links--weird-ones.org | 1782827941687352485 | 1591 |              | 1782852793 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/bracket-links.org             | 1782811598000160725 | 3503 |              | 1782852793 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org  | 1782810515620385647 | 1188 |              | 1782852793 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                  | 1782237960833303823 | 2276 |              | 1782852793 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-ignored-regions.org     | 1782852173083933896 | 6844 |              | 1782852793 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-plain.org               | 1782852135861236633 | 7646 |              | 1782852793 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org    | 1781809982908544855 | 321  |              | 1782852793 |
-| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org            | 1782129087807207205 | 1163 |              | 1782852793 |
-| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org                | 1782218329407221851 | 2783 |              | 1782852793 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org  | 1782810515620385647 | 1188 |              | 1782899589 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org                  | 1782237960833303823 | 2276 |              | 1782899589 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-angle.org               | 1782831514259839578 | 2491 |              | 1782899589 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-bracket--weird-ones.org | 1782827941687352485 | 1591 |              | 1782899589 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-bracket.org             | 1782811598000160725 | 3503 |              | 1782899589 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-ignored-regions.org     | 1782852173083933896 | 6844 |              | 1782899589 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/links-plain.org               | 1782852135861236633 | 7646 |              | 1782899589 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org    | 1781809982908544855 | 321  |              | 1782899589 |
+| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org            | 1782129087807207205 | 1163 |              | 1782899589 |
+| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org                | 1782218329407221851 | 2783 |              | 1782899589 |
 
 ## heading_bodies
 
-| heading_id |                                  body_text                                   | body_byte_start | body_byte_end |
-|------------|------------------------------------------------------------------------------|-----------------|---------------|
-| 1          | # Angle links before the first real heading should attach to synthetic root. | 48              | 256           |
-|            | <FILE:root-angle.org::42>                                                    |                 |               |
-|            | <root:target with spaces>                                                    |                 |               |
-|            | [[root:target with spaces]]                                                  |                 |               |
-|            | https://example.org/root-plain-should-not-be-stored                          |                 |               |
-| 3          | - <https://example.com/some path with spaces>                                | 307             | 445           |
-|            | - <https://example.org/ spaces >                                             |                 |               |
-|            | - <info:org#External Link>                                                   |                 |               |
-|            | - <mailto:emacs-orgmode@gnu.org>                                             |                 |               |
-| 4          | - <file:~/code/main.c::255>                                                  | 492             | 662           |
-|            | - <file:~/xx.org::*My Target>                                                |                 |               |
-|            | - <file:~/xx.org::#my-custom-id>                                             |                 |               |
-|            | - <file:~/xx.org::/regexp/>                                                  |                 |               |
-|            | - <file:::find me>                                                           |                 |               |
-|            | - <file:::*Current File Heading>                                             |                 |               |
-| 5          | - <file+sys:~/code/main.c::255>                                              | 712             | 850           |
-|            | - <file+sys:~/xx.org::*My Target>                                            |                 |               |
-|            | - <file+emacs:~/code/main.c::255>                                            |                 |               |
-|            | - <file+emacs:~/xx.org::#my-custom-id>                                       |                 |               |
-| 6          | - <unknown:foo>                                                              | 894             | 994           |
-|            | - <jira:ABC-123>                                                             |                 |               |
-|            | - <customlink:test>                                                          |                 |               |
-|            | - <doi:10.1000/182>                                                          |                 |               |
-|            | - <irc:/irc.com/#emacs/bob>                                                  |                 |               |
-| 7          | These must be stored as raw source facts only. They must not be executed.    | 1024            | 1160          |
-|            |                                                                              |                 |               |
-|            | - <shell:ls *.org>                                                           |                 |               |
-|            | - <elisp:(find-file "~/.emacs.d/init.el")>                                   |                 |               |
-| 8          | These should keep the full path and should not split ~::~ in Phase 3.        | 1208            | 1443          |
-|            |                                                                              |                 |               |
-|            | - <id:16ccfc6a-11ba-499f-8bc6-41be30daa3c5::10>                              |                 |               |
-|            | - <attachment:projects.org::10>                                              |                 |               |
-|            | - <docview:papers/last.pdf::12>                                              |                 |               |
-|            | - <unknown:file.org::10>                                                     |                 |               |
-|            | - <customlink:file.org::10>                                                  |                 |               |
-| 9          | Results in an angled link as brackets are escaped:                           | 1456            | 1677          |
-|            | [[<https://www.gnu.org>\][Test]]                                             |                 |               |
-|            |                                                                              |                 |               |
-|            | Or with a new line                                                           |                 |               |
-|            | [[<https://www.gnu.org>]                                                     |                 |               |
-|            | [Test]]                                                                      |                 |               |
-|            |                                                                              |                 |               |
-|            | But this should be a bracket link:                                           |                 |               |
-|            | [[<https://www.gnu.org>][<https://www.gnu.org>]]                             |                 |               |
-| 10         | These should not be stored as angle links.                                   | 1708            | 2042          |
-|            |                                                                              |                 |               |
-|            | - <https://example.com                                                       |                 |               |
-|            | - <unknown:unterminated                                                      |                 |               |
-|            | - <file:~/broken.org::10                                                     |                 |               |
-|            |                                                                              |                 |               |
-|            | This multiline candidate should also be ignored:                             |                 |               |
-|            |                                                                              |                 |               |
-|            | <https://example.org                                                         |                 |               |
-|            |   path with newline>                                                         |                 |               |
-|            |                                                                              |                 |               |
-|            | Garbage before a later valid angle link:                                     |                 |               |
-|            | <broken                                                                      |                 |               |
-|            | <https://example.org/later-valid>                                            |                 |               |
-|            | <broken <https://example.org/later-valid>                                    |                 |               |
-| 11         | These should remain out of scope until plain-link storage is implemented.    | 2084            | 2244          |
-|            |                                                                              |                 |               |
-|            | - https://example.org/plain                                                  |                 |               |
-|            | - file:~/code/main.c::255                                                    |                 |               |
-|            | - shell:ls *.org                                                             |                 |               |
-|            | - jira:ABC-123                                                               |                 |               |
+| heading_id |                                                                                           body_text                                                                                           | body_byte_start | body_byte_end |
+|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|---------------|
+| 1          | See [[file:../../notes/org-semantics/file-local-todo-keywords.org]]                                                                                                                           | 164             | 231           |
+| 2          | Default TODO is not valid because file-local TODO lines override defaults.                                                                                                                    | 278             | 352           |
+| 3          | Default DONE is not valid because file-local TODO lines override defaults.                                                                                                                    | 403             | 477           |
+| 20         | This heading has body text before later keywords.                                                                                                                                             | 163             | 212           |
+| 21         | This child should not directly receive keyword rows.                                                                                                                                          | 471             | 523           |
+| 22         | This heading appears after later keywords.                                                                                                                                                    | 626             | 668           |
+| 23         | This line mentions #+TITLE: Inline Mention but should only become a keyword row if Orgize exposes it as a keyword node.                                                                       | 836             | 1262          |
+|            | This line mentions #+PROPERTY: inline_prop invalid in prose.                                                                                                                                  |                 |               |
+|            |                                                                                                                                                                                               |                 |               |
+|            | #+BEGIN_EXAMPLE                                                                                                                                                                               |                 |               |
+|            | #+TITLE: Example Block Title                                                                                                                                                                  |                 |               |
+|            | #+PROPERTY: example_prop invalid                                                                                                                                                              |                 |               |
+|            | #+CATEGORY: example-category                                                                                                                                                                  |                 |               |
+|            | #+END_EXAMPLE                                                                                                                                                                                 |                 |               |
+|            |                                                                                                                                                                                               |                 |               |
+|            | #+begin_src org                                                                                                                                                                               |                 |               |
+|            |   ,#+TITLE: Source Block Title                                                                                                                                                                |                 |               |
+|            |   ,#+PROPERTY: source_prop invalid                                                                                                                                                            |                 |               |
+|            |   ,#+CATEGORY: source-category                                                                                                                                                                |                 |               |
+|            | #+end_src                                                                                                                                                                                     |                 |               |
+| 24         | - All real keyword nodes exposed by Orgize are stored as raw ~keywords~ rows attached to the level 0 heading.                                                                                 | 1285            | 2275          |
+|            | - Keyword rows are not attached to regular headings.                                                                                                                                          |                 |               |
+|            | - Duplicate keyword rows are preserved.                                                                                                                                                       |                 |               |
+|            | - Source order is preserved with ~line_number~ and/or insertion order.                                                                                                                        |                 |               |
+|            | - Generic keywords such as ~TITLE~, ~AUTHOR~, ~STARTUP~, ~OPTIONS~, and ~EXPORT_FILE_NAME~ remain raw keyword rows only.                                                                      |                 |               |
+|            | - ~TODO~, ~SEQ_TODO~, and ~TYP_TODO~ may additionally create normalized ~todo_keywords~ rows if that normalization is in scope.                                                               |                 |               |
+|            | - ~PROPERTY~ rows may additionally create normalized ~properties~ rows with ~source = property_keyword~ if that normalization is in scope.                                                    |                 |               |
+|            | - ~CATEGORY~ rows may additionally create normalized ~properties~ rows with ~source = category_keyword~ if that normalization is in scope.                                                    |                 |               |
+|            | - Keywords inside example/source blocks must not create keyword rows unless Orgize incorrectly exposes them as keyword nodes; if that happens, document the Orgize behavior as a parser risk. |                 |               |
+| 25         | # Angle links before the first real heading should attach to synthetic root.                                                                                                                  | 48              | 256           |
+|            | <FILE:root-angle.org::42>                                                                                                                                                                     |                 |               |
+|            | <root:target with spaces>                                                                                                                                                                     |                 |               |
+|            | [[root:target with spaces]]                                                                                                                                                                   |                 |               |
+|            | https://example.org/root-plain-should-not-be-stored                                                                                                                                           |                 |               |
+| 27         | - <https://example.com/some path with spaces>                                                                                                                                                 | 307             | 445           |
+|            | - <https://example.org/ spaces >                                                                                                                                                              |                 |               |
+|            | - <info:org#External Link>                                                                                                                                                                    |                 |               |
+|            | - <mailto:emacs-orgmode@gnu.org>                                                                                                                                                              |                 |               |
 
 ## headings
 
-| id | file_id | parent_id | level | line_number | byte_start | byte_end |                    title                     |                  title_raw                   | todo_keyword | todo_type | priority | scheduled_raw | scheduled_ts | deadline_raw | deadline_ts | closed_raw | closed_ts | archivedp | footnote_section_p | all_tags_json |
-|----|---------|-----------|-------|-------------|------------|----------|----------------------------------------------|----------------------------------------------|--------------|-----------|----------|---------------|--------------|--------------|-------------|------------|-----------|-----------|--------------------|---------------|
-| 1  | 1       |           | 0     | 1           | -1         | 2491     | Angle Link Fixture                           | Angle Link Fixture                           |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 2  | 1       | 1         | 1     | 10          | 258        | 2246     | Angle links                                  | Angle links                                  |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 3  | 1       | 2         | 2     | 13          | 274        | 447      | Basic angle links with spaces                | Basic angle links with spaces                |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 4  | 1       | 2         | 2     | 19          | 447        | 664      | File-like angle links with search options    | File-like angle links with search options    |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 5  | 1       | 2         | 2     | 27          | 664        | 852      | File variant angle links with search options | File variant angle links with search options |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 6  | 1       | 2         | 2     | 33          | 852        | 996      | Unknown and custom-looking angle links       | Unknown and custom-looking angle links       |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 7  | 1       | 2         | 2     | 40          | 996        | 1162     | Action-like angle links                      | Action-like angle links                      |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 8  | 1       | 2         | 2     | 47          | 1162       | 1445     | Non-file-like search-option-looking paths    | Non-file-like search-option-looking paths    |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 9  | 1       | 2         | 2     | 57          | 1445       | 1679     | Special                                      | Special                                      |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 10 | 1       | 2         | 2     | 68          | 1679       | 2044     | Invalid angle candidates                     | Invalid angle candidates                     |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| id | file_id | parent_id | level | line_number | byte_start | byte_end |                     title                      |                   title_raw                    | todo_keyword | todo_type | priority | scheduled_raw | scheduled_ts | deadline_raw | deadline_ts | closed_raw | closed_ts | archivedp | footnote_section_p | all_tags_json |
+|----|---------|-----------|-------|-------------|------------|----------|------------------------------------------------|------------------------------------------------|--------------|-----------|----------|---------------|--------------|--------------|-------------|------------|-----------|-----------|--------------------|---------------|
+| 1  | 1       |           | 0     | 1           | -1         | 1188     | File-local TODO keywords                       | File-local TODO keywords                       |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 2  | 1       | 1         | 1     | 10          | 234        | 354      | TODO default keyword should stay in title      | TODO default keyword should stay in title      |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 3  | 1       | 1         | 1     | 13          | 354        | 479      | DONE default done keyword should stay in title | DONE default done keyword should stay in title |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 4  | 1       | 1         | 1     | 16          | 479        | 512      | open keyword with fast key                     | open keyword with fast key                     | one          | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 5  | 1       | 1         | 1     | 17          | 512        | 553      | another open keyword with fast key             | another open keyword with fast key             | two          | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 6  | 1       | 1         | 1     | 18          | 553        | 590      | closed keyword with fast key                   | closed keyword with fast key                   | three        | closed    |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 7  | 1       | 1         | 1     | 19          | 590        | 636      | closed keyword with extended fast key          | closed keyword with extended fast key          | four         | closed    |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 8  | 1       | 1         | 1     | 21          | 636        | 682      | open keyword from empty-done-side line         | open keyword from empty-done-side line         | FIVE         | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 9  | 1       | 1         | 1     | 22          | 682        | 736      | another open keyword from empty-done-side line | another open keyword from empty-done-side line | SIX          | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 10 | 1       | 1         | 1     | 24          | 736        | 771      | open keyword from TYP_TODO                     | open keyword from TYP_TODO                     | seven        | open      |          |               |              |              |             |            |           | 0         | 0                  | []            |
 
 ## keywords
 
-| id | heading_id | keyword |               value               | line_number |
-|----|------------|---------|-----------------------------------|-------------|
-| 1  | 1          | TITLE   | Angle Link Fixture                | 1           |
-| 2  | 1          | STARTUP | content                           | 2           |
-| 3  | 14         | TITLE   | Bracket Link Fixture              | 1           |
-| 4  | 14         | STARTUP | content                           | 2           |
-| 5  | 15         | TITLE   | Bracket Link Fixture              | 1           |
-| 6  | 15         | STARTUP | content                           | 2           |
-| 7  | 33         | TITLE   | File-local TODO keywords          | 1           |
-| 8  | 33         | STARTUP | showall                           | 2           |
-| 9  | 33         | TODO    | one(t) two(n) | three(d) four(w@) | 3           |
-| 10 | 33         | TODO    | FIVE SIX |                        | 4           |
+| id | heading_id | keyword  |               value               | line_number |
+|----|------------|----------|-----------------------------------|-------------|
+| 1  | 1          | TITLE    | File-local TODO keywords          | 1           |
+| 2  | 1          | STARTUP  | showall                           | 2           |
+| 3  | 1          | TODO     | one(t) two(n) | three(d) four(w@) | 3           |
+| 4  | 1          | TODO     | FIVE SIX |                        | 4           |
+| 5  | 1          | TYP_TODO | seven | eight                     | 5           |
+| 6  | 1          | SEQ_TODO | nine | ten                        | 6           |
+| 7  | 1          | TODO     | | eleven(c)                       | 30          |
+| 8  | 1          | TODO     | late_open | late_done             | 34          |
+| 9  | 19         | TITLE    | Keyword Parsing Fixture           | 1           |
+| 10 | 19         | STARTUP  | showall                           | 2           |
 
 ## links
 
-| id | file_id | heading_id | byte_start | byte_end | line | source_context | format  |                         raw                         |                     raw_target                      | raw_description | link_type |                     path                      | search_option | path_absolute | target_file_id | target_heading_id | target_custom_id | target_id |
-|----|---------|------------|------------|----------|------|----------------|---------|-----------------------------------------------------|-----------------------------------------------------|-----------------|-----------|-----------------------------------------------|---------------|---------------|----------------|-------------------|------------------|-----------|
-| 1  | 1       | 1          | 125        | 150      | 5    | normal         | angle   | <FILE:root-angle.org::42>                           | FILE:root-angle.org::42                             |                 | file      | root-angle.org                                | 42            |               |                |                   |                  |           |
-| 2  | 1       | 1          | 151        | 176      | 6    | normal         | angle   | <root:target with spaces>                           | root:target with spaces                             |                 | root      | target with spaces                            |               |               |                |                   |                  |           |
-| 3  | 1       | 1          | 177        | 204      | 7    | normal         | bracket | [[root:target with spaces]]                         | root:target with spaces                             |                 | root      | target with spaces                            |               |               |                |                   |                  |           |
-| 4  | 1       | 1          | 205        | 256      | 8    | normal         | plain   | https://example.org/root-plain-should-not-be-stored | https://example.org/root-plain-should-not-be-stored |                 | https     | //example.org/root-plain-should-not-be-stored |               |               |                |                   |                  |           |
-| 5  | 1       | 3          | 309        | 352      | 14   | normal         | angle   | <https://example.com/some path with spaces>         | https://example.com/some path with spaces           |                 | https     | //example.com/some path with spaces           |               |               |                |                   |                  |           |
-| 6  | 1       | 3          | 355        | 385      | 15   | normal         | angle   | <https://example.org/ spaces >                      | https://example.org/ spaces                         |                 | https     | //example.org/ spaces                         |               |               |                |                   |                  |           |
-| 7  | 1       | 3          | 388        | 412      | 16   | normal         | angle   | <info:org#External Link>                            | info:org#External Link                              |                 | info      | org#External Link                             |               |               |                |                   |                  |           |
-| 8  | 1       | 3          | 415        | 445      | 17   | normal         | angle   | <mailto:emacs-orgmode@gnu.org>                      | mailto:emacs-orgmode@gnu.org                        |                 | mailto    | emacs-orgmode@gnu.org                         |               |               |                |                   |                  |           |
-| 9  | 1       | 4          | 494        | 519      | 20   | normal         | angle   | <file:~/code/main.c::255>                           | file:~/code/main.c::255                             |                 | file      | ~/code/main.c                                 | 255           |               |                |                   |                  |           |
-| 10 | 1       | 4          | 522        | 549      | 21   | normal         | angle   | <file:~/xx.org::*My Target>                         | file:~/xx.org::*My Target                           |                 | file      | ~/xx.org                                      | *My Target    |               |                |                   |                  |           |
+| id | file_id | heading_id | byte_start | byte_end | line | source_context | format  |                               raw                               |                         raw_target                          | raw_description | link_type |                          path                          | search_option | path_absolute | target_file_id | target_heading_id | target_custom_id | target_id |
+|----|---------|------------|------------|----------|------|----------------|---------|-----------------------------------------------------------------|-------------------------------------------------------------|-----------------|-----------|--------------------------------------------------------|---------------|---------------|----------------|-------------------|------------------|-----------|
+| 1  | 1       | 1          | 168        | 231      | 8    | normal         | bracket | [[file:../../notes/org-semantics/file-local-todo-keywords.org]] | file:../../notes/org-semantics/file-local-todo-keywords.org |                 | file      | ../../notes/org-semantics/file-local-todo-keywords.org |               |               |                |                   |                  |           |
+| 2  | 3       | 25         | 125        | 150      | 5    | normal         | angle   | <FILE:root-angle.org::42>                                       | FILE:root-angle.org::42                                     |                 | file      | root-angle.org                                         | 42            |               |                |                   |                  |           |
+| 3  | 3       | 25         | 151        | 176      | 6    | normal         | angle   | <root:target with spaces>                                       | root:target with spaces                                     |                 | root      | target with spaces                                     |               |               |                |                   |                  |           |
+| 4  | 3       | 25         | 177        | 204      | 7    | normal         | bracket | [[root:target with spaces]]                                     | root:target with spaces                                     |                 | root      | target with spaces                                     |               |               |                |                   |                  |           |
+| 5  | 3       | 25         | 205        | 256      | 8    | normal         | plain   | https://example.org/root-plain-should-not-be-stored             | https://example.org/root-plain-should-not-be-stored         |                 | https     | //example.org/root-plain-should-not-be-stored          |               |               |                |                   |                  |           |
+| 6  | 3       | 27         | 309        | 352      | 14   | normal         | angle   | <https://example.com/some path with spaces>                     | https://example.com/some path with spaces                   |                 | https     | //example.com/some path with spaces                    |               |               |                |                   |                  |           |
+| 7  | 3       | 27         | 355        | 385      | 15   | normal         | angle   | <https://example.org/ spaces >                                  | https://example.org/ spaces                                 |                 | https     | //example.org/ spaces                                  |               |               |                |                   |                  |           |
+| 8  | 3       | 27         | 388        | 412      | 16   | normal         | angle   | <info:org#External Link>                                        | info:org#External Link                                      |                 | info      | org#External Link                                      |               |               |                |                   |                  |           |
+| 9  | 3       | 27         | 415        | 445      | 17   | normal         | angle   | <mailto:emacs-orgmode@gnu.org>                                  | mailto:emacs-orgmode@gnu.org                                |                 | mailto    | emacs-orgmode@gnu.org                                  |               |               |                |                   |                  |           |
+| 10 | 3       | 28         | 494        | 519      | 20   | normal         | angle   | <file:~/code/main.c::255>                                       | file:~/code/main.c::255                                     |                 | file      | ~/code/main.c                                          | 255           |               |                |                   |                  |           |
 
 ## outline_path
 
-| heading_id | file_id | parent_id | depth | materialized_path |                                  breadcrumbs_json                                   |
-|------------|---------|-----------|-------|-------------------|-------------------------------------------------------------------------------------|
-| 1          | 1       |           | 0     | 0000              | ["Angle Link Fixture"]                                                              |
-| 2          | 1       | 1         | 1     | 0000.0001         | ["Angle Link Fixture","Angle links"]                                                |
-| 3          | 1       | 2         | 2     | 0000.0001.0001    | ["Angle Link Fixture","Angle links","Basic angle links with spaces"]                |
-| 4          | 1       | 2         | 2     | 0000.0001.0002    | ["Angle Link Fixture","Angle links","File-like angle links with search options"]    |
-| 5          | 1       | 2         | 2     | 0000.0001.0003    | ["Angle Link Fixture","Angle links","File variant angle links with search options"] |
-| 6          | 1       | 2         | 2     | 0000.0001.0004    | ["Angle Link Fixture","Angle links","Unknown and custom-looking angle links"]       |
-| 7          | 1       | 2         | 2     | 0000.0001.0005    | ["Angle Link Fixture","Angle links","Action-like angle links"]                      |
-| 8          | 1       | 2         | 2     | 0000.0001.0006    | ["Angle Link Fixture","Angle links","Non-file-like search-option-looking paths"]    |
-| 9          | 1       | 2         | 2     | 0000.0001.0007    | ["Angle Link Fixture","Angle links","Special"]                                      |
-| 10         | 1       | 2         | 2     | 0000.0001.0008    | ["Angle Link Fixture","Angle links","Invalid angle candidates"]                     |
+| heading_id | file_id | parent_id | depth | materialized_path |                               breadcrumbs_json                                |
+|------------|---------|-----------|-------|-------------------|-------------------------------------------------------------------------------|
+| 1          | 1       |           | 0     | 0000              | ["File-local TODO keywords"]                                                  |
+| 2          | 1       | 1         | 1     | 0000.0001         | ["File-local TODO keywords","TODO default keyword should stay in title"]      |
+| 3          | 1       | 1         | 1     | 0000.0002         | ["File-local TODO keywords","DONE default done keyword should stay in title"] |
+| 4          | 1       | 1         | 1     | 0000.0003         | ["File-local TODO keywords","open keyword with fast key"]                     |
+| 5          | 1       | 1         | 1     | 0000.0004         | ["File-local TODO keywords","another open keyword with fast key"]             |
+| 6          | 1       | 1         | 1     | 0000.0005         | ["File-local TODO keywords","closed keyword with fast key"]                   |
+| 7          | 1       | 1         | 1     | 0000.0006         | ["File-local TODO keywords","closed keyword with extended fast key"]          |
+| 8          | 1       | 1         | 1     | 0000.0007         | ["File-local TODO keywords","open keyword from empty-done-side line"]         |
+| 9          | 1       | 1         | 1     | 0000.0008         | ["File-local TODO keywords","another open keyword from empty-done-side line"] |
+| 10         | 1       | 1         | 1     | 0000.0009         | ["File-local TODO keywords","open keyword from TYP_TODO"]                     |
 
 ## properties
 
 | id | heading_id |      key       |                  value                  |      source      | append | line_number |
 |----|------------|----------------|-----------------------------------------|------------------|--------|-------------|
-| 1  | 16         | CUSTOM_ID      | internal-link-to-custom-id              | property_drawer  | 0      | 12          |
-| 2  | 51         | BEFORE_PROP    | before-value                            | property_keyword | 0      | 4           |
-| 3  | 51         | CATEGORY       | before-category                         | category_keyword | 0      | 5           |
-| 4  | 51         | AFTER_PROP     | after-value                             | property_keyword | 0      | 12          |
-| 5  | 51         | REPEATED_PROP  | first                                   | property_keyword | 0      | 13          |
-| 6  | 51         | REPEATED_PROP  | second                                  | property_keyword | 0      | 14          |
-| 7  | 51         | APPENDED_PROP  | base                                    | property_keyword | 0      | 15          |
-| 8  | 51         | APPENDED_PROP  | extra                                   | property_keyword | 1      | 16          |
-| 9  | 51         | CATEGORY       | after-category                          | category_keyword | 0      | 17          |
+| 1  | 19         | BEFORE_PROP    | before-value                            | property_keyword | 0      | 4           |
+| 2  | 19         | CATEGORY       | before-category                         | category_keyword | 0      | 5           |
+| 3  | 19         | AFTER_PROP     | after-value                             | property_keyword | 0      | 12          |
+| 4  | 19         | REPEATED_PROP  | first                                   | property_keyword | 0      | 13          |
+| 5  | 19         | REPEATED_PROP  | second                                  | property_keyword | 0      | 14          |
+| 6  | 19         | APPENDED_PROP  | base                                    | property_keyword | 0      | 15          |
+| 7  | 19         | APPENDED_PROP  | extra                                   | property_keyword | 1      | 16          |
+| 8  | 19         | CATEGORY       | after-category                          | category_keyword | 0      | 17          |
+| 9  | 40         | CUSTOM_ID      | internal-link-to-custom-id              | property_drawer  | 0      | 12          |
 | 10 | 57         | LINK_TO_IGNORE | https://example.org/in-property-keyword | property_keyword | 0      | 159         |
 
 ## tags
 
 | heading_id |   tag   |
 |------------|---------|
-| 13         | foo     |
-| 13         | bar     |
-| 32         | foo     |
-| 32         | bar     |
+| 37         | foo     |
+| 37         | bar     |
+| 56         | foo     |
+| 56         | bar     |
 | 86         | foo     |
 | 86         | bar     |
 | 107        | project |
@@ -207,18 +180,18 @@
 
 ## todo_keywords
 
-| file_id | keyword | state_type | shortcut | sequence_no |  source_kind   | source_keyword | source_line_number |
-|---------|---------|------------|----------|-------------|----------------|----------------|--------------------|
-| 1       | TODO    | open       |          | 0           | config_default |                |                    |
-| 1       | DONE    | closed     |          | 1           | config_default |                |                    |
-| 2       | TODO    | open       |          | 0           | config_default |                |                    |
-| 2       | DONE    | closed     |          | 1           | config_default |                |                    |
-| 3       | TODO    | open       |          | 0           | config_default |                |                    |
-| 3       | DONE    | closed     |          | 1           | config_default |                |                    |
-| 4       | one     | open       | t        | 0           | org_keyword    | TODO           | 3                  |
-| 4       | two     | open       | n        | 1           | org_keyword    | TODO           | 3                  |
-| 4       | FIVE    | open       |          | 2           | org_keyword    | TODO           | 4                  |
-| 4       | SIX     | open       |          | 3           | org_keyword    | TODO           | 4                  |
+| file_id |  keyword  | state_type | shortcut | sequence_no | source_kind | source_keyword | source_line_number |
+|---------|-----------|------------|----------|-------------|-------------|----------------|--------------------|
+| 1       | one       | open       | t        | 0           | org_keyword | TODO           | 3                  |
+| 1       | two       | open       | n        | 1           | org_keyword | TODO           | 3                  |
+| 1       | FIVE      | open       |          | 2           | org_keyword | TODO           | 4                  |
+| 1       | SIX       | open       |          | 3           | org_keyword | TODO           | 4                  |
+| 1       | seven     | open       |          | 4           | org_keyword | TYP_TODO       | 5                  |
+| 1       | nine      | open       |          | 5           | org_keyword | SEQ_TODO       | 6                  |
+| 1       | late_open | open       |          | 6           | org_keyword | TODO           | 34                 |
+| 1       | three     | closed     | d        | 7           | org_keyword | TODO           | 3                  |
+| 1       | four      | closed     | w        | 8           | org_keyword | TODO           | 3                  |
+| 1       | eight     | closed     |          | 9           | org_keyword | TYP_TODO       | 5                  |
 
 <!--
 Local Variables:

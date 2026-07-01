@@ -1,0 +1,55 @@
+#+TITLE: Implement read-only CLI JSON output for stored links
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-01 Wed 11:27]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry:
+
+#+begin_quote
+** BUILD [#B] Implement read-only CLI JSON output for stored links
+#+end_quote
+
+Chat context:
+
+- The previous task was completed and the next active BUILD task should now be implemented.
+- Scope is limited to a read-only CLI inspection command for stored Phase 3 link source facts.
+- The command contract requires ~orgfdb links --json~, deterministic ordering, root-link inclusion, and no implicit rebuild, scan, migration, or target resolution behavior.
+
+* Results
+
+** Approach
+Added a dedicated read-only links listing query in the DB reader, then exposed ~orgfdb links --json~ through the CLI using the same read-only database open path as ~headings --json~. The CLI converts stored outline breadcrumbs into the required ~heading_path~ contract by stripping the synthetic root title so level-0/root links serialize with an empty array while regular headings keep their title path.
+
+** Changed files
+- `src/cli.rs`
+- `src/db.rs`
+- `src/db/reader.rs`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-07-01--implement-read-only-cli-json-output-for-stored-links.org`
+
+** Checks performed
+- `cargo fmt --all`
+- `cargo test --lib list_links_returns_stable_rows_for_cli_json`
+- `cargo test --lib links_json_contract_includes_root_links_and_stable_ordering`
+- `cargo test --lib links_uses_configured_db_path_when_config_is_provided`
+- `cargo test --lib rebuild_and_links_json_read_stored_source_facts_without_rebuild`
+- `cargo test --lib links_json_read_only_open_does_not_create_missing_database`
+- `cargo test --lib links_json_read_only_open_rejects_future_schema_versions`
+- `make ci`
+
+** Test results
+- The new DB reader test verifies the dedicated ~list_links~ query shape, joined file/heading context, and deterministic ordering.
+- The new CLI tests verify the JSON contract, presence of ~link_type~ and ~source_context~, absence of a legacy ~type~ field, inclusion of root links with ~heading_level = 0~ and ~heading_path = []~, configured DB-path support, and read-only behavior after the source Org file changes on disk.
+- `make ci` passed.
+
+** Blockers
+None.
+
+** Follow-ups
+None.

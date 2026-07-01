@@ -901,11 +901,11 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--extract-angle-links.org]]
 
-** DONE [#B] Align default plain-link protocols with Phase 3 config contract
+** DONE Align default plain-link protocols with Phase 3 config contract
 
 [[./archive/2026-06-30--align-default-plain-link-protocols-with-phase-3-config-contract.org]]
 
-** DONE [#B] Extract plain links with configurable protocols
+** DONE Extract plain links with configurable protocols
 
 [[./archive/2026-06-30--extract-plain-links-with-configurable-protocols.org]]
 
@@ -913,7 +913,7 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--split-search-options-for-file-like-link-source-facts.org]]
 
-** DONE [#B] Implement ignored-region filtering for links
+** DONE Implement ignored-region filtering for links
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: High
@@ -923,190 +923,11 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--implement-ignored-region-filtering-for-links.org]]
 
-** BUILD [#B] Implement read-only CLI JSON output for stored links 
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE Implement read-only CLI JSON output for stored links 
 
-Depends on:
+[[./archive/2026-07-01--implement-read-only-cli-json-output-for-stored-links.org]]
 
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Create links DB table and storage functions][Create links DB table and storage functions]]
-
-Goal:
-
-- Expose stored link source facts through a minimal read-only CLI command.
-
-Command:
-
-#+begin_src shell
-orgfdb links --json
-#+end_src
-
-Scope:
-
-- Read link rows from the database only.
-- Output stored source facts only.
-- Do not scan Org files.
-- Do not rebuild files.
-- Do not resolve link targets.
-- Do not mutate the database.
-- Do not create relationship output.
-- Do not normalize descriptions.
-- Always include links attached to the synthetic root heading.
-
-Contract:
-
-- The command outputs JSON only when ~--json~ is provided.
-- Output uses ~link_type~, not ~type~.
-- Output includes ~source_context~.
-- Output includes enough source location data for editor jumps.
-- Root links are always included.
-- Root links use ~heading_level = 0~.
-- Root links use an empty ~heading_path~, following the existing heading JSON convention.
-- Output ordering is deterministic:
-  - ~file_path~
-  - ~byte_start~
-  - ~id~
-
-Minimum JSON fields:
-
-- ~file_id~
-- ~file_path~
-- ~heading_id~
-- ~heading_path~
-- ~heading_level~
-- ~source_context~
-- ~format~
-- ~link_type~
-- ~raw~
-- ~raw_target~
-- ~raw_description~
-- ~path~
-- ~search_option~
-- ~byte_start~
-- ~byte_end~
-- ~line~
-
-Optional filters may be added only if they are small and do not complicate the contract:
-
-- ~--file~
-- ~--format~
-- ~--link-type~
-
-Do not add in Phase 3:
-
-- ~--no-root~
-- resolved target fields
-- normalized ~description~
-- relationship output
-- broken-link detection
-- target existence checks
-- automatic rebuild behavior
-- automatic migration behavior
-- a legacy ~type~ output field
-
-Implementation notes:
-
-- Prefer a dedicated read-only query for listing links.
-- Join links with files and headings to provide file path and heading context.
-- Reuse the existing heading JSON convention for ~heading_path~.
-- Treat the synthetic root heading as a normal heading row.
-- Keep the command as a database inspection command, not an analysis command.
-
-Suggested query shape:
-
-#+begin_src sql
-SELECT
-  links.id,
-  links.file_id,
-  files.path AS file_path,
-  links.heading_id,
-  headings.path AS heading_path,
-  headings.level AS heading_level,
-  links.source_context,
-  links.format,
-  links.link_type,
-  links.raw,
-  links.raw_target,
-  links.raw_description,
-  links.path,
-  links.search_option,
-  links.byte_start,
-  links.byte_end,
-  links.line
-FROM links
-JOIN files ON files.id = links.file_id
-JOIN headings ON headings.id = links.heading_id
-ORDER BY
-  files.path ASC,
-  links.byte_start ASC,
-  links.id ASC;
-#+end_src
-
-Acceptance criteria:
-
-- [ ] ~orgfdb links --json~ exists.
-- [ ] JSON output contract is tested.
-- [ ] Output includes all minimum JSON fields.
-- [ ] Output includes ~link_type~.
-- [ ] Output does not expose a legacy ~type~ field.
-- [ ] Output includes ~source_context~.
-- [ ] Output includes editor-jump data: ~file_path~, ~byte_start~, ~byte_end~, and ~line~.
-- [ ] Output ordering is deterministic by ~file_path~, ~byte_start~, and ~id~.
-- [ ] Root links are included.
-- [ ] Root links use ~heading_level = 0~.
-- [ ] Root links use an empty ~heading_path~.
-- [ ] Command is read-only.
-- [ ] Command does not scan Org files.
-- [ ] Command does not rebuild files.
-- [ ] Command does not migrate unexpectedly.
-- [ ] Command does not resolve targets.
-- [ ] Command does not emit relationship output.
-
-Test cases:
-
-- JSON contract test:
-  - Create a fixture with bracket links, angle links, plain links, links with descriptions, links without descriptions, and links with search options.
-  - Run ~orgfdb links --json~.
-  - Assert that every output object contains the minimum fields.
-  - Assert that ~link_type~ exists.
-  - Assert that ~type~ does not exist.
-  - Assert that ~source_context~ exists.
-
-- Root link behavior test:
-  - Create an Org fixture with a link before the first regular heading and another link under a normal heading.
-  - Rebuild the file once.
-  - Run ~orgfdb links --json~.
-  - Assert that both links are present.
-  - Assert that the root link has ~heading_level = 0~.
-  - Assert that the root link has ~heading_path = []~.
-
-- Read-only behavior test:
-  - Build a database with stored link rows.
-  - Modify the Org file on disk after the rebuild.
-  - Run ~orgfdb links --json~.
-  - Assert that the output still reflects the stored database facts, not the modified file contents.
-  - Assert that no rebuild was triggered.
-
-- Ordering test:
-  - Create links across multiple files and byte positions.
-  - Run ~orgfdb links --json~.
-  - Assert ordering by:
-    1. ~file_path~
-    2. ~byte_start~
-    3. ~id~
-
-Suggested commit split:
-
-1. Add read-only link listing query.
-2. Expose ~orgfdb links --json~.
-3. Add JSON contract, root behavior, read-only, and ordering tests.
-
-** TODO [#B] Compare project scanner behavior against Orgize and Emacs org-element
+** TODO Compare project scanner behavior against Orgize and Emacs org-element
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium

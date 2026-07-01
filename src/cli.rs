@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use crate::{
     config::{Config, ConfigError},
-    db::{open_existing_database_read_only, DbError, DbReader, HeadingListRow},
+    db::{open_existing_database_read_only, DbError, DbReader, HeadingListRow, LinkListRow},
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
 };
@@ -42,6 +42,12 @@ enum Command {
             help = "Deprecated compatibility flag; root rows are included by default"
         )]
         include_root: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    Links {
+        #[arg(long)]
+        json: bool,
         #[arg(long)]
         config: Option<PathBuf>,
     },
@@ -86,6 +92,14 @@ where
             handle.write_all(b"\n").map_err(CliError::Io)?;
             Ok(())
         }
+        Command::Links { json, config } => {
+            let rows = links_json_rows(json, config.as_deref())?;
+            let stdout = io::stdout();
+            let mut handle = stdout.lock();
+            serde_json::to_writer_pretty(&mut handle, &rows).map_err(CliError::Json)?;
+            handle.write_all(b"\n").map_err(CliError::Io)?;
+            Ok(())
+        }
     }
 }
 
@@ -109,11 +123,20 @@ fn headings_json_rows(
     config_path: Option<&Path>,
 ) -> Result<Vec<HeadingJsonRow>, CliError> {
     if !json {
-        return Err(CliError::MissingJsonFlag);
+        return Err(CliError::MissingJsonFlag("headings"));
     }
 
-    let connection = open_headings_database(config_path)?;
+    let connection = open_cli_database(config_path)?;
     headings_rows_for_json(&connection, exclude_root)
+}
+
+fn links_json_rows(json: bool, config_path: Option<&Path>) -> Result<Vec<LinkJsonRow>, CliError> {
+    if !json {
+        return Err(CliError::MissingJsonFlag("links"));
+    }
+
+    let connection = open_cli_database(config_path)?;
+    links_rows_for_json(&connection)
 }
 
 fn headings_rows_for_json(
@@ -127,7 +150,15 @@ fn headings_rows_for_json(
     rows.into_iter().map(HeadingJsonRow::try_from).collect()
 }
 
-fn open_headings_database(config_path: Option<&std::path::Path>) -> Result<Connection, CliError> {
+fn links_rows_for_json(connection: &Connection) -> Result<Vec<LinkJsonRow>, CliError> {
+    DbReader::list_links(connection)
+        .map_err(CliError::DbRead)?
+        .into_iter()
+        .map(LinkJsonRow::try_from)
+        .collect()
+}
+
+fn open_cli_database(config_path: Option<&std::path::Path>) -> Result<Connection, CliError> {
     let db_path = if let Some(config_path) = config_path {
         Config::load_from_file(config_path)
             .map_err(CliError::Config)?
@@ -161,12 +192,16 @@ fn print_diagnostics(report: &RebuildReport) {
 #[derive(Debug)]
 enum CliError {
     Parse(clap::Error),
-    MissingJsonFlag,
+    MissingJsonFlag(&'static str),
     Config(ConfigError),
     Database(DbError),
     DbRead(crate::db::DbReadError),
     Indexer(IndexerError),
     InvalidHeadingTags {
+        heading_id: i64,
+        source: serde_json::Error,
+    },
+    InvalidHeadingPath {
         heading_id: i64,
         source: serde_json::Error,
     },
@@ -177,12 +212,13 @@ enum CliError {
 impl CliError {
     fn exit_code(&self) -> u8 {
         match self {
-            Self::Parse(_) | Self::MissingJsonFlag => 2,
+            Self::Parse(_) | Self::MissingJsonFlag(_) => 2,
             Self::Config(_)
             | Self::Database(_)
             | Self::DbRead(_)
             | Self::Indexer(_)
             | Self::InvalidHeadingTags { .. }
+            | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
         }
@@ -193,8 +229,8 @@ impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Parse(error) => write!(f, "{error}"),
-            Self::MissingJsonFlag => {
-                write!(f, "headings currently only supports --json")
+            Self::MissingJsonFlag(command) => {
+                write!(f, "{command} currently only supports --json")
             }
             Self::Config(source) => write!(f, "{source}"),
             Self::Database(source) => write!(f, "{source}"),
@@ -204,6 +240,13 @@ impl fmt::Display for CliError {
                 write!(
                     f,
                     "failed to decode heading tags for heading {}: {}",
+                    heading_id, source
+                )
+            }
+            Self::InvalidHeadingPath { heading_id, source } => {
+                write!(
+                    f,
+                    "failed to decode heading path for heading {}: {}",
                     heading_id, source
                 )
             }
@@ -217,12 +260,13 @@ impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Parse(error) => Some(error),
-            Self::MissingJsonFlag => None,
+            Self::MissingJsonFlag(_) => None,
             Self::Config(source) => Some(source),
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
             Self::Indexer(source) => Some(source),
             Self::InvalidHeadingTags { source, .. } => Some(source),
+            Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
         }
@@ -253,6 +297,26 @@ struct HeadingJsonRow {
     archivedp: bool,
     footnote_section_p: bool,
     all_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct LinkJsonRow {
+    file_id: i64,
+    file_path: String,
+    heading_id: i64,
+    heading_path: Vec<String>,
+    heading_level: i64,
+    source_context: String,
+    format: String,
+    link_type: String,
+    raw: String,
+    raw_target: String,
+    raw_description: Option<String>,
+    path: String,
+    search_option: Option<String>,
+    byte_start: i64,
+    byte_end: i64,
+    line: i64,
 }
 
 impl TryFrom<HeadingListRow> for HeadingJsonRow {
@@ -293,12 +357,55 @@ impl TryFrom<HeadingListRow> for HeadingJsonRow {
     }
 }
 
+impl TryFrom<LinkListRow> for LinkJsonRow {
+    type Error = CliError;
+
+    fn try_from(row: LinkListRow) -> Result<Self, Self::Error> {
+        let breadcrumbs: Vec<String> = serde_json::from_str(&row.heading_breadcrumbs_json)
+            .map_err(|source| CliError::InvalidHeadingPath {
+                heading_id: row.heading_id,
+                source,
+            })?;
+        let heading_path = strip_root_breadcrumb(breadcrumbs, row.heading_level);
+
+        Ok(Self {
+            file_id: row.file_id,
+            file_path: row.file_path,
+            heading_id: row.heading_id,
+            heading_path,
+            heading_level: row.heading_level,
+            source_context: row.source_context,
+            format: row.format,
+            link_type: row.link_type,
+            raw: row.raw,
+            raw_target: row.raw_target,
+            raw_description: row.raw_description,
+            path: row.path,
+            search_option: row.search_option,
+            byte_start: row.byte_start,
+            byte_end: row.byte_end,
+            line: row.line,
+        })
+    }
+}
+
+fn strip_root_breadcrumb(mut breadcrumbs: Vec<String>, heading_level: i64) -> Vec<String> {
+    if heading_level == 0 {
+        Vec::new()
+    } else {
+        if !breadcrumbs.is_empty() {
+            breadcrumbs.remove(0);
+        }
+        breadcrumbs
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{rebuild, Cli, CliError};
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbError, DbWriter, FileRecordInput,
-        HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        HeadingRecord, LinkRecord, OutlinePathRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
     use clap::Parser;
     use rusqlite::Connection;
@@ -447,6 +554,28 @@ mod tests {
                 assert!(json);
                 assert!(!no_root);
                 assert!(!include_root);
+                assert_eq!(config, Some(PathBuf::from("config.toml")));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli =
+            Cli::try_parse_from(["orgfdb", "links", "--json"]).expect("links args should parse");
+
+        match cli.command {
+            super::Command::Links { json, config } => {
+                assert!(json);
+                assert_eq!(config, None);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["orgfdb", "links", "--json", "--config", "config.toml"])
+            .expect("links config args should parse");
+
+        match cli.command {
+            super::Command::Links { json, config } => {
+                assert!(json);
                 assert_eq!(config, Some(PathBuf::from("config.toml")));
             }
             other => panic!("unexpected command: {other:?}"),
@@ -967,6 +1096,247 @@ db_path = "./future.sqlite"
     }
 
     #[test]
+    fn links_json_contract_includes_root_links_and_stable_ordering() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let mut connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+
+        seed_links_fixture(
+            &mut connection,
+            "/tmp/a.org",
+            "Alpha",
+            "Inbox",
+            &[
+                SeedLink {
+                    id: 2,
+                    heading_kind: HeadingKind::Root,
+                    byte_start: 0,
+                    byte_end: 16,
+                    line: 1,
+                    source_context: "normal",
+                    format: "bracket",
+                    raw: "[[id:root-link]]",
+                    raw_target: "id:root-link",
+                    raw_description: None,
+                    link_type: "id",
+                    path: "root-link",
+                    search_option: None,
+                },
+                SeedLink {
+                    id: 3,
+                    heading_kind: HeadingKind::Child,
+                    byte_start: 35,
+                    byte_end: 54,
+                    line: 3,
+                    source_context: "normal",
+                    format: "plain",
+                    raw: "https://example.org",
+                    raw_target: "https://example.org",
+                    raw_description: None,
+                    link_type: "https",
+                    path: "//example.org",
+                    search_option: None,
+                },
+            ],
+        );
+        seed_links_fixture(
+            &mut connection,
+            "/tmp/b.org",
+            "Beta",
+            "Todo",
+            &[SeedLink {
+                id: 1,
+                heading_kind: HeadingKind::Child,
+                byte_start: 5,
+                byte_end: 27,
+                line: 2,
+                source_context: "drawer",
+                format: "bracket",
+                raw: "[[file:notes.org::42]]",
+                raw_target: "file:notes.org::42",
+                raw_description: None,
+                link_type: "file",
+                path: "notes.org",
+                search_option: Some("42"),
+            }],
+        );
+
+        let rows = super::links_rows_for_json(&connection).expect("rows should load");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].file_path, "/tmp/a.org");
+        assert_eq!(rows[0].heading_level, 0);
+        assert!(rows[0].heading_path.is_empty());
+        assert_eq!(rows[1].file_path, "/tmp/a.org");
+        assert_eq!(rows[1].heading_level, 1);
+        assert_eq!(rows[1].heading_path, vec!["Inbox".to_string()]);
+        assert_eq!(rows[2].file_path, "/tmp/b.org");
+        assert_eq!(rows[2].search_option.as_deref(), Some("42"));
+
+        let json = serde_json::to_value(&rows).expect("rows should serialize");
+        let array = json.as_array().expect("rows should serialize as an array");
+        assert_eq!(sorted_object_keys(&array[0]), expected_link_json_keys());
+        assert!(array[0].get("type").is_none());
+        assert_eq!(array[0]["link_type"], "id");
+        assert_eq!(array[0]["source_context"], "normal");
+        assert_eq!(array[0]["heading_path"], Value::Array(vec![]));
+        assert_eq!(array[0]["heading_level"], 0);
+        assert_eq!(array[1]["heading_path"], serde_json::json!(["Inbox"]));
+        assert_eq!(array[2]["file_path"], "/tmp/b.org");
+        assert_eq!(array[2]["byte_start"], 5);
+    }
+
+    #[test]
+    fn links_uses_configured_db_path_when_config_is_provided() {
+        let test_dir = TestDir::new("links-config");
+        let config_dir = test_dir.path().join("nested/config");
+        let db_path = config_dir.join("../db.sqlite");
+        let config_path = config_dir.join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "../db.sqlite"
+"#,
+        );
+
+        let mut configured_db = open_database(&db_path).expect("configured database should open");
+        seed_links_fixture(
+            &mut configured_db,
+            "/tmp/configured.org",
+            "Configured",
+            "Heading",
+            &[SeedLink {
+                id: 1,
+                heading_kind: HeadingKind::Root,
+                byte_start: 0,
+                byte_end: 16,
+                line: 1,
+                source_context: "normal",
+                format: "bracket",
+                raw: "[[id:config]]",
+                raw_target: "id:config",
+                raw_description: None,
+                link_type: "id",
+                path: "config",
+                search_option: None,
+            }],
+        );
+        drop(configured_db);
+
+        let rows =
+            super::links_json_rows(true, Some(&config_path)).expect("rows should load from db");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].file_path, "/tmp/configured.org");
+        assert_eq!(rows[0].heading_level, 0);
+    }
+
+    #[test]
+    fn rebuild_and_links_json_read_stored_source_facts_without_rebuild() {
+        let test_dir = TestDir::new("links-read-only");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = test_dir.path().join("notes.org");
+
+        write_file(
+            &org_path,
+            "Root [[id:root]]\n* Inbox\nSee https://example.org and [[file:ref.org::42][Ref]]\n",
+        );
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+files = ["./notes.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = rebuild(&config_path).expect("rebuild should succeed");
+        assert_eq!(report.indexed_files.len(), 1);
+
+        let initial_rows =
+            super::links_json_rows(true, Some(&config_path)).expect("rows should load");
+        assert_eq!(initial_rows.len(), 3);
+        assert_eq!(initial_rows[0].heading_level, 0);
+        assert!(initial_rows[0].heading_path.is_empty());
+        assert_eq!(initial_rows[0].raw, "[[id:root]]");
+        assert_eq!(initial_rows[1].heading_path, vec!["Inbox".to_string()]);
+        assert_eq!(initial_rows[1].raw, "https://example.org");
+        assert_eq!(initial_rows[2].raw_description.as_deref(), Some("Ref"));
+        assert_eq!(initial_rows[2].search_option.as_deref(), Some("42"));
+
+        write_file(
+            &org_path,
+            "Changed file without the stored links anymore.\n* Different\nNo original links.\n",
+        );
+
+        let stored_rows =
+            super::links_json_rows(true, Some(&config_path)).expect("stored rows should load");
+        assert_eq!(stored_rows, initial_rows);
+    }
+
+    #[test]
+    fn links_json_read_only_open_does_not_create_missing_database() {
+        let test_dir = TestDir::new("links-missing-db");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("missing.sqlite");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "./missing.sqlite"
+"#,
+        );
+
+        let error = super::links_json_rows(true, Some(&config_path))
+            .expect_err("missing database should fail");
+        assert!(
+            matches!(error, CliError::Database(DbError::Open { .. })),
+            "expected read-only open error, got {error}"
+        );
+        assert!(
+            !db_path.exists(),
+            "read-only links should not create a database"
+        );
+    }
+
+    #[test]
+    fn links_json_read_only_open_rejects_future_schema_versions() {
+        let test_dir = TestDir::new("links-future-db");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("future.sqlite");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "./future.sqlite"
+"#,
+        );
+
+        let connection = Connection::open(&db_path).expect("future database should open");
+        connection
+            .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION + 1))
+            .expect("future user_version should seed");
+        drop(connection);
+
+        let error = super::links_json_rows(true, Some(&config_path))
+            .expect_err("future schema version should fail closed");
+        match error {
+            CliError::Database(DbError::UnsupportedFutureSchemaVersion {
+                on_disk_version,
+                supported_version,
+                ..
+            }) => {
+                assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION + 1);
+                assert_eq!(supported_version, CURRENT_SCHEMA_VERSION);
+            }
+            other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
+        }
+    }
+
+    #[test]
     fn rebuild_helper_propagates_indexer_errors() {
         let error = rebuild(Path::new("missing-config.toml")).expect_err("rebuild should fail");
 
@@ -1012,5 +1382,171 @@ db_path = "./future.sqlite"
         .into_iter()
         .map(str::to_string)
         .collect()
+    }
+
+    fn expected_link_json_keys() -> Vec<String> {
+        vec![
+            "byte_end",
+            "byte_start",
+            "file_id",
+            "file_path",
+            "format",
+            "heading_id",
+            "heading_level",
+            "heading_path",
+            "line",
+            "link_type",
+            "path",
+            "raw",
+            "raw_description",
+            "raw_target",
+            "search_option",
+            "source_context",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    }
+
+    #[derive(Clone, Copy)]
+    enum HeadingKind {
+        Root,
+        Child,
+    }
+
+    struct SeedLink<'a> {
+        id: i64,
+        heading_kind: HeadingKind,
+        byte_start: i64,
+        byte_end: i64,
+        line: i64,
+        source_context: &'a str,
+        format: &'a str,
+        raw: &'a str,
+        raw_target: &'a str,
+        raw_description: Option<&'a str>,
+        link_type: &'a str,
+        path: &'a str,
+        search_option: Option<&'a str>,
+    }
+
+    fn seed_links_fixture(
+        connection: &mut Connection,
+        file_path: &str,
+        root_title: &str,
+        child_title: &str,
+        links: &[SeedLink<'_>],
+    ) {
+        let file = FileRecordInput {
+            path: PathBuf::from(file_path),
+            mtime_ns: 10,
+            size: 100,
+            content_hash: None,
+            indexed_at: None,
+        };
+
+        DbWriter::rebuild_file(connection, &file, |tx, file_id| {
+            let root_id = DbWriter::insert_level0_heading(
+                tx,
+                &HeadingRecord {
+                    id: None,
+                    file_id,
+                    parent_id: None,
+                    level: 0,
+                    line_number: None,
+                    byte_start: -1,
+                    byte_end: 100,
+                    title: root_title.to_string(),
+                    title_raw: root_title.to_string(),
+                    todo_keyword: None,
+                    todo_type: None,
+                    priority: None,
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[]".to_string(),
+                },
+            )?;
+            DbWriter::insert_outline_path(
+                tx,
+                &[OutlinePathRecord {
+                    heading_id: root_id,
+                    file_id,
+                    parent_id: None,
+                    depth: 0,
+                    materialized_path: "0000".to_string(),
+                    breadcrumbs_json: format!("[\"{root_title}\"]"),
+                }],
+            )?;
+            DbWriter::insert_headings(
+                tx,
+                &[HeadingRecord {
+                    id: None,
+                    file_id,
+                    parent_id: Some(root_id),
+                    level: 1,
+                    line_number: Some(2),
+                    byte_start: 10,
+                    byte_end: 25,
+                    title: child_title.to_string(),
+                    title_raw: child_title.to_string(),
+                    todo_keyword: None,
+                    todo_type: None,
+                    priority: None,
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[]".to_string(),
+                }],
+            )?;
+            let child_id = tx.last_insert_rowid();
+            DbWriter::insert_outline_path(
+                tx,
+                &[OutlinePathRecord {
+                    heading_id: child_id,
+                    file_id,
+                    parent_id: Some(root_id),
+                    depth: 1,
+                    materialized_path: "0000.0001".to_string(),
+                    breadcrumbs_json: format!("[\"{root_title}\",\"{child_title}\"]"),
+                }],
+            )?;
+
+            let rows = links
+                .iter()
+                .map(|link| LinkRecord {
+                    id: Some(link.id),
+                    file_id,
+                    heading_id: match link.heading_kind {
+                        HeadingKind::Root => root_id,
+                        HeadingKind::Child => child_id,
+                    },
+                    byte_start: link.byte_start,
+                    byte_end: link.byte_end,
+                    line: link.line,
+                    source_context: link.source_context.to_string(),
+                    format: link.format.to_string(),
+                    raw: link.raw.to_string(),
+                    raw_target: link.raw_target.to_string(),
+                    raw_description: link.raw_description.map(str::to_string),
+                    link_type: link.link_type.to_string(),
+                    path: link.path.to_string(),
+                    search_option: link.search_option.map(str::to_string),
+                })
+                .collect::<Vec<_>>();
+            DbWriter::insert_links(tx, &rows)?;
+            Ok(())
+        })
+        .expect("fixture rebuild should succeed");
     }
 }
