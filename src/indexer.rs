@@ -16,6 +16,7 @@ use crate::{
         OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
         TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
     },
+    link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
     parser::{
         DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
@@ -74,8 +75,8 @@ where
         config: &Config,
         allow_empty: bool,
     ) -> Result<RebuildReport, IndexerError> {
-        let paths = discover_org_files(config)?;
-        if paths.is_empty() {
+        let discovery = discover_org_files(config)?;
+        if discovery.files.is_empty() {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
             if existing_indexed_files == 0 {
                 return Ok(RebuildReport::default());
@@ -88,8 +89,8 @@ where
         }
 
         let parse_options = config.parse_options();
-        let mut pending = Vec::with_capacity(paths.len());
-        for discovered in paths {
+        let mut pending = Vec::with_capacity(discovery.files.len());
+        for discovered in discovery.files {
             let path = discovered.path;
             let metadata = fs::metadata(&path).map_err(|source| IndexerError::ReadFile {
                 path: path.clone(),
@@ -167,7 +168,7 @@ where
             report.indexed_files.push(indexed_file);
         }
 
-        LinkResolver::resolve_all(&tx).map_err(IndexerError::Write)?;
+        LinkResolver::resolve_all(&tx, &discovery.indexed_universe).map_err(IndexerError::Write)?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -182,6 +183,11 @@ struct PendingRebuildFile {
     todo_keywords: ResolvedTodoKeywords,
     diagnostics: Vec<IndexDiagnostic>,
     file_record: FileRecordInput,
+}
+
+struct DiscoveryResult {
+    files: Vec<DiscoveredOrgFile>,
+    indexed_universe: IndexedUniverse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -322,8 +328,9 @@ impl Error for IndexerError {
     }
 }
 
-fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, IndexerError> {
+fn discover_org_files(config: &Config) -> Result<DiscoveryResult, IndexerError> {
     let mut paths = BTreeMap::new();
+    let mut indexed_universe = IndexedUniverse::default();
 
     for file in &config.files {
         let canonical_file = canonicalize_existing_file(file)?;
@@ -331,6 +338,7 @@ fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, Indexer
             .parent()
             .unwrap_or(canonical_file.as_path())
             .to_path_buf();
+        indexed_universe.add_exact_path(canonical_file.clone());
         insert_discovered_path(
             &mut paths,
             canonical_file,
@@ -341,13 +349,25 @@ fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, Indexer
 
     for dir in &config.dirs {
         let canonical_dir = canonicalize_existing_dir(&dir.path)?;
-        collect_org_files(&canonical_dir, &canonical_dir, dir.recursive, &mut paths)?;
+        if dir.recursive {
+            indexed_universe.add_recursive_root(canonical_dir.clone());
+        }
+        collect_org_files(
+            &canonical_dir,
+            &canonical_dir,
+            dir.recursive,
+            &mut paths,
+            &mut indexed_universe,
+        )?;
     }
 
-    Ok(paths
-        .into_iter()
-        .map(|(path, (scan_root, _))| DiscoveredOrgFile { path, scan_root })
-        .collect())
+    Ok(DiscoveryResult {
+        files: paths
+            .into_iter()
+            .map(|(path, (scan_root, _))| DiscoveredOrgFile { path, scan_root })
+            .collect(),
+        indexed_universe,
+    })
 }
 
 fn existing_indexed_file_count(connection: &Connection) -> Result<usize, IndexerError> {
@@ -368,6 +388,7 @@ fn collect_org_files(
     dir: &Path,
     recursive: bool,
     output: &mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
+    indexed_universe: &mut IndexedUniverse,
 ) -> Result<(), IndexerError> {
     let mut entries = fs::read_dir(dir)
         .map_err(|source| IndexerError::Discover {
@@ -395,6 +416,9 @@ fn collect_org_files(
                 .is_some_and(|value| value.eq_ignore_ascii_case("org"))
             {
                 let canonical_path = canonicalize_existing_file(&path)?;
+                if !recursive {
+                    indexed_universe.add_exact_path(canonical_path.clone());
+                }
                 insert_discovered_path(
                     output,
                     canonical_path,
@@ -404,7 +428,13 @@ fn collect_org_files(
             }
         } else if recursive && file_type.is_dir() {
             let canonical_dir = canonicalize_existing_dir(&path)?;
-            collect_org_files(scan_root, &canonical_dir, recursive, output)?;
+            collect_org_files(
+                scan_root,
+                &canonical_dir,
+                recursive,
+                output,
+                indexed_universe,
+            )?;
         }
     }
 
@@ -1152,7 +1182,9 @@ mod tests {
             open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         },
-        link_resolver::UNSUPPORTED_DIAGNOSTIC,
+        link_resolver::{
+            FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+        },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
     use rusqlite::Connection;
@@ -1173,11 +1205,6 @@ mod tests {
         path: String,
         search_option: Option<String>,
         source_context: String,
-        path_absolute: Option<String>,
-        target_file_id: Option<i64>,
-        target_heading_id: Option<i64>,
-        target_custom_id: Option<String>,
-        target_id: Option<String>,
     }
 
     type TimestampRow = (String, String, String, String, Option<i64>, Option<i64>);
@@ -1203,6 +1230,8 @@ mod tests {
         Option<String>,
         Option<i64>,
     );
+    type LinkResolutionRow = (String, Option<String>, Option<String>, Option<String>);
+    type TargetRemovalLinkRow = (String, String, Option<i64>, Option<String>, Option<String>);
 
     struct TestDir {
         path: PathBuf,
@@ -3270,8 +3299,7 @@ index_body_text = false
         let rows: Vec<StoredLinkRow> = query_rows(
             &connection,
             "SELECT h.title, l.format, l.raw, l.raw_target, l.raw_description, l.link_type,
-                    l.path, l.search_option, l.source_context, l.path_absolute,
-                    l.target_file_id, l.target_heading_id, l.target_custom_id, l.target_id
+                    l.path, l.search_option, l.source_context
              FROM links l
              JOIN headings h ON h.id = l.heading_id
              ORDER BY l.byte_start",
@@ -3286,11 +3314,6 @@ index_body_text = false
                     path: row.get(6)?,
                     search_option: row.get(7)?,
                     source_context: row.get(8)?,
-                    path_absolute: row.get(9)?,
-                    target_file_id: row.get(10)?,
-                    target_heading_id: row.get(11)?,
-                    target_custom_id: row.get(12)?,
-                    target_id: row.get(13)?,
                 })
             },
         );
@@ -3308,11 +3331,6 @@ index_body_text = false
                     path: "notes.org".to_string(),
                     search_option: Some("42".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3324,11 +3342,6 @@ index_body_text = false
                     path: "foo".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3340,11 +3353,6 @@ index_body_text = false
                     path: "target".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3356,11 +3364,6 @@ index_body_text = false
                     path: "./local.org".to_string(),
                     search_option: Some("10".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3372,11 +3375,6 @@ index_body_text = false
                     path: "../parent.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3388,11 +3386,6 @@ index_body_text = false
                     path: "~/home.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3404,11 +3397,6 @@ index_body_text = false
                     path: "/tmp/system.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3420,11 +3408,6 @@ index_body_text = false
                     path: "#custom-id".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3436,11 +3419,6 @@ index_body_text = false
                     path: "*Heading".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3452,11 +3430,6 @@ index_body_text = false
                     path: "dedicated target".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3468,11 +3441,6 @@ index_body_text = false
                     path: "notes.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3484,11 +3452,6 @@ index_body_text = false
                     path: "//example.com/some path with spaces".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3500,11 +3463,6 @@ index_body_text = false
                     path: "~/code/main.c".to_string(),
                     search_option: Some("255".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3516,11 +3474,6 @@ index_body_text = false
                     path: "~/xx.org".to_string(),
                     search_option: Some("*My Target".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3532,11 +3485,6 @@ index_body_text = false
                     path: "~/xx.org".to_string(),
                     search_option: Some("#my-custom-id".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3548,11 +3496,6 @@ index_body_text = false
                     path: "~/xx.org".to_string(),
                     search_option: Some("/regexp/".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3564,11 +3507,6 @@ index_body_text = false
                     path: "~/sys/path".to_string(),
                     search_option: Some("7".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3580,11 +3518,6 @@ index_body_text = false
                     path: "~/emacs/path".to_string(),
                     search_option: Some("*Target".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3596,11 +3529,6 @@ index_body_text = false
                     path: "foo".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3612,11 +3540,6 @@ index_body_text = false
                     path: "ABC-123".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3628,11 +3551,6 @@ index_body_text = false
                     path: "~/plain.c".to_string(),
                     search_option: Some("255".to_string()),
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Bracket Links".to_string(),
@@ -3644,11 +3562,6 @@ index_body_text = false
                     path: "projects.org::10".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Heading".to_string(),
@@ -3660,11 +3573,6 @@ index_body_text = false
                     path: "ls *.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Heading".to_string(),
@@ -3676,11 +3584,6 @@ index_body_text = false
                     path: "ls".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Heading".to_string(),
@@ -3692,11 +3595,6 @@ index_body_text = false
                     path: "//example.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
                 StoredLinkRow {
                     heading_title: "Heading".to_string(),
@@ -3708,30 +3606,150 @@ index_body_text = false
                     path: "//example.org".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
-                    path_absolute: None,
-                    target_file_id: None,
-                    target_heading_id: None,
-                    target_custom_id: None,
-                    target_id: None,
                 },
             ]
         );
 
-        let resolution_rows: Vec<(Option<String>, Option<String>)> = query_rows(
+        let resolution_rows: Vec<(String, Option<String>, Option<String>)> = query_rows(
             &connection,
-            "SELECT resolution_status, resolution_diagnostic
+            "SELECT raw, resolution_status, resolution_diagnostic
              FROM links
              ORDER BY byte_start",
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         );
         assert_eq!(
             resolution_rows,
             vec![
                 (
+                    "[[FILE:notes.org::42]]".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[unknown:foo]]".to_string(),
                     Some("unsupported".to_string()),
-                    Some(UNSUPPORTED_DIAGNOSTIC.to_string())
-                );
-                rows.len()
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[target][description]]".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[./local.org::10]]".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[../parent.org]]".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[~/home.org]]".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[/tmp/system.org]]".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[#custom-id]]".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[*Heading]]".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[dedicated target]]".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[notes.org]]".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<https://example.com/some path with spaces>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<file:~/code/main.c::255>".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<file:~/xx.org::*My Target>".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<file:~/xx.org::#my-custom-id>".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<file:~/xx.org::/regexp/>".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<file+sys:~/sys/path::7>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<file+emacs:~/emacs/path::*Target>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<unknown:foo>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<jira:ABC-123>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "file:~/plain.c::255".to_string(),
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "attachment:projects.org::10".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<shell:ls *.org>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[shell:ls]]".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "https://example.org".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "<https://example.org>".to_string(),
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
             ]
         );
     }
@@ -3798,8 +3816,195 @@ index_body_text = false
             vec![(
                 source_path.to_string_lossy().to_string(),
                 "[[file:z-target.org]]".to_string(),
-                Some("unsupported".to_string()),
-                Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                Some("resolved".to_string()),
+                None,
+            )]
+        );
+    }
+
+    #[test]
+    fn rebuild_resolves_file_links_to_known_indexed_files_and_marks_missing_and_external_targets() {
+        let test_dir = TestDir::new("file-link-resolution");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+        let local_path = notes_dir.join("local.org");
+        let parent_path = test_dir.path().join("parent.org");
+        let absolute_path = test_dir.path().join("absolute.org");
+        let external_path = test_dir.path().join("outside").join("external.org");
+
+        write_file(
+            &source_path,
+            &format!(
+                "#+TITLE: Source\n[[./local.org]]\n[[../parent.org]]\n[[{}]]\n[[./missing.org]]\n[[{}]]\n[[unknown:foo]]\n",
+                absolute_path.to_string_lossy(),
+                external_path.to_string_lossy(),
+            ),
+        );
+        write_file(&local_path, "* Local\n");
+        write_file(&parent_path, "* Parent\n");
+        write_file(&absolute_path, "* Absolute\n");
+        write_config(
+            &config_path,
+            &format!(
+                "db_path = \"db.sqlite\"\nfiles = [\"{}\", \"{}\"]\n\n[[dirs]]\npath = \"notes\"\nrecursive = true\n\n[search]\nfts5_enabled = false\nindex_body_text = false\n",
+                parent_path.file_name().expect("parent file name").to_string_lossy(),
+                absolute_path.file_name().expect("absolute file name").to_string_lossy(),
+            ),
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+        assert_eq!(report.indexed_files.len(), 4);
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<LinkResolutionRow> = query_rows(
+            &connection,
+            "SELECT links.raw, links.resolution_status, files.path, links.resolution_diagnostic
+             FROM links
+             LEFT JOIN files ON files.id = links.target_file_id
+             ORDER BY byte_start",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        let path_rows: Vec<(String, Option<String>)> = query_rows(
+            &connection,
+            "SELECT raw, path_absolute
+             FROM links
+             ORDER BY byte_start",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "[[./local.org]]".to_string(),
+                    Some("resolved".to_string()),
+                    Some(local_path.to_string_lossy().to_string()),
+                    None,
+                ),
+                (
+                    "[[../parent.org]]".to_string(),
+                    Some("resolved".to_string()),
+                    Some(parent_path.to_string_lossy().to_string()),
+                    None,
+                ),
+                (
+                    format!("[[{}]]", absolute_path.to_string_lossy()),
+                    Some("resolved".to_string()),
+                    Some(absolute_path.to_string_lossy().to_string()),
+                    None,
+                ),
+                (
+                    "[[./missing.org]]".to_string(),
+                    Some("broken".to_string()),
+                    None,
+                    Some(FILE_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    format!("[[{}]]", external_path.to_string_lossy()),
+                    Some("unresolved".to_string()),
+                    None,
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[unknown:foo]]".to_string(),
+                    Some("unsupported".to_string()),
+                    None,
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                ),
+            ]
+        );
+        assert_eq!(
+            path_rows,
+            vec![
+                (
+                    "[[./local.org]]".to_string(),
+                    Some(local_path.to_string_lossy().to_string()),
+                ),
+                (
+                    "[[../parent.org]]".to_string(),
+                    Some(parent_path.to_string_lossy().to_string()),
+                ),
+                (
+                    format!("[[{}]]", absolute_path.to_string_lossy()),
+                    Some(absolute_path.to_string_lossy().to_string()),
+                ),
+                (
+                    "[[./missing.org]]".to_string(),
+                    Some(notes_dir.join("missing.org").to_string_lossy().to_string()),
+                ),
+                (
+                    format!("[[{}]]", external_path.to_string_lossy()),
+                    Some(external_path.to_string_lossy().to_string()),
+                ),
+                ("[[unknown:foo]]".to_string(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_keeps_source_link_rows_when_target_file_disappears_from_indexed_set() {
+        let test_dir = TestDir::new("file-link-target-removed");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+        let target_path = notes_dir.join("target.org");
+
+        write_file(&source_path, "#+TITLE: Source\n[[./target.org]]\n");
+        write_file(&target_path, "* Target\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("first rebuild should succeed");
+        std::fs::remove_file(&target_path).expect("target file should delete");
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("second rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let link_rows: Vec<TargetRemovalLinkRow> = query_rows(
+            &connection,
+            "SELECT raw, raw_target, target_file_id, resolution_status, resolution_diagnostic
+                 FROM links
+                 ORDER BY byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            link_rows,
+            vec![(
+                "[[./target.org]]".to_string(),
+                "./target.org".to_string(),
+                None,
+                Some("broken".to_string()),
+                Some(FILE_MISSING_DIAGNOSTIC.to_string()),
             )]
         );
     }

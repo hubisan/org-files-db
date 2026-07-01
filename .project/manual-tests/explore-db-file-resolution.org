@@ -1,0 +1,241 @@
+#+TITLE: Explore DB File Link Resolution
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run one rebuild block in [[./manual-test.org]] first to update the database with the files from [[./files/]].
+
+This file inspects rows belonging to ~links-file-resolution.org~ and checks Phase 4 file-link resolution fields.
+
+Config.toml for this:
+
+#+BEGIN_SRC conf-toml
+  db_path = "./data/org-files-db.sqlite"
+
+  files = []
+
+  [[dirs]]
+  path = "./files/link-file-resolve/notes/"
+  recursive = true
+
+  [search]
+  fts5_enabled = false
+  index_body_text = false
+
+  [links]
+  custom_protocols = ["jira", "customlink"]
+#+END_SRC
+
+* All stored links for links-file-resolution.org
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.id,
+         h.title AS heading_title,
+         l.source_context,
+         l.format,
+         l.raw,
+         l.raw_target,
+         l.raw_description,
+         l.link_type,
+         l.path,
+         l.search_option,
+         l.path_absolute,
+         l.target_file_id,
+         tf.path AS target_file_path,
+         l.target_heading_id,
+         l.target_custom_id,
+         l.target_id,
+         l.resolution_status,
+         l.resolution_diagnostic
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+    JOIN headings h ON h.id = l.heading_id
+    LEFT JOIN files tf ON tf.id = l.target_file_id
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  heading_title   source_context  format   raw                                          raw_target                               raw_description  link_type  path                        search_option      path_absolute                                                                                                          target_file_id  target_file_path                                                                                               target_heading_id  target_custom_id  target_id  resolution_status  resolution_diagnostic                           
+--  --------------  --------------  -------  -------------------------------------------  ---------------------------------------  ---------------  ---------  --------------------------  -----------------  ---------------------------------------------------------------------------------------------------------------------  --------------  -------------------------------------------------------------------------------------------------------------  -----------------  ----------------  ---------  -----------------  ------------------------------------------------
+1   Main index      normal          bracket  [[file:target.org]]                          file:target.org                          NULL             file       target.org                  NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+29  Target heading  normal          bracket  [[file:index.org]]                           file:index.org                           NULL             file       index.org                   NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org               1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       NULL               NULL              NULL       resolved           NULL                                            
+17  Peer heading    normal          bracket  [[file:../index.org]]                        file:../index.org                        NULL             file       ../index.org                NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org               1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       NULL               NULL              NULL       resolved           NULL                                            
+2   Main index      normal          bracket  [[file:sub/child.org]]                       file:sub/child.org                       NULL             file       sub/child.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+22  Child heading   normal          bracket  [[file:../index.org]]                        file:../index.org                        NULL             file       ../index.org                NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org               1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       NULL               NULL              NULL       resolved           NULL                                            
+30  Target heading  normal          bracket  [[file:sub/child.org]]                       file:sub/child.org                       NULL             file       sub/child.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+18  Peer heading    normal          bracket  [[file:../target.org]]                       file:../target.org                       NULL             file       ../target.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+3   Main index      normal          bracket  [[file:other/peer.org]]                      file:other/peer.org                      NULL             file       other/peer.org              NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org          2               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  NULL               NULL              NULL       resolved           NULL                                            
+23  Child heading   normal          bracket  [[file:../target.org]]                       file:../target.org                       NULL             file       ../target.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+31  Target heading  normal          bracket  [[file:other/peer.org::*Peer heading]]       file:other/peer.org::*Peer heading       NULL             file       other/peer.org              *Peer heading      /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org          2               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  NULL               NULL              NULL       resolved           NULL                                            
+19  Peer heading    normal          bracket  [[file:../sub/child.org]]                    file:../sub/child.org                    NULL             file       ../sub/child.org            NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+24  Child heading   normal          bracket  [[file:../other/peer.org]]                   file:../other/peer.org                   NULL             file       ../other/peer.org           NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org          2               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  NULL               NULL              NULL       resolved           NULL                                            
+4   Main index      normal          bracket  [[./target.org]]                             ./target.org                             NULL             file       ./target.org                NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+5   Main index      normal          bracket  [[./sub/child.org]]                          ./sub/child.org                          NULL             file       ./sub/child.org             NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+25  Child heading   normal          bracket  [[../target.org]]                            ../target.org                            NULL             file       ../target.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+20  Peer heading    normal          bracket  [[file:../target.org::*Target heading]]      file:../target.org::*Target heading      NULL             file       ../target.org               *Target heading    /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+26  Child heading   normal          bracket  [[file:missing-in-sub.org]]                  file:missing-in-sub.org                  NULL             file       missing-in-sub.org          NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-in-sub.org  NULL            NULL                                                                                                           NULL               NULL              NULL       broken             file target is missing from the indexed universe
+21  Peer heading    normal          bracket  [[file:../sub/child.org::#child-custom-id]]  file:../sub/child.org::#child-custom-id  NULL             file       ../sub/child.org            #child-custom-id   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+6   Main index      normal          bracket  [[file:target.org::*Target heading]]         file:target.org::*Target heading         NULL             file       target.org                  *Target heading    /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+27  Child heading   normal          bracket  [[file:../missing-from-child.org]]           file:../missing-from-child.org           NULL             file       ../missing-from-child.org   NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing-from-child.org  NULL            NULL                                                                                                           NULL               NULL              NULL       broken             file target is missing from the indexed universe
+7   Main index      normal          bracket  [[file:target.org::#target-custom-id]]       file:target.org::#target-custom-id       NULL             file       target.org                  #target-custom-id  /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      NULL               NULL              NULL       resolved           NULL                                            
+28  Child heading   normal          bracket  [[file:../../external/outside.org]]          file:../../external/outside.org          NULL             file       ../../external/outside.org  NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org          NULL            NULL                                                                                                           NULL               NULL              NULL       unresolved         file target is outside the indexed universe     
+8   Main index      normal          bracket  [[file:sub/child.org::*Child heading]]       file:sub/child.org::*Child heading       NULL             file       sub/child.org               *Child heading     /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+9   Main index      normal          bracket  [[file:sub/child.org::#child-custom-id]]     file:sub/child.org::#child-custom-id     NULL             file       sub/child.org               #child-custom-id   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   NULL               NULL              NULL       resolved           NULL                                            
+10  Main index      normal          bracket  [[file:missing.org]]                         file:missing.org                         NULL             file       missing.org                 NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing.org             NULL            NULL                                                                                                           NULL               NULL              NULL       broken             file target is missing from the indexed universe
+11  Main index      normal          bracket  [[file:sub/missing-child.org]]               file:sub/missing-child.org               NULL             file       sub/missing-child.org       NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-child.org   NULL            NULL                                                                                                           NULL               NULL              NULL       broken             file target is missing from the indexed universe
+12  Main index      normal          bracket  [[./other/missing-peer.org]]                 ./other/missing-peer.org                 NULL             file       ./other/missing-peer.org    NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/missing-peer.org  NULL            NULL                                                                                                           NULL               NULL              NULL       broken             file target is missing from the indexed universe
+13  Main index      normal          bracket  [[file:../external/outside.org]]             file:../external/outside.org             NULL             file       ../external/outside.org     NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org          NULL            NULL                                                                                                           NULL               NULL              NULL       unresolved         file target is outside the indexed universe     
+14  Main index      normal          bracket  [[id:target-id-001]]                         id:target-id-001                         NULL             id         target-id-001               NULL               NULL                                                                                                                   NULL            NULL                                                                                                           NULL               NULL              NULL       unsupported        no resolver implemented for link_type           
+15  Main index      normal          bracket  [[#main-index]]                              #main-index                              NULL             custom-id  #main-index                 NULL               NULL                                                                                                                   NULL            NULL                                                                                                           NULL               NULL              NULL       unsupported        no resolver implemented for link_type           
+16  Main index      normal          bracket  [[https://example.org]]                      https://example.org                      NULL             https      //example.org               NULL               NULL                                                                                                                   NULL            NULL                                                                                                           NULL               NULL              NULL       unsupported        no resolver implemented for link_type           
+#+end_example
+
+* Only file-like links
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.id,
+         l.raw,
+         l.path AS raw_path,
+         l.search_option,
+         l.path_absolute AS target_path_absolute,
+         l.target_file_id,
+         tf.path AS indexed_target_file_path,
+         l.resolution_status,
+         l.resolution_diagnostic
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+    LEFT JOIN files tf ON tf.id = l.target_file_id
+   WHERE l.link_type = 'file'
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  raw                                          raw_path                    search_option      target_path_absolute                                                                                                   target_file_id  indexed_target_file_path                                                                                       resolution_status  resolution_diagnostic                           
+--  -------------------------------------------  --------------------------  -----------------  ---------------------------------------------------------------------------------------------------------------------  --------------  -------------------------------------------------------------------------------------------------------------  -----------------  ------------------------------------------------
+1   [[file:target.org]]                          target.org                  NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+29  [[file:index.org]]                           index.org                   NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org               1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       resolved           NULL                                            
+17  [[file:../index.org]]                        ../index.org                NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org               1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       resolved           NULL                                            
+2   [[file:sub/child.org]]                       sub/child.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+22  [[file:../index.org]]                        ../index.org                NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org               1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       resolved           NULL                                            
+30  [[file:sub/child.org]]                       sub/child.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+18  [[file:../target.org]]                       ../target.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+3   [[file:other/peer.org]]                      other/peer.org              NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org          2               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  resolved           NULL                                            
+23  [[file:../target.org]]                       ../target.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+31  [[file:other/peer.org::*Peer heading]]       other/peer.org              *Peer heading      /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org          2               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  resolved           NULL                                            
+19  [[file:../sub/child.org]]                    ../sub/child.org            NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+24  [[file:../other/peer.org]]                   ../other/peer.org           NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org          2               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  resolved           NULL                                            
+4   [[./target.org]]                             ./target.org                NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+5   [[./sub/child.org]]                          ./sub/child.org             NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+25  [[../target.org]]                            ../target.org               NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+20  [[file:../target.org::*Target heading]]      ../target.org               *Target heading    /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+26  [[file:missing-in-sub.org]]                  missing-in-sub.org          NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-in-sub.org  NULL            NULL                                                                                                           broken             file target is missing from the indexed universe
+21  [[file:../sub/child.org::#child-custom-id]]  ../sub/child.org            #child-custom-id   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+6   [[file:target.org::*Target heading]]         target.org                  *Target heading    /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+27  [[file:../missing-from-child.org]]           ../missing-from-child.org   NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing-from-child.org  NULL            NULL                                                                                                           broken             file target is missing from the indexed universe
+7   [[file:target.org::#target-custom-id]]       target.org                  #target-custom-id  /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org              4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      resolved           NULL                                            
+28  [[file:../../external/outside.org]]          ../../external/outside.org  NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org          NULL            NULL                                                                                                           unresolved         file target is outside the indexed universe     
+8   [[file:sub/child.org::*Child heading]]       sub/child.org               *Child heading     /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+9   [[file:sub/child.org::#child-custom-id]]     sub/child.org               #child-custom-id   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org           3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org   resolved           NULL                                            
+10  [[file:missing.org]]                         missing.org                 NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing.org             NULL            NULL                                                                                                           broken             file target is missing from the indexed universe
+11  [[file:sub/missing-child.org]]               sub/missing-child.org       NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-child.org   NULL            NULL                                                                                                           broken             file target is missing from the indexed universe
+12  [[./other/missing-peer.org]]                 ./other/missing-peer.org    NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/missing-peer.org  NULL            NULL                                                                                                           broken             file target is missing from the indexed universe
+13  [[file:../external/outside.org]]             ../external/outside.org     NULL               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org          NULL            NULL                                                                                                           unresolved         file target is outside the indexed universe     
+#+end_example
+
+* Resolution status summary
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT COALESCE(l.resolution_status, 'NULL') AS resolution_status,
+         COUNT(*) AS count
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+   GROUP BY COALESCE(l.resolution_status, 'NULL')
+   ORDER BY resolution_status;
+#+END_SRC
+
+#+RESULTS:
+: resolution_status  count
+: -----------------  -----
+: broken             5    
+: resolved           21   
+: unresolved         2    
+: unsupported        3    
+
+* Broken and unresolved file links
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.id,
+         l.raw,
+         l.path,
+         l.path_absolute,
+         l.resolution_status,
+         l.resolution_diagnostic
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+     AND l.link_type = 'file'
+     AND l.resolution_status IN ('broken', 'unresolved', 'unsupported')
+   ORDER BY l.resolution_status, l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+: id  raw                                  path                        path_absolute                                                                                                          resolution_status  resolution_diagnostic                           
+: --  -----------------------------------  --------------------------  ---------------------------------------------------------------------------------------------------------------------  -----------------  ------------------------------------------------
+: 26  [[file:missing-in-sub.org]]          missing-in-sub.org          /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-in-sub.org  broken             file target is missing from the indexed universe
+: 27  [[file:../missing-from-child.org]]   ../missing-from-child.org   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing-from-child.org  broken             file target is missing from the indexed universe
+: 10  [[file:missing.org]]                 missing.org                 /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing.org             broken             file target is missing from the indexed universe
+: 11  [[file:sub/missing-child.org]]       sub/missing-child.org       /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-child.org   broken             file target is missing from the indexed universe
+: 12  [[./other/missing-peer.org]]         ./other/missing-peer.org    /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/missing-peer.org  broken             file target is missing from the indexed universe
+: 28  [[file:../../external/outside.org]]  ../../external/outside.org  /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org          unresolved         file target is outside the indexed universe     
+: 13  [[file:../external/outside.org]]     ../external/outside.org     /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org          unresolved         file target is outside the indexed universe     
+
+* Check raw source facts are still present
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.id,
+         l.raw,
+         l.raw_target,
+         l.link_type,
+         l.path,
+         l.search_option
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  raw                                          raw_target                               link_type  path                        search_option    
+--  -------------------------------------------  ---------------------------------------  ---------  --------------------------  -----------------
+1   [[file:target.org]]                          file:target.org                          file       target.org                  NULL             
+29  [[file:index.org]]                           file:index.org                           file       index.org                   NULL             
+17  [[file:../index.org]]                        file:../index.org                        file       ../index.org                NULL             
+2   [[file:sub/child.org]]                       file:sub/child.org                       file       sub/child.org               NULL             
+22  [[file:../index.org]]                        file:../index.org                        file       ../index.org                NULL             
+30  [[file:sub/child.org]]                       file:sub/child.org                       file       sub/child.org               NULL             
+18  [[file:../target.org]]                       file:../target.org                       file       ../target.org               NULL             
+3   [[file:other/peer.org]]                      file:other/peer.org                      file       other/peer.org              NULL             
+23  [[file:../target.org]]                       file:../target.org                       file       ../target.org               NULL             
+31  [[file:other/peer.org::*Peer heading]]       file:other/peer.org::*Peer heading       file       other/peer.org              *Peer heading    
+19  [[file:../sub/child.org]]                    file:../sub/child.org                    file       ../sub/child.org            NULL             
+24  [[file:../other/peer.org]]                   file:../other/peer.org                   file       ../other/peer.org           NULL             
+4   [[./target.org]]                             ./target.org                             file       ./target.org                NULL             
+5   [[./sub/child.org]]                          ./sub/child.org                          file       ./sub/child.org             NULL             
+25  [[../target.org]]                            ../target.org                            file       ../target.org               NULL             
+20  [[file:../target.org::*Target heading]]      file:../target.org::*Target heading      file       ../target.org               *Target heading  
+26  [[file:missing-in-sub.org]]                  file:missing-in-sub.org                  file       missing-in-sub.org          NULL             
+21  [[file:../sub/child.org::#child-custom-id]]  file:../sub/child.org::#child-custom-id  file       ../sub/child.org            #child-custom-id 
+6   [[file:target.org::*Target heading]]         file:target.org::*Target heading         file       target.org                  *Target heading  
+27  [[file:../missing-from-child.org]]           file:../missing-from-child.org           file       ../missing-from-child.org   NULL             
+7   [[file:target.org::#target-custom-id]]       file:target.org::#target-custom-id       file       target.org                  #target-custom-id
+28  [[file:../../external/outside.org]]          file:../../external/outside.org          file       ../../external/outside.org  NULL             
+8   [[file:sub/child.org::*Child heading]]       file:sub/child.org::*Child heading       file       sub/child.org               *Child heading   
+9   [[file:sub/child.org::#child-custom-id]]     file:sub/child.org::#child-custom-id     file       sub/child.org               #child-custom-id 
+10  [[file:missing.org]]                         file:missing.org                         file       missing.org                 NULL             
+11  [[file:sub/missing-child.org]]               file:sub/missing-child.org               file       sub/missing-child.org       NULL             
+12  [[./other/missing-peer.org]]                 ./other/missing-peer.org                 file       ./other/missing-peer.org    NULL             
+13  [[file:../external/outside.org]]             file:../external/outside.org             file       ../external/outside.org     NULL             
+14  [[id:target-id-001]]                         id:target-id-001                         id         target-id-001               NULL             
+15  [[#main-index]]                              #main-index                              custom-id  #main-index                 NULL             
+16  [[https://example.org]]                      https://example.org                      https      //example.org               NULL             
+#+end_example

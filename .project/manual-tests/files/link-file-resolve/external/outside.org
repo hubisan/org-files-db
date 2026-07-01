@@ -1,0 +1,7 @@
+#+TITLE: Outside
+#+STARTUP: showall
+
+* Outside file
+
+This file exists in the ZIP but is intentionally outside the suggested indexed root ~notes/~.
+If only ~notes/~ is indexed, links to this file should be unresolved, not broken.

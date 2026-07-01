@@ -1,0 +1,228 @@
+#+TITLE: Resolve file links to known indexed files
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-01 Wed 22:55]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Resolve file links to known indexed files=.
+  - Use the pasted task contract from the attachment as the source of truth.
+  - Implement only file-link resolution in the existing resolver framework.
+  - Keep heading, CUSTOM_ID, ID, attachment, and search-option resolution out of scope.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#A] Resolve file links to known indexed files
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*\[2026-07-01 Wed\] Implement deterministic link resolution pass after rebuild][Implement deterministic link resolution pass after rebuild]]
+
+Goal:
+
+- Resolve file-like links to known indexed files.
+- Populate file target fields in the existing Phase 4 resolver pass.
+- Keep search options as raw source facts.
+- Do not resolve headings, CUSTOM_IDs, IDs, attachments, or file search options in this task.
+
+Supported source facts:
+
+- Explicit file links:
+  - ~[[file:notes/a.org]]~
+  - ~<file:notes/a.org>~
+  - plain ~file:notes/a.org~ when extracted by the configured plain-link protocols
+- Implicit file bracket links classified by Phase 3 as file-like links:
+  - ~[[./a.org]]~
+  - ~[[../a.org]]~
+  - ~[[~/notes/a.org]]~
+  - ~[[/absolute/path/a.org]]~
+
+Resolution rules:
+
+- Resolve only links classified as file-like by Phase 3.
+- Relative paths are interpreted relative to the source file's parent directory.
+- Home-relative paths using ~~~ are expanded consistently with existing config path handling.
+- Absolute paths are normalized syntactically in the same style as indexed file paths.
+- Store the normalized absolute target path in ~path_absolute~ when path normalization succeeds.
+- If the normalized target path matches a known row in ~files.path~, set:
+  - ~target_file_id~
+  - ~resolution_status = resolved~
+  - ~resolution_diagnostic = NULL~
+- If the normalized target path does not match an indexed file but is inside the configured indexed/discovery universe and is known to be absent, set:
+  - ~target_file_id = NULL~
+  - ~resolution_status = broken~
+  - ~resolution_diagnostic~ explaining that the target file is missing from the indexed universe.
+- If the normalized target path is outside the configured indexed/discovery universe, set:
+  - ~target_file_id = NULL~
+  - ~resolution_status = unresolved~
+  - ~resolution_diagnostic~ explaining that the file target is outside the indexed universe.
+- If the path cannot be normalized safely, set:
+  - ~target_file_id = NULL~
+  - ~path_absolute = NULL~
+  - ~resolution_status = unsupported~
+  - ~resolution_diagnostic~ explaining that the path form is unsupported.
+- Preserve ~search_option~ as a raw source fact.
+- Do not use ~search_option~ to resolve headings in this task.
+
+Indexed/discovery universe rules:
+
+- The indexed universe consists of configured file roots and directory roots after applying the current discovery settings.
+- A target path is inside the indexed universe if it is under a configured recursive directory root, exactly equal to a configured non-recursive file root, or exactly equal to a discovered file in a configured non-recursive directory root.
+- A target path outside this universe must not be marked ~broken~ merely because it has no matching ~files~ row.
+- Do not scan arbitrary directories from link targets to decide whether external files exist.
+- Do not add non-indexed files to the DB.
+
+Resolver integration rules:
+
+- Integrate this into the existing ~LinkResolver::resolve_all~ framework.
+- Continue resetting resolver-owned fields before resolving.
+- Visit links in deterministic order.
+- File-like resolver logic should run before the generic unsupported fallback.
+- Non-file-like links continue to be marked ~unsupported~ by the fallback.
+- Do not modify raw source-fact fields:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~link_type~
+  - ~path~
+  - ~search_option~
+  - ~byte_start~
+  - ~byte_end~
+  - ~line~
+  - ~source_context~
+
+Out of scope:
+
+- Do not resolve ~search_option~ to headings.
+- Do not resolve ~file:...::#CUSTOM_ID~ in this task.
+- Do not resolve ~file:...::*Heading~ in this task.
+- Do not resolve ~id:~ links.
+- Do not resolve ~CUSTOM_ID~ links.
+- Do not resolve ~attachment:~ links.
+- Do not add non-indexed files to the DB.
+- Do not perform filesystem discovery from link targets.
+- Do not execute, open, or follow link targets.
+
+Acceptance criteria:
+
+- Relative ~file:~ links resolve relative to the source file.
+- Absolute ~file:~ links resolve to known indexed files.
+- Home-relative ~file:~/...~ links resolve consistently with config path handling.
+- Implicit file bracket links resolve to known indexed files.
+- Resolved file links set ~path_absolute~, ~target_file_id~, and ~resolution_status = resolved~.
+- File links inside the indexed universe but missing from indexed files are marked ~broken~.
+- File links outside the indexed universe are marked ~unresolved~, not ~broken~.
+- Unsupported path forms are marked ~unsupported~ without inventing a target.
+- Existing ~search_option~ values remain unchanged.
+- Non-file-like links continue to use the unsupported fallback.
+- Link rows are not deleted when a target file disappears from the indexed set.
+- Tests cover a rebuild where the source file remains indexed and the target file is removed.
+- Tests cover deterministic ordering-independent resolution across multiple indexed files.
+- Tests cover an external file target outside the indexed universe being marked ~unresolved~.
+- Tests verify raw link fields are unchanged after file-link resolution.
+- No heading, CUSTOM_ID, ID, attachment, or search-option resolution is implemented in this task.
+- ~make ci~ passes.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The current resolver framework only resets resolver-owned columns and marks every link =unsupported=, so file-like links still cannot populate =path_absolute= or =target_file_id=.
+- The file-link task needs indexed-universe knowledge in addition to the raw links table, otherwise the resolver cannot distinguish =broken= from =unresolved= deterministically.
+
+** Goals
+- Resolve Phase-3-classified file-like links to known indexed files in the existing resolver pass.
+- Track indexed-universe membership without scanning arbitrary target directories.
+- Preserve all raw source-fact fields and ignore =search_option= for heading resolution in this task.
+
+** Non-goals
+- No heading, CUSTOM_ID, Org ID, attachment, or file search-option resolution.
+- No arbitrary filesystem discovery from target paths.
+- No new public JSON contract for resolution fields.
+
+** Architecture
+- Extend rebuild discovery to produce a resolver context that captures:
+  - exact in-universe paths for configured files and non-recursive directory discoveries
+  - recursive directory roots for "inside indexed universe" checks
+- Pass that context into =LinkResolver= from rebuild.
+- Keep the resolver deterministic:
+  - reset resolver-owned fields
+  - visit links in stable order
+  - resolve =link_type = file= first
+  - fall back to =unsupported= for all non-file-like links
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Inspect discovery, path normalization, and existing resolver/link tests.
+- Implement file-link resolution plus indexed-universe context.
+- Add focused tests for resolved, broken, unresolved, target-removed, and raw-fact stability cases.
+- Run formatter, focused tests, and =make ci=, then record results.
+
+** Risks & assumptions
+- Assumption: file-like means the existing Phase 3 classification where =link_type = file= already covers explicit =file:= links and implicit file bracket links.
+- Risk: the repo currently has some older tests still opening schema version =1= explicitly; if file-resolution tests touch them indirectly, they may need opportunistic cleanup to avoid false failures.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_stores_phase3_links_as_source_facts -- --nocapture=
+- =cargo test rebuild_runs_link_resolver_after_all_files_are_indexed -- --nocapture=
+- =cargo test rebuilds_file_links_to_known_indexed_files -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Extended rebuild discovery to build an indexed-universe context with exact in-universe file paths and recursive directory roots, then passed that context into the existing =LinkResolver::resolve_all(...)= pass.
+- Implemented deterministic =file= link resolution before the generic unsupported fallback:
+  - normalize relative, absolute, and =~/= paths to absolute paths
+  - resolve to indexed =files.path= when present
+  - mark in-universe missing targets =broken=
+  - mark outside-universe targets =unresolved=
+  - leave non-file-like links on the existing =unsupported= fallback
+- Kept raw Phase 3 source facts immutable and continued ignoring =search_option= for heading/CUSTOM_ID resolution in this task.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-01--resolve-file-links-to-known-indexed-files.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_stores_phase3_links_as_source_facts -- --nocapture=
+- =cargo test rebuild_resolves_file_links_to_known_indexed_files_and_marks_missing_and_external_targets -- --nocapture=
+- =cargo test rebuild_keeps_source_link_rows_when_target_file_disappears_from_indexed_set -- --nocapture=
+- =cargo test rebuilding_same_links_twice_keeps_resolution_fields_deterministic -- --nocapture=
+- =make ci=
+
+** Test results
+- File-like links now resolve to known indexed files after the transactional rebuild inserts all files.
+- Missing targets inside the indexed universe are marked =broken= with a stable diagnostic.
+- Absolute external targets outside the indexed universe are marked =unresolved= with a stable diagnostic.
+- Raw Phase 3 link source facts remain unchanged after the resolver pass.
+- Repeat rebuilds keep resolution output deterministic.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Later Phase 4 tasks can plug file search-option, CUSTOM_ID, ID, and attachment resolvers into the same deterministic resolver framework.

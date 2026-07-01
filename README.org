@@ -62,7 +62,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
   - =heading_bodies=
   - =outline_path=
 - =heading_fts= is optional. It is created only when rebuild/indexing enables FTS and the local SQLite build supports FTS5.
-- =links= stores raw Phase 3 link source facts plus nullable Phase 4 target fields and explicit resolution state columns; =resolution_status = NULL= means no resolver pass has populated the row yet, while the current rebuild pipeline deterministically marks all stored links as =unsupported= until concrete Phase 4 resolvers land.
+- =links= stores raw Phase 3 link source facts plus nullable Phase 4 target fields and explicit resolution state columns; =resolution_status = NULL= means no resolver pass has populated the row yet, while the current rebuild pipeline resolves file-like links to indexed files when possible, marks missing in-universe file targets as =broken=, marks outside-universe file targets as =unresolved=, and falls back to =unsupported= for other link forms.
 - Read-only CLI queries such as =headings --json= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
 - Synthetic level-0/root rows are DB/indexing sentinels for file/document roots, not parser-level Org headings.
 - Persisted synthetic root rows use =level = 0=, =parent_id = NULL=, and =byte_start = -1=.

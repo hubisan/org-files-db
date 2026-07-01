@@ -1,0 +1,22 @@
+#+TITLE: Target
+#+STARTUP: showall
+
+* Target heading
+:PROPERTIES:
+:CUSTOM_ID: target-custom-id
+:ID: target-id-001
+:END:
+
+Back links:
+
+- [[file:index.org]]
+- [[file:sub/child.org]]
+- [[file:other/peer.org::*Peer heading]]
+
+* Duplicate title
+
+This is here for later heading-title ambiguity tests.
+
+* Duplicate title
+
+This second duplicate is also intentional.

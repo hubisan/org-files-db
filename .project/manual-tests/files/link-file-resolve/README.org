@@ -1,0 +1,18 @@
+#+TITLE: Org link resolver test fixtures
+
+This fixture set is intended for org-files-db Phase 4 file-link resolution tests.
+
+Suggested indexed root:
+
+#+begin_src toml
+[[dirs]]
+path = "notes"
+recursive = true
+#+end_src
+
+Expected high-level behavior:
+
+- Links to files under ~notes/~ should resolve when the target exists.
+- Links to missing files under ~notes/~ should be marked broken if the recursive root is indexed.
+- Links outside ~notes/~ should be unresolved unless those files are also configured/indexed.
+- Search options like ~::*Heading~ and ~::#custom-id~ are intentionally included but should remain raw source facts until later tasks.

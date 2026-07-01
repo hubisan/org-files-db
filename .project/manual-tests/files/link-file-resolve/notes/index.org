@@ -1,0 +1,39 @@
+#+TITLE: Index
+#+STARTUP: showall
+
+* Main index
+:PROPERTIES:
+:CUSTOM_ID: main-index
+:ID: index-id-001
+:END:
+
+Resolved file links:
+
+- [[file:target.org]]
+- [[file:sub/child.org]]
+- [[file:other/peer.org]]
+- [[./target.org]]
+- [[./sub/child.org]]
+
+Links with search options that should keep ~search_option~ raw for now:
+
+- [[file:target.org::*Target heading]]
+- [[file:target.org::#target-custom-id]]
+- [[file:sub/child.org::*Child heading]]
+- [[file:sub/child.org::#child-custom-id]]
+
+Missing in-universe targets when ~notes/~ is indexed recursively:
+
+- [[file:missing.org]]
+- [[file:sub/missing-child.org]]
+- [[./other/missing-peer.org]]
+
+External/outside-universe target if only ~notes/~ is indexed:
+
+- [[file:../external/outside.org]]
+
+Unsupported non-file examples:
+
+- [[id:target-id-001]]
+- [[#main-index]]
+- [[https://example.org]]

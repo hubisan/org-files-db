@@ -103,21 +103,26 @@ Task file: [[./archive/2026-07-01--define-phase-4-link-resolution-db-contract.or
 
 Task file: [[./archive/2026-07-01--implement-deterministic-link-resolution-pass-after-rebuild.org]]
 
-** TODO [#A] Resolve file links to known indexed files
+** REVIEW [#A] Resolve file links to known indexed files
 :PROPERTIES:
 :PRIORITY: High
-:RISK: High
+:RISK: Medium
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Maybe
 :END:
 
+Task file: [[./2026-07-01--resolve-file-links-to-known-indexed-files.org][2026-07-01--resolve-file-links-to-known-indexed-files.org]]
+
 Depends on:
 
-- [[*Implement deterministic link resolution pass after rebuild][Implement deterministic link resolution pass after rebuild]]
+- [[*\[2026-07-01 Wed\] Implement deterministic link resolution pass after rebuild][Implement deterministic link resolution pass after rebuild]]
 
 Goal:
 
-- Resolve ~file:~ links and implicit file links to indexed files.
+- Resolve file-like links to known indexed files.
+- Populate file target fields in the existing Phase 4 resolver pass.
+- Keep search options as raw source facts.
+- Do not resolve headings, CUSTOM_IDs, IDs, attachments, or file search options in this task.
 
 Supported source facts:
 
@@ -133,31 +138,89 @@ Supported source facts:
 
 Resolution rules:
 
+- Resolve only links classified as file-like by Phase 3.
 - Relative paths are interpreted relative to the source file's parent directory.
-- ~~~ is expanded consistently with config path handling.
+- Home-relative paths using ~~~ are expanded consistently with existing config path handling.
 - Absolute paths are normalized syntactically in the same style as indexed file paths.
-- The normalized absolute target path is stored in ~path_absolute~.
-- If the target path matches a known row in ~files.path~, set:
+- Store the normalized absolute target path in ~path_absolute~ when path normalization succeeds.
+- If the normalized target path matches a known row in ~files.path~, set:
   - ~target_file_id~
   - ~resolution_status = resolved~
-- If the target path does not match an indexed file, set:
+  - ~resolution_diagnostic = NULL~
+- If the normalized target path does not match an indexed file but is inside the configured indexed/discovery universe and is known to be absent, set:
   - ~target_file_id = NULL~
   - ~resolution_status = broken~
-  - ~resolution_diagnostic~ explaining that the file target is not indexed or missing.
+  - ~resolution_diagnostic~ explaining that the target file is missing from the indexed universe.
+- If the normalized target path is outside the configured indexed/discovery universe, set:
+  - ~target_file_id = NULL~
+  - ~resolution_status = unresolved~
+  - ~resolution_diagnostic~ explaining that the file target is outside the indexed universe.
+- If the path cannot be normalized safely, set:
+  - ~target_file_id = NULL~
+  - ~path_absolute = NULL~
+  - ~resolution_status = unsupported~
+  - ~resolution_diagnostic~ explaining that the path form is unsupported.
 - Preserve ~search_option~ as a raw source fact.
-- Do not resolve ~search_option~ to headings in this task.
+- Do not use ~search_option~ to resolve headings in this task.
+
+Indexed/discovery universe rules:
+
+- The indexed universe consists of configured file roots and directory roots after applying the current discovery settings.
+- A target path is inside the indexed universe if it is under a configured recursive directory root, exactly equal to a configured non-recursive file root, or exactly equal to a discovered file in a configured non-recursive directory root.
+- A target path outside this universe must not be marked ~broken~ merely because it has no matching ~files~ row.
+- Do not scan arbitrary directories from link targets to decide whether external files exist.
+- Do not add non-indexed files to the DB.
+
+Resolver integration rules:
+
+- Integrate this into the existing ~LinkResolver::resolve_all~ framework.
+- Continue resetting resolver-owned fields before resolving.
+- Visit links in deterministic order.
+- File-like resolver logic should run before the generic unsupported fallback.
+- Non-file-like links continue to be marked ~unsupported~ by the fallback.
+- Do not modify raw source-fact fields:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~link_type~
+  - ~path~
+  - ~search_option~
+  - ~byte_start~
+  - ~byte_end~
+  - ~line~
+  - ~source_context~
+
+Out of scope:
+
+- Do not resolve ~search_option~ to headings.
+- Do not resolve ~file:...::#CUSTOM_ID~ in this task.
+- Do not resolve ~file:...::*Heading~ in this task.
+- Do not resolve ~id:~ links.
+- Do not resolve ~CUSTOM_ID~ links.
+- Do not resolve ~attachment:~ links.
+- Do not add non-indexed files to the DB.
+- Do not perform filesystem discovery from link targets.
+- Do not execute, open, or follow link targets.
 
 Acceptance criteria:
 
 - Relative ~file:~ links resolve relative to the source file.
 - Absolute ~file:~ links resolve to known indexed files.
-- Home-relative ~file:~/...~ links resolve consistently.
-- Missing files are marked ~broken~.
-- ~path_absolute~ is stored for file-like links when path normalization succeeds.
+- Home-relative ~file:~/...~ links resolve consistently with config path handling.
+- Implicit file bracket links resolve to known indexed files.
+- Resolved file links set ~path_absolute~, ~target_file_id~, and ~resolution_status = resolved~.
+- File links inside the indexed universe but missing from indexed files are marked ~broken~.
+- File links outside the indexed universe are marked ~unresolved~, not ~broken~.
+- Unsupported path forms are marked ~unsupported~ without inventing a target.
 - Existing ~search_option~ values remain unchanged.
+- Non-file-like links continue to use the unsupported fallback.
 - Link rows are not deleted when a target file disappears from the indexed set.
 - Tests cover a rebuild where the source file remains indexed and the target file is removed.
 - Tests cover deterministic ordering-independent resolution across multiple indexed files.
+- Tests cover an external file target outside the indexed universe being marked ~unresolved~.
+- Tests verify raw link fields are unchanged after file-link resolution.
+- No heading, CUSTOM_ID, ID, attachment, or search-option resolution is implemented in this task.
+- ~make ci~ passes.
 
 ** TODO [#A] Resolve attachment links where the attachment base is known
 :PROPERTIES:
@@ -222,6 +285,57 @@ Acceptance criteria:
 - Attachment resolution does not execute or open targets.
 - Tests cover resolved, broken, and unsupported attachment links.
 - Tests cover attachment links attached to the correct source heading.
+  
+** TODO [#B] Resolve file links with heading-title search options
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+
+Goal:
+
+- Resolve ~file:...::*Heading~ links to both the target file and, when possible, the matching heading in that file.
+
+Supported forms:
+
+- ~[[file:notes.org::*Heading]]~
+- ~[[file:notes.org::*TODO Heading]]~
+- ~[[file:notes.org::*\[2026-07-01 Wed\] Implement deterministic link resolution pass after rebuild]]~
+
+Resolution rules:
+
+- First resolve the file path.
+- If file resolution fails, do not attempt heading-title resolution.
+- Interpret ~search_option~ beginning with ~*~ as heading-title search.
+- Search headings only in the resolved target file.
+- Match against the documented stored heading title representation.
+- If exactly one heading matches:
+  - keep ~target_file_id~
+  - set ~target_heading_id~
+  - set ~resolution_status = resolved~
+- If no heading matches:
+  - keep ~target_file_id~
+  - set ~target_heading_id = NULL~
+  - set ~resolution_status = broken~
+- If multiple headings match:
+  - keep ~target_file_id~
+  - set ~target_heading_id = NULL~
+  - set ~resolution_status = ambiguous~
+
+Acceptance criteria:
+
+- ~file:...::*Heading~ resolves to the target file first.
+- Matching heading-title search options resolve to ~target_heading_id~.
+- Escaped bracket syntax like ~\[2026-07-01 Wed\]~ is handled correctly.
+- Missing headings in a resolved target file are marked ~broken~.
+- Duplicate matching headings in the target file are marked ~ambiguous~.
+- Heading-title lookup does not scan unrelated files.
 
 ** TODO [#A] Resolve property-based heading links
 :PROPERTIES:

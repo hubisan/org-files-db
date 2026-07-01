@@ -1,11 +1,14 @@
 db_path = "./data/org-files-db.sqlite"
+
 files = []
-dirs = ["./files"]
+
+[[dirs]]
+path = "./files/link-file-resolve/notes/"
 recursive = true
 
 [search]
 fts5_enabled = false
-index_body_text = true
+index_body_text = false
 
 [links]
 custom_protocols = ["jira", "customlink"]
