@@ -81,6 +81,7 @@ Recommended ~resolution_status~ values:
 
 Status semantics:
 
+- is ~NULL~ means not attempted
 - ~unresolved~ means resolution was attempted but the available universe is not known to be complete.
 - ~broken~ means the target is missing inside a known complete context.
 - ~ambiguous~ means more than one valid target exists in the applicable context.
@@ -94,99 +95,14 @@ Important distinction:
 - A missing ~CUSTOM_ID~ can be broken when the target file context is known.
 - A missing ~id:~ should be ~unresolved~ unless a complete Org ID location universe is available.
 
-** TODO [#A] Define Phase 4 link resolution DB contract
+** DONE [2026-07-01 Wed] Define Phase 4 link resolution DB contract
+
+Task file: [[./archive/2026-07-01--define-phase-4-link-resolution-db-contract.org]]
+
+** BUILD [#A] Implement deterministic link resolution pass after rebuild
 :PROPERTIES:
 :PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-
-Goal:
-
-- Finalize how link resolution state is represented in the DB before implementing resolvers.
-- Keep raw source columns as immutable source facts.
-- Extend the current target fields with explicit resolution state.
-
-Current schema already has:
-
-- ~path_absolute~
-- ~target_file_id~
-- ~target_heading_id~
-- ~target_custom_id~
-- ~target_id~
-
-Problem:
-
-- Nullable target references alone cannot distinguish:
-  - not attempted
-  - resolved
-  - broken
-  - ambiguous
-  - unsupported
-  - unresolved because the complete target universe is unknown
-- A NULL target alone is not enough because target deletion may also set target FKs to NULL.
-
-Add fields:
-
-- ~resolution_status~
-- ~resolution_diagnostic~
-
-Allowed ~resolution_status~ values:
-
-- ~unresolved~
-- ~resolved~
-- ~broken~
-- ~ambiguous~
-- ~unsupported~
-
-Rules:
-
-- Raw fields remain unchanged:
-  - ~raw~
-  - ~raw_target~
-  - ~raw_description~
-  - ~link_type~
-  - ~path~
-  - ~search_option~
-  - ~byte_start~
-  - ~byte_end~
-  - ~line~
-  - ~source_context~
-- Target fields may be updated by the resolver:
-  - ~path_absolute~
-  - ~target_file_id~
-  - ~target_heading_id~
-  - ~target_custom_id~
-  - ~target_id~
-  - ~resolution_status~
-  - ~resolution_diagnostic~
-- Broken links keep their raw source facts.
-- Ambiguous links keep their raw source facts and must not pick an arbitrary target.
-- Unsupported links keep their raw source facts.
-- Unresolved links keep their raw source facts and represent incomplete target-universe knowledge.
-- Target FK deletion uses ~ON DELETE SET NULL~ and must not delete source link rows.
-- If a target FK is set to NULL by deletion, resolution state must become consistent on the next resolution pass.
-
-Acceptance criteria:
-
-- Schema migration adds explicit resolution state.
-- Existing Phase 3 link source-fact tests still pass.
-- Legacy migration tests cover the new columns.
-- DB tests cover target heading deletion setting ~target_heading_id~ to NULL.
-- DB tests cover target file deletion setting ~target_file_id~ to NULL.
-- Tests prove source link rows survive target deletion.
-- Tests cover all allowed ~resolution_status~ values.
-- Naming is consistent with the existing schema; do not mix ~target_*~ and ~resolved_*~ for the same concept.
-
-** TODO [#A] Implement deterministic link resolution pass after rebuild
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
+:RISK: Medium
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: No
 :END:
@@ -197,14 +113,19 @@ Depends on:
 
 Goal:
 
-- Add a deterministic resolver pass that runs after raw indexing has inserted all files, headings, properties, outline paths, and links.
+- Add the Phase 4 resolver orchestration pass after raw indexing has inserted all files, headings, properties, outline paths, and links.
+- Do not implement concrete file, CUSTOM_ID, ID, or attachment resolution in this task.
+- Establish the deterministic resolver framework that later resolver tasks can plug into.
+- In this task, unsupported fallback is the only resolver behavior.
 
 Implementation notes:
 
 - Do not resolve links inside per-file indexing while a single file is being inserted.
 - Resolve after all pending files are indexed in the rebuild transaction.
-- This is required because links may target files, headings, or properties from files indexed later in the same rebuild.
+- This is required because later resolver tasks may target files, headings, or properties from files indexed later in the same rebuild.
 - Prefer a small resolver module over spreading resolution SQL through the indexer.
+- The pass should run in the same rebuild transaction as indexing.
+- The pass should be deterministic even before concrete resolvers exist.
 
 Suggested shape:
 
@@ -212,27 +133,73 @@ Suggested shape:
   LinkResolver::resolve_all(&tx)?;
 #+end_src
 
-Resolver responsibilities:
+Initial resolver behavior:
 
-- Reset previous resolution fields for all links before resolving.
-- Resolve supported link types in deterministic order.
-- Mark unsupported link forms as ~unsupported~.
-- Mark missing targets as ~broken~ only when the target context is known to be complete.
-- Mark duplicate matches as ~ambiguous~.
-- Mark missing global Org IDs as ~unresolved~ unless a complete Org ID location universe is available.
-- Never modify raw source-fact fields.
+- Reset resolver-owned fields for all links before resolving:
+  - ~path_absolute~
+  - ~target_file_id~
+  - ~target_heading_id~
+  - ~target_custom_id~
+  - ~target_id~
+  - ~resolution_status~
+  - ~resolution_diagnostic~
+- Visit links in deterministic order:
+  - ~file_id~
+  - ~byte_start~
+  - ~id~
+- Mark all currently unsupported link forms as:
+  - ~resolution_status = unsupported~
+- Use a stable diagnostic such as:
+  - ~no resolver implemented for link_type~
+- Never modify raw source-fact fields:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~link_type~
+  - ~path~
+  - ~search_option~
+  - ~byte_start~
+  - ~byte_end~
+  - ~line~
+  - ~source_context~
 - Never execute link targets.
+- Never open files through link targets.
+- Never perform filesystem discovery from link targets.
+
+Out of scope:
+
+- Resolving ~file:~ links.
+- Resolving same-file CUSTOM_ID links.
+- Resolving cross-file CUSTOM_ID links.
+- Resolving ~id:~ links.
+- Resolving ~attachment:~ links.
+- Resolving heading-title, regexp, line-number, or dedicated-target search options.
+- Exposing resolution fields in ~links --json~ unless existing internal query structs require it.
+- Do not implement ~file:~ resolution.
+- Do not implement same-file or cross-file ~CUSTOM_ID~ resolution.
+- Do not implement ~id:~ resolution.
+- Do not implement ~attachment:~ resolution.
+- Do not resolve heading-title, regexp, line-number, or dedicated-target search options.
+- Do not expose resolution fields in ~links --json~ unless required by existing internal structs.
+- Do not perform filesystem discovery from link targets.
+- Do not execute, open, or follow link targets.
 
 Acceptance criteria:
 
 - Rebuild remains transactional.
+- The resolver pass runs after raw indexing for the rebuild has completed.
 - Resolution sees all files from the current rebuild.
 - Running rebuild twice produces the same resolution fields.
-- Resolver updates only target/resolution fields.
-- Tests cover cross-file resolution where the target file is indexed after the source file.
+- Resolver updates only resolver-owned target/resolution fields.
+- Existing raw link source facts remain unchanged after the resolver pass.
+- Unsupported links are marked with ~resolution_status = unsupported~.
+- Pre-existing stale resolver-owned values are reset before the pass writes new state.
+- Tests cover a cross-file fixture where the target file is indexed after the source file, proving the resolver pass runs after all files are indexed.
 - Tests cover repeat rebuild consistency.
 - Tests cover unsupported link types staying as stored raw facts with ~resolution_status = unsupported~.
 - Tests verify raw link fields are unchanged after resolution.
+- No concrete file, CUSTOM_ID, ID, or attachment resolver logic is implemented in this task.
+- ~make ci~ passes.
 
 ** TODO [#A] Resolve file links to known indexed files
 :PROPERTIES:

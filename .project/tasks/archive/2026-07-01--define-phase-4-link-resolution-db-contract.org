@@ -1,0 +1,197 @@
+#+TITLE: Define Phase 4 link resolution DB contract
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-01 Wed 20:20]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Start Phase 4 and implement the =BUILD= task =Define Phase 4 link resolution DB contract=.
+  - Read the introduction first and follow =AGENTS.md=.
+  - Finalize the DB representation for link resolution state before implementing resolvers.
+  - Keep raw link source facts immutable and extend the existing target fields with explicit resolution state.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** BUILD [#A] Define Phase 4 link resolution DB contract
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[#phase3-link-contract][Phase 3 link extraction contract]]
+
+Goal:
+
+- Finalize how link resolution state is represented in the DB before implementing resolvers.
+- Keep raw source columns as immutable source facts.
+- Extend the current target fields with explicit resolution state.
+
+Current schema already has:
+
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+
+Problem:
+
+- Nullable target references alone cannot distinguish:
+  - not attempted
+  - resolved
+  - broken
+  - ambiguous
+  - unsupported
+  - unresolved because the complete target universe is unknown
+- A NULL target alone is not enough because target deletion may also set target FKs to NULL.
+
+Add fields:
+
+- ~resolution_status~
+- ~resolution_diagnostic~
+
+Allowed ~resolution_status~ values:
+
+- ~unresolved~
+- ~resolved~
+- ~broken~
+- ~ambiguous~
+- ~unsupported~
+
+Rules:
+
+- Raw fields remain unchanged:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~link_type~
+  - ~path~
+  - ~search_option~
+  - ~byte_start~
+  - ~byte_end~
+  - ~line~
+  - ~source_context~
+- Target fields may be updated by the resolver:
+  - ~path_absolute~
+  - ~target_file_id~
+  - ~target_heading_id~
+  - ~target_custom_id~
+  - ~target_id~
+  - ~resolution_status~
+  - ~resolution_diagnostic~
+- Broken links keep their raw source facts.
+- Ambiguous links keep their raw source facts and must not pick an arbitrary target.
+- Unsupported links keep their raw source facts.
+- Unresolved links keep their raw source facts and represent incomplete target-universe knowledge.
+- Target FK deletion uses ~ON DELETE SET NULL~ and must not delete source link rows.
+- If a target FK is set to NULL by deletion, resolution state must become consistent on the next resolution pass.
+
+Acceptance criteria:
+
+- Schema migration adds explicit resolution state.
+- Existing Phase 3 link source-fact tests still pass.
+- Legacy migration tests cover the new columns.
+- DB tests cover target heading deletion setting ~target_heading_id~ to NULL.
+- DB tests cover target file deletion setting ~target_file_id~ to NULL.
+- Tests prove source link rows survive target deletion.
+- Tests cover all allowed ~resolution_status~ values.
+- Naming is consistent with the existing schema; do not mix ~target_*~ and ~resolved_*~ for the same concept.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The =links= table currently relies on nullable target columns alone, which cannot distinguish resolver outcomes from untouched rows or FK nulling caused by target deletion.
+- Phase 4 needs a stable DB contract before any resolver implementation can safely update link rows.
+
+** Goals
+- Add explicit link resolution state columns to the persisted schema.
+- Preserve Phase 3 raw link source facts and keep them immutable.
+- Keep the existing =target_*= naming and align migrations/tests with the new contract.
+
+** Non-goals
+- No resolver implementation in this task.
+- No change to stored raw link extraction semantics.
+- No new CLI surface for resolution state in this task.
+
+** Architecture
+- Extend the authoritative SQLite schema and schema-version contract.
+- Teach legacy links migration to populate the new columns deterministically.
+- Expand DB tests to cover allowed statuses and FK nulling behavior after target deletion.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Update =links= schema comments, columns, and migration detection for explicit resolution state.
+- Refresh DB and writer tests to cover the new contract and keep Phase 3 expectations intact.
+- Run focused tests and =make ci= if feasible, then record results and move the task to =REVIEW=.
+
+** Risks & assumptions
+- Assumption: a persisted column addition requires bumping =CURRENT_SCHEMA_VERSION=.
+- Risk: legacy migration tests and any direct SQL fixtures may need widening to insert or assert the new columns explicitly.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test db_writer -- --nocapture=
+- =cargo test db:: -- --nocapture=
+- =cargo test indexer::tests::rebuild_stores_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Added =resolution_status= and =resolution_diagnostic= to the authoritative =links= schema while keeping the raw Phase 3 source-fact columns unchanged.
+- Kept =resolution_status= nullable so pre-resolver rows still represent =not attempted= without overloading =unresolved=, and constrained non-NULL values to the five approved Phase 4 states.
+- Bumped =CURRENT_SCHEMA_VERSION= to =3= and widened link-table migration logic so both the old placeholder links schema and the Phase 3 schema upgrade cleanly into the new contract.
+- Review follow-up kept the nullable status model unchanged and added a negative DB assertion that invalid non-NULL values such as =stale= are rejected by the schema CHECK constraint.
+- Expanded DB coverage for:
+  - legacy migration into the new columns
+  - Phase 3-to-Phase 4 schema upgrade
+  - source link survival when target heading/file rows are deleted
+  - all allowed =resolution_status= values
+  - invalid non-NULL =resolution_status= values being rejected
+  - writer inserts leaving resolver-owned fields unset
+
+** Changed files
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-01--define-phase-4-link-resolution-db-contract.org=
+- =CHANGELOG.org=
+- =README.org=
+- =sql/schema.sql=
+- =src/db.rs=
+- =src/db/schema.rs=
+- =src/db/writer.rs=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test db_writer -- --nocapture=
+- =cargo test db:: -- --nocapture=
+- =make ci=
+
+** Test results
+- Full CI passed, including =cargo fmt --check=, =clippy -D warnings=, the full test suite, and =cargo build --all-targets --all-features=.
+- DB tests now prove:
+  - all allowed =resolution_status= values are accepted
+  - invalid non-NULL =resolution_status= values such as =stale= are rejected by the CHECK constraint
+  - legacy placeholder links migrate into =resolution_status= / =resolution_diagnostic=
+  - existing Phase 3 links tables upgrade with the new columns left =NULL=
+  - deleting a target heading sets =target_heading_id = NULL= without deleting the source link row
+  - deleting a target file sets =target_file_id = NULL= without deleting the source link row
+- Existing Phase 3 link source-fact behavior remains green through the full test suite, including indexer/link JSON coverage.
+
+** Blockers
+- None.
+
+** Follow-ups
+- The next Phase 4 task can implement the resolver pass against the now-explicit target/resolution contract without renaming the existing =target_*= columns.

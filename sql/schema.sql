@@ -597,8 +597,20 @@ CREATE TABLE IF NOT EXISTS tags (
     Absolute path for file-like links when later resolution populates it.
 
   path_absolute / target_file_id / target_heading_id / target_custom_id / target_id:
-    Deferred nullable Phase 4 resolution fields. They remain untouched in
-    Phase 3.
+    Deferred nullable target fields updated by the Phase 4 resolver.
+
+  resolution_status:
+    Explicit resolver state.
+    NULL means no resolution pass has populated this row yet.
+    When non-NULL it must be one of:
+      unresolved
+      resolved
+      broken
+      ambiguous
+      unsupported
+
+  resolution_diagnostic:
+    Optional stable diagnostic text written by the resolver.
 */
 CREATE TABLE IF NOT EXISTS links (
     id                  INTEGER PRIMARY KEY,
@@ -631,6 +643,17 @@ CREATE TABLE IF NOT EXISTS links (
     target_heading_id   INTEGER,
     target_custom_id    TEXT,
     target_id           TEXT,
+    resolution_status   TEXT CHECK (
+                            resolution_status IN (
+                                'unresolved',
+                                'resolved',
+                                'broken',
+                                'ambiguous',
+                                'unsupported'
+                            )
+                            OR resolution_status IS NULL
+                        ),
+    resolution_diagnostic TEXT,
     FOREIGN KEY (file_id)
         REFERENCES files(id)
         ON DELETE CASCADE,

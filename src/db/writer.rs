@@ -493,9 +493,10 @@ impl DbWriter {
                     "INSERT INTO links
                      (id, file_id, heading_id, byte_start, byte_end, line, source_context, format,
                       raw, raw_target, raw_description, link_type, path, search_option,
-                      path_absolute, target_file_id, target_heading_id, target_custom_id, target_id)
+                      path_absolute, target_file_id, target_heading_id, target_custom_id, target_id,
+                      resolution_status, resolution_diagnostic)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                             ?15, ?16, ?17, ?18, ?19)",
+                             ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                     params![
                         row.id,
                         row.file_id,
@@ -514,6 +515,8 @@ impl DbWriter {
                         Option::<String>::None,
                         Option::<i64>::None,
                         Option::<i64>::None,
+                        Option::<String>::None,
+                        Option::<String>::None,
                         Option::<String>::None,
                         Option::<String>::None
                     ],
@@ -1057,7 +1060,9 @@ mod tests {
                     OR target_file_id IS NOT NULL
                     OR target_heading_id IS NOT NULL
                     OR target_custom_id IS NOT NULL
-                    OR target_id IS NOT NULL",
+                    OR target_id IS NOT NULL
+                    OR resolution_status IS NOT NULL
+                    OR resolution_diagnostic IS NOT NULL",
                 [],
                 |row| row.get(0),
             )

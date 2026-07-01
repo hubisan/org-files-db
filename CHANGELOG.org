@@ -7,6 +7,7 @@ This file records completed changes.
 :VISIBILITY: all
 :END:
 
+- =CHANGED= Added explicit link resolution state columns to the SQLite =links= table while keeping raw link source facts immutable.
 - =ADDED= Evaluated minimal Orgize adapter.
 - =ADDED= Added parser-owned document, heading, planning, property, and diagnostic types plus contract tests for backend-independent parser behavior.
 - =ADDED= Added a fresh Rust crate scaffold with parser, indexer, DB, query, config, and CLI module boundaries for the new parser-first architecture.

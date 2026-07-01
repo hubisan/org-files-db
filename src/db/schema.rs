@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -456,10 +456,11 @@ fn migrate_legacy_links_table(connection: &Connection) -> rusqlite::Result<()> {
     }
 
     let columns = table_columns(connection, "links")?;
-    if links_table_matches_phase3_contract(&columns) {
+    if links_table_matches_current_contract(&columns) {
         return Ok(());
     }
 
+    let migration_sql = render_links_migration_sql(&columns);
     connection.execute_batch(
         r#"
 ALTER TABLE links RENAME TO links_legacy;
@@ -467,60 +468,7 @@ ALTER TABLE links RENAME TO links_legacy;
     )?;
     drop_indexes_for_table(connection, "links_legacy")?;
     connection.execute_batch(CORE_SCHEMA_SQL)?;
-    connection.execute_batch(
-        r#"
-INSERT INTO links (
-    id,
-    file_id,
-    heading_id,
-    byte_start,
-    byte_end,
-    line,
-    source_context,
-    format,
-    raw,
-    raw_target,
-    raw_description,
-    link_type,
-    path,
-    search_option,
-    path_absolute,
-    target_file_id,
-    target_heading_id,
-    target_custom_id,
-    target_id
-)
-SELECT
-    id,
-    file_id,
-    heading_id,
-    byte_start,
-    byte_end,
-    COALESCE(line_number, 1) AS line,
-    'normal' AS source_context,
-    COALESCE(format, 'plain') AS format,
-    raw_link AS raw,
-    CASE
-        WHEN link_type IS NOT NULL AND search_option IS NOT NULL
-            THEN lower(link_type) || ':' || target || '::' || search_option
-        WHEN link_type IS NOT NULL
-            THEN lower(link_type) || ':' || target
-        ELSE target
-    END AS raw_target,
-    description AS raw_description,
-    COALESCE(lower(link_type), 'unknown') AS link_type,
-    target AS path,
-    search_option,
-    target_absolute AS path_absolute,
-    resolved_file_id AS target_file_id,
-    resolved_heading_id AS target_heading_id,
-    NULL AS target_custom_id,
-    NULL AS target_id
-FROM links_legacy;
-
-DROP TABLE links_legacy;
-"#,
-    )?;
+    connection.execute_batch(&migration_sql)?;
     ensure_links_indexes(connection)?;
 
     Ok(())
@@ -546,7 +494,7 @@ fn table_columns(connection: &Connection, table_name: &str) -> rusqlite::Result<
     Ok(columns)
 }
 
-fn links_table_matches_phase3_contract(columns: &[String]) -> bool {
+fn links_table_matches_current_contract(columns: &[String]) -> bool {
     columns.iter().any(|column| column == "line")
         && columns.iter().any(|column| column == "source_context")
         && columns.iter().any(|column| column == "raw")
@@ -559,6 +507,10 @@ fn links_table_matches_phase3_contract(columns: &[String]) -> bool {
         && columns.iter().any(|column| column == "target_heading_id")
         && columns.iter().any(|column| column == "target_custom_id")
         && columns.iter().any(|column| column == "target_id")
+        && columns.iter().any(|column| column == "resolution_status")
+        && columns
+            .iter()
+            .any(|column| column == "resolution_diagnostic")
         && !columns.iter().any(|column| column == "line_number")
         && !columns.iter().any(|column| column == "target")
         && !columns.iter().any(|column| column == "raw_link")
@@ -569,6 +521,162 @@ fn links_table_matches_phase3_contract(columns: &[String]) -> bool {
         && !columns.iter().any(|column| column == "resolved")
         && !columns.iter().any(|column| column == "broken")
         && !columns.iter().any(|column| column == "diagnostic")
+}
+
+fn render_links_migration_sql(columns: &[String]) -> String {
+    let line_expr = if has_column(columns, "line") {
+        "line"
+    } else {
+        "COALESCE(line_number, 1)"
+    };
+    let source_context_expr = if has_column(columns, "source_context") {
+        "source_context"
+    } else {
+        "'normal'"
+    };
+    let raw_expr = if has_column(columns, "raw") {
+        "raw"
+    } else {
+        "raw_link"
+    };
+    let raw_target_expr = if has_column(columns, "raw_target") {
+        "raw_target"
+    } else {
+        r#"CASE
+        WHEN link_type IS NOT NULL AND search_option IS NOT NULL
+            THEN lower(link_type) || ':' || target || '::' || search_option
+        WHEN link_type IS NOT NULL
+            THEN lower(link_type) || ':' || target
+        ELSE target
+    END"#
+    };
+    let raw_description_expr = if has_column(columns, "raw_description") {
+        "raw_description"
+    } else {
+        "description"
+    };
+    let link_type_expr = if has_column(columns, "path") {
+        "link_type"
+    } else {
+        "COALESCE(lower(link_type), 'unknown')"
+    };
+    let path_expr = if has_column(columns, "path") {
+        "path"
+    } else {
+        "target"
+    };
+    let path_absolute_expr = if has_column(columns, "path_absolute") {
+        "path_absolute"
+    } else {
+        "target_absolute"
+    };
+    let target_file_id_expr = if has_column(columns, "target_file_id") {
+        "target_file_id"
+    } else {
+        "resolved_file_id"
+    };
+    let target_heading_id_expr = if has_column(columns, "target_heading_id") {
+        "target_heading_id"
+    } else {
+        "resolved_heading_id"
+    };
+    let target_custom_id_expr = if has_column(columns, "target_custom_id") {
+        "target_custom_id"
+    } else {
+        "NULL"
+    };
+    let target_id_expr = if has_column(columns, "target_id") {
+        "target_id"
+    } else {
+        "NULL"
+    };
+    let legacy_resolved_expr = if has_column(columns, "resolved") {
+        "resolved"
+    } else {
+        "0"
+    };
+    let legacy_broken_expr = if has_column(columns, "broken") {
+        "broken"
+    } else {
+        "0"
+    };
+    let resolution_status_expr = if has_column(columns, "resolution_status") {
+        "resolution_status".to_string()
+    } else if has_column(columns, "resolved") || has_column(columns, "broken") {
+        format!(
+            r#"CASE
+        WHEN {legacy_resolved_expr} = 1 THEN 'resolved'
+        WHEN {legacy_broken_expr} = 1 THEN 'broken'
+        ELSE NULL
+    END"#
+        )
+    } else {
+        "NULL".to_string()
+    };
+    let resolution_diagnostic_expr = if has_column(columns, "resolution_diagnostic") {
+        "resolution_diagnostic"
+    } else if has_column(columns, "diagnostic") {
+        "diagnostic"
+    } else {
+        "NULL"
+    };
+
+    format!(
+        r#"
+INSERT INTO links (
+    id,
+    file_id,
+    heading_id,
+    byte_start,
+    byte_end,
+    line,
+    source_context,
+    format,
+    raw,
+    raw_target,
+    raw_description,
+    link_type,
+    path,
+    search_option,
+    path_absolute,
+    target_file_id,
+    target_heading_id,
+    target_custom_id,
+    target_id,
+    resolution_status,
+    resolution_diagnostic
+)
+SELECT
+    id,
+    file_id,
+    heading_id,
+    byte_start,
+    byte_end,
+    {line_expr} AS line,
+    {source_context_expr} AS source_context,
+    COALESCE(format, 'plain') AS format,
+    {raw_expr} AS raw,
+    {raw_target_expr} AS raw_target,
+    {raw_description_expr} AS raw_description,
+    {link_type_expr} AS link_type,
+    {path_expr} AS path,
+    search_option,
+    {path_absolute_expr} AS path_absolute,
+    {target_file_id_expr} AS target_file_id,
+    {target_heading_id_expr} AS target_heading_id,
+    {target_custom_id_expr} AS target_custom_id,
+    {target_id_expr} AS target_id,
+    {resolution_status_expr} AS resolution_status,
+    {resolution_diagnostic_expr} AS resolution_diagnostic
+FROM links_legacy;
+
+DROP TABLE links_legacy;
+"#,
+    )
+}
+
+fn has_column(columns: &[String], name: &str) -> bool {
+    columns.iter().any(|column| column == name)
 }
 
 fn drop_indexes_for_table(connection: &Connection, table_name: &str) -> rusqlite::Result<()> {
