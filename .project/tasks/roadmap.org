@@ -331,6 +331,15 @@ Acceptance criteria:
 - Results include heading id, file path, title, and byte_start.
 - Search can optionally include body matches when ~search.index_body_text~ is enabled.
 - Output is usable from Emacs.
+  
+** TODO Operations
+
+There is probably also some operations needed, that are doable with the the CLI:
+
+- Rename file, also fixes links.
+- Update titles in links: If I change a file title, links to it using the title as description should also be changed.
+- Fix broken link: old destination, new destination
+- Warn on changes (watcher): if a change breaks a link.
 
 * Phase 6: Robust initial indexer
 
@@ -535,6 +544,12 @@ General rules:
 - Emacs integration should stay thin until the CLI/API is stable.
 - Results should include file path and byte offsets for editor jumps.
 - UTF-8 byte offset behavior must be documented and tested.
+
+** TODO Have a look at Vulpea, the extensions for inspiration
+
+https://github.com/d12frosted/vulpea/tree/master
+
+Can't use vulpea unfortunately, it only scans entries with IDs and I don't want to use IDs as it makes link implicit [[id:8e4b081a-6bdf-4167-a10d-02caa611b557]] and has no more file name. Imo it is better to use the filename for normal links and custom-id for headings, as in that case, the filename is shown: [[file:template.org::#8e4b081a-6bdf-4167-a10d-02caa611b557]]. This requires a way to rename files without breaking links and a broken link check and a way to fix it. 
 
 ** TODO Write Elisp wrapper for CLI communication
 
@@ -1239,3 +1254,4 @@ Acceptance criteria:
 - Real query needs are reviewed.
 - Caching is only added if measurements or UX needs justify it.
 - Direct property rows remain the source of truth.
+

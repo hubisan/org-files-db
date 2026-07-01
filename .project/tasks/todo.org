@@ -923,167 +923,7 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-06-30--implement-ignored-region-filtering-for-links.org]]
 
-** TODO [#B] Add old link fixture as Phase 3 regression fixture
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Extract bracket links as raw source facts][Extract bracket links as raw source facts]]
-- [[*Handle bracket-link escaping and weird delimiter cases][Handle bracket-link escaping and weird delimiter cases]]
-- [[*Extract angle links][Extract angle links]]
-- [[*Extract plain links with configurable protocols][Extract plain links with configurable protocols]]
-- [[*Implement ignored-region filtering for links][Implement ignored-region filtering for links]]
-
-Goal:
-
-- Turn the old Org link test document into stable Phase 3 regression fixtures.
-- Make expected supported, ignored, and unsupported behavior explicit.
-
-Contract copied from Phase 3 SPEC:
-
-Supported:
-
-- Bracket links:
-  - ~[[target]]~
-  - ~[[target][description]]~
-- Angle links:
-  - ~<type:path>~
-- Configured plain links:
-  - ~type:path~
-- File-like search option splitting for:
-  - ~file~
-  - ~file+sys~
-  - ~file+emacs~
-  - implicit file bracket links
-
-Ignored:
-
-- Verbatim/code markup.
-- Source blocks.
-- Inline source forms where reliably detectable.
-- Example blocks.
-- Colon example lines.
-- Comment blocks.
-- Comment lines.
-- Export blocks.
-- Inline export forms where reliably detectable.
-- File-level keywords, including ~#+PROPERTY~.
-
-Unsupported:
-
-- Radio targets.
-- Link abbreviations.
-- Multi-line bracket links.
-- Multi-line angle links.
-- Relationship markers in descriptions.
-- Dedicated targets as link facts.
-
-Suggested fixture groups:
-
-- ~links_bracket_basic.org~
-- ~links_bracket_escaping.org~
-- ~links_angle.org~
-- ~links_plain.org~
-- ~links_search_options.org~
-- ~links_ignored_regions.org~
-- ~links_source_context.org~
-- ~links_unicode.org~
-- ~links_postponed_or_unsupported.org~
-- ~links_orgize_mismatches.org~
-
-Scope:
-
-- Import or adapt the old link fixture.
-- Split large fixtures into focused files if necessary.
-- Mark each section explicitly as:
-  - supported
-  - ignored
-  - unsupported
-  - known Orgize mismatch
-- Preserve Unicode and byte-position examples.
-- Preserve ignored-region examples.
-- Preserve custom-protocol examples.
-- Preserve search-option examples.
-- Preserve plain-link boundary and path-end examples checked against ~org-element-parse-buffer~.
-- Do not require full org-element equivalence.
-- For plain-link boundary/end cases, document whether the project follows observed Org behavior or intentionally diverges.
-
-Acceptance criteria:
-
-- Fixture expectations are explicit.
-- Each supported behavior has at least one focused test.
-- Each ignored behavior has at least one focused test.
-- Each unsupported behavior has at least one focused test documenting the decision.
-- Unicode tests assert byte offsets, not only character positions.
-- Source context tests cover headings, normal text, drawers, property drawers, and block contexts.
-- Fixture names make failures easy to interpret.
-- Known Orgize mismatches are captured as documented expectations, not accidental failures.
-- Plain-link boundary fixture expectations are explicit and reference observed ~org-element-parse-buffer~ behavior where relevant.
-
-** TODO [#B] Wire link extraction into file rebuild
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Create links DB table and storage functions][Create links DB table and storage functions]]
-- [[*Implement project-owned link scanner skeleton][Implement project-owned link scanner skeleton]]
-- [[*Implement ignored-region filtering for links][Implement ignored-region filtering for links]]
-
-Goal:
-
-- Run link extraction during file rebuild and store link rows transactionally.
-
-Contract copied from Phase 3 SPEC:
-
-- Run scanner after headings are known.
-- Attach links to containing heading by byte range.
-- Links before the first regular heading attach to the synthetic level-0/root heading.
-- Links should always have a ~heading_id~.
-- If a link cannot be attached to any heading including root, that is an indexing invariant violation.
-- Store source facts only.
-- Do not resolve link targets.
-- Do not execute link targets.
-- Store ~source_context~.
-- Delete and reinsert links per file during rebuild.
-- Keep rebuild transactional.
-- Keep read-only commands read-only.
-- Query commands must not trigger rebuilds.
-
-Scope:
-
-- Run scanner in the per-file rebuild path.
-- Pass ignored/parsed structural context into the scanner or filtering layer.
-- Attach each accepted link token to the correct heading/root.
-- Delete old link rows for the file before inserting new link rows.
-- Insert link rows inside the existing rebuild transaction.
-- Preserve existing schema-versioning and migration behavior.
-- Do not trigger rebuild from query commands.
-
-Acceptance criteria:
-
-- Rebuilding a file inserts expected links.
-- Rebuilding the same file twice does not duplicate links.
-- Removing a link from a file removes its DB row on rebuild.
-- Links before the first heading attach to level-0/root.
-- Links under headings attach to the correct heading.
-- Links in property drawers and normal drawers attach to the correct heading and source context.
-- Ignored-region links are not inserted.
-- Existing rebuild/idempotency tests continue to pass.
-- Existing read-only query behavior remains read-only.
-
-** TODO [#B] Provide minimal read-only CLI command links --json
+** BUILD [#B] Implement read-only CLI JSON output for stored links 
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -1095,11 +935,10 @@ Depends on:
 
 - [[#phase3-link-contract][Phase 3 link extraction contract]]
 - [[*Create links DB table and storage functions][Create links DB table and storage functions]]
-- [[*Wire link extraction into file rebuild][Wire link extraction into file rebuild]]
 
 Goal:
 
-- Expose stored link source facts through a read-only CLI command.
+- Expose stored link source facts through a minimal read-only CLI command.
 
 Command:
 
@@ -1107,17 +946,27 @@ Command:
 orgfdb links --json
 #+end_src
 
-Contract copied from Phase 3 SPEC:
+Scope:
 
+- Read link rows from the database only.
 - Output stored source facts only.
-- Do not resolve targets.
+- Do not scan Org files.
+- Do not rebuild files.
+- Do not resolve link targets.
 - Do not mutate the database.
-- Do not rebuild.
+- Do not create relationship output.
+- Do not normalize descriptions.
+- Always include links attached to the synthetic root heading.
+
+Contract:
+
+- The command outputs JSON only when ~--json~ is provided.
+- Output uses ~link_type~, not ~type~.
+- Output includes ~source_context~.
+- Output includes enough source location data for editor jumps.
 - Root links are always included.
-- Do not add ~--no-root~ behavior for links.
-- Use ~link_type~, not ~type~.
-- Include ~source_context~.
-- Include enough source location data for editor jumps.
+- Root links use ~heading_level = 0~.
+- Root links use an empty ~heading_path~, following the existing heading JSON convention.
 - Output ordering is deterministic:
   - ~file_path~
   - ~byte_start~
@@ -1142,13 +991,7 @@ Minimum JSON fields:
 - ~byte_end~
 - ~line~
 
-Root behavior:
-
-- Root links are always included.
-- Root links use ~heading_level = 0~.
-- Root links use an empty ~heading_path~, following the existing heading JSON convention.
-
-Optional filters may be added only if small:
+Optional filters may be added only if they are small and do not complicate the contract:
 
 - ~--file~
 - ~--format~
@@ -1157,22 +1000,111 @@ Optional filters may be added only if small:
 Do not add in Phase 3:
 
 - ~--no-root~
-- resolved target fields in CLI output
+- resolved target fields
 - normalized ~description~
 - relationship output
+- broken-link detection
+- target existence checks
+- automatic rebuild behavior
+- automatic migration behavior
+- a legacy ~type~ output field
+
+Implementation notes:
+
+- Prefer a dedicated read-only query for listing links.
+- Join links with files and headings to provide file path and heading context.
+- Reuse the existing heading JSON convention for ~heading_path~.
+- Treat the synthetic root heading as a normal heading row.
+- Keep the command as a database inspection command, not an analysis command.
+
+Suggested query shape:
+
+#+begin_src sql
+SELECT
+  links.id,
+  links.file_id,
+  files.path AS file_path,
+  links.heading_id,
+  headings.path AS heading_path,
+  headings.level AS heading_level,
+  links.source_context,
+  links.format,
+  links.link_type,
+  links.raw,
+  links.raw_target,
+  links.raw_description,
+  links.path,
+  links.search_option,
+  links.byte_start,
+  links.byte_end,
+  links.line
+FROM links
+JOIN files ON files.id = links.file_id
+JOIN headings ON headings.id = links.heading_id
+ORDER BY
+  files.path ASC,
+  links.byte_start ASC,
+  links.id ASC;
+#+end_src
 
 Acceptance criteria:
 
-- JSON output contract is tested.
-- CLI output includes enough source location data for editor jumps.
-- Level-0/root link behavior is tested.
-- Root links are always included.
-- Command is read-only.
-- Command does not rebuild.
-- Command does not migrate unexpectedly.
-- Output ordering is deterministic.
-- Output uses ~link_type~ and does not expose legacy ~type~.
-- Output includes ~source_context~.
+- [ ] ~orgfdb links --json~ exists.
+- [ ] JSON output contract is tested.
+- [ ] Output includes all minimum JSON fields.
+- [ ] Output includes ~link_type~.
+- [ ] Output does not expose a legacy ~type~ field.
+- [ ] Output includes ~source_context~.
+- [ ] Output includes editor-jump data: ~file_path~, ~byte_start~, ~byte_end~, and ~line~.
+- [ ] Output ordering is deterministic by ~file_path~, ~byte_start~, and ~id~.
+- [ ] Root links are included.
+- [ ] Root links use ~heading_level = 0~.
+- [ ] Root links use an empty ~heading_path~.
+- [ ] Command is read-only.
+- [ ] Command does not scan Org files.
+- [ ] Command does not rebuild files.
+- [ ] Command does not migrate unexpectedly.
+- [ ] Command does not resolve targets.
+- [ ] Command does not emit relationship output.
+
+Test cases:
+
+- JSON contract test:
+  - Create a fixture with bracket links, angle links, plain links, links with descriptions, links without descriptions, and links with search options.
+  - Run ~orgfdb links --json~.
+  - Assert that every output object contains the minimum fields.
+  - Assert that ~link_type~ exists.
+  - Assert that ~type~ does not exist.
+  - Assert that ~source_context~ exists.
+
+- Root link behavior test:
+  - Create an Org fixture with a link before the first regular heading and another link under a normal heading.
+  - Rebuild the file once.
+  - Run ~orgfdb links --json~.
+  - Assert that both links are present.
+  - Assert that the root link has ~heading_level = 0~.
+  - Assert that the root link has ~heading_path = []~.
+
+- Read-only behavior test:
+  - Build a database with stored link rows.
+  - Modify the Org file on disk after the rebuild.
+  - Run ~orgfdb links --json~.
+  - Assert that the output still reflects the stored database facts, not the modified file contents.
+  - Assert that no rebuild was triggered.
+
+- Ordering test:
+  - Create links across multiple files and byte positions.
+  - Run ~orgfdb links --json~.
+  - Assert ordering by:
+    1. ~file_path~
+    2. ~byte_start~
+    3. ~id~
+
+Suggested commit split:
+
+1. Add read-only link listing query.
+2. Expose ~orgfdb links --json~.
+3. Add JSON contract, root behavior, read-only, and ordering tests.
 
 ** TODO [#B] Compare project scanner behavior against Orgize and Emacs org-element
 :PROPERTIES:
