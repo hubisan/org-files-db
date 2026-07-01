@@ -6,6 +6,7 @@ use std::{
 };
 
 use serde::Deserialize;
+use toml::Value;
 
 use crate::{
     parser::{
@@ -19,11 +20,16 @@ use crate::{
 pub struct Config {
     pub db_path: PathBuf,
     pub files: Vec<PathBuf>,
-    pub dirs: Vec<PathBuf>,
-    pub recursive: bool,
+    pub dirs: Vec<ConfiguredDir>,
     pub links: LinkConfig,
     pub todo: TodoConfig,
     pub search: SearchConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfiguredDir {
+    pub path: PathBuf,
+    pub recursive: bool,
 }
 
 impl Config {
@@ -33,7 +39,12 @@ impl Config {
             path: path.to_path_buf(),
             source,
         })?;
-        let raw: RawConfig = toml::from_str(&content).map_err(|source| ConfigError::ParseToml {
+        let value: Value = toml::from_str(&content).map_err(|source| ConfigError::ParseToml {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        reject_legacy_discovery_config(path, &value)?;
+        let raw: RawConfig = value.try_into().map_err(|source| ConfigError::ParseToml {
             path: path.to_path_buf(),
             source,
         })?;
@@ -53,7 +64,6 @@ impl Config {
             db_path: raw_db_path,
             files: raw_files,
             dirs: raw_dirs,
-            recursive,
             links,
             todo,
             search,
@@ -66,7 +76,12 @@ impl Config {
             .collect::<Result<Vec<_>, _>>()?;
         let dirs = raw_dirs
             .into_iter()
-            .map(|dir| resolve_path(&base_dir, dir, home_dir))
+            .map(|dir| {
+                Ok(ConfiguredDir {
+                    path: resolve_path(&base_dir, dir.path, home_dir)?,
+                    recursive: dir.recursive,
+                })
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let todo = todo.unwrap_or(RawTodoConfig {
             default_open_keywords: None,
@@ -82,7 +97,6 @@ impl Config {
             db_path,
             files,
             dirs,
-            recursive,
             links: LinkConfig {
                 plain_protocols: effective_plain_link_protocols(
                     links.plain_protocols,
@@ -156,7 +170,6 @@ impl Default for Config {
             db_path: PathBuf::from("org-files-db.sqlite"),
             files: Vec::new(),
             dirs: Vec::new(),
-            recursive: false,
             links: LinkConfig::default(),
             todo: TodoConfig::default(),
             search: SearchConfig::default(),
@@ -203,6 +216,10 @@ pub enum ConfigError {
         path: PathBuf,
         source: toml::de::Error,
     },
+    UnsupportedConfig {
+        path: PathBuf,
+        message: String,
+    },
     MissingFile {
         path: PathBuf,
     },
@@ -233,6 +250,9 @@ impl fmt::Display for ConfigError {
                     source
                 )
             }
+            Self::UnsupportedConfig { path, message } => {
+                write!(f, "unsupported config in {}: {}", path.display(), message)
+            }
             Self::MissingFile { path } => {
                 write!(f, "configured file does not exist: {}", path.display())
             }
@@ -253,7 +273,8 @@ impl Error for ConfigError {
         match self {
             Self::ReadFile { source, .. } => Some(source),
             Self::ParseToml { source, .. } => Some(source),
-            Self::MissingFile { .. }
+            Self::UnsupportedConfig { .. }
+            | Self::MissingFile { .. }
             | Self::MissingDirectory { .. }
             | Self::MissingHomeDirectory { .. } => None,
         }
@@ -267,12 +288,17 @@ struct RawConfig {
     #[serde(default)]
     files: Vec<PathBuf>,
     #[serde(default)]
-    dirs: Vec<PathBuf>,
-    #[serde(default)]
-    recursive: bool,
+    dirs: Vec<RawConfiguredDir>,
     links: Option<RawLinksConfig>,
     todo: Option<RawTodoConfig>,
     search: Option<RawSearchConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawConfiguredDir {
+    path: PathBuf,
+    #[serde(default)]
+    recursive: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -317,6 +343,36 @@ fn default_closed_keywords() -> Vec<TodoKeyword> {
         .into_iter()
         .map(|spec| parse_todo_keyword_spec(&spec))
         .collect()
+}
+
+fn reject_legacy_discovery_config(path: &Path, value: &Value) -> Result<(), ConfigError> {
+    let Some(table) = value.as_table() else {
+        return Ok(());
+    };
+
+    if table.contains_key("recursive") {
+        return Err(ConfigError::UnsupportedConfig {
+            path: path.to_path_buf(),
+            message: "top-level `recursive` is no longer supported; configure recursion per `[[dirs]]` entry".to_string(),
+        });
+    }
+
+    let Some(dirs) = table.get("dirs") else {
+        return Ok(());
+    };
+
+    let Some(entries) = dirs.as_array() else {
+        return Ok(());
+    };
+
+    if entries.is_empty() || entries.iter().any(|entry| !entry.is_table()) {
+        return Err(ConfigError::UnsupportedConfig {
+            path: path.to_path_buf(),
+            message: "`dirs` must be configured with `[[dirs]]` entries containing at least `path = \"...\"`".to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 fn effective_plain_link_protocols(
@@ -449,8 +505,8 @@ fn current_home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_path, Config, ConfigError, LinkConfig, RawConfig, RawLinksConfig, RawSearchConfig,
-        RawTodoConfig,
+        resolve_path, Config, ConfigError, ConfiguredDir, LinkConfig, RawConfig, RawConfiguredDir,
+        RawLinksConfig, RawSearchConfig, RawTodoConfig,
     };
     use crate::parser::{LinkScannerConfig, ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
@@ -514,7 +570,6 @@ db_path = "db.sqlite"
         assert_eq!(config.db_path, test_dir.path().join("db.sqlite"));
         assert!(config.files.is_empty());
         assert!(config.dirs.is_empty());
-        assert!(!config.recursive);
     }
 
     #[test]
@@ -645,7 +700,8 @@ default_closed_keywords = [" DONE(d) "]
             r#"
 db_path = "../db.sqlite"
 files = ["notes.org"]
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 "#,
         );
@@ -654,8 +710,13 @@ recursive = true
 
         assert_eq!(config.db_path, config_dir.join("../db.sqlite"));
         assert_eq!(config.files, vec![file_path]);
-        assert_eq!(config.dirs, vec![dir_path]);
-        assert!(config.recursive);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: dir_path,
+                recursive: true,
+            }]
+        );
     }
 
     #[test]
@@ -688,7 +749,8 @@ recursive = true
             r#"
 db_path = "./org-files-db.sqlite"
 files = ["./test.org"]
-dirs = ["./notes"]
+[[dirs]]
+path = "./notes"
 "#,
         );
 
@@ -696,7 +758,13 @@ dirs = ["./notes"]
 
         assert_eq!(config.db_path, config_dir.join("org-files-db.sqlite"));
         assert_eq!(config.files, vec![file_path]);
-        assert_eq!(config.dirs, vec![dir_path]);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: dir_path,
+                recursive: false,
+            }]
+        );
     }
 
     #[test]
@@ -712,7 +780,8 @@ dirs = ["./notes"]
             r#"
 db_path = "{}"
 files = ["{}"]
-dirs = ["{}"]
+[[dirs]]
+path = "{}"
 "#,
             db_path.display(),
             file_path.display(),
@@ -730,7 +799,13 @@ dirs = ["{}"]
             test_dir.path().join("db/org-files-db.sqlite")
         );
         assert_eq!(config.files, vec![normalized_file_path]);
-        assert_eq!(config.dirs, vec![normalized_dir_path]);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: normalized_dir_path,
+                recursive: false,
+            }]
+        );
     }
 
     #[test]
@@ -757,7 +832,13 @@ dirs = ["{}"]
 
         assert_eq!(config.db_path, home_dir.join("org-files-db.sqlite"));
         assert_eq!(config.files, vec![file_path]);
-        assert_eq!(config.dirs, vec![notes_dir]);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: notes_dir,
+                recursive: false,
+            }]
+        );
     }
 
     #[test]
@@ -789,13 +870,93 @@ files = ["missing.org"]
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["missing-dir"]
+[[dirs]]
+path = "missing-dir"
 "#,
         );
 
         let config = Config::load_from_file(&config_path).expect("config should load");
 
-        assert_eq!(config.dirs, vec![missing_dir]);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: missing_dir,
+                recursive: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn directory_entries_default_to_non_recursive() {
+        let test_dir = TestDir::new("dirs-default-recursive");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: test_dir.path().join("notes"),
+                recursive: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_string_array_dirs_format() {
+        let test_dir = TestDir::new("legacy-dirs-format");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = ["notes"]
+"#,
+        );
+
+        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+        match error {
+            ConfigError::UnsupportedConfig { message, .. } => {
+                assert!(message.contains("`[[dirs]]`"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn rejects_legacy_top_level_recursive_option() {
+        let test_dir = TestDir::new("legacy-recursive-option");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+recursive = true
+"#,
+        );
+
+        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+        match error {
+            ConfigError::UnsupportedConfig { message, .. } => {
+                assert!(message.contains("top-level `recursive`"));
+                assert!(message.contains("`[[dirs]]`"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]
@@ -981,7 +1142,13 @@ custom_protocols = ["JIRA", "jira", "shell"]
         )
         .expect("config should load");
 
-        assert_eq!(config.dirs, vec![notes_dir]);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: notes_dir,
+                recursive: false,
+            }]
+        );
     }
 
     #[test]
@@ -1008,7 +1175,13 @@ custom_protocols = ["JIRA", "jira", "shell"]
 
         assert_eq!(config.db_path, config_dir.join("../db.sqlite"));
         assert_eq!(config.files, vec![file_path]);
-        assert_eq!(config.dirs, vec![dir_path]);
+        assert_eq!(
+            config.dirs,
+            vec![ConfiguredDir {
+                path: dir_path,
+                recursive: false,
+            }]
+        );
     }
 
     #[test]
@@ -1035,8 +1208,13 @@ custom_protocols = ["JIRA", "jira", "shell"]
         RawConfig {
             db_path: PathBuf::from(db_path),
             files: files.into_iter().map(PathBuf::from).collect(),
-            dirs: dirs.into_iter().map(PathBuf::from).collect(),
-            recursive: false,
+            dirs: dirs
+                .into_iter()
+                .map(|path| RawConfiguredDir {
+                    path: PathBuf::from(path),
+                    recursive: false,
+                })
+                .collect(),
             links: Some(RawLinksConfig::default()),
             todo: Some(RawTodoConfig {
                 default_open_keywords: None,

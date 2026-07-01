@@ -1,0 +1,203 @@
+#+TITLE: Replace global recursive discovery with per-directory recursion
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-01 Wed 17:03]
+#+TASK_COMPLETED: [2026-07-01 Wed 17:07]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry:
+
+#+begin_quote
+** BUILD Replace global recursive discovery with per-directory recursion
+:PROPERTIES:
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Replace the global ~recursive~ discovery option with per-directory recursion settings.
+- Make each configured directory root define whether discovery descends into subdirectories.
+- Prefer a clean breaking config-contract change now instead of carrying a compatibility shim.
+
+Current model:
+
+#+begin_src toml
+,dirs = ["notes", "inbox"]
+,recursive = true
+#+end_src
+
+Problem:
+
+- ~recursive~ applies globally to all configured directories.
+- It is not possible to make one directory recursive and another directory non-recursive.
+- This makes discovery configuration too coarse once multiple directory roots are used.
+
+New model:
+
+#+begin_src toml
+,[[dirs]]
+,path = "notes"
+,recursive = true
+
+,[[dirs]]
+,path = "inbox"
+,recursive = false
+
+,[[dirs]]
+,path = "archive"
+,recursive = true
+#+end_src
+
+Contract:
+
+- ~dirs~ is an array of directory tables.
+- Each ~dirs~ entry has a required ~path~ field.
+- Each ~dirs~ entry has an optional ~recursive~ field.
+- ~dirs[].recursive~ defaults to ~false~ when omitted.
+- The old top-level ~recursive~ field is removed.
+- The old ~dirs = ["..."]~ string-array format is removed.
+- Discovery behavior is determined per directory entry.
+- File discovery remains deterministic.
+- This task intentionally introduces a breaking config change.
+
+Configuration schema:
+
+#+begin_src toml
+,[[dirs]]
+,path = "notes"
+,recursive = false
+#+end_src
+
+Fields:
+
+- ~dirs[].path~
+  - Type: string
+  - Required: yes
+  - Meaning: directory root to search for Org files
+
+- ~dirs[].recursive~
+  - Type: boolean
+  - Required: no
+  - Default: ~false~
+  - Meaning: whether discovery for this directory descends into subdirectories
+
+Non-goals:
+
+- Do not add backward compatibility for the old ~dirs = [...]~ format.
+- Do not keep the old top-level ~recursive~ field.
+- Do not add include/exclude glob support in this task.
+- Do not add per-directory file extension configuration in this task.
+- Do not change database schema.
+- Do not change indexing semantics beyond discovery root recursion.
+- Do not introduce auto-migration for old config files.
+
+Implementation notes:
+
+- Update config deserialization to parse ~dirs~ as an array of tables.
+- Replace any global recursion setting in discovery code with the current directory entry's ~recursive~ value.
+- Make omitted ~recursive~ default to ~false~.
+- Fail fast with a clear config error if the old format is used.
+- Fail fast with a clear config error if a directory entry is missing ~path~.
+- Update test fixtures and example configs to the new format.
+- Update documentation for ~dirs~ and remove the top-level ~recursive~ documentation.
+
+Acceptance criteria:
+
+- [ ] Config accepts ~[[dirs]] path = "..." recursive = true~.
+- [ ] Config accepts ~[[dirs]] path = "..."~ and defaults ~recursive~ to ~false~.
+- [ ] Config rejects the old ~dirs = ["..."]~ format with a clear error.
+- [ ] Config rejects the old top-level ~recursive~ field with a clear error.
+- [ ] Discovery can recurse for one configured directory and remain non-recursive for another.
+- [ ] Discovery output remains deterministic.
+- [ ] Existing config fixtures are updated to the new format.
+- [ ] Documentation describes ~dirs~ as an array of tables.
+- [ ] Documentation describes ~dirs[].path~.
+- [ ] Documentation describes ~dirs[].recursive~.
+- [ ] Documentation no longer documents a top-level ~recursive~ option.
+- [ ] No DB schema changes are introduced.
+- [ ] Tests cover mixed recursive and non-recursive directory roots.
+
+Test cases:
+
+- Per-directory recursion test:
+  - Configure two directory roots.
+  - Set one root with ~recursive = true~.
+  - Set the other root with ~recursive = false~.
+  - Place Org files in both root directories and their subdirectories.
+  - Assert that recursive discovery includes subdirectory files only for the recursive root.
+
+- Default recursion test:
+  - Configure a directory root without ~recursive~.
+  - Place an Org file in the root and another in a subdirectory.
+  - Assert that only the root-level file is discovered.
+
+- Breaking old dirs format test:
+  - Use old config format:
+    #+begin_src toml
+    ,dirs = ["notes"]
+    #+end_src
+  - Assert that config loading fails with a clear message explaining that ~dirs~ must use ~[[dirs]]~ entries.
+
+- Breaking old recursive field test:
+  - Use old config format:
+    #+begin_src toml
+    ,recursive = true
+    #+end_src
+  - Assert that config loading fails with a clear message explaining that recursion is now configured per ~[[dirs]]~ entry.
+
+- Documentation test or review:
+  - Assert manually or via snapshot that example config uses the new ~[[dirs]]~ format.
+
+Suggested commit split:
+
+1. Update config model to per-directory recursion.
+2. Update discovery logic and tests.
+3. Update examples and documentation.
+#+end_quote
+
+Chat context:
+
+- Implement the task as a breaking config-contract change.
+- Do not keep compatibility for the old top-level ~recursive~ field or old ~dirs = ["..."]~ format.
+
+* Results
+
+** Approach
+
+- Replaced the config model for ~dirs~ with explicit per-directory entries that carry their own ~recursive~ flag.
+- Rejected the removed legacy config forms at load time with explicit error messages instead of keeping a compatibility shim.
+- Updated discovery tests and active docs to match the new breaking config contract.
+** Changed files
+
+- ~src/config.rs~
+- ~src/indexer.rs~
+- ~docs/config.md~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-01--replace-global-recursive-discovery-with-per-directory-recursion.org~
+** Checks performed
+
+- Ran ~cargo fmt --all~.
+- Ran ~make ci~.
+** Test results
+
+- ~make ci~ passed.
+- Added config coverage for:
+  - accepted ~[[dirs]]~ entries with explicit recursion
+  - accepted ~[[dirs]]~ entries with omitted recursion defaulting to ~false~
+  - rejection of legacy ~dirs = ["..."]~
+  - rejection of legacy top-level ~recursive~
+- Added indexer coverage for:
+  - mixed recursive and non-recursive directory roots
+  - default non-recursive behavior for directory entries
+** Blockers
+
+- None.
+** Follow-ups
+
+- Existing user config files must be updated manually to the new ~[[dirs]]~ format; this task intentionally adds no migration path.

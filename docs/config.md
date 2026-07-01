@@ -7,8 +7,13 @@ This page lists the `config.toml` variables currently supported by `orgfdb`.
 ```toml
 db_path = "org-files-db.sqlite"
 files = ["inbox.org", "projects.org"]
-dirs = ["notes", "archive"]
+
+[[dirs]]
+path = "notes"
 recursive = true
+
+[[dirs]]
+path = "archive"
 
 [links]
 plain_protocols = ["http", "https", "file"]
@@ -28,7 +33,6 @@ index_body_text = false
 - `db_path`
 - `files`
 - `dirs`
-- `recursive`
 - `links`
 - `todo`
 - `search`
@@ -55,19 +59,37 @@ Each entry is a file path. Relative paths are resolved against the config file l
 
 Directories to search for Org files.
 
-- Type: array of strings
+- Type: array of tables
 - Default: `[]`
 
-Each entry is a directory path. Relative paths are resolved against the config file location.
+Each `[[dirs]]` entry configures one discovery root. Relative paths are resolved against the config file location.
 
-## `recursive`
+### `dirs[].path`
 
-Controls whether directory discovery descends into subdirectories for entries listed in `dirs`.
+Directory path to search for Org files.
+
+- Type: string
+- Required: yes
+
+### `dirs[].recursive`
+
+Controls whether discovery for this directory descends into subdirectories.
 
 - Type: boolean
+- Required: no
 - Default: `false`
 
-This is a global switch for configured directories. It is not configured per directory entry.
+Example:
+
+```toml
+[[dirs]]
+path = "notes"
+recursive = true
+
+[[dirs]]
+path = "inbox"
+recursive = false
+```
 
 ## `[links]`
 

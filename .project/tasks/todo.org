@@ -939,12 +939,14 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-07-01--remove-obsolete-dir-locals-support.org]]
 
-** BUILD Replace global recursive discovery with per-directory recursion
+** REVIEW Replace global recursive discovery with per-directory recursion
 :PROPERTIES:
 :RISK: Medium
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Yes
 :END:
+
+[[./2026-07-01--replace-global-recursive-discovery-with-per-directory-recursion.org]]
 
 Goal:
 

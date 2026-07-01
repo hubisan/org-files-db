@@ -337,8 +337,8 @@ fn discover_org_files(config: &Config) -> Result<Vec<DiscoveredOrgFile>, Indexer
     }
 
     for dir in &config.dirs {
-        let canonical_dir = canonicalize_existing_dir(dir)?;
-        collect_org_files(&canonical_dir, &canonical_dir, config.recursive, &mut paths)?;
+        let canonical_dir = canonicalize_existing_dir(&dir.path)?;
+        collect_org_files(&canonical_dir, &canonical_dir, dir.recursive, &mut paths)?;
     }
 
     Ok(paths
@@ -1300,7 +1300,8 @@ mod tests {
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes/../notes"]
+[[dirs]]
+path = "notes/../notes"
 recursive = true
 
 [todo]
@@ -1407,6 +1408,102 @@ index_body_text = false
     }
 
     #[test]
+    fn rebuild_can_mix_recursive_and_non_recursive_directory_roots() {
+        let test_dir = TestDir::new("mixed-dir-recursion");
+        let recursive_dir = test_dir.path().join("notes");
+        let non_recursive_dir = test_dir.path().join("inbox");
+        let config_path = test_dir.path().join("config.toml");
+
+        let recursive_root = recursive_dir.join("root.org");
+        let recursive_child = recursive_dir.join("nested/child.org");
+        let non_recursive_root = non_recursive_dir.join("top.org");
+        let non_recursive_child = non_recursive_dir.join("nested/skipped.org");
+
+        write_file(&recursive_root, "* Recursive root\n");
+        write_file(&recursive_child, "* Recursive child\n");
+        write_file(&non_recursive_root, "* Inbox root\n");
+        write_file(&non_recursive_child, "* Inbox child\n");
+
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[[dirs]]
+path = "inbox"
+recursive = false
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(
+            report
+                .indexed_files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            vec![non_recursive_root, recursive_child, recursive_root]
+        );
+    }
+
+    #[test]
+    fn rebuild_defaults_directory_entries_to_non_recursive() {
+        let test_dir = TestDir::new("default-dir-recursion");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let root_file = notes_dir.join("root.org");
+        let nested_file = notes_dir.join("nested/skipped.org");
+
+        write_file(&root_file, "* Root\n");
+        write_file(&nested_file, "* Nested\n");
+
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(
+            report
+                .indexed_files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            vec![root_file]
+        );
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let file_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        assert_eq!(file_count, 1);
+    }
+
+    #[test]
     fn rebuild_persists_level_zero_and_duplicate_direct_properties() {
         let test_dir = TestDir::new("rebuild-properties");
         let notes_dir = test_dir.path().join("notes");
@@ -1422,7 +1519,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [todo]
@@ -1583,7 +1681,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [todo]
@@ -1833,7 +1932,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [search]
@@ -1969,7 +2069,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [search]
@@ -2078,7 +2179,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [todo]
@@ -2197,7 +2299,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [search]
@@ -2244,7 +2347,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [search]
@@ -2588,7 +2692,6 @@ index_body_text = false
             db_path: PathBuf::from("db.sqlite"),
             files: Vec::new(),
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: SearchConfig {
@@ -2638,7 +2741,6 @@ index_body_text = false
             db_path: PathBuf::from("db.sqlite"),
             files: Vec::new(),
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: SearchConfig {
@@ -2709,7 +2811,6 @@ index_body_text = false
             db_path: PathBuf::from("db.sqlite"),
             files: Vec::new(),
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: SearchConfig {
@@ -2746,7 +2847,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["missing-dir"]
+[[dirs]]
+path = "missing-dir"
 
 [search]
 fts5_enabled = false
@@ -2789,7 +2891,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [todo]
@@ -2841,7 +2944,8 @@ index_body_text = false
             &config_path,
             r#"
 db_path = "db.sqlite"
-dirs = ["notes"]
+[[dirs]]
+path = "notes"
 recursive = true
 
 [todo]
@@ -3838,7 +3942,6 @@ index_body_text = false
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -3878,7 +3981,6 @@ index_body_text = false
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -3959,7 +4061,6 @@ index_body_text = false
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4019,7 +4120,6 @@ index_body_text = false
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4076,7 +4176,6 @@ index_body_text = false
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4159,7 +4258,6 @@ index_body_text = false
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4344,7 +4442,6 @@ index_body_text = true
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4467,7 +4564,6 @@ index_body_text = true
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4504,7 +4600,6 @@ index_body_text = true
             db_path: db_path.clone(),
             files: vec![org_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
@@ -4600,7 +4695,6 @@ index_body_text = true
             db_path: db_path.clone(),
             files: vec![good_path.clone(), bad_path.clone()],
             dirs: Vec::new(),
-            recursive: false,
             links: Default::default(),
             todo: Default::default(),
             search: crate::config::SearchConfig {
