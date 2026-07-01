@@ -960,6 +960,31 @@ recursive = true
     }
 
     #[test]
+    fn rejects_directory_entry_without_path() {
+        let test_dir = TestDir::new("dirs-missing-path");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+recursive = true
+"#,
+        );
+
+        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+        match error {
+            ConfigError::ParseToml { source, .. } => {
+                assert!(source.to_string().contains("missing field `path`"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
     fn loads_fts_and_body_indexing_values() {
         let test_dir = TestDir::new("search-config");
         let config_path = test_dir.path().join("config.toml");

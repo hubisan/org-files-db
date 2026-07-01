@@ -192,6 +192,7 @@ Chat context:
   - accepted ~[[dirs]]~ entries with omitted recursion defaulting to ~false~
   - rejection of legacy ~dirs = ["..."]~
   - rejection of legacy top-level ~recursive~
+  - rejection of ~[[dirs]]~ entries that omit required ~path~
 - Added indexer coverage for:
   - mixed recursive and non-recursive directory roots
   - default non-recursive behavior for directory entries
