@@ -22,12 +22,10 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 
 - Orgize is the implementation parser in =src/parser/orgize_adapter.rs=.
 - Emacs Org-mode is used as a reference oracle for tricky semantics when that helps confirm parser behavior.
-- Unsafe Emacs Lisp, diary expressions, and arbitrary =.dir-locals.el= forms must not be evaluated.
+- Unsafe Emacs Lisp and diary expressions must not be evaluated.
 - TODO keyword precedence is:
   1. Org in-buffer =#+TODO= / =#+SEQ_TODO= / =#+TYP_TODO= declarations
   2. config defaults
-- =.dir-locals.el= is ignored completely during indexing and rebuild.
-- Emacs file-local =org-todo-keywords= are not supported.
 - The parser and indexer produce synthetic level-0/root rows for file and document roots; =headings --json= includes them by default and =--no-root= excludes them.
 - Planning lines populate the supported =scheduled=, =deadline=, and =closed= fields, while body timestamps remain available as parsed timestamp rows.
 

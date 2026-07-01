@@ -429,7 +429,7 @@ Goal of this phase: Make rebuild fast on larger Org collections by parallelizing
 Reason for separate phase:
 
 - Parallel scanning/parsing affects indexer architecture, DB write ordering, error handling, resolver caches, and later watcher behavior.
-- It should not be mixed into `.dir-locals.el`, TODO keyword resolution, or parser correctness tasks.
+- It should not be mixed into TODO keyword resolution or parser correctness tasks.
 - New resolver code should already avoid global mutable state so this phase can be implemented cleanly later.
 
 General rules:
@@ -454,7 +454,7 @@ Acceptance criteria:
 
 ** TODO Make per-file context resolvers parallel-safe
 
-Goal: Ensure future sources such as config defaults, Emacs file-local variables, and `.dir-locals.el` can be resolved without blocking parallel parsing design.
+Goal: Ensure future sources such as config defaults and Emacs file-local variables can be resolved without blocking parallel parsing design.
 
 Acceptance criteria:
 
@@ -1254,4 +1254,3 @@ Acceptance criteria:
 - Real query needs are reviewed.
 - Caching is only added if measurements or UX needs justify it.
 - Direct property rows remain the source of truth.
-

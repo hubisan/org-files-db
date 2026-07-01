@@ -354,9 +354,7 @@ fn migrate_legacy_todo_keywords_table(connection: &Connection) -> rusqlite::Resu
     }
 
     let columns = table_columns(connection, "todo_keywords")?;
-    if todo_keywords_table_uses_provenance_columns(&columns)
-        && !todo_keywords_table_supports_dir_locals(connection)?
-    {
+    if todo_keywords_table_uses_provenance_columns(&columns) {
         return Ok(());
     }
 
@@ -409,18 +407,6 @@ fn todo_keywords_table_uses_provenance_columns(columns: &[String]) -> bool {
     ]
     .iter()
     .all(|required| columns.iter().any(|column| column == required))
-}
-
-fn todo_keywords_table_supports_dir_locals(connection: &Connection) -> rusqlite::Result<bool> {
-    let sql: Option<String> = connection.query_row(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'todo_keywords'",
-        [],
-        |row| row.get(0),
-    )?;
-
-    Ok(sql
-        .as_deref()
-        .is_some_and(|statement| statement.contains("'dir_locals'")))
 }
 
 fn properties_table_uses_append_column(columns: &[String]) -> bool {

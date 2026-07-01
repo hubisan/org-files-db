@@ -8,7 +8,13 @@ This page documents the user-facing `orgfdb` commands that are stable enough to 
 
 The command is read-only. It does not scan Org files, rebuild files, resolve targets, or mutate the database.
 
-The output is a JSON array. Synthetic root rows are included by default, and `--no-root` excludes them.
+The output is a JSON array ordered deterministically by:
+
+1. `file_path`
+1. `byte_start`
+1. `id`
+
+Synthetic root rows are included by default, and `--no-root` excludes them. Root rows use the synthetic repository conventions: `level = 0`, `parent_id = null`, and they represent file/document scope rather than parser-level Org headings.
 
 The JSON objects expose the heading fields used by the current CLI contract:
 
@@ -35,7 +41,7 @@ The JSON objects expose the heading fields used by the current CLI contract:
 - `footnote_section_p`
 - `all_tags`
 
-Root rows follow the same synthetic file/document conventions as the rest of the repository's CLI and DB contract: they represent file scope, not parser-level Org headings.
+`--include-root` is retained only as a compatibility no-op. The default output already includes root rows.
 
 If you need the underlying configuration settings for the database path, source file selection, link protocols, TODO keywords, or search options, see [docs/config.md](./config.md).
 
@@ -79,6 +85,7 @@ Notes:
 - `format` identifies the source syntax: `bracket`, `angle`, or `plain`.
 - `source_context` records where the link came from in the indexed Org file, such as normal text or a drawer context.
 - `path`, `search_option`, `byte_start`, `byte_end`, and `line` provide editor-jump data from the stored database facts.
+- The command opens the existing database in read-only mode. If `--config` is provided, only the stored `db_path` is read from that config file.
 
 ## Phase 3 link indexing
 

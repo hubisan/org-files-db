@@ -22,6 +22,16 @@ Before setting a task to ~REVIEW~, run:
 
 If not all checks can be run, explain why in the task file.
 
+* Documentation maintenance
+
+Keep repository documentation updated as part of the same task that changes behavior.
+
+- CLI changes should update ~docs/cli.md~.
+- Config changes should update ~docs/config.md~.
+- Parser or indexing behavior changes should update the relevant files in ~docs/~.
+- README claims should be updated when they become outdated.
+- Do not duplicate full documentation in this file; use this file only as a repository instruction.
+
 * Folders/Files to ignore during automated review
 
 The following paths are intentionally kept in the repository/worktree, but AI agents and automated code-review tools should ignore them unless explicitly instructed otherwise.

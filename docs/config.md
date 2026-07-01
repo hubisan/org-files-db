@@ -2,13 +2,33 @@
 
 This page lists the `config.toml` variables currently supported by `orgfdb`.
 
-## Top-Level Keys
+## Example
+
+```toml
+db_path = "org-files-db.sqlite"
+files = ["inbox.org", "projects.org"]
+dirs = ["notes", "archive"]
+recursive = true
+
+[links]
+plain_protocols = ["http", "https", "file"]
+custom_protocols = ["jira", "customlink"]
+
+[todo]
+default_open_keywords = ["TODO(t)", "NEXT(n)"]
+default_closed_keywords = ["DONE(d)", "CANCEL(c)"]
+
+[search]
+fts5_enabled = true
+index_body_text = false
+```
+
+## Top-level keys
 
 - `db_path`
 - `files`
 - `dirs`
 - `recursive`
-- `parse`
 - `links`
 - `todo`
 - `search`
@@ -20,12 +40,16 @@ Path to the SQLite database file.
 - Type: string
 - Default: `org-files-db.sqlite`
 
+Relative paths are resolved against the config file location.
+
 ## `files`
 
 Explicit Org files to index.
 
 - Type: array of strings
 - Default: `[]`
+
+Each entry is a file path. Relative paths are resolved against the config file location.
 
 ## `dirs`
 
@@ -34,73 +58,90 @@ Directories to search for Org files.
 - Type: array of strings
 - Default: `[]`
 
+Each entry is a directory path. Relative paths are resolved against the config file location.
+
 ## `recursive`
 
-Controls whether directory discovery is recursive.
+Controls whether directory discovery descends into subdirectories for entries listed in `dirs`.
 
 - Type: boolean
 - Default: `false`
 
-## `parse.dir_locals`
+This is a global switch for configured directories. It is not configured per directory entry.
 
-Parser-specific `.dir-locals.el` handling.
+## `[links]`
 
-Supported nested keys:
+Controls plain-link protocol handling for Phase 3 link scanning.
 
-- `parse.dir_locals.enabled`
-- `parse.dir_locals.inherit`
-- `parse.dir_locals.unsupported`
+Supported keys:
 
-Defaults:
+- `plain_protocols`
+- `custom_protocols`
 
-- `parse.dir_locals.enabled = false`
-- `parse.dir_locals.inherit = true`
-- `parse.dir_locals.unsupported = "warn"`
+### `links.plain_protocols`
 
-## `links`
+Protocols recognized as plain links.
 
-Controls plain-link protocol handling.
+- Type: array of strings
+- Default: built-in plain-link protocol list
 
-Supported nested keys:
+When this field is omitted, the built-in defaults are used. When it is present, it defines the base list before `custom_protocols` are appended and deduplicated case-insensitively.
 
-- `links.plain_protocols`
-- `links.custom_protocols`
+### `links.custom_protocols`
 
-Defaults:
+Additional project-specific protocols recognized as plain links.
 
-- `links.plain_protocols` uses the built-in Phase 3 default protocol list.
-- `links.custom_protocols` is empty by default.
+- Type: array of strings
+- Default: `[]`
 
-## `todo`
+Values are lowercased and deduplicated together with `plain_protocols`.
 
-Controls default TODO keyword configuration.
+## `[todo]`
 
-Supported nested keys:
+Controls default TODO keyword handling when a file does not define its own in-buffer Org TODO keywords.
 
-- `todo.default_open_keywords`
-- `todo.default_closed_keywords`
+Supported keys:
 
-Defaults:
+- `default_open_keywords`
+- `default_closed_keywords`
 
-- `todo.default_open_keywords = ["TODO"]`
-- `todo.default_closed_keywords = ["DONE"]`
+### `todo.default_open_keywords`
 
-## `search`
+Default open TODO keywords.
+
+- Type: array of strings
+- Default: `["TODO"]`
+
+Entries may include Org-style fast selection keys such as `TODO(t)`.
+
+### `todo.default_closed_keywords`
+
+Default closed TODO keywords.
+
+- Type: array of strings
+- Default: `["DONE"]`
+
+Entries may include Org-style fast selection keys such as `DONE(d)`.
+
+## `[search]`
 
 Controls search-related indexing behavior.
 
-Supported nested keys:
+Supported keys:
 
-- `search.fts5_enabled`
-- `search.index_body_text`
+- `fts5_enabled`
+- `index_body_text`
 
-Defaults:
+### `search.fts5_enabled`
 
-- `search.fts5_enabled = true`
-- `search.index_body_text = false`
+Controls whether SQLite FTS5 indexing is enabled during rebuild.
 
-## Notes
+- Type: boolean
+- Default: `true`
 
-- Paths are resolved relative to the config file location.
-- Omitted nested tables use their documented defaults.
-- The documentation here matches the current code-level config parser, not a future mdBook schema.
+### `search.index_body_text`
+
+Controls whether heading body text is indexed for search.
+
+- Type: boolean
+- Default: `false`

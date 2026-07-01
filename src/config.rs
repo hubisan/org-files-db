@@ -21,7 +21,6 @@ pub struct Config {
     pub files: Vec<PathBuf>,
     pub dirs: Vec<PathBuf>,
     pub recursive: bool,
-    pub parse: ParseConfig,
     pub links: LinkConfig,
     pub todo: TodoConfig,
     pub search: SearchConfig,
@@ -55,7 +54,6 @@ impl Config {
             files: raw_files,
             dirs: raw_dirs,
             recursive,
-            parse,
             links,
             todo,
             search,
@@ -74,7 +72,6 @@ impl Config {
             default_open_keywords: None,
             default_closed_keywords: None,
         });
-        let parse = parse.unwrap_or_default();
         let links = links.unwrap_or_default();
         let search = search.unwrap_or(RawSearchConfig {
             fts5_enabled: None,
@@ -86,25 +83,6 @@ impl Config {
             files,
             dirs,
             recursive,
-            parse: ParseConfig {
-                dir_locals: DirLocalsConfig {
-                    enabled: parse
-                        .dir_locals
-                        .as_ref()
-                        .and_then(|config| config.enabled)
-                        .unwrap_or(false),
-                    inherit: parse
-                        .dir_locals
-                        .as_ref()
-                        .and_then(|config| config.inherit)
-                        .unwrap_or(true),
-                    unsupported: parse
-                        .dir_locals
-                        .as_ref()
-                        .and_then(|config| config.unsupported)
-                        .unwrap_or_default(),
-                },
-            },
             links: LinkConfig {
                 plain_protocols: effective_plain_link_protocols(
                     links.plain_protocols,
@@ -172,27 +150,6 @@ pub struct SearchConfig {
     pub index_body_text: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ParseConfig {
-    pub dir_locals: DirLocalsConfig,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DirLocalsConfig {
-    pub enabled: bool,
-    pub inherit: bool,
-    pub unsupported: DirLocalsUnsupportedPolicy,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DirLocalsUnsupportedPolicy {
-    Ignore,
-    #[default]
-    Warn,
-    Error,
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -200,7 +157,6 @@ impl Default for Config {
             files: Vec::new(),
             dirs: Vec::new(),
             recursive: false,
-            parse: ParseConfig::default(),
             links: LinkConfig::default(),
             todo: TodoConfig::default(),
             search: SearchConfig::default(),
@@ -233,16 +189,6 @@ impl Default for SearchConfig {
         Self {
             fts5_enabled: true,
             index_body_text: false,
-        }
-    }
-}
-
-impl Default for DirLocalsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            inherit: true,
-            unsupported: DirLocalsUnsupportedPolicy::Warn,
         }
     }
 }
@@ -324,28 +270,15 @@ struct RawConfig {
     dirs: Vec<PathBuf>,
     #[serde(default)]
     recursive: bool,
-    parse: Option<RawParseConfig>,
     links: Option<RawLinksConfig>,
     todo: Option<RawTodoConfig>,
     search: Option<RawSearchConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct RawParseConfig {
-    dir_locals: Option<RawDirLocalsConfig>,
-}
-
-#[derive(Debug, Default, Deserialize)]
 struct RawLinksConfig {
     plain_protocols: Option<Vec<String>>,
     custom_protocols: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct RawDirLocalsConfig {
-    enabled: Option<bool>,
-    inherit: Option<bool>,
-    unsupported: Option<DirLocalsUnsupportedPolicy>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -516,8 +449,8 @@ fn current_home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_path, Config, ConfigError, DirLocalsConfig, DirLocalsUnsupportedPolicy, LinkConfig,
-        ParseConfig, RawConfig, RawLinksConfig, RawParseConfig, RawSearchConfig, RawTodoConfig,
+        resolve_path, Config, ConfigError, LinkConfig, RawConfig, RawLinksConfig, RawSearchConfig,
+        RawTodoConfig,
     };
     use crate::parser::{LinkScannerConfig, ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
@@ -600,16 +533,6 @@ db_path = "db.sqlite"
         assert_eq!(
             config.todo.default_closed_keywords,
             vec![TodoKeyword::new("DONE")]
-        );
-        assert_eq!(
-            config.parse,
-            ParseConfig {
-                dir_locals: DirLocalsConfig {
-                    enabled: false,
-                    inherit: true,
-                    unsupported: DirLocalsUnsupportedPolicy::Warn,
-                },
-            }
         );
     }
 
@@ -898,72 +821,6 @@ index_body_text = true
     }
 
     #[test]
-    fn dir_locals_support_is_disabled_by_default() {
-        let config = Config::default();
-
-        assert_eq!(
-            config.parse.dir_locals,
-            DirLocalsConfig {
-                enabled: false,
-                inherit: true,
-                unsupported: DirLocalsUnsupportedPolicy::Warn,
-            }
-        );
-    }
-
-    #[test]
-    fn parses_dir_locals_config_values() {
-        let test_dir = TestDir::new("dir-locals-config");
-        let config_path = test_dir.path().join("config.toml");
-
-        write_file(
-            &config_path,
-            r#"
-db_path = "db.sqlite"
-
-[parse.dir_locals]
-enabled = true
-inherit = false
-unsupported = "error"
-"#,
-        );
-
-        let config = Config::load_from_file(&config_path).expect("config should load");
-
-        assert_eq!(
-            config.parse.dir_locals,
-            DirLocalsConfig {
-                enabled: true,
-                inherit: false,
-                unsupported: DirLocalsUnsupportedPolicy::Error,
-            }
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_dir_locals_unsupported_value() {
-        let test_dir = TestDir::new("dir-locals-invalid-policy");
-        let config_path = test_dir.path().join("config.toml");
-
-        write_file(
-            &config_path,
-            r#"
-db_path = "db.sqlite"
-
-[parse.dir_locals]
-unsupported = "nope"
-"#,
-        );
-
-        let error = Config::load_from_file(&config_path).expect_err("config should fail");
-
-        match error {
-            ConfigError::ParseToml { .. } => {}
-            other => panic!("unexpected error: {other}"),
-        }
-    }
-
-    #[test]
     fn parse_options_carry_configured_todo_keywords() {
         let test_dir = TestDir::new("parse-options");
         let config_path = test_dir.path().join("config.toml");
@@ -1180,7 +1037,6 @@ custom_protocols = ["JIRA", "jira", "shell"]
             files: files.into_iter().map(PathBuf::from).collect(),
             dirs: dirs.into_iter().map(PathBuf::from).collect(),
             recursive: false,
-            parse: Some(RawParseConfig::default()),
             links: Some(RawLinksConfig::default()),
             todo: Some(RawTodoConfig {
                 default_open_keywords: None,

@@ -13,8 +13,7 @@ This register covers parser backend behavior and parser-contract risks. It does 
 - Current Orgize crate version: ~0.10.0-alpha.10~
 - Current adapter boundary: ~src/parser/orgize_adapter.rs~
 - Emacs Org-mode is used as a reference oracle for tricky semantics when that helps confirm parser behavior.
-- Unsafe Emacs Lisp, diary expressions, and arbitrary ~.dir-locals.el~ forms must never be evaluated.
-- ~.dir-locals.el~ is ignored completely during indexing and rebuild, so file-local ~org-todo-keywords~ are intentionally out of scope.
+- Unsafe Emacs Lisp and diary expressions must never be evaluated.
 
 Status labels used in this file:
 
@@ -105,9 +104,9 @@ Decision labels used in this file:
 
 ** Org in-buffer TODO keyword handling
 
-- Risk: TODO keyword normalization must stay aligned with Org in-buffer declarations while ignoring file-local and =.dir-locals.el= TODO sources.
+- Risk: TODO keyword normalization must stay aligned with Org in-buffer declarations while keeping file-local TODO sources out of scope.
 - Current status: ~accepted contract~
-- Observed behavior: The current parser and indexer honor in-buffer ~#+TODO:/#+SEQ_TODO:/#+TYP_TODO:~ declarations first, then fall back to config defaults. File-local ~org-todo-keywords~ are not supported, and ~.dir-locals.el~ never participates in effective TODO keyword resolution.
+- Observed behavior: The current parser and indexer honor in-buffer ~#+TODO:/#+SEQ_TODO:/#+TYP_TODO:~ declarations first, then fall back to config defaults. 
 - Why it matters: TODO interpretation is a core parser contract. If precedence drifts, heading state, DB import, and later queries will disagree with Org-mode semantics for customized files.
 - Current decision: ~accept~ this precedence as the project contract and keep file-local TODO behavior out of scope.
 - Workaround / containment: Keep the precedence explicit in parser, indexer, and CLI contract tests so later work does not reintroduce file-local TODO sources by accident.
