@@ -31,6 +31,12 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - The parser and indexer produce synthetic level-0/root rows for file and document roots; =headings --json= includes them by default and =--no-root= excludes them.
 - Planning lines populate the supported =scheduled=, =deadline=, and =closed= fields, while body timestamps remain available as parsed timestamp rows.
 
+** Documentation
+
+- CLI reference: [[./docs/cli.md][docs/cli.md]]
+- Config reference: [[./docs/config.md][docs/config.md]]
+- Phase 3 link indexing notes are documented alongside parser risks in [[./docs/parser-risks.org][docs/parser-risks.org]].
+
 ** DB Schema Versioning
 
 - SQLite =PRAGMA user_version= is the on-disk schema version for =org-files-db= databases.
