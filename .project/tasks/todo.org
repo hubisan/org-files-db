@@ -927,69 +927,129 @@ Task file: [[./archive/2026-06-30--create-links-db-table-and-storage-functions.o
 
 [[./archive/2026-07-01--implement-read-only-cli-json-output-for-stored-links.org]]
 
-** TODO Compare project scanner behavior against Orgize and Emacs org-element
+** DONE VALIDATE: Compare scanner behavior with Orgize and org-element
+
+[[./archive/2026-07-01--compare-scanner-behavior-with-orgize-and-org-element.org]]
+
+** NEXT DOCS: Add minimal project documentation for CLI and link indexing
 :PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
+:RISK: Low
 :DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
+:API_CONTRACT_CHANGE: No
 :END:
-
-Depends on:
-
-- [[#phase3-link-contract][Phase 3 link extraction contract]]
-- [[*Add old link fixture as Phase 3 regression fixture][Add old link fixture as Phase 3 regression fixture]]
 
 Goal:
 
-- Compare accepted Phase 3 link behavior against Orgize and Emacs org-element where useful.
-- Document expected mismatches.
-- Avoid treating Orgize link-node behavior as the project contract.
+- Start small project documentation for user-facing CLI behavior and Phase 3 link indexing decisions.
+- Document ~orgfdb links --json~ as the first concrete CLI reference entry.
+- Keep documentation lightweight and repository-local for now.
 
-Contract copied from Phase 3 SPEC:
+Decision:
 
-- Orgize is used for structural context where reliable.
-- Orgize link nodes are optional cross-checks, not the contract.
-- If Orgize detects a link that the scanner intentionally does not support, the scanner contract wins.
-- If the scanner detects a supported link that Orgize misses, the scanner contract wins.
-- Phase 3 does not block on upstream Orgize fixes.
-- General Orgize parser correctness issues may be reported upstream with minimal reproducible examples.
-- Project-specific indexing behavior stays local.
-- A friendly fork is a last resort only.
+- Use Markdown files in ~docs/~ for now.
+- Use rustdoc for Rust API and internal code documentation.
+- Do not introduce mdBook yet.
+- Treat mdBook and GitHub Pages as a later publishing step if the documentation grows into a user guide.
 
-Known mismatch candidates:
+Rationale:
 
-- Plain links may appear as plain text in Orgize because plain-link recognition depends on known link types.
-- Angle-link support may be incomplete or absent.
-- Property drawer links may not appear as link nodes even though they work as links in Org usage.
-- Permissive bracket description parsing may differ.
-- Multi-line link behavior may differ.
-- Unsupported forms such as radio targets and link abbreviations are deliberate project decisions.
-- Plain-link boundary and path-end behavior should be compared against Emacs ~org-element-parse-buffer~ for representative ambiguous cases.
+- ~rustdoc~ is best for documenting Rust APIs, structs, traits, modules, and developer-facing code contracts.
+- ~mdBook~ is best for manuals, tutorials, guides, and larger user-facing documentation sites.
+- The project currently needs a small CLI/reference document more than a full documentation site.
+- Plain Markdown in ~docs/~ is easy to maintain and can later be moved into mdBook with little effort.
 
-Relevant Orgize issues to reference in project notes:
+Suggested structure:
 
-- https://github.com/PoiScript/orgize/issues/88
-- https://github.com/PoiScript/orgize/issues/91
+#+begin_src text
+README.md
+docs/
+  cli.md
+  link-indexing.md
+  development.md
+#+end_src
 
 Scope:
 
-- Pick a small representative fixture set.
-- Compare bracket links.
-- Compare angle links.
-- Compare plain links, including boundary and path-end behavior against Emacs ~org-element-parse-buffer~.
-- Compare ignored regions.
-- Compare property drawer and normal drawer behavior.
-- Compare multiline behavior as a known unsupported case.
-- Document mismatches.
-- Open upstream Orgize issues only for general parser bugs.
-- Do not block Phase 3 on upstream fixes.
+- Add or update ~docs/cli.md~.
+- Add a section for ~orgfdb links --json~.
+- Document command purpose.
+- Document that the command is read-only.
+- Document that the command reads stored database facts only.
+- Document that the command does not scan Org files.
+- Document that the command does not rebuild files.
+- Document that the command does not resolve targets.
+- Document that the command does not mutate the database.
+- Document output ordering.
+- Document public JSON fields.
+- Document root link behavior.
+- Link from ~README.md~ to ~docs/cli.md~ if a docs section already exists or if this is easy to add.
+
+Documented command:
+
+#+begin_src shell
+orgfdb links --json
+#+end_src
+
+Required documentation points:
+
+- The command outputs stored link source facts as JSON.
+- The command is a database inspection command.
+- The command does not analyze current file contents.
+- Root links are included.
+- Root links use ~heading_level = 0~.
+- Root links use ~heading_path = []~.
+- Output uses ~link_type~, not ~type~.
+- Output is ordered by:
+  - ~file_path~
+  - ~byte_start~
+  - ~id~
+
+Public JSON fields to document:
+
+- ~file_id~
+- ~file_path~
+- ~heading_id~
+- ~heading_path~
+- ~heading_level~
+- ~source_context~
+- ~format~
+- ~link_type~
+- ~raw~
+- ~raw_target~
+- ~raw_description~
+- ~path~
+- ~search_option~
+- ~byte_start~
+- ~byte_end~
+- ~line~
+
+Non-goals:
+
+- Do not introduce mdBook in this task.
+- Do not configure GitHub Pages in this task.
+- Do not write a full user manual.
+- Do not document unresolved future link relationship behavior.
+- Do not document target resolution as existing behavior.
+- Do not duplicate large test fixtures in documentation.
+- Do not make documentation depend on generated CLI output unless there is already a stable snapshot workflow.
 
 Acceptance criteria:
 
-- Expected mismatches are documented.
-- Plain-link boundary/end expectations are documented against observed ~org-element-parse-buffer~ behavior.
-- Unexpected mismatches either get tests or follow-up tasks.
-- Orgize-specific issues are captured with minimal repro examples.
-- Scanner contract remains independent of Orgize internals.
-- Project-specific behavior is documented as local policy, not as an Orgize bug.
+- [ ] ~docs/cli.md~ exists or is updated.
+- [ ] ~orgfdb links --json~ is documented.
+- [ ] Documentation states that the command is read-only.
+- [ ] Documentation states that it reads stored database facts only.
+- [ ] Documentation states that it does not scan, rebuild, resolve targets, or mutate the database.
+- [ ] Documentation lists the public JSON fields.
+- [ ] Documentation states that ~link_type~ is used instead of ~type~.
+- [ ] Documentation describes deterministic output ordering.
+- [ ] Documentation describes root link behavior.
+- [ ] README links to ~docs/cli.md~ if appropriate.
+- [ ] No mdBook or GitHub Pages setup is added yet.
+
+Follow-up candidates:
+
+- Add rustdoc comments for public Rust APIs that expose link rows, scanner structs, or CLI DTOs.
+- Add ~docs/link-indexing.md~ for the Phase 3 scanner contract and known parser mismatches.
+- Introduce mdBook only after the docs grow beyond a few Markdown files.
+- Publish docs through GitHub Pages only when there is a stable user-facing manual.

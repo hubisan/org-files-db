@@ -1,0 +1,147 @@
+#+TITLE: Compare scanner behavior with Orgize and org-element
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-01 Wed 11:27]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Copied task entry:
+
+** NEXT VALIDATE: Compare scanner behavior with Orgize and org-element
+:PROPERTIES:
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+[[./2026-07-01--compare-scanner-behavior-with-orgize-and-org-element.org]]
+
+Depends on:
+
+- [[#phase3-link-contract][Phase 3 link extraction contract]]
+- [[*Add old link fixture as Phase 3 regression fixture][Add old link fixture as Phase 3 regression fixture]]
+
+Goal:
+
+- Validate accepted Phase 3 link scanner behavior against Orgize and Emacs ~org-element~ where useful.
+- Document expected mismatches.
+- Identify unexpected mismatches that need tests or follow-up tasks.
+- Keep the project scanner contract independent from Orgize and Emacs internals.
+
+Contract:
+
+- The project scanner contract remains the source of truth.
+- Orgize may be used for structural context where reliable.
+- Orgize link nodes are optional cross-checks, not the contract.
+- Emacs ~org-element~ may be used as a reference for selected ambiguous cases, especially plain-link boundary and path-end behavior.
+- If Orgize detects a link that the scanner intentionally does not support, the scanner contract wins.
+- If the scanner detects a supported link that Orgize misses, the scanner contract wins.
+- If Emacs ~org-element~ differs from the scanner in an accepted Phase 3 case, document the mismatch and decide whether the scanner contract needs clarification.
+- Phase 3 does not block on upstream Orgize fixes.
+- General Orgize parser correctness issues may be reported upstream with minimal reproducible examples.
+- Project-specific indexing behavior stays local.
+- A friendly Orgize fork remains a last resort only.
+
+Known mismatch candidates:
+
+- Plain links may appear as plain text in Orgize because plain-link recognition depends on known link types.
+- Angle-link support may be incomplete, absent, or different in Orgize.
+- Property drawer links may not appear as Orgize link nodes even though they work as links in normal Org usage.
+- Normal drawer behavior may differ between parser references and project indexing policy.
+- Permissive bracket description parsing may differ.
+- Multi-line link behavior may differ and remains unsupported by the project scanner.
+- Unsupported forms such as radio targets and link abbreviations remain deliberate project decisions.
+- Plain-link boundary and path-end behavior should be compared against Emacs ~org-element-parse-buffer~ for representative ambiguous cases.
+
+Relevant Orgize issues to reference in project notes:
+
+- https://github.com/PoiScript/orgize/issues/88
+- https://github.com/PoiScript/orgize/issues/91
+
+Scope:
+
+- Pick a small representative fixture set.
+- Compare bracket links.
+- Compare angle links.
+- Compare plain links.
+- Compare representative plain-link boundary and path-end cases against Emacs ~org-element-parse-buffer~.
+- Compare ignored-region behavior.
+- Compare property drawer and normal drawer behavior.
+- Compare multi-line behavior only as a known unsupported case.
+- Document expected mismatches.
+- Capture unexpected mismatches as tests or follow-up tasks.
+- Open upstream Orgize issues only for general parser bugs with minimal repro examples.
+- Do not block Phase 3 on upstream fixes.
+
+Non-goals:
+
+- Do not attempt full compatibility with Orgize.
+- Do not attempt full compatibility with Emacs ~org-element~.
+- Do not redefine the Phase 3 scanner contract.
+- Do not add support for radio targets.
+- Do not add support for link abbreviations.
+- Do not add support for multi-line links.
+- Do not introduce target resolution.
+- Do not introduce relationship output.
+- Do not change database schema.
+- Do not make Phase 3 depend on upstream Orgize changes.
+
+Acceptance criteria:
+
+- [ ] Expected mismatches are documented.
+- [ ] Plain-link boundary and path-end expectations are documented against observed Emacs ~org-element-parse-buffer~ behavior.
+- [ ] Unexpected mismatches either get tests or follow-up tasks.
+- [ ] Orgize-specific issues are captured with minimal repro examples where appropriate.
+- [ ] Scanner contract remains independent of Orgize internals.
+- [ ] Scanner contract remains independent of Emacs ~org-element~ internals.
+- [ ] Project-specific behavior is documented as local policy, not as an Orgize bug.
+- [ ] Unsupported forms are documented as deliberate Phase 3 decisions.
+- [ ] Phase 3 is not blocked on upstream Orgize fixes.
+
+Suggested output:
+
+- A short project note documenting:
+  - fixture set used
+  - comparison method
+  - expected matches
+  - expected mismatches
+  - unexpected mismatches
+  - follow-up tasks, if any
+  - upstream Orgize issue candidates, if any
+
+* Results
+
+** Approach
+Extended ~docs/parser-risks.org~ with a dedicated Phase 3 link-scanner cross-check entry instead of creating a separate document. The note records the representative fixture set, the comparison method, the accepted matches against Emacs ~org-element~, the expected ~Orgize~ and Emacs mismatches, and the conclusion that no unexpected mismatch was found in the chosen validation set.
+
+** Changed files
+- `docs/parser-risks.org`
+- `.project/tasks/todo.org`
+- `.project/tasks/2026-07-01--compare-scanner-behavior-with-orgize-and-org-element.org`
+
+** Checks performed
+- `cargo test --test orgize_adapter orgize_adapter_collects_project_owned_links_including_plain_file_splits`
+- `cargo test --test orgize_adapter orgize_adapter_ignores_links_in_ignored_regions_and_marks_source_contexts`
+- `cargo test --lib plain_links_follow_reviewed_org_boundary_examples`
+- `cargo test --lib plain_links_follow_reviewed_org_end_examples`
+- `emacs --batch -Q -l /tmp/org-element-link-probe.el`
+- temporary raw `Orgize` probe via a short repo-local test file, removed after recording results
+- `make ci`
+
+** Test results
+- Emacs matched the accepted plain-link boundary and path-end cases already captured by the focused scanner tests.
+- Emacs exposed angle links, plain links, property-drawer links, and normal-drawer links in the representative probe, while still excluding links in the representative ignored regions such as inline code/verbatim and source blocks.
+- Emacs accepted the representative multi-line bracket example and its element span for the whitespace-terminated plain-link case included the following separator space, both of which are now documented as intentional scanner-contract differences.
+- The raw `Orgize` probe surfaced only bracket links in the representative mixed-link content and did not surface angle links, plain links, property-drawer links, normal-drawer links, or the representative permissive-description / multi-line bracket probes as raw link nodes.
+- No unexpected mismatch was found in the chosen fixture set, so no new follow-up task or new upstream issue was required.
+- `make ci` passed.
+
+** Blockers
+None.
+
+** Follow-ups
+None.

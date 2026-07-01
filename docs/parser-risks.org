@@ -33,6 +33,48 @@ Decision labels used in this file:
 
 * Risk Register
 
+** Phase 3 link scanner cross-checks
+
+- Risk: Raw ~Orgize~ link nodes and Emacs ~org-element~ link elements do not define the Phase 3 link scanner contract, so backend/reference-parser differences must stay documented as evidence rather than silently becoming product behavior.
+- Current status: ~accepted contract~
+- Fixture set:
+  - [[file:../tests/data/parser/links/plain-and-bracket-links/fixture.org][plain-and-bracket-links fixture]]
+  - [[file:../tests/orgize_adapter.rs][orgize_adapter link tests]]
+  - [[file:../src/parser/link_scanner.rs][link_scanner tests]]
+- Comparison method:
+  - Use the project scanner contract and its focused tests as the source of truth.
+  - Cross-check raw ~Orgize~ link-node extraction on a small representative content set covering bracket, angle, plain, drawer/property-drawer, permissive-description, and multi-line cases.
+  - Cross-check representative plain-link boundary and path-end cases plus drawer / ignored-region behavior with Emacs ~org-element-parse-buffer~.
+- Expected matches:
+  - Emacs matched the accepted plain-link boundary cases already encoded in the scanner tests: links are accepted after ~!~, ~"~, ~_~, and ~Prefix:~, but not after ~'~, ~$~, ~%~, or mid-word text.
+  - Emacs matched the accepted plain-link path-end cases already encoded in the scanner tests: balanced ~<...>~, ~(...)~, and ~[...]~ suffixes remain part of the plain link; deterministic trailing punctuation is trimmed; trailing ~/~ and ~-~ remain part of the link.
+  - Emacs and the scanner both excluded links inside representative ignored regions such as inline code/verbatim and source blocks.
+- Expected mismatches:
+  - Raw ~Orgize~ link nodes covered only bracket links in the representative mixed-link probe. The same probe produced no raw ~Orgize~ link nodes for angle links, plain links, property-drawer links, or normal-drawer links. This is an accepted backend extraction gap; the project scanner contract wins.
+  - Emacs exposed angle links, plain links, property-drawer links, and normal-drawer links in the representative probe. Phase 3 accepts that behavior only where it matches the documented scanner contract; it does not make the project depend on Emacs internals.
+  - Emacs accepted the representative multi-line bracket example as a link, while the Phase 3 scanner deliberately rejects links that would need to cross a newline. This remains a local Phase 3 policy choice, not an Orgize bug.
+  - In the whitespace-terminated plain-link example, Emacs link element spans currently include the following separator space in ~:end~, while the scanner stores the final accepted link span without trailing whitespace. The scanner byte-span contract wins.
+  - Raw ~Orgize~ link nodes did not surface the representative permissive bracket-description or multi-line bracket cases in the validation probes. This is consistent with keeping the project scanner contract independent from ~Orgize~ link-node details.
+- Unexpected mismatches:
+  - None found in the chosen fixture set.
+- Why it matters: Phase 3 needs stable source-fact extraction even when the backend parser and the Emacs reference parser disagree or expose different link subsets. The project must preserve scanner-owned behavior for storage and later CLI output.
+- Current decision: ~accept~ the current scanner contract as independent from raw ~Orgize~ and Emacs link extraction details, while keeping cross-check notes explicit.
+- Workaround / containment:
+  - Keep link extraction project-owned in ~src/parser/link_scanner.rs~ and use ~Orgize~ only for structural context and ignored-region annotation in ~src/parser/orgize_adapter.rs~.
+  - Keep representative boundary/end semantics covered by focused scanner tests and note any future Emacs comparison changes before changing the scanner.
+  - Treat property-drawer and normal-drawer link inclusion as project-owned indexing policy, not as an upstream parser bug.
+- Fixtures / tests:
+  - [[file:../tests/data/parser/links/plain-and-bracket-links/fixture.org][plain-and-bracket-links fixture]]
+  - [[file:../tests/orgize_adapter.rs][orgize_adapter link tests]]
+  - [[file:../src/parser/link_scanner.rs][link_scanner tests]]
+  - [[file:../.project/tasks/archive/2026-06-30--extract-plain-links-with-configurable-protocols.org][plain-link boundary review task]]
+- Upstream issue candidates:
+  - Existing references remain the relevant context for the observed raw ~Orgize~ extraction gaps:
+    - https://github.com/PoiScript/orgize/issues/88
+    - https://github.com/PoiScript/orgize/issues/91
+  - No new upstream issue was opened from this validation pass because the chosen repro set did not reveal a new general parser bug beyond the already-known gap pattern.
+- Follow-up: Re-run this validation only when the scanner contract changes, when ~Orgize~ is upgraded, or when a new link-format decision would otherwise rely on backend/reference-parser behavior rather than the documented project contract.
+
 ** Multi-line planning behavior
 
 - Risk: Multi-line planning immediately below a heading does not retain every planning field in the current reviewed example.
