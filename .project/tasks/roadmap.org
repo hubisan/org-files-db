@@ -5,62 +5,6 @@ This file contains later phases, backlog items, and long-term project direction.
 
 Do not work directly from this file. Active tasks are tracked in [[./todo.org]].
 
-* Phase 4: Link resolution
-
-Goal of this phase: Resolve links to known files, headings, IDs, and CUSTOM_IDs.
-
-General rules:
-
-- Resolution never destroys raw link facts.
-- Broken and ambiguous links are represented explicitly.
-- Target deletion must not delete source link rows.
-
-** TODO Write Specification First and Update This Phase with Chatgpt
-
-
-** TODO Resolve ID and CUSTOM_ID links
-
-Goal: Resolve ~id:~ and ~custom-id:~ links by matching them against properties in the DB.
-
-Acceptance criteria:
-
-- ~id:~ links are assigned ~resolved_heading_id~ where possible.
-- ~custom-id:~ links are assigned ~resolved_heading_id~ where possible.
-- Broken links are marked.
-- Ambiguous IDs are reported as diagnostics.
-- Properties indexes for ~ID~ and ~CUSTOM_ID~ are used or checked.
-- Tests cover resolved, broken, and ambiguous links.
-
-** TODO Resolve file and attachment links
-
-Goal: Map ~file:~ and ~attachment:~ links to known files.
-
-Acceptance criteria:
-
-- Relative paths are interpreted relative to the source file.
-- Known files are linked through ~resolved_file_id~.
-- Missing files are marked as broken.
-- Link rows are not deleted when a target file disappears.
-- Target references are set to NULL or marked broken according to the schema contract.
-
-** TODO Represent link target in DB
-
-Planned fields:
-
-- ~resolved_file_id~
-- ~resolved_heading_id~
-- ~resolved~
-- ~broken~
-- ~diagnostic~
-
-Acceptance criteria:
-
-- Resolution is repeatable.
-- Rebuild produces consistent link targets.
-- Broken links can later be queried.
-- Target deletion behavior is tested.
-- Resolution fields remain clearly separated from raw link source fields.
-
 * Phase 5: Query engine and optional full-text search
 
 Goal of this phase: Build a simple, safe query layer that can later be extended toward an org-ql-like language.
