@@ -14,8 +14,9 @@ use crate::{
         open_database_with_schema, DbError, DbWriteError, DbWriter, FileRecordInput,
         HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord, LinkRecord,
         OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
-        TimestampRepeaterRecord, TodoKeywordRecord,
+        TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
     },
+    link_resolver::LinkResolver,
     parser::{
         DiagnosticSeverity, OrgParserCore, ParseDiagnostic, ParseOptions, ParsedHeading,
         ParsedLink, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
@@ -53,7 +54,7 @@ where
         allow_empty: bool,
     ) -> Result<RebuildReport, IndexerError> {
         let config = Config::load_from_file(config_path).map_err(IndexerError::Config)?;
-        let schema = SchemaDefinition::new(1, config.search.fts5_enabled);
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, config.search.fts5_enabled);
         let mut connection =
             open_database_with_schema(&config.db_path, &schema).map_err(IndexerError::Database)?;
         self.rebuild_with_options(&mut connection, &config, allow_empty)
@@ -165,6 +166,8 @@ where
             );
             report.indexed_files.push(indexed_file);
         }
+
+        LinkResolver::resolve_all(&tx).map_err(IndexerError::Write)?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -1149,6 +1152,7 @@ mod tests {
             open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         },
+        link_resolver::UNSUPPORTED_DIAGNOSTIC,
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
     use rusqlite::Connection;
@@ -3712,6 +3716,92 @@ index_body_text = false
                 },
             ]
         );
+
+        let resolution_rows: Vec<(Option<String>, Option<String>)> = query_rows(
+            &connection,
+            "SELECT resolution_status, resolution_diagnostic
+             FROM links
+             ORDER BY byte_start",
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        );
+        assert_eq!(
+            resolution_rows,
+            vec![
+                (
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string())
+                );
+                rows.len()
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_runs_link_resolver_after_all_files_are_indexed() {
+        let test_dir = TestDir::new("link-resolution-order");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("a-source.org");
+        let target_path = notes_dir.join("z-target.org");
+
+        write_file(&source_path, "#+TITLE: Source\n[[file:z-target.org]]\n");
+        write_file(&target_path, "#+TITLE: Target\n* Later file\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+dirs = [{ path = "notes", recursive = false }]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(
+            report
+                .indexed_files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            vec![source_path.clone(), target_path.clone()]
+        );
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let file_rows: Vec<String> =
+            query_rows(&connection, "SELECT path FROM files ORDER BY path", |row| {
+                row.get(0)
+            });
+        let link_rows: Vec<(String, String, Option<String>, Option<String>)> = query_rows(
+            &connection,
+            "SELECT files.path, links.raw, links.resolution_status, links.resolution_diagnostic
+             FROM links
+             INNER JOIN files ON files.id = links.file_id
+             ORDER BY files.path, links.byte_start, links.id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+
+        assert_eq!(
+            file_rows,
+            vec![
+                source_path.to_string_lossy().to_string(),
+                target_path.to_string_lossy().to_string(),
+            ]
+        );
+        assert_eq!(
+            link_rows,
+            vec![(
+                source_path.to_string_lossy().to_string(),
+                "[[file:z-target.org]]".to_string(),
+                Some("unsupported".to_string()),
+                Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+            )]
+        );
     }
 
     #[test]
@@ -4165,6 +4255,66 @@ index_body_text = false
         assert_eq!(tag_count, 1);
         assert_eq!(titles, vec!["Second".to_string()]);
         assert_eq!(tags, vec!["new".to_string()]);
+    }
+
+    #[test]
+    fn rebuilding_same_links_twice_keeps_resolution_fields_deterministic() {
+        let test_dir = TestDir::new("link-resolution-repeat");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("db should open");
+
+        write_file(&org_path, "#+TITLE: Repeat\n[[unknown:foo]]\n");
+
+        let first_report = Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("first rebuild should succeed");
+        let first_rows: Vec<(String, String, Option<String>, Option<String>)> = query_rows(
+            &connection,
+            "SELECT raw, raw_target, resolution_status, resolution_diagnostic
+             FROM links
+             ORDER BY file_id, byte_start, id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+
+        let second_report = Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("second rebuild should succeed");
+        let second_rows: Vec<(String, String, Option<String>, Option<String>)> = query_rows(
+            &connection,
+            "SELECT raw, raw_target, resolution_status, resolution_diagnostic
+             FROM links
+             ORDER BY file_id, byte_start, id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+
+        assert_eq!(first_report.indexed_files.len(), 1);
+        assert_eq!(second_report.indexed_files.len(), 1);
+        assert_eq!(
+            first_rows,
+            vec![(
+                "[[unknown:foo]]".to_string(),
+                "unknown:foo".to_string(),
+                Some("unsupported".to_string()),
+                Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+            )]
+        );
+        assert_eq!(second_rows, first_rows);
     }
 
     #[test]

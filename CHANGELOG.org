@@ -7,6 +7,7 @@ This file records completed changes.
 :VISIBILITY: all
 :END:
 
+- =CHANGED= Rebuild now runs a deterministic link-resolution fallback pass that marks currently unsupported links explicitly instead of leaving resolver-owned state untouched.
 - =CHANGED= Added explicit link resolution state columns to the SQLite =links= table while keeping raw link source facts immutable.
 - =ADDED= Evaluated minimal Orgize adapter.
 - =ADDED= Added parser-owned document, heading, planning, property, and diagnostic types plus contract tests for backend-independent parser behavior.

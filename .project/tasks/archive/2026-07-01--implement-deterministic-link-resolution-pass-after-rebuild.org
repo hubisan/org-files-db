@@ -1,0 +1,209 @@
+#+TITLE: Implement deterministic link resolution pass after rebuild
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-01 Wed 22:11]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Implement deterministic link resolution pass after rebuild=.
+  - Implement only the resolver orchestration pass after rebuild.
+  - Do not implement concrete =file:=, =CUSTOM_ID=, =id:=, or =attachment:= resolution yet.
+  - Unsupported fallback is the only resolver behavior in this task.
+- Active task entry copied from =todo.org=:
+
+#+begin_src org
+,** BUILD [#A] Implement deterministic link resolution pass after rebuild
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Depends on:
+
+- [[*Define Phase 4 link resolution DB contract][Define Phase 4 link resolution DB contract]]
+
+Goal:
+
+- Add the Phase 4 resolver orchestration pass after raw indexing has inserted all files, headings, properties, outline paths, and links.
+- Do not implement concrete file, CUSTOM_ID, ID, or attachment resolution in this task.
+- Establish the deterministic resolver framework that later resolver tasks can plug into.
+- In this task, unsupported fallback is the only resolver behavior.
+
+Implementation notes:
+
+- Do not resolve links inside per-file indexing while a single file is being inserted.
+- Resolve after all pending files are indexed in the rebuild transaction.
+- This is required because later resolver tasks may target files, headings, or properties from files indexed later in the same rebuild.
+- Prefer a small resolver module over spreading resolution SQL through the indexer.
+- The pass should run in the same rebuild transaction as indexing.
+- The pass should be deterministic even before concrete resolvers exist.
+
+Suggested shape:
+
+#+begin_src rust
+  LinkResolver::resolve_all(&tx)?;
+#+end_src
+
+Initial resolver behavior:
+
+- Reset resolver-owned fields for all links before resolving:
+  - ~path_absolute~
+  - ~target_file_id~
+  - ~target_heading_id~
+  - ~target_custom_id~
+  - ~target_id~
+  - ~resolution_status~
+  - ~resolution_diagnostic~
+- Visit links in deterministic order:
+  - ~file_id~
+  - ~byte_start~
+  - ~id~
+- Mark all currently unsupported link forms as:
+  - ~resolution_status = unsupported~
+- Use a stable diagnostic such as:
+  - ~no resolver implemented for link_type~
+- Never modify raw source-fact fields:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~link_type~
+  - ~path~
+  - ~search_option~
+  - ~byte_start~
+  - ~byte_end~
+  - ~line~
+  - ~source_context~
+- Never execute link targets.
+- Never open files through link targets.
+- Never perform filesystem discovery from link targets.
+
+Out of scope:
+
+- Resolving ~file:~ links.
+- Resolving same-file CUSTOM_ID links.
+- Resolving cross-file CUSTOM_ID links.
+- Resolving ~id:~ links.
+- Resolving ~attachment:~ links.
+- Resolving heading-title, regexp, line-number, or dedicated-target search options.
+- Exposing resolution fields in ~links --json~ unless existing internal query structs require it.
+- Do not implement ~file:~ resolution.
+- Do not implement same-file or cross-file ~CUSTOM_ID~ resolution.
+- Do not implement ~id:~ resolution.
+- Do not implement ~attachment:~ resolution.
+- Do not resolve heading-title, regexp, line-number, or dedicated-target search options.
+- Do not expose resolution fields in ~links --json~ unless required by existing internal structs.
+- Do not perform filesystem discovery from link targets.
+- Do not execute, open, or follow link targets.
+
+Acceptance criteria:
+
+- Rebuild remains transactional.
+- The resolver pass runs after raw indexing for the rebuild has completed.
+- Resolution sees all files from the current rebuild.
+- Running rebuild twice produces the same resolution fields.
+- Resolver updates only resolver-owned target/resolution fields.
+- Existing raw link source facts remain unchanged after the resolver pass.
+- Unsupported links are marked with ~resolution_status = unsupported~.
+- Pre-existing stale resolver-owned values are reset before the pass writes new state.
+- Tests cover a cross-file fixture where the target file is indexed after the source file, proving the resolver pass runs after all files are indexed.
+- Tests cover repeat rebuild consistency.
+- Tests cover unsupported link types staying as stored raw facts with ~resolution_status = unsupported~.
+- Tests verify raw link fields are unchanged after resolution.
+- No concrete file, CUSTOM_ID, ID, or attachment resolver logic is implemented in this task.
+- ~make ci~ passes.
+#+end_src
+
+* Planning
+
+** Problem summary
+- Raw Phase 3 links are already stored, and the DB contract for resolver-owned fields is in place, but rebuild currently stops after indexing and never runs a deterministic resolution pass.
+- Later resolution tasks need a stable post-indexing orchestration point that sees the full rebuild universe inside the same transaction.
+
+** Goals
+- Add a dedicated resolver pass after all rebuild writes have completed.
+- Reset stale resolver-owned fields before assigning unsupported fallback state.
+- Keep resolver behavior deterministic and intentionally minimal in this task.
+
+** Non-goals
+- No concrete target resolution by file path, CUSTOM_ID, Org ID, attachment, or search options.
+- No change to raw link extraction/storage semantics.
+- No new public JSON surface for resolution fields.
+
+** Architecture
+- Add a small =src/link_resolver.rs= module with a transaction-scoped =LinkResolver::resolve_all= entry point.
+- Invoke the resolver exactly once near the end of rebuild orchestration, after all file rows have been inserted for the current rebuild and before commit.
+- Keep the initial implementation SQL-centric and deterministic: reset resolver-owned fields, load links in stable order, and mark each as unsupported with a stable diagnostic.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Inspect rebuild orchestration and existing link/indexer tests.
+- Implement the resolver module and wire it into rebuild.
+- Add focused indexer/DB tests for ordering, reset behavior, repeat rebuild stability, and raw-field immutability.
+- Run formatter, focused tests, and =make ci=, then record results.
+
+** Risks & assumptions
+- Assumption: the resolver pass should touch every stored link row during rebuild, not just rows from the current file, because rebuild is already a full transactional refresh.
+- Risk: tests that currently assert deferred target fields remain =NULL= after rebuild need to be updated carefully so they still prove raw facts are unchanged while now expecting =unsupported= fallback.
+
+** Open questions
+- None after the initial task read; the unsupported-only scope is explicit.
+
+** Proposed checks
+- =cargo test db:: -- --nocapture=
+- =cargo test indexer::tests::rebuild_stores_phase3_links_as_source_facts -- --nocapture=
+- =cargo test indexer::tests::rebuild_stores_plain_links_with_reviewed_boundary_and_end_semantics -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Added a dedicated =src/link_resolver.rs= module with a transaction-scoped =LinkResolver::resolve_all= entry point.
+- Wired the resolver once per rebuild in =Indexer::rebuild_with_options= after all files have been indexed and before the rebuild transaction commits.
+- Implemented the initial deterministic fallback only:
+  - reset all resolver-owned fields
+  - visit links in stable DB order
+  - mark every link as =resolution_status = unsupported=
+  - write the stable diagnostic =no resolver implemented for link_type=
+- Kept all raw link source-fact fields untouched and implemented no concrete =file:=, =CUSTOM_ID=, =id:=, or =attachment:= resolution.
+- Updated the config-path rebuild entry point to use =CURRENT_SCHEMA_VERSION= instead of a stale hard-coded schema version.
+
+** Changed files
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-01--implement-deterministic-link-resolution-pass-after-rebuild.org=
+- =README.org=
+- =src/indexer.rs=
+- =src/lib.rs=
+- =src/link_resolver.rs=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test db:: -- --nocapture=
+- =cargo test rebuild_stores_phase3_links_as_source_facts -- --nocapture=
+- =cargo test rebuild_stores_plain_links_with_reviewed_boundary_and_end_semantics -- --nocapture=
+- =cargo test rebuilding_same_links_twice_keeps_resolution_fields_deterministic -- --nocapture=
+- =make ci=
+
+** Test results
+- =make ci= passed, including =cargo fmt --check=, =clippy -D warnings=, the full test suite, and =cargo build --all-targets --all-features=.
+- Focused coverage now proves:
+  - the resolver resets stale resolver-owned fields before writing unsupported fallback state
+  - rebuild runs the resolver after all files are indexed in the current transaction
+  - repeat rebuilds keep resolution fields deterministic
+  - existing raw Phase 3 link source facts remain unchanged after the resolver pass
+  - unsupported fallback is written consistently as =resolution_status = unsupported= with the stable diagnostic
+- Full suite finished green with 146 Rust unit/integration tests during =make ci=.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Later Phase 4 tasks can plug concrete file-path, CUSTOM_ID, Org ID, and attachment resolvers into =LinkResolver= without changing the rebuild orchestration point.
