@@ -8,10 +8,10 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1782994282128988054,859,NULL,1782995482);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',1782941542323623984,343,NULL,1782995482);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',1782941537827580578,428,NULL,1782995482);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',1782994994964428112,643,NULL,1782995482);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1782994282128988054,859,NULL,1782998441);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',1782941542323623984,343,NULL,1782998441);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',1782941537827580578,428,NULL,1782998441);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',1782994994964428112,643,NULL,1782998441);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -356,9 +356,9 @@ INSERT INTO links VALUES(30,4,8,136,154,12,'normal','bracket','[[file:index.org]
 INSERT INTO links VALUES(31,4,8,157,179,13,'normal','bracket','[[file:sub/child.org]]','file:sub/child.org',NULL,'file','sub/child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(32,4,8,182,220,14,'normal','bracket','[[file:other/peer.org::*Peer heading]]','file:other/peer.org::*Peer heading',NULL,'file','other/peer.org','*Peer heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,4,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(33,4,9,248,283,18,'normal','bracket','[[file:./index.org::*Not Existing]]','file:./index.org::*Not Existing',NULL,'file','./index.org','*Not Existing','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading title search target is missing in the resolved file');
-INSERT INTO links VALUES(34,4,9,286,303,19,'normal','bracket','[[*Not Existing]]','*Not Existing',NULL,'fuzzy','*Not Existing',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','no resolver implemented for link_type');
+INSERT INTO links VALUES(34,4,9,286,303,19,'normal','bracket','[[*Not Existing]]','*Not Existing',NULL,'fuzzy','*Not Existing',NULL,NULL,4,NULL,NULL,NULL,'broken','same-file star heading target is missing in the source file');
 INSERT INTO links VALUES(35,4,10,474,508,27,'normal','bracket','[[./target.org::*Duplicate title]]','./target.org::*Duplicate title',NULL,'file','./target.org','*Duplicate title','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,10,NULL,NULL,'resolved','multiple headings in the resolved file match the heading title search target; selected the first heading in document order');
-INSERT INTO links VALUES(36,4,10,511,579,28,'normal','bracket','[[*Duplicate title][Duplicate targets. Should link to first found.]]','*Duplicate title','Duplicate targets. Should link to first found.','fuzzy','*Duplicate title',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','no resolver implemented for link_type');
+INSERT INTO links VALUES(36,4,10,511,579,28,'normal','bracket','[[*Duplicate title][Duplicate targets. Should link to first found.]]','*Duplicate title','Duplicate targets. Should link to first found.','fuzzy','*Duplicate title',NULL,NULL,4,10,NULL,NULL,'resolved','multiple headings in the resolved file match the heading title search target; selected the first heading in document order');
 CREATE UNIQUE INDEX uq_headings_file_level0
     ON headings(file_id)
     WHERE level = 0;

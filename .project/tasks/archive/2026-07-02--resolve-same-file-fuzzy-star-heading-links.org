@@ -1,0 +1,174 @@
+#+TITLE: Resolve same-file fuzzy star heading links
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-02 Thu 14:00]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Resolve same-file fuzzy star heading links=.
+  - Resolve only same-file fuzzy star heading links of the form =[[*Heading]]=.
+  - Reuse the existing heading-title matching behavior where appropriate, but keep the file target implicit as the source file.
+  - Keep non-star fuzzy links, dedicated targets, radio targets, named elements, attachment, CUSTOM_ID, ID, regexp, line-number, and plain fuzzy resolution out of scope.
+  - Follow-up review request:
+    - Apply the same duplicate-heading selection logic as explicit file heading-title links.
+    - When multiple same-file star headings match, select the first match in document order.
+    - Use the same duplicate-match diagnostic string as explicit file heading-title links.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#B] Resolve same-file fuzzy star heading links
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+
+Goal:
+
+- Resolve same-file fuzzy heading links of the form ~[[*Heading]]~.
+
+Supported forms:
+
+- ~[[*Heading]]~
+- ~[[*Heading][Description]]~
+
+Out of scope:
+
+- Do not resolve non-star fuzzy links such as ~[[Heading]]~.
+- Do not resolve dedicated targets.
+- Do not resolve radio targets.
+- Do not resolve named elements.
+
+Resolution rules:
+
+- Resolve only links classified as:
+  - ~link_type = fuzzy~
+  - ~path~ starts with exactly one leading ~*~
+- Target file context is the source file.
+- Strip exactly one leading ~*~ before matching.
+- Unescape Org link escapes needed for heading text matching.
+- Search non-root headings only in the source file.
+- Match against the documented stored heading title field.
+- If exactly one heading matches:
+  - set ~target_file_id~ to the source file id.
+  - set ~target_heading_id~
+  - set ~resolution_status = resolved~
+  - set ~resolution_diagnostic = NULL~
+- If no heading matches:
+  - set ~target_file_id~ to the source file id.
+  - set ~target_heading_id = NULL~
+  - set ~resolution_status = broken~
+- If multiple headings match:
+  - set ~target_file_id~ to the source file id.
+  - set ~target_heading_id = NULL~
+  - set ~resolution_status = ambiguous~
+  - do not pick the first heading.
+
+Acceptance criteria:
+
+- ~[[*Target heading]]~ resolves to the matching heading in the same file.
+- ~[[*Target heading][Description]]~ resolves and preserves the raw description.
+- Missing same-file star fuzzy heading links are marked ~broken~.
+- Duplicate same-file heading titles are marked ~ambiguous~.
+- Lookup does not scan other files.
+- Raw link source fields remain unchanged.
+- Non-star fuzzy links remain unsupported.
+- ~make ci~ passes.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The resolver already handles explicit file heading-title search for =file:...::*Heading=, but same-file fuzzy star links still fall through to the unsupported fallback.
+- This task needs same heading-title matching semantics with an implicit file target equal to the source file.
+
+** Goals
+- Resolve =link_type = fuzzy= links whose stored =path= starts with exactly one =*= against headings in the source file.
+- Preserve raw link fields, including descriptions and the original fuzzy path text.
+- Keep all non-star fuzzy forms unsupported.
+
+** Non-goals
+- No non-star fuzzy links such as =[[Heading]]=.
+- No dedicated targets, radio targets, named elements, attachment, CUSTOM_ID, ID, regexp, or line-number resolution.
+- No cross-file scan.
+
+** Architecture
+- Extend the resolver's link dispatch with a dedicated same-file star fuzzy branch before the unsupported fallback.
+- Reuse the same normalized heading-title extraction and matching helpers used for file heading-title search.
+- Keep duplicate semantics task-specific:
+  - same-file star fuzzy duplicates remain =ambiguous=
+  - file heading-title duplicates keep their current first-match selection behavior
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Read repository-specific rules and inspect current fuzzy-link parsing plus resolver coverage.
+- Implement same-file star fuzzy resolution in =src/link_resolver.rs=.
+- Add unit and rebuild tests for resolved, described, missing, duplicate, and non-star fuzzy cases.
+- Run formatter and =make ci=, then record results.
+
+** Risks & assumptions
+- Assumption: the stored =path= for =[[*Heading]]= remains the raw fuzzy target beginning with one =*=, so the resolver can identify the supported subset without needing parser changes.
+- Risk: file heading-title search and same-file fuzzy star search share title extraction logic but not duplicate semantics, so helper boundaries need to stay explicit.
+
+** Open questions
+- None after initial inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Extended the resolver dispatch with a dedicated same-file fuzzy star path for links where =link_type = fuzzy= and =path= starts with exactly one leading =*=.
+- Reused the same normalized heading-title matching rules as file heading-title search:
+  - strip one leading =*=
+  - unescape =\[= and =\]=
+  - search only =level > 0= headings
+  - match exact stored normalized =headings.title= values
+- Kept same-file fuzzy duplicate semantics separate from file heading-title duplicates:
+  - initial implementation kept same-file star fuzzy duplicates =ambiguous=
+  - follow-up change aligned same-file star fuzzy duplicates with the existing file heading-title first-match behavior
+- Left non-star fuzzy links on the existing =unsupported= fallback.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-02--resolve-same-file-fuzzy-star-heading-links.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =make ci=
+
+** Test results
+- =[[*Heading]]= now resolves against headings in the source file and sets both =target_file_id= and =target_heading_id=.
+- =[[*Heading][Description]]= resolves the same heading while preserving the raw description field unchanged.
+- Missing same-file fuzzy star targets are marked =broken= with a stable diagnostic.
+- Duplicate same-file fuzzy star targets now resolve to the first matching heading in stored document order and use the same duplicate-match diagnostic as explicit file heading-title links.
+- Non-star fuzzy links such as =[[Heading]]= remain =unsupported=.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Later fuzzy-link tasks can add dedicated targets, radio targets, named elements, and non-star fuzzy heading resolution without changing this star-only resolver path.
