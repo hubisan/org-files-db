@@ -18,6 +18,10 @@ Back links:
 - [[file:./index.org::*Not Existing]]
 - [[*Not Existing]]
 
+* Whitespace is trimmed
+
+- [[file:other/peer.org::*   Peer heading   ]]
+
 * Duplicate title
 
 This is here for later heading-title ambiguity tests.
@@ -28,5 +32,16 @@ Org actually jumps to the first found in the file. Doesn't matter where the link
 - [[*Duplicate title][Duplicate targets. Should link to first found.]]
 
 * Duplicate title
+:PROPERTIES:
+:CUSTOM_ID: e2522e10-0cbf-4e55-9ece-da1d0b7d1b58
+:END:
 
 This second duplicate is also intentional.
+
+* Angle Link
+
+[[file:./index.org::*Main Index]]
+
+<file:./index.org::*Main Index>
+<file:./target.org::*   Target heading>
+

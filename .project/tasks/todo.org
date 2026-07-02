@@ -99,7 +99,7 @@ Important distinction:
 
 Task file: [[./archive/2026-07-01--define-phase-4-link-resolution-db-contract.org]]
 
-** DONE [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
+** DONE Implement deterministic link resolution pass after rebuild
 
 Task file: [[./archive/2026-07-01--implement-deterministic-link-resolution-pass-after-rebuild.org]]
 
@@ -125,7 +125,7 @@ Task file: [[./archive/2026-07-02--resolve-same-file-fuzzy-star-heading-links.or
 
 Task file: [[./archive/2026-07-02--reduce-resolver-diagnostics.org]]
 
-** TODO Resolve property-based heading links
+** BUILD [#B] Resolve CUSTOM_ID and ID links
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
@@ -137,133 +137,281 @@ Depends on:
 
 - [[*Implement deterministic link resolution pass after rebuild][Implement deterministic link resolution pass after rebuild]]
 - [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
 
 Goal:
 
-- Resolve heading links that target Org properties such as ~ID~ and ~CUSTOM_ID~.
-- Use one shared property-target lookup mechanism with different search scopes and missing-target semantics.
+- Resolve Org links that target ~CUSTOM_ID~ and ~ID~ properties.
+- Resolve bracket same-file ~CUSTOM_ID~ links.
+- Resolve file-context ~CUSTOM_ID~ search options.
+- Resolve ~ID~ links within the indexed ID universe.
+- Whenever a target resolves to a heading, set both ~target_file_id~ and ~target_heading_id~.
+- Preserve raw link source fields.
 
-General property lookup model:
+Scope:
 
-- Each resolver case defines:
-  - property key
-  - property value
-  - search scope
-  - status for no match
-- Exactly one match resolves to a heading.
-- Multiple matches are ambiguous.
-- No match is either ~broken~ or ~unresolved~, depending on whether the search scope is known to be complete.
+- Same-file ~CUSTOM_ID~ links:
+  - ~[[#foo]]~
+  - ~[[#foo][Description]]~
+- File-context ~CUSTOM_ID~ links:
+  - ~[[file:other.org::#foo]]~
+  - ~[[file:other.org::#foo][Description]]~
+  - ~[[./other.org::#foo]]~
+  - ~[[../other.org::#foo]]~
+  - ~<file:other.org::#foo>~
+  - plain ~file:other.org::#foo~ when extracted by configured plain-link protocols
+- Org ID links:
+  - ~id:foo~
+  - ~[[id:foo]]~
+  - ~[[id:foo][Description]]~
+  - ~<id:foo>~
+  - plain ~id:foo~ when extracted by configured plain-link protocols
 
-Shared matching rules:
+Important parser model:
 
-- Match against heading properties:
+- Same-file ~[[#foo]]~ may be classified as ~link_type = fuzzy~.
+- It is still a ~CUSTOM_ID~ target when:
+  - ~link_type = fuzzy~
+  - ~path~ starts with exactly one leading ~#~
+- This is analogous to same-file star heading links:
+  - ~[[*foo]]~ resolves by heading title in the source file.
+  - ~[[#foo]]~ resolves by ~CUSTOM_ID~ in the source file.
+- File-context ~CUSTOM_ID~ links are file links with:
+  - ~link_type = file~
+  - ~search_option~ beginning with exactly one leading ~#~
+- Bare angle or plain ~#foo~ is not a supported CUSTOM_ID link form.
+- Angle and plain CUSTOM_ID links require an explicit ~file:...::#foo~ form.
+
+Shared lookup rules:
+
+- Match against indexed heading properties:
   - ~properties.key~
   - ~properties.value~
-- If exactly one matching heading exists:
-  - set ~target_heading_id~
-  - set ~resolution_status = resolved~
-- If multiple matching headings exist:
-  - set ~target_heading_id = NULL~
-  - set ~resolution_status = ambiguous~
-  - set ~resolution_diagnostic~ explaining that multiple headings match the property target.
-  - do not choose an arbitrary target.
+- Match property keys exactly.
+- Match property values exactly.
+- Do not normalize, lowercase, or fuzzy-match property values.
+- Exclude synthetic root headings from property-target lookup.
+- Do not rely on unspecified SQL row order.
+- Define document order using stored heading order, such as ~byte_start~ or the existing heading-order field.
 - Raw link source fields must remain unchanged.
 
-*** TODO Resolve same-file CUSTOM_ID links
+Value handling:
+
+- For same-file and file-context ~CUSTOM_ID~:
+  - remove exactly one leading ~#~
+  - store the remaining value in ~target_custom_id~
+  - do not trim internal whitespace
+  - do not lowercase
+  - do not fuzzy-match
+- For ~ID~:
+  - use the parsed ID target value from the existing link fields
+  - store it in ~target_id~
+  - do not lowercase
+  - do not fuzzy-match
+- Property lookup matches the extracted value exactly against stored heading property values.
+
+Duplicate target policy:
+
+- Duplicate ~CUSTOM_ID~ targets follow observed Org behavior.
+- If multiple matching ~CUSTOM_ID~ properties exist in the active search scope:
+  - select the first matching heading in document order
+  - set ~target_file_id~ to the matched heading's file
+  - set ~target_heading_id~ to the first matching heading
+  - set ~resolution_status = resolved~
+  - set ~resolution_diagnostic = NULL~
+- Duplicate ~ID~ targets are data errors.
+- If multiple indexed headings have the same ~ID~:
+  - do not choose a target
+  - set ~target_file_id = NULL~
+  - set ~target_heading_id = NULL~
+  - set ~target_id~ to the requested ID
+  - set ~resolution_status = ambiguous~
+  - set ~resolution_diagnostic = duplicate id~
+
+Diagnostics policy:
+
+- Successful resolutions use:
+  - ~resolution_diagnostic = NULL~
+- Missing same-file or file-context ~CUSTOM_ID~ uses:
+  - ~resolution_status = broken~
+  - ~resolution_diagnostic = custom id not found~
+- Missing ~ID~ uses:
+  - ~resolution_status = unresolved~
+  - ~resolution_diagnostic = id not found~
+- Duplicate ~ID~ uses:
+  - ~resolution_status = ambiguous~
+  - ~resolution_diagnostic = duplicate id~
+
+Out of scope:
+
+- Do not support bare angle ~<#foo>~ as a CUSTOM_ID link.
+- Do not support bare plain ~#foo~ as a CUSTOM_ID link.
+- Do not resolve ~attachment:~ links.
+- Do not resolve regexp search options.
+- Do not resolve line-number search options.
+- Do not resolve dedicated targets.
+- Do not resolve non-star and non-~#~ fuzzy links.
+- Do not change file heading-title search option behavior.
+- Do not change same-file star fuzzy heading resolution.
+- Do not change file-only synthetic root heading behavior.
+- Do not scan files outside the indexed DB.
+- Do not use Emacs ~org-id-locations~.
+- Do not add a DB schema migration.
+
+*** BUILD Resolve bracket same-file CUSTOM_ID links
 
 Supported forms:
 
 - ~[[#foo]]~
+- ~[[#foo][Description]]~
+
+Unsupported forms in this subtask:
+
+- ~<#foo>~
+- plain ~#foo~
 
 Rules:
 
+- Resolve same-file CUSTOM_ID links classified by Phase 3 as fuzzy links.
+- Apply when:
+  - ~link_type = fuzzy~
+  - ~path~ starts with exactly one leading ~#~
 - Property key:
   - ~CUSTOM_ID~
 - Property value:
   - ~foo~
 - Search scope:
-  - headings in the source file only
+  - non-root headings in the source file only
 - No-match status:
   - ~broken~
+- Duplicate-match behavior:
+  - select the first matching heading in document order
 
 Target fields:
 
-- On match, set:
-  - ~target_heading_id~
+- On one or more matches, set:
+  - ~target_file_id~ to the source file id
+  - ~target_heading_id~ to the first matching heading
   - ~target_custom_id = foo~
+  - ~target_id = NULL~
   - ~resolution_status = resolved~
+  - ~resolution_diagnostic = NULL~
 - On no match, set:
+  - ~target_file_id~ to the source file id
   - ~target_heading_id = NULL~
   - ~target_custom_id = foo~
+  - ~target_id = NULL~
   - ~resolution_status = broken~
+  - ~resolution_diagnostic = custom id not found~
 
 Acceptance criteria:
 
-- Same-file ~[[#custom-id]]~ resolves only within the source file.
+- Bracket same-file ~[[#custom-id]]~ resolves only within the source file.
+- Bracket same-file ~[[#custom-id][Description]]~ resolves and preserves the raw description.
+- Matching same-file CUSTOM_ID sets ~target_file_id~, ~target_heading_id~, and ~target_custom_id~.
+- Duplicate CUSTOM_ID values in the source file resolve to the first matching heading in document order.
 - Missing same-file CUSTOM_ID is marked ~broken~.
-- Duplicate CUSTOM_ID values in the source file are marked ~ambiguous~.
-- CUSTOM_ID lookup does not scan unrelated files.
+- Missing same-file CUSTOM_ID keeps ~target_file_id~ set to the source file id.
+- Missing same-file CUSTOM_ID keeps ~target_custom_id~ set.
+- Missing same-file CUSTOM_ID keeps ~target_heading_id = NULL~.
+- Bare angle ~<#custom-id>~ is not treated as a CUSTOM_ID link.
+- Bare plain ~#custom-id~ is not treated as a CUSTOM_ID link.
+- Same-file CUSTOM_ID lookup does not scan unrelated files.
+- Non-~#~ fuzzy links remain handled by their existing resolver behavior.
+- Raw link fields remain unchanged.
 
-*** TODO Resolve cross-file CUSTOM_ID links
+*** BUILD Resolve file-context CUSTOM_ID links
 
 Supported forms:
 
 - ~[[file:other.org::#foo]]~
+- ~[[file:other.org::#foo][Description]]~
+- ~[[./other.org::#foo]]~
+- ~[[../other.org::#foo]]~
+- ~<file:other.org::#foo>~
+- plain ~file:other.org::#foo~ when extracted by configured plain-link protocols
 
 Rules:
 
-- First resolve the file target.
+- Resolve only file links with a ~search_option~ beginning with exactly one leading ~#~.
+- First resolve the file target using the existing file-link resolver.
 - Only run CUSTOM_ID lookup when the file target resolved.
 - Property key:
   - ~CUSTOM_ID~
 - Property value:
   - ~foo~
 - Search scope:
-  - headings in the resolved target file only
+  - non-root headings in the resolved target file only
 - No-match status:
   - ~broken~
+- Duplicate-match behavior:
+  - select the first matching heading in document order
 
 Target fields:
 
-- On match, set:
-  - ~target_file_id~
-  - ~target_heading_id~
+- On one or more matches, set:
+  - ~target_file_id~ to the resolved file id
+  - ~target_heading_id~ to the first matching heading
   - ~target_custom_id = foo~
+  - ~target_id = NULL~
   - ~resolution_status = resolved~
+  - ~resolution_diagnostic = NULL~
 - On no match, set:
-  - keep ~target_file_id~ if the file resolved
+  - keep ~target_file_id~ set to the resolved file id
+  - keep ~path_absolute~ set to the resolved file path
   - ~target_heading_id = NULL~
   - ~target_custom_id = foo~
+  - ~target_id = NULL~
   - ~resolution_status = broken~
+  - ~resolution_diagnostic = custom id not found~
 - If file resolution fails:
-  - keep the file-link broken status.
+  - keep the existing file-link failure status.
   - do not run CUSTOM_ID lookup without a resolved file context.
+  - do not set ~target_heading_id~.
+  - do not override the existing file resolver diagnostic.
 
 Acceptance criteria:
 
-- Cross-file ~[[file:other.org::#custom-id]]~ resolves only within the resolved target file.
+- File-context ~[[file:other.org::#custom-id]]~ resolves only within the resolved target file.
+- File-context ~[[file:other.org::#custom-id][Description]]~ resolves and preserves the raw description.
+- Angle ~<file:other.org::#custom-id>~ resolves when extracted as a file link.
+- Plain ~file:other.org::#custom-id~ resolves when extracted by configured plain-link protocols.
+- Matching file-context CUSTOM_ID sets ~target_file_id~, ~target_heading_id~, and ~target_custom_id~.
+- Duplicate CUSTOM_ID values in the resolved target file resolve to the first matching heading in document order.
 - Missing CUSTOM_ID in the resolved target file is marked ~broken~.
-- Duplicate CUSTOM_ID values in the resolved target file are marked ~ambiguous~.
+- Missing CUSTOM_ID in the resolved target file keeps ~target_file_id~ set.
+- Missing CUSTOM_ID in the resolved target file keeps ~target_custom_id~ set.
+- Missing CUSTOM_ID in the resolved target file keeps ~target_heading_id = NULL~.
 - CUSTOM_ID lookup is skipped when file resolution fails.
 - CUSTOM_ID lookup does not scan unrelated files.
+- File links with non-~#~ search options keep existing behavior.
+- Raw link fields remain unchanged.
 
-*** TODO Resolve Org ID links within indexed ID universe
+*** BUILD Resolve Org ID links within indexed ID universe
 
 Supported forms:
 
 - ~id:foo~
+- ~[[id:foo]]~
+- ~[[id:foo][Description]]~
+- ~<id:foo>~
+- plain ~id:foo~ when extracted by configured plain-link protocols
 - bracket or angle links classified by Phase 3 as ~link_type = id~
 
 Rules:
 
+- Resolve only links classified as Org ID links.
 - Property key:
   - ~ID~
 - Property value:
   - raw ID target
 - Search scope:
-  - all indexed files
+  - all indexed non-root headings
 - No-match status:
   - ~unresolved~
+- Duplicate-match behavior:
+  - mark ~ambiguous~
 
 Background:
 
@@ -271,31 +419,50 @@ Background:
 - Org normally resolves them through its ID location mechanism.
 - The indexed DB may not be the complete Org ID universe.
 - Therefore, absence from indexed files does not necessarily mean the link is broken.
+- Duplicate IDs are invalid data and should be surfaced instead of silently choosing one target.
 
 Target fields:
 
-- On match, set:
+- On exactly one match, set:
+  - ~target_file_id~ to the matched heading's file
   - ~target_heading_id~
-  - ~target_id~
+  - ~target_id = foo~
+  - ~target_custom_id = NULL~
   - ~resolution_status = resolved~
+  - ~resolution_diagnostic = NULL~
 - On no match, set:
+  - ~target_file_id = NULL~
   - ~target_heading_id = NULL~
-  - ~target_id~ to the raw ID target if useful for diagnostics.
+  - ~target_id = foo~
+  - ~target_custom_id = NULL~
   - ~resolution_status = unresolved~
-  - ~resolution_diagnostic~ explaining that the ID was not found in indexed files, but the complete Org ID universe is not known.
-- On multiple matches:
+  - ~resolution_diagnostic = id not found~
+- On multiple matches, set:
+  - ~target_file_id = NULL~
   - ~target_heading_id = NULL~
-  - ~target_id~ to the raw ID target if useful for diagnostics.
+  - ~target_id = foo~
+  - ~target_custom_id = NULL~
   - ~resolution_status = ambiguous~
+  - ~resolution_diagnostic = duplicate id~
 
 Acceptance criteria:
 
 - ~id:foo~ resolves when exactly one indexed heading has ~:ID: foo~.
+- Bracket ~[[id:foo]]~ resolves when extracted as an ID link.
+- Bracket ~[[id:foo][Description]]~ resolves and preserves the raw description.
+- Angle ~<id:foo>~ resolves when extracted as an ID link.
+- Plain ~id:foo~ resolves when extracted by configured plain-link protocols.
+- Matching ID links set ~target_file_id~, ~target_heading_id~, and ~target_id~.
 - Duplicate indexed IDs are marked ~ambiguous~.
+- Duplicate indexed IDs do not select the first match.
+- Duplicate indexed IDs keep ~target_file_id = NULL~ and ~target_heading_id = NULL~.
 - Missing IDs are marked ~unresolved~, not ~broken~.
+- Missing IDs keep ~target_id~ set.
 - Tests document that absence from indexed files is not enough to classify an ID link as broken.
-- ID resolution uses or preserves the existing ID property index.
-  
+- ID resolution uses the existing heading property index.
+- Raw link fields remain unchanged.
+- ~make ci~ passes.
+
 ** TODO [#C] Resolve file-only links to synthetic root headings
 :PROPERTIES:
 :PRIORITY: Low
