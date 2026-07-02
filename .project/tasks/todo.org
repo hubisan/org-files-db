@@ -494,11 +494,11 @@ Depends on:
 Goal:
 
 - Define how non-CUSTOM_ID file link search options should later resolve to headings or locations.
+- Those target links (star) are already solved: [[file:notes.org::*Heading]]
 
 Examples:
 
 #+begin_src org
-  [[file:notes.org::*Heading]]
   [[file:notes.org::42]]
   [[file:notes.org::/regexp/]]
 #+end_src
@@ -525,3 +525,8 @@ Acceptance criteria:
 - Search-option support matrix is documented.
 - Unsupported search options have explicit status semantics.
 - No implementation is required in this task unless the contract is small and clear.
+  
+** TODO Add Linke Resolving to the Documentation
+
+Add what is needed to the documentation.
+

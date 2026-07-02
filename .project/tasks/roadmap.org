@@ -201,6 +201,15 @@ Goal: Define the first query AST and the supported operator set.
 
 Initially supported operators:
 
+Irgendwie eignet sich dies doch nicht so ganz, bzw. nur für Headings:
+https://github.com/alphapapa/org-ql#general-predicates
+
+Für Links braucht es was anderes. Und Outline Path wäre sicher auch noch cool. Für ein File oder mehrere (als JSON, kann man dann mit Elisp eine Outline mit klickbaren Links machen). Oder auch die gefunden Headings aber als Outline, damit man den Kontext besser versteht, die Datei ist auch hier als lvl 0 mit von der Partie.
+
+Ist noch cool als Inspiration, insbesondere der Side Buffer:
+[[https://github.com/d12frosted/vulpea-ui]]
+
+
 #+begin_src lisp
 (todo "NEXT")
 (todo-type "open")
