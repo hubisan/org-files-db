@@ -22,7 +22,9 @@ Back links:
 
 - [[file:other/peer.org::*   Peer heading   ]]
 
-* Duplicate title
+* Duplicate headings titles
+
+** Duplicate title
 
 This is here for later heading-title ambiguity tests.
 
@@ -30,18 +32,28 @@ Org actually jumps to the first found in the file. Doesn't matter where the link
 
 - [[./target.org::*Duplicate title]]
 - [[*Duplicate title][Duplicate targets. Should link to first found.]]
-
-* Duplicate title
+  
+** Duplicate title
 :PROPERTIES:
 :CUSTOM_ID: e2522e10-0cbf-4e55-9ece-da1d0b7d1b58
 :END:
 
 This second duplicate is also intentional.
 
-* Angle Link
+* Brackets in Title [2026-07-03 Fr]
+
+<file:./target.org::*Brackets in Title [2026-07-03 Fr]>
+[[file:./target.org::*Brackets in Title \[2026-07-03 Fr\]]]
+
+* Case insensitive works 
 
 [[file:./index.org::*Main Index]]
+[[file:./index.org::*main index]]
 
-<file:./index.org::*Main Index>
+* Angle Link
+
+<file:./index.org::* Main Index>
+file:./index.org::*Main
 <file:./target.org::*   Target heading>
+<file:./target.org::*not existing>
 

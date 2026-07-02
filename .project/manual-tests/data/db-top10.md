@@ -4,10 +4,10 @@
 
 | id |                                                     path                                                      |      mtime_ns       | size | content_hash | indexed_at |
 |----|---------------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org      | 1783029353233070171 | 859  |              | 1783031744 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org | 1783029353233070171 | 343  |              | 1783031744 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org  | 1783029353234070177 | 428  |              | 1783031744 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org     | 1783031737887196949 | 907  |              | 1783031744 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org      | 1783029353233070171 | 859  |              | 1783033642 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org | 1783029353233070171 | 343  |              | 1783033642 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org  | 1783029353234070177 | 428  |              | 1783033642 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org     | 1783033604831180626 | 1215 |              | 1783033642 |
 
 ## heading_bodies
 
@@ -22,7 +22,7 @@
 | 4  | 2       | 3         | 1     | 4           | 34         | 343      | Peer heading          | Peer heading          |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
 | 5  | 3       |           | 0     | 1           | -1         | 428      | Child                 | Child                 |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
 | 6  | 3       | 5         | 1     | 4           | 35         | 428      | Child heading         | Child heading         |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
-| 7  | 4       |           | 0     | 1           | -1         | 907      | Target                | Target                |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
+| 7  | 4       |           | 0     | 1           | -1         | 1215     | Target                | Target                |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
 | 8  | 4       | 7         | 1     | 4           | 36         | 222      | Target heading        | Target heading        |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
 | 9  | 4       | 7         | 1     | 16          | 222        | 305      | Invalid Target Links  | Invalid Target Links  |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
 | 10 | 4       | 7         | 1     | 21          | 305        | 378      | Whitespace is trimmed | Whitespace is trimmed |              |           |          |               |              |              |             |            |           | 0         | 0                  | []            |
@@ -82,7 +82,7 @@
 | 6  | 6          | ID        | child-id-001                         | property_drawer | 0      | 7           |
 | 7  | 8          | CUSTOM_ID | target-custom-id                     | property_drawer | 0      | 6           |
 | 8  | 8          | ID        | target-id-001                        | property_drawer | 0      | 7           |
-| 9  | 12         | CUSTOM_ID | e2522e10-0cbf-4e55-9ece-da1d0b7d1b58 | property_drawer | 0      | 36          |
+| 9  | 13         | CUSTOM_ID | e2522e10-0cbf-4e55-9ece-da1d0b7d1b58 | property_drawer | 0      | 38          |
 
 ## tags
 
@@ -92,6 +92,10 @@
 
 ## timestamps
 
+| id | heading_id | role |  start_ts  | end_ts |   type   | range_type |    raw_value    | byte_start | byte_end | line_number |
+|----|------------|------|------------|--------|----------|------------|-----------------|------------|----------|-------------|
+| 1  | 14         | body | 1783036800 |        | inactive | none       | [2026-07-03 Fr] | 838        | 853      | 43          |
+| 2  | 14         | body | 1783036800 |        | inactive | none       | [2026-07-03 Fr] | 894        | 909      | 45          |
 
 ## todo_keywords
 

@@ -125,7 +125,124 @@ Task file: [[./archive/2026-07-02--resolve-same-file-fuzzy-star-heading-links.or
 
 Task file: [[./archive/2026-07-02--reduce-resolver-diagnostics.org]]
 
-** BUILD [#B] Resolve CUSTOM_ID and ID links
+** BUILD [#B] Normalize star heading-title matching
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+
+Goal:
+
+- Make star heading-title link resolution match Org behavior more closely.
+- Trim leading and trailing whitespace around star heading-title search targets.
+- Compare star heading-title targets case-insensitively.
+- Apply the same matching semantics to file star search options and same-file fuzzy star links.
+- Preserve raw link source fields.
+
+Scope:
+
+- File links with star heading-title search options:
+  - ~[[file:target.org::*Heading]]~
+  - ~[[file:target.org::*   Heading   ]]~
+  - ~<file:target.org::*Heading>~
+  - plain ~file:target.org::*Heading~ when extracted by configured plain-link protocols
+- Same-file fuzzy star heading links:
+  - ~[[*Heading]]~
+  - ~[[*   Heading   ]]~
+  - ~[[*Heading][Description]]~
+
+Observed behavior to support:
+
+- Org trims surrounding whitespace in star heading-title search targets.
+- Org matches star heading-title search targets case-insensitively.
+- Example:
+  - stored heading title: ~Peer heading~
+  - link target: ~*   Peer heading   ~
+  - result: resolved
+- Example:
+  - stored heading title: ~Main index~
+  - link target: ~*Main Index~
+  - result: resolved
+- Example:
+  - stored heading title: ~Target heading~
+  - link target: ~*   Target heading~
+  - result: resolved
+
+Star heading-title normalization rules:
+
+- Apply only to star heading-title targets.
+- Strip exactly one leading ~*~.
+- Trim leading and trailing whitespace from the remaining heading-title target.
+- Preserve existing Org link escape handling.
+- Existing bracket escape behavior must continue to work:
+  - ~*Brackets in Title \[2026-07-03 Fr\]~
+  - matches ~Brackets in Title [2026-07-03 Fr]~
+- Do not mutate stored ~search_option~, ~path~, ~raw_target~, ~raw~, or ~raw_description~.
+
+Star heading-title comparison rules:
+
+- Compare normalized star heading-title targets case-insensitively.
+- Search only in the active target scope:
+  - resolved target file for ~file:...::*Heading~
+  - source file for ~[[*Heading]]~
+- Exclude synthetic root headings.
+- Preserve deterministic duplicate behavior:
+  - if multiple headings match case-insensitively, select the first heading in document order
+  - document order must be deterministic, for example ~byte_start~, then ~id~
+- Successful matches use:
+  - ~resolution_status = resolved~
+  - ~resolution_diagnostic = NULL~
+
+Out of scope:
+
+- Do not change CUSTOM_ID or ID matching in this task unless the existing implementation already shares the star-heading matcher and would otherwise break.
+- Do not make ~CUSTOM_ID~ or ~ID~ case-insensitive without an explicit Org-behavior test.
+- Do not trim ~CUSTOM_ID~ or ~ID~ property values unless an explicit Org-behavior test proves this is required.
+- Do not implement new CUSTOM_ID or ID resolution features.
+- Do not implement attachment resolution.
+- Do not implement regexp, line-number, dedicated-target, or non-star fuzzy resolution.
+- Do not change parser extraction.
+- Do not change the DB schema.
+
+Implementation notes:
+
+- Prefer a shared helper for star heading-title target normalization.
+- Use the helper for:
+  - file heading-title search options
+  - same-file fuzzy star heading links
+- Keep raw DB fields unchanged.
+- Avoid relying on unspecified SQL row order.
+- Either:
+  - query candidate headings in scope ordered by ~byte_start~, ~id~ and compare normalized/case-insensitively in Rust
+  - or use deterministic SQL case-insensitive comparison with explicit ~ORDER BY byte_start, id~
+- Keep existing bracket escape support as a regression case.
+
+Acceptance criteria:
+
+- ~[[file:other/peer.org::*   Peer heading   ]]~ resolves to heading ~Peer heading~.
+- ~<file:./target.org::*   Target heading>~ resolves to heading ~Target heading~.
+- ~[[file:./index.org::*Main Index]]~ resolves to heading ~Main index~.
+- ~<file:./index.org::*Main Index>~ resolves to heading ~Main index~.
+- Same-file ~[[*   Target heading   ]]~ resolves to heading ~Target heading~.
+- Same-file ~[[*TARGET HEADING]]~ resolves to heading ~Target heading~.
+- Existing escaped bracket cases still resolve:
+  - ~<file:./target.org::*Brackets in Title [2026-07-03 Fr]>~
+  - ~[[file:./target.org::*Brackets in Title \[2026-07-03 Fr\]]]~
+- Duplicate heading titles still resolve to the first match in document order.
+- Missing heading titles still result in:
+  - ~resolution_status = broken~
+  - short diagnostic such as ~heading not found~ or ~same-file heading not found~
+- Raw link fields remain unchanged, including original whitespace and case in ~search_option~.
+- ~make ci~ passes.
+  
+** [#B] Resolve CUSTOM_ID and ID links
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
@@ -139,6 +256,7 @@ Depends on:
 - [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
 - [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
 - [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+- [[*Normalize star heading-title matching][Normalize star heading-title matching]]
 
 Goal:
 
@@ -146,6 +264,9 @@ Goal:
 - Resolve bracket same-file ~CUSTOM_ID~ links.
 - Resolve file-context ~CUSTOM_ID~ search options.
 - Resolve ~ID~ links within the indexed ID universe.
+- Match ~CUSTOM_ID~ and ~ID~ lookup values using Org-compatible normalization:
+  - trim leading and trailing whitespace
+  - compare case-insensitively
 - Whenever a target resolves to a heading, set both ~target_file_id~ and ~target_heading_id~.
 - Preserve raw link source fields.
 
@@ -188,28 +309,43 @@ Shared lookup rules:
 - Match against indexed heading properties:
   - ~properties.key~
   - ~properties.value~
-- Match property keys exactly.
-- Match property values exactly.
-- Do not normalize, lowercase, or fuzzy-match property values.
+- Match property keys exactly:
+  - ~CUSTOM_ID~
+  - ~ID~
+- Normalize property target values before lookup.
+- Compare property values case-insensitively.
+- Do not fuzzy-match property values.
+- Do not normalize internal whitespace.
 - Exclude synthetic root headings from property-target lookup.
 - Do not rely on unspecified SQL row order.
 - Define document order using stored heading order, such as ~byte_start~ or the existing heading-order field.
 - Raw link source fields must remain unchanged.
 
-Value handling:
+Property target normalization:
 
-- For same-file and file-context ~CUSTOM_ID~:
+- Apply only to ~CUSTOM_ID~ and ~ID~ lookup values.
+- For ~CUSTOM_ID~:
   - remove exactly one leading ~#~
-  - store the remaining value in ~target_custom_id~
-  - do not trim internal whitespace
-  - do not lowercase
-  - do not fuzzy-match
+  - trim leading and trailing whitespace from the remaining value
+  - use the normalized value for property lookup
+  - store the normalized value in ~target_custom_id~
+  - compare case-insensitively against stored ~CUSTOM_ID~ property values
 - For ~ID~:
   - use the parsed ID target value from the existing link fields
-  - store it in ~target_id~
-  - do not lowercase
-  - do not fuzzy-match
-- Property lookup matches the extracted value exactly against stored heading property values.
+  - trim leading and trailing whitespace from the value
+  - use the normalized value for property lookup
+  - store the normalized value in ~target_id~
+  - compare case-insensitively against stored ~ID~ property values
+- Do not lowercase the stored raw link fields.
+- Do not mutate:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~path~
+  - ~search_option~
+- Do not normalize internal whitespace:
+  - ~" Foo Bar "~ becomes ~"Foo Bar"~
+  - ~"Foo  Bar"~ remains ~"Foo  Bar"~
 
 Duplicate target policy:
 
@@ -221,11 +357,11 @@ Duplicate target policy:
   - set ~resolution_status = resolved~
   - set ~resolution_diagnostic = NULL~
 - Duplicate ~ID~ targets are data errors.
-- If multiple indexed headings have the same ~ID~:
+- If multiple indexed headings have the same ~ID~ after case-insensitive matching:
   - do not choose a target
   - set ~target_file_id = NULL~
   - set ~target_heading_id = NULL~
-  - set ~target_id~ to the requested ID
+  - set ~target_id~ to the normalized requested ID
   - set ~resolution_status = ambiguous~
   - set ~resolution_diagnostic = duplicate id~
 
@@ -259,7 +395,19 @@ Out of scope:
 - Do not use Emacs ~org-id-locations~.
 - Do not add a DB schema migration.
 
-*** BUILD Resolve bracket same-file CUSTOM_ID links
+Implementation notes:
+
+- Prefer a shared helper for property target normalization.
+- Keep property key matching exact.
+- Implement case-insensitive value comparison deterministically.
+- Either:
+  - query candidate properties in scope ordered by heading document order and compare normalized values in Rust
+  - or use deterministic SQL case-insensitive comparison with explicit ~ORDER BY headings.byte_start, headings.id~
+- Preserve deterministic first-match behavior for ~CUSTOM_ID~.
+- Preserve strict ambiguous behavior for duplicate ~ID~.
+- Keep raw DB link fields unchanged.
+
+*** TODO Resolve bracket same-file CUSTOM_ID links
 
 Supported forms:
 
@@ -280,9 +428,11 @@ Rules:
 - Property key:
   - ~CUSTOM_ID~
 - Property value:
-  - ~foo~
+  - normalized value after removing ~#~ and trimming leading/trailing whitespace
 - Search scope:
   - non-root headings in the source file only
+- Value comparison:
+  - case-insensitive
 - No-match status:
   - ~broken~
 - Duplicate-match behavior:
@@ -293,14 +443,14 @@ Target fields:
 - On one or more matches, set:
   - ~target_file_id~ to the source file id
   - ~target_heading_id~ to the first matching heading
-  - ~target_custom_id = foo~
+  - ~target_custom_id~ to the normalized CUSTOM_ID target value
   - ~target_id = NULL~
   - ~resolution_status = resolved~
   - ~resolution_diagnostic = NULL~
 - On no match, set:
   - ~target_file_id~ to the source file id
   - ~target_heading_id = NULL~
-  - ~target_custom_id = foo~
+  - ~target_custom_id~ to the normalized CUSTOM_ID target value
   - ~target_id = NULL~
   - ~resolution_status = broken~
   - ~resolution_diagnostic = custom id not found~
@@ -309,11 +459,16 @@ Acceptance criteria:
 
 - Bracket same-file ~[[#custom-id]]~ resolves only within the source file.
 - Bracket same-file ~[[#custom-id][Description]]~ resolves and preserves the raw description.
+- Same-file ~[[# Custom-ID ]]~ resolves to a heading with ~:CUSTOM_ID: custom-id~.
+- Same-file CUSTOM_ID lookup trims leading and trailing whitespace after the leading ~#~.
+- Same-file CUSTOM_ID lookup compares property values case-insensitively.
+- Same-file CUSTOM_ID lookup preserves the raw ~path~ value.
 - Matching same-file CUSTOM_ID sets ~target_file_id~, ~target_heading_id~, and ~target_custom_id~.
+- ~target_custom_id~ stores the normalized CUSTOM_ID target value.
 - Duplicate CUSTOM_ID values in the source file resolve to the first matching heading in document order.
 - Missing same-file CUSTOM_ID is marked ~broken~.
 - Missing same-file CUSTOM_ID keeps ~target_file_id~ set to the source file id.
-- Missing same-file CUSTOM_ID keeps ~target_custom_id~ set.
+- Missing same-file CUSTOM_ID keeps ~target_custom_id~ set to the normalized target value.
 - Missing same-file CUSTOM_ID keeps ~target_heading_id = NULL~.
 - Bare angle ~<#custom-id>~ is not treated as a CUSTOM_ID link.
 - Bare plain ~#custom-id~ is not treated as a CUSTOM_ID link.
@@ -321,7 +476,7 @@ Acceptance criteria:
 - Non-~#~ fuzzy links remain handled by their existing resolver behavior.
 - Raw link fields remain unchanged.
 
-*** BUILD Resolve file-context CUSTOM_ID links
+*** TODO Resolve file-context CUSTOM_ID links
 
 Supported forms:
 
@@ -340,9 +495,11 @@ Rules:
 - Property key:
   - ~CUSTOM_ID~
 - Property value:
-  - ~foo~
+  - normalized value after removing ~#~ and trimming leading/trailing whitespace
 - Search scope:
   - non-root headings in the resolved target file only
+- Value comparison:
+  - case-insensitive
 - No-match status:
   - ~broken~
 - Duplicate-match behavior:
@@ -353,7 +510,7 @@ Target fields:
 - On one or more matches, set:
   - ~target_file_id~ to the resolved file id
   - ~target_heading_id~ to the first matching heading
-  - ~target_custom_id = foo~
+  - ~target_custom_id~ to the normalized CUSTOM_ID target value
   - ~target_id = NULL~
   - ~resolution_status = resolved~
   - ~resolution_diagnostic = NULL~
@@ -361,7 +518,7 @@ Target fields:
   - keep ~target_file_id~ set to the resolved file id
   - keep ~path_absolute~ set to the resolved file path
   - ~target_heading_id = NULL~
-  - ~target_custom_id = foo~
+  - ~target_custom_id~ to the normalized CUSTOM_ID target value
   - ~target_id = NULL~
   - ~resolution_status = broken~
   - ~resolution_diagnostic = custom id not found~
@@ -375,20 +532,25 @@ Acceptance criteria:
 
 - File-context ~[[file:other.org::#custom-id]]~ resolves only within the resolved target file.
 - File-context ~[[file:other.org::#custom-id][Description]]~ resolves and preserves the raw description.
+- File-context ~[[file:other.org::# Custom-ID ]]~ resolves to a heading with ~:CUSTOM_ID: custom-id~.
+- File-context CUSTOM_ID lookup trims leading and trailing whitespace after the leading ~#~.
+- File-context CUSTOM_ID lookup compares property values case-insensitively.
+- File-context CUSTOM_ID lookup preserves the raw ~search_option~ value.
 - Angle ~<file:other.org::#custom-id>~ resolves when extracted as a file link.
 - Plain ~file:other.org::#custom-id~ resolves when extracted by configured plain-link protocols.
 - Matching file-context CUSTOM_ID sets ~target_file_id~, ~target_heading_id~, and ~target_custom_id~.
+- ~target_custom_id~ stores the normalized CUSTOM_ID target value.
 - Duplicate CUSTOM_ID values in the resolved target file resolve to the first matching heading in document order.
 - Missing CUSTOM_ID in the resolved target file is marked ~broken~.
 - Missing CUSTOM_ID in the resolved target file keeps ~target_file_id~ set.
-- Missing CUSTOM_ID in the resolved target file keeps ~target_custom_id~ set.
+- Missing CUSTOM_ID in the resolved target file keeps ~target_custom_id~ set to the normalized target value.
 - Missing CUSTOM_ID in the resolved target file keeps ~target_heading_id = NULL~.
 - CUSTOM_ID lookup is skipped when file resolution fails.
 - CUSTOM_ID lookup does not scan unrelated files.
 - File links with non-~#~ search options keep existing behavior.
 - Raw link fields remain unchanged.
 
-*** BUILD Resolve Org ID links within indexed ID universe
+*** TODO Resolve Org ID links within indexed ID universe
 
 Supported forms:
 
@@ -405,9 +567,11 @@ Rules:
 - Property key:
   - ~ID~
 - Property value:
-  - raw ID target
+  - normalized ID value after trimming leading/trailing whitespace
 - Search scope:
   - all indexed non-root headings
+- Value comparison:
+  - case-insensitive
 - No-match status:
   - ~unresolved~
 - Duplicate-match behavior:
@@ -426,21 +590,21 @@ Target fields:
 - On exactly one match, set:
   - ~target_file_id~ to the matched heading's file
   - ~target_heading_id~
-  - ~target_id = foo~
+  - ~target_id~ to the normalized ID target value
   - ~target_custom_id = NULL~
   - ~resolution_status = resolved~
   - ~resolution_diagnostic = NULL~
 - On no match, set:
   - ~target_file_id = NULL~
   - ~target_heading_id = NULL~
-  - ~target_id = foo~
+  - ~target_id~ to the normalized ID target value
   - ~target_custom_id = NULL~
   - ~resolution_status = unresolved~
   - ~resolution_diagnostic = id not found~
 - On multiple matches, set:
   - ~target_file_id = NULL~
   - ~target_heading_id = NULL~
-  - ~target_id = foo~
+  - ~target_id~ to the normalized ID target value
   - ~target_custom_id = NULL~
   - ~resolution_status = ambiguous~
   - ~resolution_diagnostic = duplicate id~
@@ -448,21 +612,26 @@ Target fields:
 Acceptance criteria:
 
 - ~id:foo~ resolves when exactly one indexed heading has ~:ID: foo~.
+- ~id: FOO ~ resolves to a heading with ~:ID: foo~.
 - Bracket ~[[id:foo]]~ resolves when extracted as an ID link.
 - Bracket ~[[id:foo][Description]]~ resolves and preserves the raw description.
 - Angle ~<id:foo>~ resolves when extracted as an ID link.
 - Plain ~id:foo~ resolves when extracted by configured plain-link protocols.
+- ID lookup trims leading and trailing whitespace from the parsed ID target.
+- ID lookup compares property values case-insensitively.
+- ID lookup preserves raw link fields.
 - Matching ID links set ~target_file_id~, ~target_heading_id~, and ~target_id~.
+- ~target_id~ stores the normalized ID target value.
 - Duplicate indexed IDs are marked ~ambiguous~.
 - Duplicate indexed IDs do not select the first match.
 - Duplicate indexed IDs keep ~target_file_id = NULL~ and ~target_heading_id = NULL~.
 - Missing IDs are marked ~unresolved~, not ~broken~.
-- Missing IDs keep ~target_id~ set.
+- Missing IDs keep ~target_id~ set to the normalized target value.
 - Tests document that absence from indexed files is not enough to classify an ID link as broken.
 - ID resolution uses the existing heading property index.
 - Raw link fields remain unchanged.
 - ~make ci~ passes.
-
+  
 ** TODO [#C] Resolve file-only links to synthetic root headings
 :PROPERTIES:
 :PRIORITY: Low

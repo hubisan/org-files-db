@@ -702,11 +702,12 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 11,
+    "heading_id": 12,
     "heading_path": [
+      "Duplicate headings titles",
       "Duplicate title"
     ],
-    "heading_level": 1,
+    "heading_level": 2,
     "source_context": "normal",
     "format": "bracket",
     "link_type": "file",
@@ -715,18 +716,19 @@
     "raw_description": null,
     "path": "./target.org",
     "search_option": "*Duplicate title",
-    "byte_start": 547,
-    "byte_end": 581,
-    "line": 31
+    "byte_start": 577,
+    "byte_end": 611,
+    "line": 33
   },
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 11,
+    "heading_id": 12,
     "heading_path": [
+      "Duplicate headings titles",
       "Duplicate title"
     ],
-    "heading_level": 1,
+    "heading_level": 2,
     "source_context": "normal",
     "format": "bracket",
     "link_type": "fuzzy",
@@ -735,16 +737,56 @@
     "raw_description": "Duplicate targets. Should link to first found.",
     "path": "*Duplicate title",
     "search_option": null,
-    "byte_start": 584,
-    "byte_end": 652,
-    "line": 32
+    "byte_start": 614,
+    "byte_end": 682,
+    "line": 34
   },
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 13,
+    "heading_id": 14,
     "heading_path": [
-      "Angle Link"
+      "Brackets in Title [2026-07-03 Fr]"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "angle",
+    "link_type": "file",
+    "raw": "<file:./target.org::*Brackets in Title [2026-07-03 Fr]>",
+    "raw_target": "file:./target.org::*Brackets in Title [2026-07-03 Fr]",
+    "raw_description": null,
+    "path": "./target.org",
+    "search_option": "*Brackets in Title [2026-07-03 Fr]",
+    "byte_start": 855,
+    "byte_end": 910,
+    "line": 45
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 14,
+    "heading_path": [
+      "Brackets in Title [2026-07-03 Fr]"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "file",
+    "raw": "[[file:./target.org::*Brackets in Title \\[2026-07-03 Fr\\]]]",
+    "raw_target": "file:./target.org::*Brackets in Title \\[2026-07-03 Fr\\]",
+    "raw_description": null,
+    "path": "./target.org",
+    "search_option": "*Brackets in Title \\[2026-07-03 Fr\\]",
+    "byte_start": 911,
+    "byte_end": 970,
+    "line": 46
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 15,
+    "heading_path": [
+      "Case insensitive works"
     ],
     "heading_level": 1,
     "source_context": "normal",
@@ -755,14 +797,34 @@
     "raw_description": null,
     "path": "./index.org",
     "search_option": "*Main Index",
-    "byte_start": 799,
-    "byte_end": 832,
-    "line": 43
+    "byte_start": 999,
+    "byte_end": 1032,
+    "line": 50
   },
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 13,
+    "heading_id": 15,
+    "heading_path": [
+      "Case insensitive works"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "file",
+    "raw": "[[file:./index.org::*main index]]",
+    "raw_target": "file:./index.org::*main index",
+    "raw_description": null,
+    "path": "./index.org",
+    "search_option": "*main index",
+    "byte_start": 1033,
+    "byte_end": 1066,
+    "line": 51
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 16,
     "heading_path": [
       "Angle Link"
     ],
@@ -770,19 +832,39 @@
     "source_context": "normal",
     "format": "angle",
     "link_type": "file",
-    "raw": "<file:./index.org::*Main Index>",
-    "raw_target": "file:./index.org::*Main Index",
+    "raw": "<file:./index.org::* Main Index>",
+    "raw_target": "file:./index.org::* Main Index",
     "raw_description": null,
     "path": "./index.org",
-    "search_option": "*Main Index",
-    "byte_start": 834,
-    "byte_end": 865,
-    "line": 45
+    "search_option": "* Main Index",
+    "byte_start": 1082,
+    "byte_end": 1114,
+    "line": 55
   },
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 13,
+    "heading_id": 16,
+    "heading_path": [
+      "Angle Link"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "plain",
+    "link_type": "file",
+    "raw": "file:./index.org::*Main",
+    "raw_target": "file:./index.org::*Main",
+    "raw_description": null,
+    "path": "./index.org",
+    "search_option": "*Main",
+    "byte_start": 1115,
+    "byte_end": 1138,
+    "line": 56
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 16,
     "heading_path": [
       "Angle Link"
     ],
@@ -795,8 +877,28 @@
     "raw_description": null,
     "path": "./target.org",
     "search_option": "*   Target heading",
-    "byte_start": 866,
-    "byte_end": 905,
-    "line": 46
+    "byte_start": 1139,
+    "byte_end": 1178,
+    "line": 57
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 16,
+    "heading_path": [
+      "Angle Link"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "angle",
+    "link_type": "file",
+    "raw": "<file:./target.org::*not existing>",
+    "raw_target": "file:./target.org::*not existing",
+    "raw_description": null,
+    "path": "./target.org",
+    "search_option": "*not existing",
+    "byte_start": 1179,
+    "byte_end": 1213,
+    "line": 58
   }
 ]

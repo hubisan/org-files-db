@@ -39,3 +39,5 @@ Unsupported non-file examples:
 - [[id:target-id-001]]
 - [[#main-index]]
 - [[https://example.org]]
+
+* Main
