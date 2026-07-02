@@ -1198,3 +1198,130 @@ Acceptance criteria:
 - Real query needs are reviewed.
 - Caching is only added if measurements or UX needs justify it.
 - Direct property rows remain the source of truth.
+
+** TODO [#C] Model attachment link resolution?
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Attachment links are not resolved so far as it is cumbersome. 
+
+Goal:
+
+- Decide and later implement how ~attachment:~ links should be resolved.
+- Keep ~attachment:~ links as raw source facts until the attachment contract is implemented.
+- Avoid partial attachment resolution that only works for rare indexed Org attachment files.
+
+Background:
+
+- Org attachment links behave like file links relative to the current node's attachment directory.
+- The attachment directory lookup order in Org is:
+  - local or inherited ~DIR~ property
+  - local or inherited deprecated ~ATTACH_DIR~ property
+  - local or inherited ~ID~ property
+- ~DIR~ and ~ATTACH_DIR~ take precedence over ~ID~.
+- Inheritance depends on ~org-attach-use-inheritance~.
+- ID-based attachment directories depend on ~org-attach-id-dir~.
+- ~org-attach-id-dir~ defaults to ~data/~ and, when relative, is interpreted relative to the Org file directory.
+- ID-based path layout may depend on ~org-attach-id-to-path-function-list~.
+- Attachment targets are commonly non-Org files such as PDFs, images, source files, or editor config files.
+- The current ~files~ table represents indexed Org files, so it is not a complete target model for attachments.
+
+Current decision:
+
+- Do not implement attachment resolution in the current Phase 4 resolver.
+- Store ~attachment:~ links as raw link facts.
+- Mark ~attachment:~ links ~unsupported~ via the generic resolver fallback.
+- Revisit attachment resolution only after deciding how to model non-Org target files and Org attachment configuration.
+
+*** TODO Define attachment link resolution contract
+
+Goal:
+
+- Define the supported attachment resolution semantics before implementation.
+- Decide the DB target model for attachment targets.
+- Decide which subset of Org attachment behavior is in scope.
+
+Questions to answer:
+
+- Should org-files-db resolve ~attachment:~ links at all?
+- Should attachment targets use a new table separate from indexed Org ~files~?
+- Should attachment target existence be checked on disk?
+- Should non-existing attachment directories be represented as ~unsupported~, ~unresolved~, or ~broken~?
+- Should config expose:
+  - ~org_attach_id_dir~
+  - ~org_attach_use_inheritance~
+  - ID-to-path strategy
+- Should deprecated ~ATTACH_DIR~ be supported?
+- Should inherited attachment bases be modeled?
+- Should ID-based attachment resolution mirror Emacs Org exactly or support only the default path layout?
+- Should attachment links resolve only to files, or also to attachment directories?
+- Should attachment links with search options be supported?
+
+Contract points to define:
+
+- Attachment base lookup order.
+- Attachment base inheritance behavior.
+- Relative versus absolute ~DIR~ handling.
+- Default ~org-attach-id-dir~ handling.
+- ID-to-path conversion strategy.
+- Non-Org target representation.
+- Filesystem existence-check policy.
+- Status semantics for:
+  - ~resolved~
+  - ~broken~
+  - ~unresolved~
+  - ~unsupported~
+  - ~ambiguous~, if applicable
+
+Acceptance criteria:
+
+- Contract documents the supported attachment lookup semantics.
+- Contract decides whether attachment targets require a new DB target model.
+- Contract decides how non-Org attachment files are represented.
+- Contract defines when attachment links are ~resolved~, ~broken~, ~unresolved~, or ~unsupported~.
+- Contract defines required config options for Org attachment behavior.
+- Contract documents which Org attachment options are intentionally out of scope.
+- No resolver implementation is required in this subtask.
+
+*** TODO Implement attachment link resolution
+
+Depends on:
+
+- [[*Define attachment link resolution contract][Define attachment link resolution contract]]
+
+Goal:
+
+- Implement ~attachment:~ link resolution according to the accepted contract.
+- Preserve raw link source facts.
+- Avoid executing, opening, or following attachment targets.
+
+Implementation rules:
+
+- Integrate into the existing deterministic ~LinkResolver~ pass.
+- Run attachment resolution before the generic unsupported fallback.
+- Determine the source heading for each ~attachment:~ link.
+- Derive the attachment base using the contracted lookup rules.
+- Join the attachment base with the raw attachment path.
+- Normalize the resulting absolute target path.
+- Store the normalized target path in the appropriate resolver-owned field.
+- Set target references only according to the final DB target model.
+- Do not add arbitrary filesystem scan results to the DB unless the contract explicitly allows it.
+- Do not execute, open, or reveal attachment targets.
+
+Acceptance criteria:
+
+- Supported attachment links resolve according to the contract.
+- Attachment links without a supported base are marked ~unsupported~.
+- Missing targets are classified according to the contract.
+- Non-Org attachment targets are represented according to the contract.
+- Inherited attachment bases are handled if the contract includes inheritance.
+- ~DIR~ precedence over ~ID~ is tested if both are supported.
+- ID-based attachment paths are tested if ID mode is supported.
+- Raw link fields remain unchanged after resolution.
+- Non-attachment links keep their existing resolver behavior.
+- Tests cover resolved, broken, unresolved, and unsupported attachment cases as applicable.
+- ~make ci~ passes.

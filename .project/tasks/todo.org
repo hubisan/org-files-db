@@ -107,71 +107,7 @@ Task file: [[./archive/2026-07-01--implement-deterministic-link-resolution-pass-
 
 Task file: [[./archive/2026-07-01--resolve-file-links-to-known-indexed-files.org][2026-07-01--resolve-file-links-to-known-indexed-files.org]]
 
-** TODO [#A] Resolve attachment links where the attachment base is known
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-Depends on:
-
-- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
-- [[*Resolve Org ID links within indexed ID universe][Resolve Org ID links within indexed ID universe]]
-
-Goal:
-
-- Resolve ~attachment:~ links to known indexed files when the attachment base directory can be derived safely.
-
-Background:
-
-- Org attachment resolution depends on Org attachment settings and heading context.
-- Attachments may be based on heading ~ID~.
-- Attachment behavior may also depend on configured attachment directories.
-- The resolver must not guess a global attachment path without a defined contract.
-
-Supported initial scope:
-
-- Resolve only attachment links whose base directory can be derived from indexed data.
-- Resolve only to files already known in the ~files~ table.
-- Do not scan arbitrary attachment directories in this task.
-- Do not add non-Org attachment files to the DB in this task.
-- If the attachment base cannot be determined, mark the link as ~unsupported~.
-- If the attachment base is known but the target is not an indexed file, mark it as ~broken~.
-
-Resolution rules:
-
-- Determine the source heading for the attachment link.
-- Determine the attachment base for that heading using the supported attachment contract.
-- Join the attachment base with the raw attachment path.
-- Normalize the resulting absolute path.
-- Store the normalized path in ~path_absolute~.
-- If the normalized path matches an indexed row in ~files.path~:
-  - set ~target_file_id~
-  - set ~resolution_status = resolved~
-- If the attachment base is known but no indexed file matches:
-  - set ~target_file_id = NULL~
-  - set ~resolution_status = broken~
-  - set ~resolution_diagnostic~ explaining that the attachment target is not indexed or missing.
-- If the attachment base cannot be derived:
-  - set ~target_file_id = NULL~
-  - set ~resolution_status = unsupported~
-  - set ~resolution_diagnostic~ explaining that this attachment form is not supported yet.
-
-Acceptance criteria:
-
-- Supported attachment-base rules are documented before implementation.
-- Attachment links with known base and indexed target resolve to ~target_file_id~.
-- Attachment links with known base and missing target are marked ~broken~.
-- Attachment links without derivable base are marked ~unsupported~.
-- Attachment resolution does not scan arbitrary directories.
-- Attachment resolution does not add non-indexed files to the DB.
-- Attachment resolution does not execute or open targets.
-- Tests cover resolved, broken, and unsupported attachment links.
-- Tests cover attachment links attached to the correct source heading.
-  
-** TODO [#B] Resolve file links with heading-title search options
+** BUILD [#B] Resolve file links with heading-title search options
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -186,6 +122,8 @@ Depends on:
 Goal:
 
 - Resolve ~file:...::*Heading~ links to both the target file and, when possible, the matching heading in that file.
+- Extend the existing file-link resolver only for heading-title search options.
+- Do not implement CUSTOM_ID, ID, attachment, regexp, line-number, or dedicated-target search resolution in this task.
 
 Supported forms:
 
@@ -195,23 +133,46 @@ Supported forms:
 
 Resolution rules:
 
-- First resolve the file path.
+- First resolve the file path using the existing file-link resolver.
 - If file resolution fails, do not attempt heading-title resolution.
 - Interpret ~search_option~ beginning with ~*~ as heading-title search.
+- Strip exactly one leading ~*~ from the search option before matching.
+- Unescape Org link escapes needed for heading text matching, including:
+  - ~\[~ -> ~[~
+  - ~\]~ -> ~]~
 - Search headings only in the resolved target file.
-- Match against the documented stored heading title representation.
+- Exclude synthetic root headings from heading-title matching.
+- Match against the stored normalized heading title field, not the raw line.
+- Do not include TODO keyword, priority, tags, or planning metadata unless they are part of the stored heading title.
 - If exactly one heading matches:
   - keep ~target_file_id~
   - set ~target_heading_id~
   - set ~resolution_status = resolved~
+  - set ~resolution_diagnostic = NULL~
 - If no heading matches:
   - keep ~target_file_id~
   - set ~target_heading_id = NULL~
   - set ~resolution_status = broken~
+  - set ~resolution_diagnostic~ explaining that the heading title search target is missing in the resolved file.
 - If multiple headings match:
   - keep ~target_file_id~
   - set ~target_heading_id = NULL~
   - set ~resolution_status = ambiguous~
+  - set ~resolution_diagnostic~ explaining that multiple headings in the resolved file match the search option.
+- Preserve ~search_option~ as a raw source fact.
+
+Out of scope:
+
+- Do not resolve ~file:...::#CUSTOM_ID~.
+- Do not resolve ~file:...::/regexp/~.
+- Do not resolve ~file:...::42~.
+- Do not resolve dedicated targets.
+- Do not resolve same-file fuzzy heading links such as ~[[*Heading]]~.
+- Do not resolve ~id:~ links.
+- Do not resolve ~CUSTOM_ID~ links outside this file-search-option form.
+- Do not resolve ~attachment:~ links.
+- Do not scan unrelated files.
+- Do not execute, open, or follow link targets.
 
 Acceptance criteria:
 
@@ -221,8 +182,14 @@ Acceptance criteria:
 - Missing headings in a resolved target file are marked ~broken~.
 - Duplicate matching headings in the target file are marked ~ambiguous~.
 - Heading-title lookup does not scan unrelated files.
+- File links without heading-title search options keep existing file-resolution behavior.
+- File links with unsupported search options keep existing file target resolution and do not set ~target_heading_id~.
+- Existing ~search_option~ values remain unchanged.
+- Raw link source fields remain unchanged.
+- No CUSTOM_ID, ID, attachment, regexp, line-number, dedicated-target, or fuzzy-link resolution is implemented.
+- ~make ci~ passes.
 
-** TODO [#A] Resolve property-based heading links
+** TODO Resolve property-based heading links
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
