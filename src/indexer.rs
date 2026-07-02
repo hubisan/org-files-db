@@ -1184,8 +1184,8 @@ mod tests {
         },
         link_resolver::{
             FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
-            HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
-            SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+            HEADING_TITLE_MISSING_DIAGNOSTIC, SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
+            UNSUPPORTED_DIAGNOSTIC,
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
@@ -4078,7 +4078,7 @@ index_body_text = false
                     Some("Duplicate".to_string()),
                     Some("*Duplicate".to_string()),
                     Some("resolved".to_string()),
-                    Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC.to_string()),
+                    None,
                 ),
                 (
                     "[[file:target.org::#custom-id]]".to_string(),
@@ -4212,7 +4212,7 @@ index_body_text = false
                     Some("Duplicate".to_string()),
                     None,
                     Some("resolved".to_string()),
-                    Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC.to_string()),
+                    None,
                     None,
                 ),
                 (

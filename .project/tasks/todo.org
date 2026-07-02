@@ -121,82 +121,9 @@ Task file: [[./2026-07-02--resolve-file-links-with-heading-title-search-options.
 
 Task file: [[./archive/2026-07-02--resolve-same-file-fuzzy-star-heading-links.org][2026-07-02--resolve-same-file-fuzzy-star-heading-links.org]]
 
-** TODO [#C] Reduce resolver diagnostics
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Low
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
+** DONE [#C] Reduce resolver diagnostics
 
-Depends on:
-
-- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
-- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
-
-Goal:
-
-- Keep ~resolution_diagnostic~ focused, short, and useful in table output.
-- Avoid diagnostics for successful, expected resolver behavior.
-- Shorten diagnostics for unsuccessful resolver outcomes.
-- Reduce DB noise and output width in manual/debug queries.
-
-Policy:
-
-- ~resolution_diagnostic~ should usually be ~NULL~ when ~resolution_status = resolved~.
-- Successful Org-compatible fallback behavior should not store diagnostics.
-- Unsuccessful outcomes may store diagnostics, but they should be short and stable.
-- Diagnostics should explain the reason category, not the full resolver story.
-
-Resolution diagnostic rules:
-
-- For ~resolved~:
-  - set ~resolution_diagnostic = NULL~
-  - including duplicate heading matches where the first heading in document order was selected
-- For ~broken~:
-  - keep a short diagnostic explaining what was missing
-- For ~ambiguous~:
-  - keep a short diagnostic explaining why no unique target could be selected
-- For ~unsupported~:
-  - keep a short diagnostic explaining the unsupported link form or resolver scope
-- For ~unresolved~:
-  - keep a short diagnostic only when it adds useful context
-
-Preferred diagnostic style:
-
-- Use short, stable messages.
-- Prefer messages suitable for narrow table output.
-- Avoid long explanatory sentences.
-- Avoid mentioning implementation internals unless necessary.
-- Avoid diagnostics for normal successful resolution.
-- Prefer lowercase, no trailing period.
-
-Suggested diagnostics:
-
-- ~heading not found~
-- ~same-file heading not found~
-- ~duplicate target~
-- ~unsupported link type~
-- ~unsupported search option~
-- ~outside indexed universe~
-- ~missing in indexed universe~
-- ~unsupported path form~
-- ~target file unresolved~
-- ~target file broken~
-
-Acceptance criteria:
-
-- Resolved links normally have ~resolution_diagnostic = NULL~.
-- Duplicate heading-title matches that select the first heading have ~resolution_status = resolved~ and ~resolution_diagnostic = NULL~.
-- Duplicate same-file star heading matches that select the first heading have ~resolution_status = resolved~ and ~resolution_diagnostic = NULL~.
-- Broken heading-title search keeps a short diagnostic such as ~heading not found~.
-- Broken same-file star heading search keeps a short diagnostic such as ~same-file heading not found~.
-- Unsupported fallback keeps a short diagnostic such as ~unsupported link type~.
-- Unresolved outside-universe file targets use a short diagnostic such as ~outside indexed universe~.
-- Broken in-universe file targets use a short diagnostic such as ~missing in indexed universe~.
-- Existing raw link fields remain unchanged.
-- Tests are updated to assert the new diagnostic policy.
-- ~make ci~ passes.
+Task file: [[./archive/2026-07-02--reduce-resolver-diagnostics.org]]
 
 ** TODO Resolve property-based heading links
 :PROPERTIES:

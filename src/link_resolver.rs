@@ -7,17 +7,12 @@ use rusqlite::{params, Connection};
 
 use crate::db::DbWriteError;
 
-pub(crate) const UNSUPPORTED_DIAGNOSTIC: &str = "no resolver implemented for link_type";
-pub(crate) const FILE_MISSING_DIAGNOSTIC: &str = "file target is missing from the indexed universe";
-pub(crate) const FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC: &str =
-    "file target is outside the indexed universe";
-const FILE_PATH_UNSUPPORTED_DIAGNOSTIC: &str = "file target path could not be normalized safely";
-pub(crate) const HEADING_TITLE_MISSING_DIAGNOSTIC: &str =
-    "heading title search target is missing in the resolved file";
-pub(crate) const HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC: &str =
-    "multiple headings in the resolved file match the heading title search target; selected the first heading in document order";
-pub(crate) const SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC: &str =
-    "same-file star heading target is missing in the source file";
+pub(crate) const UNSUPPORTED_DIAGNOSTIC: &str = "unsupported link type";
+pub(crate) const FILE_MISSING_DIAGNOSTIC: &str = "missing in indexed universe";
+pub(crate) const FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC: &str = "outside indexed universe";
+const FILE_PATH_UNSUPPORTED_DIAGNOSTIC: &str = "unsupported path form";
+pub(crate) const HEADING_TITLE_MISSING_DIAGNOSTIC: &str = "heading not found";
+pub(crate) const SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC: &str = "same-file heading not found";
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
@@ -201,7 +196,6 @@ impl LinkResolver {
                 link.id,
                 link.source_file_id,
                 *target_heading_id,
-                None,
             ),
             [] => Self::mark_broken_same_file_heading(connection, link.id, link.source_file_id),
             [target_heading_id, ..] => Self::mark_resolved_same_file_heading(
@@ -209,7 +203,6 @@ impl LinkResolver {
                 link.id,
                 link.source_file_id,
                 *target_heading_id,
-                Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC),
             ),
         }
     }
@@ -233,7 +226,6 @@ impl LinkResolver {
                 path_absolute,
                 target_file_id,
                 *target_heading_id,
-                None,
             ),
             [] => {
                 Self::mark_broken_heading_title(connection, link.id, path_absolute, target_file_id)
@@ -244,7 +236,6 @@ impl LinkResolver {
                 path_absolute,
                 target_file_id,
                 *target_heading_id,
-                Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC),
             ),
         }
     }
@@ -330,7 +321,6 @@ impl LinkResolver {
         path_absolute: &Path,
         target_file_id: i64,
         target_heading_id: i64,
-        resolution_diagnostic: Option<&str>,
     ) -> Result<(), DbWriteError> {
         connection
             .execute(
@@ -339,15 +329,14 @@ impl LinkResolver {
                      target_file_id = ?3,
                      target_heading_id = ?4,
                      resolution_status = ?5,
-                     resolution_diagnostic = ?6
+                     resolution_diagnostic = NULL
                  WHERE id = ?1",
                 params![
                     link_id,
                     path_absolute.to_string_lossy().to_string(),
                     target_file_id,
                     target_heading_id,
-                    "resolved",
-                    resolution_diagnostic
+                    "resolved"
                 ],
             )
             .map_err(|source| DbWriteError::Write {
@@ -362,7 +351,6 @@ impl LinkResolver {
         link_id: i64,
         target_file_id: i64,
         target_heading_id: i64,
-        resolution_diagnostic: Option<&str>,
     ) -> Result<(), DbWriteError> {
         connection
             .execute(
@@ -370,15 +358,9 @@ impl LinkResolver {
                  SET target_file_id = ?2,
                      target_heading_id = ?3,
                      resolution_status = ?4,
-                     resolution_diagnostic = ?5
+                     resolution_diagnostic = NULL
                  WHERE id = ?1",
-                params![
-                    link_id,
-                    target_file_id,
-                    target_heading_id,
-                    "resolved",
-                    resolution_diagnostic
-                ],
+                params![link_id, target_file_id, target_heading_id, "resolved"],
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_resolved_same_file_heading",
@@ -618,8 +600,8 @@ mod tests {
         heading_title_search_target, normalize_file_target_path,
         same_file_fuzzy_star_heading_target, IndexedUniverse, LinkResolver,
         FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
-        HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
-        SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+        HEADING_TITLE_MISSING_DIAGNOSTIC, SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
+        UNSUPPORTED_DIAGNOSTIC,
     };
     use crate::db::{
         open_in_memory_database_with_schema, SchemaDefinition, CURRENT_SCHEMA_VERSION,
@@ -1090,7 +1072,7 @@ mod tests {
                 Some(2_i64),
                 Some(20_i64),
                 Some("resolved".to_string()),
-                Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC.to_string()),
+                None,
             )
         );
     }
@@ -1296,7 +1278,7 @@ mod tests {
                 Some(1_i64),
                 Some(20_i64),
                 Some("resolved".to_string()),
-                Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC.to_string()),
+                None,
             )
         );
     }

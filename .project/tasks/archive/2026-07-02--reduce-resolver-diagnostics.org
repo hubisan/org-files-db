@@ -1,0 +1,169 @@
+#+TITLE: Reduce resolver diagnostics
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-02 Thu 15:32]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Reduce resolver diagnostics=.
+  - Keep successful duplicate heading matches resolved and silent.
+  - Shorten diagnostics for broken, unsupported, and unresolved resolver outcomes.
+  - Keep raw link source fields unchanged.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#C] Reduce resolver diagnostics
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Depends on:
+
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+
+Goal:
+
+- Keep ~resolution_diagnostic~ focused, short, and useful in table output.
+- Avoid diagnostics for successful, expected resolver behavior.
+- Shorten diagnostics for unsuccessful resolver outcomes.
+- Reduce DB noise and output width in manual/debug queries.
+
+Policy:
+
+- ~resolution_diagnostic~ should usually be ~NULL~ when ~resolution_status = resolved~.
+- Successful Org-compatible fallback behavior should not store diagnostics.
+- Unsuccessful outcomes may store diagnostics, but they should be short and stable.
+- Diagnostics should explain the reason category, not the full resolver story.
+
+Resolution diagnostic rules:
+
+- For ~resolved~:
+  - set ~resolution_diagnostic = NULL~
+  - including duplicate heading matches where the first heading in document order was selected
+- For ~broken~:
+  - keep a short diagnostic explaining what was missing
+- For ~ambiguous~:
+  - keep a short diagnostic explaining why no unique target could be selected
+- For ~unsupported~:
+  - keep a short diagnostic explaining the unsupported link form or resolver scope
+- For ~unresolved~:
+  - keep a short diagnostic only when it adds useful context
+
+Preferred diagnostic style:
+
+- Use short, stable messages.
+- Prefer messages suitable for narrow table output.
+- Avoid long explanatory sentences.
+- Avoid mentioning implementation internals unless necessary.
+- Avoid diagnostics for normal successful resolution.
+- Prefer lowercase, no trailing period.
+
+Suggested diagnostics:
+
+- ~heading not found~
+- ~same-file heading not found~
+- ~duplicate target~
+- ~unsupported link type~
+- ~unsupported search option~
+- ~outside indexed universe~
+- ~missing in indexed universe~
+- ~unsupported path form~
+- ~target file unresolved~
+- ~target file broken~
+
+Acceptance criteria:
+
+- Resolved links normally have ~resolution_diagnostic = NULL~.
+- Duplicate heading-title matches that select the first heading have ~resolution_status = resolved~ and ~resolution_diagnostic = NULL~.
+- Duplicate same-file star heading matches that select the first heading have ~resolution_status = resolved~ and ~resolution_diagnostic = NULL~.
+- Broken heading-title search keeps a short diagnostic such as ~heading not found~.
+- Broken same-file star heading search keeps a short diagnostic such as ~same-file heading not found~.
+- Unsupported fallback keeps a short diagnostic such as ~unsupported link type~.
+- Unresolved outside-universe file targets use a short diagnostic such as ~outside indexed universe~.
+- Broken in-universe file targets use a short diagnostic such as ~missing in indexed universe~.
+- Existing raw link fields remain unchanged.
+- Tests are updated to assert the new diagnostic policy.
+- ~make ci~ passes.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The resolver currently stores long, descriptive diagnostics for several fallback and failure cases.
+- Successful duplicate heading selections can also leave diagnostic text behind, which widens table output without adding value.
+
+** Goals
+- Keep successful resolver outcomes silent.
+- Reduce fallback and failure diagnostics to short reason labels.
+- Preserve raw link facts and all resolution statuses.
+
+** Non-goals
+- No new resolver capabilities.
+- No schema changes.
+- No changes to target selection semantics.
+
+** Architecture
+- Shorten the shared diagnostic constants in =src/link_resolver.rs=.
+- Ensure all successful heading matches clear =resolution_diagnostic=.
+- Update resolver and rebuild assertions to check the new policy.
+
+** Execution plan
+- Update the resolver constants and resolution helpers.
+- Adjust focused tests for file links and same-file fuzzy star links.
+- Run formatter, targeted tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: no downstream code depends on the exact long diagnostic sentences.
+- Risk: older tests and manual fixtures may still assert the previous messages.
+
+** Open questions
+- None.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Shortened the resolver's shared diagnostic constants to stable lowercase categories.
+- Kept successful heading matches silent by clearing =resolution_diagnostic= for resolved file-heading and same-file-star-heading links, including duplicate-first-match cases.
+- Kept broken and unsupported outcomes on short messages such as =heading not found=, =same-file heading not found=, =missing in indexed universe=, =outside indexed universe=, =unsupported link type=, and =unsupported path form=.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-02--reduce-resolver-diagnostics.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =make ci=
+
+** Test results
+- File links, same-file star fuzzy links, and their duplicate-first-match cases now resolve without stored diagnostics.
+- Broken and unsupported outcomes now use short, stable diagnostics.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Later resolver tasks can add the remaining out-of-scope link forms without changing the diagnostics policy.
