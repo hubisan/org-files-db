@@ -8,6 +8,7 @@ This file records completed changes.
 :END:
 
 - =CHANGED= Rebuild now resolves file-like links to known indexed files and distinguishes missing in-universe targets from outside-universe targets.
+- =CHANGED= Rebuild now resolves duplicate =file:...::*Heading= matches to the first heading in document order and records a diagnostic instead of leaving the target unresolved.
 - =CHANGED= Rebuild now runs a deterministic link-resolution fallback pass that marks currently unsupported links explicitly instead of leaving resolver-owned state untouched.
 - =CHANGED= Added explicit link resolution state columns to the SQLite =links= table while keeping raw link source facts immutable.
 - =ADDED= Evaluated minimal Orgize adapter.

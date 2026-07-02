@@ -14,6 +14,8 @@ Resolved file links:
 - [[file:other/peer.org]]
 - [[./target.org]]
 - [[./sub/child.org]]
+- [[file:index.org]]
+
 
 Links with search options that should keep ~search_option~ raw for now:
 

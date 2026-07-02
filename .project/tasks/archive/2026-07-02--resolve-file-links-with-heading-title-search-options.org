@@ -1,0 +1,196 @@
+#+TITLE: Resolve file links with heading-title search options
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-02 Thu 13:37]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Resolve file links with heading-title search options=.
+  - Extend the existing file-link resolver only for heading-title search options of the form =file:...::*Heading=.
+  - Resolve the file first, then match the stored normalized heading title inside that resolved file only.
+  - Keep unsupported search options as raw facts and out of scope for resolution.
+  - Follow-up review request:
+    - Keep the current task open.
+    - Change duplicate heading-title matches so they resolve to the first match in document order with a stable diagnostic.
+    - Do not expand scope to attachment, same-file fuzzy links, CUSTOM_ID, ID, regexp, line-number, dedicated-target, or plain fuzzy resolution.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#B] Resolve file links with heading-title search options
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+
+Goal:
+
+- Resolve ~file:...::*Heading~ links to both the target file and, when possible, the matching heading in that file.
+- Extend the existing file-link resolver only for heading-title search options.
+- Do not implement CUSTOM_ID, ID, attachment, regexp, line-number, or dedicated-target search resolution in this task.
+
+Supported forms:
+
+- ~[[file:notes.org::*Heading]]~
+- ~[[file:notes.org::*TODO Heading]]~
+- ~[[file:notes.org::*\[2026-07-01 Wed\] Implement deterministic link resolution pass after rebuild]]~
+
+Resolution rules:
+
+- First resolve the file path using the existing file-link resolver.
+- If file resolution fails, do not attempt heading-title resolution.
+- Interpret ~search_option~ beginning with ~*~ as heading-title search.
+- Strip exactly one leading ~*~ from the search option before matching.
+- Unescape Org link escapes needed for heading text matching, including:
+  - ~\[~ -> ~[~
+  - ~\]~ -> ~]~
+- Search headings only in the resolved target file.
+- Exclude synthetic root headings from heading-title matching.
+- Match against the stored normalized heading title field, not the raw line.
+- Do not include TODO keyword, priority, tags, or planning metadata unless they are part of the stored heading title.
+- If exactly one heading matches:
+  - keep ~target_file_id~
+  - set ~target_heading_id~
+  - set ~resolution_status = resolved~
+  - set ~resolution_diagnostic = NULL~
+- If no heading matches:
+  - keep ~target_file_id~
+  - set ~target_heading_id = NULL~
+  - set ~resolution_status = broken~
+  - set ~resolution_diagnostic~ explaining that the heading title search target is missing in the resolved file.
+- If multiple headings match:
+  - keep ~target_file_id~
+  - set ~target_heading_id = NULL~
+  - set ~resolution_status = ambiguous~
+  - set ~resolution_diagnostic~ explaining that multiple headings in the resolved file match the search option.
+- Preserve ~search_option~ as a raw source fact.
+
+Out of scope:
+
+- Do not resolve ~file:...::#CUSTOM_ID~.
+- Do not resolve ~file:...::/regexp/~.
+- Do not resolve ~file:...::42~.
+- Do not resolve dedicated targets.
+- Do not resolve same-file fuzzy heading links such as ~[[*Heading]]~.
+- Do not resolve ~id:~ links.
+- Do not resolve ~CUSTOM_ID~ links outside this file-search-option form.
+- Do not resolve ~attachment:~ links.
+- Do not scan unrelated files.
+- Do not execute, open, or follow link targets.
+
+Acceptance criteria:
+
+- ~file:...::*Heading~ resolves to the target file first.
+- Matching heading-title search options resolve to ~target_heading_id~.
+- Escaped bracket syntax like ~\[2026-07-01 Wed\]~ is handled correctly.
+- Missing headings in a resolved target file are marked ~broken~.
+- Duplicate matching headings in the target file are marked ~ambiguous~.
+- Heading-title lookup does not scan unrelated files.
+- File links without heading-title search options keep existing file-resolution behavior.
+- File links with unsupported search options keep existing file target resolution and do not set ~target_heading_id~.
+- Existing ~search_option~ values remain unchanged.
+- Raw link source fields remain unchanged.
+- No CUSTOM_ID, ID, attachment, regexp, line-number, dedicated-target, or fuzzy-link resolution is implemented.
+- ~make ci~ passes.
+#+end_src
+
+* Planning
+
+** Problem summary
+- File-link resolution already resolves =path_absolute= and =target_file_id=, but it ignores heading-title search options entirely.
+- This task needs a second-stage resolver that only runs after a file target is resolved and only inspects headings from that single target file.
+
+** Goals
+- Resolve =search_option= values beginning with =*= against stored normalized heading titles in the resolved target file.
+- Keep existing file-only behavior unchanged for links without heading-title search options and for unsupported search-option forms.
+- Preserve raw link source facts, including the original =search_option= text with escapes.
+
+** Non-goals
+- No CUSTOM_ID, ID, regexp, line-number, dedicated-target, attachment, or same-file fuzzy-link resolution.
+- No scans outside the resolved target file.
+- No schema change.
+
+** Architecture
+- Extend the resolver's loaded link row to include =search_option=.
+- After file-path resolution finds a known target file, branch:
+  - no heading-title search option: keep current resolved-file behavior
+  - heading-title search option: unescape the match text, query headings in =target_file_id= excluding =level = 0=, and resolve =target_heading_id= based on exact normalized-title matches
+  - unsupported search option: keep the resolved file target and leave heading target unset
+- Use explicit diagnostics for missing and ambiguous heading-title matches.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Implement heading-title search-option handling in =src/link_resolver.rs= with focused helper functions.
+- Add resolver and rebuild coverage for resolved, broken, ambiguous, escaped-bracket, and unsupported-search-option cases.
+- Update docs/changelog if behavior descriptions need to mention heading-title resolution.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: heading-title matching should use the stored =headings.title= field exactly as written in the DB, because that is the normalized title contract already exposed elsewhere.
+- Risk: unsupported search-option forms now coexist with a resolved file target, so tests need to pin that contract clearly to avoid regressions in later resolver tasks.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_links_to_known_indexed_files_and_marks_missing_and_external_targets -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Extended the existing =file= link resolver to inspect =search_option= only after the file path resolves to a known indexed target file.
+- Implemented heading-title search-option handling for values beginning with =*=:
+  - strip exactly one leading =*=
+  - unescape =\[= and =\]= for title matching
+  - search only headings in the resolved target file
+  - exclude synthetic root rows via =level > 0=
+  - match exact stored normalized =headings.title= values
+- Adjusted duplicate heading-title matches to follow Org-style first-match selection:
+  - keep =target_file_id=
+  - select the first matching heading in stored document order via the existing =ORDER BY byte_start, id=
+  - keep =resolution_status = resolved=
+  - store a stable diagnostic explaining that multiple matches existed and the first was selected
+- Preserved existing file-only behavior for links without heading-title search options and for unsupported file search options such as =#custom-id=.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-02--resolve-file-links-with-heading-title-search-options.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_file_links_to_known_indexed_files_and_marks_missing_and_external_targets -- --nocapture=
+- =make ci=
+
+** Test results
+- Exact heading-title matches now populate =target_heading_id= while keeping the resolved =target_file_id=.
+- Missing heading-title targets inside a resolved file are marked =broken= with a dedicated diagnostic.
+- Duplicate heading-title matches inside a resolved file now resolve to the first matching heading in stored document order and keep a dedicated diagnostic.
+- Escaped bracket search text such as =\[2026-07-01 Wed\]= resolves correctly against normalized stored titles.
+- Unsupported file search options keep the resolved file target and do not set =target_heading_id=.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Later Phase 4 tasks can add =CUSTOM_ID=, =ID=, regexp, line-number, and dedicated-target resolution on top of the same deterministic file-target-first resolver flow.

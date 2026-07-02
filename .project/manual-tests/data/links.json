@@ -110,14 +110,34 @@
     "source_context": "normal",
     "format": "bracket",
     "link_type": "file",
+    "raw": "[[file:index.org]]",
+    "raw_target": "file:index.org",
+    "raw_description": null,
+    "path": "index.org",
+    "search_option": null,
+    "byte_start": 247,
+    "byte_end": 265,
+    "line": 17
+  },
+  {
+    "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org",
+    "heading_id": 2,
+    "heading_path": [
+      "Main index"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "file",
     "raw": "[[file:target.org::*Target heading]]",
     "raw_target": "file:target.org::*Target heading",
     "raw_description": null,
     "path": "target.org",
     "search_option": "*Target heading",
-    "byte_start": 321,
-    "byte_end": 357,
-    "line": 20
+    "byte_start": 343,
+    "byte_end": 379,
+    "line": 22
   },
   {
     "file_id": 1,
@@ -135,9 +155,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "#target-custom-id",
-    "byte_start": 360,
-    "byte_end": 398,
-    "line": 21
+    "byte_start": 382,
+    "byte_end": 420,
+    "line": 23
   },
   {
     "file_id": 1,
@@ -155,9 +175,9 @@
     "raw_description": null,
     "path": "sub/child.org",
     "search_option": "*Child heading",
-    "byte_start": 401,
-    "byte_end": 439,
-    "line": 22
+    "byte_start": 423,
+    "byte_end": 461,
+    "line": 24
   },
   {
     "file_id": 1,
@@ -175,9 +195,9 @@
     "raw_description": null,
     "path": "sub/child.org",
     "search_option": "#child-custom-id",
-    "byte_start": 442,
-    "byte_end": 482,
-    "line": 23
+    "byte_start": 464,
+    "byte_end": 504,
+    "line": 25
   },
   {
     "file_id": 1,
@@ -195,9 +215,9 @@
     "raw_description": null,
     "path": "missing.org",
     "search_option": null,
-    "byte_start": 553,
-    "byte_end": 573,
-    "line": 27
+    "byte_start": 575,
+    "byte_end": 595,
+    "line": 29
   },
   {
     "file_id": 1,
@@ -215,9 +235,9 @@
     "raw_description": null,
     "path": "sub/missing-child.org",
     "search_option": null,
-    "byte_start": 576,
-    "byte_end": 606,
-    "line": 28
+    "byte_start": 598,
+    "byte_end": 628,
+    "line": 30
   },
   {
     "file_id": 1,
@@ -235,9 +255,9 @@
     "raw_description": null,
     "path": "./other/missing-peer.org",
     "search_option": null,
-    "byte_start": 609,
-    "byte_end": 637,
-    "line": 29
+    "byte_start": 631,
+    "byte_end": 659,
+    "line": 31
   },
   {
     "file_id": 1,
@@ -255,9 +275,9 @@
     "raw_description": null,
     "path": "../external/outside.org",
     "search_option": null,
-    "byte_start": 704,
-    "byte_end": 736,
-    "line": 33
+    "byte_start": 726,
+    "byte_end": 758,
+    "line": 35
   },
   {
     "file_id": 1,
@@ -275,9 +295,9 @@
     "raw_description": null,
     "path": "target-id-001",
     "search_option": null,
-    "byte_start": 772,
-    "byte_end": 792,
-    "line": 37
+    "byte_start": 794,
+    "byte_end": 814,
+    "line": 39
   },
   {
     "file_id": 1,
@@ -295,9 +315,9 @@
     "raw_description": null,
     "path": "#main-index",
     "search_option": null,
-    "byte_start": 795,
-    "byte_end": 810,
-    "line": 38
+    "byte_start": 817,
+    "byte_end": 832,
+    "line": 40
   },
   {
     "file_id": 1,
@@ -315,9 +335,9 @@
     "raw_description": null,
     "path": "//example.org",
     "search_option": null,
-    "byte_start": 813,
-    "byte_end": 836,
-    "line": 39
+    "byte_start": 835,
+    "byte_end": 858,
+    "line": 41
   },
   {
     "file_id": 2,
@@ -618,5 +638,85 @@
     "byte_start": 182,
     "byte_end": 220,
     "line": 14
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 9,
+    "heading_path": [
+      "Invalid Target Links"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "file",
+    "raw": "[[file:./index.org::*Not Existing]]",
+    "raw_target": "file:./index.org::*Not Existing",
+    "raw_description": null,
+    "path": "./index.org",
+    "search_option": "*Not Existing",
+    "byte_start": 248,
+    "byte_end": 283,
+    "line": 18
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 9,
+    "heading_path": [
+      "Invalid Target Links"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "fuzzy",
+    "raw": "[[*Not Existing]]",
+    "raw_target": "*Not Existing",
+    "raw_description": null,
+    "path": "*Not Existing",
+    "search_option": null,
+    "byte_start": 286,
+    "byte_end": 303,
+    "line": 19
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 10,
+    "heading_path": [
+      "Duplicate title"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "file",
+    "raw": "[[./target.org::*Duplicate title]]",
+    "raw_target": "./target.org::*Duplicate title",
+    "raw_description": null,
+    "path": "./target.org",
+    "search_option": "*Duplicate title",
+    "byte_start": 474,
+    "byte_end": 508,
+    "line": 27
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 10,
+    "heading_path": [
+      "Duplicate title"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "fuzzy",
+    "raw": "[[*Duplicate title][Duplicate targets. Should link to first found.]]",
+    "raw_target": "*Duplicate title",
+    "raw_description": "Duplicate targets. Should link to first found.",
+    "path": "*Duplicate title",
+    "search_option": null,
+    "byte_start": 511,
+    "byte_end": 579,
+    "line": 28
   }
 ]

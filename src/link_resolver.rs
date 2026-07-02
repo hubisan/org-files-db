@@ -12,6 +12,10 @@ pub(crate) const FILE_MISSING_DIAGNOSTIC: &str = "file target is missing from th
 pub(crate) const FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC: &str =
     "file target is outside the indexed universe";
 const FILE_PATH_UNSUPPORTED_DIAGNOSTIC: &str = "file target path could not be normalized safely";
+pub(crate) const HEADING_TITLE_MISSING_DIAGNOSTIC: &str =
+    "heading title search target is missing in the resolved file";
+pub(crate) const HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC: &str =
+    "multiple headings in the resolved file match the heading title search target; selected the first heading in document order";
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
@@ -27,6 +31,7 @@ struct StoredLink {
     id: i64,
     link_type: String,
     path: String,
+    search_option: Option<String>,
     source_file_path: PathBuf,
 }
 
@@ -72,7 +77,7 @@ impl LinkResolver {
     fn load_links(connection: &Connection) -> Result<Vec<StoredLink>, DbWriteError> {
         let mut statement = connection
             .prepare(
-                "SELECT links.id, links.link_type, links.path, files.path
+                "SELECT links.id, links.link_type, links.path, links.search_option, files.path
                  FROM links
                  INNER JOIN files ON files.id = links.file_id
                  ORDER BY links.file_id, links.byte_start, links.id",
@@ -87,7 +92,8 @@ impl LinkResolver {
                     id: row.get(0)?,
                     link_type: row.get(1)?,
                     path: row.get(2)?,
-                    source_file_path: PathBuf::from(row.get::<_, String>(3)?),
+                    search_option: row.get(3)?,
+                    source_file_path: PathBuf::from(row.get::<_, String>(4)?),
                 })
             })
             .map_err(|source| DbWriteError::Write {
@@ -159,7 +165,7 @@ impl LinkResolver {
         };
 
         if let Some(target_file_id) = known_files.by_path.get(&path_absolute).copied() {
-            return Self::mark_resolved_file(connection, link.id, &path_absolute, target_file_id);
+            return Self::resolve_file_target(connection, link, &path_absolute, target_file_id);
         }
 
         if indexed_universe.contains(&path_absolute) {
@@ -167,6 +173,72 @@ impl LinkResolver {
         }
 
         Self::mark_unresolved_file(connection, link.id, &path_absolute)
+    }
+
+    fn resolve_file_target(
+        connection: &Connection,
+        link: &StoredLink,
+        path_absolute: &Path,
+        target_file_id: i64,
+    ) -> Result<(), DbWriteError> {
+        let Some(heading_title) = heading_title_search_target(link.search_option.as_deref()) else {
+            return Self::mark_resolved_file(connection, link.id, path_absolute, target_file_id);
+        };
+
+        let heading_ids =
+            Self::load_matching_heading_ids(connection, target_file_id, heading_title.as_str())?;
+        match heading_ids.as_slice() {
+            [target_heading_id] => Self::mark_resolved_heading(
+                connection,
+                link.id,
+                path_absolute,
+                target_file_id,
+                *target_heading_id,
+                None,
+            ),
+            [] => {
+                Self::mark_broken_heading_title(connection, link.id, path_absolute, target_file_id)
+            }
+            [target_heading_id, ..] => Self::mark_resolved_heading(
+                connection,
+                link.id,
+                path_absolute,
+                target_file_id,
+                *target_heading_id,
+                Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC),
+            ),
+        }
+    }
+
+    fn load_matching_heading_ids(
+        connection: &Connection,
+        file_id: i64,
+        title: &str,
+    ) -> Result<Vec<i64>, DbWriteError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT id
+                 FROM headings
+                 WHERE file_id = ?1
+                   AND level > 0
+                   AND title = ?2
+                 ORDER BY byte_start, id",
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_matching_heading_ids.prepare",
+                source,
+            })?;
+        let rows = statement
+            .query_map(params![file_id, title], |row| row.get(0))
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_matching_heading_ids.query",
+                source,
+            })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_matching_heading_ids.collect",
+                source,
+            })
     }
 
     fn mark_unsupported(connection: &Connection, link_id: i64) -> Result<(), DbWriteError> {
@@ -208,6 +280,39 @@ impl LinkResolver {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_resolved_file",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn mark_resolved_heading(
+        connection: &Connection,
+        link_id: i64,
+        path_absolute: &Path,
+        target_file_id: i64,
+        target_heading_id: i64,
+        resolution_diagnostic: Option<&str>,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?2,
+                     target_file_id = ?3,
+                     target_heading_id = ?4,
+                     resolution_status = ?5,
+                     resolution_diagnostic = ?6
+                 WHERE id = ?1",
+                params![
+                    link_id,
+                    path_absolute.to_string_lossy().to_string(),
+                    target_file_id,
+                    target_heading_id,
+                    "resolved",
+                    resolution_diagnostic
+                ],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.mark_resolved_heading",
                 source,
             })?;
         Ok(())
@@ -262,6 +367,36 @@ impl LinkResolver {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_unresolved_file",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn mark_broken_heading_title(
+        connection: &Connection,
+        link_id: i64,
+        path_absolute: &Path,
+        target_file_id: i64,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?2,
+                     target_file_id = ?3,
+                     target_heading_id = NULL,
+                     resolution_status = ?4,
+                     resolution_diagnostic = ?5
+                 WHERE id = ?1",
+                params![
+                    link_id,
+                    path_absolute.to_string_lossy().to_string(),
+                    target_file_id,
+                    "broken",
+                    HEADING_TITLE_MISSING_DIAGNOSTIC
+                ],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.mark_broken_heading_title",
                 source,
             })?;
         Ok(())
@@ -366,11 +501,19 @@ fn normalize_absolute_path(path: PathBuf) -> PathBuf {
     normalized
 }
 
+fn heading_title_search_target(search_option: Option<&str>) -> Option<String> {
+    let search_option = search_option?;
+    let heading_title = search_option.strip_prefix('*')?;
+    Some(heading_title.replace("\\[", "[").replace("\\]", "]"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_file_target_path, IndexedUniverse, LinkResolver, FILE_MISSING_DIAGNOSTIC,
-        FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+        heading_title_search_target, normalize_file_target_path, IndexedUniverse, LinkResolver,
+        FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
+        HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
+        UNSUPPORTED_DIAGNOSTIC,
     };
     use crate::db::{
         open_in_memory_database_with_schema, SchemaDefinition, CURRENT_SCHEMA_VERSION,
@@ -388,6 +531,13 @@ mod tests {
         Option<String>,
         String,
         String,
+    );
+    type FileHeadingResolutionRow = (
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
     );
 
     #[test]
@@ -551,6 +701,7 @@ mod tests {
             "[[file:target.org]]",
             "file",
             "target.org",
+            None,
         );
         seed_known_target_file(&connection, "/tmp/target.org", 2);
 
@@ -591,6 +742,7 @@ mod tests {
             "[[file:missing.org]]",
             "file",
             "missing.org",
+            None,
         );
 
         let mut universe = IndexedUniverse::default();
@@ -629,6 +781,7 @@ mod tests {
             "[[file:/outside/world.org]]",
             "file",
             "/outside/world.org",
+            None,
         );
 
         let mut universe = IndexedUniverse::default();
@@ -678,12 +831,276 @@ mod tests {
         assert_eq!(home_relative, PathBuf::from("/home/tester/docs/b.org"));
     }
 
+    #[test]
+    fn resolve_all_resolves_heading_title_search_options_to_target_headings() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::*[2026-07-01 Wed] Review]]",
+            "file",
+            "target.org",
+            Some(r"*\[2026-07-01 Wed\] Review"),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "[2026-07-01 Wed] Review");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                Some(20_i64),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_marks_missing_heading_title_search_targets_broken() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::*Missing]]",
+            "file",
+            "target.org",
+            Some("*Missing"),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Existing");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("broken row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                None,
+                Some("broken".to_string()),
+                Some(HEADING_TITLE_MISSING_DIAGNOSTIC.to_string()),
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_selects_first_duplicate_heading_title_search_target_in_document_order() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::*Duplicate]]",
+            "file",
+            "target.org",
+            Some("*Duplicate"),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Duplicate");
+        seed_target_heading(&connection, 21, 2, 1, "Duplicate");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                Some(20_i64),
+                Some("resolved".to_string()),
+                Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC.to_string()),
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_excludes_synthetic_root_headings_from_heading_title_matches() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::*Only Root]]",
+            "file",
+            "target.org",
+            Some("*Only Root"),
+        );
+        seed_known_target_file_with_root_title(&connection, "/tmp/target.org", 2, "Only Root");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: (Option<i64>, Option<String>, Option<String>) = connection
+            .query_row(
+                "SELECT target_heading_id, resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("row should load");
+        assert_eq!(
+            row,
+            (
+                None,
+                Some("broken".to_string()),
+                Some(HEADING_TITLE_MISSING_DIAGNOSTIC.to_string()),
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_keeps_resolved_file_targets_for_unsupported_search_options() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::#custom-id]]",
+            "file",
+            "target.org",
+            Some("#custom-id"),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Target");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                None,
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn heading_title_search_target_strips_one_leading_star_and_unescapes_brackets() {
+        assert_eq!(
+            heading_title_search_target(Some(r"*\[2026-07-01 Wed\] Review")),
+            Some("[2026-07-01 Wed] Review".to_string())
+        );
+        assert_eq!(
+            heading_title_search_target(Some("**Literal Star")),
+            Some("*Literal Star".to_string())
+        );
+        assert_eq!(heading_title_search_target(Some("#custom-id")), None);
+        assert_eq!(heading_title_search_target(None), None);
+    }
+
     fn seed_file_link_fixture(
         connection: &Connection,
         source_path: &str,
         raw: &str,
         link_type: &str,
         path: &str,
+        search_option: Option<&str>,
     ) {
         connection
             .execute(
@@ -728,13 +1145,22 @@ mod tests {
                     Option::<String>::None,
                     link_type,
                     path,
-                    Option::<String>::None,
+                    search_option,
                 ],
             )
             .expect("file link insert should succeed");
     }
 
     fn seed_known_target_file(connection: &Connection, path: &str, file_id: i64) {
+        seed_known_target_file_with_root_title(connection, path, file_id, path);
+    }
+
+    fn seed_known_target_file_with_root_title(
+        connection: &Connection,
+        path: &str,
+        file_id: i64,
+        root_title: &str,
+    ) {
         connection
             .execute(
                 "INSERT INTO files (id, path, mtime_ns, size) VALUES (?1, ?2, ?3, ?4)",
@@ -753,8 +1179,34 @@ mod tests {
                     0_i64,
                     -1_i64,
                     40_i64,
-                    path,
-                    path,
+                    root_title,
+                    root_title,
+                ),
+            )
+            .expect("target heading insert should succeed");
+    }
+
+    fn seed_target_heading(
+        connection: &Connection,
+        heading_id: i64,
+        file_id: i64,
+        level: i64,
+        title: &str,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO headings
+                 (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    heading_id,
+                    file_id,
+                    Some(file_id),
+                    level,
+                    heading_id * 10,
+                    heading_id * 10 + 5,
+                    title,
+                    title,
                 ),
             )
             .expect("target heading insert should succeed");

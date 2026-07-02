@@ -1183,7 +1183,9 @@ mod tests {
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         },
         link_resolver::{
-            FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+            FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
+            HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
+            UNSUPPORTED_DIAGNOSTIC,
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
@@ -1232,6 +1234,14 @@ mod tests {
     );
     type LinkResolutionRow = (String, Option<String>, Option<String>, Option<String>);
     type TargetRemovalLinkRow = (String, String, Option<i64>, Option<String>, Option<String>);
+    type FileHeadingSearchResolutionRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
 
     struct TestDir {
         path: PathBuf,
@@ -3941,6 +3951,134 @@ index_body_text = false
                     Some(external_path.to_string_lossy().to_string()),
                 ),
                 ("[[unknown:foo]]".to_string(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_resolves_file_heading_title_search_options() {
+        let test_dir = TestDir::new("file-heading-title-resolution");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+        let target_path = notes_dir.join("target.org");
+
+        write_file(
+            &source_path,
+            "\
+#+TITLE: Source
+[[file:target.org::*Heading]]
+[[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
+[[file:target.org::*Missing]]
+[[file:target.org::*Duplicate]]
+[[file:target.org::#custom-id]]
+",
+        );
+        write_file(
+            &target_path,
+            "\
+#+TITLE: Target
+* TODO [#A] Heading :tag:
+* [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
+* Duplicate
+* Duplicate
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<FileHeadingSearchResolutionRow> = query_rows(
+            &connection,
+            "SELECT
+                 links.raw,
+                 target_files.path,
+                 target_headings.title,
+                 links.search_option,
+                 links.resolution_status,
+                 links.resolution_diagnostic
+             FROM links
+             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
+             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
+             ORDER BY links.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "[[file:target.org::*Heading]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Heading".to_string()),
+                    Some("*Heading".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some(
+                        "[2026-07-01 Wed] Implement deterministic link resolution pass after rebuild"
+                            .to_string(),
+                    ),
+                    Some(
+                        "*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild"
+                            .to_string(),
+                    ),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[file:target.org::*Missing]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    None,
+                    Some("*Missing".to_string()),
+                    Some("broken".to_string()),
+                    Some(HEADING_TITLE_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[file:target.org::*Duplicate]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Duplicate".to_string()),
+                    Some("*Duplicate".to_string()),
+                    Some("resolved".to_string()),
+                    Some(HEADING_TITLE_DUPLICATE_MATCH_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[file:target.org::#custom-id]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    None,
+                    Some("#custom-id".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
             ]
         );
     }

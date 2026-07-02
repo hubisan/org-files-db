@@ -107,7 +107,17 @@ Task file: [[./archive/2026-07-01--implement-deterministic-link-resolution-pass-
 
 Task file: [[./archive/2026-07-01--resolve-file-links-to-known-indexed-files.org][2026-07-01--resolve-file-links-to-known-indexed-files.org]]
 
-** BUILD [#B] Resolve file links with heading-title search options
+** DONE [#B] Resolve file links with heading-title search options
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Task file: [[./2026-07-02--resolve-file-links-with-heading-title-search-options.org][2026-07-02--resolve-file-links-with-heading-title-search-options.org]]
+
+** BUILD [#B] Resolve same-file fuzzy star heading links
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -117,76 +127,58 @@ Task file: [[./archive/2026-07-01--resolve-file-links-to-known-indexed-files.org
 
 Depends on:
 
-- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
 
 Goal:
 
-- Resolve ~file:...::*Heading~ links to both the target file and, when possible, the matching heading in that file.
-- Extend the existing file-link resolver only for heading-title search options.
-- Do not implement CUSTOM_ID, ID, attachment, regexp, line-number, or dedicated-target search resolution in this task.
+- Resolve same-file fuzzy heading links of the form ~[[*Heading]]~.
 
 Supported forms:
 
-- ~[[file:notes.org::*Heading]]~
-- ~[[file:notes.org::*TODO Heading]]~
-- ~[[file:notes.org::*\[2026-07-01 Wed\] Implement deterministic link resolution pass after rebuild]]~
+- ~[[*Heading]]~
+- ~[[*Heading][Description]]~
+
+Out of scope:
+
+- Do not resolve non-star fuzzy links such as ~[[Heading]]~.
+- Do not resolve dedicated targets.
+- Do not resolve radio targets.
+- Do not resolve named elements.
 
 Resolution rules:
 
-- First resolve the file path using the existing file-link resolver.
-- If file resolution fails, do not attempt heading-title resolution.
-- Interpret ~search_option~ beginning with ~*~ as heading-title search.
-- Strip exactly one leading ~*~ from the search option before matching.
-- Unescape Org link escapes needed for heading text matching, including:
-  - ~\[~ -> ~[~
-  - ~\]~ -> ~]~
-- Search headings only in the resolved target file.
-- Exclude synthetic root headings from heading-title matching.
-- Match against the stored normalized heading title field, not the raw line.
-- Do not include TODO keyword, priority, tags, or planning metadata unless they are part of the stored heading title.
+- Resolve only links classified as:
+  - ~link_type = fuzzy~
+  - ~path~ starts with exactly one leading ~*~
+- Target file context is the source file.
+- Strip exactly one leading ~*~ before matching.
+- Unescape Org link escapes needed for heading text matching.
+- Search non-root headings only in the source file.
+- Match against the documented stored heading title field.
 - If exactly one heading matches:
-  - keep ~target_file_id~
+  - set ~target_file_id~ to the source file id.
   - set ~target_heading_id~
   - set ~resolution_status = resolved~
   - set ~resolution_diagnostic = NULL~
 - If no heading matches:
-  - keep ~target_file_id~
+  - set ~target_file_id~ to the source file id.
   - set ~target_heading_id = NULL~
   - set ~resolution_status = broken~
-  - set ~resolution_diagnostic~ explaining that the heading title search target is missing in the resolved file.
 - If multiple headings match:
-  - keep ~target_file_id~
+  - set ~target_file_id~ to the source file id.
   - set ~target_heading_id = NULL~
   - set ~resolution_status = ambiguous~
-  - set ~resolution_diagnostic~ explaining that multiple headings in the resolved file match the search option.
-- Preserve ~search_option~ as a raw source fact.
-
-Out of scope:
-
-- Do not resolve ~file:...::#CUSTOM_ID~.
-- Do not resolve ~file:...::/regexp/~.
-- Do not resolve ~file:...::42~.
-- Do not resolve dedicated targets.
-- Do not resolve same-file fuzzy heading links such as ~[[*Heading]]~.
-- Do not resolve ~id:~ links.
-- Do not resolve ~CUSTOM_ID~ links outside this file-search-option form.
-- Do not resolve ~attachment:~ links.
-- Do not scan unrelated files.
-- Do not execute, open, or follow link targets.
+  - do not pick the first heading.
 
 Acceptance criteria:
 
-- ~file:...::*Heading~ resolves to the target file first.
-- Matching heading-title search options resolve to ~target_heading_id~.
-- Escaped bracket syntax like ~\[2026-07-01 Wed\]~ is handled correctly.
-- Missing headings in a resolved target file are marked ~broken~.
-- Duplicate matching headings in the target file are marked ~ambiguous~.
-- Heading-title lookup does not scan unrelated files.
-- File links without heading-title search options keep existing file-resolution behavior.
-- File links with unsupported search options keep existing file target resolution and do not set ~target_heading_id~.
-- Existing ~search_option~ values remain unchanged.
+- ~[[*Target heading]]~ resolves to the matching heading in the same file.
+- ~[[*Target heading][Description]]~ resolves and preserves the raw description.
+- Missing same-file star fuzzy heading links are marked ~broken~.
+- Duplicate same-file heading titles are marked ~ambiguous~.
+- Lookup does not scan other files.
 - Raw link source fields remain unchanged.
-- No CUSTOM_ID, ID, attachment, regexp, line-number, dedicated-target, or fuzzy-link resolution is implemented.
+- Non-star fuzzy links remain unsupported.
 - ~make ci~ passes.
 
 ** TODO Resolve property-based heading links
@@ -359,6 +351,99 @@ Acceptance criteria:
 - Missing IDs are marked ~unresolved~, not ~broken~.
 - Tests document that absence from indexed files is not enough to classify an ID link as broken.
 - ID resolution uses or preserves the existing ID property index.
+  
+** TODO [#C] Resolve file-only links to synthetic root headings
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+- [[*Resolve property-based heading links][Resolve property-based heading links]]
+
+Goal:
+
+- Resolve file-only links to the synthetic root heading of the target file.
+- Treat the synthetic root heading as the document-level target for links that point to a file but not to a specific heading.
+- Make resolved file-only links queryable through both ~target_file_id~ and ~target_heading_id~.
+- Apply this as a resolver fallback after all more specific heading-resolution steps.
+
+Contract decision:
+
+- Synthetic root headings are always stored.
+- Root-heading targeting is always enabled because synthetic root headings are part of the persisted DB model.
+- No user-facing option is introduced.
+- More specific heading targets always win over the root fallback.
+
+Supported forms:
+
+- ~[[file:notes.org]]~
+- ~[[./notes.org]]~
+- ~[[../notes.org]]~
+- ~[[/absolute/path/notes.org]]~
+- ~<file:notes.org>~
+- plain ~file:notes.org~ when extracted by configured plain-link protocols
+
+Resolution rules:
+
+- Apply only to links that:
+  - have ~link_type = file~
+  - have ~target_file_id~ set
+  - have ~resolution_status = resolved~
+  - have ~search_option IS NULL~
+  - have ~target_heading_id IS NULL~
+- Find the synthetic root heading for ~target_file_id~.
+- Set ~target_heading_id~ to that root heading.
+- Keep ~target_file_id~ unchanged.
+- Keep ~resolution_status = resolved~.
+- Keep ~resolution_diagnostic = NULL~.
+- Keep ~target_custom_id = NULL~.
+- Keep ~target_id = NULL~.
+- Do not override links that already resolved to a specific heading.
+- Do not apply to broken, unresolved, ambiguous, or unsupported links.
+- Do not apply to file links with any ~search_option~.
+
+Synthetic root selection rules:
+
+- The root heading must belong to the resolved target file.
+- The root heading is identified by the existing synthetic-root contract, for example:
+  - ~level = 0~
+  - ~parent_id IS NULL~
+- If no synthetic root heading exists:
+  - leave ~target_heading_id = NULL~
+  - keep ~target_file_id~
+  - keep ~resolution_status = resolved~
+  - set a stable diagnostic only if this is considered DB corruption.
+- If multiple synthetic root headings exist for one file:
+  - do not pick an arbitrary root heading.
+  - mark the link ~ambiguous~ or report a data-integrity diagnostic according to the root-heading contract.
+
+Out of scope:
+
+- Do not create synthetic root headings in this task.
+- Do not change parser-level heading semantics.
+- Do not map file links with search options to root headings.
+- Do not override heading-title, CUSTOM_ID, ID, or fuzzy heading targets.
+- Do not resolve attachments.
+
+Acceptance criteria:
+
+- Resolved file-only links set ~target_file_id~ and ~target_heading_id~ to the target file's synthetic root heading.
+- File links with ~::*Heading~ are not overwritten by the root heading.
+- File links with ~::#custom-id~ are not mapped to root.
+- Broken file links do not get root heading targets.
+- Unresolved outside-universe file links do not get root heading targets.
+- Unsupported links do not get root heading targets.
+- Relative, absolute, angle, and plain file-only links are covered by tests where supported by the parser.
+- Tests verify that specific heading targets are not overwritten.
+- Tests verify raw link fields remain unchanged.
+- ~make ci~ passes.
 
 ** TODO [#B] Expose resolution fields in ~links --json~
 :PROPERTIES:

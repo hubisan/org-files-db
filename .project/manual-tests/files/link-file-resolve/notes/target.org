@@ -13,9 +13,19 @@ Back links:
 - [[file:sub/child.org]]
 - [[file:other/peer.org::*Peer heading]]
 
+* Invalid Target Links
+
+- [[file:./index.org::*Not Existing]]
+- [[*Not Existing]]
+
 * Duplicate title
 
 This is here for later heading-title ambiguity tests.
+
+Org actually jumps to the first found in the file. Doesn't matter where the link is placed.
+
+- [[./target.org::*Duplicate title]]
+- [[*Duplicate title][Duplicate targets. Should link to first found.]]
 
 * Duplicate title
 
