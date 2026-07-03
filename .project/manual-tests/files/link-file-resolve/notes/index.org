@@ -10,6 +10,8 @@
 ** Same-file targets
 :PROPERTIES:
 :CUSTOM_ID: same-file-target
+:CUSTOM_ID:  whitespace-in-custom-id 
+:ID:  id-with-whitespace 
 :ID: same-file-id-001
 :END:
 
@@ -78,6 +80,7 @@ Missing and outside file links:
 - [[#same-file-target][same-file custom-id with description]]
 - [[#SAME-FILE-TARGET][custom-id: case-insensitive]]
 - [[# SAME-FILE-TARGET ][custom-id: whitepace not allowed]]
+- [[# whitespace-in-custom-id ][custom-id: whitepace is part of the id]]
 - [[#duplicate-custom]]
 - [[#missing-custom-id]]
 
@@ -98,6 +101,7 @@ Missing and outside file links:
 - [[id:target-id-001]]
 - [[id:TARGET-ID-001][id: case-insensitive]]
 - [[id: TARGET-ID-001 ][id: whitespace is not allowed]]
+- [[id: id-with-whitespace ][id: whitespace is part of the id]]
 - <id:child-id-001>
 - id:peer-id-001
 - [[id:same-file-id-001]]

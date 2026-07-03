@@ -1,0 +1,103 @@
+#+TITLE: Preserve whitespace in CUSTOM_ID and Org ID matching
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 23:06]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with =BUILD Preserve whitespace in CUSTOM_ID and Org ID matching=.
+  - Keep the parser behavior for plain =id:= links unchanged.
+  - Remove resolver-side trimming for =CUSTOM_ID= and Org =ID= targets while preserving case-insensitive matching.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,*** BUILD Preserve whitespace in CUSTOM_ID and Org ID matching
+
+Problem:
+
+Whitespace is significant in Org =CUSTOM_ID= and =ID= property values. The resolver currently treats surrounding whitespace as normalization input, but that is not correct for bracket links.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The resolver currently trims =CUSTOM_ID= and Org =ID= lookup values before matching, which makes bracket links incorrectly match property values that differ only by leading or trailing whitespace.
+
+** Goals
+- Preserve leading and trailing whitespace in =CUSTOM_ID= and Org =ID= lookup values after removing only the syntactic =#= prefix where applicable.
+- Keep case-insensitive comparison.
+- Preserve raw link fields and keep plain-link parsing behavior unchanged.
+
+** Non-goals
+- No parser support for whitespace-sensitive plain =id:= links.
+- No schema changes.
+- No changes to star heading-title matching.
+
+** Architecture
+- Update the =CUSTOM_ID= and Org =ID= normalization helpers in =src/link_resolver.rs= to stop trimming lookup values.
+- Keep the existing property-comparison path and resolver status handling.
+- Extend resolver and rebuild tests with whitespace-sensitive positive and negative cases for same-file =CUSTOM_ID=, file-context =CUSTOM_ID=, and Org =ID=.
+
+** Execution plan
+- Add the task file and link it from =todo.org=.
+- Change resolver normalization for =CUSTOM_ID= and Org =ID= matching.
+- Update focused unit and rebuild tests to cover whitespace-preserving behavior.
+- Refresh README and CHANGELOG wording where they currently claim trimming for =CUSTOM_ID=/Org =ID=.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: stored property values already preserve the significant whitespace we need, so resolver-side trimming removal is sufficient.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_org_id_links -- --nocapture=
+- =cargo test rebuild_resolves_file_context_custom_id_links -- --nocapture=
+- =cargo test rebuild_resolves_same_file_custom_id_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Removed resolver-side trimming for =CUSTOM_ID= and Org =ID= lookup values while still stripping the syntactic leading =#= for =CUSTOM_ID= targets.
+- Updated the Orgize property-drawer adapter to preserve significant whitespace in parsed drawer property values by removing only the separator space after =:KEY:=.
+- Expanded resolver, rebuild, and parser coverage for whitespace-sensitive positive and negative cases across same-file =CUSTOM_ID=, file-context =CUSTOM_ID=, and Org =ID= links.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/parser/orgize_adapter.rs=
+- =src/indexer.rs=
+- =tests/orgize_adapter.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-matching.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test orgize_adapter_preserves_significant_whitespace_in_property_drawer_values -- --nocapture=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_org_id_links -- --nocapture=
+- =cargo test rebuild_resolves_file_context_custom_id_links -- --nocapture=
+- =cargo test rebuild_resolves_same_file_custom_id_links -- --nocapture=
+- =make ci=
+
+** Test results
+- Bracket =CUSTOM_ID= and Org =ID= links now preserve leading and trailing whitespace in the lookup value and only match properties with the same significant whitespace, still case-insensitively.
+- Same-file and file-context =CUSTOM_ID= rows now store =target_custom_id= exactly as parsed after removing only the syntactic leading =#=.
+- Org property-drawer parsing now preserves significant whitespace in stored =ID= and =CUSTOM_ID= values, enabling end-to-end rebuild coverage for the whitespace-sensitive cases.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

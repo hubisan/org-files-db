@@ -133,12 +133,9 @@ Task file: [[./archive/2026-07-03--normalize-star-heading-title-matching.org]]
 
 Task file: [[./archive/2026-07-03--use-unicode-lowercase-for-star-heading-title-matching.org]]
 
-** [#B] Resolve CUSTOM_ID and ID links
+** DONE [#B] Resolve CUSTOM_ID and ID links
 :PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
+:VISIBILITY: folded
 :END:
 
 Depends on:
@@ -309,6 +306,12 @@ Task file: [[./archive/2026-07-03--resolve-file-context-custom-id-links.org]]
 *** DONE Resolve Org ID links within indexed ID universe
 
 Task file: [[./archive/2026-07-03--resolve-org-id-links-within-indexed-id-universe.org]]
+#+begin_src org
+#+begin_src org
+
+*** DONE Preserve whitespace in CUSTOM_ID and Org ID matching
+
+Task file: [[./archive/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-matching.org]]
 
 ** TODO [#C] Resolve file-only links to synthetic root headings
 :PROPERTIES:

@@ -1310,27 +1310,21 @@ fn parsed_property_from_node(
     content: &str,
     source: ParsedPropertySource,
 ) -> Option<ParsedProperty> {
-    let mut text_tokens = property
-        .syntax()
-        .children_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| token.kind() == SyntaxKind::TEXT)
-        .map(|token| token.to_string());
-
-    let raw_key = text_tokens.next()?;
-    let value = Some(text_tokens.next().unwrap_or_default());
-    let append = property
-        .syntax()
-        .children_with_tokens()
-        .filter_map(|element| element.into_token())
-        .any(|token| token.kind() == SyntaxKind::PLUS);
-    let (key, normalized_append) = normalize_property_key(&raw_key);
+    let start = usize::from(property.start());
+    let end = usize::from(property.end());
+    let raw_line = content.get(start..end)?.trim_end_matches(['\n', '\r']);
+    let raw_line = raw_line.strip_prefix(':')?;
+    let separator_index = raw_line.find(':')?;
+    let raw_key = &raw_line[..separator_index];
+    let raw_value = &raw_line[separator_index + 1..];
+    let value = Some(raw_value.strip_prefix(' ').unwrap_or(raw_value).to_string());
+    let (key, normalized_append) = normalize_property_key(raw_key);
 
     Some(ParsedProperty {
         key,
         value,
         source,
-        append: append || normalized_append,
+        append: normalized_append,
         line_number: Some(line_number_for_offset(
             content,
             usize::from(property.start()),

@@ -10,6 +10,7 @@ This file records completed changes.
 - =ADDED= Rebuild now resolves file-context =CUSTOM_ID= links such as =[[file:other.org::#custom-id]]= against properties in the resolved target file.
 - =ADDED= Rebuild now resolves Org =id:...= links against indexed =ID= properties, reporting missing IDs as =unresolved= and duplicate IDs as =ambiguous=.
 - =ADDED= Rebuild now resolves same-file bracket =CUSTOM_ID= links such as =[[#custom-id]]= against source-file heading properties.
+- =FIXED= Resolver matching for =CUSTOM_ID= and Org =ID= now preserves leading and trailing whitespace in bracket-link targets instead of trimming it away.
 - =FIXED= Star heading-title matching now handles Unicode case-insensitive pairs such as =Ärger= and =ärger= for both file and same-file star links.
 - =FIXED= Star heading-title link resolution now trims outer whitespace and matches case-insensitively for both =file:...::*Heading= and same-file =[[*Heading]]= links.
 - =CHANGED= Rebuild now resolves file-like links to known indexed files and distinguishes missing in-universe targets from outside-universe targets.

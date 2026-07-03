@@ -1071,7 +1071,7 @@ fn normalize_star_heading_title_target(raw_target: &str) -> Option<String> {
 
 fn normalize_custom_id_target(raw_target: &str) -> Option<String> {
     let custom_id = raw_target.strip_prefix('#')?;
-    Some(custom_id.trim().to_string())
+    Some(custom_id.to_string())
 }
 
 fn file_custom_id_search_target(search_option: Option<&str>) -> Option<String> {
@@ -1085,11 +1085,11 @@ fn file_custom_id_search_target(search_option: Option<&str>) -> Option<String> {
 }
 
 fn normalize_custom_id_lookup_target(raw_target: &str) -> String {
-    normalize_custom_id_target(raw_target).unwrap_or_else(|| raw_target.trim().to_string())
+    normalize_custom_id_target(raw_target).unwrap_or_else(|| raw_target.to_string())
 }
 
 fn normalize_id_target(raw_target: &str) -> String {
-    raw_target.trim().to_string()
+    raw_target.to_string()
 }
 
 fn unicode_lowercase(value: &str) -> String {
@@ -1289,7 +1289,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_all_normalizes_org_id_links_before_matching() {
+    fn resolve_all_preserves_whitespace_in_org_id_links_before_matching() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
@@ -1342,7 +1342,7 @@ mod tests {
             .expect("source link insert should succeed");
         seed_known_target_file(&connection, "/tmp/target.org", 2);
         seed_target_heading(&connection, 20, 2, 1, "Heading");
-        seed_heading_property(&connection, 20, "ID", Some("foo"));
+        seed_heading_property(&connection, 20, "ID", Some(" foo "));
 
         let universe = IndexedUniverse::default();
         LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
@@ -1373,7 +1373,7 @@ mod tests {
             (
                 Some(2_i64),
                 Some(20_i64),
-                Some("FOO".to_string()),
+                Some(" FOO ".to_string()),
                 Some("resolved".to_string()),
                 None,
                 "[[id: FOO ][Description]]".to_string(),
@@ -1384,18 +1384,21 @@ mod tests {
     }
 
     #[test]
-    fn resolve_all_marks_missing_org_id_links_unresolved() {
+    fn resolve_all_marks_whitespace_mismatched_org_id_links_unresolved() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
         seed_file_link_fixture(
             &connection,
             "/tmp/source.org",
-            "[[id:missing]]",
+            "[[id: ab]]",
             "id",
-            "missing",
+            " ab",
             None,
         );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Heading");
+        seed_heading_property(&connection, 20, "ID", Some("ab"));
 
         let universe = IndexedUniverse::default();
         LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
@@ -1423,7 +1426,7 @@ mod tests {
             (
                 None,
                 None,
-                Some("missing".to_string()),
+                Some(" ab".to_string()),
                 Some("unresolved".to_string()),
                 Some(ID_MISSING_DIAGNOSTIC.to_string()),
             )
@@ -2109,6 +2112,61 @@ mod tests {
     }
 
     #[test]
+    fn resolve_all_preserves_whitespace_in_file_custom_id_search_options_before_matching() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::# abc ]]",
+            "file",
+            "target.org",
+            Some("# abc "),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Target");
+        seed_heading_property(&connection, 20, "CUSTOM_ID", Some(" abc "));
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileCustomIdResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id, target_custom_id,
+                        resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                Some(20_i64),
+                Some(" abc ".to_string()),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
     fn resolve_all_marks_missing_file_custom_id_search_options_broken() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
@@ -2370,7 +2428,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_all_normalizes_same_file_fuzzy_custom_id_links_before_matching() {
+    fn resolve_all_preserves_whitespace_in_same_file_fuzzy_custom_id_links_before_matching() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
@@ -2383,7 +2441,7 @@ mod tests {
             None,
         );
         seed_target_heading(&connection, 20, 1, 1, "Heading");
-        seed_heading_property(&connection, 20, "CUSTOM_ID", Some("custom-id"));
+        seed_heading_property(&connection, 20, "CUSTOM_ID", Some(" Custom-ID "));
 
         let universe = IndexedUniverse::default();
         LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
@@ -2411,9 +2469,58 @@ mod tests {
             (
                 Some(1_i64),
                 Some(20_i64),
-                Some("Custom-ID".to_string()),
+                Some(" Custom-ID ".to_string()),
                 Some("resolved".to_string()),
                 None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_marks_whitespace_mismatched_same_file_custom_id_links_broken() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[# ab]]",
+            "fuzzy",
+            "# ab",
+            None,
+        );
+        seed_target_heading(&connection, 20, 1, 1, "Heading");
+        seed_heading_property(&connection, 20, "CUSTOM_ID", Some("ab"));
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileCustomIdResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, target_custom_id,
+                        resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("broken row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                None,
+                Some(" ab".to_string()),
+                Some("broken".to_string()),
+                Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
             )
         );
     }
@@ -2636,10 +2743,10 @@ mod tests {
     }
 
     #[test]
-    fn normalize_custom_id_target_strips_one_leading_hash_and_trims_whitespace() {
+    fn normalize_custom_id_target_strips_one_leading_hash_and_preserves_whitespace() {
         assert_eq!(
             normalize_custom_id_target("# Custom-ID "),
-            Some("Custom-ID".to_string())
+            Some(" Custom-ID ".to_string())
         );
         assert_eq!(
             normalize_custom_id_target("##custom-id"),
@@ -2652,17 +2759,17 @@ mod tests {
     fn normalize_custom_id_lookup_target_accepts_both_stored_path_forms() {
         assert_eq!(
             normalize_custom_id_lookup_target("# Custom-ID "),
-            "Custom-ID".to_string()
+            " Custom-ID ".to_string()
         );
         assert_eq!(
             normalize_custom_id_lookup_target(" custom-id "),
-            "custom-id".to_string()
+            " custom-id ".to_string()
         );
     }
 
     #[test]
-    fn normalize_id_target_trims_whitespace() {
-        assert_eq!(normalize_id_target(" FOO "), "FOO".to_string());
+    fn normalize_id_target_preserves_whitespace() {
+        assert_eq!(normalize_id_target(" FOO "), " FOO ".to_string());
         assert_eq!(normalize_id_target("foo"), "foo".to_string());
     }
 
@@ -2670,7 +2777,7 @@ mod tests {
     fn file_custom_id_search_target_requires_exactly_one_leading_hash() {
         assert_eq!(
             file_custom_id_search_target(Some("# Custom-ID ")),
-            Some("Custom-ID".to_string())
+            Some(" Custom-ID ".to_string())
         );
         assert_eq!(file_custom_id_search_target(Some("##custom-id")), None);
         assert_eq!(file_custom_id_search_target(Some("/regexp/")), None);
@@ -2705,7 +2812,7 @@ mod tests {
     fn same_file_fuzzy_custom_id_target_requires_exactly_one_leading_hash() {
         assert_eq!(
             same_file_fuzzy_custom_id_target("# Custom-ID "),
-            Some("Custom-ID".to_string())
+            Some(" Custom-ID ".to_string())
         );
         assert_eq!(same_file_fuzzy_custom_id_target("##custom-id"), None);
         assert_eq!(same_file_fuzzy_custom_id_target("custom-id"), None);

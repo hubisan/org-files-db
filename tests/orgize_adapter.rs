@@ -328,6 +328,35 @@ fn orgize_adapter_preserves_empty_property_values_exposed_by_orgize() {
 }
 
 #[test]
+fn orgize_adapter_preserves_significant_whitespace_in_property_drawer_values() {
+    let content = "\
+#+TITLE: Property Whitespace
+* Task
+:PROPERTIES:
+:CUSTOM_ID: abc 
+:ID:  23
+:END:
+";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/property-whitespace.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("property whitespace should parse");
+
+    assert_eq!(document.headings.len(), 2);
+    let heading = &document.headings[1];
+    assert_eq!(heading.properties.len(), 2);
+    assert_eq!(heading.properties[0].key, "CUSTOM_ID");
+    assert_eq!(heading.properties[0].value.as_deref(), Some("abc "));
+    assert_eq!(heading.properties[1].key, "ID");
+    assert_eq!(heading.properties[1].value.as_deref(), Some(" 23"));
+    assert!(document.diagnostics.is_empty());
+}
+
+#[test]
 fn orgize_adapter_collects_file_level_property_keywords_anywhere_in_buffer() {
     let content = include_str!("data/parser/properties/late-file-keywords/fixture.org");
 

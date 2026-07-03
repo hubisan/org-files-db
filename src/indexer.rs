@@ -4155,6 +4155,8 @@ index_body_text = false
 #+TITLE: Source
 [[file:target.org::#custom-id]]
 [[file:target.org::# Custom-ID ][Description]]
+[[file:target.org::# abc ]]
+[[file:target.org::# ab]]
 [[./target.org::#dup]]
 <file:target.org::#angle-id>
 file:target.org::#plain-id
@@ -4169,6 +4171,10 @@ file:target.org::#plain-id
 * Target heading
 :PROPERTIES:
 :CUSTOM_ID: custom-id
+:END:
+* Spaced target
+:PROPERTIES:
+:CUSTOM_ID:  abc 
 :END:
 * First duplicate
 :PROPERTIES:
@@ -4250,11 +4256,29 @@ index_body_text = false
                 (
                     "[[file:target.org::# Custom-ID ][Description]]".to_string(),
                     Some(target_path.to_string_lossy().to_string()),
-                    Some("Target heading".to_string()),
+                    None,
                     Some("Description".to_string()),
-                    Some("Custom-ID".to_string()),
+                    Some(" Custom-ID ".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[file:target.org::# abc ]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Spaced target".to_string()),
+                    None,
+                    Some(" abc ".to_string()),
                     Some("resolved".to_string()),
                     None,
+                ),
+                (
+                    "[[file:target.org::# ab]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    None,
+                    None,
+                    Some(" ab".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
                 (
                     "[[./target.org::#dup]]".to_string(),
@@ -4322,6 +4346,10 @@ index_body_text = false
 #+TITLE: Source
 id:foo
 [[id: FOO ][Description]]
+[[id:123 56 ]]
+[[id: 23]]
+[[id: ab]]
+[[id:ab ]]
 <id:angle-id>
 id:dup
 [[id:missing]]
@@ -4334,6 +4362,14 @@ id:dup
 * Exact target
 :PROPERTIES:
 :ID: foo
+:END:
+* Spaced tail target
+:PROPERTIES:
+:ID: 123 56 
+:END:
+* Spaced head target
+:PROPERTIES:
+:ID:  23
 :END:
 * Angle target
 :PROPERTIES:
@@ -4422,12 +4458,48 @@ index_body_text = false
                 ),
                 (
                     "[[id: FOO ][Description]]".to_string(),
-                    Some(target_a_path.to_string_lossy().to_string()),
-                    Some("Exact target".to_string()),
+                    None,
+                    None,
                     Some("Description".to_string()),
-                    Some("FOO".to_string()),
+                    Some(" FOO ".to_string()),
+                    Some("unresolved".to_string()),
+                    Some(ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[id:123 56 ]]".to_string(),
+                    Some(target_a_path.to_string_lossy().to_string()),
+                    Some("Spaced tail target".to_string()),
+                    None,
+                    Some("123 56 ".to_string()),
                     Some("resolved".to_string()),
                     None,
+                ),
+                (
+                    "[[id: 23]]".to_string(),
+                    Some(target_a_path.to_string_lossy().to_string()),
+                    Some("Spaced head target".to_string()),
+                    None,
+                    Some(" 23".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[id: ab]]".to_string(),
+                    None,
+                    None,
+                    None,
+                    Some(" ab".to_string()),
+                    Some("unresolved".to_string()),
+                    Some(ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[id:ab ]]".to_string(),
+                    None,
+                    None,
+                    None,
+                    Some("ab ".to_string()),
+                    Some("unresolved".to_string()),
+                    Some(ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
                 (
                     "<id:angle-id>".to_string(),
@@ -4632,12 +4704,23 @@ index_body_text = false
 #+TITLE: Source
 [[#custom-id]]
 [[# Custom-ID ][Description]]
+[[#abc ]]
+[[# abc]]
+[[# ab]]
 [[#dup]]
 [[#missing]]
 [[Heading]]
 * Target heading
 :PROPERTIES:
 :CUSTOM_ID: custom-id
+:END:
+* Spaced tail target
+:PROPERTIES:
+:CUSTOM_ID: abc 
+:END:
+* Spaced head target
+:PROPERTIES:
+:CUSTOM_ID:  abc
 :END:
 * First duplicate
 :PROPERTIES:
@@ -4711,11 +4794,38 @@ index_body_text = false
                 (
                     "[[# Custom-ID ][Description]]".to_string(),
                     Some(source_path.to_string_lossy().to_string()),
-                    Some("Target heading".to_string()),
+                    None,
                     Some("Description".to_string()),
-                    Some("Custom-ID".to_string()),
+                    Some(" Custom-ID ".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[#abc ]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("Spaced tail target".to_string()),
+                    None,
+                    Some("abc ".to_string()),
                     Some("resolved".to_string()),
                     None,
+                ),
+                (
+                    "[[# abc]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("Spaced head target".to_string()),
+                    None,
+                    Some(" abc".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[# ab]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    None,
+                    None,
+                    Some(" ab".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
                 (
                     "[[#dup]]".to_string(),

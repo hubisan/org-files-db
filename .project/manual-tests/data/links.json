@@ -15,9 +15,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": null,
-    "byte_start": 693,
-    "byte_end": 712,
-    "line": 42
+    "byte_start": 757,
+    "byte_end": 776,
+    "line": 44
   },
   {
     "file_id": 1,
@@ -35,9 +35,9 @@
     "raw_description": null,
     "path": "sub/child.org",
     "search_option": null,
-    "byte_start": 715,
-    "byte_end": 737,
-    "line": 43
+    "byte_start": 779,
+    "byte_end": 801,
+    "line": 45
   },
   {
     "file_id": 1,
@@ -55,9 +55,9 @@
     "raw_description": null,
     "path": "other/peer.org",
     "search_option": null,
-    "byte_start": 740,
-    "byte_end": 763,
-    "line": 44
+    "byte_start": 804,
+    "byte_end": 827,
+    "line": 46
   },
   {
     "file_id": 1,
@@ -75,9 +75,9 @@
     "raw_description": null,
     "path": "./target.org",
     "search_option": null,
-    "byte_start": 766,
-    "byte_end": 782,
-    "line": 45
+    "byte_start": 830,
+    "byte_end": 846,
+    "line": 47
   },
   {
     "file_id": 1,
@@ -95,9 +95,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": null,
-    "byte_start": 815,
-    "byte_end": 832,
-    "line": 49
+    "byte_start": 879,
+    "byte_end": 896,
+    "line": 51
   },
   {
     "file_id": 1,
@@ -115,9 +115,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": null,
-    "byte_start": 835,
-    "byte_end": 850,
-    "line": 50
+    "byte_start": 899,
+    "byte_end": 914,
+    "line": 52
   },
   {
     "file_id": 1,
@@ -135,9 +135,9 @@
     "raw_description": null,
     "path": "missing.org",
     "search_option": null,
-    "byte_start": 887,
-    "byte_end": 907,
-    "line": 54
+    "byte_start": 951,
+    "byte_end": 971,
+    "line": 56
   },
   {
     "file_id": 1,
@@ -155,9 +155,9 @@
     "raw_description": null,
     "path": "sub/missing-child.org",
     "search_option": null,
-    "byte_start": 910,
-    "byte_end": 940,
-    "line": 55
+    "byte_start": 974,
+    "byte_end": 1004,
+    "line": 57
   },
   {
     "file_id": 1,
@@ -175,9 +175,9 @@
     "raw_description": null,
     "path": "../external/outside.org",
     "search_option": null,
-    "byte_start": 943,
-    "byte_end": 975,
-    "line": 56
+    "byte_start": 1007,
+    "byte_end": 1039,
+    "line": 58
   },
   {
     "file_id": 1,
@@ -195,9 +195,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*Target Heading",
-    "byte_start": 1007,
-    "byte_end": 1043,
-    "line": 60
+    "byte_start": 1071,
+    "byte_end": 1107,
+    "line": 62
   },
   {
     "file_id": 1,
@@ -215,9 +215,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*target heading",
-    "byte_start": 1046,
-    "byte_end": 1082,
-    "line": 61
+    "byte_start": 1110,
+    "byte_end": 1146,
+    "line": 63
   },
   {
     "file_id": 1,
@@ -235,9 +235,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*   Target Heading   ",
-    "byte_start": 1085,
-    "byte_end": 1127,
-    "line": 62
+    "byte_start": 1149,
+    "byte_end": 1191,
+    "line": 64
   },
   {
     "file_id": 1,
@@ -255,9 +255,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*Bracket Title \\[A/B\\]",
-    "byte_start": 1130,
-    "byte_end": 1173,
-    "line": 63
+    "byte_start": 1194,
+    "byte_end": 1237,
+    "line": 65
   },
   {
     "file_id": 1,
@@ -275,9 +275,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*Bracket Title [A/B]",
-    "byte_start": 1176,
-    "byte_end": 1215,
-    "line": 64
+    "byte_start": 1240,
+    "byte_end": 1279,
+    "line": 66
   },
   {
     "file_id": 1,
@@ -295,9 +295,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*Target",
-    "byte_start": 1218,
-    "byte_end": 1242,
-    "line": 65
+    "byte_start": 1282,
+    "byte_end": 1306,
+    "line": 67
   },
   {
     "file_id": 1,
@@ -315,9 +315,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "*Missing Heading",
-    "byte_start": 1253,
-    "byte_end": 1290,
-    "line": 66
+    "byte_start": 1317,
+    "byte_end": 1354,
+    "line": 68
   },
   {
     "file_id": 1,
@@ -335,9 +335,9 @@
     "raw_description": null,
     "path": "*Same-file targets",
     "search_option": null,
-    "byte_start": 1326,
-    "byte_end": 1348,
-    "line": 70
+    "byte_start": 1390,
+    "byte_end": 1412,
+    "line": 72
   },
   {
     "file_id": 1,
@@ -355,9 +355,9 @@
     "raw_description": null,
     "path": "*same-file targets",
     "search_option": null,
-    "byte_start": 1351,
-    "byte_end": 1373,
-    "line": 71
+    "byte_start": 1415,
+    "byte_end": 1437,
+    "line": 73
   },
   {
     "file_id": 1,
@@ -375,9 +375,9 @@
     "raw_description": null,
     "path": "*Brackets in Title \\[2026-07-03 Fr\\]",
     "search_option": null,
-    "byte_start": 1376,
-    "byte_end": 1416,
-    "line": 72
+    "byte_start": 1440,
+    "byte_end": 1480,
+    "line": 74
   },
   {
     "file_id": 1,
@@ -395,9 +395,9 @@
     "raw_description": null,
     "path": "*Missing Same File Heading",
     "search_option": null,
-    "byte_start": 1419,
-    "byte_end": 1449,
-    "line": 73
+    "byte_start": 1483,
+    "byte_end": 1513,
+    "line": 75
   },
   {
     "file_id": 1,
@@ -415,9 +415,9 @@
     "raw_description": null,
     "path": "main-index",
     "search_option": null,
-    "byte_start": 1482,
-    "byte_end": 1497,
-    "line": 77
+    "byte_start": 1546,
+    "byte_end": 1561,
+    "line": 79
   },
   {
     "file_id": 1,
@@ -435,9 +435,9 @@
     "raw_description": "same-file custom-id with description",
     "path": "same-file-target",
     "search_option": null,
-    "byte_start": 1500,
-    "byte_end": 1559,
-    "line": 78
+    "byte_start": 1564,
+    "byte_end": 1623,
+    "line": 80
   },
   {
     "file_id": 1,
@@ -450,14 +450,54 @@
     "source_context": "normal",
     "format": "bracket",
     "link_type": "custom-id",
-    "raw": "[[# SAME-FILE-TARGET ]]",
+    "raw": "[[#SAME-FILE-TARGET][custom-id: case-insensitive]]",
+    "raw_target": "#SAME-FILE-TARGET",
+    "raw_description": "custom-id: case-insensitive",
+    "path": "SAME-FILE-TARGET",
+    "search_option": null,
+    "byte_start": 1626,
+    "byte_end": 1676,
+    "line": 81
+  },
+  {
+    "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org",
+    "heading_id": 10,
+    "heading_path": [
+      "Same-file CUSTOM_ID links"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "custom-id",
+    "raw": "[[# SAME-FILE-TARGET ][custom-id: whitepace not allowed]]",
     "raw_target": "# SAME-FILE-TARGET ",
-    "raw_description": null,
+    "raw_description": "custom-id: whitepace not allowed",
     "path": " SAME-FILE-TARGET ",
     "search_option": null,
-    "byte_start": 1562,
-    "byte_end": 1585,
-    "line": 79
+    "byte_start": 1679,
+    "byte_end": 1736,
+    "line": 82
+  },
+  {
+    "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org",
+    "heading_id": 10,
+    "heading_path": [
+      "Same-file CUSTOM_ID links"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "custom-id",
+    "raw": "[[# whitespace-in-custom-id ][custom-id: whitepace is part of the id]]",
+    "raw_target": "# whitespace-in-custom-id ",
+    "raw_description": "custom-id: whitepace is part of the id",
+    "path": " whitespace-in-custom-id ",
+    "search_option": null,
+    "byte_start": 1739,
+    "byte_end": 1809,
+    "line": 83
   },
   {
     "file_id": 1,
@@ -475,9 +515,9 @@
     "raw_description": null,
     "path": "duplicate-custom",
     "search_option": null,
-    "byte_start": 1588,
-    "byte_end": 1609,
-    "line": 80
+    "byte_start": 1812,
+    "byte_end": 1833,
+    "line": 84
   },
   {
     "file_id": 1,
@@ -495,9 +535,9 @@
     "raw_description": null,
     "path": "missing-custom-id",
     "search_option": null,
-    "byte_start": 1612,
-    "byte_end": 1634,
-    "line": 81
+    "byte_start": 1836,
+    "byte_end": 1858,
+    "line": 85
   },
   {
     "file_id": 1,
@@ -515,9 +555,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "#target-custom-id",
-    "byte_start": 1670,
-    "byte_end": 1708,
-    "line": 85
+    "byte_start": 1894,
+    "byte_end": 1932,
+    "line": 89
   },
   {
     "file_id": 1,
@@ -535,9 +575,9 @@
     "raw_description": "target custom id with description",
     "path": "target.org",
     "search_option": "# TARGET-CUSTOM-ID ",
-    "byte_start": 1711,
-    "byte_end": 1786,
-    "line": 86
+    "byte_start": 1935,
+    "byte_end": 2010,
+    "line": 90
   },
   {
     "file_id": 1,
@@ -555,9 +595,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "#duplicate-custom",
-    "byte_start": 1789,
-    "byte_end": 1827,
-    "line": 87
+    "byte_start": 2013,
+    "byte_end": 2051,
+    "line": 91
   },
   {
     "file_id": 1,
@@ -575,9 +615,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "#missing-custom-id",
-    "byte_start": 1830,
-    "byte_end": 1869,
-    "line": 88
+    "byte_start": 2054,
+    "byte_end": 2093,
+    "line": 92
   },
   {
     "file_id": 1,
@@ -595,9 +635,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "#target-custom-id",
-    "byte_start": 1872,
-    "byte_end": 1908,
-    "line": 89
+    "byte_start": 2096,
+    "byte_end": 2132,
+    "line": 93
   },
   {
     "file_id": 1,
@@ -615,9 +655,9 @@
     "raw_description": null,
     "path": "target.org",
     "search_option": "#target-custom-id",
-    "byte_start": 1911,
-    "byte_end": 1945,
-    "line": 90
+    "byte_start": 2135,
+    "byte_end": 2169,
+    "line": 94
   },
   {
     "file_id": 1,
@@ -635,9 +675,9 @@
     "raw_description": null,
     "path": "sub/child.org",
     "search_option": "#child-custom-id",
-    "byte_start": 1948,
-    "byte_end": 1988,
-    "line": 91
+    "byte_start": 2172,
+    "byte_end": 2212,
+    "line": 95
   },
   {
     "file_id": 1,
@@ -655,9 +695,9 @@
     "raw_description": null,
     "path": "other/peer.org",
     "search_option": "#peer-custom-id",
-    "byte_start": 1991,
-    "byte_end": 2031,
-    "line": 92
+    "byte_start": 2215,
+    "byte_end": 2255,
+    "line": 96
   },
   {
     "file_id": 1,
@@ -675,9 +715,9 @@
     "raw_description": null,
     "path": "../external/outside.org",
     "search_option": "#outside-custom-id",
-    "byte_start": 2034,
-    "byte_end": 2086,
-    "line": 93
+    "byte_start": 2258,
+    "byte_end": 2310,
+    "line": 97
   },
   {
     "file_id": 1,
@@ -695,9 +735,9 @@
     "raw_description": null,
     "path": "target-id-001",
     "search_option": null,
-    "byte_start": 2106,
-    "byte_end": 2126,
-    "line": 97
+    "byte_start": 2330,
+    "byte_end": 2350,
+    "line": 101
   },
   {
     "file_id": 1,
@@ -710,14 +750,54 @@
     "source_context": "normal",
     "format": "bracket",
     "link_type": "id",
-    "raw": "[[id: TARGET-ID-001 ][target id with description]]",
+    "raw": "[[id:TARGET-ID-001][id: case-insensitive]]",
+    "raw_target": "id:TARGET-ID-001",
+    "raw_description": "id: case-insensitive",
+    "path": "TARGET-ID-001",
+    "search_option": null,
+    "byte_start": 2353,
+    "byte_end": 2395,
+    "line": 102
+  },
+  {
+    "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org",
+    "heading_id": 12,
+    "heading_path": [
+      "Org ID links"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "id",
+    "raw": "[[id: TARGET-ID-001 ][id: whitespace is not allowed]]",
     "raw_target": "id: TARGET-ID-001 ",
-    "raw_description": "target id with description",
+    "raw_description": "id: whitespace is not allowed",
     "path": " TARGET-ID-001 ",
     "search_option": null,
-    "byte_start": 2129,
-    "byte_end": 2179,
-    "line": 98
+    "byte_start": 2398,
+    "byte_end": 2451,
+    "line": 103
+  },
+  {
+    "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org",
+    "heading_id": 12,
+    "heading_path": [
+      "Org ID links"
+    ],
+    "heading_level": 1,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "id",
+    "raw": "[[id: id-with-whitespace ][id: whitespace is part of the id]]",
+    "raw_target": "id: id-with-whitespace ",
+    "raw_description": "id: whitespace is part of the id",
+    "path": " id-with-whitespace ",
+    "search_option": null,
+    "byte_start": 2454,
+    "byte_end": 2515,
+    "line": 104
   },
   {
     "file_id": 1,
@@ -735,9 +815,9 @@
     "raw_description": null,
     "path": "child-id-001",
     "search_option": null,
-    "byte_start": 2182,
-    "byte_end": 2199,
-    "line": 99
+    "byte_start": 2518,
+    "byte_end": 2535,
+    "line": 105
   },
   {
     "file_id": 1,
@@ -755,9 +835,9 @@
     "raw_description": null,
     "path": "peer-id-001",
     "search_option": null,
-    "byte_start": 2202,
-    "byte_end": 2216,
-    "line": 100
+    "byte_start": 2538,
+    "byte_end": 2552,
+    "line": 106
   },
   {
     "file_id": 1,
@@ -775,9 +855,9 @@
     "raw_description": null,
     "path": "same-file-id-001",
     "search_option": null,
-    "byte_start": 2219,
-    "byte_end": 2242,
-    "line": 101
+    "byte_start": 2555,
+    "byte_end": 2578,
+    "line": 107
   },
   {
     "file_id": 1,
@@ -795,9 +875,9 @@
     "raw_description": null,
     "path": "missing-id-001",
     "search_option": null,
-    "byte_start": 2245,
-    "byte_end": 2266,
-    "line": 102
+    "byte_start": 2581,
+    "byte_end": 2602,
+    "line": 108
   },
   {
     "file_id": 1,
@@ -815,9 +895,9 @@
     "raw_description": null,
     "path": "duplicate-id-001",
     "search_option": null,
-    "byte_start": 2269,
-    "byte_end": 2292,
-    "line": 103
+    "byte_start": 2605,
+    "byte_end": 2628,
+    "line": 109
   },
   {
     "file_id": 2,
