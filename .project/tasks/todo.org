@@ -302,79 +302,9 @@ Implementation notes:
 
 Task file: [[./archive/2026-07-03--resolve-bracket-same-file-custom-id-links.org]]
 
-*** BUILD Resolve file-context CUSTOM_ID links
+*** DONE Resolve file-context CUSTOM_ID links
 
-Supported forms:
-
-- ~[[file:other.org::#foo]]~
-- ~[[file:other.org::#foo][Description]]~
-- ~[[./other.org::#foo]]~
-- ~[[../other.org::#foo]]~
-- ~<file:other.org::#foo>~
-- plain ~file:other.org::#foo~ when extracted by configured plain-link protocols
-
-Rules:
-
-- Resolve only file links with a ~search_option~ beginning with exactly one leading ~#~.
-- First resolve the file target using the existing file-link resolver.
-- Only run CUSTOM_ID lookup when the file target resolved.
-- Property key:
-  - ~CUSTOM_ID~
-- Property value:
-  - normalized value after removing ~#~ and trimming leading/trailing whitespace
-- Search scope:
-  - non-root headings in the resolved target file only
-- Value comparison:
-  - case-insensitive
-- No-match status:
-  - ~broken~
-- Duplicate-match behavior:
-  - select the first matching heading in document order
-
-Target fields:
-
-- On one or more matches, set:
-  - ~target_file_id~ to the resolved file id
-  - ~target_heading_id~ to the first matching heading
-  - ~target_custom_id~ to the normalized CUSTOM_ID target value
-  - ~target_id = NULL~
-  - ~resolution_status = resolved~
-  - ~resolution_diagnostic = NULL~
-- On no match, set:
-  - keep ~target_file_id~ set to the resolved file id
-  - keep ~path_absolute~ set to the resolved file path
-  - ~target_heading_id = NULL~
-  - ~target_custom_id~ to the normalized CUSTOM_ID target value
-  - ~target_id = NULL~
-  - ~resolution_status = broken~
-  - ~resolution_diagnostic = custom id not found~
-- If file resolution fails:
-  - keep the existing file-link failure status.
-  - do not run CUSTOM_ID lookup without a resolved file context.
-  - do not set ~target_heading_id~.
-  - do not override the existing file resolver diagnostic.
-
-Acceptance criteria:
-
-- File-context ~[[file:other.org::#custom-id]]~ resolves only within the resolved target file.
-- File-context ~[[file:other.org::#custom-id][Description]]~ resolves and preserves the raw description.
-- File-context ~[[file:other.org::# Custom-ID ]]~ resolves to a heading with ~:CUSTOM_ID: custom-id~.
-- File-context CUSTOM_ID lookup trims leading and trailing whitespace after the leading ~#~.
-- File-context CUSTOM_ID lookup compares property values case-insensitively.
-- File-context CUSTOM_ID lookup preserves the raw ~search_option~ value.
-- Angle ~<file:other.org::#custom-id>~ resolves when extracted as a file link.
-- Plain ~file:other.org::#custom-id~ resolves when extracted by configured plain-link protocols.
-- Matching file-context CUSTOM_ID sets ~target_file_id~, ~target_heading_id~, and ~target_custom_id~.
-- ~target_custom_id~ stores the normalized CUSTOM_ID target value.
-- Duplicate CUSTOM_ID values in the resolved target file resolve to the first matching heading in document order.
-- Missing CUSTOM_ID in the resolved target file is marked ~broken~.
-- Missing CUSTOM_ID in the resolved target file keeps ~target_file_id~ set.
-- Missing CUSTOM_ID in the resolved target file keeps ~target_custom_id~ set to the normalized target value.
-- Missing CUSTOM_ID in the resolved target file keeps ~target_heading_id = NULL~.
-- CUSTOM_ID lookup is skipped when file resolution fails.
-- CUSTOM_ID lookup does not scan unrelated files.
-- File links with non-~#~ search options keep existing behavior.
-- Raw link fields remain unchanged.
+Task file: [[./archive/2026-07-03--resolve-file-context-custom-id-links.org]]
 
 *** TODO Resolve Org ID links within indexed ID universe
 

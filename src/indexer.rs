@@ -1260,6 +1260,15 @@ mod tests {
         Option<String>,
         Option<String>,
     );
+    type FileContextCustomIdResolutionRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
 
     struct TestDir {
         path: PathBuf,
@@ -4114,8 +4123,173 @@ index_body_text = false
                     Some(target_path.to_string_lossy().to_string()),
                     None,
                     Some("#custom-id".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_resolves_file_context_custom_id_links() {
+        let test_dir = TestDir::new("file-context-custom-id-resolution");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+        let target_path = notes_dir.join("target.org");
+
+        write_file(
+            &source_path,
+            "\
+#+TITLE: Source
+[[file:target.org::#custom-id]]
+[[file:target.org::# Custom-ID ][Description]]
+[[./target.org::#dup]]
+<file:target.org::#angle-id>
+file:target.org::#plain-id
+[[file:target.org::#missing]]
+[[file:missing.org::#custom-id]]
+",
+        );
+        write_file(
+            &target_path,
+            "\
+#+TITLE: Target
+* Target heading
+:PROPERTIES:
+:CUSTOM_ID: custom-id
+:END:
+* First duplicate
+:PROPERTIES:
+:CUSTOM_ID: dup
+:END:
+* Second duplicate
+:PROPERTIES:
+:CUSTOM_ID: DUP
+:END:
+* Angle heading
+:PROPERTIES:
+:CUSTOM_ID: angle-id
+:END:
+* Plain heading
+:PROPERTIES:
+:CUSTOM_ID: plain-id
+:END:
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<FileContextCustomIdResolutionRow> = query_rows(
+            &connection,
+            "SELECT
+                 links.raw,
+                 target_files.path,
+                 target_headings.title,
+                 links.raw_description,
+                 links.target_custom_id,
+                 links.resolution_status,
+                 links.resolution_diagnostic
+             FROM links
+             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
+             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
+             ORDER BY links.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "[[file:target.org::#custom-id]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Target heading".to_string()),
+                    None,
+                    Some("custom-id".to_string()),
                     Some("resolved".to_string()),
                     None,
+                ),
+                (
+                    "[[file:target.org::# Custom-ID ][Description]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Target heading".to_string()),
+                    Some("Description".to_string()),
+                    Some("Custom-ID".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[./target.org::#dup]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("First duplicate".to_string()),
+                    None,
+                    Some("dup".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "<file:target.org::#angle-id>".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Angle heading".to_string()),
+                    None,
+                    Some("angle-id".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "file:target.org::#plain-id".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Plain heading".to_string()),
+                    None,
+                    Some("plain-id".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[file:target.org::#missing]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    None,
+                    None,
+                    Some("missing".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[file:missing.org::#custom-id]]".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("broken".to_string()),
+                    Some(FILE_MISSING_DIAGNOSTIC.to_string()),
                 ),
             ]
         );

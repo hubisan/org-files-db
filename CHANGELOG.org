@@ -7,6 +7,7 @@ This file records completed changes.
 :VISIBILITY: all
 :END:
 
+- =ADDED= Rebuild now resolves file-context =CUSTOM_ID= links such as =[[file:other.org::#custom-id]]= against properties in the resolved target file.
 - =ADDED= Rebuild now resolves same-file bracket =CUSTOM_ID= links such as =[[#custom-id]]= against source-file heading properties.
 - =FIXED= Star heading-title matching now handles Unicode case-insensitive pairs such as =Ärger= and =ärger= for both file and same-file star links.
 - =FIXED= Star heading-title link resolution now trims outer whitespace and matches case-insensitively for both =file:...::*Heading= and same-file =[[*Heading]]= links.

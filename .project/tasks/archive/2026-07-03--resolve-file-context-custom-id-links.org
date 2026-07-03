@@ -1,0 +1,100 @@
+#+TITLE: Resolve file-context CUSTOM_ID links
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 17:10]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the next subtask =BUILD Resolve file-context CUSTOM_ID links=.
+  - Keep the scope limited to file links whose =search_option= starts with exactly one leading =#=.
+  - Preserve the existing file resolver behavior for all non-=#= search options and file failures.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,*** BUILD Resolve file-context CUSTOM_ID links
+
+Supported forms:
+
+- ~[[file:other.org::#foo]]~
+- ~[[file:other.org::#foo][Description]]~
+- ~[[./other.org::#foo]]~
+- ~[[../other.org::#foo]]~
+- ~<file:other.org::#foo>~
+- plain ~file:other.org::#foo~ when extracted by configured plain-link protocols
+#+end_src
+
+* Planning
+
+** Problem summary
+- The resolver already resolves same-file =CUSTOM_ID= links and already resolves file targets first, but file-context =::#foo= search options still stop at file-only resolution.
+
+** Goals
+- Resolve file-context =CUSTOM_ID= search options only after the file target resolves.
+- Match =CUSTOM_ID= properties only within the resolved target file.
+- Keep raw link fields unchanged and preserve existing file-failure behavior.
+
+** Non-goals
+- No =ID= link resolution.
+- No same-file behavior changes beyond preserving the current logic.
+- No regexp, line-number, dedicated-target, or other file search-option changes.
+
+** Architecture
+- Extend =resolve_file_target= with a dedicated =CUSTOM_ID= branch ahead of heading-title matching.
+- Reuse the existing property lookup helper and deterministic first-match behavior used by same-file =CUSTOM_ID= resolution.
+- Add dedicated file-context resolution markers for resolved and broken =CUSTOM_ID= outcomes while preserving file path/file id fields.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Implement the file-context =CUSTOM_ID= branch in =src/link_resolver.rs=.
+- Add unit and rebuild coverage for resolved, trimmed, duplicate, missing, angle, plain, and failed-file cases.
+- Update README and CHANGELOG to mention file-context =CUSTOM_ID= resolution.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: the existing parser contract for file-like links already keeps =search_option= as the raw =#...= text we need for this resolver task.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_context_custom_id_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Extended the file-link resolver to detect =search_option= values with exactly one leading =#= and run a file-scoped =CUSTOM_ID= lookup only after file resolution succeeds.
+- Reused the existing property-match helper and document-order selection so duplicate =CUSTOM_ID= matches still resolve to the first non-root heading.
+- Preserved raw link source facts and existing fallback behavior for non-=#= file search options and unresolved file targets.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-03--resolve-file-context-custom-id-links.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_context_custom_id_links -- --nocapture=
+- =make ci=
+
+** Test results
+- File-context =CUSTOM_ID= links now resolve within the resolved target file for bracket, described, relative, angle, and plain file-link forms covered by the parser.
+- Missing file-context =CUSTOM_ID= targets now keep the resolved file context and mark the row =broken= with =custom id not found=.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.
