@@ -1,0 +1,134 @@
+#+TITLE: Resolve bracket same-file CUSTOM_ID links
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 14:06]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the first subtask of =Resolve CUSTOM_ID and ID links=.
+  - Read the task introduction first and implement only =BUILD Resolve bracket same-file CUSTOM_ID links=.
+  - Keep the scope focused to same-file bracket =CUSTOM_ID= resolution.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,*** BUILD Resolve bracket same-file CUSTOM_ID links
+
+Supported forms:
+
+- ~[[#foo]]~
+- ~[[#foo][Description]]~
+
+Unsupported forms in this subtask:
+
+- ~<#foo>~
+- plain ~#foo~
+
+Rules:
+
+- Resolve same-file CUSTOM_ID links classified by Phase 3 as fuzzy links.
+- Apply when:
+  - ~link_type = fuzzy~
+  - ~path~ starts with exactly one leading ~#~
+- Property key:
+  - ~CUSTOM_ID~
+- Property value:
+  - normalized value after removing ~#~ and trimming leading/trailing whitespace
+- Search scope:
+  - non-root headings in the source file only
+- Value comparison:
+  - case-insensitive
+- No-match status:
+  - ~broken~
+- Duplicate-match behavior:
+  - select the first matching heading in document order
+
+Target fields:
+
+- On one or more matches, set:
+  - ~target_file_id~ to the source file id
+  - ~target_heading_id~ to the first matching heading
+  - ~target_custom_id~ to the normalized CUSTOM_ID target value
+  - ~target_id = NULL~
+  - ~resolution_status = resolved~
+  - ~resolution_diagnostic = NULL~
+- On no match, set:
+  - ~target_file_id~ to the source file id
+  - ~target_heading_id = NULL~
+  - ~target_custom_id~ to the normalized CUSTOM_ID target value
+  - ~target_id = NULL~
+  - ~resolution_status = broken~
+  - ~resolution_diagnostic = custom id not found~
+#+end_src
+
+* Planning
+
+** Problem summary
+- The resolver already handles same-file star fuzzy heading links, but same-file fuzzy =#...= targets still fall through to the unsupported path.
+
+** Goals
+- Resolve same-file bracket =CUSTOM_ID= links only within the source file.
+- Normalize the requested =CUSTOM_ID= by removing one leading =#= and trimming outer whitespace.
+- Match =CUSTOM_ID= property values case-insensitively in deterministic heading order.
+
+** Non-goals
+- No file-context =CUSTOM_ID= links yet.
+- No =ID= link resolution yet.
+- No support for bare angle or plain =#foo= links.
+
+** Architecture
+- Add a dedicated same-file fuzzy =CUSTOM_ID= target parser alongside the existing star-heading parser.
+- Query scoped =CUSTOM_ID= properties joined with non-root headings in document order and compare values in Rust.
+- Add resolver and rebuild coverage for resolved, trimmed, duplicate, missing, and unsupported cases.
+
+** Execution plan
+- Create the active task file and link it from =todo.org=.
+- Implement the same-file fuzzy =CUSTOM_ID= resolver path in =src/link_resolver.rs=.
+- Extend integration coverage in =src/indexer.rs= and update docs/changelog if behavior text changes.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: comparing stored =CUSTOM_ID= values case-insensitively without trimming the stored DB value matches the intended scope of this subtask.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Added same-file =CUSTOM_ID= resolution in =src/link_resolver.rs= for the actual parser-owned =custom-id= link type and kept a matching fuzzy =#...= fallback for compatibility with the task model.
+- Normalized requested =CUSTOM_ID= values by removing one leading =#= and trimming outer whitespace, then compared against stored =CUSTOM_ID= property values case-insensitively in Rust.
+- Queried candidate properties only within the source file, excluded synthetic root headings, and preserved first-match document-order behavior for duplicates.
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-03--resolve-bracket-same-file-custom-id-links.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_custom_id_links -- --nocapture=
+- =cargo test rebuild_stores_phase3_links_as_source_facts -- --nocapture=
+- =make ci=
+** Test results
+- =[[#custom-id]]= now resolves within the source file to the heading with =:CUSTOM_ID: custom-id=.
+- =[[# Custom-ID ][Description]]= resolves case-insensitively, preserves the raw description, and stores normalized =target_custom_id= without mutating raw fields.
+- Duplicate same-file =CUSTOM_ID= values resolve to the first heading in document order.
+- Missing same-file =CUSTOM_ID= targets now resolve as =broken= with diagnostic =custom id not found= while keeping =target_file_id= and normalized =target_custom_id= set.
+- Full CI passed.
+** Blockers
+- None.
+** Follow-ups
+- The next subtask can reuse the same property-target normalization and Rust-side property comparison for file-context =CUSTOM_ID= links.

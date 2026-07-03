@@ -298,76 +298,11 @@ Implementation notes:
 - Preserve strict ambiguous behavior for duplicate ~ID~.
 - Keep raw DB link fields unchanged.
 
-*** TODO Resolve bracket same-file CUSTOM_ID links
+*** DONE Resolve bracket same-file CUSTOM_ID links
 
-Supported forms:
+Task file: [[./archive/2026-07-03--resolve-bracket-same-file-custom-id-links.org]]
 
-- ~[[#foo]]~
-- ~[[#foo][Description]]~
-
-Unsupported forms in this subtask:
-
-- ~<#foo>~
-- plain ~#foo~
-
-Rules:
-
-- Resolve same-file CUSTOM_ID links classified by Phase 3 as fuzzy links.
-- Apply when:
-  - ~link_type = fuzzy~
-  - ~path~ starts with exactly one leading ~#~
-- Property key:
-  - ~CUSTOM_ID~
-- Property value:
-  - normalized value after removing ~#~ and trimming leading/trailing whitespace
-- Search scope:
-  - non-root headings in the source file only
-- Value comparison:
-  - case-insensitive
-- No-match status:
-  - ~broken~
-- Duplicate-match behavior:
-  - select the first matching heading in document order
-
-Target fields:
-
-- On one or more matches, set:
-  - ~target_file_id~ to the source file id
-  - ~target_heading_id~ to the first matching heading
-  - ~target_custom_id~ to the normalized CUSTOM_ID target value
-  - ~target_id = NULL~
-  - ~resolution_status = resolved~
-  - ~resolution_diagnostic = NULL~
-- On no match, set:
-  - ~target_file_id~ to the source file id
-  - ~target_heading_id = NULL~
-  - ~target_custom_id~ to the normalized CUSTOM_ID target value
-  - ~target_id = NULL~
-  - ~resolution_status = broken~
-  - ~resolution_diagnostic = custom id not found~
-
-Acceptance criteria:
-
-- Bracket same-file ~[[#custom-id]]~ resolves only within the source file.
-- Bracket same-file ~[[#custom-id][Description]]~ resolves and preserves the raw description.
-- Same-file ~[[# Custom-ID ]]~ resolves to a heading with ~:CUSTOM_ID: custom-id~.
-- Same-file CUSTOM_ID lookup trims leading and trailing whitespace after the leading ~#~.
-- Same-file CUSTOM_ID lookup compares property values case-insensitively.
-- Same-file CUSTOM_ID lookup preserves the raw ~path~ value.
-- Matching same-file CUSTOM_ID sets ~target_file_id~, ~target_heading_id~, and ~target_custom_id~.
-- ~target_custom_id~ stores the normalized CUSTOM_ID target value.
-- Duplicate CUSTOM_ID values in the source file resolve to the first matching heading in document order.
-- Missing same-file CUSTOM_ID is marked ~broken~.
-- Missing same-file CUSTOM_ID keeps ~target_file_id~ set to the source file id.
-- Missing same-file CUSTOM_ID keeps ~target_custom_id~ set to the normalized target value.
-- Missing same-file CUSTOM_ID keeps ~target_heading_id = NULL~.
-- Bare angle ~<#custom-id>~ is not treated as a CUSTOM_ID link.
-- Bare plain ~#custom-id~ is not treated as a CUSTOM_ID link.
-- Same-file CUSTOM_ID lookup does not scan unrelated files.
-- Non-~#~ fuzzy links remain handled by their existing resolver behavior.
-- Raw link fields remain unchanged.
-
-*** TODO Resolve file-context CUSTOM_ID links
+*** BUILD Resolve file-context CUSTOM_ID links
 
 Supported forms:
 

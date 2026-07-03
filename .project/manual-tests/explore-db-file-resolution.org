@@ -377,3 +377,40 @@ path                                                                            
 /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      47  Ärger                              normal          bracket  [[*ärger]]                                                            *ärger                                                   NULL                                            fuzzy      *ärger            NULL                                  NULL                                                                                                           4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      19                 NULL              NULL       resolved           NULL                       
 /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      48  Test 🤓                             normal          bracket  [[*Test 🤓]]                                                           *Test 🤓                                                  NULL                                            fuzzy      *Test 🤓           NULL                                  NULL                                                                                                           4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org      20                 NULL              NULL       resolved           NULL                       
 #+end_example
+
+* Link to Custom ID
+
+#+BEGIN_SRC sqlite :db ./data/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT f.path,
+         l.id,
+         h.title AS heading_title,
+         l.source_context,
+         l.format,
+         l.raw,
+         l.raw_target,
+         l.raw_description,
+         l.link_type,
+         l.path,
+         l.search_option,
+         l.path_absolute,
+         l.target_file_id,
+         tf.path AS target_file_path,
+         l.target_heading_id,
+         l.target_custom_id,
+         l.target_id,
+         l.resolution_status,
+         l.resolution_diagnostic
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+    JOIN headings h ON h.id = l.heading_id
+    LEFT JOIN files tf ON tf.id = l.target_file_id
+    WHERE l.raw LIKE "%#%";
+#+END_SRC
+
+#+RESULTS:
+: path                                                                                                           id  heading_title  source_context  format   raw                                          raw_target                               raw_description  link_type  path              search_option      path_absolute                                                                                                 target_file_id  target_file_path                                                                                              target_heading_id  target_custom_id  target_id  resolution_status  resolution_diagnostic
+: -------------------------------------------------------------------------------------------------------------  --  -------------  --------------  -------  -------------------------------------------  ---------------------------------------  ---------------  ---------  ----------------  -----------------  ------------------------------------------------------------------------------------------------------------  --------------  ------------------------------------------------------------------------------------------------------------  -----------------  ----------------  ---------  -----------------  ---------------------
+: /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       8   Main index     normal          bracket  [[file:target.org::#target-custom-id]]       file:target.org::#target-custom-id       NULL             file       target.org        #target-custom-id  /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org     4               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org     NULL               NULL              NULL       resolved           NULL                 
+: /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       10  Main index     normal          bracket  [[file:sub/child.org::#child-custom-id]]     file:sub/child.org::#child-custom-id     NULL             file       sub/child.org     #child-custom-id   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org  3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org  NULL               NULL              NULL       resolved           NULL                 
+: /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org       16  Main index     normal          bracket  [[#main-index]]                              #main-index                              NULL             custom-id  main-index        NULL               NULL                                                                                                          1               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org      2                  main-index        NULL       resolved           NULL                 
+: /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org  22  Peer heading   normal          bracket  [[file:../sub/child.org::#child-custom-id]]  file:../sub/child.org::#child-custom-id  NULL             file       ../sub/child.org  #child-custom-id   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org  3               /home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org  NULL               NULL              NULL       resolved           NULL                 

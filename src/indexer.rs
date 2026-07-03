@@ -1183,9 +1183,9 @@ mod tests {
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         },
         link_resolver::{
-            FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
-            HEADING_TITLE_MISSING_DIAGNOSTIC, SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
-            UNSUPPORTED_DIAGNOSTIC,
+            CUSTOM_ID_MISSING_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
+            FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
+            SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
@@ -1243,6 +1243,15 @@ mod tests {
         Option<String>,
     );
     type SameFileStarHeadingResolutionRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    type SameFileCustomIdResolutionRow = (
         String,
         Option<String>,
         Option<String>,
@@ -3424,7 +3433,7 @@ index_body_text = false
                     raw_target: "#custom-id".to_string(),
                     raw_description: None,
                     link_type: "custom-id".to_string(),
-                    path: "#custom-id".to_string(),
+                    path: "custom-id".to_string(),
                     search_option: None,
                     source_context: "normal".to_string(),
                 },
@@ -3676,8 +3685,8 @@ index_body_text = false
                 ),
                 (
                     "[[#custom-id]]".to_string(),
-                    Some("unsupported".to_string()),
-                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
                 (
                     "[[*Heading]]".to_string(),
@@ -4265,6 +4274,136 @@ index_body_text = false
                     Some("unsupported".to_string()),
                     Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
                     None,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_resolves_same_file_custom_id_links() {
+        let test_dir = TestDir::new("same-file-fuzzy-custom-id-resolution");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+
+        write_file(
+            &source_path,
+            "\
+#+TITLE: Source
+[[#custom-id]]
+[[# Custom-ID ][Description]]
+[[#dup]]
+[[#missing]]
+[[Heading]]
+* Target heading
+:PROPERTIES:
+:CUSTOM_ID: custom-id
+:END:
+* First duplicate
+:PROPERTIES:
+:CUSTOM_ID: dup
+:END:
+* Second duplicate
+:PROPERTIES:
+:CUSTOM_ID: DUP
+:END:
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<SameFileCustomIdResolutionRow> = query_rows(
+            &connection,
+            "SELECT
+                 links.raw,
+                 target_files.path,
+                 target_headings.title,
+                 links.raw_description,
+                 links.target_custom_id,
+                 links.resolution_status,
+                 links.resolution_diagnostic
+             FROM links
+             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
+             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
+             ORDER BY links.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "[[#custom-id]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("Target heading".to_string()),
+                    None,
+                    Some("custom-id".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[# Custom-ID ][Description]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("Target heading".to_string()),
+                    Some("Description".to_string()),
+                    Some("Custom-ID".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[#dup]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("First duplicate".to_string()),
+                    None,
+                    Some("dup".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[#missing]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    None,
+                    None,
+                    Some("missing".to_string()),
+                    Some("broken".to_string()),
+                    Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[Heading]]".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some("unsupported".to_string()),
+                    Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
                 ),
             ]
         );

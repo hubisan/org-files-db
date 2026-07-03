@@ -296,7 +296,11 @@ fn classify_bracket_target(target: &str) -> (String, String, Option<String>) {
     }
 
     if target.starts_with('#') {
-        return ("custom-id".to_string(), target.to_string(), None);
+        return (
+            "custom-id".to_string(),
+            target.trim_start_matches('#').to_string(),
+            None,
+        );
     }
 
     ("fuzzy".to_string(), target.to_string(), None)
@@ -1153,7 +1157,7 @@ file:~/code/main.c::255 file+sys:~/sys/path::*Target file+emacs:~/emacs/path::#c
                 (
                     "#custom-id".to_string(),
                     "custom-id".to_string(),
-                    "#custom-id".to_string(),
+                    "custom-id".to_string(),
                     None,
                 ),
                 (

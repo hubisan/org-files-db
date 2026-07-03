@@ -13,6 +13,7 @@ pub(crate) const FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC: &str = "outside indexed unive
 const FILE_PATH_UNSUPPORTED_DIAGNOSTIC: &str = "unsupported path form";
 pub(crate) const HEADING_TITLE_MISSING_DIAGNOSTIC: &str = "heading not found";
 pub(crate) const SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC: &str = "same-file heading not found";
+pub(crate) const CUSTOM_ID_MISSING_DIAGNOSTIC: &str = "custom id not found";
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
@@ -42,6 +43,12 @@ struct KnownFiles {
 struct HeadingCandidate {
     id: i64,
     title: String,
+}
+
+#[derive(Debug)]
+struct PropertyCandidate {
+    heading_id: i64,
+    value: Option<String>,
 }
 
 impl LinkResolver {
@@ -150,8 +157,11 @@ impl LinkResolver {
         if link.link_type == "file" {
             return Self::resolve_file_link(connection, link, indexed_universe, known_files);
         }
+        if link.link_type == "custom-id" {
+            return Self::resolve_same_file_custom_id_link(connection, link);
+        }
         if link.link_type == "fuzzy" {
-            return Self::resolve_same_file_fuzzy_star_link(connection, link);
+            return Self::resolve_same_file_fuzzy_link(connection, link);
         }
 
         Self::mark_unsupported(connection, link.id)
@@ -183,10 +193,14 @@ impl LinkResolver {
         Self::mark_unresolved_file(connection, link.id, &path_absolute)
     }
 
-    fn resolve_same_file_fuzzy_star_link(
+    fn resolve_same_file_fuzzy_link(
         connection: &Connection,
         link: &StoredLink,
     ) -> Result<(), DbWriteError> {
+        if let Some(custom_id_target) = same_file_fuzzy_custom_id_target(link.path.as_str()) {
+            return Self::resolve_same_file_custom_id_target(connection, link, &custom_id_target);
+        }
+
         let Some(heading_title) = same_file_fuzzy_star_heading_target(link.path.as_str()) else {
             return Self::mark_unsupported(connection, link.id);
         };
@@ -209,6 +223,50 @@ impl LinkResolver {
                 link.id,
                 link.source_file_id,
                 *target_heading_id,
+            ),
+        }
+    }
+
+    fn resolve_same_file_custom_id_link(
+        connection: &Connection,
+        link: &StoredLink,
+    ) -> Result<(), DbWriteError> {
+        let custom_id_target = normalize_custom_id_lookup_target(link.path.as_str());
+
+        Self::resolve_same_file_custom_id_target(connection, link, &custom_id_target)
+    }
+
+    fn resolve_same_file_custom_id_target(
+        connection: &Connection,
+        link: &StoredLink,
+        custom_id_target: &str,
+    ) -> Result<(), DbWriteError> {
+        let heading_ids = Self::load_matching_property_heading_ids(
+            connection,
+            link.source_file_id,
+            "CUSTOM_ID",
+            custom_id_target,
+        )?;
+        match heading_ids.as_slice() {
+            [target_heading_id] => Self::mark_resolved_same_file_custom_id(
+                connection,
+                link.id,
+                link.source_file_id,
+                *target_heading_id,
+                custom_id_target,
+            ),
+            [] => Self::mark_broken_same_file_custom_id(
+                connection,
+                link.id,
+                link.source_file_id,
+                custom_id_target,
+            ),
+            [target_heading_id, ..] => Self::mark_resolved_same_file_custom_id(
+                connection,
+                link.id,
+                link.source_file_id,
+                *target_heading_id,
+                custom_id_target,
             ),
         }
     }
@@ -285,6 +343,54 @@ impl LinkResolver {
             .into_iter()
             .filter(|candidate| unicode_lowercase(candidate.title.as_str()) == normalized_title)
             .map(|candidate| candidate.id)
+            .collect())
+    }
+
+    fn load_matching_property_heading_ids(
+        connection: &Connection,
+        file_id: i64,
+        property_key: &str,
+        property_target: &str,
+    ) -> Result<Vec<i64>, DbWriteError> {
+        let normalized_target = unicode_lowercase(property_target);
+        let mut statement = connection
+            .prepare(
+                "SELECT headings.id, properties.value
+                 FROM properties
+                 INNER JOIN headings ON headings.id = properties.heading_id
+                 WHERE headings.file_id = ?1
+                   AND headings.level > 0
+                   AND properties.key = ?2
+                 ORDER BY headings.byte_start, headings.id, properties.id",
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_matching_property_heading_ids.prepare",
+                source,
+            })?;
+        let rows = statement
+            .query_map(params![file_id, property_key], |row| {
+                Ok(PropertyCandidate {
+                    heading_id: row.get(0)?,
+                    value: row.get(1)?,
+                })
+            })
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_matching_property_heading_ids.query",
+                source,
+            })?;
+        let candidates =
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|source| DbWriteError::Write {
+                    operation: "link_resolver.load_matching_property_heading_ids.collect",
+                    source,
+                })?;
+        Ok(candidates
+            .into_iter()
+            .filter(|candidate| {
+                candidate.value.as_deref().map(unicode_lowercase).as_deref()
+                    == Some(normalized_target.as_str())
+            })
+            .map(|candidate| candidate.heading_id)
             .collect())
     }
 
@@ -381,6 +487,38 @@ impl LinkResolver {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_resolved_same_file_heading",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn mark_resolved_same_file_custom_id(
+        connection: &Connection,
+        link_id: i64,
+        target_file_id: i64,
+        target_heading_id: i64,
+        target_custom_id: &str,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "UPDATE links
+                 SET target_file_id = ?2,
+                     target_heading_id = ?3,
+                     target_custom_id = ?4,
+                     target_id = NULL,
+                     resolution_status = ?5,
+                     resolution_diagnostic = NULL
+                 WHERE id = ?1",
+                params![
+                    link_id,
+                    target_file_id,
+                    target_heading_id,
+                    target_custom_id,
+                    "resolved"
+                ],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.mark_resolved_same_file_custom_id",
                 source,
             })?;
         Ok(())
@@ -492,6 +630,37 @@ impl LinkResolver {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_broken_same_file_heading",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn mark_broken_same_file_custom_id(
+        connection: &Connection,
+        link_id: i64,
+        target_file_id: i64,
+        target_custom_id: &str,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "UPDATE links
+                 SET target_file_id = ?2,
+                     target_heading_id = NULL,
+                     target_custom_id = ?3,
+                     target_id = NULL,
+                     resolution_status = ?4,
+                     resolution_diagnostic = ?5
+                 WHERE id = ?1",
+                params![
+                    link_id,
+                    target_file_id,
+                    target_custom_id,
+                    "broken",
+                    CUSTOM_ID_MISSING_DIAGNOSTIC
+                ],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.mark_broken_same_file_custom_id",
                 source,
             })?;
         Ok(())
@@ -609,9 +778,27 @@ fn same_file_fuzzy_star_heading_target(path: &str) -> Option<String> {
     Some(heading_title)
 }
 
+fn same_file_fuzzy_custom_id_target(path: &str) -> Option<String> {
+    let custom_id_target = normalize_custom_id_target(path)?;
+    if path.strip_prefix('#')?.starts_with('#') {
+        return None;
+    }
+
+    Some(custom_id_target)
+}
+
 fn normalize_star_heading_title_target(raw_target: &str) -> Option<String> {
     let heading_title = raw_target.strip_prefix('*')?;
     Some(heading_title.trim().replace("\\[", "[").replace("\\]", "]"))
+}
+
+fn normalize_custom_id_target(raw_target: &str) -> Option<String> {
+    let custom_id = raw_target.strip_prefix('#')?;
+    Some(custom_id.trim().to_string())
+}
+
+fn normalize_custom_id_lookup_target(raw_target: &str) -> String {
+    normalize_custom_id_target(raw_target).unwrap_or_else(|| raw_target.trim().to_string())
 }
 
 fn unicode_lowercase(value: &str) -> String {
@@ -621,9 +808,10 @@ fn unicode_lowercase(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        heading_title_search_target, normalize_file_target_path,
+        heading_title_search_target, normalize_custom_id_lookup_target, normalize_custom_id_target,
+        normalize_file_target_path, same_file_fuzzy_custom_id_target,
         same_file_fuzzy_star_heading_target, unicode_lowercase, IndexedUniverse, LinkResolver,
-        FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
+        CUSTOM_ID_MISSING_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
         HEADING_TITLE_MISSING_DIAGNOSTIC, SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
         UNSUPPORTED_DIAGNOSTIC,
     };
@@ -652,6 +840,13 @@ mod tests {
         Option<String>,
     );
     type SameFileHeadingResolutionRow = (Option<i64>, Option<i64>, Option<String>, Option<String>);
+    type SameFileCustomIdResolutionRow = (
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
 
     #[test]
     fn resolve_all_resets_stale_resolver_owned_fields_before_marking_unsupported() {
@@ -1412,6 +1607,202 @@ mod tests {
     }
 
     #[test]
+    fn resolve_all_resolves_same_file_fuzzy_custom_id_links_to_source_headings() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[#custom-id]]",
+            "fuzzy",
+            "#custom-id",
+            None,
+        );
+        seed_target_heading(&connection, 20, 1, 1, "Heading");
+        seed_heading_property(&connection, 20, "CUSTOM_ID", Some("custom-id"));
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileCustomIdResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, target_custom_id,
+                        resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                Some(20_i64),
+                Some("custom-id".to_string()),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_normalizes_same_file_fuzzy_custom_id_links_before_matching() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[# Custom-ID ]]",
+            "fuzzy",
+            "# Custom-ID ",
+            None,
+        );
+        seed_target_heading(&connection, 20, 1, 1, "Heading");
+        seed_heading_property(&connection, 20, "CUSTOM_ID", Some("custom-id"));
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileCustomIdResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, target_custom_id,
+                        resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                Some(20_i64),
+                Some("Custom-ID".to_string()),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_selects_first_duplicate_same_file_fuzzy_custom_id_link_in_document_order() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[#dup]]",
+            "fuzzy",
+            "#dup",
+            None,
+        );
+        seed_target_heading(&connection, 20, 1, 1, "First");
+        seed_target_heading(&connection, 21, 1, 1, "Second");
+        seed_heading_property(&connection, 20, "CUSTOM_ID", Some("dup"));
+        seed_heading_property(&connection, 21, "CUSTOM_ID", Some("DUP"));
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileCustomIdResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, target_custom_id,
+                        resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                Some(20_i64),
+                Some("dup".to_string()),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_marks_missing_same_file_fuzzy_custom_id_links_broken() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[#missing]]",
+            "fuzzy",
+            "#missing",
+            None,
+        );
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileCustomIdResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, target_custom_id,
+                        resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("broken row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                None,
+                Some("missing".to_string()),
+                Some("broken".to_string()),
+                Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+            )
+        );
+    }
+
+    #[test]
     fn resolve_all_marks_missing_same_file_fuzzy_star_links_broken() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
@@ -1531,6 +1922,31 @@ mod tests {
     }
 
     #[test]
+    fn normalize_custom_id_target_strips_one_leading_hash_and_trims_whitespace() {
+        assert_eq!(
+            normalize_custom_id_target("# Custom-ID "),
+            Some("Custom-ID".to_string())
+        );
+        assert_eq!(
+            normalize_custom_id_target("##custom-id"),
+            Some("#custom-id".to_string())
+        );
+        assert_eq!(normalize_custom_id_target("custom-id"), None);
+    }
+
+    #[test]
+    fn normalize_custom_id_lookup_target_accepts_both_stored_path_forms() {
+        assert_eq!(
+            normalize_custom_id_lookup_target("# Custom-ID "),
+            "Custom-ID".to_string()
+        );
+        assert_eq!(
+            normalize_custom_id_lookup_target(" custom-id "),
+            "custom-id".to_string()
+        );
+    }
+
+    #[test]
     fn heading_title_search_target_strips_one_leading_star_and_unescapes_brackets() {
         assert_eq!(
             heading_title_search_target(Some(r"*\[2026-07-01 Wed\] Review")),
@@ -1552,6 +1968,16 @@ mod tests {
         );
         assert_eq!(same_file_fuzzy_star_heading_target("**Heading"), None);
         assert_eq!(same_file_fuzzy_star_heading_target("Heading"), None);
+    }
+
+    #[test]
+    fn same_file_fuzzy_custom_id_target_requires_exactly_one_leading_hash() {
+        assert_eq!(
+            same_file_fuzzy_custom_id_target("# Custom-ID "),
+            Some("Custom-ID".to_string())
+        );
+        assert_eq!(same_file_fuzzy_custom_id_target("##custom-id"), None);
+        assert_eq!(same_file_fuzzy_custom_id_target("custom-id"), None);
     }
 
     fn seed_file_link_fixture(
@@ -1670,5 +2096,21 @@ mod tests {
                 ),
             )
             .expect("target heading insert should succeed");
+    }
+
+    fn seed_heading_property(
+        connection: &Connection,
+        heading_id: i64,
+        key: &str,
+        value: Option<&str>,
+    ) {
+        connection
+            .execute(
+                "INSERT INTO properties
+                 (heading_id, key, value, source, append, line_number)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![heading_id, key, value, "property_drawer", 0_i64, 1_i64],
+            )
+            .expect("heading property insert should succeed");
     }
 }
