@@ -38,6 +38,12 @@ struct KnownFiles {
     by_path: HashMap<PathBuf, i64>,
 }
 
+#[derive(Debug)]
+struct HeadingCandidate {
+    id: i64,
+    title: String,
+}
+
 impl LinkResolver {
     pub(crate) fn resolve_all(
         connection: &Connection,
@@ -245,13 +251,13 @@ impl LinkResolver {
         file_id: i64,
         title: &str,
     ) -> Result<Vec<i64>, DbWriteError> {
+        let normalized_title = unicode_lowercase(title);
         let mut statement = connection
             .prepare(
-                "SELECT id
+                "SELECT id, title
                  FROM headings
                  WHERE file_id = ?1
                    AND level > 0
-                   AND title = ?2 COLLATE NOCASE
                  ORDER BY byte_start, id",
             )
             .map_err(|source| DbWriteError::Write {
@@ -259,16 +265,27 @@ impl LinkResolver {
                 source,
             })?;
         let rows = statement
-            .query_map(params![file_id, title], |row| row.get(0))
+            .query_map(params![file_id], |row| {
+                Ok(HeadingCandidate {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                })
+            })
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.load_matching_heading_ids.query",
                 source,
             })?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|source| DbWriteError::Write {
-                operation: "link_resolver.load_matching_heading_ids.collect",
-                source,
-            })
+        let candidates =
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|source| DbWriteError::Write {
+                    operation: "link_resolver.load_matching_heading_ids.collect",
+                    source,
+                })?;
+        Ok(candidates
+            .into_iter()
+            .filter(|candidate| unicode_lowercase(candidate.title.as_str()) == normalized_title)
+            .map(|candidate| candidate.id)
+            .collect())
     }
 
     fn mark_unsupported(connection: &Connection, link_id: i64) -> Result<(), DbWriteError> {
@@ -597,11 +614,15 @@ fn normalize_star_heading_title_target(raw_target: &str) -> Option<String> {
     Some(heading_title.trim().replace("\\[", "[").replace("\\]", "]"))
 }
 
+fn unicode_lowercase(value: &str) -> String {
+    value.to_lowercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         heading_title_search_target, normalize_file_target_path,
-        same_file_fuzzy_star_heading_target, IndexedUniverse, LinkResolver,
+        same_file_fuzzy_star_heading_target, unicode_lowercase, IndexedUniverse, LinkResolver,
         FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
         HEADING_TITLE_MISSING_DIAGNOSTIC, SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
         UNSUPPORTED_DIAGNOSTIC,
@@ -1028,6 +1049,58 @@ mod tests {
     }
 
     #[test]
+    fn resolve_all_matches_unicode_case_insensitive_file_heading_title_search_options() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::*ärger]]",
+            "file",
+            "target.org",
+            Some("*ärger"),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Ärger");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                Some(20_i64),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
     fn resolve_all_marks_missing_heading_title_search_targets_broken() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
@@ -1301,6 +1374,44 @@ mod tests {
     }
 
     #[test]
+    fn resolve_all_matches_unicode_case_insensitive_same_file_fuzzy_star_links() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[*ärger]]",
+            "fuzzy",
+            "*ärger",
+            None,
+        );
+        seed_target_heading(&connection, 20, 1, 1, "Ärger");
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                Some(20_i64),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
     fn resolve_all_marks_missing_same_file_fuzzy_star_links_broken() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
@@ -1412,6 +1523,11 @@ mod tests {
                 Some(UNSUPPORTED_DIAGNOSTIC.to_string()),
             )
         );
+    }
+
+    #[test]
+    fn unicode_lowercase_handles_german_umlauts() {
+        assert_eq!(unicode_lowercase("Ärger"), "ärger".to_string());
     }
 
     #[test]

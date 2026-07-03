@@ -1,0 +1,106 @@
+#+TITLE: Use Unicode lowercase for star heading-title matching
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 13:18]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Use Unicode lowercase for star heading-title matching=.
+  - Replace the current SQLite ASCII-only matching with Rust-side Unicode lowercase comparison.
+  - Preserve the existing star target normalization and raw source facts.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#C] Use Unicode lowercase for star heading-title matching
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Depends on:
+
+- [[*Normalize star heading-title matching][Normalize star heading-title matching]]
+
+Goal:
+
+- Make case-insensitive star heading-title matching work for Unicode letters such as German umlauts.
+- Replace SQLite ASCII-only ~COLLATE NOCASE~ matching with Rust-side Unicode lowercase comparison.
+- Preserve existing behavior for ASCII case-insensitive matches.
+- Preserve raw link source fields.
+#+end_src
+
+* Planning
+
+** Problem summary
+- The current resolver relies on SQLite =COLLATE NOCASE= for star heading-title matching.
+- That keeps ASCII behavior but misses Unicode pairs such as =Ärger= versus =ärger=.
+
+** Goals
+- Keep the existing star target normalization unchanged.
+- Load headings in deterministic document order and compare in Rust using Unicode lowercase.
+- Preserve current first-match duplicate behavior and raw link fields.
+
+** Non-goals
+- No full Unicode casefolding.
+- No =ß= versus =ss= equivalence.
+- No changes to =CUSTOM_ID=, =ID=, parser extraction, or schema.
+
+** Architecture
+- Replace the SQL exact-match query with ordered candidate loading scoped to one file.
+- Filter those candidates in Rust with =to_lowercase()= on both the normalized target and stored heading title.
+
+** Execution plan
+- Update the resolver helper/query path.
+- Add unit coverage for Unicode case-insensitive matching in both file and same-file star resolution.
+- Extend rebuild tests with =Ärger= / =ärger= fixtures.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: simple Unicode lowercase comparison matches the intended Org behavior for this task scope.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Replaced the SQLite =COLLATE NOCASE= heading-title match with Rust-side filtering over headings loaded in deterministic document order.
+- Kept the existing star heading-title normalization unchanged and compared both normalized target and stored heading title via Unicode lowercase.
+- Reused the same resolver path for both explicit file star search options and same-file fuzzy star links.
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-03--use-unicode-lowercase-for-star-heading-title-matching.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =make ci=
+** Test results
+- Same-file =[[*ärger]]= now resolves to heading title =Ärger=.
+- File link =[[file:target.org::*ärger]]= now resolves to heading title =Ärger= in the resolved target file.
+- Existing ASCII case-insensitive matches, whitespace trimming, bracket escapes, broken cases, and first-match duplicate behavior still pass.
+- Raw link fields remain unchanged.
+- Full CI passed.
+** Blockers
+- None.
+** Follow-ups
+- If later tasks need broader Unicode equivalence, they can build on this Rust-side comparison path without reintroducing SQL collation behavior.

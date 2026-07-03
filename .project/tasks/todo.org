@@ -129,74 +129,9 @@ Task file: [[./archive/2026-07-02--reduce-resolver-diagnostics.org]]
 
 Task file: [[./archive/2026-07-03--normalize-star-heading-title-matching.org]]
 
-** TODO [#C] Use Unicode lowercase for star heading-title matching
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Low
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
+** DONE [#C] Use Unicode lowercase for star heading-title matching
 
-Depends on:
-
-- [[*Normalize star heading-title matching][Normalize star heading-title matching]]
-
-Goal:
-
-- Make case-insensitive star heading-title matching work for Unicode letters such as German umlauts.
-- Replace SQLite ASCII-only ~COLLATE NOCASE~ matching with Rust-side Unicode lowercase comparison.
-- Preserve existing behavior for ASCII case-insensitive matches.
-- Preserve raw link source fields.
-
-Problem:
-
-- SQLite ~COLLATE NOCASE~ handles ASCII case-insensitivity, but does not match all Unicode case pairs.
-- Example that currently fails:
-  - heading title: ~Ärger~
-  - link target: ~[[*ärger]]~
-- This should resolve because Org star heading-title matching is case-insensitive.
-
-Scope:
-
-- File links with star heading-title search options:
-  - ~[[file:target.org::*ärger]]~
-- Same-file fuzzy star heading links:
-  - ~[[*ärger]]~
-
-Rules:
-
-- Keep existing star heading-title target normalization:
-  - strip exactly one leading ~*~
-  - trim leading/trailing whitespace
-  - preserve existing bracket escape handling
-- Load candidate headings in the active scope ordered by document order:
-  - ~byte_start~
-  - ~id~
-- Compare normalized heading-title target and stored heading titles in Rust using Unicode lowercase comparison.
-- Select the first matching heading in document order.
-- Exclude synthetic root headings.
-- Do not mutate raw link fields.
-
-Out of scope:
-
-- Do not implement full Unicode casefolding.
-- Do not handle ~ß~ ↔ ~ss~ equivalence.
-- Do not change CUSTOM_ID or ID matching.
-- Do not change parser extraction.
-- Do not change DB schema.
-- Do not change duplicate-heading behavior.
-
-Acceptance criteria:
-
-- Same-file ~[[*ärger]]~ resolves to heading ~Ärger~.
-- File link ~[[file:target.org::*ärger]]~ resolves to heading ~Ärger~ in the resolved target file.
-- Existing ASCII case-insensitive examples still pass, such as ~Main Index~ matching ~Main index~.
-- Existing whitespace-trim examples still pass.
-- Existing bracket-escape examples still pass.
-- Duplicate matches still select the first heading in document order.
-- Missing heading titles still result in ~resolution_status = broken~.
-- Raw link fields remain unchanged.
-- ~make ci~ passes.
+Task file: [[./archive/2026-07-03--use-unicode-lowercase-for-star-heading-title-matching.org]]
 
 ** [#B] Resolve CUSTOM_ID and ID links
 :PROPERTIES:

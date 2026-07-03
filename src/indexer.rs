@@ -3979,6 +3979,7 @@ index_body_text = false
 #+TITLE: Source
 [[file:target.org::*Heading]]
 [[file:target.org::*   Main Index   ]]
+[[file:target.org::*ärger]]
 [[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
 [[file:target.org::*Missing]]
 [[file:target.org::*Duplicate]]
@@ -3991,6 +3992,7 @@ index_body_text = false
 #+TITLE: Target
 * TODO [#A] Heading :tag:
 * Main index
+* Ärger
 * [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
 * Duplicate
 * Duplicate
@@ -4061,6 +4063,14 @@ index_body_text = false
                     None,
                 ),
                 (
+                    "[[file:target.org::*ärger]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Ärger".to_string()),
+                    Some("*ärger".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
                     "[[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]".to_string(),
                     Some(target_path.to_string_lossy().to_string()),
                     Some(
@@ -4117,12 +4127,14 @@ index_body_text = false
 [[*Heading]]
 [[*Heading][Description]]
 [[*   Peer heading   ]]
+[[*ärger]]
 [[*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
 [[*Missing]]
 [[*Duplicate]]
 [[Heading]]
 * TODO [#A] Heading :tag:
 * Peer Heading
+* Ärger
 * [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
 * Duplicate
 * Duplicate
@@ -4200,6 +4212,15 @@ index_body_text = false
                     "[[*   Peer heading   ]]".to_string(),
                     Some(source_path.to_string_lossy().to_string()),
                     Some("Peer Heading".to_string()),
+                    None,
+                    Some("resolved".to_string()),
+                    None,
+                    None,
+                ),
+                (
+                    "[[*ärger]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("Ärger".to_string()),
                     None,
                     Some("resolved".to_string()),
                     None,
