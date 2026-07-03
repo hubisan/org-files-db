@@ -3978,6 +3978,7 @@ index_body_text = false
             "\
 #+TITLE: Source
 [[file:target.org::*Heading]]
+[[file:target.org::*   Main Index   ]]
 [[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
 [[file:target.org::*Missing]]
 [[file:target.org::*Duplicate]]
@@ -3989,6 +3990,7 @@ index_body_text = false
             "\
 #+TITLE: Target
 * TODO [#A] Heading :tag:
+* Main index
 * [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
 * Duplicate
 * Duplicate
@@ -4051,6 +4053,14 @@ index_body_text = false
                     None,
                 ),
                 (
+                    "[[file:target.org::*   Main Index   ]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Main index".to_string()),
+                    Some("*   Main Index   ".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
                     "[[file:target.org::*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]".to_string(),
                     Some(target_path.to_string_lossy().to_string()),
                     Some(
@@ -4106,11 +4116,13 @@ index_body_text = false
 #+TITLE: Source
 [[*Heading]]
 [[*Heading][Description]]
+[[*   Peer heading   ]]
 [[*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild]]
 [[*Missing]]
 [[*Duplicate]]
 [[Heading]]
 * TODO [#A] Heading :tag:
+* Peer Heading
 * [2026-07-01 Wed] Implement deterministic link resolution pass after rebuild
 * Duplicate
 * Duplicate
@@ -4180,6 +4192,15 @@ index_body_text = false
                     Some(source_path.to_string_lossy().to_string()),
                     Some("Heading".to_string()),
                     Some("Description".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                    None,
+                ),
+                (
+                    "[[*   Peer heading   ]]".to_string(),
+                    Some(source_path.to_string_lossy().to_string()),
+                    Some("Peer Heading".to_string()),
+                    None,
                     Some("resolved".to_string()),
                     None,
                     None,

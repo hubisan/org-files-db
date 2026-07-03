@@ -57,3 +57,13 @@ file:./index.org::*Main
 <file:./target.org::*   Target heading>
 <file:./target.org::*not existing>
 
+* Special Characters Testing
+
+** Ärger
+
+[[*Ärger]]
+[[*ärger]]
+
+** Test 🤓
+
+[[*Test 🤓]]

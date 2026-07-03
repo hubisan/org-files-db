@@ -125,123 +125,79 @@ Task file: [[./archive/2026-07-02--resolve-same-file-fuzzy-star-heading-links.or
 
 Task file: [[./archive/2026-07-02--reduce-resolver-diagnostics.org]]
 
-** BUILD [#B] Normalize star heading-title matching
+** DONE [#B] Normalize star heading-title matching
+
+Task file: [[./archive/2026-07-03--normalize-star-heading-title-matching.org]]
+
+** TODO [#C] Use Unicode lowercase for star heading-title matching
 :PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
+:PRIORITY: Low
+:RISK: Low
 :DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Maybe
+:API_CONTRACT_CHANGE: No
 :END:
 
 Depends on:
 
-- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
-- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+- [[*Normalize star heading-title matching][Normalize star heading-title matching]]
 
 Goal:
 
-- Make star heading-title link resolution match Org behavior more closely.
-- Trim leading and trailing whitespace around star heading-title search targets.
-- Compare star heading-title targets case-insensitively.
-- Apply the same matching semantics to file star search options and same-file fuzzy star links.
+- Make case-insensitive star heading-title matching work for Unicode letters such as German umlauts.
+- Replace SQLite ASCII-only ~COLLATE NOCASE~ matching with Rust-side Unicode lowercase comparison.
+- Preserve existing behavior for ASCII case-insensitive matches.
 - Preserve raw link source fields.
+
+Problem:
+
+- SQLite ~COLLATE NOCASE~ handles ASCII case-insensitivity, but does not match all Unicode case pairs.
+- Example that currently fails:
+  - heading title: ~Ärger~
+  - link target: ~[[*ärger]]~
+- This should resolve because Org star heading-title matching is case-insensitive.
 
 Scope:
 
 - File links with star heading-title search options:
-  - ~[[file:target.org::*Heading]]~
-  - ~[[file:target.org::*   Heading   ]]~
-  - ~<file:target.org::*Heading>~
-  - plain ~file:target.org::*Heading~ when extracted by configured plain-link protocols
+  - ~[[file:target.org::*ärger]]~
 - Same-file fuzzy star heading links:
-  - ~[[*Heading]]~
-  - ~[[*   Heading   ]]~
-  - ~[[*Heading][Description]]~
+  - ~[[*ärger]]~
 
-Observed behavior to support:
+Rules:
 
-- Org trims surrounding whitespace in star heading-title search targets.
-- Org matches star heading-title search targets case-insensitively.
-- Example:
-  - stored heading title: ~Peer heading~
-  - link target: ~*   Peer heading   ~
-  - result: resolved
-- Example:
-  - stored heading title: ~Main index~
-  - link target: ~*Main Index~
-  - result: resolved
-- Example:
-  - stored heading title: ~Target heading~
-  - link target: ~*   Target heading~
-  - result: resolved
-
-Star heading-title normalization rules:
-
-- Apply only to star heading-title targets.
-- Strip exactly one leading ~*~.
-- Trim leading and trailing whitespace from the remaining heading-title target.
-- Preserve existing Org link escape handling.
-- Existing bracket escape behavior must continue to work:
-  - ~*Brackets in Title \[2026-07-03 Fr\]~
-  - matches ~Brackets in Title [2026-07-03 Fr]~
-- Do not mutate stored ~search_option~, ~path~, ~raw_target~, ~raw~, or ~raw_description~.
-
-Star heading-title comparison rules:
-
-- Compare normalized star heading-title targets case-insensitively.
-- Search only in the active target scope:
-  - resolved target file for ~file:...::*Heading~
-  - source file for ~[[*Heading]]~
+- Keep existing star heading-title target normalization:
+  - strip exactly one leading ~*~
+  - trim leading/trailing whitespace
+  - preserve existing bracket escape handling
+- Load candidate headings in the active scope ordered by document order:
+  - ~byte_start~
+  - ~id~
+- Compare normalized heading-title target and stored heading titles in Rust using Unicode lowercase comparison.
+- Select the first matching heading in document order.
 - Exclude synthetic root headings.
-- Preserve deterministic duplicate behavior:
-  - if multiple headings match case-insensitively, select the first heading in document order
-  - document order must be deterministic, for example ~byte_start~, then ~id~
-- Successful matches use:
-  - ~resolution_status = resolved~
-  - ~resolution_diagnostic = NULL~
+- Do not mutate raw link fields.
 
 Out of scope:
 
-- Do not change CUSTOM_ID or ID matching in this task unless the existing implementation already shares the star-heading matcher and would otherwise break.
-- Do not make ~CUSTOM_ID~ or ~ID~ case-insensitive without an explicit Org-behavior test.
-- Do not trim ~CUSTOM_ID~ or ~ID~ property values unless an explicit Org-behavior test proves this is required.
-- Do not implement new CUSTOM_ID or ID resolution features.
-- Do not implement attachment resolution.
-- Do not implement regexp, line-number, dedicated-target, or non-star fuzzy resolution.
+- Do not implement full Unicode casefolding.
+- Do not handle ~ß~ ↔ ~ss~ equivalence.
+- Do not change CUSTOM_ID or ID matching.
 - Do not change parser extraction.
-- Do not change the DB schema.
-
-Implementation notes:
-
-- Prefer a shared helper for star heading-title target normalization.
-- Use the helper for:
-  - file heading-title search options
-  - same-file fuzzy star heading links
-- Keep raw DB fields unchanged.
-- Avoid relying on unspecified SQL row order.
-- Either:
-  - query candidate headings in scope ordered by ~byte_start~, ~id~ and compare normalized/case-insensitively in Rust
-  - or use deterministic SQL case-insensitive comparison with explicit ~ORDER BY byte_start, id~
-- Keep existing bracket escape support as a regression case.
+- Do not change DB schema.
+- Do not change duplicate-heading behavior.
 
 Acceptance criteria:
 
-- ~[[file:other/peer.org::*   Peer heading   ]]~ resolves to heading ~Peer heading~.
-- ~<file:./target.org::*   Target heading>~ resolves to heading ~Target heading~.
-- ~[[file:./index.org::*Main Index]]~ resolves to heading ~Main index~.
-- ~<file:./index.org::*Main Index>~ resolves to heading ~Main index~.
-- Same-file ~[[*   Target heading   ]]~ resolves to heading ~Target heading~.
-- Same-file ~[[*TARGET HEADING]]~ resolves to heading ~Target heading~.
-- Existing escaped bracket cases still resolve:
-  - ~<file:./target.org::*Brackets in Title [2026-07-03 Fr]>~
-  - ~[[file:./target.org::*Brackets in Title \[2026-07-03 Fr\]]]~
-- Duplicate heading titles still resolve to the first match in document order.
-- Missing heading titles still result in:
-  - ~resolution_status = broken~
-  - short diagnostic such as ~heading not found~ or ~same-file heading not found~
-- Raw link fields remain unchanged, including original whitespace and case in ~search_option~.
+- Same-file ~[[*ärger]]~ resolves to heading ~Ärger~.
+- File link ~[[file:target.org::*ärger]]~ resolves to heading ~Ärger~ in the resolved target file.
+- Existing ASCII case-insensitive examples still pass, such as ~Main Index~ matching ~Main index~.
+- Existing whitespace-trim examples still pass.
+- Existing bracket-escape examples still pass.
+- Duplicate matches still select the first heading in document order.
+- Missing heading titles still result in ~resolution_status = broken~.
+- Raw link fields remain unchanged.
 - ~make ci~ passes.
-  
+
 ** [#B] Resolve CUSTOM_ID and ID links
 :PROPERTIES:
 :PRIORITY: High
@@ -865,4 +821,3 @@ Acceptance criteria:
 ** TODO Add Linke Resolving to the Documentation
 
 Add what is needed to the documentation.
-

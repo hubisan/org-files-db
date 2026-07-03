@@ -1,0 +1,110 @@
+#+TITLE: Normalize star heading-title matching
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 11:51]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Continue with the =BUILD= task =Normalize star heading-title matching=.
+  - The resolver already works for star heading-title links.
+  - Missing behavior is trimming surrounding whitespace and matching case-insensitively.
+  - Apply the same semantics to both =file:...::*Heading= and same-file =[[*Heading]]= links.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#B] Normalize star heading-title matching
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+
+Goal:
+
+- Make star heading-title link resolution match Org behavior more closely.
+- Trim leading and trailing whitespace around star heading-title search targets.
+- Compare star heading-title targets case-insensitively.
+- Apply the same matching semantics to file star search options and same-file fuzzy star links.
+- Preserve raw link source fields.
+#+end_src
+
+* Planning
+
+** Problem summary
+- Star heading-title resolution already exists, but it currently compares exact strings and keeps surrounding whitespace from the raw target.
+
+** Goals
+- Normalize star heading-title targets by stripping one leading =*=, trimming outer whitespace, and preserving existing bracket unescaping.
+- Reuse the same normalization helper for explicit file search options and same-file fuzzy star links.
+- Match against stored heading titles case-insensitively while keeping deterministic document-order selection.
+
+** Non-goals
+- No parser extraction changes.
+- No schema changes.
+- No changes to =CUSTOM_ID=, =ID=, non-star fuzzy links, attachments, regexp, or line-number resolution.
+
+** Architecture
+- Add a shared helper that normalizes only star heading-title targets.
+- Keep same-file fuzzy links limited to exactly one leading =*=.
+- Make heading-title lookup case-insensitive at query time while preserving existing =ORDER BY byte_start, id=.
+
+** Execution plan
+- Update the resolver helper and heading lookup query.
+- Add unit coverage for trimmed and case-insensitive matching in both resolver paths.
+- Extend rebuild coverage to prove raw fields stay unchanged while normalized matching succeeds.
+- Run formatting, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: SQLite =COLLATE NOCASE= is acceptable for the current heading-title matching contract used in this repo.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Added a shared star heading-title normalization helper in =src/link_resolver.rs=.
+- Reused that helper for both explicit file search options and same-file fuzzy star links.
+- Trimmed surrounding whitespace after stripping one leading =*= and kept the existing =\[= / =\]= unescaping behavior.
+- Switched heading-title lookup to case-insensitive matching while preserving deterministic =ORDER BY byte_start, id= selection for duplicates.
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-03--normalize-star-heading-title-matching.org=
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_file_heading_title_search_options -- --nocapture=
+- =cargo test rebuild_resolves_same_file_fuzzy_star_heading_links -- --nocapture=
+- =make ci=
+** Test results
+- =[[file:target.org::*   Main Index   ]]= now resolves to heading title =Main index=.
+- =[[*   Peer heading   ]]= now resolves to same-file heading title =Peer Heading=.
+- Existing bracket escape handling still resolves targets such as =*\[2026-07-01 Wed\]...=.
+- Raw source fields remain unchanged while normalized matching happens only during resolution.
+- Full CI passed.
+** Blockers
+- None.
+** Follow-ups
+- Later resolver tasks can reuse the same normalization helper if additional star heading-title forms are added without changing this task's raw-field contract.

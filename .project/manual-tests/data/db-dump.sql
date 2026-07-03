@@ -8,10 +8,10 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1783029353233070171,859,NULL,1783033642);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',1783029353233070171,343,NULL,1783033642);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',1783029353234070177,428,NULL,1783033642);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',1783033604831180626,1215,NULL,1783033642);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1783033910800437182,867,NULL,1783074939);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',1783029353233070171,343,NULL,1783074939);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',1783029353234070177,428,NULL,1783074939);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',1783074927466121203,1310,NULL,1783074939);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -47,22 +47,26 @@ CREATE TABLE headings (
         ON DELETE CASCADE,
     UNIQUE (file_id, byte_start)
 );
-INSERT INTO headings VALUES(1,1,NULL,0,1,-1,859,'Index','Index',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(2,1,1,1,4,35,859,'Main index','Main index',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(3,2,NULL,0,1,-1,343,'Peer','Peer',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(4,2,3,1,4,34,343,'Peer heading','Peer heading',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(5,3,NULL,0,1,-1,428,'Child','Child',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(6,3,5,1,4,35,428,'Child heading','Child heading',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(7,4,NULL,0,1,-1,1215,'Target','Target',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(8,4,7,1,4,36,222,'Target heading','Target heading',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(9,4,7,1,16,222,305,'Invalid Target Links','Invalid Target Links',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(10,4,7,1,21,305,378,'Whitespace is trimmed','Whitespace is trimmed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(11,4,7,1,25,378,818,'Duplicate headings titles','Duplicate headings titles',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(12,4,11,2,27,407,686,'Duplicate title','Duplicate title',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(13,4,11,2,36,686,818,'Duplicate title','Duplicate title',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(14,4,7,1,43,818,972,'Brackets in Title [2026-07-03 Fr]','Brackets in Title [2026-07-03 Fr]',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(15,4,7,1,48,972,1068,'Case insensitive works','Case insensitive works',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(16,4,7,1,53,1068,1215,'Angle Link','Angle Link',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(1,1,NULL,0,1,-1,867,'Index','Index',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(2,1,1,1,4,35,860,'Main index','Main index',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(3,1,1,1,43,860,867,'Main','Main',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(4,2,NULL,0,1,-1,343,'Peer','Peer',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(5,2,4,1,4,34,343,'Peer heading','Peer heading',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(6,3,NULL,0,1,-1,428,'Child','Child',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(7,3,6,1,4,35,428,'Child heading','Child heading',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(8,4,NULL,0,1,-1,1310,'Target','Target',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(9,4,8,1,4,36,222,'Target heading','Target heading',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(10,4,8,1,16,222,305,'Invalid Target Links','Invalid Target Links',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(11,4,8,1,21,305,378,'Whitespace is trimmed','Whitespace is trimmed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(12,4,8,1,25,378,818,'Duplicate headings titles','Duplicate headings titles',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(13,4,12,2,27,407,686,'Duplicate title','Duplicate title',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(14,4,12,2,36,686,818,'Duplicate title','Duplicate title',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(15,4,8,1,43,818,972,'Brackets in Title [2026-07-03 Fr]','Brackets in Title [2026-07-03 Fr]',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(16,4,8,1,48,972,1068,'Case insensitive works','Case insensitive works',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(17,4,8,1,53,1068,1215,'Angle Link','Angle Link',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(18,4,8,1,60,1215,1310,'Special Characters Testing','Special Characters Testing',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(19,4,18,2,62,1245,1281,'Ärger','Ärger',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(20,4,18,2,67,1281,1310,'Test 🤓','Test 🤓',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 CREATE TABLE timestamps (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -88,8 +92,8 @@ CREATE TABLE timestamps (
         REFERENCES headings(id)
         ON DELETE CASCADE
 );
-INSERT INTO timestamps VALUES(1,14,'body',1783036800,NULL,'inactive','none','[2026-07-03 Fr]',838,853,43);
-INSERT INTO timestamps VALUES(2,14,'body',1783036800,NULL,'inactive','none','[2026-07-03 Fr]',894,909,45);
+INSERT INTO timestamps VALUES(1,15,'body',1783036800,NULL,'inactive','none','[2026-07-03 Fr]',838,853,43);
+INSERT INTO timestamps VALUES(2,15,'body',1783036800,NULL,'inactive','none','[2026-07-03 Fr]',894,909,45);
 CREATE TABLE timestamp_repeaters (
     id                          INTEGER PRIMARY KEY,
     timestamp_id                INTEGER NOT NULL UNIQUE,
@@ -166,12 +170,12 @@ CREATE TABLE keywords (
 );
 INSERT INTO keywords VALUES(1,1,'TITLE','Index',1);
 INSERT INTO keywords VALUES(2,1,'STARTUP','showall',2);
-INSERT INTO keywords VALUES(3,3,'TITLE','Peer',1);
-INSERT INTO keywords VALUES(4,3,'STARTUP','showall',2);
-INSERT INTO keywords VALUES(5,5,'TITLE','Child',1);
-INSERT INTO keywords VALUES(6,5,'STARTUP','showall',2);
-INSERT INTO keywords VALUES(7,7,'TITLE','Target',1);
-INSERT INTO keywords VALUES(8,7,'STARTUP','showall',2);
+INSERT INTO keywords VALUES(3,4,'TITLE','Peer',1);
+INSERT INTO keywords VALUES(4,4,'STARTUP','showall',2);
+INSERT INTO keywords VALUES(5,6,'TITLE','Child',1);
+INSERT INTO keywords VALUES(6,6,'STARTUP','showall',2);
+INSERT INTO keywords VALUES(7,8,'TITLE','Target',1);
+INSERT INTO keywords VALUES(8,8,'STARTUP','showall',2);
 CREATE TABLE properties (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -188,13 +192,13 @@ CREATE TABLE properties (
 );
 INSERT INTO properties VALUES(1,2,'CUSTOM_ID','main-index','property_drawer',0,6);
 INSERT INTO properties VALUES(2,2,'ID','index-id-001','property_drawer',0,7);
-INSERT INTO properties VALUES(3,4,'CUSTOM_ID','peer-custom-id','property_drawer',0,6);
-INSERT INTO properties VALUES(4,4,'ID','peer-id-001','property_drawer',0,7);
-INSERT INTO properties VALUES(5,6,'CUSTOM_ID','child-custom-id','property_drawer',0,6);
-INSERT INTO properties VALUES(6,6,'ID','child-id-001','property_drawer',0,7);
-INSERT INTO properties VALUES(7,8,'CUSTOM_ID','target-custom-id','property_drawer',0,6);
-INSERT INTO properties VALUES(8,8,'ID','target-id-001','property_drawer',0,7);
-INSERT INTO properties VALUES(9,13,'CUSTOM_ID','e2522e10-0cbf-4e55-9ece-da1d0b7d1b58','property_drawer',0,38);
+INSERT INTO properties VALUES(3,5,'CUSTOM_ID','peer-custom-id','property_drawer',0,6);
+INSERT INTO properties VALUES(4,5,'ID','peer-id-001','property_drawer',0,7);
+INSERT INTO properties VALUES(5,7,'CUSTOM_ID','child-custom-id','property_drawer',0,6);
+INSERT INTO properties VALUES(6,7,'ID','child-id-001','property_drawer',0,7);
+INSERT INTO properties VALUES(7,9,'CUSTOM_ID','target-custom-id','property_drawer',0,6);
+INSERT INTO properties VALUES(8,9,'ID','target-id-001','property_drawer',0,7);
+INSERT INTO properties VALUES(9,14,'CUSTOM_ID','e2522e10-0cbf-4e55-9ece-da1d0b7d1b58','property_drawer',0,38);
 CREATE TABLE tags (
     heading_id      INTEGER NOT NULL,
     tag             TEXT NOT NULL,
@@ -231,20 +235,24 @@ CREATE TABLE outline_path (
 );
 INSERT INTO outline_path VALUES(1,1,NULL,0,'0000','["Index"]');
 INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Index","Main index"]');
-INSERT INTO outline_path VALUES(3,2,NULL,0,'0000','["Peer"]');
-INSERT INTO outline_path VALUES(4,2,3,1,'0000.0001','["Peer","Peer heading"]');
-INSERT INTO outline_path VALUES(5,3,NULL,0,'0000','["Child"]');
-INSERT INTO outline_path VALUES(6,3,5,1,'0000.0001','["Child","Child heading"]');
-INSERT INTO outline_path VALUES(7,4,NULL,0,'0000','["Target"]');
-INSERT INTO outline_path VALUES(8,4,7,1,'0000.0001','["Target","Target heading"]');
-INSERT INTO outline_path VALUES(9,4,7,1,'0000.0002','["Target","Invalid Target Links"]');
-INSERT INTO outline_path VALUES(10,4,7,1,'0000.0003','["Target","Whitespace is trimmed"]');
-INSERT INTO outline_path VALUES(11,4,7,1,'0000.0004','["Target","Duplicate headings titles"]');
-INSERT INTO outline_path VALUES(12,4,11,2,'0000.0004.0001','["Target","Duplicate headings titles","Duplicate title"]');
-INSERT INTO outline_path VALUES(13,4,11,2,'0000.0004.0002','["Target","Duplicate headings titles","Duplicate title"]');
-INSERT INTO outline_path VALUES(14,4,7,1,'0000.0005','["Target","Brackets in Title [2026-07-03 Fr]"]');
-INSERT INTO outline_path VALUES(15,4,7,1,'0000.0006','["Target","Case insensitive works"]');
-INSERT INTO outline_path VALUES(16,4,7,1,'0000.0007','["Target","Angle Link"]');
+INSERT INTO outline_path VALUES(3,1,1,1,'0000.0002','["Index","Main"]');
+INSERT INTO outline_path VALUES(4,2,NULL,0,'0000','["Peer"]');
+INSERT INTO outline_path VALUES(5,2,4,1,'0000.0001','["Peer","Peer heading"]');
+INSERT INTO outline_path VALUES(6,3,NULL,0,'0000','["Child"]');
+INSERT INTO outline_path VALUES(7,3,6,1,'0000.0001','["Child","Child heading"]');
+INSERT INTO outline_path VALUES(8,4,NULL,0,'0000','["Target"]');
+INSERT INTO outline_path VALUES(9,4,8,1,'0000.0001','["Target","Target heading"]');
+INSERT INTO outline_path VALUES(10,4,8,1,'0000.0002','["Target","Invalid Target Links"]');
+INSERT INTO outline_path VALUES(11,4,8,1,'0000.0003','["Target","Whitespace is trimmed"]');
+INSERT INTO outline_path VALUES(12,4,8,1,'0000.0004','["Target","Duplicate headings titles"]');
+INSERT INTO outline_path VALUES(13,4,12,2,'0000.0004.0001','["Target","Duplicate headings titles","Duplicate title"]');
+INSERT INTO outline_path VALUES(14,4,12,2,'0000.0004.0002','["Target","Duplicate headings titles","Duplicate title"]');
+INSERT INTO outline_path VALUES(15,4,8,1,'0000.0005','["Target","Brackets in Title [2026-07-03 Fr]"]');
+INSERT INTO outline_path VALUES(16,4,8,1,'0000.0006','["Target","Case insensitive works"]');
+INSERT INTO outline_path VALUES(17,4,8,1,'0000.0007','["Target","Angle Link"]');
+INSERT INTO outline_path VALUES(18,4,8,1,'0000.0008','["Target","Special Characters Testing"]');
+INSERT INTO outline_path VALUES(19,4,18,2,'0000.0008.0001','["Target","Special Characters Testing","Ärger"]');
+INSERT INTO outline_path VALUES(20,4,18,2,'0000.0008.0002','["Target","Special Characters Testing","Test 🤓"]');
 CREATE TABLE todo_keywords (
     file_id             INTEGER NOT NULL,
     keyword             TEXT NOT NULL,
@@ -342,9 +350,9 @@ INSERT INTO links VALUES(3,1,2,180,203,14,'normal','bracket','[[file:other/peer.
 INSERT INTO links VALUES(4,1,2,206,222,15,'normal','bracket','[[./target.org]]','./target.org',NULL,'file','./target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(5,1,2,225,244,16,'normal','bracket','[[./sub/child.org]]','./sub/child.org',NULL,'file','./sub/child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(6,1,2,247,265,17,'normal','bracket','[[file:index.org]]','file:index.org',NULL,'file','index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(7,1,2,343,379,22,'normal','bracket','[[file:target.org::*Target heading]]','file:target.org::*Target heading',NULL,'file','target.org','*Target heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,8,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(7,1,2,343,379,22,'normal','bracket','[[file:target.org::*Target heading]]','file:target.org::*Target heading',NULL,'file','target.org','*Target heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,9,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(8,1,2,382,420,23,'normal','bracket','[[file:target.org::#target-custom-id]]','file:target.org::#target-custom-id',NULL,'file','target.org','#target-custom-id','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(9,1,2,423,461,24,'normal','bracket','[[file:sub/child.org::*Child heading]]','file:sub/child.org::*Child heading',NULL,'file','sub/child.org','*Child heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,6,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(9,1,2,423,461,24,'normal','bracket','[[file:sub/child.org::*Child heading]]','file:sub/child.org::*Child heading',NULL,'file','sub/child.org','*Child heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,7,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(10,1,2,464,504,25,'normal','bracket','[[file:sub/child.org::#child-custom-id]]','file:sub/child.org::#child-custom-id',NULL,'file','sub/child.org','#child-custom-id','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
 INSERT INTO links VALUES(11,1,2,575,595,29,'normal','bracket','[[file:missing.org]]','file:missing.org',NULL,'file','missing.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
 INSERT INTO links VALUES(12,1,2,598,628,30,'normal','bracket','[[file:sub/missing-child.org]]','file:sub/missing-child.org',NULL,'file','sub/missing-child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-child.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
@@ -353,34 +361,37 @@ INSERT INTO links VALUES(14,1,2,726,758,35,'normal','bracket','[[file:../externa
 INSERT INTO links VALUES(15,1,2,794,814,39,'normal','bracket','[[id:target-id-001]]','id:target-id-001',NULL,'id','target-id-001',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','unsupported link type');
 INSERT INTO links VALUES(16,1,2,817,832,40,'normal','bracket','[[#main-index]]','#main-index',NULL,'custom-id','#main-index',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','unsupported link type');
 INSERT INTO links VALUES(17,1,2,835,858,41,'normal','bracket','[[https://example.org]]','https://example.org',NULL,'https','//example.org',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','unsupported link type');
-INSERT INTO links VALUES(18,2,4,146,167,12,'normal','bracket','[[file:../index.org]]','file:../index.org',NULL,'file','../index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(19,2,4,170,192,13,'normal','bracket','[[file:../target.org]]','file:../target.org',NULL,'file','../target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(20,2,4,195,220,14,'normal','bracket','[[file:../sub/child.org]]','file:../sub/child.org',NULL,'file','../sub/child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(21,2,4,257,296,18,'normal','bracket','[[file:../target.org::*Target heading]]','file:../target.org::*Target heading',NULL,'file','../target.org','*Target heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,8,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(22,2,4,299,342,19,'normal','bracket','[[file:../sub/child.org::#child-custom-id]]','file:../sub/child.org::#child-custom-id',NULL,'file','../sub/child.org','#child-custom-id','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(23,3,6,156,177,12,'normal','bracket','[[file:../index.org]]','file:../index.org',NULL,'file','../index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(24,3,6,180,202,13,'normal','bracket','[[file:../target.org]]','file:../target.org',NULL,'file','../target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(25,3,6,205,231,14,'normal','bracket','[[file:../other/peer.org]]','file:../other/peer.org',NULL,'file','../other/peer.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(26,3,6,234,251,15,'normal','bracket','[[../target.org]]','../target.org',NULL,'file','../target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(27,3,6,295,322,19,'normal','bracket','[[file:missing-in-sub.org]]','file:missing-in-sub.org',NULL,'file','missing-in-sub.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-in-sub.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
-INSERT INTO links VALUES(28,3,6,325,359,20,'normal','bracket','[[file:../missing-from-child.org]]','file:../missing-from-child.org',NULL,'file','../missing-from-child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing-from-child.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
-INSERT INTO links VALUES(29,3,6,392,427,24,'normal','bracket','[[file:../../external/outside.org]]','file:../../external/outside.org',NULL,'file','../../external/outside.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org',NULL,NULL,NULL,NULL,'unresolved','outside indexed universe');
-INSERT INTO links VALUES(30,4,8,136,154,12,'normal','bracket','[[file:index.org]]','file:index.org',NULL,'file','index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(31,4,8,157,179,13,'normal','bracket','[[file:sub/child.org]]','file:sub/child.org',NULL,'file','sub/child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(32,4,8,182,220,14,'normal','bracket','[[file:other/peer.org::*Peer heading]]','file:other/peer.org::*Peer heading',NULL,'file','other/peer.org','*Peer heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,4,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(33,4,9,248,283,18,'normal','bracket','[[file:./index.org::*Not Existing]]','file:./index.org::*Not Existing',NULL,'file','./index.org','*Not Existing','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(34,4,9,286,303,19,'normal','bracket','[[*Not Existing]]','*Not Existing',NULL,'fuzzy','*Not Existing',NULL,NULL,4,NULL,NULL,NULL,'broken','same-file heading not found');
-INSERT INTO links VALUES(35,4,10,332,376,23,'normal','bracket','[[file:other/peer.org::*   Peer heading   ]]','file:other/peer.org::*   Peer heading   ',NULL,'file','other/peer.org','*   Peer heading   ','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(36,4,12,577,611,33,'normal','bracket','[[./target.org::*Duplicate title]]','./target.org::*Duplicate title',NULL,'file','./target.org','*Duplicate title','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,12,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(37,4,12,614,682,34,'normal','bracket','[[*Duplicate title][Duplicate targets. Should link to first found.]]','*Duplicate title','Duplicate targets. Should link to first found.','fuzzy','*Duplicate title',NULL,NULL,4,12,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(38,4,14,855,910,45,'normal','angle','<file:./target.org::*Brackets in Title [2026-07-03 Fr]>','file:./target.org::*Brackets in Title [2026-07-03 Fr]',NULL,'file','./target.org','*Brackets in Title [2026-07-03 Fr]','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,14,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(39,4,14,911,970,46,'normal','bracket','[[file:./target.org::*Brackets in Title \[2026-07-03 Fr\]]]','file:./target.org::*Brackets in Title \[2026-07-03 Fr\]',NULL,'file','./target.org','*Brackets in Title \[2026-07-03 Fr\]','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,14,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(40,4,15,999,1032,50,'normal','bracket','[[file:./index.org::*Main Index]]','file:./index.org::*Main Index',NULL,'file','./index.org','*Main Index','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(41,4,15,1033,1066,51,'normal','bracket','[[file:./index.org::*main index]]','file:./index.org::*main index',NULL,'file','./index.org','*main index','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(42,4,16,1082,1114,55,'normal','angle','<file:./index.org::* Main Index>','file:./index.org::* Main Index',NULL,'file','./index.org','* Main Index','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(43,4,16,1115,1138,56,'normal','plain','file:./index.org::*Main','file:./index.org::*Main',NULL,'file','./index.org','*Main','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(44,4,16,1139,1178,57,'normal','angle','<file:./target.org::*   Target heading>','file:./target.org::*   Target heading',NULL,'file','./target.org','*   Target heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(45,4,16,1179,1213,58,'normal','angle','<file:./target.org::*not existing>','file:./target.org::*not existing',NULL,'file','./target.org','*not existing','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'broken','heading not found');
+INSERT INTO links VALUES(18,2,5,146,167,12,'normal','bracket','[[file:../index.org]]','file:../index.org',NULL,'file','../index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(19,2,5,170,192,13,'normal','bracket','[[file:../target.org]]','file:../target.org',NULL,'file','../target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(20,2,5,195,220,14,'normal','bracket','[[file:../sub/child.org]]','file:../sub/child.org',NULL,'file','../sub/child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(21,2,5,257,296,18,'normal','bracket','[[file:../target.org::*Target heading]]','file:../target.org::*Target heading',NULL,'file','../target.org','*Target heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,9,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(22,2,5,299,342,19,'normal','bracket','[[file:../sub/child.org::#child-custom-id]]','file:../sub/child.org::#child-custom-id',NULL,'file','../sub/child.org','#child-custom-id','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(23,3,7,156,177,12,'normal','bracket','[[file:../index.org]]','file:../index.org',NULL,'file','../index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(24,3,7,180,202,13,'normal','bracket','[[file:../target.org]]','file:../target.org',NULL,'file','../target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(25,3,7,205,231,14,'normal','bracket','[[file:../other/peer.org]]','file:../other/peer.org',NULL,'file','../other/peer.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(26,3,7,234,251,15,'normal','bracket','[[../target.org]]','../target.org',NULL,'file','../target.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(27,3,7,295,322,19,'normal','bracket','[[file:missing-in-sub.org]]','file:missing-in-sub.org',NULL,'file','missing-in-sub.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/missing-in-sub.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
+INSERT INTO links VALUES(28,3,7,325,359,20,'normal','bracket','[[file:../missing-from-child.org]]','file:../missing-from-child.org',NULL,'file','../missing-from-child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/missing-from-child.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
+INSERT INTO links VALUES(29,3,7,392,427,24,'normal','bracket','[[file:../../external/outside.org]]','file:../../external/outside.org',NULL,'file','../../external/outside.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/external/outside.org',NULL,NULL,NULL,NULL,'unresolved','outside indexed universe');
+INSERT INTO links VALUES(30,4,9,136,154,12,'normal','bracket','[[file:index.org]]','file:index.org',NULL,'file','index.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(31,4,9,157,179,13,'normal','bracket','[[file:sub/child.org]]','file:sub/child.org',NULL,'file','sub/child.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',3,NULL,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(32,4,9,182,220,14,'normal','bracket','[[file:other/peer.org::*Peer heading]]','file:other/peer.org::*Peer heading',NULL,'file','other/peer.org','*Peer heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,5,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(33,4,10,248,283,18,'normal','bracket','[[file:./index.org::*Not Existing]]','file:./index.org::*Not Existing',NULL,'file','./index.org','*Not Existing','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,NULL,NULL,NULL,'broken','heading not found');
+INSERT INTO links VALUES(34,4,10,286,303,19,'normal','bracket','[[*Not Existing]]','*Not Existing',NULL,'fuzzy','*Not Existing',NULL,NULL,4,NULL,NULL,NULL,'broken','same-file heading not found');
+INSERT INTO links VALUES(35,4,11,332,376,23,'normal','bracket','[[file:other/peer.org::*   Peer heading   ]]','file:other/peer.org::*   Peer heading   ',NULL,'file','other/peer.org','*   Peer heading   ','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',2,5,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(36,4,13,577,611,33,'normal','bracket','[[./target.org::*Duplicate title]]','./target.org::*Duplicate title',NULL,'file','./target.org','*Duplicate title','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,13,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(37,4,13,614,682,34,'normal','bracket','[[*Duplicate title][Duplicate targets. Should link to first found.]]','*Duplicate title','Duplicate targets. Should link to first found.','fuzzy','*Duplicate title',NULL,NULL,4,13,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(38,4,15,855,910,45,'normal','angle','<file:./target.org::*Brackets in Title [2026-07-03 Fr]>','file:./target.org::*Brackets in Title [2026-07-03 Fr]',NULL,'file','./target.org','*Brackets in Title [2026-07-03 Fr]','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,15,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(39,4,15,911,970,46,'normal','bracket','[[file:./target.org::*Brackets in Title \[2026-07-03 Fr\]]]','file:./target.org::*Brackets in Title \[2026-07-03 Fr\]',NULL,'file','./target.org','*Brackets in Title \[2026-07-03 Fr\]','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,15,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(40,4,16,999,1032,50,'normal','bracket','[[file:./index.org::*Main Index]]','file:./index.org::*Main Index',NULL,'file','./index.org','*Main Index','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,2,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(41,4,16,1033,1066,51,'normal','bracket','[[file:./index.org::*main index]]','file:./index.org::*main index',NULL,'file','./index.org','*main index','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,2,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(42,4,17,1082,1114,55,'normal','angle','<file:./index.org::* Main Index>','file:./index.org::* Main Index',NULL,'file','./index.org','* Main Index','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,2,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(43,4,17,1115,1138,56,'normal','plain','file:./index.org::*Main','file:./index.org::*Main',NULL,'file','./index.org','*Main','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1,3,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(44,4,17,1139,1178,57,'normal','angle','<file:./target.org::*   Target heading>','file:./target.org::*   Target heading',NULL,'file','./target.org','*   Target heading','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,9,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(45,4,17,1179,1213,58,'normal','angle','<file:./target.org::*not existing>','file:./target.org::*not existing',NULL,'file','./target.org','*not existing','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',4,NULL,NULL,NULL,'broken','heading not found');
+INSERT INTO links VALUES(46,4,19,1256,1267,64,'normal','bracket','[[*Ärger]]','*Ärger',NULL,'fuzzy','*Ärger',NULL,NULL,4,19,NULL,NULL,'resolved',NULL);
+INSERT INTO links VALUES(47,4,19,1268,1279,65,'normal','bracket','[[*ärger]]','*ärger',NULL,'fuzzy','*ärger',NULL,NULL,4,NULL,NULL,NULL,'broken','same-file heading not found');
+INSERT INTO links VALUES(48,4,20,1295,1309,69,'normal','bracket','[[*Test 🤓]]','*Test 🤓',NULL,'fuzzy','*Test 🤓',NULL,NULL,4,20,NULL,NULL,'resolved',NULL);
 CREATE UNIQUE INDEX uq_headings_file_level0
     ON headings(file_id)
     WHERE level = 0;

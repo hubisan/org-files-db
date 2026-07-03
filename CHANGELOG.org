@@ -7,6 +7,7 @@ This file records completed changes.
 :VISIBILITY: all
 :END:
 
+- =FIXED= Star heading-title link resolution now trims outer whitespace and matches case-insensitively for both =file:...::*Heading= and same-file =[[*Heading]]= links.
 - =CHANGED= Rebuild now resolves file-like links to known indexed files and distinguishes missing in-universe targets from outside-universe targets.
 - =CHANGED= Rebuild now shortens resolver diagnostics to stable category labels and keeps successful duplicate heading matches silent.
 - =CHANGED= Rebuild now runs a deterministic link-resolution fallback pass that marks currently unsupported links explicitly instead of leaving resolver-owned state untouched.

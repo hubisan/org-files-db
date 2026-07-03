@@ -342,7 +342,7 @@
   {
     "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org",
-    "heading_id": 4,
+    "heading_id": 5,
     "heading_path": [
       "Peer heading"
     ],
@@ -362,7 +362,7 @@
   {
     "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org",
-    "heading_id": 4,
+    "heading_id": 5,
     "heading_path": [
       "Peer heading"
     ],
@@ -382,7 +382,7 @@
   {
     "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org",
-    "heading_id": 4,
+    "heading_id": 5,
     "heading_path": [
       "Peer heading"
     ],
@@ -402,7 +402,7 @@
   {
     "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org",
-    "heading_id": 4,
+    "heading_id": 5,
     "heading_path": [
       "Peer heading"
     ],
@@ -422,7 +422,7 @@
   {
     "file_id": 2,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org",
-    "heading_id": 4,
+    "heading_id": 5,
     "heading_path": [
       "Peer heading"
     ],
@@ -442,7 +442,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -462,7 +462,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -482,7 +482,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -502,7 +502,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -522,7 +522,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -542,7 +542,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -562,7 +562,7 @@
   {
     "file_id": 3,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org",
-    "heading_id": 6,
+    "heading_id": 7,
     "heading_path": [
       "Child heading"
     ],
@@ -582,7 +582,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 8,
+    "heading_id": 9,
     "heading_path": [
       "Target heading"
     ],
@@ -602,7 +602,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 8,
+    "heading_id": 9,
     "heading_path": [
       "Target heading"
     ],
@@ -622,7 +622,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 8,
+    "heading_id": 9,
     "heading_path": [
       "Target heading"
     ],
@@ -642,7 +642,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 9,
+    "heading_id": 10,
     "heading_path": [
       "Invalid Target Links"
     ],
@@ -662,7 +662,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 9,
+    "heading_id": 10,
     "heading_path": [
       "Invalid Target Links"
     ],
@@ -682,7 +682,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 10,
+    "heading_id": 11,
     "heading_path": [
       "Whitespace is trimmed"
     ],
@@ -702,7 +702,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 12,
+    "heading_id": 13,
     "heading_path": [
       "Duplicate headings titles",
       "Duplicate title"
@@ -723,7 +723,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 12,
+    "heading_id": 13,
     "heading_path": [
       "Duplicate headings titles",
       "Duplicate title"
@@ -744,7 +744,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 14,
+    "heading_id": 15,
     "heading_path": [
       "Brackets in Title [2026-07-03 Fr]"
     ],
@@ -764,7 +764,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 14,
+    "heading_id": 15,
     "heading_path": [
       "Brackets in Title [2026-07-03 Fr]"
     ],
@@ -784,7 +784,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 15,
+    "heading_id": 16,
     "heading_path": [
       "Case insensitive works"
     ],
@@ -804,7 +804,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 15,
+    "heading_id": 16,
     "heading_path": [
       "Case insensitive works"
     ],
@@ -824,7 +824,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 16,
+    "heading_id": 17,
     "heading_path": [
       "Angle Link"
     ],
@@ -844,7 +844,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 16,
+    "heading_id": 17,
     "heading_path": [
       "Angle Link"
     ],
@@ -864,7 +864,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 16,
+    "heading_id": 17,
     "heading_path": [
       "Angle Link"
     ],
@@ -884,7 +884,7 @@
   {
     "file_id": 4,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
-    "heading_id": 16,
+    "heading_id": 17,
     "heading_path": [
       "Angle Link"
     ],
@@ -900,5 +900,68 @@
     "byte_start": 1179,
     "byte_end": 1213,
     "line": 58
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 19,
+    "heading_path": [
+      "Special Characters Testing",
+      "Ärger"
+    ],
+    "heading_level": 2,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "fuzzy",
+    "raw": "[[*Ärger]]",
+    "raw_target": "*Ärger",
+    "raw_description": null,
+    "path": "*Ärger",
+    "search_option": null,
+    "byte_start": 1256,
+    "byte_end": 1267,
+    "line": 64
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 19,
+    "heading_path": [
+      "Special Characters Testing",
+      "Ärger"
+    ],
+    "heading_level": 2,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "fuzzy",
+    "raw": "[[*ärger]]",
+    "raw_target": "*ärger",
+    "raw_description": null,
+    "path": "*ärger",
+    "search_option": null,
+    "byte_start": 1268,
+    "byte_end": 1279,
+    "line": 65
+  },
+  {
+    "file_id": 4,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org",
+    "heading_id": 20,
+    "heading_path": [
+      "Special Characters Testing",
+      "Test 🤓"
+    ],
+    "heading_level": 2,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "fuzzy",
+    "raw": "[[*Test 🤓]]",
+    "raw_target": "*Test 🤓",
+    "raw_description": null,
+    "path": "*Test 🤓",
+    "search_option": null,
+    "byte_start": 1295,
+    "byte_end": 1309,
+    "line": 69
   }
 ]

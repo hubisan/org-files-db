@@ -251,7 +251,7 @@ impl LinkResolver {
                  FROM headings
                  WHERE file_id = ?1
                    AND level > 0
-                   AND title = ?2
+                   AND title = ?2 COLLATE NOCASE
                  ORDER BY byte_start, id",
             )
             .map_err(|source| DbWriteError::Write {
@@ -580,18 +580,21 @@ fn normalize_absolute_path(path: PathBuf) -> PathBuf {
 }
 
 fn heading_title_search_target(search_option: Option<&str>) -> Option<String> {
-    let search_option = search_option?;
-    let heading_title = search_option.strip_prefix('*')?;
-    Some(heading_title.replace("\\[", "[").replace("\\]", "]"))
+    normalize_star_heading_title_target(search_option?)
 }
 
 fn same_file_fuzzy_star_heading_target(path: &str) -> Option<String> {
-    let heading_title = path.strip_prefix('*')?;
-    if heading_title.starts_with('*') {
+    let heading_title = normalize_star_heading_title_target(path)?;
+    if path.strip_prefix('*')?.starts_with('*') {
         return None;
     }
 
-    Some(heading_title.replace("\\[", "[").replace("\\]", "]"))
+    Some(heading_title)
+}
+
+fn normalize_star_heading_title_target(raw_target: &str) -> Option<String> {
+    let heading_title = raw_target.strip_prefix('*')?;
+    Some(heading_title.trim().replace("\\[", "[").replace("\\]", "]"))
 }
 
 #[cfg(test)]
@@ -973,6 +976,58 @@ mod tests {
     }
 
     #[test]
+    fn resolve_all_normalizes_file_heading_title_search_options_before_matching() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::*   main index   ]]",
+            "file",
+            "target.org",
+            Some("*   main index   "),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Main Index");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                Some(20_i64),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
     fn resolve_all_marks_missing_heading_title_search_targets_broken() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =
@@ -1203,6 +1258,44 @@ mod tests {
                 Some(20_i64),
                 Some("resolved".to_string()),
                 None
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_normalizes_same_file_fuzzy_star_links_before_matching() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[*   peer heading   ]]",
+            "fuzzy",
+            "*   peer heading   ",
+            None,
+        );
+        seed_target_heading(&connection, 20, 1, 1, "Peer Heading");
+
+        let universe = IndexedUniverse::default();
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: SameFileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT target_file_id, target_heading_id, resolution_status, resolution_diagnostic
+                 FROM links
+                 WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some(1_i64),
+                Some(20_i64),
+                Some("resolved".to_string()),
+                None,
             )
         );
     }
