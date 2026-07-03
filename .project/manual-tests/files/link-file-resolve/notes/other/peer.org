@@ -1,19 +1,25 @@
 #+TITLE: Peer
 #+STARTUP: showall
 
-* Peer heading
+* Peer Heading
 :PROPERTIES:
 :CUSTOM_ID: peer-custom-id
 :ID: peer-id-001
 :END:
 
-Links across sibling folders:
+Sibling, parent, and child links from a sibling directory:
 
 - [[file:../index.org]]
-- [[file:../target.org]]
+- [[file:../index.org::#main-index]]
+- [[file:../target.org::*Target Heading]]
+- [[file:../target.org::#target-custom-id]]
 - [[file:../sub/child.org]]
-
-Search options for later tasks:
-
-- [[file:../target.org::*Target heading]]
 - [[file:../sub/child.org::#child-custom-id]]
+- [[id:child-id-001]]
+
+* Duplicate ID Second
+:PROPERTIES:
+:ID: DUPLICATE-ID-001
+:END:
+
+Second duplicate ID. Links to duplicate-id-001 should be ambiguous.

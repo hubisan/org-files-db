@@ -1,24 +1,31 @@
 #+TITLE: Child
 #+STARTUP: showall
 
-* Child heading
+* Child Heading
 :PROPERTIES:
 :CUSTOM_ID: child-custom-id
 :ID: child-id-001
 :END:
 
-Relative links from a subdirectory:
+Parent and sibling links from a child directory:
 
 - [[file:../index.org]]
+- [[file:../index.org::*Main Index]]
+- [[file:../index.org::#main-index]]
 - [[file:../target.org]]
+- [[file:../target.org::*Target Heading]]
+- [[file:../target.org::#target-custom-id]]
 - [[file:../other/peer.org]]
-- [[../target.org]]
 
-Missing inside indexed recursive root:
+Angle and plain from child:
 
-- [[file:missing-in-sub.org]]
-- [[file:../missing-from-child.org]]
+- <file:../target.org::#target-custom-id>
+- file:../target.org::*Target Heading
+- id:target-id-001
 
-External from subdirectory:
+Missing and outside from child:
 
+- [[file:missing-in-child.org]]
 - [[file:../../external/outside.org]]
+- [[file:../../external/outside.org::*Outside heading]]
+- [[id:missing-from-child-id]]

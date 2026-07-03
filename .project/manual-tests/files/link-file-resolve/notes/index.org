@@ -1,43 +1,105 @@
 #+TITLE: Index
 #+STARTUP: showall
 
-* Main index
+* Main Index
 :PROPERTIES:
 :CUSTOM_ID: main-index
 :ID: index-id-001
 :END:
 
-Resolved file links:
+** Same-file targets
+:PROPERTIES:
+:CUSTOM_ID: same-file-target
+:ID: same-file-id-001
+:END:
+
+This heading is used by same-file star, CUSTOM_ID, and ID links.
+
+** Brackets in Title [2026-07-03 Fr]
+:PROPERTIES:
+:CUSTOM_ID: brackets-heading
+:ID: brackets-id-001
+:END:
+
+** Duplicate Custom
+:PROPERTIES:
+:CUSTOM_ID: duplicate-custom
+:END:
+
+First duplicate CUSTOM_ID in this file. Same-file CUSTOM_ID should select this heading.
+
+** Duplicate Custom Later
+:PROPERTIES:
+:CUSTOM_ID: DUPLICATE-CUSTOM
+:END:
+
+Second duplicate CUSTOM_ID in this file.
+
+* File target links
+
+Bracket file links:
 
 - [[file:target.org]]
 - [[file:sub/child.org]]
 - [[file:other/peer.org]]
 - [[./target.org]]
-- [[./sub/child.org]]
-- [[file:index.org]]
 
+Angle and plain file links:
 
-Links with search options that should keep ~search_option~ raw for now:
+- <file:target.org>
+- file:target.org
 
-- [[file:target.org::*Target heading]]
-- [[file:target.org::#target-custom-id]]
-- [[file:sub/child.org::*Child heading]]
-- [[file:sub/child.org::#child-custom-id]]
-
-Missing in-universe targets when ~notes/~ is indexed recursively:
+Missing and outside file links:
 
 - [[file:missing.org]]
 - [[file:sub/missing-child.org]]
-- [[./other/missing-peer.org]]
-
-External/outside-universe target if only ~notes/~ is indexed:
-
 - [[file:../external/outside.org]]
 
-Unsupported non-file examples:
+* File heading-title links
+
+- [[file:target.org::*Target Heading]]
+- [[file:target.org::*target heading]]
+- [[file:target.org::*   Target Heading   ]]
+- [[file:target.org::*Bracket Title \[A/B\]]]
+- <file:target.org::*Bracket Title [A/B]>
+- file:target.org::*Target Heading
+- [[file:target.org::*Missing Heading]]
+
+* Same-file star heading links
+
+- [[*Same-file targets]]
+- [[*same-file targets]]
+- [[*Brackets in Title \[2026-07-03 Fr\]]]
+- [[*Missing Same File Heading]]
+
+* Same-file CUSTOM_ID links
+
+- [[#main-index]]
+- [[#same-file-target][same-file custom-id with description]]
+- [[#SAME-FILE-TARGET][custom-id: case-insensitive]]
+- [[# SAME-FILE-TARGET ][custom-id: whitepace not allowed]]
+- [[#duplicate-custom]]
+- [[#missing-custom-id]]
+
+* File-context CUSTOM_ID links
+
+- [[file:target.org::#target-custom-id]]
+- [[file:target.org::# TARGET-CUSTOM-ID ][target custom id with description]]
+- [[file:target.org::#duplicate-custom]]
+- [[file:target.org::#missing-custom-id]]
+- <file:target.org::#target-custom-id>
+- file:target.org::#target-custom-id
+- [[file:sub/child.org::#child-custom-id]]
+- [[file:other/peer.org::#peer-custom-id]]
+- [[file:../external/outside.org::#outside-custom-id]]
+
+* Org ID links
 
 - [[id:target-id-001]]
-- [[#main-index]]
-- [[https://example.org]]
-
-* Main
+- [[id:TARGET-ID-001][id: case-insensitive]]
+- [[id: TARGET-ID-001 ][id: whitespace is not allowed]]
+- <id:child-id-001>
+- id:peer-id-001
+- [[id:same-file-id-001]]
+- [[id:missing-id-001]]
+- [[id:duplicate-id-001]]

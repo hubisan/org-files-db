@@ -1,69 +1,51 @@
 #+TITLE: Target
 #+STARTUP: showall
 
-* Target heading
+* Target Heading
 :PROPERTIES:
 :CUSTOM_ID: target-custom-id
 :ID: target-id-001
 :END:
 
-Back links:
+Back links and cross-file links:
 
 - [[file:index.org]]
-- [[file:sub/child.org]]
-- [[file:other/peer.org::*Peer heading]]
+- [[file:index.org::*Main Index]]
+- [[file:index.org::#main-index]]
+- [[id:index-id-001]]
 
-* Invalid Target Links
-
-- [[file:./index.org::*Not Existing]]
-- [[*Not Existing]]
-
-* Whitespace is trimmed
-
-- [[file:other/peer.org::*   Peer heading   ]]
-
-* Duplicate headings titles
-
-** Duplicate title
-
-This is here for later heading-title ambiguity tests.
-
-Org actually jumps to the first found in the file. Doesn't matter where the link is placed.
-
-- [[./target.org::*Duplicate title]]
-- [[*Duplicate title][Duplicate targets. Should link to first found.]]
-  
-** Duplicate title
+* Bracket Title [A/B]
 :PROPERTIES:
-:CUSTOM_ID: e2522e10-0cbf-4e55-9ece-da1d0b7d1b58
+:CUSTOM_ID: bracket-title-custom-id
+:ID: bracket-title-id-001
 :END:
 
-This second duplicate is also intentional.
+This heading is used by heading-title search with escaped brackets.
 
-* Brackets in Title [2026-07-03 Fr]
+* Duplicate Custom First
+:PROPERTIES:
+:CUSTOM_ID: duplicate-custom
+:END:
 
-<file:./target.org::*Brackets in Title [2026-07-03 Fr]>
-[[file:./target.org::*Brackets in Title \[2026-07-03 Fr\]]]
+File-context CUSTOM_ID should select this heading.
 
-* Case insensitive works 
+* Duplicate Custom Second
+:PROPERTIES:
+:CUSTOM_ID: DUPLICATE-CUSTOM
+:END:
 
-[[file:./index.org::*Main Index]]
-[[file:./index.org::*main index]]
+Second duplicate CUSTOM_ID. CUSTOM_ID does not become ambiguous.
 
-* Angle Link
+* Duplicate ID First
+:PROPERTIES:
+:ID: duplicate-id-001
+:END:
 
-<file:./index.org::* Main Index>
-file:./index.org::*Main
-<file:./target.org::*   Target heading>
-<file:./target.org::*not existing>
+First duplicate ID. ID links to duplicate-id-001 should be ambiguous.
 
-* Special Characters Testing
+* Missing examples from target
 
-** Ärger
-
-[[*Ärger]]
-[[*ärger]]
-
-** Test 🤓
-
-[[*Test 🤓]]
+- [[file:missing-from-target.org]]
+- [[file:index.org::*Missing Parent Heading]]
+- [[file:index.org::#missing-parent-custom-id]]
+- [[id:missing-from-target-id]]

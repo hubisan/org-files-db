@@ -1,7 +1,11 @@
-#+TITLE: Outside
+#+TITLE: Outside indexed root
 #+STARTUP: showall
 
-* Outside file
+* Outside heading
+:PROPERTIES:
+:CUSTOM_ID: outside-custom-id
+:ID: outside-id-001
+:END:
 
-This file exists in the ZIP but is intentionally outside the suggested indexed root ~notes/~.
-If only ~notes/~ is indexed, links to this file should be unresolved, not broken.
+This file exists, but is intentionally outside the suggested indexed root notes/.
+Links to it should have path_absolute computed, but remain unresolved when only notes/ is indexed.

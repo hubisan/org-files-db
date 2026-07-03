@@ -1,6 +1,7 @@
-#+TITLE: Org link resolver test fixtures
+#+TITLE: Org link resolver complete fixture
+#+STARTUP: showall
 
-This fixture set is intended for org-files-db Phase 4 file-link resolution tests.
+This fixture is for Phase 4 link resolution in org-files-db.
 
 Suggested indexed root:
 
@@ -10,9 +11,21 @@ path = "notes"
 recursive = true
 #+end_src
 
-Expected high-level behavior:
+What this covers:
 
-- Links to files under ~notes/~ should resolve when the target exists.
-- Links to missing files under ~notes/~ should be marked broken if the recursive root is indexed.
-- Links outside ~notes/~ should be unresolved unless those files are also configured/indexed.
-- Search options like ~::*Heading~ and ~::#custom-id~ are intentionally included but should remain raw source facts until later tasks.
+- File target links, heading-title links, same-file star heading links
+- Same-file CUSTOM_ID links and file-context CUSTOM_ID links
+- Org ID links
+- Bracket, angle, and plain forms where Phase 3 extracts them
+- Same file, child file, parent file, sibling file, missing in indexed universe, and existing file outside indexed universe
+- Wrong/case-insensitive matches, whitespace trimming, bracket escaping in titles, duplicate CUSTOM_ID first-match behavior, and duplicate ID ambiguity
+
+Important expected statuses:
+
+- Missing file under notes/: broken, diagnostic missing in indexed universe
+- Existing file outside indexed root: unresolved, diagnostic outside indexed universe
+- Missing heading or CUSTOM_ID in a resolved file: broken
+- Missing Org ID: unresolved, diagnostic id not found
+- Duplicate Org ID: ambiguous, diagnostic duplicate id
+
+For outside file links, the resolver should still store the computed normalized absolute target path in links.path_absolute. No extra column is needed.

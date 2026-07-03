@@ -306,88 +306,10 @@ Task file: [[./archive/2026-07-03--resolve-bracket-same-file-custom-id-links.org
 
 Task file: [[./archive/2026-07-03--resolve-file-context-custom-id-links.org]]
 
-*** TODO Resolve Org ID links within indexed ID universe
+*** DONE Resolve Org ID links within indexed ID universe
 
-Supported forms:
+Task file: [[./archive/2026-07-03--resolve-org-id-links-within-indexed-id-universe.org]]
 
-- ~id:foo~
-- ~[[id:foo]]~
-- ~[[id:foo][Description]]~
-- ~<id:foo>~
-- plain ~id:foo~ when extracted by configured plain-link protocols
-- bracket or angle links classified by Phase 3 as ~link_type = id~
-
-Rules:
-
-- Resolve only links classified as Org ID links.
-- Property key:
-  - ~ID~
-- Property value:
-  - normalized ID value after trimming leading/trailing whitespace
-- Search scope:
-  - all indexed non-root headings
-- Value comparison:
-  - case-insensitive
-- No-match status:
-  - ~unresolved~
-- Duplicate-match behavior:
-  - mark ~ambiguous~
-
-Background:
-
-- Org ID links are global ID links.
-- Org normally resolves them through its ID location mechanism.
-- The indexed DB may not be the complete Org ID universe.
-- Therefore, absence from indexed files does not necessarily mean the link is broken.
-- Duplicate IDs are invalid data and should be surfaced instead of silently choosing one target.
-
-Target fields:
-
-- On exactly one match, set:
-  - ~target_file_id~ to the matched heading's file
-  - ~target_heading_id~
-  - ~target_id~ to the normalized ID target value
-  - ~target_custom_id = NULL~
-  - ~resolution_status = resolved~
-  - ~resolution_diagnostic = NULL~
-- On no match, set:
-  - ~target_file_id = NULL~
-  - ~target_heading_id = NULL~
-  - ~target_id~ to the normalized ID target value
-  - ~target_custom_id = NULL~
-  - ~resolution_status = unresolved~
-  - ~resolution_diagnostic = id not found~
-- On multiple matches, set:
-  - ~target_file_id = NULL~
-  - ~target_heading_id = NULL~
-  - ~target_id~ to the normalized ID target value
-  - ~target_custom_id = NULL~
-  - ~resolution_status = ambiguous~
-  - ~resolution_diagnostic = duplicate id~
-
-Acceptance criteria:
-
-- ~id:foo~ resolves when exactly one indexed heading has ~:ID: foo~.
-- ~id: FOO ~ resolves to a heading with ~:ID: foo~.
-- Bracket ~[[id:foo]]~ resolves when extracted as an ID link.
-- Bracket ~[[id:foo][Description]]~ resolves and preserves the raw description.
-- Angle ~<id:foo>~ resolves when extracted as an ID link.
-- Plain ~id:foo~ resolves when extracted by configured plain-link protocols.
-- ID lookup trims leading and trailing whitespace from the parsed ID target.
-- ID lookup compares property values case-insensitively.
-- ID lookup preserves raw link fields.
-- Matching ID links set ~target_file_id~, ~target_heading_id~, and ~target_id~.
-- ~target_id~ stores the normalized ID target value.
-- Duplicate indexed IDs are marked ~ambiguous~.
-- Duplicate indexed IDs do not select the first match.
-- Duplicate indexed IDs keep ~target_file_id = NULL~ and ~target_heading_id = NULL~.
-- Missing IDs are marked ~unresolved~, not ~broken~.
-- Missing IDs keep ~target_id~ set to the normalized target value.
-- Tests document that absence from indexed files is not enough to classify an ID link as broken.
-- ID resolution uses the existing heading property index.
-- Raw link fields remain unchanged.
-- ~make ci~ passes.
-  
 ** TODO [#C] Resolve file-only links to synthetic root headings
 :PROPERTIES:
 :PRIORITY: Low

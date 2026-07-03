@@ -1183,9 +1183,10 @@ mod tests {
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
         },
         link_resolver::{
-            CUSTOM_ID_MISSING_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
+            CUSTOM_ID_MISSING_DIAGNOSTIC, DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
             FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
-            SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
+            ID_MISSING_DIAGNOSTIC, SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC,
+            UNSUPPORTED_DIAGNOSTIC,
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
     };
@@ -1261,6 +1262,15 @@ mod tests {
         Option<String>,
     );
     type FileContextCustomIdResolutionRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    type OrgIdResolutionRow = (
         String,
         Option<String>,
         Option<String>,
@@ -4290,6 +4300,161 @@ index_body_text = false
                     None,
                     Some("broken".to_string()),
                     Some(FILE_MISSING_DIAGNOSTIC.to_string()),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_resolves_org_id_links() {
+        let test_dir = TestDir::new("org-id-resolution");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+        let target_a_path = notes_dir.join("target-a.org");
+        let target_b_path = notes_dir.join("target-b.org");
+        let target_c_path = notes_dir.join("target-c.org");
+
+        write_file(
+            &source_path,
+            "\
+#+TITLE: Source
+id:foo
+[[id: FOO ][Description]]
+<id:angle-id>
+id:dup
+[[id:missing]]
+",
+        );
+        write_file(
+            &target_a_path,
+            "\
+#+TITLE: Target A
+* Exact target
+:PROPERTIES:
+:ID: foo
+:END:
+* Angle target
+:PROPERTIES:
+:ID: angle-id
+:END:
+",
+        );
+        write_file(
+            &target_b_path,
+            "\
+#+TITLE: Target B
+* First duplicate
+:PROPERTIES:
+:ID: dup
+:END:
+",
+        );
+        write_file(
+            &target_c_path,
+            "\
+#+TITLE: Target C
+* Second duplicate
+:PROPERTIES:
+:ID: DUP
+:END:
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<OrgIdResolutionRow> = query_rows(
+            &connection,
+            "SELECT
+                 links.raw,
+                 target_files.path,
+                 target_headings.title,
+                 links.raw_description,
+                 links.target_id,
+                 links.resolution_status,
+                 links.resolution_diagnostic
+             FROM links
+             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
+             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
+             ORDER BY links.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "id:foo".to_string(),
+                    Some(target_a_path.to_string_lossy().to_string()),
+                    Some("Exact target".to_string()),
+                    None,
+                    Some("foo".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[id: FOO ][Description]]".to_string(),
+                    Some(target_a_path.to_string_lossy().to_string()),
+                    Some("Exact target".to_string()),
+                    Some("Description".to_string()),
+                    Some("FOO".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "<id:angle-id>".to_string(),
+                    Some(target_a_path.to_string_lossy().to_string()),
+                    Some("Angle target".to_string()),
+                    None,
+                    Some("angle-id".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "id:dup".to_string(),
+                    None,
+                    None,
+                    None,
+                    Some("dup".to_string()),
+                    Some("ambiguous".to_string()),
+                    Some(DUPLICATE_ID_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[id:missing]]".to_string(),
+                    None,
+                    None,
+                    None,
+                    Some("missing".to_string()),
+                    Some("unresolved".to_string()),
+                    Some(ID_MISSING_DIAGNOSTIC.to_string()),
                 ),
             ]
         );

@@ -1,0 +1,102 @@
+#+TITLE: Resolve Org ID links within indexed ID universe
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 17:42]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Implement =BUILD Resolve Org ID links within indexed ID universe=.
+  - Limit scope to links already classified as =link_type = id=.
+  - Resolve global =ID= properties case-insensitively across all indexed non-root headings.
+  - Mark missing IDs =unresolved= and duplicate IDs =ambiguous= instead of choosing a target.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,*** BUILD Resolve Org ID links within indexed ID universe
+
+Supported forms:
+
+- ~id:foo~
+- ~[[id:foo]]~
+- ~[[id:foo][Description]]~
+- ~<id:foo>~
+- plain ~id:foo~ when extracted by configured plain-link protocols
+- bracket or angle links classified by Phase 3 as ~link_type = id~
+#+end_src
+
+* Planning
+
+** Problem summary
+- The parser and storage already preserve Org ID links as =link_type = id= source facts, but the resolver currently treats them as unsupported.
+
+** Goals
+- Resolve Org ID links against =ID= properties across the indexed non-root heading universe.
+- Normalize targets by trimming whitespace and compare case-insensitively.
+- Surface missing IDs as =unresolved= and duplicates as =ambiguous= while preserving raw link fields.
+
+** Non-goals
+- No file-context ID search-option support.
+- No parser classification changes unless a resolver test reveals a missing fixture expectation.
+- No schema changes.
+
+** Architecture
+- Add a dedicated =id= branch in =LinkResolver::resolve_link=.
+- Reuse the existing property lookup pattern with a global-scope helper ordered by document order.
+- Add explicit marker helpers for resolved, unresolved, and ambiguous Org ID outcomes that populate =target_id= and clear =target_custom_id=.
+
+** Execution plan
+- Add the task file and link it from =todo.org=.
+- Implement Org ID normalization and global property matching in =src/link_resolver.rs=.
+- Add resolver and rebuild coverage for resolved, missing, duplicate, trimmed, case-insensitive, bracket, angle, and plain forms.
+- Update README and CHANGELOG for the new resolver behavior.
+- Run formatter, focused tests, and =make ci=.
+
+** Risks & assumptions
+- Assumption: Phase 3 already stores =link_type = id= with =path= set to the raw target content after =id:=, so trimming in Rust is sufficient.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_org_id_links -- --nocapture=
+- =cargo fmt --all=
+- =make ci=
+
+* Results
+
+** Approach
+- Added a dedicated Org =id= resolver branch that trims the stored target, matches =ID= properties case-insensitively across all indexed non-root headings, and uses explicit outcome handlers for unique, missing, and duplicate matches.
+- Reused the existing property index pattern while adding a global-scope property lookup helper instead of changing parser or schema behavior.
+- Kept raw link source facts untouched and stored only normalized resolver-owned target fields in =target_id=.
+
+** Changed files
+- =src/link_resolver.rs=
+- =src/indexer.rs=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-03--resolve-org-id-links-within-indexed-id-universe.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test link_resolver -- --nocapture=
+- =cargo test rebuild_resolves_org_id_links -- --nocapture=
+- =make ci=
+
+** Test results
+- Unique Org =id:= links now resolve to the matched heading and file while storing the normalized target in =target_id=.
+- Missing Org IDs now remain =unresolved= with =id not found= instead of being marked =broken=.
+- Duplicate indexed Org IDs now surface as =ambiguous= with =duplicate id= and do not pick a target heading.
+- Full CI passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.
