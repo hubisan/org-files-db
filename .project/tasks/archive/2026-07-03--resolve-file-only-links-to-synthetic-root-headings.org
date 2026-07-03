@@ -1,0 +1,106 @@
+#+TITLE: Resolve file-only links to synthetic root headings
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-03 Fri 23:35]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement this task: *BUILD [#C] Resolve file-only links to synthetic root headings*
+
+Copied task entry from ~todo.org~:
+
+- Goal:
+  - Resolve file-only links to the synthetic root heading of the target file.
+  - Treat the synthetic root heading as the document-level target for links that point to a file but not to a specific heading.
+  - Make resolved file-only links queryable through both ~target_file_id~ and ~target_heading_id~.
+  - Apply this as a resolver fallback after all more specific heading-resolution steps.
+- Supported forms:
+  - ~[[file:notes.org]]~
+  - ~[[./notes.org]]~
+  - ~[[../notes.org]]~
+  - ~[[/absolute/path/notes.org]]~
+  - ~<file:notes.org>~
+  - plain ~file:notes.org~ when extracted by configured plain-link protocols
+- Acceptance criteria:
+  - Resolved file-only links set ~target_file_id~ and ~target_heading_id~ to the target file's synthetic root heading.
+  - File links with ~::*Heading~ are not overwritten by the root heading.
+  - File links with ~::#custom-id~ are not mapped to root.
+  - Broken file links do not get root heading targets.
+  - Unresolved outside-universe file links do not get root heading targets.
+  - Unsupported links do not get root heading targets.
+  - Relative, absolute, angle, and plain file-only links are covered by tests where supported by the parser.
+  - Tests verify that specific heading targets are not overwritten.
+  - Tests verify raw link fields remain unchanged.
+  - ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+File links currently stop at ~target_file_id~ when they resolve to a known file without a search option, which leaves document-level links without a synthetic-root ~target_heading_id~.
+
+** Goals
+- Add a resolver fallback for file-only links that points ~target_heading_id~ at the target file's synthetic root heading.
+- Preserve current precedence so heading-title, CUSTOM_ID, ID, broken, unresolved, and unsupported outcomes do not regress.
+- Cover both direct resolver behavior and rebuild-level supported file-link forms with tests.
+
+** Non-goals
+- Creating synthetic root headings.
+- Changing parser semantics or search-option resolution rules.
+- Changing non-file link resolution behavior.
+
+** Architecture
+Extend the file-link resolution path in ~src/link_resolver.rs~ so the fallback runs only for already-resolved file links with no ~search_option~. Load synthetic root candidates from persisted headings using the existing root contract (~level = 0~, ~parent_id IS NULL~) and keep more specific heading-target resolution unchanged.
+
+** Execution plan
+- Add synthetic-root lookup and root-target assignment in the file-link resolver path.
+- Add deterministic handling for missing or duplicate synthetic root rows.
+- Add unit tests in ~src/link_resolver.rs~ and a rebuild integration test in ~src/indexer.rs~.
+- Update repository docs if resolver behavior descriptions changed.
+- Run ~make ci~ and record results.
+
+** Risks & assumptions
+- Assumption: persisted synthetic root rows always use the documented contract of ~level = 0~ and ~parent_id IS NULL~.
+- Risk: rebuild-level assertions need to account for the synthetic root title coming from the indexed root-heading title contract rather than always mirroring a fixture helper path string.
+
+** Open questions
+None at implementation start.
+
+** Proposed checks
+- ~cargo test resolve_all_maps_file_only_links_to_target_root_headings~
+- ~cargo test rebuild_resolves_file_only_links_to_synthetic_root_headings~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a file-only resolver fallback in ~src/link_resolver.rs~ that maps already-resolved file links with no ~search_option~ to the target file's synthetic root heading.
+- Preserved precedence for specific heading-title and ~CUSTOM_ID~ matches by only applying the fallback when no more specific file-target form applies.
+- Added a defensive corruption path for missing synthetic root rows and kept a defensive duplicate-root branch even though the current schema prevents constructing that state in tests.
+- Added rebuild coverage for relative, angle, plain, absolute-external, and missing file-only forms so the parser-supported link shapes are exercised end to end.
+
+** Changed files
+- ~src/link_resolver.rs~
+- ~src/indexer.rs~
+- ~README.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-03--resolve-file-only-links-to-synthetic-root-headings.org~
+
+** Checks performed
+- ~cargo test resolve_all_maps_file_only_links_to_target_root_headings~
+- ~cargo test resolve_all_marks_missing_synthetic_root_heading_as_resolved_corruption~
+- ~cargo test rebuild_resolves_file_only_links_to_synthetic_root_headings~
+- ~make ci~
+
+** Test results
+- All listed checks passed.
+- ~make ci~ completed successfully after one ~cargo fmt --all~ pass to satisfy formatting.
+
+** Blockers
+- Duplicate synthetic root headings are prevented by the current DB constraints, so that defensive resolver branch could not be exercised via a normal schema-backed test fixture.
+
+** Follow-ups
+- If we later expose link resolution details in CLI JSON, document that file-only links now carry the synthetic root ~target_heading_id~ rather than leaving it ~NULL~.

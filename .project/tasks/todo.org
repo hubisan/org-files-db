@@ -313,7 +313,7 @@ Task file: [[./archive/2026-07-03--resolve-org-id-links-within-indexed-id-univer
 
 Task file: [[./archive/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-matching.org]]
 
-** TODO [#C] Resolve file-only links to synthetic root headings
+** DONE [#C] Resolve file-only links to synthetic root headings
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
@@ -321,90 +321,7 @@ Task file: [[./archive/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-m
 :API_CONTRACT_CHANGE: Maybe
 :END:
 
-Depends on:
-
-- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
-- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
-- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
-- [[*Resolve property-based heading links][Resolve property-based heading links]]
-
-Goal:
-
-- Resolve file-only links to the synthetic root heading of the target file.
-- Treat the synthetic root heading as the document-level target for links that point to a file but not to a specific heading.
-- Make resolved file-only links queryable through both ~target_file_id~ and ~target_heading_id~.
-- Apply this as a resolver fallback after all more specific heading-resolution steps.
-
-Contract decision:
-
-- Synthetic root headings are always stored.
-- Root-heading targeting is always enabled because synthetic root headings are part of the persisted DB model.
-- No user-facing option is introduced.
-- More specific heading targets always win over the root fallback.
-
-Supported forms:
-
-- ~[[file:notes.org]]~
-- ~[[./notes.org]]~
-- ~[[../notes.org]]~
-- ~[[/absolute/path/notes.org]]~
-- ~<file:notes.org>~
-- plain ~file:notes.org~ when extracted by configured plain-link protocols
-
-Resolution rules:
-
-- Apply only to links that:
-  - have ~link_type = file~
-  - have ~target_file_id~ set
-  - have ~resolution_status = resolved~
-  - have ~search_option IS NULL~
-  - have ~target_heading_id IS NULL~
-- Find the synthetic root heading for ~target_file_id~.
-- Set ~target_heading_id~ to that root heading.
-- Keep ~target_file_id~ unchanged.
-- Keep ~resolution_status = resolved~.
-- Keep ~resolution_diagnostic = NULL~.
-- Keep ~target_custom_id = NULL~.
-- Keep ~target_id = NULL~.
-- Do not override links that already resolved to a specific heading.
-- Do not apply to broken, unresolved, ambiguous, or unsupported links.
-- Do not apply to file links with any ~search_option~.
-
-Synthetic root selection rules:
-
-- The root heading must belong to the resolved target file.
-- The root heading is identified by the existing synthetic-root contract, for example:
-  - ~level = 0~
-  - ~parent_id IS NULL~
-- If no synthetic root heading exists:
-  - leave ~target_heading_id = NULL~
-  - keep ~target_file_id~
-  - keep ~resolution_status = resolved~
-  - set a stable diagnostic only if this is considered DB corruption.
-- If multiple synthetic root headings exist for one file:
-  - do not pick an arbitrary root heading.
-  - mark the link ~ambiguous~ or report a data-integrity diagnostic according to the root-heading contract.
-
-Out of scope:
-
-- Do not create synthetic root headings in this task.
-- Do not change parser-level heading semantics.
-- Do not map file links with search options to root headings.
-- Do not override heading-title, CUSTOM_ID, ID, or fuzzy heading targets.
-- Do not resolve attachments.
-
-Acceptance criteria:
-
-- Resolved file-only links set ~target_file_id~ and ~target_heading_id~ to the target file's synthetic root heading.
-- File links with ~::*Heading~ are not overwritten by the root heading.
-- File links with ~::#custom-id~ are not mapped to root.
-- Broken file links do not get root heading targets.
-- Unresolved outside-universe file links do not get root heading targets.
-- Unsupported links do not get root heading targets.
-- Relative, absolute, angle, and plain file-only links are covered by tests where supported by the parser.
-- Tests verify that specific heading targets are not overwritten.
-- Tests verify raw link fields remain unchanged.
-- ~make ci~ passes.
+Task file: [[./archive/2026-07-03--resolve-file-only-links-to-synthetic-root-headings.org]]
 
 ** TODO [#B] Expose resolution fields in ~links --json~
 :PROPERTIES:

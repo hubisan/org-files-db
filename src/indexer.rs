@@ -1243,6 +1243,13 @@ mod tests {
         Option<String>,
         Option<String>,
     );
+    type FileOnlyRootResolutionRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
     type SameFileStarHeadingResolutionRow = (
         String,
         Option<String>,
@@ -4135,6 +4142,171 @@ index_body_text = false
                     Some("#custom-id".to_string()),
                     Some("broken".to_string()),
                     Some(CUSTOM_ID_MISSING_DIAGNOSTIC.to_string()),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn rebuild_resolves_file_only_links_to_synthetic_root_headings() {
+        let test_dir = TestDir::new("file-only-root-heading-resolution");
+        let notes_dir = test_dir.path().join("notes");
+        let external_dir = test_dir.path().join("external");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let source_path = notes_dir.join("source.org");
+        let target_path = notes_dir.join("target.org");
+        let child_path = notes_dir.join("child").join("child.org");
+        let external_path = external_dir.join("outside.org");
+
+        write_file(
+            &source_path,
+            &format!(
+                "\
+#+TITLE: Source
+[[file:target.org]]
+[[./target.org]]
+[[file:child/child.org]]
+<file:target.org>
+file:target.org
+[[{}]]
+[[file:target.org::*Explicit heading]]
+[[file:target.org::#custom-id]]
+[[file:missing.org]]
+",
+                external_path.to_string_lossy()
+            ),
+        );
+        write_file(
+            &target_path,
+            "\
+#+TITLE: Target
+* Explicit heading
+:PROPERTIES:
+:CUSTOM_ID: custom-id
+:END:
+",
+        );
+        write_file(
+            &child_path,
+            "\
+#+TITLE: Child
+",
+        );
+        write_file(
+            &external_path,
+            "\
+#+TITLE: External
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let rows: Vec<FileOnlyRootResolutionRow> = query_rows(
+            &connection,
+            "SELECT
+                 links.raw,
+                 target_files.path,
+                 target_headings.title,
+                 links.resolution_status,
+                 links.resolution_diagnostic
+             FROM links
+             LEFT JOIN files AS target_files ON target_files.id = links.target_file_id
+             LEFT JOIN headings AS target_headings ON target_headings.id = links.target_heading_id
+             ORDER BY links.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        );
+
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "[[file:target.org]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Target".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[./target.org]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Target".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[file:child/child.org]]".to_string(),
+                    Some(child_path.to_string_lossy().to_string()),
+                    Some("Child".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "<file:target.org>".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Target".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "file:target.org".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Target".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    format!("[[{}]]", external_path.to_string_lossy()),
+                    None,
+                    None,
+                    Some("unresolved".to_string()),
+                    Some(FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC.to_string()),
+                ),
+                (
+                    "[[file:target.org::*Explicit heading]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Explicit heading".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[file:target.org::#custom-id]]".to_string(),
+                    Some(target_path.to_string_lossy().to_string()),
+                    Some("Explicit heading".to_string()),
+                    Some("resolved".to_string()),
+                    None,
+                ),
+                (
+                    "[[file:missing.org]]".to_string(),
+                    None,
+                    None,
+                    Some("broken".to_string()),
+                    Some(FILE_MISSING_DIAGNOSTIC.to_string()),
                 ),
             ]
         );

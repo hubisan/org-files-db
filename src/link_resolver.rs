@@ -16,6 +16,8 @@ pub(crate) const SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC: &str = "same-file he
 pub(crate) const CUSTOM_ID_MISSING_DIAGNOSTIC: &str = "custom id not found";
 pub(crate) const ID_MISSING_DIAGNOSTIC: &str = "id not found";
 pub(crate) const DUPLICATE_ID_DIAGNOSTIC: &str = "duplicate id";
+const MISSING_SYNTHETIC_ROOT_DIAGNOSTIC: &str = "missing synthetic root heading";
+const DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC: &str = "duplicate synthetic root headings";
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
@@ -58,6 +60,11 @@ struct GlobalPropertyCandidate {
     file_id: i64,
     heading_id: i64,
     value: Option<String>,
+}
+
+#[derive(Debug)]
+struct RootHeadingCandidate {
+    heading_id: i64,
 }
 
 impl LinkResolver {
@@ -318,6 +325,14 @@ impl LinkResolver {
         }
 
         let Some(heading_title) = heading_title_search_target(link.search_option.as_deref()) else {
+            if link.search_option.is_none() {
+                return Self::resolve_file_root_target(
+                    connection,
+                    link.id,
+                    path_absolute,
+                    target_file_id,
+                );
+            }
             return Self::mark_resolved_file(connection, link.id, path_absolute, target_file_id);
         };
 
@@ -522,6 +537,73 @@ impl LinkResolver {
             .collect())
     }
 
+    fn load_root_heading_ids(
+        connection: &Connection,
+        file_id: i64,
+    ) -> Result<Vec<i64>, DbWriteError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT id
+                 FROM headings
+                 WHERE file_id = ?1
+                   AND level = 0
+                   AND parent_id IS NULL
+                 ORDER BY byte_start, id",
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_root_heading_ids.prepare",
+                source,
+            })?;
+        let rows = statement
+            .query_map(params![file_id], |row| {
+                Ok(RootHeadingCandidate {
+                    heading_id: row.get(0)?,
+                })
+            })
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_root_heading_ids.query",
+                source,
+            })?;
+        let candidates =
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|source| DbWriteError::Write {
+                    operation: "link_resolver.load_root_heading_ids.collect",
+                    source,
+                })?;
+        Ok(candidates
+            .into_iter()
+            .map(|candidate| candidate.heading_id)
+            .collect())
+    }
+
+    fn resolve_file_root_target(
+        connection: &Connection,
+        link_id: i64,
+        path_absolute: &Path,
+        target_file_id: i64,
+    ) -> Result<(), DbWriteError> {
+        let root_heading_ids = Self::load_root_heading_ids(connection, target_file_id)?;
+        match root_heading_ids.as_slice() {
+            [target_heading_id] => Self::mark_resolved_heading(
+                connection,
+                link_id,
+                path_absolute,
+                target_file_id,
+                *target_heading_id,
+            ),
+            [] => Self::mark_resolved_file_with_diagnostic(
+                connection,
+                link_id,
+                path_absolute,
+                target_file_id,
+                MISSING_SYNTHETIC_ROOT_DIAGNOSTIC,
+            ),
+            [..] => {
+                Self::mark_ambiguous_file_root(connection, link_id, path_absolute, target_file_id)
+            }
+        }
+    }
+
     fn mark_unsupported(connection: &Connection, link_id: i64) -> Result<(), DbWriteError> {
         connection
             .execute(
@@ -561,6 +643,37 @@ impl LinkResolver {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_resolved_file",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn mark_resolved_file_with_diagnostic(
+        connection: &Connection,
+        link_id: i64,
+        path_absolute: &Path,
+        target_file_id: i64,
+        resolution_diagnostic: &str,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?2,
+                     target_file_id = ?3,
+                     target_heading_id = NULL,
+                     resolution_status = ?4,
+                     resolution_diagnostic = ?5
+                 WHERE id = ?1",
+                params![
+                    link_id,
+                    path_absolute.to_string_lossy().to_string(),
+                    target_file_id,
+                    "resolved",
+                    resolution_diagnostic,
+                ],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.mark_resolved_file_with_diagnostic",
                 source,
             })?;
         Ok(())
@@ -768,6 +881,36 @@ impl LinkResolver {
             )
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.mark_unresolved_file",
+                source,
+            })?;
+        Ok(())
+    }
+
+    fn mark_ambiguous_file_root(
+        connection: &Connection,
+        link_id: i64,
+        path_absolute: &Path,
+        target_file_id: i64,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?2,
+                     target_file_id = ?3,
+                     target_heading_id = NULL,
+                     resolution_status = ?4,
+                     resolution_diagnostic = ?5
+                 WHERE id = ?1",
+                params![
+                    link_id,
+                    path_absolute.to_string_lossy().to_string(),
+                    target_file_id,
+                    "ambiguous",
+                    DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC,
+                ],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.mark_ambiguous_file_root",
                 source,
             })?;
         Ok(())
@@ -1104,7 +1247,7 @@ mod tests {
         normalize_id_target, same_file_fuzzy_custom_id_target, same_file_fuzzy_star_heading_target,
         unicode_lowercase, IndexedUniverse, LinkResolver, CUSTOM_ID_MISSING_DIAGNOSTIC,
         DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC, FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC,
-        HEADING_TITLE_MISSING_DIAGNOSTIC, ID_MISSING_DIAGNOSTIC,
+        HEADING_TITLE_MISSING_DIAGNOSTIC, ID_MISSING_DIAGNOSTIC, MISSING_SYNTHETIC_ROOT_DIAGNOSTIC,
         SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
     };
     use crate::db::{
@@ -1599,6 +1742,165 @@ mod tests {
                 Some(2_i64),
                 Some("resolved".to_string()),
                 None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_maps_file_only_links_to_target_root_headings() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org]]",
+            "file",
+            "target.org",
+            None,
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+        seed_target_heading(&connection, 20, 2, 1, "Child heading");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                Some(2_i64),
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_keeps_file_links_with_search_options_off_root_fallback() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org::/regexp/]]",
+            "file",
+            "target.org",
+            Some("/regexp/"),
+        );
+        seed_known_target_file(&connection, "/tmp/target.org", 2);
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                None,
+                Some("resolved".to_string()),
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_all_marks_missing_synthetic_root_heading_as_resolved_corruption() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        seed_file_link_fixture(
+            &connection,
+            "/tmp/source.org",
+            "[[file:target.org]]",
+            "file",
+            "target.org",
+            None,
+        );
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (?1, ?2, ?3, ?4)",
+                (2_i64, "/tmp/target.org", 30_i64, 40_i64),
+            )
+            .expect("target file insert should succeed");
+
+        let mut universe = IndexedUniverse::default();
+        universe.add_exact_path(PathBuf::from("/tmp/source.org"));
+        universe.add_exact_path(PathBuf::from("/tmp/target.org"));
+
+        LinkResolver::resolve_all(&connection, &universe).expect("resolution should succeed");
+
+        let row: FileHeadingResolutionRow = connection
+            .query_row(
+                "SELECT path_absolute, target_file_id, target_heading_id,
+                            resolution_status, resolution_diagnostic
+                     FROM links
+                     WHERE id = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("resolved row should load");
+        assert_eq!(
+            row,
+            (
+                Some("/tmp/target.org".to_string()),
+                Some(2_i64),
+                None,
+                Some("resolved".to_string()),
+                Some(MISSING_SYNTHETIC_ROOT_DIAGNOSTIC.to_string()),
             )
         );
     }
