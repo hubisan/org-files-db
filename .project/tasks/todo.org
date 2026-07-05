@@ -47,3 +47,259 @@ Archived in [[./archive/todo-archive.org]]
 :END:
 
 Archived in [[./archive/todo-archive.org]]
+
+* Phase 5: Query engine and optional full-text search
+
+Goal of this phase:
+
+- Build a small, safe query layer for indexed Org data.
+- Keep the query model independent from CLI and SQL.
+- Prepare the design so it can later grow toward an org-ql-like language.
+- Keep full-text search optional.
+
+General rules:
+
+- Query AST/model is independent of CLI and SQL.
+- SQL generation must use bound parameters.
+- FTS5 is optional and must only be required for FTS-specific functionality.
+- FTS-dependent operators must fail clearly when FTS5 is disabled.
+- Direct parsed facts and effective/derived semantics must stay clearly separated.
+- Query results should include enough location data for editor jumps.
+
+** TODO [#B] Define effective property semantics
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Define how direct property rows are resolved into effective property values for query/API use.
+
+Context:
+
+- The ~properties~ table stores direct source facts only.
+- Parsing and indexing do not collapse duplicate rows.
+- Parsing and indexing do not compute final effective values.
+- Direct property rows remain the source of truth.
+
+Definitions:
+
+- Direct property :: A property row exactly as parsed from the source file and stored in the ~properties~ table.
+- Effective property :: The resolved value for a heading after applying overwrite, append, source precedence, and optional inheritance.
+- Direct property query :: A query against raw property rows.
+- Effective property query :: A query against resolved property values.
+
+Rules:
+
+- Later direct definitions with the same key override earlier non-append definitions in effective mode.
+- Rows with ~append = 1~ append to the current effective value, separated by a single space.
+- If an append row appears before any base value, it starts the value.
+- Effective inheritance is optional.
+- Queries must be able to request direct-only behavior.
+- Direct heading drawer properties override inherited/default values.
+- Child heading append rows append to the inherited/current value.
+
+Effective inherited precedence:
+
+1. Level 0 ~#+PROPERTY~ defaults.
+2. Level 0 ~#+CATEGORY~ as ~CATEGORY~ property.
+3. Level 0 property drawer.
+4. Ancestor heading property drawers from root to parent.
+5. Current heading property drawer.
+
+Acceptance criteria:
+
+- Direct property rows remain unchanged.
+- Direct and effective property queries are clearly distinguished.
+- Duplicate direct definitions are resolved only in effective mode.
+- Later non-append definitions override earlier effective values.
+- Append rows append to the current effective value.
+- Append without prior base value starts the value.
+- Inheritance behavior is explicit and optional.
+- Level 0 property behavior is documented.
+- Tests cover overwrite, append, append without prior base value, level 0 properties, drawer-over-keyword override, and child append with inheritance.
+
+Open questions:
+
+- Should effective properties be computed in Rust query/API code first?
+- Is a SQL view or cache table needed later for performance?
+- Should v0 expose both direct and effective operators immediately?
+
+** TODO [#C] Enable optional SQLite FTS5 for full-text search
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Create and maintain an optional FTS5 table for heading title and optional body search.
+
+Planned table when FTS5 is enabled:
+
+#+begin_src sql
+  CREATE VIRTUAL TABLE heading_fts
+  USING fts5(
+      title,
+      body,
+      tokenize = 'unicode61'
+  );
+#+end_src
+
+Rules:
+
+- FTS5 support is configured through ~search.fts5_enabled~.
+- Body indexing is configured separately through ~search.index_body_text~.
+- FTS5 must not be required unless FTS-specific functionality is enabled.
+
+Acceptance criteria:
+
+- If FTS5 is disabled, rebuild works without creating or writing ~heading_fts~.
+- If FTS5 is enabled, ~heading_fts~ is created and maintained.
+- ~heading_fts.rowid~ matches ~headings.id~.
+- Heading titles are indexed when FTS5 is enabled.
+- Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- Search can match title-only, body-only, or both when enabled.
+- Body indexing can be disabled even when FTS5 is enabled.
+- Search/query commands handle disabled FTS5 clearly.
+
+** TODO [#B] Build query parser and SQL translator
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:END:
+
+Depends on:
+
+- Define query model v0
+- Define effective property semantics
+
+Goal:
+
+- Parse query strings and translate them safely to SQL using bound parameters.
+
+Acceptance criteria:
+
+- No string concatenation with user input in SQL.
+- Bound parameters are used.
+- Invalid query syntax produces understandable errors.
+- Tests exist for all supported operators.
+- SQL-injection-like inputs are tested.
+- FTS5 ~MATCH~ queries are handled safely and deliberately.
+- FTS-dependent SQL is generated only when FTS5 is enabled.
+- Hierarchy queries use ~outline_path~ where appropriate.
+
+** TODO [#B] Implement CLI command ~query~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Example:
+
+#+begin_src shell
+  orgfdb query --json '(todo "NEXT")'
+  orgfdb query --json '(text-contains "sqlite")'
+#+end_src
+
+Goal:
+
+- Expose the query engine through the CLI.
+- Return JSON suitable for Emacs/editor integrations.
+
+Acceptance criteria:
+
+- Query outputs JSON.
+- Query uses the DB layer, not the parser.
+- Simple combinations can be added later.
+- Query results include heading id, file path, title, and byte_start.
+- Query results include enough location data for editor jumps.
+- If a query requires FTS5 while FTS5 is disabled, the CLI returns a clear error.
+
+Open questions:
+
+- Should ~query~ support an outline/context output mode in v0?
+- Should output include ancestor headings for context?
+
+** TODO [#C] Provide CLI command ~search~
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:END:
+
+Goal:
+
+- Provide a simple FTS-focused command before or alongside the full query language.
+
+Example:
+
+#+begin_src shell
+  orgfdb search --json sqlite
+#+end_src
+
+Acceptance criteria:
+
+- Search uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
+- If FTS5 is disabled, the command returns a clear error or documented fallback.
+- Results include heading id, file path, title, and byte_start.
+- Search can optionally include body matches when ~search.index_body_text~ is enabled.
+- Output is usable from Emacs.
+
+** TODO [#C] Design outline/context result output
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Goal:
+
+- Define an output format that returns matching headings with enough surrounding context to render an outline.
+- Support use cases such as Emacs side buffers with clickable links.
+
+Inspiration:
+
+- org-ql side buffers.
+- vulpea-ui.
+
+Potential behavior:
+
+- Return matching headings as a tree.
+- Include ancestor headings for context.
+- Represent the file as level 0.
+- Allow querying one file or multiple files.
+- Make output usable as JSON for Emacs.
+
+Acceptance criteria:
+
+- JSON shape for outline/context results is documented.
+- File-level entries are represented consistently.
+- Matching nodes are distinguishable from context-only nodes.
+- Output includes enough location data for clickable links.
+
+** TODO [#C] Collect future operation commands
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:END:
+
+Goal:
+
+- Capture CLI operations that are related to the indexed graph but should not be mixed into the v0 query engine.
+
+Potential operations:
+
+- Rename file and update affected links.
+- Update link descriptions when a file title changes.
+- Fix broken link by replacing an old destination with a new destination.
+- Warn when a change breaks links, possibly via watcher.
+
+Acceptance criteria:
+
+- Operations are documented as future work.
+- Query/search scope remains separate from mutation/repair operations.
+- No mutation command is implemented as part of query v0 unless explicitly split into its own task.
