@@ -1,0 +1,120 @@
+#+TITLE: Expose resolution fields in links --json
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-05 Sun 21:51]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request summary:
+  - Implement =BUILD Expose resolution fields in ~links --json~=.
+  - Keep existing Phase 3 source-fact fields unchanged while extending the public JSON output with stored resolution fields.
+  - Preserve read-only behavior, missing-DB behavior, and future-schema rejection behavior.
+  - Add coverage for resolved, broken, ambiguous, unresolved, and unsupported rows.
+- Active task entry copied from the provided task text:
+
+#+begin_src org
+,** BUILD [#B] Expose resolution fields in ~links --json~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- [[*Define Phase 4 link resolution DB contract][Define Phase 4 link resolution DB contract]]
+- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+- [[*Resolve file-scoped CUSTOM_ID search options][Resolve file-scoped CUSTOM_ID search options]]
+- [[*Resolve Org ID links within indexed ID universe][Resolve Org ID links within indexed ID universe]]
+
+Goal:
+
+- Extend read-only link JSON output with resolution information while preserving the Phase 3 source-fact fields.
+
+Add output fields:
+
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+- ~resolution_status~
+- ~resolution_diagnostic~
+#+end_src
+
+* Planning
+
+** Problem summary
+- =orgfdb links --json= currently exposes only the stored Phase 3 source-fact fields even though the DB contract already persists nullable Phase 4 resolution columns.
+
+** Goals
+- Expose the stored resolution columns in the public links JSON rows.
+- Preserve deterministic ordering and read-only DB access semantics.
+- Keep root links visible and surface resolved, broken, ambiguous, unresolved, and unsupported rows without filtering.
+
+** Non-goals
+- No rebuild behavior changes.
+- No resolver changes.
+- No schema changes or migrations.
+
+** Architecture
+- Extend =DbReader::list_links= to select the existing resolution columns from =links=.
+- Extend =LinkJsonRow= to serialize the new nullable fields directly from stored DB rows.
+- Update CLI contract tests and documentation to reflect the expanded public JSON shape.
+
+** Execution plan
+- Add the active task file and link it from =todo.org=.
+- Extend the links reader and JSON serializer with stored resolution fields.
+- Add test coverage for the public JSON keys and mixed resolution-state rows.
+- Update CLI docs, README wording, and CHANGELOG.
+- Run formatter, focused tests, and =make ci= if available.
+
+** Risks & assumptions
+- Assumption: the current on-disk schema for supported databases already contains the Phase 4 columns, so exposing them in the read path is an API change but not a schema change.
+
+** Open questions
+- None after inspection.
+
+** Proposed checks
+- =cargo fmt --all=
+- =cargo test links_json -- --nocapture=
+- =cargo test list_links_returns_stable_rows_for_cli_json -- --nocapture=
+- =make ci=
+
+* Results
+
+** Approach
+- Extended the read-only =links= DB reader and CLI JSON row to expose the stored resolver-owned columns directly, without changing rebuild behavior or resolver logic.
+- Kept the existing Phase 3 source-fact fields intact and added test coverage for null and non-null resolution columns in the public JSON contract.
+- Documented the expanded CLI contract and refreshed top-level wording that still described =src/cli.rs= as headings-only.
+
+** Changed files
+- =src/db/reader.rs=
+- =src/cli.rs=
+- =docs/cli.md=
+- =README.org=
+- =CHANGELOG.org=
+- =.project/tasks/todo.org=
+- =.project/tasks/2026-07-05--expose-resolution-fields-in-links-json.org=
+
+** Checks performed
+- =cargo fmt --all=
+- =cargo test links_json -- --nocapture=
+- =cargo test list_links_returns_stable_rows_for_cli_json -- --nocapture=
+- =make ci=
+
+** Test results
+- =orgfdb links --json= now serializes the existing source-fact fields plus =path_absolute=, =target_file_id=, =target_heading_id=, =target_custom_id=, =target_id=, =resolution_status=, and =resolution_diagnostic=.
+- CLI tests cover root-link inclusion, deterministic ordering, null resolution fields for untouched rows, and visible =resolved=, =broken=, =ambiguous=, =unresolved=, and =unsupported= output rows.
+- Full repository CI passed, including formatter, clippy, tests, and build.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

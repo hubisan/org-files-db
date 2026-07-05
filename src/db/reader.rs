@@ -45,6 +45,13 @@ pub(crate) struct LinkListRow {
     pub raw_description: Option<String>,
     pub path: String,
     pub search_option: Option<String>,
+    pub path_absolute: Option<String>,
+    pub target_file_id: Option<i64>,
+    pub target_heading_id: Option<i64>,
+    pub target_custom_id: Option<String>,
+    pub target_id: Option<String>,
+    pub resolution_status: Option<String>,
+    pub resolution_diagnostic: Option<String>,
     pub byte_start: i64,
     pub byte_end: i64,
     pub line: i64,
@@ -149,6 +156,13 @@ impl DbReader {
                     links.raw_description,
                     links.path,
                     links.search_option,
+                    links.path_absolute,
+                    links.target_file_id,
+                    links.target_heading_id,
+                    links.target_custom_id,
+                    links.target_id,
+                    links.resolution_status,
+                    links.resolution_diagnostic,
                     links.byte_start,
                     links.byte_end,
                     links.line
@@ -180,9 +194,16 @@ impl DbReader {
                     raw_description: row.get(11)?,
                     path: row.get(12)?,
                     search_option: row.get(13)?,
-                    byte_start: row.get(14)?,
-                    byte_end: row.get(15)?,
-                    line: row.get(16)?,
+                    path_absolute: row.get(14)?,
+                    target_file_id: row.get(15)?,
+                    target_heading_id: row.get(16)?,
+                    target_custom_id: row.get(17)?,
+                    target_id: row.get(18)?,
+                    resolution_status: row.get(19)?,
+                    resolution_diagnostic: row.get(20)?,
+                    byte_start: row.get(21)?,
+                    byte_end: row.get(22)?,
+                    line: row.get(23)?,
                 })
             })
             .map_err(|source| DbReadError::Query {
@@ -451,6 +472,13 @@ mod tests {
         assert_eq!(rows[0].heading_level, 0);
         assert_eq!(rows[0].heading_breadcrumbs_json, "[\"Project\"]");
         assert_eq!(rows[0].link_type, "id");
+        assert_eq!(rows[0].path_absolute, None);
+        assert_eq!(rows[0].target_file_id, None);
+        assert_eq!(rows[0].target_heading_id, None);
+        assert_eq!(rows[0].target_custom_id, None);
+        assert_eq!(rows[0].target_id, None);
+        assert_eq!(rows[0].resolution_status, None);
+        assert_eq!(rows[0].resolution_diagnostic, None);
         assert_eq!(rows[1].heading_level, 1);
         assert_eq!(rows[1].heading_breadcrumbs_json, "[\"Project\",\"Inbox\"]");
         assert_eq!(rows[1].byte_start, 40);

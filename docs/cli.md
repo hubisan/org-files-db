@@ -47,7 +47,7 @@ If you need the underlying configuration settings for the database path, source 
 
 ## `orgfdb links --json`
 
-`orgfdb links --json` prints stored link source facts from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.
+`orgfdb links --json` prints stored link source facts plus stored resolution snapshot fields from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.
 
 The command is read-only. It does not scan Org files, rebuild files, resolve targets, or mutate the database.
 
@@ -74,6 +74,13 @@ The JSON objects expose these public fields:
 - `raw_description`
 - `path`
 - `search_option`
+- `path_absolute`
+- `target_file_id`
+- `target_heading_id`
+- `target_custom_id`
+- `target_id`
+- `resolution_status`
+- `resolution_diagnostic`
 - `byte_start`
 - `byte_end`
 - `line`
@@ -85,8 +92,9 @@ Notes:
 - `format` identifies the source syntax: `bracket`, `angle`, or `plain`.
 - `source_context` records where the link came from in the indexed Org file, such as normal text or a drawer context.
 - `path`, `search_option`, `byte_start`, `byte_end`, and `line` provide editor-jump data from the stored database facts.
+- `path_absolute`, `target_file_id`, `target_heading_id`, `target_custom_id`, `target_id`, `resolution_status`, and `resolution_diagnostic` mirror the stored resolver-owned DB columns as-is and may be `null`.
 - The command opens the existing database in read-only mode. If `--config` is provided, only the stored `db_path` is read from that config file.
 
-## Phase 3 link indexing
+## Link storage contract
 
-Phase 3 stores raw link source facts only. The scanner contract deliberately does not resolve targets, build relationship graphs, or infer normalized link behavior beyond the documented source-fact fields. Root-attached links are part of the stored data model and remain visible in CLI output.
+Phase 3 stores raw link source facts, and later rebuild-time resolution may populate separate Phase 4 target fields. `orgfdb links --json` exposes both sets together without rebuilding, resolving on demand, or mutating the database. Root-attached links are part of the stored data model and remain visible in CLI output, including broken, ambiguous, unresolved, and unsupported rows.

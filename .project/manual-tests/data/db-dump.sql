@@ -8,10 +8,10 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1783114181649212594,2629,NULL,1783115425);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',1783094478000000000,549,NULL,1783115425);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',1783094478000000000,725,NULL,1783115425);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',1783094478000000000,1034,NULL,1783115425);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/index.org',1783114181649212594,2629,NULL,1783281394);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/other/peer.org',1783094478000000000,549,NULL,1783281394);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/sub/child.org',1783094478000000000,725,NULL,1783281394);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/link-file-resolve/notes/target.org',1783094478000000000,1034,NULL,1783281394);
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,

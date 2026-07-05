@@ -323,7 +323,7 @@ Task file: [[./archive/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-m
 
 Task file: [[./archive/2026-07-03--resolve-file-only-links-to-synthetic-root-headings.org]]
 
-** TODO [#B] Expose resolution fields in ~links --json~
+** DONE [#B] Expose resolution fields in ~links --json~
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -331,48 +331,7 @@ Task file: [[./archive/2026-07-03--resolve-file-only-links-to-synthetic-root-hea
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-Depends on:
-
-- [[*Define Phase 4 link resolution DB contract][Define Phase 4 link resolution DB contract]]
-- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
-- [[*Resolve file-scoped CUSTOM_ID search options][Resolve file-scoped CUSTOM_ID search options]]
-- [[*Resolve Org ID links within indexed ID universe][Resolve Org ID links within indexed ID universe]]
-
-Goal:
-
-- Extend read-only link JSON output with resolution information while preserving the Phase 3 source-fact fields.
-
-Add output fields:
-
-- ~path_absolute~
-- ~target_file_id~
-- ~target_heading_id~
-- ~target_custom_id~
-- ~target_id~
-- ~resolution_status~
-- ~resolution_diagnostic~
-
-Rules:
-
-- Existing Phase 3 output fields remain unchanged.
-- Output remains read-only.
-- Output does not rebuild.
-- Output does not resolve on demand.
-- Output ordering remains:
-  - ~file_path~
-  - ~byte_start~
-  - ~id~
-- Root links remain included.
-- Broken, ambiguous, unresolved, and unsupported links are visible in JSON.
-
-Acceptance criteria:
-
-- ~orgfdb links --json~ includes resolution fields.
-- Existing source-fact fields are still present.
-- Read-only behavior is preserved.
-- Missing DB behavior is unchanged.
-- Future schema rejection behavior is unchanged.
-- Tests cover resolved, broken, ambiguous, unresolved, and unsupported output rows.
+Task file: [[./archive/2026-07-05--expose-resolution-fields-in-links-json.org]]
 
 ** TODO [#C] Prepare external Org ID location support
 :PROPERTIES:

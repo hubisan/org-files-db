@@ -314,6 +314,13 @@ struct LinkJsonRow {
     raw_description: Option<String>,
     path: String,
     search_option: Option<String>,
+    path_absolute: Option<String>,
+    target_file_id: Option<i64>,
+    target_heading_id: Option<i64>,
+    target_custom_id: Option<String>,
+    target_id: Option<String>,
+    resolution_status: Option<String>,
+    resolution_diagnostic: Option<String>,
     byte_start: i64,
     byte_end: i64,
     line: i64,
@@ -382,6 +389,13 @@ impl TryFrom<LinkListRow> for LinkJsonRow {
             raw_description: row.raw_description,
             path: row.path,
             search_option: row.search_option,
+            path_absolute: row.path_absolute,
+            target_file_id: row.target_file_id,
+            target_heading_id: row.target_heading_id,
+            target_custom_id: row.target_custom_id,
+            target_id: row.target_id,
+            resolution_status: row.resolution_status,
+            resolution_diagnostic: row.resolution_diagnostic,
             byte_start: row.byte_start,
             byte_end: row.byte_end,
             line: row.line,
@@ -1121,6 +1135,13 @@ db_path = "./future.sqlite"
                     link_type: "id",
                     path: "root-link",
                     search_option: None,
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                    resolution_status: None,
+                    resolution_diagnostic: None,
                 },
                 SeedLink {
                     id: 3,
@@ -1136,6 +1157,13 @@ db_path = "./future.sqlite"
                     link_type: "https",
                     path: "//example.org",
                     search_option: None,
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                    resolution_status: None,
+                    resolution_diagnostic: None,
                 },
             ],
         );
@@ -1158,6 +1186,13 @@ db_path = "./future.sqlite"
                 link_type: "file",
                 path: "notes.org",
                 search_option: Some("42"),
+                path_absolute: None,
+                target_file_id: None,
+                target_heading_id: None,
+                target_custom_id: None,
+                target_id: None,
+                resolution_status: None,
+                resolution_diagnostic: None,
             }],
         );
 
@@ -1183,6 +1218,180 @@ db_path = "./future.sqlite"
         assert_eq!(array[1]["heading_path"], serde_json::json!(["Inbox"]));
         assert_eq!(array[2]["file_path"], "/tmp/b.org");
         assert_eq!(array[2]["byte_start"], 5);
+        assert_eq!(array[2]["resolution_status"], Value::Null);
+        assert_eq!(array[2]["resolution_diagnostic"], Value::Null);
+    }
+
+    #[test]
+    fn links_json_includes_resolution_fields_for_all_resolution_states() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let mut connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+
+        seed_links_fixture(
+            &mut connection,
+            "/tmp/resolution.org",
+            "Resolution",
+            "Links",
+            &[
+                SeedLink {
+                    id: 1,
+                    heading_kind: HeadingKind::Root,
+                    byte_start: 0,
+                    byte_end: 17,
+                    line: 1,
+                    source_context: "normal",
+                    format: "bracket",
+                    raw: "[[id:resolved]]",
+                    raw_target: "id:resolved",
+                    raw_description: None,
+                    link_type: "id",
+                    path: "resolved",
+                    search_option: None,
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: Some("resolved"),
+                    resolution_status: Some("resolved"),
+                    resolution_diagnostic: None,
+                },
+                SeedLink {
+                    id: 2,
+                    heading_kind: HeadingKind::Child,
+                    byte_start: 20,
+                    byte_end: 39,
+                    line: 2,
+                    source_context: "normal",
+                    format: "bracket",
+                    raw: "[[file:missing.org]]",
+                    raw_target: "file:missing.org",
+                    raw_description: None,
+                    link_type: "file",
+                    path: "missing.org",
+                    search_option: None,
+                    path_absolute: Some("/tmp/missing.org"),
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                    resolution_status: Some("broken"),
+                    resolution_diagnostic: Some("file not found"),
+                },
+                SeedLink {
+                    id: 3,
+                    heading_kind: HeadingKind::Child,
+                    byte_start: 40,
+                    byte_end: 55,
+                    line: 3,
+                    source_context: "normal",
+                    format: "plain",
+                    raw: "id:duplicate",
+                    raw_target: "id:duplicate",
+                    raw_description: None,
+                    link_type: "id",
+                    path: "duplicate",
+                    search_option: None,
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: Some("duplicate"),
+                    resolution_status: Some("ambiguous"),
+                    resolution_diagnostic: Some("duplicate id"),
+                },
+                SeedLink {
+                    id: 4,
+                    heading_kind: HeadingKind::Child,
+                    byte_start: 60,
+                    byte_end: 81,
+                    line: 4,
+                    source_context: "normal",
+                    format: "bracket",
+                    raw: "[[id:outside-universe]]",
+                    raw_target: "id:outside-universe",
+                    raw_description: None,
+                    link_type: "id",
+                    path: "outside-universe",
+                    search_option: None,
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: Some("outside-universe"),
+                    resolution_status: Some("unresolved"),
+                    resolution_diagnostic: Some("id not found"),
+                },
+                SeedLink {
+                    id: 5,
+                    heading_kind: HeadingKind::Child,
+                    byte_start: 90,
+                    byte_end: 106,
+                    line: 5,
+                    source_context: "normal",
+                    format: "angle",
+                    raw: "<shell:ls>",
+                    raw_target: "shell:ls",
+                    raw_description: None,
+                    link_type: "shell",
+                    path: "ls",
+                    search_option: None,
+                    path_absolute: None,
+                    target_file_id: None,
+                    target_heading_id: None,
+                    target_custom_id: None,
+                    target_id: None,
+                    resolution_status: Some("unsupported"),
+                    resolution_diagnostic: Some("unsupported link type"),
+                },
+            ],
+        );
+
+        let resolved_file_id: i64 = connection
+            .query_row(
+                "SELECT id FROM files WHERE path = '/tmp/resolution.org'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fixture file should exist");
+        let resolved_heading_id: i64 = connection
+            .query_row(
+                "SELECT id
+                 FROM headings
+                 WHERE file_id = ?1 AND level = 1 AND title = 'Links'",
+                [resolved_file_id],
+                |row| row.get(0),
+            )
+            .expect("fixture child heading should exist");
+        connection
+            .execute(
+                "UPDATE links
+                 SET target_file_id = ?2,
+                     target_heading_id = ?3
+                 WHERE id = ?1",
+                rusqlite::params![1, resolved_file_id, resolved_heading_id],
+            )
+            .expect("resolved link target ids should update");
+
+        let rows = super::links_rows_for_json(&connection).expect("rows should load");
+        let json = serde_json::to_value(&rows).expect("rows should serialize");
+        let array = json.as_array().expect("rows should serialize as an array");
+
+        assert_eq!(array.len(), 5);
+        assert_eq!(sorted_object_keys(&array[0]), expected_link_json_keys());
+        assert_eq!(array[0]["resolution_status"], "resolved");
+        assert_eq!(array[0]["target_file_id"], resolved_file_id);
+        assert_eq!(array[0]["target_heading_id"], resolved_heading_id);
+        assert_eq!(array[0]["target_id"], "resolved");
+        assert_eq!(array[1]["resolution_status"], "broken");
+        assert_eq!(array[1]["path_absolute"], "/tmp/missing.org");
+        assert_eq!(array[1]["resolution_diagnostic"], "file not found");
+        assert_eq!(array[2]["resolution_status"], "ambiguous");
+        assert_eq!(array[2]["target_id"], "duplicate");
+        assert_eq!(array[3]["resolution_status"], "unresolved");
+        assert_eq!(array[3]["target_id"], "outside-universe");
+        assert_eq!(array[4]["resolution_status"], "unsupported");
+        assert_eq!(array[4]["resolution_diagnostic"], "unsupported link type");
     }
 
     #[test]
@@ -1219,6 +1428,13 @@ db_path = "../db.sqlite"
                 link_type: "id",
                 path: "config",
                 search_option: None,
+                path_absolute: None,
+                target_file_id: None,
+                target_heading_id: None,
+                target_custom_id: None,
+                target_id: None,
+                resolution_status: None,
+                resolution_diagnostic: None,
             }],
         );
         drop(configured_db);
@@ -1397,11 +1613,18 @@ db_path = "./future.sqlite"
             "line",
             "link_type",
             "path",
+            "path_absolute",
             "raw",
             "raw_description",
             "raw_target",
+            "resolution_diagnostic",
+            "resolution_status",
             "search_option",
             "source_context",
+            "target_custom_id",
+            "target_file_id",
+            "target_heading_id",
+            "target_id",
         ]
         .into_iter()
         .map(str::to_string)
@@ -1428,6 +1651,13 @@ db_path = "./future.sqlite"
         link_type: &'a str,
         path: &'a str,
         search_option: Option<&'a str>,
+        path_absolute: Option<&'a str>,
+        target_file_id: Option<i64>,
+        target_heading_id: Option<i64>,
+        target_custom_id: Option<&'a str>,
+        target_id: Option<&'a str>,
+        resolution_status: Option<&'a str>,
+        resolution_diagnostic: Option<&'a str>,
     }
 
     fn seed_links_fixture(
@@ -1545,6 +1775,35 @@ db_path = "./future.sqlite"
                 })
                 .collect::<Vec<_>>();
             DbWriter::insert_links(tx, &rows)?;
+
+            for link in links {
+                tx.execute(
+                    "UPDATE links
+                     SET path_absolute = ?2,
+                         target_file_id = ?3,
+                         target_heading_id = ?4,
+                         target_custom_id = ?5,
+                         target_id = ?6,
+                         resolution_status = ?7,
+                         resolution_diagnostic = ?8
+                     WHERE id = ?1",
+                    rusqlite::params![
+                        link.id,
+                        link.path_absolute,
+                        link.target_file_id,
+                        link.target_heading_id,
+                        link.target_custom_id,
+                        link.target_id,
+                        link.resolution_status,
+                        link.resolution_diagnostic
+                    ],
+                )
+                .map_err(|source| crate::db::DbWriteError::Write {
+                    operation: "seed_links_fixture.update_links",
+                    source,
+                })?;
+            }
+
             Ok(())
         })
         .expect("fixture rebuild should succeed");

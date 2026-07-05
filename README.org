@@ -15,7 +15,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - =src/indexer.rs= orchestrates parsing, normalization, and DB writes
 - =src/db/= owns the SQLite schema, reader, and writer layers
 - =src/query.rs= contains query-side helpers used by the CLI and tests
-- =src/cli.rs= exposes the supported rebuild and headings commands
+- =src/cli.rs= exposes the supported rebuild, headings, and links commands
 - =main.rs= remains thin and delegates directly to the CLI module
 
 ** Parser Contract Notes
