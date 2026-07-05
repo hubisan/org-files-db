@@ -93,6 +93,11 @@ Notes:
 - `source_context` records where the link came from in the indexed Org file, such as normal text or a drawer context.
 - `path`, `search_option`, `byte_start`, `byte_end`, and `line` provide editor-jump data from the stored database facts.
 - `path_absolute`, `target_file_id`, `target_heading_id`, `target_custom_id`, `target_id`, `resolution_status`, and `resolution_diagnostic` mirror the stored resolver-owned DB columns as-is and may be `null`.
+- `resolution_status = null` means no resolver pass has populated the row yet.
+- `resolution_status = resolved`, `broken`, `unresolved`, `ambiguous`, and `unsupported` reflect the stored Phase 4 outcome.
+- File-only links resolve to the target file's synthetic root heading, and file links to indexed files populate `path_absolute` and `target_file_id`.
+- Supported file search options are only `::*Heading` and `::#custom-id`; unsupported examples include `::42`, `::/regexp/`, and dedicated targets such as `::target` or `::<<target>>`.
+- Org `id:` links resolve only against indexed non-root headings. External `org-id-locations` are not supported, so missing indexed IDs remain `unresolved` with `id not found`.
 - The command opens the existing database in read-only mode. If `--config` is provided, only the stored `db_path` is read from that config file.
 
 ## Link storage contract

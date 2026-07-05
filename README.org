@@ -34,6 +34,24 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - CLI reference: [[./docs/cli.md][docs/cli.md]]
 - Config reference: [[./docs/config.md][docs/config.md]]
 - Phase 3 link indexing notes are documented alongside parser risks in [[./docs/parser-risks.org][docs/parser-risks.org]].
+- Link resolving is documented in the CLI reference and summarized here so the Phase 3 source facts and Phase 4 resolver-owned fields stay clearly separated.
+
+** Link Resolving Contract
+
+- =links= stores raw Phase 3 link source facts and nullable Phase 4 resolution fields in the same row.
+- Phase 3 source facts are =raw=, =raw_target=, =raw_description=, =link_type=, =path=, =search_option=, byte positions, and source context.
+- Phase 4 resolver-owned fields are =path_absolute=, =target_file_id=, =target_heading_id=, =target_custom_id=, =target_id=, =resolution_status=, and =resolution_diagnostic=.
+- =resolution_status = NULL= means the resolver has not populated the row yet.
+- =resolved=, =broken=, =unresolved=, =ambiguous=, and =unsupported= are the stored resolution states.
+- File-only links resolve to the target file's synthetic root heading when the file is indexed.
+- File links to indexed files populate =path_absolute= and =target_file_id=; file links with =::*Heading= resolve heading titles in the resolved target file.
+- Same-file =[[*Heading]]= links resolve headings in the source file.
+- Same-file =[[#custom-id]]= links resolve =CUSTOM_ID= values in the source file, and file-context =[[file:target.org::#custom-id]]= links resolve =CUSTOM_ID= values in the resolved target file.
+- Org =id:= links resolve =ID= values across indexed non-root headings.
+- Heading-title star links trim surrounding whitespace, unescape bracket escapes such as =\[= and =\]=, and match case-insensitively.
+- =CUSTOM_ID= and Org =ID= matching is case-insensitive and whitespace-sensitive; neither target type is trimmed before lookup.
+- External =org-id-locations= are not supported, so missing indexed Org IDs remain =unresolved= with =id not found=.
+- Supported file search options are only =::*Heading= and =::#custom-id=; other file search options such as =::42=, =::/regexp/=, and dedicated targets such as =::target= or =::<<target>>= are intentionally unsupported.
 
 ** DB Schema Versioning
 
@@ -62,7 +80,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
   - =heading_bodies=
   - =outline_path=
 - =heading_fts= is optional. It is created only when rebuild/indexing enables FTS and the local SQLite build supports FTS5.
-- =links= stores raw Phase 3 link source facts plus nullable Phase 4 target fields and explicit resolution state columns; =resolution_status = NULL= means no resolver pass has populated the row yet, while the current rebuild pipeline resolves file-like links to indexed files when possible, maps file-only links to the resolved target file's synthetic root heading, resolves =file:...::*Heading= against normalized heading titles in the resolved target file, resolves same-file =[[*Heading]]= fuzzy star links against normalized titles in the source file, resolves same-file =[[#custom-id]]= links against =CUSTOM_ID= properties in the source file, resolves file-context =file:...::#custom-id= links against =CUSTOM_ID= properties in the resolved target file, resolves Org =id:...= links against =ID= properties across indexed non-root headings, trims surrounding whitespace only for star heading-title targets, preserves significant surrounding whitespace for =CUSTOM_ID= and Org =ID= targets, and matches those targets case-insensitively via Rust-side Unicode lowercase comparison, keeps successful duplicate heading-title and =CUSTOM_ID= matches silent, marks duplicate Org =ID= matches as =ambiguous=, marks missing in-universe file or heading-title targets as =broken=, marks missing Org =ID= targets and outside-universe file targets as =unresolved=, and falls back to =unsupported= for other link forms.
+- =links= stores raw Phase 3 link source facts plus nullable Phase 4 target fields and explicit resolution state columns. The current rebuild pipeline resolves file-like links to indexed files when possible, maps file-only links to the resolved target file's synthetic root heading, resolves =file:...::*Heading= against normalized heading titles in the resolved target file, resolves same-file =[[*Heading]]= fuzzy star links against normalized titles in the source file, resolves same-file =[[#custom-id]]= links against =CUSTOM_ID= properties in the source file, resolves file-context =file:...::#custom-id= links against =CUSTOM_ID= properties in the resolved target file, resolves Org =id:...= links against =ID= properties across indexed non-root headings, trims surrounding whitespace only for star heading-title targets, preserves significant surrounding whitespace for =CUSTOM_ID= and Org =ID= targets, and matches those targets case-insensitively via Rust-side Unicode lowercase comparison. Duplicate heading-title and =CUSTOM_ID= matches stay silent, duplicate Org =ID= matches become =ambiguous=, missing in-universe file or heading-title targets become =broken=, missing Org =ID= targets and outside-universe file targets become =unresolved=, and other link forms become =unsupported=.
 - Read-only CLI queries such as =headings --json= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
 - Synthetic level-0/root rows are DB/indexing sentinels for file/document roots, not parser-level Org headings.
 - Persisted synthetic root rows use =level = 0=, =parent_id = NULL=, and =byte_start = -1=.
