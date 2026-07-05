@@ -83,6 +83,12 @@ Status semantics:
 
 - is ~NULL~ means not attempted
 - ~unresolved~ means resolution was attempted but the available universe is not known to be complete.
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
 - ~broken~ means the target is missing inside a known complete context.
 - ~ambiguous~ means more than one valid target exists in the applicable context.
 - ~unsupported~ means the link form is intentionally not resolved yet.
@@ -324,101 +330,160 @@ Task file: [[./archive/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-m
 Task file: [[./archive/2026-07-03--resolve-file-only-links-to-synthetic-root-headings.org]]
 
 ** DONE [#B] Expose resolution fields in ~links --json~
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
 
 Task file: [[./archive/2026-07-05--expose-resolution-fields-in-links-json.org]]
 
-** TODO [#C] Prepare external Org ID location support
+** DONE Decision: not implementing external Org ID location support
+
+[[file:archive/2026-07-05--not-implementing-external-org-id-location-support.org]]
+
+** DONE Decision: Not supporting other link search options
+
+[[file:archive/2026-07-05--not-supporting-other-link-search-options.org]]
+
+** BUILD Add Link Resolving to the Documentation
 :PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
-:API_CONTRACT_CHANGE: Maybe
+:PRIORITY: Medium
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
 :END:
-
-Depends on:
-
-- [[*Resolve Org ID links within indexed ID universe][Resolve Org ID links within indexed ID universe]]
 
 Goal:
 
-- Define how a future version could resolve ~id:~ links against a complete or external Org ID location universe.
+- Document the current link resolving behavior clearly and accurately.
 
-Background:
+Scope:
 
-- Org ID resolution may depend on ~org-id-locations~.
-- The current indexed DB may only cover a subset of a user's Org files.
-- Without an explicit external ID universe, missing indexed IDs should remain ~unresolved~.
+- Documentation only.
+- Do not change resolver behavior.
+- Do not change parser behavior.
+- Do not change DB schema.
+- Do not change CLI behavior.
+- Keep the docs aligned with the implemented Phase 4 resolver behavior.
+- Fix the task title typo if present:
+  - =Linke Resolving= -> =Link Resolving=
 
-Questions to answer:
+Document:
 
-- Should org-files-db import ~org-id-locations~?
-- Should external ID locations point to files outside configured roots?
-- Should external non-indexed files be stored in the existing ~files~ table or in a separate target table?
-- Can an imported ID location universe be considered complete?
-- How should stale ID locations be represented?
-- Should external ID target files be resolved without indexing their headings?
+- Phase 3 source facts:
+  - =raw=
+  - =raw_target=
+  - =raw_description=
+  - =link_type=
+  - =path=
+  - =search_option=
+  - byte positions
+  - source context
+
+- Phase 4 resolver-owned fields:
+  - =path_absolute=
+  - =target_file_id=
+  - =target_heading_id=
+  - =target_custom_id=
+  - =target_id=
+  - =resolution_status=
+  - =resolution_diagnostic=
+
+- Resolution statuses:
+  - =NULL= means not attempted
+  - =resolved=
+  - =broken=
+  - =unresolved=
+  - =ambiguous=
+  - =unsupported=
+
+Supported resolver behavior:
+
+- File-only links resolve to the target file's synthetic root heading.
+- File links to indexed files set =path_absolute= and =target_file_id=.
+- File links with =::*Heading= resolve heading titles in the resolved target file.
+- Same-file =[[*Heading]]= fuzzy star links resolve headings in the source file.
+- Same-file =[[#custom-id]]= links resolve =CUSTOM_ID= in the source file.
+- File-context =[[file:target.org::#custom-id]]= links resolve =CUSTOM_ID= in the resolved target file.
+- Org =id:= links resolve =ID= properties across indexed non-root headings.
+
+Matching semantics:
+
+- Heading-title star links trim surrounding whitespace and match case-insensitively.
+- Heading-title links unescape bracket escapes such as =\[= and =\]=.
+- =CUSTOM_ID= and Org =ID= match case-insensitively.
+- =CUSTOM_ID= and Org =ID= do not trim whitespace.
+- Whitespace is part of the =CUSTOM_ID= or =ID= target value.
+- Plain links cannot represent leading/trailing whitespace-sensitive =ID= targets because whitespace terminates the plain link target.
+
+Duplicate semantics:
+
+- Duplicate heading-title matches select the first heading in document order.
+- Duplicate =CUSTOM_ID= matches select the first heading in document order.
+- Duplicate Org =ID= matches are =ambiguous= and do not select a target.
+
+Missing and unsupported semantics:
+
+- Missing file inside indexed universe:
+  - =broken=
+  - diagnostic =missing in indexed universe=
+- File outside indexed universe:
+  - =unresolved=
+  - diagnostic =outside indexed universe=
+- Missing heading title:
+  - =broken=
+  - diagnostic =heading not found= or =same-file heading not found=
+- Missing =CUSTOM_ID=:
+  - =broken=
+  - diagnostic =custom id not found=
+- Missing Org =ID=:
+  - =unresolved=
+  - diagnostic =id not found=
+- Duplicate Org =ID=:
+  - =ambiguous=
+  - diagnostic =duplicate id=
+- Unsupported link type:
+  - =unsupported=
+  - diagnostic =unsupported link type=
+
+Resolver scope decisions:
+
+- External =org-id-locations= are not supported.
+- Org =ID= links resolve only against indexed non-root headings.
+- Missing indexed Org IDs remain =unresolved= with diagnostic =id not found=.
+- External Org ID targets are not represented as file-level pseudo-targets.
+- Supported file search options are only:
+  - =::*Heading=
+  - =::#custom-id=
+- Unsupported file search options include:
+  - =::42=
+  - =::/regexp/=
+  - dedicated targets such as =::target= or =::<<target>>=
+
+CLI/API behavior:
+
+- =orgfdb links --json= exposes both Phase 3 source facts and Phase 4 resolution fields.
+- =links --json= is read-only.
+- =links --json= does not rebuild.
+- =links --json= does not resolve on demand.
+- Broken, unresolved, ambiguous, unsupported, resolved, and untouched rows remain visible.
+
+Suggested documentation locations:
+
+- =README.org=
+  - concise high-level overview
+  - link resolver contract summary
+  - explicit scope decisions
+
+- =docs/cli.md=
+  - =links --json= fields
+  - read-only behavior
+  - small example if useful
 
 Acceptance criteria:
 
-- Contract describes whether external ID locations are in scope.
-- Contract describes what makes the ID universe complete enough to mark missing IDs as ~broken~.
-- Contract describes how stale external ID targets are represented.
-- No implementation is required in this task unless the contract is small and clear.
-
-** TODO [#C] Prepare heading-search resolution contract for file links
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
-:API_CONTRACT_CHANGE: Maybe
-:END:
-
-Depends on:
-
-- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
-- [[*Resolve file-scoped CUSTOM_ID search options][Resolve file-scoped CUSTOM_ID search options]]
-
-Goal:
-
-- Define how non-CUSTOM_ID file link search options should later resolve to headings or locations.
-- Those target links (star) are already solved: [[file:notes.org::*Heading]]
-
-Examples:
-
-#+begin_src org
-  [[file:notes.org::42]]
-  [[file:notes.org::/regexp/]]
-#+end_src
-
-Out of scope for this task:
-
-- Implementing heading-title resolution.
-- Implementing line-number resolution.
-- Implementing regexp search resolution.
-- Implementing dedicated target resolution.
-
-Rules to decide:
-
-- Which Org search-option forms are supported?
-- Which forms resolve to headings?
-- Which forms remain file-only?
-- How ambiguous heading title matches are represented.
-- Whether line-number search options should set only ~target_file_id~ or also a location field.
-- Whether dedicated targets ~<<target>>~ need their own stored target table in a later phase.
-- Whether regexp search options should ever be resolved statically.
-
-Acceptance criteria:
-
-- Search-option support matrix is documented.
-- Unsupported search options have explicit status semantics.
-- No implementation is required in this task unless the contract is small and clear.
-  
-** TODO Add Linke Resolving to the Documentation
-
-Add what is needed to the documentation.
+- Documentation explains the implemented link resolver contract.
+- Documentation distinguishes source facts from resolver-owned fields.
+- Documentation lists supported and intentionally unsupported resolver forms.
+- Documentation includes the external =org-id-locations= decision.
+- Documentation includes the unsupported non-=CUSTOM_ID= search-option decision.
+- Documentation describes whitespace-sensitive =CUSTOM_ID= and Org =ID= behavior correctly.
+- Documentation describes =links --json= resolution fields and read-only behavior.
+- No code behavior changes.
+- =make ci= passes.

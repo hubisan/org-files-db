@@ -1,0 +1,41 @@
+** DONE [#C] Not supporting other link search options
+
+Depends on:
+
+- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+- [[*Resolve file-scoped CUSTOM_ID search options][Resolve file-scoped CUSTOM_ID search options]]
+
+Decision:
+
+- Additional non-CUSTOM_ID file search options are not supported.
+- No line-number resolution is implemented.
+- No regexp search resolution is implemented.
+- No dedicated-target resolution for =<<target>>= is implemented.
+- No additional target-location table is introduced.
+- File links with unsupported search options keep their file resolution only where that is already the current resolver contract, or remain unsupported according to existing behavior.
+- Already supported target forms remain supported:
+  - =[[file:notes.org::*Heading]]=
+  - =[[file:notes.org::#custom-id]]=
+
+Rationale:
+
+- Heading-title star search and =CUSTOM_ID= search cover the useful heading-level cases for the current resolver.
+- Line-number and regexp searches are location-level targets, not heading-level targets.
+- The current DB has no stable target-location field for line or regexp matches.
+- Static regexp resolution is fragile because it depends on document text and matching semantics.
+- Dedicated targets would need parser support and likely a separate target model.
+- Adding partial support would make links look more precise than the stored target model can represent.
+
+Final contract:
+
+- Supported file search options:
+  - =::*Heading= resolves to a heading title in the resolved target file.
+  - =::#custom-id= resolves to a =CUSTOM_ID= property in the resolved target file.
+- Unsupported file search options are not resolved further:
+  - =::42=
+  - =::/regexp/=
+  - dedicated targets such as =::target= or =::<<target>>=
+- More specific supported targets always win over file-root fallback.
+- File-only links resolve to the target file synthetic root heading.
+- Unsupported search-option forms are intentionally out of scope.
+

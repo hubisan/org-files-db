@@ -1,0 +1,43 @@
+** DONE [#C] Prepare external Org ID location support
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:DECISION: Not supported
+:END:
+
+Depends on:
+
+- [[*Resolve Org ID links within indexed ID universe][Resolve Org ID links within indexed ID universe]]
+
+Decision:
+
+- External Org ID locations are not supported.
+- =org-files-db= does not import =org-id-locations=.
+- =id:= links are resolved only against indexed non-root headings in the configured indexed universe.
+- Missing indexed IDs remain =unresolved= with =resolution_diagnostic = id not found=.
+- Missing IDs are not marked =broken= only because they are absent from the indexed DB.
+- External ID target files are not stored in =files= unless they are part of the configured indexed roots.
+- External ID targets are not represented as file-level pseudo-targets.
+
+Rationale:
+
+- Org =id:= links are heading-level links, not file-level links.
+- =org-id-locations= may point outside configured roots.
+- External ID locations can be stale.
+- Without indexing the target file, the DB cannot verify:
+  - whether the target file still exists
+  - whether the ID still exists
+  - which heading owns the ID
+  - whether duplicate IDs exist
+  - heading context and document order
+- Resolving an external ID only to a file would look more precise than it really is.
+
+Final contract:
+
+- The indexed DB is the only ID resolution universe.
+- Exactly one indexed =ID= match resolves the link.
+- Multiple indexed =ID= matches are =ambiguous=.
+- No indexed =ID= match is =unresolved=.
+- External Org ID location support is intentionally out of scope.
