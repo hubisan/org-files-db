@@ -1344,3 +1344,308 @@ Task file: [[./phase-3--org-link-extractor/2026-06-30--create-links-db-table-and
 ** DONE Replace global recursive discovery with per-directory recursion
 
 [[./phase-3--org-link-extractor/2026-07-01--replace-global-recursive-discovery-with-per-directory-recursion.org]]
+
+* DONE Phase 4: Link resolution
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+Goal of this phase: Resolve stored raw link source facts to known files, file-scoped CUSTOM_ID targets, and indexed Org ID targets.
+
+General rules:
+
+- Resolution never destroys raw link facts.
+- Resolution fields stay clearly separated from raw source fields.
+- Broken, ambiguous, unresolved, and unsupported targets are represented explicitly.
+- Target deletion must not delete source link rows.
+- Resolution must not execute link targets.
+- Resolution must be deterministic and repeatable.
+- Resolution runs after all files, headings, properties, outline paths, and raw links for the rebuild are stored.
+- Do not resolve links on demand in read-only CLI commands.
+- Do not introduce parallel ~resolved_file_id~ / ~resolved_heading_id~ columns unless the schema contract is deliberately renamed first.
+
+Existing target-ish fields:
+
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+
+Recommended resolution state fields:
+
+- ~resolution_status~
+- ~resolution_diagnostic~
+
+Recommended ~resolution_status~ values:
+
+- ~unresolved~
+- ~resolved~
+- ~broken~
+- ~ambiguous~
+- ~unsupported~
+
+Status semantics:
+
+- is ~NULL~ means not attempted
+- ~unresolved~ means resolution was attempted but the available universe is not known to be complete.
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+- ~broken~ means the target is missing inside a known complete context.
+- ~ambiguous~ means more than one valid target exists in the applicable context.
+- ~unsupported~ means the link form is intentionally not resolved yet.
+- ~resolved~ means target fields point to the selected target.
+
+Important distinction:
+
+- ~CUSTOM_ID~ resolution is file-scoped.
+- ~id:~ resolution is global in Org semantics and should not be marked broken merely because the ID is absent from the indexed files.
+- A missing ~CUSTOM_ID~ can be broken when the target file context is known.
+- A missing ~id:~ should be ~unresolved~ unless a complete Org ID location universe is available.
+
+** DONE [2026-07-01 Wed] Define Phase 4 link resolution DB contract
+
+Task file: [[./phase-4--link-resolution/2026-07-01--define-phase-4-link-resolution-db-contract.org]]
+
+** DONE Implement deterministic link resolution pass after rebuild
+
+Task file: [[./phase-4--link-resolution/2026-07-01--implement-deterministic-link-resolution-pass-after-rebuild.org]]
+
+** DONE [#A] Resolve file links to known indexed files
+
+Task file: [[./phase-4--link-resolution/2026-07-01--resolve-file-links-to-known-indexed-files.org][2026-07-01--resolve-file-links-to-known-indexed-files.org]]
+
+** DONE [#B] Resolve file links with heading-title search options
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Task file: [[./2026-07-02--resolve-file-links-with-heading-title-search-options.org][2026-07-02--resolve-file-links-with-heading-title-search-options.org]]
+
+** DONE [#B] Resolve same-file fuzzy star heading links
+
+Task file: [[./phase-4--link-resolution/2026-07-02--resolve-same-file-fuzzy-star-heading-links.org][2026-07-02--resolve-same-file-fuzzy-star-heading-links.org]]
+
+** DONE [#C] Reduce resolver diagnostics
+
+Task file: [[./phase-4--link-resolution/2026-07-02--reduce-resolver-diagnostics.org]]
+
+** DONE [#B] Normalize star heading-title matching
+
+Task file: [[./phase-4--link-resolution/2026-07-03--normalize-star-heading-title-matching.org]]
+
+** DONE [#C] Use Unicode lowercase for star heading-title matching
+
+Task file: [[./phase-4--link-resolution/2026-07-03--use-unicode-lowercase-for-star-heading-title-matching.org]]
+
+** DONE [#B] Resolve CUSTOM_ID and ID links
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Depends on:
+
+- [[*Implement deterministic link resolution pass after rebuild][Implement deterministic link resolution pass after rebuild]]
+- [[*Resolve file links to known indexed files][Resolve file links to known indexed files]]
+- [[*Resolve file links with heading-title search options][Resolve file links with heading-title search options]]
+- [[*Resolve same-file fuzzy star heading links][Resolve same-file fuzzy star heading links]]
+- [[*Normalize star heading-title matching][Normalize star heading-title matching]]
+
+Goal:
+
+- Resolve Org links that target ~CUSTOM_ID~ and ~ID~ properties.
+- Resolve bracket same-file ~CUSTOM_ID~ links.
+- Resolve file-context ~CUSTOM_ID~ search options.
+- Resolve ~ID~ links within the indexed ID universe.
+- Match ~CUSTOM_ID~ and ~ID~ lookup values using Org-compatible normalization:
+  - trim leading and trailing whitespace
+  - compare case-insensitively
+- Whenever a target resolves to a heading, set both ~target_file_id~ and ~target_heading_id~.
+- Preserve raw link source fields.
+
+Scope:
+
+- Same-file ~CUSTOM_ID~ links:
+  - ~[[#foo]]~
+  - ~[[#foo][Description]]~
+- File-context ~CUSTOM_ID~ links:
+  - ~[[file:other.org::#foo]]~
+  - ~[[file:other.org::#foo][Description]]~
+  - ~[[./other.org::#foo]]~
+  - ~[[../other.org::#foo]]~
+  - ~<file:other.org::#foo>~
+  - plain ~file:other.org::#foo~ when extracted by configured plain-link protocols
+- Org ID links:
+  - ~id:foo~
+  - ~[[id:foo]]~
+  - ~[[id:foo][Description]]~
+  - ~<id:foo>~
+  - plain ~id:foo~ when extracted by configured plain-link protocols
+
+Important parser model:
+
+- Same-file ~[[#foo]]~ may be classified as ~link_type = fuzzy~.
+- It is still a ~CUSTOM_ID~ target when:
+  - ~link_type = fuzzy~
+  - ~path~ starts with exactly one leading ~#~
+- This is analogous to same-file star heading links:
+  - ~[[*foo]]~ resolves by heading title in the source file.
+  - ~[[#foo]]~ resolves by ~CUSTOM_ID~ in the source file.
+- File-context ~CUSTOM_ID~ links are file links with:
+  - ~link_type = file~
+  - ~search_option~ beginning with exactly one leading ~#~
+- Bare angle or plain ~#foo~ is not a supported CUSTOM_ID link form.
+- Angle and plain CUSTOM_ID links require an explicit ~file:...::#foo~ form.
+
+Shared lookup rules:
+
+- Match against indexed heading properties:
+  - ~properties.key~
+  - ~properties.value~
+- Match property keys exactly:
+  - ~CUSTOM_ID~
+  - ~ID~
+- Normalize property target values before lookup.
+- Compare property values case-insensitively.
+- Do not fuzzy-match property values.
+- Do not normalize internal whitespace.
+- Exclude synthetic root headings from property-target lookup.
+- Do not rely on unspecified SQL row order.
+- Define document order using stored heading order, such as ~byte_start~ or the existing heading-order field.
+- Raw link source fields must remain unchanged.
+
+Property target normalization:
+
+- Apply only to ~CUSTOM_ID~ and ~ID~ lookup values.
+- For ~CUSTOM_ID~:
+  - remove exactly one leading ~#~
+  - trim leading and trailing whitespace from the remaining value
+  - use the normalized value for property lookup
+  - store the normalized value in ~target_custom_id~
+  - compare case-insensitively against stored ~CUSTOM_ID~ property values
+- For ~ID~:
+  - use the parsed ID target value from the existing link fields
+  - trim leading and trailing whitespace from the value
+  - use the normalized value for property lookup
+  - store the normalized value in ~target_id~
+  - compare case-insensitively against stored ~ID~ property values
+- Do not lowercase the stored raw link fields.
+- Do not mutate:
+  - ~raw~
+  - ~raw_target~
+  - ~raw_description~
+  - ~path~
+  - ~search_option~
+- Do not normalize internal whitespace:
+  - ~" Foo Bar "~ becomes ~"Foo Bar"~
+  - ~"Foo  Bar"~ remains ~"Foo  Bar"~
+
+Duplicate target policy:
+
+- Duplicate ~CUSTOM_ID~ targets follow observed Org behavior.
+- If multiple matching ~CUSTOM_ID~ properties exist in the active search scope:
+  - select the first matching heading in document order
+  - set ~target_file_id~ to the matched heading's file
+  - set ~target_heading_id~ to the first matching heading
+  - set ~resolution_status = resolved~
+  - set ~resolution_diagnostic = NULL~
+- Duplicate ~ID~ targets are data errors.
+- If multiple indexed headings have the same ~ID~ after case-insensitive matching:
+  - do not choose a target
+  - set ~target_file_id = NULL~
+  - set ~target_heading_id = NULL~
+  - set ~target_id~ to the normalized requested ID
+  - set ~resolution_status = ambiguous~
+  - set ~resolution_diagnostic = duplicate id~
+
+Diagnostics policy:
+
+- Successful resolutions use:
+  - ~resolution_diagnostic = NULL~
+- Missing same-file or file-context ~CUSTOM_ID~ uses:
+  - ~resolution_status = broken~
+  - ~resolution_diagnostic = custom id not found~
+- Missing ~ID~ uses:
+  - ~resolution_status = unresolved~
+  - ~resolution_diagnostic = id not found~
+- Duplicate ~ID~ uses:
+  - ~resolution_status = ambiguous~
+  - ~resolution_diagnostic = duplicate id~
+
+Out of scope:
+
+- Do not support bare angle ~<#foo>~ as a CUSTOM_ID link.
+- Do not support bare plain ~#foo~ as a CUSTOM_ID link.
+- Do not resolve ~attachment:~ links.
+- Do not resolve regexp search options.
+- Do not resolve line-number search options.
+- Do not resolve dedicated targets.
+- Do not resolve non-star and non-~#~ fuzzy links.
+- Do not change file heading-title search option behavior.
+- Do not change same-file star fuzzy heading resolution.
+- Do not change file-only synthetic root heading behavior.
+- Do not scan files outside the indexed DB.
+- Do not use Emacs ~org-id-locations~.
+- Do not add a DB schema migration.
+
+Implementation notes:
+
+- Prefer a shared helper for property target normalization.
+- Keep property key matching exact.
+- Implement case-insensitive value comparison deterministically.
+- Either:
+  - query candidate properties in scope ordered by heading document order and compare normalized values in Rust
+  - or use deterministic SQL case-insensitive comparison with explicit ~ORDER BY headings.byte_start, headings.id~
+- Preserve deterministic first-match behavior for ~CUSTOM_ID~.
+- Preserve strict ambiguous behavior for duplicate ~ID~.
+- Keep raw DB link fields unchanged.
+
+*** DONE Resolve bracket same-file CUSTOM_ID links
+
+Task file: [[./phase-4--link-resolution/2026-07-03--resolve-bracket-same-file-custom-id-links.org]]
+
+*** DONE Resolve file-context CUSTOM_ID links
+
+Task file: [[./phase-4--link-resolution/2026-07-03--resolve-file-context-custom-id-links.org]]
+
+*** DONE Resolve Org ID links within indexed ID universe
+
+Task file: [[./phase-4--link-resolution/2026-07-03--resolve-org-id-links-within-indexed-id-universe.org]]
+#+begin_src org
+#+begin_src org
+
+*** DONE Preserve whitespace in CUSTOM_ID and Org ID matching
+
+Task file: [[./phase-4--link-resolution/2026-07-03--preserve-whitespace-in-custom-id-and-org-id-matching.org]]
+
+** DONE [#C] Resolve file-only links to synthetic root headings
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Maybe
+:END:
+
+Task file: [[./phase-4--link-resolution/2026-07-03--resolve-file-only-links-to-synthetic-root-headings.org]]
+
+** DONE [#B] Expose resolution fields in ~links --json~
+
+Task file: [[./phase-4--link-resolution/2026-07-05--expose-resolution-fields-in-links-json.org]]
+
+** DONE Decision: not implementing external Org ID location support
+
+[[file:archive/2026-07-05--not-implementing-external-org-id-location-support.org]]
+
+** DONE Decision: Not supporting other link search options
+
+[[file:archive/2026-07-05--not-supporting-other-link-search-options.org]]
+
+** DONE Add Link Resolving to the Documentation
+
+Task file: [[./phase-4--link-resolution/2026-07-05--add-link-resolving-to-the-documentation.org]]
