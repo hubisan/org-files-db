@@ -79,55 +79,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-07--implement-query-ast-and-parser.org]]
 
-** PLAN [#B] Implement query semantic validation and normalization
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Implement query semantic validation and normalization
 
-Depends on:
-
-- Implement query AST and parser
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Validate parsed queries against the Query Model v0 semantic contract before SQL generation.
-
-Scope:
-
-- Target/predicate compatibility.
-- Predicate arity.
-- Predicate options.
-- Option combinations such as ~:regexp~ and ~:exact~.
-- Multi-value semantics.
-- Alias normalization.
-- Backend capability checks that can be detected before execution.
-
-Rules:
-
-- Unsupported predicates must fail clearly.
-- Predicates used on invalid targets must fail clearly.
-- Unknown options must fail clearly.
-- Wrong arity must fail clearly.
-- ~(tags-all ...)~ is only an alias for ~(tags ... :match :all)~.
-- ~tags-regexp~ is not a v0 predicate.
-- ~(has-link ...)~ with an argument requires an explicit ~(links ...)~ query.
-- ~:exact t~ with multiple text arguments is invalid unless the specification explicitly allows it for that predicate.
-
-Acceptance criteria:
-
-- Semantic validation runs after parsing and before SQL translation.
-- Validator normalizes aliases into canonical AST forms.
-- Validator rejects invalid target/predicate combinations.
-- Validator rejects unknown predicates and options.
-- Validator rejects invalid arity.
-- Validator rejects invalid option combinations.
-- Validator rejects ~tags-regexp~.
-- Validator normalizes ~(tags-all "a" "b")~ to ~(tags "a" "b" :match :all)~.
-- Validator rejects direct nested link predicates such as ~(has-link (link-type "file"))~.
-- Semantic validation tests cover all v0 predicate families.
+- Task file: [[file:archive/2026-07-07--implement-query-semantic-validation-and-normalization.org]]
 
 ** TODO [#B] Implement safe SQL translation and core metadata query execution
 :PROPERTIES:

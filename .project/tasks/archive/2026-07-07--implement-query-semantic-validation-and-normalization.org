@@ -1,0 +1,131 @@
+#+TITLE: Implement query semantic validation and normalization
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-07 Tue 23:29]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Phase 5 task from ~todo.org~: *BUILD [#B] Implement query semantic validation and normalization*
+- Approved constraints:
+  - implement semantic validation after parsing and before SQL translation
+  - keep parser errors and validation errors separate
+  - no SQL, DB access, query execution, CLI work, JSON shaping, FTS implementation, or body indexing
+  - capability flags limited to ~body_text_available~ and ~regexp_body_matching_supported~
+  - option validation must stay target-aware and predicate-aware
+
+* Planning
+
+** Problem summary
+The repository now has a structural query parser and canonical ~tags-all~ parser normalization, but it still lacks a semantic validation layer that checks Query Model v0 target compatibility, arity, options, canonical predicate behavior, and pre-execution capability failures.
+
+** Goals
+- Add a validator that consumes parsed ~QueryAst~ and returns a dedicated validated representation.
+- Reject semantically invalid v0 queries clearly.
+- Keep validated queries implementation-independent and SQL-free.
+- Add coverage for successful and failing validation paths.
+
+** Non-goals
+- SQL translation
+- DB access or execution
+- CLI behavior
+- JSON shaping
+- FTS implementation or body indexing changes
+
+** Architecture
+- Add ~src/query/validate.rs~ with validated query types, validation options, and validation error types.
+- Re-export validation types and ~validate_query~ from ~src/query.rs~.
+- Keep parser syntax tests separate from validator tests.
+
+** Execution plan
+- Add validated query/error/options types.
+- Implement recursive semantic validation for all v0 predicate families.
+- Add success and error integration tests, including parse+validate canonical ~tags-all~ coverage.
+- Run focused query tests and full CI.
+
+** Risks & assumptions
+- The validator should treat parser-normalized ~tags-all~ as canonical ~tags ... :match :all~.
+- Optional ~source :any~ and ~target :any~ are supported because the parser already exposes them.
+- Capability checks are limited to explicit v0 needs in this task.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test --test query_parser --test query_parser_errors --test query_validate --test query_validate_errors~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added ~src/query/validate.rs~ as the semantic validation layer that runs on parsed ~QueryAst~ before any later SQL work.
+- Introduced dedicated validated query types:
+  - ~ValidatedQuery~
+  - ~ValidatedExpr~
+  - ~ValidatedPredicate~
+  - ~ValidatedArg~
+  - ~ValidatedOption~
+- Added explicit validation inputs via ~QueryValidationOptions~ with only the approved capability flags:
+  - ~body_text_available~
+  - ~regexp_body_matching_supported~
+- Kept parser and validator failure domains separate by introducing:
+  - ~QueryValidationErrorKind~
+  - ~QueryValidationError~
+- Implemented recursive semantic validation for the current Query Model v0 predicate families in this phase:
+  - heading predicates
+  - link predicates
+  - file predicates
+  - hierarchy predicates
+  - relation predicates
+- Made option validation predicate-aware and target-aware, especially for:
+  - ~tags~
+  - ~property~
+  - ~keyword~
+  - inheritance-related options on headings vs files
+- Treated parser-normalized ~tags-all~ as canonical ~tags ... :match :all~ and added parse+validate coverage for that path.
+- Added explicit semantic checks for:
+  - unsupported predicates such as ~tags-regexp~
+  - target/predicate compatibility
+  - predicate arity
+  - unknown options
+  - invalid option combinations such as ~:regexp t~ with ~:exact t~
+  - invalid ~:match~ values
+  - recursive nested relation query validation
+  - ~has-text~ capability failures for missing body text and missing regexp body support
+
+** Changed files
+- ~src/query.rs~
+- ~src/query/validate.rs~
+- ~tests/query_validate.rs~
+- ~tests/query_validate_errors.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-07--implement-query-semantic-validation-and-normalization.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test --test query_parser --test query_parser_errors --test query_validate --test query_validate_errors~
+- ~make ci~
+- Review follow-up:
+  - ~cargo fmt --all~
+  - ~cargo test --test query_parser --test query_parser_errors --test query_validate --test query_validate_errors~
+  - ~make ci~
+
+** Test results
+- Focused parser and validator tests passed.
+- Full ~make ci~ passed, including fmt, clippy, full test suite, and build.
+- Review follow-up tests added and passed for:
+  - generic unknown operator validation
+  - invalid boolean option value types
+  - invalid keyword option value type for ~:match~
+  - duplicate option rejection
+  - nested relation target mismatch at the parser layer for ~(links-to (links ...))~
+
+** Blockers
+- None.
+
+** Follow-ups
+- The next Phase 5 task can translate only ~ValidatedQuery~ into SQL-safe query structures instead of consuming raw parsed AST directly.
+- This task is ready for ~DONE~ once the repository review step is considered complete.
