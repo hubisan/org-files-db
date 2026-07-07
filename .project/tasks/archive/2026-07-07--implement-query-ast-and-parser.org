@@ -1,0 +1,97 @@
+#+TITLE: Implement query AST and parser
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-07 Tue 23:00]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Phase 5 task from ~todo.org~: *BUILD [#B] Implement query AST and parser*
+- User constraints:
+  - implement only the query AST and parser
+  - do not implement semantic validation, SQL, DB access, CLI integration, query execution, FTS, or JSON shaping
+  - review follow-up: align parser behavior more closely with Query Model v0
+  - keep predicate-specific validation mostly out of the parser
+  - treat ~:any~ as an ordinary parsed value unless the syntax position itself requires special structural handling
+
+* Planning
+
+** Problem summary
+The repo only had a stub ~QueryRequest~ type in ~src/query.rs~. Phase 5 needs a project-owned query AST and a structural parser for the Query Model v0 S-expression syntax, with explicit outer targets, top-level heading shorthand, boolean forms, and nested explicit wrapper enforcement.
+
+** Goals
+- Add an implementation-independent query AST under the existing ~query~ module.
+- Add a structural S-expression parser for Query Model v0 syntax.
+- Enforce only structural parser rules in this task.
+- Add focused parser tests for accepted and rejected syntax.
+
+** Non-goals
+- Semantic validation beyond parser-owned normalization and structural checks
+- SQL translation or DB-backed execution
+- CLI plumbing or output shaping
+- FTS or body-text capability handling
+
+** Architecture
+- Replace the ~src/query.rs~ stub with a module root that re-exports AST, parser, and parse-error types.
+- Keep parsed predicate calls generic by name, args, and options so validation can interpret predicate semantics later.
+- Parse nested wrapper positions structurally for ~source~, ~target~, ~has-link~, ~links-to~, ~linked-from~, and hierarchy relation predicates.
+
+** Execution plan
+- Define query AST and parse-error types.
+- Implement a small project-owned tokenizer and recursive list parser.
+- Convert raw forms into a structural AST with top-level shorthand handling.
+- Add integration tests for successful parses and structural failures.
+
+** Risks & assumptions
+- The parser will accept many predicate names generically by design; later semantic validation must decide legality.
+- ~tags-all~ is parser-normalized to ~tags~ with ~:match :all~ because Query Model v0 explicitly assigns that normalization to the parser.
+- ~linked-from :any~, ~source :any~, and ~target :any~ are preserved as parsed keyword scalar values.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test --test query_parser --test query_parser_errors~
+- ~make ci~
+
+* Results
+
+** Approach
+- Replaced the query stub with a dedicated ~query~ module root that re-exports a project-owned AST, parser, and parse-error surface.
+- Implemented a small tokenizer plus recursive S-expression parser in ~src/query/parser.rs~.
+- Kept the parser structural only:
+  - explicit target wrappers are required in nested relation positions
+  - top-level heading shorthand is accepted only at the outermost query
+  - boolean structure and malformed option syntax are enforced
+  - hierarchy predicates now support both existence forms like ~(parent)~ and explicit nested heading queries like ~(ancestors (headings ...))~
+  - ~tags-all~ is normalized to ~tags~ plus ~:match :all~
+  - ~source :any~, ~target :any~, and ~linked-from :any~ are parsed as keyword scalar arguments
+- Added success and failure integration tests for the new parser surface.
+
+** Changed files
+- ~src/query.rs~
+- ~src/query/ast.rs~
+- ~src/query/error.rs~
+- ~src/query/parser.rs~
+- ~tests/query_parser.rs~
+- ~tests/query_parser_errors.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-07--implement-query-ast-and-parser.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test --test query_parser --test query_parser_errors~
+- ~make ci~
+
+** Test results
+- Focused query parser tests passed.
+- Full ~make ci~ passed, including fmt, clippy, tests, and build.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Next task should add semantic validation for target compatibility, predicate-specific arity, and option legality that stays outside parser-owned structural checks.

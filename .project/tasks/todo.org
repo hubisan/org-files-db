@@ -75,56 +75,11 @@ General rules:
 - FTS5 is optional and must only be required for FTS-specific functionality.
 - Mutation and repair operations are out of scope for Query Model v0.
 
-** BUILD [#B] Implement query AST and parser
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Implement query AST and parser
 
-Depends on:
+- Task file: [[file:archive/2026-07-07--implement-query-ast-and-parser.org]]
 
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Parse Query Model v0 sexp syntax into an implementation-independent AST.
-
-Scope:
-
-- Target forms:
-  - ~(headings ...)~
-  - ~(links ...)~
-  - ~(files ...)~
-- Top-level heading shorthand such as ~(todo "NEXT")~.
-- Boolean forms:
-  - ~(and ...)~
-  - ~(or ...)~
-  - ~(not ...)~
-- Empty target queries where supported by the specification, such as ~(links)~ and ~(files)~.
-- Predicate syntax documented in the Query Model v0 specification.
-
-Rules:
-
-- The parser must not know about SQL.
-- The parser must not know about CLI output modes.
-- Top-level shorthand is normalized only at the outermost query.
-- Nested relation queries require explicit target wrappers.
-- ~(not ...)~ accepts exactly one expression.
-
-Acceptance criteria:
-
-- Parser produces a typed AST independent of CLI and SQL.
-- Parser accepts explicit heading, link, and file target queries.
-- Parser accepts top-level heading shorthand.
-- Parser rejects shorthand inside nested relation queries.
-- Parser accepts boolean forms according to the specification.
-- Parser rejects ~(not ...)~ with zero or multiple expressions.
-- Parser accepts aliases that are part of v0, such as ~(tags-all ...)~.
-- Invalid syntax produces understandable errors.
-- Parser tests cover headings, links, files, boolean expressions, empty target queries, aliases, nested relation queries, and invalid shorthand.
-
-** TODO [#B] Implement query semantic validation and normalization
+** PLAN [#B] Implement query semantic validation and normalization
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
