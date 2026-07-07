@@ -52,145 +52,335 @@ Archived in [[./archive/todo-archive.org]]
 
 Goal of this phase:
 
-- Build a small, safe query layer for indexed Org data.
+- Build a small, safe query layer for indexed Org graph data.
+- Implement the Query Model v0 contract defined in [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]].
 - Keep the query model independent from CLI and SQL.
-- Prepare the design so it can later grow toward an org-ql-like language.
-- Keep full-text search optional.
+- Support headings, links, and files as explicit query targets.
+- Keep full-text search optional and separate from the core query model.
+- Return stable JSON that is useful for Emacs/editor integrations.
 
 General rules:
 
 - Query AST/model is independent of CLI and SQL.
 - SQL generation must use bound parameters.
-- FTS5 is optional and must only be required for FTS-specific functionality.
-- FTS-dependent operators must fail clearly when FTS5 is disabled.
+- Query execution uses the persisted database, not parser re-analysis.
+- Query target is explicit through ~(headings ...)~, ~(links ...)~, and ~(files ...)~.
+- Bare predicates are shorthand for heading queries only at the top level.
+- Nested relation queries must use explicit target wrappers.
+- Query output mode must not change match semantics.
+- Include options may enrich results but must not change which objects match.
 - Direct parsed facts and effective/derived semantics must stay clearly separated.
-- Query results should include enough location data for editor jumps.
+- Query results must include enough location data for editor jumps.
+- Body text search must fail clearly when body text is unavailable.
+- FTS5 is optional and must only be required for FTS-specific functionality.
+- Mutation and repair operations are out of scope for Query Model v0.
 
-** TODO [#B] Define effective property semantics
+** BUILD [#B] Implement query AST and parser
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Parse Query Model v0 sexp syntax into an implementation-independent AST.
+
+Scope:
+
+- Target forms:
+  - ~(headings ...)~
+  - ~(links ...)~
+  - ~(files ...)~
+- Top-level heading shorthand such as ~(todo "NEXT")~.
+- Boolean forms:
+  - ~(and ...)~
+  - ~(or ...)~
+  - ~(not ...)~
+- Empty target queries where supported by the specification, such as ~(links)~ and ~(files)~.
+- Predicate syntax documented in the Query Model v0 specification.
+
+Rules:
+
+- The parser must not know about SQL.
+- The parser must not know about CLI output modes.
+- Top-level shorthand is normalized only at the outermost query.
+- Nested relation queries require explicit target wrappers.
+- ~(not ...)~ accepts exactly one expression.
+
+Acceptance criteria:
+
+- Parser produces a typed AST independent of CLI and SQL.
+- Parser accepts explicit heading, link, and file target queries.
+- Parser accepts top-level heading shorthand.
+- Parser rejects shorthand inside nested relation queries.
+- Parser accepts boolean forms according to the specification.
+- Parser rejects ~(not ...)~ with zero or multiple expressions.
+- Parser accepts aliases that are part of v0, such as ~(tags-all ...)~.
+- Invalid syntax produces understandable errors.
+- Parser tests cover headings, links, files, boolean expressions, empty target queries, aliases, nested relation queries, and invalid shorthand.
+
+** TODO [#B] Implement query semantic validation and normalization
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- Implement query AST and parser
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Validate parsed queries against the Query Model v0 semantic contract before SQL generation.
+
+Scope:
+
+- Target/predicate compatibility.
+- Predicate arity.
+- Predicate options.
+- Option combinations such as ~:regexp~ and ~:exact~.
+- Multi-value semantics.
+- Alias normalization.
+- Backend capability checks that can be detected before execution.
+
+Rules:
+
+- Unsupported predicates must fail clearly.
+- Predicates used on invalid targets must fail clearly.
+- Unknown options must fail clearly.
+- Wrong arity must fail clearly.
+- ~(tags-all ...)~ is only an alias for ~(tags ... :match :all)~.
+- ~tags-regexp~ is not a v0 predicate.
+- ~(has-link ...)~ with an argument requires an explicit ~(links ...)~ query.
+- ~:exact t~ with multiple text arguments is invalid unless the specification explicitly allows it for that predicate.
+
+Acceptance criteria:
+
+- Semantic validation runs after parsing and before SQL translation.
+- Validator normalizes aliases into canonical AST forms.
+- Validator rejects invalid target/predicate combinations.
+- Validator rejects unknown predicates and options.
+- Validator rejects invalid arity.
+- Validator rejects invalid option combinations.
+- Validator rejects ~tags-regexp~.
+- Validator normalizes ~(tags-all "a" "b")~ to ~(tags "a" "b" :match :all)~.
+- Validator rejects direct nested link predicates such as ~(has-link (link-type "file"))~.
+- Semantic validation tests cover all v0 predicate families.
+
+** TODO [#B] Implement safe SQL translation and core metadata query execution
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: High
+:END:
+
+Depends on:
+
+- Implement query semantic validation and normalization
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Translate validated Query Model v0 AST into safe database queries for non-FTS metadata predicates.
+
+Scope:
+
+- Heading queries.
+- Link queries.
+- File/root queries.
+- Boolean composition.
+- File/path predicates.
+- TODO/done/priority predicates.
+- Title predicates.
+- Tags where stored/effective data is already available.
+- Properties where stored/effective data is already available.
+- Keywords.
+- Planning/timestamp predicates where stored data already exists.
+- Link predicates such as ~link-type~, ~link-target~, and ~status~.
+- Source/target predicates where they can be implemented from stored resolver facts.
+
+Rules:
+
+- SQL generation must use bound parameters.
+- User input must never be concatenated directly into SQL.
+- Query execution must read persisted DB facts only.
+- Query execution must not scan Org files.
+- Query execution must not mutate the database.
+- Unsupported backend requirements must fail clearly.
+
+Acceptance criteria:
+
+- SQL generation uses bound parameters for all user-provided values.
+- SQL-injection-like inputs are covered by tests.
+- Query execution uses the DB layer, not the parser.
+- Heading queries can filter by heading metadata.
+- Heading queries can filter by containing file metadata where specified.
+- Link queries can filter by source facts and resolver-owned target facts.
+- File queries can filter by root/file metadata.
+- Boolean combinations work across supported predicates.
+- Unsupported predicates or backend requirements return clear errors.
+- Tests cover representative heading, link, file, and boolean queries.
+
+** TODO [#B] Implement effective root, tag, property, and keyword semantics for queries
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: High
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-Goal:
+Depends on:
 
-- Define how direct property rows are resolved into effective property values for query/API use.
-
-Context:
-
-- The ~properties~ table stores direct source facts only.
-- Parsing and indexing do not collapse duplicate rows.
-- Parsing and indexing do not compute final effective values.
-- Direct property rows remain the source of truth.
-
-Definitions:
-
-- Direct property :: A property row exactly as parsed from the source file and stored in the ~properties~ table.
-- Effective property :: The resolved value for a heading after applying overwrite, append, source precedence, and optional inheritance.
-- Direct property query :: A query against raw property rows.
-- Effective property query :: A query against resolved property values.
-
-Rules:
-
-- Later direct definitions with the same key override earlier non-append definitions in effective mode.
-- Rows with ~append = 1~ append to the current effective value, separated by a single space.
-- If an append row appears before any base value, it starts the value.
-- Effective inheritance is optional.
-- Queries must be able to request direct-only behavior.
-- Direct heading drawer properties override inherited/default values.
-- Child heading append rows append to the inherited/current value.
-
-Effective inherited precedence:
-
-1. Level 0 ~#+PROPERTY~ defaults.
-2. Level 0 ~#+CATEGORY~ as ~CATEGORY~ property.
-3. Level 0 property drawer.
-4. Ancestor heading property drawers from root to parent.
-5. Current heading property drawer.
-
-Acceptance criteria:
-
-- Direct property rows remain unchanged.
-- Direct and effective property queries are clearly distinguished.
-- Duplicate direct definitions are resolved only in effective mode.
-- Later non-append definitions override earlier effective values.
-- Append rows append to the current effective value.
-- Append without prior base value starts the value.
-- Inheritance behavior is explicit and optional.
-- Level 0 property behavior is documented.
-- Tests cover overwrite, append, append without prior base value, level 0 properties, drawer-over-keyword override, and child append with inheritance.
-
-Open questions:
-
-- Should effective properties be computed in Rust query/API code first?
-- Is a SQL view or cache table needed later for performance?
-- Should v0 expose both direct and effective operators immediately?
-
-** TODO [#C] Enable optional SQLite FTS5 for full-text search
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
-:END:
+- Implement safe SQL translation and core metadata query execution
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
 
 Goal:
 
-- Create and maintain an optional FTS5 table for heading title and optional body search.
-
-Planned table when FTS5 is enabled:
-
-#+begin_src sql
-  CREATE VIRTUAL TABLE heading_fts
-  USING fts5(
-      title,
-      body,
-      tokenize = 'unicode61'
-  );
-#+end_src
+- Implement query-time semantics for file/root context, inherited tags, effective properties, and file-level keywords.
 
 Rules:
 
-- FTS5 support is configured through ~search.fts5_enabled~.
-- Body indexing is configured separately through ~search.index_body_text~.
-- FTS5 must not be required unless FTS-specific functionality is enabled.
+- File/root context is represented as a file/root object, not as a fake heading result.
+- Root/file result nodes use ~kind = "file"~.
+- Heading result nodes use ~kind = "heading"~.
+- Paths always include the file/root node.
+- Heading queries may use root facts only where the specification defines them.
+- ~property~ on headings uses effective property semantics by default.
+- ~:inherit t~ includes ancestor/root values where meaningful.
+- ~:inherit nil~ restricts matching to local heading values.
+- ~property~ on files means direct root/file property.
+- ~keyword~ is root/file-level.
+- Heading queries may use ~keyword~ to filter by containing file/root keywords where specified.
+- ~tags~ supports the documented v0 options such as ~:inherit~, ~:with-root~, ~:regexp~, and ~:match~.
 
 Acceptance criteria:
 
-- If FTS5 is disabled, rebuild works without creating or writing ~heading_fts~.
-- If FTS5 is enabled, ~heading_fts~ is created and maintained.
-- ~heading_fts.rowid~ matches ~headings.id~.
-- Heading titles are indexed when FTS5 is enabled.
-- Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
-- Search can match title-only, body-only, or both when enabled.
-- Body indexing can be disabled even when FTS5 is enabled.
-- Search/query commands handle disabled FTS5 clearly.
+- Root/file behavior matches the Query Model v0 specification.
+- File-level keywords can filter heading queries where documented.
+- Root/file properties can filter heading queries where documented.
+- FILETAGS participate in effective tag matching where documented.
+- Local-only property matching works with ~:inherit nil~.
+- Effective property matching works with inherited/root values where documented.
+- Direct parsed property rows remain unchanged.
+- Effective/derived semantics do not mutate source facts.
+- Tests cover local tags, inherited tags, FILETAGS, root properties, heading properties, inherited properties, local-only properties, file query properties, and keyword filtering.
 
-** TODO [#B] Build query parser and SQL translator
+** TODO [#B] Implement hierarchy and graph relation predicates
 :PROPERTIES:
 :PRIORITY: Medium
-:RISK: Medium
+:RISK: High
+:API_CONTRACT_CHANGE: Yes
 :END:
 
 Depends on:
 
-- Define query model v0
-- Define effective property semantics
+- Implement safe SQL translation and core metadata query execution
+- Implement effective root, tag, property, and keyword semantics for queries
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
 
 Goal:
 
-- Parse query strings and translate them safely to SQL using bound parameters.
+- Implement predicates that depend on heading hierarchy, link source/target relationships, and nested target queries.
+
+Scope:
+
+- Hierarchy predicates:
+  - ~parent~
+  - ~ancestors~
+  - ~children~
+  - ~descendants~
+- Link relationship predicates on headings:
+  - ~has-link~
+  - ~links-to~
+  - ~linked-from~
+- Link source/target predicates:
+  - ~source~
+  - ~target~
+
+Rules:
+
+- Nested relation queries must use explicit target wrappers.
+- Hierarchy predicates that accept nested queries must use explicit ~(headings ...)~.
+- Link relation predicates that accept nested link queries must use explicit ~(links ...)~.
+- ~source~ and ~target~ must accept explicit heading/file target queries according to the specification.
+- Link resolver status must be treated as stored resolver-owned data.
+- Broken, unresolved, ambiguous, external, and unsupported link states must remain distinguishable where stored.
 
 Acceptance criteria:
 
-- No string concatenation with user input in SQL.
-- Bound parameters are used.
-- Invalid query syntax produces understandable errors.
-- Tests exist for all supported operators.
-- SQL-injection-like inputs are tested.
-- FTS5 ~MATCH~ queries are handled safely and deliberately.
-- FTS-dependent SQL is generated only when FTS5 is enabled.
-- Hierarchy queries use ~outline_path~ where appropriate.
+- ~(ancestors (headings ...))~ works according to the specification.
+- ~(children (headings ...))~ works according to the specification.
+- ~(has-link)~ works as an existence test.
+- ~(has-link (links ...))~ filters headings by outgoing links.
+- ~(links-to (files ...))~ and ~(links-to (headings ...))~ work where resolver facts allow it.
+- ~(linked-from (files ...))~ and ~(linked-from (headings ...))~ work where resolver facts allow it.
+- ~(links (source (headings ...)))~ works.
+- ~(links (source (files ...)))~ works.
+- ~(links (target (headings ...)))~ works.
+- ~(links (target (files ...)))~ works.
+- Tests cover heading-to-heading, heading-to-file, file-preamble, broken-link, unresolved-link, and ambiguous-link cases where the DB model supports them.
+
+** TODO [#B] Implement query result shaping and JSON output model
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- Implement safe SQL translation and core metadata query execution
+- Implement hierarchy and graph relation predicates
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Convert matched DB rows into stable result objects for CLI and editor integrations.
+
+Output modes:
+
+- ~flat~
+- ~outline~
+
+Include options:
+
+- ~path~
+- ~properties~
+- ~keywords~
+- ~links~
+- ~backlinks~
+- ~source~
+- ~target~
+
+Rules:
+
+- Output mode must not change which objects match.
+- Include options must not change which objects match.
+- Flat output returns matched objects as a list.
+- Outline output returns a tree with file/root nodes and context nodes.
+- Context-only nodes must be distinguishable from matched nodes.
+- File/root nodes must not be represented as fake headings.
+- Link nodes must preserve source and target information where available.
+- Links in file preamble have a source path containing only the file/root node.
+
+Acceptance criteria:
+
+- Flat output is documented by tests.
+- Outline output is documented by tests.
+- File/root nodes use ~kind = "file"~.
+- Heading nodes use ~kind = "heading"~.
+- Link nodes use ~kind = "link"~.
+- Real matches are marked with ~matched = true~.
+- Context-only nodes are marked with ~matched = false~.
+- Path output always includes the file/root node.
+- Include options enrich output without changing match semantics.
+- Result objects include enough location data for editor jumps.
+- Result shaping tests cover heading, link, file/root, flat, outline, path, source, target, links, and backlinks output.
 
 ** TODO [#B] Implement CLI command ~query~
 :PROPERTIES:
@@ -199,89 +389,174 @@ Acceptance criteria:
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-Example:
+Depends on:
 
-#+begin_src shell
-  orgfdb query --json '(todo "NEXT")'
-  orgfdb query --json '(text-contains "sqlite")'
-#+end_src
+- Implement query AST and parser
+- Implement query semantic validation and normalization
+- Implement safe SQL translation and core metadata query execution
+- Implement query result shaping and JSON output model
 
 Goal:
 
-- Expose the query engine through the CLI.
-- Return JSON suitable for Emacs/editor integrations.
+- Expose Query Model v0 through the CLI.
+
+Examples:
+
+#+begin_src shell
+orgfdb query --json '(todo "NEXT")'
+orgfdb query --json '(headings (tags "project" :match :all))'
+orgfdb query --json '(links (status "broken"))'
+orgfdb query --json '(files (file-title "Projects"))'
+orgfdb query --json --output outline '(headings (title "sqlite"))'
+orgfdb query --json --include path,links '(headings (todo "NEXT"))'
+#+end_src
+
+Rules:
+
+- ~query~ uses the DB layer, not the parser.
+- ~query~ is read-only.
+- ~query~ must not scan Org files.
+- ~query~ must not rebuild or mutate the database.
+- CLI flags control output and includes, not query semantics.
+- Query syntax and semantics are defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]].
 
 Acceptance criteria:
 
-- Query outputs JSON.
-- Query uses the DB layer, not the parser.
-- Simple combinations can be added later.
-- Query results include heading id, file path, title, and byte_start.
-- Query results include enough location data for editor jumps.
-- If a query requires FTS5 while FTS5 is disabled, the CLI returns a clear error.
+- ~orgfdb query~ accepts Query Model v0 syntax.
+- Query output is JSON when ~--json~ is passed.
+- Query supports heading, link, and file targets.
+- Query supports flat output.
+- Query supports outline output.
+- Query supports include options from the specification.
+- Invalid query syntax returns an understandable error.
+- Invalid query semantics return an understandable error.
+- Unsupported backend requirements return an understandable error.
+- CLI docs link to [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]] once the command is stable enough.
 
-Open questions:
-
-- Should ~query~ support an outline/context output mode in v0?
-- Should output include ancestor headings for context?
-
-** TODO [#C] Provide CLI command ~search~
+** TODO [#C] Implement body text availability for ~(has-text ...)~
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:API_CONTRACT_CHANGE: Maybe
 :END:
+
+Depends on:
+
+- Implement safe SQL translation and core metadata query execution
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
 
 Goal:
 
-- Provide a simple FTS-focused command before or alongside the full query language.
+- Support ~(has-text ...)~ when heading body text is available in the database.
 
-Example:
+Rules:
 
-#+begin_src shell
-  orgfdb search --json sqlite
-#+end_src
+- ~(has-text ...)~ is part of the query language.
+- ~(has-text ...)~ does not require FTS5 by definition.
+- If body text is available in the DB, a simple backend may use ordinary SQL matching.
+- If body text is unavailable, ~(has-text ...)~ must fail clearly.
+- ~:regexp t~ must fail clearly if the backend does not support regexp matching.
+- Body text availability must be explicit and testable.
 
 Acceptance criteria:
 
-- Search uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
-- If FTS5 is disabled, the command returns a clear error or documented fallback.
-- Results include heading id, file path, title, and byte_start.
-- Search can optionally include body matches when ~search.index_body_text~ is enabled.
-- Output is usable from Emacs.
+- Body text availability is represented in the DB/indexing contract.
+- ~(has-text "sqlite")~ works when body text is available.
+- ~(has-text "sqlite" "fts")~ requires all terms to match.
+- ~(has-text "sqlite.*fts" :regexp t)~ either works or returns a clear unsupported-backend error.
+- If body text is unavailable, the query returns a clear error.
+- Tests cover available body text, unavailable body text, multiple terms, and unsupported regexp matching.
 
-** TODO [#C] Design outline/context result output
+** TODO [#C] Enable optional SQLite FTS5 for full-text search
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:END:
+
+Depends on:
+
+- Implement body text availability for ~(has-text ...)~
+
+Goal:
+
+- Add an optional FTS5 backend for faster title and body text search.
+
+Planned table when FTS5 is enabled:
+
+#+begin_src sql
+CREATE VIRTUAL TABLE heading_fts
+USING fts5(
+    title,
+    body,
+    tokenize = 'unicode61'
+);
+#+end_src
+
+Rules:
+
+- FTS5 support is configured through ~search.fts5_enabled~.
+- Body indexing is configured separately through ~search.index_body_text~.
+- FTS5 must not be required for non-FTS query functionality.
+- Query semantics must remain defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]], not by FTS5 behavior.
+- FTS-specific functionality must fail clearly when FTS5 is disabled.
+
+Acceptance criteria:
+
+- If FTS5 is disabled, rebuild works without creating or writing ~heading_fts~.
+- If FTS5 is enabled, ~heading_fts~ is created and maintained.
+- ~heading_fts.rowid~ matches ~headings.id~.
+- Heading titles are indexed when FTS5 is enabled.
+- Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- FTS-backed search can match title-only, body-only, or both where supported.
+- Body indexing can be disabled even when FTS5 is enabled.
+- Queries or commands using unavailable FTS-specific functionality return clear errors.
+- Tests cover enabled FTS5, disabled FTS5, title indexing, optional body indexing, and disabled body indexing.
+
+** TODO [#C] Provide CLI command ~search~
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
 :API_CONTRACT_CHANGE: Maybe
 :END:
 
+Depends on:
+
+- Enable optional SQLite FTS5 for full-text search
+
 Goal:
 
-- Define an output format that returns matching headings with enough surrounding context to render an outline.
-- Support use cases such as Emacs side buffers with clickable links.
+- Provide a simple FTS-focused convenience command before or alongside the full query language.
 
-Inspiration:
+Example:
 
-- org-ql side buffers.
-- vulpea-ui.
+#+begin_src shell
+orgfdb search --json sqlite
+#+end_src
 
-Potential behavior:
+Rules:
 
-- Return matching headings as a tree.
-- Include ancestor headings for context.
-- Represent the file as level 0.
-- Allow querying one file or multiple files.
-- Make output usable as JSON for Emacs.
+- ~search~ is a convenience command, not the canonical query language.
+- ~search~ must not redefine Query Model v0 semantics.
+- ~search~ uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
+- If FTS5 is disabled, ~search~ returns a clear error or a documented fallback.
+- ~search~ is read-only.
+- ~search~ must not scan Org files.
+- ~search~ must not rebuild or mutate the database.
 
 Acceptance criteria:
 
-- JSON shape for outline/context results is documented.
-- File-level entries are represented consistently.
-- Matching nodes are distinguishable from context-only nodes.
-- Output includes enough location data for clickable links.
+- Search returns JSON when ~--json~ is passed.
+- Results include heading id, file path, title, and byte_start.
+- Results include enough location data for editor jumps.
+- Search can match heading titles when FTS5 is enabled.
+- Search can optionally include body matches when ~search.index_body_text~ is enabled.
+- If FTS5 is disabled, the command returns a clear documented error or fallback.
+- Output is usable from Emacs/editor integrations.
+- CLI docs describe ~search~ as a convenience command.
 
-** TODO [#C] Collect future operation commands
+** TODO [#C] Collect future graph operation commands
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
@@ -289,17 +564,26 @@ Acceptance criteria:
 
 Goal:
 
-- Capture CLI operations that are related to the indexed graph but should not be mixed into the v0 query engine.
+- Capture CLI operations that are related to the indexed graph but should not be mixed into Query Model v0.
 
 Potential operations:
 
 - Rename file and update affected links.
 - Update link descriptions when a file title changes.
-- Fix broken link by replacing an old destination with a new destination.
+- Fix broken links by replacing an old destination with a new destination.
 - Warn when a change breaks links, possibly via watcher.
+- Suggest possible targets for unresolved or ambiguous links.
+
+Rules:
+
+- Query/search scope remains read-only.
+- Mutation and repair commands are not part of Query Model v0.
+- Future operation commands must be split into separate tasks before implementation.
+- Operation commands must not be hidden inside ~query~ or ~search~.
 
 Acceptance criteria:
 
-- Operations are documented as future work.
+- Future operation ideas are documented as future work.
 - Query/search scope remains separate from mutation/repair operations.
-- No mutation command is implemented as part of query v0 unless explicitly split into its own task.
+- No mutation command is implemented as part of Query Model v0.
+- Any future mutation command gets its own explicit API and safety contract.

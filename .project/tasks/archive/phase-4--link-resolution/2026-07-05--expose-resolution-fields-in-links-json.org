@@ -96,7 +96,7 @@ Add output fields:
 ** Changed files
 - =src/db/reader.rs=
 - =src/cli.rs=
-- =docs/cli.md=
+- =docs/cli.org=
 - =README.org=
 - =CHANGELOG.org=
 - =.project/tasks/todo.org=

@@ -57,7 +57,7 @@ Scope:
 
 ** Architecture
 - Update =README.org= with a concise high-level resolver contract summary and explicit scope decisions.
-- Update =docs/cli.md= with the public =links --json= field list and read-only semantics.
+- Update =docs/cli.org= with the public =links --json= field list and read-only semantics.
 - Keep the wording aligned with the current Phase 4 behavior rather than the earlier Phase 3-only view.
 
 ** Execution plan
@@ -79,13 +79,13 @@ Scope:
 * Results
 
 ** Approach
-- Updated the public link-resolution documentation in =README.org= and =docs/cli.md= without changing any resolver, parser, DB, or CLI behavior.
+- Updated the public link-resolution documentation in =README.org= and =docs/cli.org= without changing any resolver, parser, DB, or CLI behavior.
 - Split the docs so the Phase 3 source facts and the Phase 4 resolver-owned fields are described separately, and added explicit scope notes for supported and unsupported link forms.
 - Kept the CLI reference focused on the public =links --json= contract, including read-only behavior and the stored resolution states.
 
 ** Changed files
 - =README.org=
-- =docs/cli.md=
+- =docs/cli.org=
 - =.project/tasks/todo.org=
 - =.project/tasks/2026-07-05--add-link-resolving-to-the-documentation.org=
 

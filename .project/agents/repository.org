@@ -26,8 +26,8 @@ If not all checks can be run, explain why in the task file.
 
 Keep repository documentation updated as part of the same task that changes behavior.
 
-- CLI changes should update ~docs/cli.md~.
-- Config changes should update ~docs/config.md~.
+- CLI changes should update ~docs/cli.org~.
+- Config changes should update ~docs/config.org~.
 - Parser or indexing behavior changes should update the relevant files in ~docs/~.
 - README claims should be updated when they become outdated.
 - Do not duplicate full documentation in this file; use this file only as a repository instruction.

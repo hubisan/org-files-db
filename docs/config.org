@@ -1,10 +1,11 @@
-# Config Reference
+#+TITLE: Config Reference
+#+STARTUP: showall
 
-This page lists the `config.toml` variables currently supported by `orgfdb`.
+This page lists the ~config.toml~ variables currently supported by ~orgfdb~.
 
-## Example
+* Example
 
-```toml
+#+begin_src toml
 db_path = "org-files-db.sqlite"
 files = ["inbox.org", "projects.org"]
 
@@ -26,62 +27,62 @@ default_closed_keywords = ["DONE(d)", "CANCEL(c)"]
 [search]
 fts5_enabled = true
 index_body_text = false
-```
+#+end_src
 
-## Top-level keys
+* Top-level keys
 
-- `db_path`
-- `files`
-- `dirs`
-- `links`
-- `todo`
-- `search`
+- ~db_path~
+- ~files~
+- ~dirs~
+- ~links~
+- ~todo~
+- ~search~
 
-## `db_path`
+* ~db_path~
 
 Path to the SQLite database file.
 
 - Type: string
-- Default: `org-files-db.sqlite`
+- Default: ~org-files-db.sqlite~
 
 Relative paths are resolved against the config file location.
 
-## `files`
+* ~files~
 
 Explicit Org files to index.
 
 - Type: array of strings
-- Default: `[]`
+- Default: ~[]~
 
 Each entry is a file path. Relative paths are resolved against the config file location.
 
-## `dirs`
+* ~dirs~
 
 Directories to search for Org files.
 
 - Type: array of tables
-- Default: `[]`
+- Default: ~[]~
 
-Each `[[dirs]]` entry configures one discovery root. Relative paths are resolved against the config file location.
+Each ~[[dirs]]~ entry configures one discovery root. Relative paths are resolved against the config file location.
 
-### `dirs[].path`
+** ~dirs[].path~
 
 Directory path to search for Org files.
 
 - Type: string
 - Required: yes
 
-### `dirs[].recursive`
+** ~dirs[].recursive~
 
 Controls whether discovery for this directory descends into subdirectories.
 
 - Type: boolean
 - Required: no
-- Default: `false`
+- Default: ~false~
 
 Example:
 
-```toml
+#+begin_src toml
 [[dirs]]
 path = "notes"
 recursive = true
@@ -89,81 +90,81 @@ recursive = true
 [[dirs]]
 path = "inbox"
 recursive = false
-```
+#+end_src
 
-## `[links]`
+* ~[links]~
 
 Controls plain-link protocol handling for Phase 3 link scanning.
 
 Supported keys:
 
-- `plain_protocols`
-- `custom_protocols`
+- ~plain_protocols~
+- ~custom_protocols~
 
-### `links.plain_protocols`
+** ~links.plain_protocols~
 
 Protocols recognized as plain links.
 
 - Type: array of strings
 - Default: built-in plain-link protocol list
 
-When this field is omitted, the built-in defaults are used. When it is present, it defines the base list before `custom_protocols` are appended and deduplicated case-insensitively.
+When this field is omitted, the built-in defaults are used. When it is present, it defines the base list before ~custom_protocols~ are appended and deduplicated case-insensitively.
 
-### `links.custom_protocols`
+** ~links.custom_protocols~
 
 Additional project-specific protocols recognized as plain links.
 
 - Type: array of strings
-- Default: `[]`
+- Default: ~[]~
 
-Values are lowercased and deduplicated together with `plain_protocols`.
+Values are lowercased and deduplicated together with ~plain_protocols~.
 
-## `[todo]`
+* ~[todo]~
 
 Controls default TODO keyword handling when a file does not define its own in-buffer Org TODO keywords.
 
 Supported keys:
 
-- `default_open_keywords`
-- `default_closed_keywords`
+- ~default_open_keywords~
+- ~default_closed_keywords~
 
-### `todo.default_open_keywords`
+** ~todo.default_open_keywords~
 
 Default open TODO keywords.
 
 - Type: array of strings
-- Default: `["TODO"]`
+- Default: ~["TODO"]~
 
-Entries may include Org-style fast selection keys such as `TODO(t)`.
+Entries may include Org-style fast selection keys such as ~TODO(t)~.
 
-### `todo.default_closed_keywords`
+** ~todo.default_closed_keywords~
 
 Default closed TODO keywords.
 
 - Type: array of strings
-- Default: `["DONE"]`
+- Default: ~["DONE"]~
 
-Entries may include Org-style fast selection keys such as `DONE(d)`.
+Entries may include Org-style fast selection keys such as ~DONE(d)~.
 
-## `[search]`
+* ~[search]~
 
 Controls search-related indexing behavior.
 
 Supported keys:
 
-- `fts5_enabled`
-- `index_body_text`
+- ~fts5_enabled~
+- ~index_body_text~
 
-### `search.fts5_enabled`
+** ~search.fts5_enabled~
 
 Controls whether SQLite FTS5 indexing is enabled during rebuild.
 
 - Type: boolean
-- Default: `true`
+- Default: ~true~
 
-### `search.index_body_text`
+** ~search.index_body_text~
 
 Controls whether heading body text is indexed for search.
 
 - Type: boolean
-- Default: `false`
+- Default: ~false~

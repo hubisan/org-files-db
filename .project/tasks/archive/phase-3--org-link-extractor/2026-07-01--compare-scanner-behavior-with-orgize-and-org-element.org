@@ -116,10 +116,10 @@ Suggested output:
 * Results
 
 ** Approach
-Extended ~docs/parser-risks.org~ with a dedicated Phase 3 link-scanner cross-check entry instead of creating a separate document. The note records the representative fixture set, the comparison method, the accepted matches against Emacs ~org-element~, the expected ~Orgize~ and Emacs mismatches, and the conclusion that no unexpected mismatch was found in the chosen validation set.
+Extended ~docs/design/parser-risks.org~ with a dedicated Phase 3 link-scanner cross-check entry instead of creating a separate document. The note records the representative fixture set, the comparison method, the accepted matches against Emacs ~org-element~, the expected ~Orgize~ and Emacs mismatches, and the conclusion that no unexpected mismatch was found in the chosen validation set.
 
 ** Changed files
-- `docs/parser-risks.org`
+- `docs/design/parser-risks.org`
 - `.project/tasks/todo.org`
 - `.project/tasks/2026-07-01--compare-scanner-behavior-with-orgize-and-org-element.org`
 

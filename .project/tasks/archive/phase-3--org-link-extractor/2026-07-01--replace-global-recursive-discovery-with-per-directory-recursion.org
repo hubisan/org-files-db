@@ -177,7 +177,7 @@ Chat context:
 
 - ~src/config.rs~
 - ~src/indexer.rs~
-- ~docs/config.md~
+- ~docs/config.org~
 - ~.project/tasks/todo.org~
 - ~.project/tasks/2026-07-01--replace-global-recursive-discovery-with-per-directory-recursion.org~
 ** Checks performed

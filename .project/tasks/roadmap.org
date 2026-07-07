@@ -518,7 +518,7 @@ Acceptance criteria:
 Possible file:
 
 #+begin_src text
-docs/parser-risks.org
+docs/design/parser-risks.org
 #+end_src
 
 Purpose: Maintain and extend the central parser risk register once it exists.

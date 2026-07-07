@@ -1,0 +1,5933 @@
+#+TITLE: Query Model v0 Specification — Version 2, Revision 3
+#+LANGUAGE: en
+#+STARTUP: content
+
+* Part 1.1 — Foundations
+
+** 1. Goals
+
+The query model provides a stable, expressive, and implementation-independent language for querying indexed Org data.
+
+It is intended to:
+
+- query Org content independently of the underlying database
+- provide a stable API for applications and editor integrations
+- support both simple interactive searches and complex structured queries
+- be extensible without breaking existing queries
+- model the Org graph rather than only Org headings
+
+The query language defines *what* is queried.
+
+It intentionally does not define *how* queries are executed.
+
+** 2. Non-goals
+
+The query model does not specify:
+
+- database schema
+- SQL generation
+- indexing strategy
+- full-text search implementation
+- CLI syntax
+- output serialization
+- ranking
+- performance characteristics
+
+These are defined by other specifications.
+
+** 3. Design principles
+
+- Stable
+- Explicit
+- Composable
+- Orthogonal
+- Extensible
+- Org-oriented
+
+Example:
+
+#+begin_src lisp
+(and
+  (todo "NEXT")
+  (tags "project")
+  (priority "A"))
+#+end_src
+
+** 4. Terminology
+
+- Query :: Describes which indexed objects should be matched.
+- Query target :: Defines which kind of objects are returned.
+- Predicate :: Evaluates whether an object matches a condition.
+- Query expression :: Combines predicates.
+- Context :: Additional information surrounding a matched object. Context never changes which objects match.
+- Result :: An object matched by the query.
+
+** 5. Query model overview
+
+Every query consists of three independent parts:
+
+- Target
+- Predicate expression
+- Output options
+
+Example:
+
+#+begin_src lisp
+(headings
+  (and
+    (todo "NEXT")
+    (tags "project")))
+#+end_src
+
+Output options (for example):
+
+#+begin_src text
+--output outline
+--include links
+#+end_src
+
+Output options are intentionally outside the query language.
+
+** 6. Query targets
+
+*** Headings
+
+#+begin_src lisp
+(headings
+  (todo))
+#+end_src
+
+Returns headings.
+
+*** Links
+
+#+begin_src lisp
+(links
+  (status "broken"))
+#+end_src
+
+Returns links.
+
+*** Files
+
+#+begin_src lisp
+(files
+  (file-path "projects/"))
+#+end_src
+
+Returns files.
+
+** 7. Top-level shorthand
+
+The outermost
+
+#+begin_src lisp
+(headings ...)
+#+end_src
+
+may be omitted.
+
+Example:
+
+#+begin_src lisp
+(todo "NEXT")
+#+end_src
+
+is equivalent to:
+
+#+begin_src lisp
+(headings
+  (todo "NEXT"))
+#+end_src
+
+This shorthand is valid only at the outermost query level.
+
+Inside nested queries the target must always be explicit.
+
+Example:
+
+#+begin_src lisp
+(source
+  (headings
+    (tags "project")))
+
+(target
+  (files
+    (file-path "notes.org")))
+#+end_src
+
+** 8. Boolean expressions
+
+- (and ...) matches when all child expressions match.
+- (or ...) matches when any child expression matches.
+- (not ...) negates exactly one child expression.
+
+Example:
+
+#+begin_src lisp
+(not
+  (and
+    (todo)
+    (priority "A")))
+#+end_src
+
+** 9. Informal grammar
+
+#+begin_src text
+query
+  ::= target-query
+   | heading-shorthand
+
+target-query
+  ::= (headings predicate?)
+   | (links predicate?)
+   | (files predicate?)
+
+predicate
+  ::= atomic-predicate
+   | (and predicate...)
+   | (or predicate...)
+   | (not predicate)
+#+end_src
+
+Empty target queries such as ~(links)~ and ~(files)~ are allowed and return all objects for that target. Support for ~(headings)~ may be allowed to return all headings.
+
+A complete formal grammar will be defined together with the parser specification.
+
+* Part 1.2 — Core Semantics
+
+** 1. Purpose of this part
+
+This document defines the core semantics shared by all query targets and predicates.
+
+It covers:
+
+- predicate capability matrix
+- multi-value argument semantics
+- nested query rules
+- root / synthetic heading context
+- output model
+- include model
+- sorting
+- error semantics
+- extension rules
+
+This part does not define every predicate in detail. Predicate-specific rules are documented in the later parts.
+
+** 2. Predicate capability matrix
+
+The query language has explicit targets:
+
+#+begin_src lisp
+(headings ...)
+(links ...)
+(files ...)
+#+end_src
+
+Predicates are only valid for the targets where they are documented.
+
+Legend:
+
+- yes :: predicate is directly valid for this target
+- via root :: valid for headings through file/root context
+- via relation :: valid through a relation such as ~source~, ~target~, ~has-link~, ~links-to~, or ~linked-from~
+- no :: not valid for this target
+
+| Predicate family | Headings | Links | Files |
+|------------------+----------+-------+-------|
+| ~todo~ / ~done~ | yes | no | no |
+| ~title~ | yes | no | no |
+| ~has-text~ | yes | no | no |
+| ~level~ | yes | no | no |
+| ~priority~ | yes | no | no |
+| ~tags~ | yes | no | yes |
+| ~property~ | yes | no | yes |
+| ~keyword~ | via root | no | yes |
+| ~file-name~ | yes | via relation | yes |
+| ~file-path~ | yes | via relation | yes |
+| ~file-dir~ | yes | via relation | yes |
+| ~file-title~ | yes | via relation | yes |
+
+Note: ~file-title~ is marked as directly usable for heading queries because it filters headings by their containing file, like ~file-name~, ~file-path~, and ~file-dir~. Internally it is derived from root metadata such as ~#+TITLE~.
+| ~file-modified~ | yes | via relation | yes |
+| ~outline-contains~ | yes | via relation | no |
+| ~outline-sequence~ | yes | via relation | no |
+| ~has-link~ | yes | no | yes |
+| ~links-to~ | yes | yes | no |
+| ~linked-from~ | yes | yes | no |
+| ~link-type~ | via ~has-link~ | yes | no |
+| ~link-description~ | via ~has-link~ | yes | no |
+| ~has-description~ | via ~has-link~ | yes | via ~has-link~ |
+| ~link-target~ | via ~has-link~ | yes | no |
+| ~status~ | via ~has-link~ | yes | no |
+| ~source~ | no | yes | no |
+| ~target~ | no | yes | no |
+| timestamps / planning | yes | no | no |
+| hierarchy predicates | yes | no | no |
+
+Rules:
+
+- A predicate used on an invalid target is an error.
+- Relation predicates may embed another target query explicitly.
+- Top-level shorthand does not apply inside relation predicates.
+- File/root context is available to heading queries where explicitly documented.
+
+** 3. Multi-value argument semantics
+
+Predicates that accept multiple values follow one of three semantic categories.
+
+This rule must be documented per predicate.
+
+*** 3.1 Value predicates
+
+Value predicates compare an object field against one or more discrete values.
+
+Multiple values mean OR by default.
+
+Examples:
+
+#+begin_src lisp
+(todo "NEXT" "WAITING")
+(tags "project" "work")
+(tags "project" "urgent" :match :all)
+(priority "A" "B")
+(link-type "file" "id")
+(status "broken" "unresolved")
+#+end_src
+
+Meaning:
+
+#+begin_src lisp
+(todo "NEXT" "WAITING")
+#+end_src
+
+matches headings whose TODO keyword is either ~NEXT~ or ~WAITING~.
+
+For tags, the canonical predicate supports both any-match and all-match forms:
+
+#+begin_src lisp
+(tags "project" "work")
+(tags "project" "urgent" :match :all)
+#+end_src
+
+~(tags-all "project" "urgent")~ is a readability alias for:
+
+#+begin_src lisp
+(tags "project" "urgent" :match :all)
+#+end_src
+
+The parser should normalize ~(tags-all ...)~ to ~(tags ... :match :all)~ before semantic validation.
+
+*** 3.2 Text predicates
+
+Text predicates search for one or more text patterns in a text field.
+
+Multiple values mean AND by default.
+
+Examples:
+
+#+begin_src lisp
+(title "sqlite" "index")
+(has-text "sqlite" "fts")
+(outline-contains "Project" "Query")
+(file-title "Projects" "Archive")
+#+end_src
+
+Meaning:
+
+#+begin_src lisp
+(title "sqlite" "index")
+#+end_src
+
+matches headings whose title contains both ~sqlite~ and ~index~, case-insensitively, in any order.
+
+*** 3.3 Positional predicates
+
+Some predicates use multiple arguments positionally.
+
+Examples:
+
+#+begin_src lisp
+(level 2)
+(level 2 4)
+(level >= 2)
+(file-modified :from -7 :to today)
+(deadline :from today :to 7)
+#+end_src
+
+For positional predicates, arguments do not mean OR or AND. Each argument has a specific documented role.
+
+*** 3.4 No hidden global rule
+
+There is no single global meaning for ~&rest~.
+
+Each predicate must explicitly document whether its arguments are:
+
+- value alternatives
+- text patterns
+- positional arguments
+
+** 4. Regexp and exact matching
+
+Predicates that support pattern matching should use keyword options instead of separate ~*-regexp~ predicates.
+
+Preferred form:
+
+#+begin_src lisp
+(title "query.*engine" :regexp t)
+(file-path "projects/.*\.org" :regexp t)
+(outline-sequence "Proj.*" "Query.*" :regexp t)
+#+end_src
+
+Rules:
+
+- ~:regexp t~ means string arguments are interpreted as regular expressions.
+- ~:regexp nil~ is the default.
+- If regexp matching is not supported by the backend, the query must fail clearly.
+- Regexps are case-insensitive unless a predicate explicitly documents otherwise.
+
+Exact matching is expressed with:
+
+#+begin_src lisp
+:exact t
+#+end_src
+
+Rules:
+
+- ~:exact t~ requires exactly one text argument.
+- With multiple text arguments, ~:exact t~ is an error.
+- ~:exact t~ and ~:regexp t~ must not be used together unless a predicate explicitly allows it.
+
+Example:
+
+#+begin_src lisp
+(title "Query engine" :exact t)
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(title "Query" "engine" :exact t)
+#+end_src
+
+Reason:
+
+#+begin_src text
+:exact t accepts exactly one text argument
+#+end_src
+
+** 5. Nested query rules
+
+Nested relation predicates must use explicit target wrappers.
+
+Valid:
+
+#+begin_src lisp
+(links
+  (source
+    (headings
+      (tags "project"))))
+#+end_src
+
+Valid:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org"))))
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(links
+  (source
+    (tags "project")))
+#+end_src
+
+Reason:
+
+- The top-level heading shorthand applies only to the outermost query.
+- Subqueries must always declare whether they match headings, links, or files.
+- This avoids ambiguity for predicates such as ~property~, ~keyword~, and ~file-modified~.
+
+** 6. Root / synthetic heading context
+
+Each indexed file has a root context.
+
+The root context contains file-level facts:
+
+- file path
+- file name
+- file directory
+- file title / ~#+TITLE~
+- keywords
+- FILETAGS
+- level-0 properties
+- CATEGORY
+- links in the file preamble
+
+The root context is represented as a file node in output.
+
+It is not returned as a normal heading.
+
+*** 6.1 Root as file node in output
+
+The output kind remains:
+
+#+begin_src json
+{
+  "kind": "file"
+}
+#+end_src
+
+The root must not be represented as:
+
+#+begin_src json
+{
+  "kind": "heading"
+}
+#+end_src
+
+even if it participates in heading-style matching.
+
+*** 6.2 Root path behavior
+
+Every returned path includes the root/file node.
+
+Example:
+
+#+begin_src json
+"path": [
+  {
+    "kind": "file",
+    "id": 1,
+    "path": "projects.org",
+    "title": "Projects"
+  },
+  {
+    "kind": "heading",
+    "id": 10,
+    "title": "Org database",
+    "level": 1
+  },
+  {
+    "kind": "heading",
+    "id": 14,
+    "title": "Query engine",
+    "level": 2
+  }
+]
+#+end_src
+
+For links in the file preamble, the source path contains only the file/root node.
+
+Example:
+
+#+begin_src json
+"path": [
+  {
+    "kind": "file",
+    "id": 1,
+    "path": "index.org",
+    "title": "Index"
+  }
+]
+#+end_src
+
+*** 6.3 Root behavior for heading predicates
+
+The root can act as a synthetic heading context for selected heading predicates.
+
+This is a matching concept only. It does not change the output kind.
+
+| Predicate | Root behavior |
+|-----------+---------------|
+| ~title~ | matches file title |
+| ~tags~ | matches FILETAGS |
+| ~property~ | matches root/level-0 properties |
+| ~keyword~ | matches file keywords |
+| ~file-*~ | matches file metadata |
+| ~level~ | matches ~(level 0)~ |
+| ~todo~ | always false |
+| ~done~ | always false |
+| ~priority~ | always false |
+| ~parent~ | always false |
+| ~ancestors~ | always false |
+| ~children~ | matches top-level headings |
+| ~descendants~ | matches headings in the file |
+| ~has-link~ | matches links in the file preamble |
+| ~links-to~ | matches outgoing links in the file preamble |
+| ~linked-from~ | matches backlinks to the file/root |
+
+Predicates that are not meaningful on the root return false rather than failing, unless explicitly documented otherwise.
+
+*** 6.4 Default root inclusion for heading queries
+
+For heading queries, root-level facts participate in inherited/effective matching by default where inheritance is meaningful.
+
+Default:
+
+#+begin_src lisp
+:with-root t
+#+end_src
+
+Example:
+
+#+begin_src lisp
+(headings
+  (property "CATEGORY" "notes" :inherit t))
+#+end_src
+
+means:
+
+- match headings whose own, inherited, or root-level effective ~CATEGORY~ is ~notes~
+
+Explicitly excluding root:
+
+#+begin_src lisp
+(headings
+  (property "CATEGORY" "notes" :inherit t :with-root nil))
+#+end_src
+
+means:
+
+- heading and ancestor values may count
+- file/root values do not count
+
+*** 6.5 Keywords and root
+
+Keywords are always root/file-level facts.
+
+Therefore ~keyword~ does not need a ~:with-root~ option.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (keyword "TITLE" "Projects"))
+
+(headings
+  (and
+    (keyword "TITLE" "Projects")
+    (todo)))
+#+end_src
+
+The second query means:
+
+- return TODO headings in files whose root keyword ~TITLE~ is ~Projects~
+
+** 7. Links in the file preamble
+
+Links before the first heading are indexed.
+
+Their source is the file/root context.
+
+Example source path:
+
+#+begin_src json
+"path": [
+  {
+    "kind": "file",
+    "path": "index.org",
+    "title": "Index"
+  }
+]
+#+end_src
+
+Rules:
+
+- Preamble links can be returned by ~(links ...)~ queries.
+- Preamble links can be matched by file queries using ~(has-link ...)~.
+- Preamble links can be matched by heading queries only through root/synthetic heading context.
+- Preamble links do not belong to a real heading.
+
+Example:
+
+#+begin_src lisp
+(files
+  (has-link
+    (links
+      (link-type "file"))))
+#+end_src
+
+matches files whose preamble or content contains a file link.
+
+Example:
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-path "index.org"))))
+#+end_src
+
+returns links located anywhere in ~index.org~, including the preamble.
+
+** 8. Output model
+
+The query determines what matches.
+
+Output options determine how matches are represented.
+
+Output options must not change which objects match.
+
+Supported v0 output modes:
+
+- flat
+- outline
+
+*** 8.1 Flat output
+
+Flat output returns a list of matched objects.
+
+Each result may include path/context data depending on include options.
+
+Example:
+
+#+begin_src shell
+orgfdb query --output flat '(headings (todo "NEXT"))'
+#+end_src
+
+*** 8.2 Outline output
+
+Outline output returns a tree.
+
+Rules:
+
+- file/root nodes appear at the top
+- ancestor headings may be included as context
+- real matches are marked with ~matched: true~
+- context-only nodes are marked with ~matched: false~
+- root/file nodes use ~kind: "file"~
+
+Example:
+
+#+begin_src shell
+orgfdb query --output outline '(headings (todo "NEXT"))'
+#+end_src
+
+** 9. Include model
+
+Include options add extra data to matched results.
+
+They do not change which objects match.
+
+Candidate include options:
+
+#+begin_src text
+--include path
+--include properties
+--include keywords
+--include links
+--include backlinks
+--include source
+--include target
+#+end_src
+
+Examples:
+
+#+begin_src shell
+orgfdb query --output flat --include path,properties '(headings (todo))'
+orgfdb query --output flat --include path,links '(headings (todo "NEXT"))'
+orgfdb query --output flat --include source,target '(links (status "broken"))'
+#+end_src
+
+Rules:
+
+- ~path~ includes the full root-to-object path.
+- ~links~ includes outgoing links for matched headings or files.
+- ~backlinks~ includes incoming links for matched headings or files.
+- ~source~ includes source context for link results.
+- ~target~ includes resolved target context for link results, where available.
+
+** 10. Sorting
+
+Sorting is not part of predicate logic.
+
+Sorting is an output/query execution option.
+
+Preferred syntax:
+
+#+begin_src shell
+orgfdb query --sort file-path:asc
+orgfdb query --sort modified:desc
+orgfdb query --sort priority:asc,todo:asc
+orgfdb query --sort deadline:asc
+#+end_src
+
+Rules:
+
+- Each sort key may specify direction.
+- Direction is ~asc~ or ~desc~.
+- If direction is omitted, default direction is ~asc~ unless documented otherwise.
+- Multiple sort keys are applied in order.
+- Unsupported sort keys must produce clear errors.
+
+Candidate sort keys:
+
+- file-path
+- file-name
+- file-dir
+- file-title
+- modified
+- title
+- level
+- todo
+- priority
+- deadline
+- scheduled
+- closed
+
+** 11. Error semantics
+
+The query engine must fail clearly for invalid or unsupported queries.
+
+Required error classes:
+
+*** Unsupported operator
+
+Example:
+
+#+begin_src lisp
+(foo "bar")
+#+end_src
+
+Error:
+
+#+begin_src text
+unsupported operator: foo
+#+end_src
+
+*** Invalid target
+
+Example:
+
+#+begin_src lisp
+(links
+  (todo "NEXT"))
+#+end_src
+
+Error:
+
+#+begin_src text
+predicate todo is not valid for target links
+#+end_src
+
+*** Wrong arity
+
+Example:
+
+#+begin_src lisp
+(not (todo) (priority "A"))
+#+end_src
+
+Error:
+
+#+begin_src text
+not expects exactly one argument
+#+end_src
+
+*** Invalid option
+
+Example:
+
+#+begin_src lisp
+(title "Query" :unknown t)
+#+end_src
+
+Error:
+
+#+begin_src text
+unknown option for title: :unknown
+#+end_src
+
+*** Unsupported backend feature
+
+Example:
+
+#+begin_src lisp
+(has-text "sqlite" :regexp t)
+#+end_src
+
+when regexp body matching is unavailable.
+
+Error:
+
+#+begin_src text
+has-text with :regexp t is not supported by the current backend
+#+end_src
+
+*** Unavailable indexed data
+
+Example:
+
+#+begin_src lisp
+(has-text "sqlite")
+#+end_src
+
+when body text is not available in the database.
+
+Error:
+
+#+begin_src text
+has-text requires body text to be available in the database
+#+end_src
+
+** 12. Extension rules
+
+Future extensions should follow these rules:
+
+- New query targets must use explicit outer forms.
+- New predicates must document valid targets.
+- New predicates must document multi-value semantics.
+- New predicates must document regexp/exact support if relevant.
+- New relation predicates must require explicit nested target wrappers.
+- Existing predicate semantics must not change incompatibly.
+- Output options must not change match semantics.
+
+** 13. Summary of core decisions
+
+- Query target is explicit through ~(headings ...)~, ~(links ...)~, or ~(files ...)~.
+- Bare predicates are shorthand for heading queries only at top level.
+- Nested subqueries must always use explicit target wrappers.
+- Boolean operators are ~(and ...)~, ~(or ...)~, and ~(not ...)~.
+- ~not~ accepts exactly one expression.
+- Multi-value semantics are documented per predicate.
+- Text predicates use ~:regexp t~ instead of separate regexp predicates.
+- ~:exact t~ requires exactly one text argument.
+- Root/file context is represented as ~kind: "file"~.
+- Root may act as synthetic heading context for selected predicates.
+- Path output always includes the root/file node.
+- Links in the file preamble are indexed and belong to the file/root context.
+- Output mode and include options are separate from query semantics.
+- Sorting is outside predicate logic.
+
+* Part 2 - Heading Predicates
+
+** 1. Purpose of this part
+
+This document defines predicates that can be used with the ~headings~ query target.
+
+#+begin_src lisp
+(headings
+  PREDICATE)
+#+end_src
+
+The top-level heading shorthand is also allowed:
+
+#+begin_src lisp
+(todo "NEXT")
+#+end_src
+
+which is equivalent to:
+
+#+begin_src lisp
+(headings
+  (todo "NEXT"))
+#+end_src
+
+This document does not define link result predicates or file result predicates in full. Those are specified in Part 3. Some file and link predicates are still documented here where they can be used to filter headings.
+
+** 2. General rules for heading predicates
+
+*** 2.1 Heading predicates return headings
+
+A heading predicate never returns files or links by itself.
+
+Example:
+
+#+begin_src lisp
+(headings
+  (has-link))
+#+end_src
+
+returns headings that contain links.
+
+It does not return the links themselves.
+
+To return links, use the ~links~ target:
+
+#+begin_src lisp
+(links
+  ...)
+#+end_src
+
+*** 2.2 Root/file context may participate in matching
+
+Heading queries operate on real headings, but root/file-level facts can participate in matching where documented.
+
+Examples of root/file-level facts:
+
+- ~#+TITLE~
+- ~#+FILETAGS~
+- ~#+PROPERTY~ defaults
+- level-0 property drawer rows
+- ~#+CATEGORY~
+- file path
+- file modified time
+- file preamble links
+
+Root/file context is represented as ~kind: "file"~ in output. It is not returned as a normal heading.
+
+*** 2.3 Subqueries must use explicit target wrappers
+
+Top-level shorthand does not apply inside nested predicates.
+
+Valid:
+
+#+begin_src lisp
+(linked-from
+  (files
+    (file-path "index.org")))
+#+end_src
+
+Valid:
+
+#+begin_src lisp
+(ancestors
+  (headings
+    (tags "project")))
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(ancestors
+  (tags "project"))
+#+end_src
+
+Reason:
+
+- nested query positions must be explicit
+- this avoids ambiguous predicates such as ~property~, ~keyword~, and ~file-modified~
+
+*** 2.4 Case sensitivity
+
+Text matching is case-insensitive by default unless a predicate explicitly states otherwise.
+
+*** 2.5 Regexp support
+
+Predicates that support pattern matching use:
+
+#+begin_src lisp
+:regexp t
+#+end_src
+
+instead of separate ~*-regexp~ predicates.
+
+Example:
+
+#+begin_src lisp
+(title "query.*engine" :regexp t)
+#+end_src
+
+If regexp matching is not supported by the active backend, the query must fail clearly.
+
+*** 2.6 Exact matching
+
+Text predicates may support:
+
+#+begin_src lisp
+:exact t
+#+end_src
+
+Predicate-specific rules define what exact means.
+
+For simple text fields such as ~title~, ~:exact t~ requires exactly one text argument.
+
+For path-like predicates such as ~outline-sequence~, ~:exact t~ may apply to each path segment if explicitly documented.
+
+*** 2.7 Multi-value semantics
+
+Each predicate documents whether multiple arguments mean:
+
+- OR over discrete values
+- AND over text patterns
+- positional arguments
+
+There is no hidden global rule for ~&rest~ arguments.
+
+** 3. Basic heading predicates
+
+*** ~(title &rest strings &key regexp exact)~
+
+**** Purpose
+
+Match heading titles.
+
+This predicate replaces the earlier proposed ~heading~ predicate name.
+
+**** Arguments
+
+- ~strings~ :: One or more strings or patterns.
+- ~:regexp t~ :: Interpret strings as regexps.
+- ~:exact t~ :: Require exact title equality.
+
+**** Rules
+
+- Without ~:regexp t~ and without ~:exact t~, each string is matched as a case-insensitive substring.
+- Multiple strings mean AND.
+- Order does not matter.
+- With ~:regexp t~, all regexps must match.
+- With ~:exact t~, exactly one string must be provided.
+- ~:regexp t~ and ~:exact t~ must not be combined.
+
+**** Examples
+
+#+begin_src lisp
+(title "sqlite")
+#+end_src
+
+Matches headings whose title contains ~sqlite~.
+
+#+begin_src lisp
+(title "sqlite" "index")
+#+end_src
+
+Matches headings whose title contains both ~sqlite~ and ~index~, in any order.
+
+#+begin_src lisp
+(title "Query engine" :exact t)
+#+end_src
+
+Matches only headings whose title is exactly ~Query engine~, ignoring case unless exact matching is later defined as case-sensitive.
+
+#+begin_src lisp
+(title "query.*engine" :regexp t)
+#+end_src
+
+Matches headings whose title matches the regexp.
+
+**** Invalid examples
+
+#+begin_src lisp
+(title "Query" "engine" :exact t)
+#+end_src
+
+Invalid because ~:exact t~ requires exactly one title argument.
+
+**** Notes
+
+The file/root context may use file title for root-style matching, but real heading results are still headings.
+
+*** ~(has-text &rest strings &key regexp)~
+
+**** Purpose
+
+Match stored body text for the heading.
+
+**** Arguments
+
+- ~strings~ :: One or more strings or patterns.
+- ~:regexp t~ :: Interpret strings as regexps if supported.
+
+**** Rules
+
+- Multiple strings mean AND.
+- Matching requires body text to be available in the database.
+- The query model does not require a specific backend.
+- A simple backend may use stored body text with SQL matching.
+- An optimized backend may use SQLite FTS5 or another full-text index.
+- If body text is unavailable, this must fail clearly.
+- With ~:regexp t~, strings are interpreted as regexps if supported by the backend.
+- If regexp matching is not supported by the backend, this must fail clearly.
+
+**** Examples
+
+#+begin_src lisp
+(has-text "sqlite")
+(has-text "sqlite" "fts")
+(has-text "sqlite.*fts" :regexp t)
+#+end_src
+
+**** Notes
+
+~has-text~ is a query-language predicate. Full-text search is an implementation detail and should be specified separately.
+
+Use ~(title ...)~ for heading title search.
+
+*** ~(level level-spec)~
+
+**** Purpose
+
+Match the outline level of a heading.
+
+**** Accepted forms
+
+#+begin_src lisp
+(level NUMBER)
+(level MIN MAX)
+(level COMPARATOR NUMBER)
+#+end_src
+
+**** Rules
+
+- ~(level NUMBER)~ matches exactly one level.
+- ~(level MIN MAX)~ matches levels between ~MIN~ and ~MAX~, inclusive.
+- ~(level COMPARATOR NUMBER)~ compares with ~<~, ~<=~, ~>~, or ~>=~.
+- File/root context is level 0.
+- Real headings start at level 1.
+- Arguments are positional, not OR/AND alternatives.
+
+**** Examples
+
+#+begin_src lisp
+(level 1)
+(level 2 4)
+(level >= 2)
+(level 0)
+#+end_src
+
+**** Notes
+
+For normal heading results, ~(level 0)~ does not return the root as a heading. It can matter in root/synthetic heading context and hierarchy matching.
+
+*** ~(todo &rest keywords)~
+
+**** Purpose
+
+Match headings with TODO keywords.
+
+**** Arguments
+
+- ~keywords~ :: Optional TODO keyword values.
+
+**** Rules
+
+- Without arguments, matches open TODO items.
+- Done keywords are not matched by ~(todo)~.
+- With arguments, matches headings whose TODO keyword is any listed keyword.
+- Multiple keywords mean OR.
+- Matching is exact keyword matching, not substring matching.
+
+**** Examples
+
+#+begin_src lisp
+(todo)
+(todo "NEXT")
+(todo "NEXT" "WAITING")
+#+end_src
+
+**** Notes
+
+The set of open/done TODO keywords is defined by indexed Org configuration or project configuration, not by this query specification.
+
+*** ~(done)~
+
+**** Purpose
+
+Match headings whose TODO keyword is a done keyword.
+
+**** Rules
+
+- Accepts no arguments.
+- Matches only headings with an explicit done TODO keyword.
+- Headings without TODO keyword do not match.
+
+**** Examples
+
+#+begin_src lisp
+(done)
+#+end_src
+
+*** ~(priority &rest args)~
+
+**** Purpose
+
+Match headings with explicit priority cookies.
+
+**** Accepted forms
+
+#+begin_src lisp
+(priority "A")
+(priority "A" "B")
+(priority >= "B")
+#+end_src
+
+**** Rules
+
+- Without comparator, multiple priorities mean OR.
+- With comparator, the first argument is one of ~<~, ~<=~, ~>~, or ~>=~.
+- Items without an explicit priority cookie do not match.
+- The default Org priority must not be assumed for items without a priority cookie.
+
+**** Examples
+
+#+begin_src lisp
+(priority "A")
+(priority "A" "B")
+(priority >= "B")
+#+end_src
+
+**** Notes
+
+The ordering of priority letters follows Org priority ordering. Usually ~A~ is higher priority than ~B~, but the effective ordering should follow indexed configuration if supported.
+
+** 4. Tags predicate
+
+*** ~(tags &rest tags &key inherit with-root regexp match)~
+
+**** Purpose
+
+Match headings by effective or local tags.
+
+This single predicate covers the old conceptual roles of separate ~tags~, ~tags-all~, and ~tags~ with ~:regexp t~ forms.
+
+Regexp tag matching uses the ~:regexp t~ option on ~tags~.
+
+~tags-all~ is retained as a readability alias for ~(tags ... :match :all)~.
+
+**** Arguments
+
+- ~tags~ :: Tag names or tag regexps.
+- ~:inherit t|nil~ :: Whether inherited tags count.
+- ~:with-root t|nil~ :: Whether root/file-level tags count when inheritance is enabled.
+- ~:regexp t|nil~ :: Interpret tag arguments as regexps.
+- ~:match :any|:all~ :: Whether any or all tag arguments must match.
+
+**** Defaults
+
+#+begin_src lisp
+:inherit t
+:with-root t
+:regexp nil
+:match :any
+#+end_src
+
+**** Rules
+
+- With ~:match :any~, at least one listed tag must match.
+- With ~:match :all~, all listed tags must match.
+- With ~:inherit t~, local tags, inherited heading tags, and FILETAGS may match.
+- With ~:inherit nil~, only local tags on the current heading match.
+- With ~:with-root t~, FILETAGS/root tags may participate in inherited matching.
+- With ~:regexp t~, tag arguments are interpreted as regexps.
+- Tag matching is case-sensitive or case-normalized according to the tag normalization rules defined by the indexer.
+
+**** Examples
+
+Any matching tag:
+
+#+begin_src lisp
+(tags "project")
+(tags "project" "work")
+#+end_src
+
+All listed tags:
+
+#+begin_src lisp
+(tags "project" "urgent" :match :all)
+(tags-all "project" "urgent")
+#+end_src
+
+Local-only tag matching:
+
+#+begin_src lisp
+(tags "project" :inherit nil)
+#+end_src
+
+Regexp tag matching:
+
+#+begin_src lisp
+(tags "proj-.*" :regexp t)
+(tags "proj-.*" "urgent" :regexp t :match :all)
+#+end_src
+
+Inherited tags without root/FILETAGS:
+
+#+begin_src lisp
+(tags "project" :inherit t :with-root nil)
+#+end_src
+
+**** Notes
+
+~FILETAGS~ are root/file-level tags. They count as inherited/effective tags when ~:inherit t~ and ~:with-root t~.
+
+The explicit ~:match~ option avoids separate ~tags-all~ and ~tags~ with ~:regexp t~ predicates while keeping the default behavior convenient for common tag filtering.
+
+** 5. Property and keyword predicates
+
+*** ~(property key &optional value &key inherit with-root regexp)~
+
+**** Purpose
+
+Match headings by property key and optional value.
+
+**** Arguments
+
+- ~key~ :: Property key.
+- ~value~ :: Optional property value.
+- ~:inherit t|nil~ :: Whether inherited/effective values count.
+- ~:with-root t|nil~ :: Whether root/file-level properties count when inheritance is enabled.
+- ~:regexp t|nil~ :: Interpret ~value~ as regexp.
+
+**** Defaults
+
+#+begin_src lisp
+:inherit t
+:with-root t
+:regexp nil
+#+end_src
+
+**** Rules
+
+- Without ~value~, matches existence of the property key.
+- With ~value~, matches property value.
+- Property key matching is case-normalized according to Org property rules.
+- With ~:inherit t~, effective property values are used.
+- With ~:inherit nil~, only properties directly set on the current heading are used.
+- There is no separate ~:direct~ option. Direct behavior is expressed by ~:inherit nil~.
+- With ~:with-root t~, root-level defaults/properties may participate in effective/inherited matching.
+- With ~:regexp t~, ~value~ is interpreted as regexp.
+- By default, property value matching is exact equality, not substring matching.
+
+**** Examples
+
+#+begin_src lisp
+(property "ID")
+(property "OWNER" "Alice")
+(property "OWNER" "Alice" :inherit nil)
+(property "CATEGORY" "work" :inherit t)
+(property "CATEGORY" "work" :inherit t :with-root nil)
+(property "OWNER" "A.*" :regexp t)
+#+end_src
+
+**** Example: inherited root property
+
+#+begin_src org
+,#+PROPERTY: OWNER Alice
+
+,* Task
+#+end_src
+
+Query:
+
+#+begin_src lisp
+(property "OWNER" "Alice" :inherit t)
+#+end_src
+
+matches ~Task~ if root-level property defaults are included.
+
+Query:
+
+#+begin_src lisp
+(property "OWNER" "Alice" :inherit nil)
+#+end_src
+
+does not match ~Task~ because the property is not directly set on the heading.
+
+**** Notes
+
+Effective property resolution, overwrite rules, append behavior, and precedence are defined in the effective property semantics task. This predicate depends on that semantics when ~:inherit t~.
+
+*** ~(keyword key &optional value &key regexp)~
+
+**** Purpose
+
+Filter headings by file/root-level keywords.
+
+**** Arguments
+
+- ~key~ :: Keyword key such as ~TITLE~, ~AUTHOR~, or a custom keyword.
+- ~value~ :: Optional keyword value.
+- ~:regexp t|nil~ :: Interpret ~value~ as regexp.
+
+**** Rules
+
+- Keywords are always root/file-level facts.
+- Heading queries using ~keyword~ match headings located in files whose root keyword matches.
+- There is no ~:inherit~ option because keywords live at the root.
+- There is no ~:with-root~ option because root is implicit for keywords.
+- Without ~value~, matches existence of the keyword.
+- With ~value~, matches keyword value exactly by default.
+- With ~:regexp t~, value is interpreted as regexp.
+
+**** Examples
+
+#+begin_src lisp
+(keyword "TITLE")
+(keyword "TITLE" "Projects")
+(keyword "AUTHOR" "Alice")
+(keyword "TITLE" "Proj.*" :regexp t)
+#+end_src
+
+**** Notes
+
+Use ~(file-title ...)~ for the common ~#+TITLE~ case when the intent is specifically to match the file title.
+
+** 6. File predicates usable in heading queries
+
+These predicates filter headings by the file that contains them.
+
+They do not return files unless used with the ~files~ target.
+
+*** ~(file-name &rest strings &key regexp exact)~
+
+**** Purpose
+
+Match headings by containing file name.
+
+The file name is the final path component, for example ~notes.org~.
+
+**** Rules
+
+- Multiple strings mean AND.
+- Matching is case-insensitive by default.
+- With ~:regexp t~, strings are regexps.
+- With ~:exact t~, exactly one string must be provided and it must equal the file name.
+
+**** Examples
+
+#+begin_src lisp
+(file-name "notes")
+(file-name "notes.org" :exact t)
+(file-name ".*\.org" :regexp t)
+#+end_src
+
+*** ~(file-path &rest strings &key regexp exact)~
+
+**** Purpose
+
+Match headings by containing file path.
+
+The file path is the normalized project-relative or absolute path stored by the indexer.
+
+**** Rules
+
+- Multiple strings mean AND.
+- Matching is case-insensitive by default.
+- With ~:regexp t~, strings are regexps.
+- With ~:exact t~, exactly one string must be provided and it must equal the stored file path.
+
+**** Examples
+
+#+begin_src lisp
+(file-path "projects")
+(file-path "projects/notes.org" :exact t)
+(file-path "projects/.*\.org" :regexp t)
+#+end_src
+
+*** ~(file-dir &rest strings &key regexp exact)~
+
+**** Purpose
+
+Match headings by containing file directory.
+
+The directory excludes the file name.
+
+**** Rules
+
+- Multiple strings mean AND.
+- Matching is case-insensitive by default.
+- With ~:regexp t~, strings are regexps.
+- With ~:exact t~, exactly one string must be provided and it must equal the stored directory path.
+
+**** Examples
+
+#+begin_src lisp
+(file-dir "projects")
+(file-dir "areas/work" :exact t)
+(file-dir "areas/.*/archive" :regexp t)
+#+end_src
+
+*** ~(file-title &rest strings &key regexp exact)~
+
+**** Purpose
+
+Match headings by the containing file's title.
+
+The file title usually comes from ~#+TITLE~.
+
+**** Rules
+
+- Multiple strings mean AND.
+- Matching is case-insensitive by default.
+- With ~:regexp t~, strings are regexps.
+- With ~:exact t~, exactly one string must be provided.
+- Headings in files without a title do not match, unless an implementation defines a derived fallback title.
+
+**** Examples
+
+#+begin_src lisp
+(file-title "Projects")
+(file-title "Projects" "Archive")
+(file-title "Project.*" :regexp t)
+(file-title "Projects" :exact t)
+#+end_src
+
+*** ~(file-modified &key from to on)~
+
+**** Purpose
+
+Match headings by modified time of their containing file.
+
+**** Arguments
+
+- ~:from~ :: Match files modified on or after this time/date.
+- ~:to~ :: Match files modified on or before this time/date.
+- ~:on~ :: Match files modified on this date.
+
+**** Rules
+
+- For heading queries, modified time is inherited from the containing file.
+- This does not mean the heading itself changed.
+- Date arguments use the shared date/time argument syntax.
+- This predicate is positional/keyword-based, not multi-value OR/AND.
+
+**** Examples
+
+#+begin_src lisp
+(file-modified :from -7)
+(file-modified :to today)
+(file-modified :from "2026-01-01" :to "2026-06-30")
+(file-modified :on today)
+#+end_src
+
+**** Notes
+
+A future index-history feature may add heading-level modified time. In v0, this predicate uses file modified time only.
+
+** 7. Outline path predicates
+
+Outline predicates operate on the heading's outline path.
+
+The outline path is the sequence of heading titles from the top-level heading to the current heading.
+
+The file/root node is always present in result paths, but it is not part of the heading outline path unless a predicate explicitly documents root inclusion.
+
+*** ~(outline-contains &rest strings &key regexp)~
+
+**** Purpose
+
+Match headings whose outline path contains all given strings somewhere.
+
+**** Rules
+
+- Multiple strings mean AND.
+- Each string may match any outline path component.
+- Strings do not need to match adjacent components.
+- Order does not matter.
+- Matching is substring-based and case-insensitive by default.
+- With ~:regexp t~, strings are interpreted as regexps.
+
+**** Example path
+
+#+begin_src text
+Projects / Org database / Query engine
+#+end_src
+
+Matches:
+
+#+begin_src lisp
+(outline-contains "Projects" "Query")
+(outline-contains "Org" "engine")
+(outline-contains "Query" "Projects")
+(outline-contains "Org.*" "Query.*" :regexp t)
+#+end_src
+
+Does not match:
+
+#+begin_src lisp
+(outline-contains "Missing")
+#+end_src
+
+*** ~(outline-sequence &rest strings &key regexp exact)~
+
+**** Purpose
+
+Match a contiguous ordered sequence of outline path components.
+
+**** Rules
+
+- Multiple strings form an ordered sequence.
+- The sequence must match adjacent outline path components.
+- By default, each string is matched as a substring of the corresponding path component.
+- With ~:regexp t~, each string is interpreted as a regexp for the corresponding component.
+- With ~:exact t~, each string must exactly equal the corresponding component.
+- ~:exact t~ is allowed with multiple arguments for this predicate because it applies per path segment.
+- ~:regexp t~ and ~:exact t~ must not be combined.
+
+**** Example path
+
+#+begin_src text
+Projects / Org database / Query engine
+#+end_src
+
+Matches:
+
+#+begin_src lisp
+(outline-sequence "Projects" "Org")
+(outline-sequence "Org" "Query")
+(outline-sequence "Projects" "Org" "Query")
+(outline-sequence "Proj.*" "Org.*" :regexp t)
+(outline-sequence "Projects" "Org database" :exact t)
+#+end_src
+
+Does not match:
+
+#+begin_src lisp
+(outline-sequence "Projects" "Query")
+#+end_src
+
+because ~Org database~ lies between them.
+
+Does not match:
+
+#+begin_src lisp
+(outline-sequence "Projects" "Org" :exact t)
+#+end_src
+
+because ~Org~ is not exactly equal to ~Org database~.
+
+**** Notes
+
+If a later use case requires matching the complete outline path from root to leaf, add an explicit option such as ~:whole t~ or a separate predicate. Do not overload ~:exact t~ to mean both exact segment matching and whole-path matching.
+
+** 8. Timestamp and planning predicates
+
+Date/time predicates use shared date arguments.
+
+Supported date values include:
+
+- ~today~
+- integer day offsets, where negative values look backward and positive values look forward
+- date strings such as ~"2026-01-01"~
+- datetime strings if supported by the parser
+
+Common keyword arguments:
+
+- ~:from~ :: on or after
+- ~:to~ :: on or before
+- ~:on~ :: exactly on the given date
+- ~:with-time t|nil~ :: restrict by whether timestamp includes an explicit time
+
+*** ~(ts &key from to on with-time)~
+
+**** Purpose
+
+Match headings that contain any timestamp in the given period.
+
+**** Rules
+
+- Without arguments, matches headings with any timestamp.
+- Matches both active and inactive timestamps.
+- Planning timestamps may be included only if the indexer stores them as timestamps; otherwise use planning-specific predicates.
+
+**** Examples
+
+#+begin_src lisp
+(ts)
+(ts :on today)
+(ts :from -7 :to today)
+(ts :from "2026-01-01" :to "2026-12-31")
+(ts :on today :with-time t)
+#+end_src
+
+*** ~(ts-active &key from to on with-time)~
+
+**** Purpose
+
+Match headings that contain active timestamps in the given period.
+
+**** Examples
+
+#+begin_src lisp
+(ts-active)
+(ts-active :from today :to 7)
+(ts-active :from "2026-01-01" :to "2026-12-31")
+#+end_src
+
+*** ~(ts-inactive &key from to on with-time)~
+
+**** Purpose
+
+Match headings that contain inactive timestamps in the given period.
+
+**** Examples
+
+#+begin_src lisp
+(ts-inactive)
+(ts-inactive :from -30 :to today)
+#+end_src
+
+*** ~(deadline &key from to on with-time)~
+
+**** Purpose
+
+Match headings by deadline timestamp.
+
+**** Rules
+
+- Without arguments, matches headings with any deadline.
+- ~:to 7~ matches deadlines due within the next seven days if relative date arguments are interpreted from today.
+
+**** Examples
+
+#+begin_src lisp
+(deadline)
+(deadline :to 7)
+(deadline :on today)
+(deadline :from today :to 14)
+#+end_src
+
+*** ~(scheduled &key from to on with-time)~
+
+**** Purpose
+
+Match headings by scheduled timestamp.
+
+**** Examples
+
+#+begin_src lisp
+(scheduled)
+(scheduled :to 7)
+(scheduled :on today)
+(scheduled :from today :to 14)
+#+end_src
+
+*** ~(closed &key from to on with-time)~
+
+**** Purpose
+
+Match headings by closed timestamp.
+
+**** Rules
+
+- Without arguments, matches headings with any closed timestamp.
+- Common use is backward-looking.
+
+**** Examples
+
+#+begin_src lisp
+(closed)
+(closed :from -7)
+(closed :from -30 :to today)
+(closed :on today)
+#+end_src
+
+*** ~(planning &key from to on with-time)~
+
+**** Purpose
+
+Match headings with any planning timestamp.
+
+Planning includes:
+
+- deadline
+- scheduled
+- closed
+
+**** Examples
+
+#+begin_src lisp
+(planning)
+(planning :from today :to 7)
+(planning :on today)
+#+end_src
+
+** 9. Hierarchy predicates
+
+Hierarchy predicates relate a heading to other headings in the same file.
+
+With no nested query, they test existence.
+
+With a nested query, the nested query must be explicitly wrapped in ~(headings ...)~.
+
+*** ~(parent &optional heading-query)~
+
+**** Purpose
+
+Match headings that have a direct parent heading.
+
+With a nested query, match headings whose direct parent matches the query.
+
+**** Examples
+
+#+begin_src lisp
+(parent)
+
+(parent
+  (headings
+    (title "Project")))
+
+(parent
+  (headings
+    (tags "area")))
+#+end_src
+
+**** Rules
+
+- Top-level headings do not match ~(parent)~.
+- Root/file is not considered a parent heading for this predicate.
+
+*** ~(ancestors &optional heading-query)~
+
+**** Purpose
+
+Match headings that have ancestor headings.
+
+With a nested query, match headings with at least one ancestor matching the query.
+
+**** Examples
+
+#+begin_src lisp
+(ancestors)
+
+(ancestors
+  (headings
+    (tags "project")))
+
+(ancestors
+  (headings
+    (property "AREA" "work")))
+#+end_src
+
+**** Rules
+
+- Ancestors are ordered from parent toward root conceptually, but this predicate only tests existence unless output asks for context.
+- Root/file is not considered an ancestor heading for this predicate.
+
+*** ~(children &optional heading-query)~
+
+**** Purpose
+
+Match headings that have direct child headings.
+
+With a nested query, match headings that have at least one direct child matching the query.
+
+**** Examples
+
+#+begin_src lisp
+(children)
+
+(children
+  (headings
+    (todo)))
+
+(children
+  (headings
+    (tags "blocked")))
+#+end_src
+
+**** Rules
+
+- Only direct children count.
+- For recursive descendants, use ~(descendants ...)~.
+
+*** ~(descendants &optional heading-query)~
+
+**** Purpose
+
+Match headings that have descendant headings at any depth.
+
+With a nested query, match headings with at least one descendant matching the query.
+
+**** Examples
+
+#+begin_src lisp
+(descendants)
+
+(descendants
+  (headings
+    (todo "NEXT")))
+
+(descendants
+  (headings
+    (and
+      (tags "blocked")
+      (todo))))
+#+end_src
+
+**** Rules
+
+- Descendants include children, grandchildren, and deeper headings.
+- Nested hierarchy predicates are allowed but should be used carefully.
+
+**** Example: nested hierarchy
+
+#+begin_src lisp
+(descendants
+  (headings
+    (children
+      (headings
+        (todo "NEXT")))))
+#+end_src
+
+Meaning:
+
+- match headings that have a descendant
+- where that descendant has a direct child with TODO keyword ~NEXT~
+
+** 10. Link-related heading predicates
+
+These predicates filter headings by link relationships.
+
+They return headings, not links.
+
+Use the ~links~ target to return links.
+
+*** ~(has-link &optional link-query)~
+
+**** Purpose
+
+Match headings that contain at least one outgoing link.
+
+With a nested link query, match headings that contain at least one outgoing link matching that query.
+
+**** Rules
+
+- Without arguments, matches headings with any outgoing link.
+- With an argument, the argument must be a ~(links ...)~ query.
+- Links in the file preamble can match only through root/synthetic heading context or file queries, not as links belonging to a real heading.
+
+**** Examples
+
+#+begin_src lisp
+(has-link)
+
+(has-link
+  (links
+    (link-type "file")))
+
+(has-link
+  (links
+    (and
+      (link-type "file")
+      (target
+        (files
+          (file-path "notes.org"))))))
+#+end_src
+
+*** ~(links-to target-query)~
+
+**** Purpose
+
+Match headings that contain outgoing links to a target.
+
+**** Arguments
+
+- ~target-query~ :: Explicit ~(files ...)~ or ~(headings ...)~ query describing the link target.
+
+**** Rules
+
+- The argument must use an explicit target wrapper.
+- The predicate matches source headings, not target headings.
+- Only resolved links can match structured file/heading target queries.
+- Unresolved raw-target matching should use ~(has-link (links (link-target ...)))~.
+
+**** Examples
+
+Headings that link to a file:
+
+#+begin_src lisp
+(links-to
+  (files
+    (file-path "notes.org")))
+#+end_src
+
+Headings that link to headings tagged ~project~:
+
+#+begin_src lisp
+(links-to
+  (headings
+    (tags "project")))
+#+end_src
+
+Headings that link to a heading with a CUSTOM_ID:
+
+#+begin_src lisp
+(links-to
+  (headings
+    (property "CUSTOM_ID" "query-model" :inherit nil)))
+#+end_src
+
+*** ~(linked-from source-query)~
+
+**** Purpose
+
+Match headings that have backlinks from a source.
+
+**** Arguments
+
+- ~source-query~ :: Explicit ~(files ...)~ or ~(headings ...)~ query describing the source location.
+- ~:any~ :: Special value meaning any backlink source.
+
+**** Rules
+
+- ~(linked-from :any)~ matches headings with at least one backlink.
+- With a query argument, the argument must be explicitly wrapped.
+- The predicate matches target headings, not source headings.
+- Only resolved links can create structured backlinks.
+
+**** Examples
+
+Headings with any backlink:
+
+#+begin_src lisp
+(linked-from :any)
+#+end_src
+
+Headings linked from a file:
+
+#+begin_src lisp
+(linked-from
+  (files
+    (file-path "index.org")))
+#+end_src
+
+Headings linked from project headings:
+
+#+begin_src lisp
+(linked-from
+  (headings
+    (tags "project")))
+#+end_src
+
+** 11. Common heading query examples
+
+*** Open project tasks
+
+#+begin_src lisp
+(headings
+  (and
+    (todo)
+    (tags "project")))
+#+end_src
+
+*** NEXT tasks in recently modified files
+
+#+begin_src lisp
+(headings
+  (and
+    (todo "NEXT")
+    (file-modified :from -7)))
+#+end_src
+
+*** Headings under a project outline path
+
+#+begin_src lisp
+(headings
+  (outline-sequence "Projects" "Org database" :exact t))
+#+end_src
+
+*** Headings with inherited category
+
+#+begin_src lisp
+(headings
+  (property "CATEGORY" "work" :inherit t))
+#+end_src
+
+*** Headings with local property only
+
+#+begin_src lisp
+(headings
+  (property "OWNER" "Alice" :inherit nil))
+#+end_src
+
+*** Headings that link to notes.org
+
+#+begin_src lisp
+(headings
+  (links-to
+    (files
+      (file-path "notes.org"))))
+#+end_src
+
+*** Headings that have backlinks
+
+#+begin_src lisp
+(headings
+  (linked-from :any))
+#+end_src
+
+*** Headings whose parent is a project
+
+#+begin_src lisp
+(headings
+  (parent
+    (headings
+      (tags "project"))))
+#+end_src
+
+*** Headings with blocked descendants
+
+#+begin_src lisp
+(headings
+  (descendants
+    (headings
+      (tags "blocked"))))
+#+end_src
+
+** 12. Heading predicate reference summary
+
+| Predicate | Multi-value semantics | Notes |
+|-----------+-----------------------+-------|
+| ~title~ | AND text patterns | supports ~:regexp~, ~:exact~ |
+| ~has-text~ | AND text patterns | requires body text in DB |
+| ~level~ | positional | exact/range/comparator forms |
+| ~todo~ | OR values | no args means open TODO |
+| ~done~ | no args | done TODO keywords |
+| ~priority~ | OR values or comparator | explicit priority only |
+| ~tags~ | OR by default, AND with ~:match :all~ | effective tags by default |
+| ~property~ | key/value | effective/inherited by default |
+| ~keyword~ | key/value | root/file-level facts |
+| ~file-name~ | AND text patterns | containing file name |
+| ~file-path~ | AND text patterns | containing file path |
+| ~file-dir~ | AND text patterns | containing file directory |
+| ~file-title~ | AND text patterns | containing file title |
+| ~file-modified~ | keyword date range | containing file mtime |
+| ~outline-contains~ | AND text patterns | anywhere in outline path |
+| ~outline-sequence~ | ordered sequence | contiguous path segment sequence |
+| ~ts~ | keyword date range | any timestamp |
+| ~ts-active~ | keyword date range | active timestamps |
+| ~ts-inactive~ | keyword date range | inactive timestamps |
+| ~deadline~ | keyword date range | deadline planning timestamp |
+| ~scheduled~ | keyword date range | scheduled planning timestamp |
+| ~closed~ | keyword date range | closed planning timestamp |
+| ~planning~ | keyword date range | deadline/scheduled/closed |
+| ~parent~ | optional heading query | direct parent |
+| ~ancestors~ | optional heading query | any ancestor |
+| ~children~ | optional heading query | direct children |
+| ~descendants~ | optional heading query | any descendant |
+| ~has-link~ | optional link query | outgoing links from heading |
+| ~links-to~ | target query | outgoing resolved links |
+| ~linked-from~ | source query or ~:any~ | backlinks |
+
+** 13. Excluded from heading predicates v0
+
+The following org-ql-inspired predicates are intentionally not part of heading predicates v0:
+
+- ~smart~
+- ~rifle~
+- full-entry ~regexp~
+- ~src~
+- ~clocked~
+- standalone ~category~
+
+Reasons:
+
+- ~smart~ and ~rifle~ are convenience search predicates that can be designed later.
+- full-entry regexp overlaps with ~has-text~ and backend-specific capabilities.
+- ~src~ requires source block indexing.
+- ~clocked~ requires clock data indexing.
+- ~category~ is handled through ~(property "CATEGORY" ...)~.
+
+
+** Tags alias note
+
+~(tags-all "a" "b")~ is an alias for ~(tags "a" "b" :match :all)~. Regexp tag matching uses ~(tags "pattern" :regexp t)~.
+
+* Part 3 — Link and File Predicates
+
+** 1. Purpose of this part
+
+This document defines predicates and query behavior for:
+
+- link queries
+- link predicates used inside heading queries
+- file queries
+- file/root metadata predicates
+- source and target relation predicates
+- links in file preambles
+- link status handling
+
+This part depends on the core semantics defined in Part 1.1 and Part 1.2.
+
+Important core rules repeated here:
+
+- The outer target form decides which objects are returned.
+- ~(headings ...)~ returns headings.
+- ~(links ...)~ returns links.
+- ~(files ...)~ returns files / root nodes.
+- Top-level heading shorthand applies only at the outermost query.
+- Nested relation predicates must use explicit target wrappers.
+- Output mode and include options do not affect matching.
+
+** 2. Link model overview
+
+A link is an indexed object with at least the following conceptual fields:
+
+- link id
+- link type
+- raw target
+- optional description
+- source location
+- resolved target, if resolution succeeded
+- status
+- byte range / jump location
+
+A link has two graph directions:
+
+- source :: where the link is located
+- target :: where the link points
+
+The query model supports both:
+
+- returning headings that have matching links
+- returning the links themselves
+
+Example: return headings that link to ~notes.org~.
+
+#+begin_src lisp
+(headings
+  (links-to
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+Example: return the actual links that point to ~notes.org~.
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+These two queries are intentionally different.
+
+The first query returns source headings.
+
+The second query returns link rows.
+
+** 3. Link source and target
+
+*** 3.1 Source
+
+The source of a link is the indexed location where the link appears.
+
+A link source may be:
+
+- a real heading
+- a file/root context, for links in the file preamble
+
+Examples:
+
+#+begin_src lisp
+(links
+  (source
+    (headings
+      (tags "project"))))
+
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+#+end_src
+
+*** 3.2 Target
+
+The target of a link is the indexed object to which the link resolves.
+
+A link target may be:
+
+- a file/root
+- a heading
+- unresolved / broken
+- external or unsupported, depending on link type and resolver support
+
+Examples:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+
+(links
+  (target
+    (headings
+      (property "CUSTOM_ID" "query-model"))))
+#+end_src
+
+*** 3.3 Raw target vs resolved target
+
+A raw target is the literal target string parsed from Org.
+
+A resolved target is the indexed object found by link resolution.
+
+Example Org link:
+
+#+begin_src org
+[[file:notes.org::*Query model][Query model]]
+#+end_src
+
+Conceptual values:
+
+- link type :: ~file~
+- raw target :: ~notes.org::*Query model~
+- description :: ~Query model~
+- resolved target :: heading ~Query model~ in file ~notes.org~, if resolution succeeds
+
+Use raw-target predicates when matching the literal link text.
+
+Use target/source predicates when matching resolved graph relationships.
+
+** 4. Link queries
+
+A link query returns links.
+
+The outer form is:
+
+#+begin_src lisp
+(links ...)
+#+end_src
+
+Examples:
+
+#+begin_src lisp
+(links)
+
+(links
+  (link-type "file"))
+
+(links
+  (status "broken"))
+
+(links
+  (and
+    (link-type "file")
+    (status "resolved")))
+#+end_src
+
+When no predicate is given, ~(links)~ returns all indexed links.
+
+** 5. Link predicates for link queries
+
+*** ~(link-type &rest types)~
+
+Match links by Org link type.
+
+Value semantics:
+
+- Multiple types mean OR.
+- Matching is case-sensitive unless link types are normalized by the parser.
+
+Arguments:
+
+- ~types~ :: one or more link type strings
+
+Examples:
+
+#+begin_src lisp
+(links
+  (link-type "file"))
+
+(links
+  (link-type "id" "custom-id"))
+
+(links
+  (and
+    (link-type "file")
+    (status "broken")))
+#+end_src
+
+Notes:
+
+- A link has exactly one type.
+- Common types include ~file~, ~id~, ~custom-id~, ~http~, ~https~, and others supported by the parser.
+
+*** ~(link-target &rest strings &key regexp exact)~
+
+Match the raw link target text.
+
+Text semantics:
+
+- Multiple strings mean AND.
+- All strings must match the raw target.
+- Matching is case-insensitive by default unless documented otherwise.
+
+Options:
+
+- ~:regexp t~ :: interpret strings as regular expressions
+- ~:exact t~ :: require exact raw target match; requires exactly one string
+
+Examples:
+
+#+begin_src lisp
+(links
+  (link-target "notes.org"))
+
+(links
+  (link-target "notes.org" "Query"))
+
+(links
+  (link-target "notes.*\.org" :regexp t))
+
+(links
+  (link-target "notes.org" :exact t))
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(links
+  (link-target "notes.org" "Query" :exact t))
+#+end_src
+
+Reason:
+
+#+begin_src text
+:exact t accepts exactly one text argument
+#+end_src
+
+*** ~(link-description &rest strings &key regexp exact)~
+
+Match the link description.
+
+Text semantics:
+
+- Multiple strings mean AND.
+- All strings must match the description.
+- Links without a description do not match this predicate.
+
+Options:
+
+- ~:regexp t~ :: interpret strings as regular expressions
+- ~:exact t~ :: require exact description match; requires exactly one string
+
+Examples:
+
+#+begin_src lisp
+(links
+  (link-description "Notes"))
+
+(links
+  (link-description "project" "notes"))
+
+(links
+  (link-description "Proj.*" :regexp t))
+
+(links
+  (link-description "Project notes" :exact t))
+#+end_src
+
+*** ~(has-description)~
+
+Match links that have a non-empty description.
+
+Examples:
+
+#+begin_src lisp
+(links
+  (has-description))
+
+(links
+  (and
+    (has-description)
+    (link-type "file")))
+#+end_src
+
+*** ~(status &rest statuses)~
+
+Match links by resolution/status value.
+
+Value semantics:
+
+- Multiple statuses mean OR.
+
+Arguments:
+
+- ~statuses~ :: one or more status strings
+
+Recommended v0 status values:
+
+- ~resolved~
+- ~broken~
+- ~unresolved~
+- ~external~
+- ~unsupported~
+
+Definitions:
+
+- ~resolved~ :: the target was resolved to an indexed object
+- ~broken~ :: the link claims to point to an indexed object, but no valid target exists
+- ~unresolved~ :: resolution was not attempted or not enough information was available
+- ~external~ :: the link points outside the indexed graph
+- ~unsupported~ :: the link type or target form is not supported by the resolver
+
+Examples:
+
+#+begin_src lisp
+(links
+  (status "broken"))
+
+(links
+  (status "broken" "unresolved"))
+
+(links
+  (and
+    (link-type "file")
+    (status "resolved")))
+#+end_src
+
+Notes:
+
+- ~status~ replaces separate ~(broken)~ and ~(resolved)~ predicates.
+- Additional status values may be added later.
+
+*** ~(source TARGET-QUERY)~
+
+Match links by their source location.
+
+The argument must be an explicit target query.
+
+Valid source target queries:
+
+- ~(headings ...)~
+- ~(files ...)~
+
+Examples:
+
+#+begin_src lisp
+(links
+  (source
+    (headings
+      (tags "project"))))
+
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+
+(links
+  (source
+    (headings
+      (and
+        (tags "dashboard")
+        (title "index")))))
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(links
+  (source
+    (tags "project")))
+#+end_src
+
+Reason:
+
+#+begin_src text
+nested source query must use explicit target wrapper
+#+end_src
+
+Rules:
+
+- If a link is located in a heading, it can match a ~(headings ...)~ source query.
+- If a link is located in a file preamble, it can match a ~(files ...)~ source query.
+- Preamble links may also participate in synthetic heading context where documented.
+
+*** ~(target TARGET-QUERY)~
+
+Match links by their resolved target.
+
+The argument must be an explicit target query.
+
+Valid target queries:
+
+- ~(headings ...)~
+- ~(files ...)~
+
+Examples:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+
+(links
+  (target
+    (headings
+      (property "CUSTOM_ID" "query-model"))))
+
+(links
+  (target
+    (headings
+      (and
+        (title "Query")
+        (file-path "notes.org" :exact t)))))
+#+end_src
+
+Rules:
+
+- Links with unresolved or broken targets do not match target queries that require an indexed target.
+- Use ~(status "broken")~ to find broken links.
+- Use ~(link-target ...)~ to match raw target text regardless of resolution.
+
+*** ~(source :any)~ and ~(target :any)~
+
+Optional convenience forms may be supported.
+
+#+begin_src lisp
+(links
+  (source :any))
+
+(links
+  (target :any))
+#+end_src
+
+Meanings:
+
+- ~(source :any)~ matches links with any indexed source.
+- ~(target :any)~ matches links with any resolved indexed target.
+
+Recommendation:
+
+- These forms are optional in v0.
+- They are not required because ~(links)~ and ~(status "resolved")~ cover most cases.
+
+** 6. Backlinks and outgoing links as link queries
+
+Backlinks and outgoing links are not separate result kinds.
+
+They are link queries filtered by target or source.
+
+*** Backlinks
+
+Return all links pointing to ~notes.org~:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+Return all links pointing to headings tagged ~project~:
+
+#+begin_src lisp
+(links
+  (target
+    (headings
+      (tags "project"))))
+#+end_src
+
+Return all broken backlinks matching a raw target pattern:
+
+#+begin_src lisp
+(links
+  (and
+    (status "broken")
+    (link-target "notes.org")))
+#+end_src
+
+*** Outgoing links
+
+Return all links located in ~index.org~:
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+#+end_src
+
+Return all links located in project headings:
+
+#+begin_src lisp
+(links
+  (source
+    (headings
+      (tags "project"))))
+#+end_src
+
+Return all file links from NEXT tasks:
+
+#+begin_src lisp
+(links
+  (and
+    (link-type "file")
+    (source
+      (headings
+        (todo "NEXT")))))
+#+end_src
+
+** 7. Link-related predicates for heading queries
+
+Heading queries return headings.
+
+Inside a heading query, link-related predicates filter headings by their link relationships.
+
+They do not return links unless included through output options.
+
+*** ~(has-link &optional link-query)~
+
+Match headings that contain at least one link.
+
+Without an argument, matches headings that contain any link.
+
+With an argument, the argument must be a nested ~(links ...)~ query.
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (has-link))
+
+(headings
+  (has-link
+    (links
+      (link-type "file"))))
+
+(headings
+  (has-link
+    (links
+      (and
+        (link-type "file")
+        (status "broken")))))
+#+end_src
+
+Notes:
+
+- The optional argument must be a nested ~(links ...)~ query.
+- This predicate filters headings.
+- The nested ~(links ...)~ query constrains contained links; it does not change the outer result target.
+- To return the matching links themselves, use a top-level ~(links ...)~ query.
+
+*** ~(links-to TARGET-QUERY)~
+
+Match headings that contain outgoing links to a target.
+
+The argument must be an explicit target query.
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (links-to
+    (files
+      (file-path "notes.org" :exact t))))
+
+(headings
+  (links-to
+    (headings
+      (property "CUSTOM_ID" "query-model"))))
+
+(headings
+  (and
+    (todo "NEXT")
+    (links-to
+      (files
+        (file-title "Notes" :exact t)))))
+#+end_src
+
+Meaning:
+
+- return headings that contain at least one link whose resolved target matches the nested target query
+
+Notes:
+
+- Use ~(has-link (links (link-target ...)))~ to match raw target text without requiring resolution.
+- Links with broken/unresolved targets do not match a resolved target query.
+
+*** ~(linked-from TARGET-QUERY)~
+
+Match headings that have backlinks from a source.
+
+The argument must be an explicit target query, or the special value ~:any~.
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (linked-from :any))
+
+(headings
+  (linked-from
+    (files
+      (file-path "index.org" :exact t))))
+
+(headings
+  (linked-from
+    (headings
+      (tags "dashboard"))))
+#+end_src
+
+Meaning:
+
+- return headings that are the resolved target of at least one link from the given source
+
+Notes:
+
+- ~(linked-from :any)~ means headings with at least one backlink.
+- To return the backlink rows themselves, use a ~(links ...)~ query with ~(target ...)~.
+
+** 8. Link-related predicates for file queries
+
+File queries return files/root nodes.
+
+Files can be filtered by links located in the file or by backlinks to the file.
+
+*** ~(has-link &optional link-query)~
+
+Match files that contain at least one link.
+
+This includes:
+
+- links in file preamble
+- links inside headings in the file
+
+Without an argument, matches files that contain any link.
+
+With an argument, the argument must be a nested ~(links ...)~ query.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (has-link))
+
+(files
+  (has-link
+    (links
+      (link-type "file"))))
+
+(files
+  (has-link
+    (links
+      (and
+        (link-type "file")
+        (status "broken")))))
+#+end_src
+
+Notes:
+
+- In file queries, ~(has-link ...)~ searches the whole file.
+- The optional argument must be a nested ~(links ...)~ query.
+- The nested ~(links ...)~ query constrains links contained in the file.
+- To match only preamble links, a future predicate may be added if needed.
+- v0 does not require a separate preamble-only link predicate.
+
+*** ~(links-to TARGET-QUERY)~
+
+Match files that contain at least one outgoing link to a target.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (links-to
+    (files
+      (file-path "notes.org" :exact t))))
+
+(files
+  (links-to
+    (headings
+      (property "CUSTOM_ID" "query-model"))))
+#+end_src
+
+*** ~(linked-from TARGET-QUERY)~
+
+Match files that have backlinks from a source.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (linked-from :any))
+
+(files
+  (linked-from
+    (files
+      (file-path "index.org" :exact t))))
+
+(files
+  (linked-from
+    (headings
+      (tags "dashboard"))))
+#+end_src
+
+** 9. File model overview
+
+A file/root object represents one indexed Org file.
+
+It contains file-level facts:
+
+- file id
+- file path
+- file name
+- file directory
+- file title, usually from ~#+TITLE~
+- file modification time
+- keywords
+- FILETAGS
+- level-0 properties
+- CATEGORY
+- root/preamble links
+
+A file/root object may appear:
+
+- as a result of a ~(files ...)~ query
+- as the root node in path output
+- as the root node in outline output
+- as source or target in link queries
+
+** 10. File queries
+
+A file query returns files/root nodes.
+
+The outer form is:
+
+#+begin_src lisp
+(files ...)
+#+end_src
+
+Examples:
+
+#+begin_src lisp
+(files)
+
+(files
+  (file-path "projects"))
+
+(files
+  (file-title "Projects"))
+
+(files
+  (keyword "TITLE" "Projects"))
+
+(files
+  (property "CATEGORY" "work"))
+
+(files
+  (file-modified :from -7))
+#+end_src
+
+When no predicate is given, ~(files)~ returns all indexed files.
+
+** 11. File predicates
+
+*** ~(file-name &rest strings &key regexp exact)~
+
+Match the basename of the file path.
+
+Example path:
+
+#+begin_src text
+/home/me/org/projects/notes.org
+#+end_src
+
+File name:
+
+#+begin_src text
+notes.org
+#+end_src
+
+Text semantics:
+
+- Multiple strings mean AND.
+- All strings must match the file name.
+
+Options:
+
+- ~:regexp t~ :: interpret strings as regular expressions
+- ~:exact t~ :: require exact file name match; requires exactly one string
+
+Examples:
+
+#+begin_src lisp
+(files
+  (file-name "notes"))
+
+(files
+  (file-name "notes.org" :exact t))
+
+(files
+  (file-name "notes.*\.org" :regexp t))
+#+end_src
+
+Heading query example:
+
+#+begin_src lisp
+(headings
+  (and
+    (todo)
+    (file-name "projects.org" :exact t)))
+#+end_src
+
+*** ~(file-path &rest strings &key regexp exact)~
+
+Match the full normalized file path.
+
+Text semantics:
+
+- Multiple strings mean AND.
+- All strings must match the file path.
+
+Options:
+
+- ~:regexp t~ :: interpret strings as regular expressions
+- ~:exact t~ :: require exact file path match; requires exactly one string
+
+Examples:
+
+#+begin_src lisp
+(files
+  (file-path "projects"))
+
+(files
+  (file-path "/home/me/org/projects.org" :exact t))
+
+(files
+  (file-path ".*/projects/.*\.org" :regexp t))
+#+end_src
+
+Link target example:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+Notes:
+
+- Exact path matching should use the normalized path format used by the indexer.
+- The specification does not require absolute or relative paths; the project must define normalization elsewhere.
+
+*** ~(file-dir &rest strings &key regexp exact)~
+
+Match the directory part of the file path.
+
+Example path:
+
+#+begin_src text
+/home/me/org/projects/notes.org
+#+end_src
+
+File dir:
+
+#+begin_src text
+/home/me/org/projects
+#+end_src
+
+Text semantics:
+
+- Multiple strings mean AND.
+- All strings must match the directory path.
+
+Options:
+
+- ~:regexp t~ :: interpret strings as regular expressions
+- ~:exact t~ :: require exact directory match; requires exactly one string
+
+Examples:
+
+#+begin_src lisp
+(files
+  (file-dir "projects"))
+
+(files
+  (file-dir "/home/me/org/projects" :exact t))
+
+(files
+  (file-dir ".*/archive/2026" :regexp t))
+#+end_src
+
+Heading query example:
+
+#+begin_src lisp
+(headings
+  (and
+    (tags "project")
+    (file-dir "projects")))
+#+end_src
+
+*** ~(file-title &rest strings &key regexp exact)~
+
+Match the file title.
+
+The file title is usually derived from ~#+TITLE~.
+
+Text semantics:
+
+- Multiple strings mean AND.
+- All strings must match the file title.
+
+Options:
+
+- ~:regexp t~ :: interpret strings as regular expressions
+- ~:exact t~ :: require exact file title match; requires exactly one string
+
+Examples:
+
+#+begin_src lisp
+(files
+  (file-title "Projects"))
+
+(files
+  (file-title "Project Index" :exact t))
+
+(files
+  (file-title "Project.*" :regexp t))
+#+end_src
+
+Heading query example:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-title "Projects")
+    (todo)))
+#+end_src
+
+Notes:
+
+- If a file has no title, it does not match ~file-title~.
+- A project may define fallback behavior, such as using the file name as title, but that must be documented separately.
+
+*** ~(file-modified &key from to on with-time)~
+
+Match the file modification time.
+
+This predicate can be used on:
+
+- files
+- headings, where the heading inherits the file modification time
+- links through source or target relation predicates
+
+Keyword arguments:
+
+- ~:from~ :: modified on or after this date/time
+- ~:to~ :: modified on or before this date/time
+- ~:on~ :: modified on this date
+- ~:with-time~ :: controls whether time values are considered
+
+Examples:
+
+#+begin_src lisp
+(files
+  (file-modified :from -7))
+
+(files
+  (file-modified :on today))
+
+(files
+  (file-modified :from "2026-01-01" :to "2026-06-30"))
+#+end_src
+
+Heading query example:
+
+#+begin_src lisp
+(headings
+  (and
+    (todo)
+    (file-modified :from -7)))
+#+end_src
+
+Link query example:
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-modified :from -7))))
+#+end_src
+
+Rules:
+
+- For v0, heading modification time is inherited from the file.
+- Per-heading modification history is out of scope.
+- Date parsing follows the common date/time rules defined for planning predicates.
+
+*** ~(keyword KEY &optional VALUE &key regexp)~
+
+Match file/root keywords.
+
+Keywords are always file/root-level facts.
+
+Examples of Org keywords:
+
+- ~#+TITLE~
+- ~#+AUTHOR~
+- ~#+FILETAGS~
+- custom keywords
+
+Arguments:
+
+- ~KEY~ :: keyword name
+- ~VALUE~ :: optional keyword value
+- ~:regexp t|nil~ :: Interpret ~VALUE~ as regexp.
+
+Rules:
+
+- Keyword keys should be normalized consistently, usually uppercase.
+- With only ~KEY~, matches files that define the keyword.
+- With ~KEY~ and ~VALUE~, matches files where the keyword has the given value.
+- Matching value is exact by default.
+- With ~:regexp t~, ~VALUE~ is interpreted as regexp.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (keyword "TITLE"))
+
+(files
+  (keyword "TITLE" "Projects"))
+
+(files
+  (keyword "AUTHOR" "Alice"))
+
+(files
+  (keyword "TITLE" "Proj.*" :regexp t))
+#+end_src
+
+Heading query example:
+
+#+begin_src lisp
+(headings
+  (and
+    (keyword "TITLE" "Projects")
+    (todo)))
+#+end_src
+
+Meaning:
+
+- return TODO headings in files whose root keyword ~TITLE~ is ~Projects~
+
+Notes:
+
+- ~keyword~ has no ~:with-root~ option because keywords are always root-level facts.
+- Use ~file-title~ for common title matching.
+
+*** ~(property KEY &optional VALUE &key regexp)~ in file queries
+
+Match root/level-0 properties of files.
+
+Arguments:
+
+- ~KEY~ :: property key
+- ~VALUE~ :: optional property value
+- ~:regexp t|nil~ :: Interpret ~VALUE~ as regexp.
+
+Rules:
+
+- In file queries, ~property~ always means direct root/file-level property.
+- ~:inherit~ is not valid in file queries.
+- With only ~KEY~, matches files that have a root property with that key.
+- With ~KEY~ and ~VALUE~, matches files with that root property value.
+- With ~:regexp t~, ~VALUE~ is interpreted as regexp.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (property "CATEGORY"))
+
+(files
+  (property "CATEGORY" "work"))
+
+(files
+  (property "OWNER" "Alice"))
+
+(files
+  (property "OWNER" "A.*" :regexp t))
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(files
+  (property "CATEGORY" "work" :inherit t))
+#+end_src
+
+Reason:
+
+#+begin_src text
+:inherit is not valid for property in files queries
+#+end_src
+
+Notes:
+
+- File/root properties include level-0 property drawer rows and keyword-derived properties where the indexer represents them as properties.
+- The exact source facts are defined by the indexing specification.
+
+*** ~(tags &rest tags &key regexp match)~ in file queries
+
+Match file/root tags.
+
+For files, this primarily means FILETAGS.
+
+Value semantics:
+
+- Multiple tags mean OR by default.
+- Use ~:match :all~ to require all listed tags.
+- Use ~:regexp t~ to interpret tag arguments as regexps.
+
+Examples:
+
+#+begin_src lisp
+(files
+  (tags "project"))
+
+(files
+  (tags "project" "archive"))
+
+(files
+  (tags "project" "archive" :match :all))
+
+(files
+  (tags "proj-.*" :regexp t))
+#+end_src
+
+Notes:
+
+- Use ~(tags ...)~ for file-level FILETAGS.
+- Heading tag inheritance is documented in the heading predicate specification.
+
+** 12. Root behavior in file queries
+
+In file queries, predicates apply directly to the file/root object.
+
+There is no inheritance above the file.
+
+Therefore:
+
+- ~property~ matches direct root/file properties
+- ~keyword~ matches root/file keywords
+- ~tags~ matches FILETAGS
+- ~has-link~ searches links in the file
+- ~links-to~ searches outgoing links from the file
+- ~linked-from~ searches incoming links to the file/root
+
+Examples:
+
+#+begin_src lisp
+(files
+  (and
+    (file-title "Projects")
+    (property "CATEGORY" "work")
+    (has-link
+      (links
+        (link-type "file")))))
+#+end_src
+
+** 13. Links in file preamble
+
+Links before the first heading are indexed.
+
+They belong to the file/root context.
+
+Example Org:
+
+#+begin_src org
+#+TITLE: Index
+
+See [[file:notes.org][Notes]].
+
+'* Dashboard
+More content.
+#+end_src
+
+The link to ~notes.org~ has source path:
+
+#+begin_src json
+[
+  {
+    "kind": "file",
+    "path": "index.org",
+    "title": "Index"
+  }
+]
+#+end_src
+
+Rules:
+
+- Preamble links are returned by ~(links ...)~ queries.
+- Preamble links match ~(source (files ...))~.
+- Preamble links are included by file-level ~(has-link ...)~.
+- Preamble links do not belong to a real heading.
+- Preamble links may participate in synthetic heading context where documented in Part 1.2.
+
+Example:
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+#+end_src
+
+returns links from the file preamble and links from headings in ~index.org~.
+
+** 14. Output examples
+
+*** 14.1 Flat link output
+
+Query:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "link",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "path": "index.org",
+        "title": "Index"
+      },
+      {
+        "kind": "heading",
+        "title": "Dashboard",
+        "level": 1
+      }
+    ],
+    "source": {
+      "file": {
+        "path": "index.org",
+        "title": "Index"
+      },
+      "heading": {
+        "title": "Dashboard",
+        "outline_path": ["Dashboard"]
+      }
+    },
+    "target": {
+      "resolved_kind": "file",
+      "file": {
+        "path": "notes.org",
+        "title": "Notes"
+      }
+    },
+    "link": {
+      "type": "file",
+      "raw_target": "notes.org",
+      "description": "Notes",
+      "status": "resolved",
+      "byte_start": 455
+    }
+  }
+]
+#+end_src
+
+*** 14.2 Flat preamble link output
+
+Query:
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+#+end_src
+
+Output for a preamble link:
+
+#+begin_src json
+[
+  {
+    "kind": "link",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "path": "index.org",
+        "title": "Index"
+      }
+    ],
+    "source": {
+      "file": {
+        "path": "index.org",
+        "title": "Index"
+      },
+      "heading": null
+    },
+    "target": {
+      "resolved_kind": "file",
+      "file": {
+        "path": "notes.org",
+        "title": "Notes"
+      }
+    },
+    "link": {
+      "type": "file",
+      "raw_target": "notes.org",
+      "description": "Notes",
+      "status": "resolved",
+      "byte_start": 42
+    }
+  }
+]
+#+end_src
+
+*** 14.3 Outline-like link output
+
+Query:
+
+#+begin_src lisp
+(links
+  (and
+    (link-type "file")
+    (target
+      (files
+        (file-path "notes.org" :exact t)))))
+#+end_src
+
+Output grouped by source location:
+
+#+begin_src json
+[
+  {
+    "kind": "file",
+    "matched": false,
+    "path": "index.org",
+    "title": "Index",
+    "children": [
+      {
+        "kind": "heading",
+        "matched": false,
+        "title": "Dashboard",
+        "children": [
+          {
+            "kind": "link",
+            "matched": true,
+            "type": "file",
+            "raw_target": "notes.org",
+            "description": "Notes",
+            "status": "resolved"
+          }
+        ]
+      }
+    ]
+  }
+]
+#+end_src
+
+*** 14.4 Flat file output
+
+Query:
+
+#+begin_src lisp
+(files
+  (and
+    (file-dir "projects")
+    (tags "active")))
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "file",
+    "matched": true,
+    "path": "org/projects/main.org",
+    "name": "main.org",
+    "dir": "org/projects",
+    "title": "Main Projects",
+    "tags": ["active"],
+    "properties": {
+      "CATEGORY": "projects"
+    },
+    "modified": "2026-07-07T10:30:00+02:00"
+  }
+]
+#+end_src
+
+** 15. Common query patterns
+
+*** 15.1 Broken file links
+
+#+begin_src lisp
+(links
+  (and
+    (link-type "file")
+    (status "broken")))
+#+end_src
+
+*** 15.2 Backlinks to the current file
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+*** 15.3 Headings with backlinks
+
+#+begin_src lisp
+(headings
+  (linked-from :any))
+#+end_src
+
+*** 15.4 Files modified recently that contain broken links
+
+#+begin_src lisp
+(files
+  (and
+    (file-modified :from -7)
+    (has-link
+      (links
+        (status "broken")))))
+#+end_src
+
+*** 15.5 Links from project headings to note files
+
+#+begin_src lisp
+(links
+  (and
+    (source
+      (headings
+        (tags "project")))
+    (target
+      (files
+        (file-dir "notes")))))
+#+end_src
+
+*** 15.6 Headings that link to files with a given title
+
+#+begin_src lisp
+(headings
+  (links-to
+    (files
+      (file-title "Notes" :exact t))))
+#+end_src
+
+*** 15.7 Files with outgoing links to project headings
+
+#+begin_src lisp
+(files
+  (links-to
+    (headings
+      (tags "project"))))
+#+end_src
+
+** 16. Predicate summary
+
+*** Link query predicates
+
+#+begin_src lisp
+(link-type TYPE...)
+(link-target STRING... :regexp t|nil :exact t|nil)
+(link-description STRING... :regexp t|nil :exact t|nil)
+(has-description)
+(status STATUS...)
+(source (headings ...))
+(source (files ...))
+(target (headings ...))
+(target (files ...))
+#+end_src
+
+*** Link-related heading predicates
+
+#+begin_src lisp
+(has-link)
+(has-link (links LINK-PREDICATE))
+(links-to (headings ...))
+(links-to (files ...))
+(linked-from :any)
+(linked-from (headings ...))
+(linked-from (files ...))
+#+end_src
+
+*** Link-related file predicates
+
+#+begin_src lisp
+(has-link)
+(has-link (links LINK-PREDICATE))
+(links-to (headings ...))
+(links-to (files ...))
+(linked-from :any)
+(linked-from (headings ...))
+(linked-from (files ...))
+#+end_src
+
+*** File predicates
+
+#+begin_src lisp
+(file-name STRING... :regexp t|nil :exact t|nil)
+(file-path STRING... :regexp t|nil :exact t|nil)
+(file-dir STRING... :regexp t|nil :exact t|nil)
+(file-title STRING... :regexp t|nil :exact t|nil)
+(file-modified :from DATE :to DATE :on DATE :with-time t|nil)
+(keyword KEY &optional VALUE :regexp t|nil)
+(property KEY &optional VALUE :regexp t|nil)
+(tags TAG... :regexp t|nil :match :any|:all)
+#+end_src
+
+** 17. Error cases
+
+*** Invalid nested source query
+
+#+begin_src lisp
+(links
+  (source
+    (tags "project")))
+#+end_src
+
+Error:
+
+#+begin_src text
+source expects an explicit target query: (headings ...), (files ...)
+#+end_src
+
+*** Invalid file property inheritance
+
+#+begin_src lisp
+(files
+  (property "CATEGORY" "work" :inherit t))
+#+end_src
+
+Error:
+
+#+begin_src text
+:inherit is not valid for property in files queries
+#+end_src
+
+*** Target query on unresolved link
+
+A link with status ~broken~ does not match:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+because target queries match resolved indexed targets.
+
+Use:
+
+#+begin_src lisp
+(links
+  (and
+    (status "broken")
+    (link-target "notes.org")))
+#+end_src
+
+to match broken links by raw target.
+
+*** Exact matching with multiple strings
+
+#+begin_src lisp
+(files
+  (file-path "org" "projects" :exact t))
+#+end_src
+
+Error:
+
+#+begin_src text
+:exact t accepts exactly one text argument
+#+end_src
+
+** 18. Open extension points
+
+The following features are intentionally left for later versions:
+
+- preamble-only link predicate
+- separate incoming/outgoing link count predicates
+- link predicates for attachments
+- external URL metadata
+- HTTP status checking
+- link graph traversal beyond direct source/target
+- link ranking
+- fuzzy file path matching
+- project/root grouping beyond file path
+- file content predicates independent from heading body text
+
+** 19. Summary of decisions
+
+- Links are first-class query results through ~(links ...)~.
+- Files are first-class query results through ~(files ...)~.
+- Link relationships use explicit ~source~ and ~target~ predicates.
+- Backlinks are represented as link queries filtered by ~target~.
+- Outgoing links are represented as link queries filtered by ~source~.
+- Heading queries can use link predicates to filter headings.
+- File queries can use link predicates to filter files.
+- Link status is queried with ~(status "...")~.
+- Raw target matching uses ~(link-target ...)~.
+- Resolved graph matching uses ~(target ...)~.
+- File predicates distinguish file name, full path, directory, title, modified time, keywords, properties, and FILETAGS.
+- File query ~property~ is always direct root/file property and does not support ~:inherit~.
+- Links in the file preamble are indexed and belong to the file/root context.
+
+* Part 4 — Examples and Reference
+
+** 1. Purpose of this part
+
+This document provides examples and reference material for the Query Model v0 specification.
+
+It covers:
+
+- complete query examples
+- flat output examples
+- outline output examples
+- include-option examples
+- nested relation examples
+- common user workflows
+- parser and implementation notes
+- error examples
+- full predicate reference
+- extension guidance
+
+This part is intentionally example-heavy.
+
+The normative semantics are defined in:
+
+- Part 1.1 — Foundations
+- Part 1.2 — Core Semantics
+- Part 2 — Heading Predicates
+- Part 3 — Link and File Predicates
+
+** 2. Example conventions
+
+Examples use sexp-like syntax.
+
+Top-level heading shorthand is allowed:
+
+#+begin_src lisp
+(todo "NEXT")
+#+end_src
+
+which means:
+
+#+begin_src lisp
+(headings
+  (todo "NEXT"))
+#+end_src
+
+Inside nested queries, target wrappers are always explicit.
+
+Valid:
+
+#+begin_src lisp
+(links
+  (source
+    (headings
+      (tags "project"))))
+#+end_src
+
+Invalid:
+
+#+begin_src lisp
+(links
+  (source
+    (tags "project")))
+#+end_src
+
+JSON examples are conceptual. Exact field names may be adjusted by the API specification, but the structural ideas are normative:
+
+- result objects have a ~kind~
+- matched objects use ~matched: true~
+- context-only objects use ~matched: false~
+- paths always include the file/root node
+- file/root nodes use ~kind: "file"~
+- root is not represented as a fake heading
+
+** 3. Basic heading queries
+
+*** 3.1 All open TODO headings
+
+#+begin_src lisp
+(todo)
+#+end_src
+
+Equivalent to:
+
+#+begin_src lisp
+(headings
+  (todo))
+#+end_src
+
+Meaning:
+
+- return headings with an open TODO keyword
+- done keywords are not matched
+
+*** 3.2 Specific TODO keywords
+
+#+begin_src lisp
+(todo "NEXT" "WAITING")
+#+end_src
+
+Meaning:
+
+- return headings whose TODO keyword is ~NEXT~ or ~WAITING~
+
+Multi-value semantics:
+
+- ~todo~ is a value predicate
+- multiple values mean OR
+
+*** 3.3 Done headings
+
+#+begin_src lisp
+(done)
+#+end_src
+
+Meaning:
+
+- return headings whose TODO keyword is a done keyword
+
+*** 3.4 Title search
+
+#+begin_src lisp
+(title "query" "engine")
+#+end_src
+
+Meaning:
+
+- return headings whose title contains both ~query~ and ~engine~
+- order does not matter
+- matching is case-insensitive by default
+
+*** 3.5 Exact title
+
+#+begin_src lisp
+(title "Query engine" :exact t)
+#+end_src
+
+Meaning:
+
+- return headings whose title is exactly ~Query engine~
+
+Invalid:
+
+#+begin_src lisp
+(title "Query" "engine" :exact t)
+#+end_src
+
+Reason:
+
+#+begin_src text
+:exact t accepts exactly one text argument
+#+end_src
+
+*** 3.6 Regexp title
+
+#+begin_src lisp
+(title "query.*engine" :regexp t)
+#+end_src
+
+Meaning:
+
+- return headings whose title matches the regexp ~query.*engine~
+
+** 4. Basic metadata queries
+
+*** 4.1 Tags
+
+#+begin_src lisp
+(tags "project")
+#+end_src
+
+Meaning:
+
+- return headings whose effective tags include ~project~
+- local tags, inherited tags, and FILETAGS count according to the heading predicate rules
+
+*** 4.2 Any of multiple tags
+
+#+begin_src lisp
+(tags "project" "work")
+#+end_src
+
+Meaning:
+
+- return headings that have either ~project~ or ~work~
+
+*** 4.3 All tags
+
+#+begin_src lisp
+(tags "project" "urgent" :match :all)
+(tags-all "project" "urgent")
+#+end_src
+
+Meaning:
+
+- return headings that have both ~project~ and ~urgent~
+
+*** 4.4 Local-only tags
+
+#+begin_src lisp
+(tags "project" :inherit nil)
+#+end_src
+
+Meaning:
+
+- return headings with local tag ~project~
+- inherited tags and FILETAGS do not count
+
+*** 4.5 Property exists
+
+#+begin_src lisp
+(property "ID")
+#+end_src
+
+Meaning:
+
+- return headings that have an effective property ~ID~
+
+*** 4.6 Property equals value
+
+#+begin_src lisp
+(property "OWNER" "Alice")
+#+end_src
+
+Meaning:
+
+- return headings whose effective property ~OWNER~ is ~Alice~
+
+*** 4.7 Inherited property
+
+#+begin_src lisp
+(property "AREA" "infra" :inherit t)
+#+end_src
+
+Meaning:
+
+- return headings whose own, inherited, or root-level effective property ~AREA~ is ~infra~
+
+*** 4.8 Direct property only
+
+#+begin_src lisp
+(property "OWNER" "Alice" :inherit nil)
+#+end_src
+
+Meaning:
+
+- return headings where the property is set directly on the heading
+- parent/root values do not count
+
+** 5. File and root queries
+
+*** 5.1 Files by path
+
+#+begin_src lisp
+(files
+  (file-path "projects"))
+#+end_src
+
+Meaning:
+
+- return files whose normalized path contains ~projects~
+
+*** 5.2 Exact file path
+
+#+begin_src lisp
+(files
+  (file-path "org/projects/main.org" :exact t))
+#+end_src
+
+*** 5.3 File name
+
+#+begin_src lisp
+(files
+  (file-name "main.org" :exact t))
+#+end_src
+
+*** 5.4 File directory
+
+#+begin_src lisp
+(files
+  (file-dir "org/projects"))
+#+end_src
+
+*** 5.5 File title
+
+#+begin_src lisp
+(files
+  (file-title "Projects"))
+#+end_src
+
+*** 5.6 Keyword
+
+#+begin_src lisp
+(files
+  (keyword "TITLE" "Projects"))
+#+end_src
+
+Meaning:
+
+- return files whose root keyword ~TITLE~ is ~Projects~
+
+*** 5.7 Root property
+
+#+begin_src lisp
+(files
+  (property "CATEGORY" "work"))
+#+end_src
+
+Meaning:
+
+- return files whose root/level-0 property ~CATEGORY~ is ~work~
+
+Important:
+
+- ~:inherit~ is not valid in file queries
+
+Invalid:
+
+#+begin_src lisp
+(files
+  (property "CATEGORY" "work" :inherit t))
+#+end_src
+
+*** 5.8 Modified recently
+
+#+begin_src lisp
+(files
+  (file-modified :from -7))
+#+end_src
+
+Meaning:
+
+- return files modified in the last seven days
+
+** 6. Heading queries scoped by files
+
+*** 6.1 TODOs in a file
+
+#+begin_src lisp
+(headings
+  (and
+    (file-path "projects.org" :exact t)
+    (todo)))
+#+end_src
+
+*** 6.2 Project headings in a directory
+
+#+begin_src lisp
+(headings
+  (and
+    (file-dir "org/projects")
+    (tags "project")))
+#+end_src
+
+*** 6.3 Headings in files with title
+
+#+begin_src lisp
+(headings
+  (and
+    (file-title "Projects" :exact t)
+    (todo "NEXT")))
+#+end_src
+
+*** 6.4 Headings in files with root keyword
+
+#+begin_src lisp
+(headings
+  (and
+    (keyword "TITLE" "Projects")
+    (todo)))
+#+end_src
+
+Meaning:
+
+- return TODO headings in files whose root keyword ~TITLE~ is ~Projects~
+
+** 7. Outline path queries
+
+*** 7.1 Outline contains
+
+#+begin_src lisp
+(outline-contains "Projects" "Query")
+#+end_src
+
+Example path:
+
+#+begin_src text
+Projects / Org database / Query engine
+#+end_src
+
+Matches because:
+
+- ~Projects~ appears in one path component
+- ~Query~ appears in another path component
+- all arguments are present somewhere in the outline path
+
+Order is not significant for ~outline-contains~.
+
+*** 7.2 Outline contains with regexp
+
+#+begin_src lisp
+(outline-contains "Proj.*" "Query.*" :regexp t)
+#+end_src
+
+*** 7.3 Outline sequence
+
+#+begin_src lisp
+(outline-sequence "Org" "Query")
+#+end_src
+
+Example path:
+
+#+begin_src text
+Projects / Org database / Query engine
+#+end_src
+
+Matches because:
+
+- ~Org~ matches the ~Org database~ path segment
+- ~Query~ matches the next path segment ~Query engine~
+- the matched segments are contiguous and ordered
+
+*** 7.4 Outline sequence does not skip
+
+#+begin_src lisp
+(outline-sequence "Projects" "Query")
+#+end_src
+
+Does not match:
+
+#+begin_src text
+Projects / Org database / Query engine
+#+end_src
+
+because ~Org database~ is between ~Projects~ and ~Query engine~.
+
+*** 7.5 Exact outline sequence
+
+#+begin_src lisp
+(outline-sequence "Projects/Org database/Query engine" :exact t)
+#+end_src
+
+Meaning:
+
+- match the complete normalized outline path exactly
+
+Rule:
+
+- ~:exact t~ requires exactly one string argument
+
+*** 7.6 Regexp outline sequence
+
+#+begin_src lisp
+(outline-sequence "Proj.*" "Org.*" "Query.*" :regexp t)
+#+end_src
+
+Meaning:
+
+- match three contiguous path components by regexp
+
+** 8. Date and planning examples
+
+*** 8.1 Any timestamp
+
+#+begin_src lisp
+(ts)
+#+end_src
+
+*** 8.2 Timestamp today
+
+#+begin_src lisp
+(ts :on today)
+#+end_src
+
+*** 8.3 Active timestamps in range
+
+#+begin_src lisp
+(ts-active :from "2026-01-01" :to "2026-12-31")
+#+end_src
+
+*** 8.4 Deadline soon
+
+#+begin_src lisp
+(deadline :to 7)
+#+end_src
+
+Meaning:
+
+- return headings with deadline on or before seven days from today
+
+*** 8.5 Scheduled soon
+
+#+begin_src lisp
+(scheduled :to 7)
+#+end_src
+
+*** 8.6 Closed recently
+
+#+begin_src lisp
+(closed :from -7)
+#+end_src
+
+*** 8.7 Any planning item in range
+
+#+begin_src lisp
+(planning :from today :to 7)
+#+end_src
+
+** 9. Hierarchy examples
+
+*** 9.1 Headings with any parent
+
+#+begin_src lisp
+(parent)
+#+end_src
+
+*** 9.2 Headings whose parent is a project
+
+#+begin_src lisp
+(parent
+  (headings
+    (tags "project")))
+#+end_src
+
+*** 9.3 Headings with project ancestor
+
+#+begin_src lisp
+(ancestors
+  (headings
+    (tags "project")))
+#+end_src
+
+*** 9.4 Headings with open TODO children
+
+#+begin_src lisp
+(children
+  (headings
+    (todo)))
+#+end_src
+
+*** 9.5 Headings with blocked descendants
+
+#+begin_src lisp
+(descendants
+  (headings
+    (tags "blocked")))
+#+end_src
+
+*** 9.6 Nested hierarchy query
+
+#+begin_src lisp
+(headings
+  (and
+    (todo "NEXT")
+    (ancestors
+      (headings
+        (and
+          (tags "project")
+          (priority "A"))))))
+#+end_src
+
+Meaning:
+
+- return NEXT headings
+- whose ancestors include a heading tagged project with priority A
+
+** 10. Link query examples
+
+*** 10.1 All links
+
+#+begin_src lisp
+(links)
+#+end_src
+
+*** 10.2 File links
+
+#+begin_src lisp
+(links
+  (link-type "file"))
+#+end_src
+
+*** 10.3 Broken links
+
+#+begin_src lisp
+(links
+  (status "broken"))
+#+end_src
+
+*** 10.4 Broken file links
+
+#+begin_src lisp
+(links
+  (and
+    (link-type "file")
+    (status "broken")))
+#+end_src
+
+*** 10.5 Links by raw target
+
+#+begin_src lisp
+(links
+  (link-target "notes.org"))
+#+end_src
+
+*** 10.6 Links by description
+
+#+begin_src lisp
+(links
+  (link-description "Project"))
+#+end_src
+
+*** 10.7 Backlinks to a file
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+Meaning:
+
+- return link rows whose resolved target is the file ~notes.org~
+
+*** 10.8 Backlinks to headings with a property
+
+#+begin_src lisp
+(links
+  (target
+    (headings
+      (property "CUSTOM_ID" "query-model"))))
+#+end_src
+
+*** 10.9 Outgoing links from a file
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+#+end_src
+
+Meaning:
+
+- return link rows located anywhere in ~index.org~
+- includes preamble links and links inside headings
+
+*** 10.10 Outgoing links from project headings
+
+#+begin_src lisp
+(links
+  (source
+    (headings
+      (tags "project"))))
+#+end_src
+
+*** 10.11 Links from project headings to note files
+
+#+begin_src lisp
+(links
+  (and
+    (source
+      (headings
+        (tags "project")))
+    (target
+      (files
+        (file-dir "notes")))))
+#+end_src
+
+** 11. Link-related heading query examples
+
+*** 11.1 Headings with any link
+
+#+begin_src lisp
+(headings
+  (has-link))
+#+end_src
+
+*** 11.2 Headings with broken links
+
+#+begin_src lisp
+(headings
+  (has-link
+    (links
+      (status "broken"))))
+#+end_src
+
+*** 11.3 Headings with file links
+
+#+begin_src lisp
+(headings
+  (has-link
+    (links
+      (link-type "file"))))
+#+end_src
+
+*** 11.4 Headings that link to a file
+
+#+begin_src lisp
+(headings
+  (links-to
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+*** 11.5 Headings with backlinks
+
+#+begin_src lisp
+(headings
+  (linked-from :any))
+#+end_src
+
+*** 11.6 Headings linked from dashboard headings
+
+#+begin_src lisp
+(headings
+  (linked-from
+    (headings
+      (tags "dashboard"))))
+#+end_src
+
+** 12. File queries with links
+
+*** 12.1 Files containing any link
+
+#+begin_src lisp
+(files
+  (has-link))
+#+end_src
+
+*** 12.2 Files containing broken links
+
+#+begin_src lisp
+(files
+  (has-link
+    (links
+      (status "broken"))))
+#+end_src
+
+*** 12.3 Files linking to notes
+
+#+begin_src lisp
+(files
+  (links-to
+    (files
+      (file-dir "notes"))))
+#+end_src
+
+*** 12.4 Files with backlinks
+
+#+begin_src lisp
+(files
+  (linked-from :any))
+#+end_src
+
+** 13. Output examples
+
+*** 13.1 Flat heading output
+
+Query:
+
+#+begin_src lisp
+(headings
+  (tags "project"))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output flat --include path
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "heading",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "id": 1,
+        "path": "projects.org",
+        "title": "Projects"
+      },
+      {
+        "kind": "heading",
+        "id": 10,
+        "title": "Org database",
+        "level": 1
+      }
+    ],
+    "heading": {
+      "id": 10,
+      "title": "Org database",
+      "level": 1,
+      "todo": "NEXT",
+      "outline_path": ["Org database"],
+      "byte_start": 120
+    }
+  },
+  {
+    "kind": "heading",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "id": 1,
+        "path": "projects.org",
+        "title": "Projects"
+      },
+      {
+        "kind": "heading",
+        "id": 10,
+        "title": "Org database",
+        "level": 1
+      },
+      {
+        "kind": "heading",
+        "id": 14,
+        "title": "Query engine",
+        "level": 2
+      }
+    ],
+    "heading": {
+      "id": 14,
+      "title": "Query engine",
+      "level": 2,
+      "todo": "TODO",
+      "outline_path": ["Org database", "Query engine"],
+      "byte_start": 620
+    }
+  }
+]
+#+end_src
+
+*** 13.2 Outline heading output
+
+Query:
+
+#+begin_src lisp
+(headings
+  (title "sqlite"))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output outline
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "file",
+    "matched": false,
+    "path": "notes.org",
+    "title": "Notes",
+    "children": [
+      {
+        "kind": "heading",
+        "matched": false,
+        "id": 20,
+        "title": "Databases",
+        "level": 1,
+        "children": [
+          {
+            "kind": "heading",
+            "matched": true,
+            "id": 21,
+            "title": "SQLite FTS notes",
+            "level": 2,
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]
+#+end_src
+
+Meaning:
+
+- ~SQLite FTS notes~ is a real match
+- ~Databases~ is included only as ancestor context
+- the file/root node is included as root context
+
+*** 13.3 Heading output including links
+
+Query:
+
+#+begin_src lisp
+(headings
+  (todo "NEXT"))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output flat --include path,links
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "heading",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "path": "projects.org",
+        "title": "Projects"
+      },
+      {
+        "kind": "heading",
+        "title": "Query engine",
+        "level": 1
+      }
+    ],
+    "heading": {
+      "title": "Query engine",
+      "todo": "NEXT"
+    },
+    "links": [
+      {
+        "type": "file",
+        "raw_target": "notes.org",
+        "description": "Notes",
+        "status": "resolved"
+      },
+      {
+        "type": "id",
+        "raw_target": "abc123",
+        "description": "Design decision",
+        "status": "resolved"
+      }
+    ]
+  }
+]
+#+end_src
+
+*** 13.4 Heading output including backlinks
+
+Query:
+
+#+begin_src lisp
+(headings
+  (property "CUSTOM_ID" "query-model"))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output flat --include path,backlinks
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "heading",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "path": "spec.org",
+        "title": "Spec"
+      },
+      {
+        "kind": "heading",
+        "title": "Query model",
+        "level": 1
+      }
+    ],
+    "heading": {
+      "title": "Query model"
+    },
+    "backlinks": [
+      {
+        "source": {
+          "file": {
+            "path": "index.org",
+            "title": "Index"
+          },
+          "heading": {
+            "title": "Dashboard"
+          }
+        },
+        "link": {
+          "type": "custom-id",
+          "raw_target": "query-model",
+          "description": "Query model",
+          "status": "resolved"
+        }
+      }
+    ]
+  }
+]
+#+end_src
+
+*** 13.5 Flat link output
+
+Query:
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output flat --include path,source,target
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "link",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "path": "index.org",
+        "title": "Index"
+      },
+      {
+        "kind": "heading",
+        "title": "Dashboard",
+        "level": 1
+      }
+    ],
+    "source": {
+      "file": {
+        "path": "index.org",
+        "title": "Index"
+      },
+      "heading": {
+        "title": "Dashboard",
+        "outline_path": ["Dashboard"]
+      }
+    },
+    "target": {
+      "resolved_kind": "file",
+      "file": {
+        "path": "notes.org",
+        "title": "Notes"
+      }
+    },
+    "link": {
+      "type": "file",
+      "raw_target": "notes.org",
+      "description": "Notes",
+      "status": "resolved",
+      "byte_start": 455
+    }
+  }
+]
+#+end_src
+
+*** 13.6 Link output for preamble link
+
+Query:
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-path "index.org" :exact t))))
+#+end_src
+
+Output for a preamble link:
+
+#+begin_src json
+[
+  {
+    "kind": "link",
+    "matched": true,
+    "path": [
+      {
+        "kind": "file",
+        "path": "index.org",
+        "title": "Index"
+      }
+    ],
+    "source": {
+      "file": {
+        "path": "index.org",
+        "title": "Index"
+      },
+      "heading": null
+    },
+    "target": {
+      "resolved_kind": "file",
+      "file": {
+        "path": "notes.org",
+        "title": "Notes"
+      }
+    },
+    "link": {
+      "type": "file",
+      "raw_target": "notes.org",
+      "description": "Notes",
+      "status": "resolved",
+      "byte_start": 42
+    }
+  }
+]
+#+end_src
+
+*** 13.7 Outline-like link output
+
+Query:
+
+#+begin_src lisp
+(links
+  (status "broken"))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output outline
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "file",
+    "matched": false,
+    "path": "projects.org",
+    "title": "Projects",
+    "children": [
+      {
+        "kind": "heading",
+        "matched": false,
+        "title": "Org database",
+        "children": [
+          {
+            "kind": "link",
+            "matched": true,
+            "type": "file",
+            "raw_target": "missing.org",
+            "description": "Missing notes",
+            "status": "broken"
+          }
+        ]
+      }
+    ]
+  }
+]
+#+end_src
+
+*** 13.8 Flat file output
+
+Query:
+
+#+begin_src lisp
+(files
+  (tags "active"))
+#+end_src
+
+Output mode:
+
+#+begin_src text
+--output flat --include properties,keywords,links
+#+end_src
+
+Output:
+
+#+begin_src json
+[
+  {
+    "kind": "file",
+    "matched": true,
+    "path": "projects.org",
+    "name": "projects.org",
+    "dir": ".",
+    "title": "Projects",
+    "tags": ["active"],
+    "keywords": {
+      "TITLE": "Projects",
+      "FILETAGS": ":active:"
+    },
+    "properties": {
+      "CATEGORY": "projects"
+    },
+    "links": [
+      {
+        "type": "file",
+        "raw_target": "notes.org",
+        "description": "Notes",
+        "status": "resolved"
+      }
+    ]
+  }
+]
+#+end_src
+
+** 14. Complex query examples
+
+*** 14.1 Important NEXT project tasks modified recently
+
+#+begin_src lisp
+(headings
+  (and
+    (todo "NEXT")
+    (priority "A")
+    (tags "project")
+    (file-modified :from -7)))
+#+end_src
+
+*** 14.2 Open tasks under a project ancestor
+
+#+begin_src lisp
+(headings
+  (and
+    (todo)
+    (ancestors
+      (headings
+        (tags "project")))))
+#+end_src
+
+*** 14.3 Headings with text in body and title constraint
+
+#+begin_src lisp
+(headings
+  (and
+    (title "query")
+    (has-text "sqlite" "fts")))
+#+end_src
+
+*** 14.4 Files with broken outgoing links
+
+#+begin_src lisp
+(files
+  (has-link
+    (links
+      (status "broken"))))
+#+end_src
+
+*** 14.5 Broken links from recently modified files
+
+#+begin_src lisp
+(links
+  (and
+    (status "broken")
+    (source
+      (files
+        (file-modified :from -7)))))
+#+end_src
+
+*** 14.6 Headings linked from dashboard files
+
+#+begin_src lisp
+(headings
+  (linked-from
+    (files
+      (file-title "Dashboard"))))
+#+end_src
+
+*** 14.7 Links from active projects to archive files
+
+#+begin_src lisp
+(links
+  (and
+    (source
+      (headings
+        (tags "project" "active")))
+    (target
+      (files
+        (file-dir "archive")))))
+#+end_src
+
+*** 14.8 Files that link to headings with CUSTOM_ID
+
+#+begin_src lisp
+(files
+  (links-to
+    (headings
+      (property "CUSTOM_ID"))))
+#+end_src
+
+*** 14.9 Headings in a specific outline region
+
+#+begin_src lisp
+(headings
+  (and
+    (outline-sequence "Projects" "Org database")
+    (todo)))
+#+end_src
+
+*** 14.10 Non-project TODO headings
+
+#+begin_src lisp
+(headings
+  (and
+    (todo)
+    (not
+      (tags "project"))))
+#+end_src
+
+** 15. Query refinement examples
+
+Query refinement means adding constraints while keeping the previous query as the base.
+
+Start:
+
+#+begin_src lisp
+(todo)
+#+end_src
+
+Refine by tag:
+
+#+begin_src lisp
+(and
+  (todo)
+  (tags "project"))
+#+end_src
+
+Refine by title search:
+
+#+begin_src lisp
+(and
+  (todo)
+  (tags "project")
+  (title "sqlite"))
+#+end_src
+
+Refine by file:
+
+#+begin_src lisp
+(and
+  (todo)
+  (tags "project")
+  (title "sqlite")
+  (file-dir "org/projects"))
+#+end_src
+
+This pattern is useful for Emacs integrations:
+
+- user starts with a broad result set
+- UI adds additional predicates
+- each refinement is represented as an additional ~(and ...)~ clause
+
+Incremental / orderless-style UI filtering should initially live in Emacs.
+
+The query language may later add a dedicated convenience predicate, but v0 does not require it.
+
+** 16. Sorting examples
+
+Sorting is outside predicate logic.
+
+Examples:
+
+#+begin_src shell
+orgfdb query --sort file-path:asc '(todo)'
+orgfdb query --sort modified:desc '(todo)'
+orgfdb query --sort priority:asc,todo:asc '(todo)'
+orgfdb query --sort deadline:asc '(deadline)'
+#+end_src
+
+Rules:
+
+- sort keys are applied in order
+- direction is ~asc~ or ~desc~
+- omitted direction defaults to ~asc~
+- invalid sort keys produce clear errors
+
+Example:
+
+#+begin_src shell
+orgfdb query --sort modified:desc,title:asc '(headings (tags "project"))'
+#+end_src
+
+** 17. Include option examples
+
+*** 17.1 Include path
+
+#+begin_src shell
+orgfdb query --output flat --include path '(todo "NEXT")'
+#+end_src
+
+Adds full root-to-object path.
+
+*** 17.2 Include properties
+
+#+begin_src shell
+orgfdb query --output flat --include properties '(todo "NEXT")'
+#+end_src
+
+Adds selected/default property information.
+
+*** 17.3 Include keywords
+
+#+begin_src shell
+orgfdb query --output flat --include keywords '(files (file-title "Projects"))'
+#+end_src
+
+Adds root keyword information for file results.
+
+*** 17.4 Include outgoing links
+
+#+begin_src shell
+orgfdb query --output flat --include links '(todo "NEXT")'
+#+end_src
+
+Adds outgoing links for matched headings.
+
+*** 17.5 Include backlinks
+
+#+begin_src shell
+orgfdb query --output flat --include backlinks '(property "CUSTOM_ID")'
+#+end_src
+
+Adds incoming links to matched headings.
+
+*** 17.6 Include source and target for links
+
+#+begin_src shell
+orgfdb query --output flat --include source,target '(links (status "broken"))'
+#+end_src
+
+Adds source context and target information for link results.
+
+** 18. Error examples
+
+*** 18.1 Unsupported operator
+
+#+begin_src lisp
+(foo "bar")
+#+end_src
+
+Error:
+
+#+begin_src text
+unsupported operator: foo
+#+end_src
+
+*** 18.2 Invalid target
+
+#+begin_src lisp
+(links
+  (todo "NEXT"))
+#+end_src
+
+Error:
+
+#+begin_src text
+predicate todo is not valid for target links
+#+end_src
+
+*** 18.3 Missing nested target wrapper
+
+#+begin_src lisp
+(links
+  (source
+    (tags "project")))
+#+end_src
+
+Error:
+
+#+begin_src text
+source expects an explicit target query: (headings ...), (files ...)
+#+end_src
+
+*** 18.4 Invalid not arity
+
+#+begin_src lisp
+(not
+  (todo)
+  (priority "A"))
+#+end_src
+
+Error:
+
+#+begin_src text
+not expects exactly one argument
+#+end_src
+
+*** 18.5 Invalid exact usage
+
+#+begin_src lisp
+(title "query" "engine" :exact t)
+#+end_src
+
+Error:
+
+#+begin_src text
+:exact t accepts exactly one text argument
+#+end_src
+
+*** 18.6 Invalid file property inherit option
+
+#+begin_src lisp
+(files
+  (property "CATEGORY" "work" :inherit t))
+#+end_src
+
+Error:
+
+#+begin_src text
+:inherit is not valid for property in files queries
+#+end_src
+
+*** 18.7 Body text unavailable
+
+#+begin_src lisp
+(has-text "sqlite")
+#+end_src
+
+Error when body text is not available in the database:
+
+#+begin_src text
+has-text requires body text to be available in the database
+#+end_src
+
+*** 18.8 Unsupported regexp backend
+
+#+begin_src lisp
+(has-text "sqlite.*fts" :regexp t)
+#+end_src
+
+Error when the backend does not support regexp body matching:
+
+#+begin_src text
+has-text with :regexp t is not supported by the current backend
+#+end_src
+
+** 19. Parser and implementation notes
+
+*** 19.1 Parse into an AST
+
+The parser should parse the query syntax into an implementation-independent AST.
+
+The AST should not contain SQL.
+
+Conceptual example:
+
+#+begin_src rust
+enum Query {
+    Headings(Predicate),
+    Links(Predicate),
+    Files(Predicate),
+}
+
+enum Predicate {
+    And(Vec<Predicate>),
+    Or(Vec<Predicate>),
+    Not(Box<Predicate>),
+    Atomic(AtomicPredicate),
+}
+#+end_src
+
+*** 19.2 Top-level shorthand should be normalized early
+
+Input:
+
+#+begin_src lisp
+(todo "NEXT")
+#+end_src
+
+should normalize to:
+
+#+begin_src lisp
+(headings
+  (todo "NEXT"))
+#+end_src
+
+before semantic validation.
+
+The shorthand must not be applied recursively.
+
+*** 19.3 Validate target compatibility
+
+After parsing, validate that each predicate is valid for its target.
+
+Example invalid query:
+
+#+begin_src lisp
+(links
+  (todo "NEXT"))
+#+end_src
+
+should fail before SQL generation.
+
+*** 19.4 Validate arity and options
+
+Each predicate must define:
+
+- minimum argument count
+- maximum argument count, if any
+- allowed keyword options
+- required option types
+- invalid option combinations
+
+Examples:
+
+- ~not~ requires exactly one child expression
+- ~:exact t~ requires exactly one text argument
+- ~:inherit~ is invalid for file query property predicates
+
+*** 19.5 SQL generation must use bound parameters
+
+The query model is independent of SQL, but SQL translators must use bound parameters.
+
+User-provided strings must not be concatenated into SQL.
+
+This applies especially to:
+
+- text predicates
+- regexp predicates
+- file path predicates
+- link target predicates
+- property values
+
+*** 19.6 Backend capabilities should be explicit
+
+Some predicates depend on available indexed data or backend support.
+
+Examples:
+
+- ~has-text~ requires body text to be available in the database
+- ~has-text :regexp t~ requires regexp-capable body matching
+- optimized text search may use FTS5, but the query model does not require FTS5
+
+Unsupported backend features must fail clearly.
+
+*** 19.7 Output should be built after matching
+
+Output options such as:
+
+- ~path~
+- ~properties~
+- ~keywords~
+- ~links~
+- ~backlinks~
+- ~source~
+- ~target~
+
+must not alter matching semantics.
+
+They only control enrichment of matched results.
+
+** 20. FAQ
+
+*** 20.1 Why explicit query targets?
+
+Because the same relationship can be used to return different objects.
+
+Example:
+
+#+begin_src lisp
+(headings
+  (links-to
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+returns headings.
+
+#+begin_src lisp
+(links
+  (target
+    (files
+      (file-path "notes.org" :exact t))))
+#+end_src
+
+returns links.
+
+Explicit targets avoid ambiguity.
+
+*** 20.2 Why is top-level shorthand allowed only once?
+
+Because recursive shorthand becomes ambiguous.
+
+Example:
+
+#+begin_src lisp
+(source
+  (property "CATEGORY" "work"))
+#+end_src
+
+could mean:
+
+- source heading with effective property
+- source file with root property
+
+Therefore nested target wrappers are required.
+
+*** 20.3 Why not copy org-ql exactly?
+
+org-ql is heading-oriented.
+
+This query model targets an indexed Org graph with first-class files and links.
+
+org-ql is inspiration, not a compatibility target.
+
+*** 20.4 Why use ~title~ instead of ~heading~?
+
+The field being searched is the heading title.
+
+~title~ is shorter and works naturally with file titles as a related concept.
+
+*** 20.5 Why not use separate ~*-regexp~ predicates?
+
+The query model uses keyword options for regexp behavior:
+
+#+begin_src lisp
+(title "query.*engine" :regexp t)
+#+end_src
+
+This avoids doubling the predicate set.
+
+*** 20.6 Why is ~property~ not split into direct/effective predicates?
+
+For heading queries:
+
+- ~(property ...)~ means effective property by default
+- ~:inherit~ controls whether ancestor/root values count
+- ~:inherit nil~ restricts matching to the current heading
+
+For file queries:
+
+- ~(property ...)~ means direct root/file property
+- ~:inherit~ is invalid
+
+This keeps the public syntax small.
+
+*** 20.7 Why is ~status~ used for links?
+
+Separate predicates such as ~(broken)~ and ~(resolved)~ do not scale.
+
+~status~ supports future values:
+
+#+begin_src lisp
+(status "broken" "unresolved" "external")
+#+end_src
+
+*** 20.8 Why is root not a heading?
+
+The file/root context behaves like a synthetic heading context for selected predicates, but it is not a real Org heading.
+
+In output it must remain:
+
+#+begin_src json
+{ "kind": "file" }
+#+end_src
+
+This avoids confusing real headings with file-level facts.
+
+*** 20.9 Does ~has-text~ require FTS5?
+
+No.
+
+~has-text~ requires body text to be available in the database.
+
+The backend may implement it with:
+
+- stored body text and SQL matching
+- SQLite FTS5
+- another full-text backend
+
+FTS5 is an implementation detail, not a query-language requirement.
+
+** 21. Full predicate reference
+
+*** 21.1 Boolean predicates
+
+#+begin_src lisp
+(and EXPR...)
+(or EXPR...)
+(not EXPR)
+#+end_src
+
+Rules:
+
+- ~and~ accepts one or more expressions
+- ~or~ accepts one or more expressions
+- ~not~ accepts exactly one expression
+
+*** 21.2 Query targets
+
+#+begin_src lisp
+(headings PREDICATE)
+(links PREDICATE)
+(files PREDICATE)
+#+end_src
+
+Empty target queries may return all objects of that target:
+
+#+begin_src lisp
+(links)
+(files)
+#+end_src
+
+Support for ~(headings)~ may be allowed to return all headings.
+
+*** 21.3 Heading predicates
+
+#+begin_src lisp
+(todo)
+(todo KEYWORD...)
+(done)
+
+(title STRING... :regexp t|nil :exact t|nil)
+(has-text STRING... :regexp t|nil)
+(level NUMBER)
+(level MIN MAX)
+(level COMPARATOR NUMBER)
+
+(priority PRIORITY...)
+(priority COMPARATOR PRIORITY)
+
+(tags TAG... :inherit t|nil :with-root t|nil :regexp t|nil :match :any|:all)
+(tags-all TAG... :inherit t|nil :with-root t|nil :regexp t|nil)
+
+(property KEY &optional VALUE :inherit t|nil :with-root t|nil :regexp t|nil)
+
+(keyword KEY &optional VALUE :regexp t|nil)
+
+(file-name STRING... :regexp t|nil :exact t|nil)
+(file-path STRING... :regexp t|nil :exact t|nil)
+(file-dir STRING... :regexp t|nil :exact t|nil)
+(file-title STRING... :regexp t|nil :exact t|nil)
+(file-modified :from DATE :to DATE :on DATE :with-time t|nil)
+
+(outline-contains STRING... :regexp t|nil)
+(outline-sequence STRING... :regexp t|nil :exact t|nil)
+
+(ts :from DATE :to DATE :on DATE :with-time t|nil)
+(ts-active :from DATE :to DATE :on DATE :with-time t|nil)
+(ts-inactive :from DATE :to DATE :on DATE :with-time t|nil)
+
+(deadline :from DATE :to DATE :on DATE :with-time t|nil)
+(scheduled :from DATE :to DATE :on DATE :with-time t|nil)
+(closed :from DATE :to DATE :on DATE :with-time t|nil)
+(planning :from DATE :to DATE :on DATE :with-time t|nil)
+
+(parent)
+(parent (headings ...))
+(ancestors)
+(ancestors (headings ...))
+(children)
+(children (headings ...))
+(descendants)
+(descendants (headings ...))
+
+(has-link)
+(has-link (links LINK-PREDICATE))
+(links-to (headings ...))
+(links-to (files ...))
+(linked-from :any)
+(linked-from (headings ...))
+(linked-from (files ...))
+#+end_src
+
+Note:
+
+~tags-all~ is an alias for ~(tags ... :match :all)~. It must not appear as a separate AST predicate after normalization.
+
+*** 21.4 Link predicates
+
+#+begin_src lisp
+(link-type TYPE...)
+(link-target STRING... :regexp t|nil :exact t|nil)
+(link-description STRING... :regexp t|nil :exact t|nil)
+(has-description)
+(status STATUS...)
+
+(source (headings ...))
+(source (files ...))
+(target (headings ...))
+(target (files ...))
+#+end_src
+
+*** 21.5 File predicates
+
+#+begin_src lisp
+(file-name STRING... :regexp t|nil :exact t|nil)
+(file-path STRING... :regexp t|nil :exact t|nil)
+(file-dir STRING... :regexp t|nil :exact t|nil)
+(file-title STRING... :regexp t|nil :exact t|nil)
+(file-modified :from DATE :to DATE :on DATE :with-time t|nil)
+
+(keyword KEY &optional VALUE :regexp t|nil)
+(property KEY &optional VALUE :regexp t|nil)
+(tags TAG... :regexp t|nil :match :any|:all)
+
+(has-link)
+(has-link (links LINK-PREDICATE))
+(links-to (headings ...))
+(links-to (files ...))
+(linked-from :any)
+(linked-from (headings ...))
+(linked-from (files ...))
+#+end_src
+
+** 22. Multi-value summary table
+
+| Predicate family | Examples | Multi-value meaning |
+|------------------+----------+---------------------|
+| value predicates | ~todo~, ~tags~, ~priority~, ~link-type~, ~status~ | OR by default; ~tags~ can use ~:match :all~; ~tags-all~ is alias |
+| text predicates | ~title~, ~has-text~, ~file-path~, ~file-title~, ~link-target~ | AND |
+| positional predicates | ~level~, date/planning predicates | positional |
+
+Examples:
+
+#+begin_src lisp
+(todo "NEXT" "WAITING")
+#+end_src
+
+means TODO is NEXT or WAITING.
+
+#+begin_src lisp
+(title "query" "engine")
+#+end_src
+
+means title contains query and engine.
+
+#+begin_src lisp
+(level 2 4)
+#+end_src
+
+means level is between 2 and 4.
+
+** 23. Recommended v0 implementation order
+
+This is not part of the query language contract, but it is a practical implementation order.
+
+1. Parser and AST for target forms and boolean expressions.
+2. Basic heading predicates:
+   - ~todo~
+   - ~done~
+   - ~title~
+   - ~level~
+3. File predicates:
+   - ~file-path~
+   - ~file-name~
+   - ~file-dir~
+   - ~file-title~
+4. Tags and properties.
+5. Flat output with path.
+6. Link queries:
+   - ~link-type~
+   - ~status~
+   - ~source~
+   - ~target~
+7. Link-related heading/file predicates.
+8. Outline output.
+9. Date/planning predicates.
+10. Body text / ~has-text~.
+11. Include enrichments:
+    - links
+    - backlinks
+    - properties
+    - keywords
+
+** 24. Future extensions
+
+The following extensions are intentionally outside v0 but should remain possible.
+
+*** 24.1 Smart / orderless search
+
+Possible future predicate:
+
+#+begin_src lisp
+(smart "sqlite index next")
+#+end_src
+
+or:
+
+#+begin_src lisp
+(orderless "sqlite index next")
+#+end_src
+
+v0 recommendation:
+
+- keep incremental/orderless filtering in Emacs first
+- add query predicate later only if needed
+
+*** 24.2 Source block queries
+
+Possible future target or predicate:
+
+#+begin_src lisp
+(blocks
+  (src-lang "elisp"))
+#+end_src
+
+or:
+
+#+begin_src lisp
+(headings
+  (has-src :lang "elisp"))
+#+end_src
+
+*** 24.3 Clock queries
+
+Possible future predicate:
+
+#+begin_src lisp
+(clocked :from -7)
+#+end_src
+
+Requires clock data indexing.
+
+*** 24.4 Attachment queries
+
+Possible future target:
+
+#+begin_src lisp
+(attachments
+  (file-name "invoice"))
+#+end_src
+
+*** 24.5 Link graph traversal
+
+Possible future predicates:
+
+#+begin_src lisp
+(reachable-from ...)
+(reachable-to ...)
+#+end_src
+
+v0 only supports direct source/target relationships.
+
+*** 24.6 Ranking
+
+Ranking is out of scope for v0.
+
+Sort order is supported as an execution/output option, not as semantic ranking.
+
+** 25. Final v0 design summary
+
+The v0 query model defines a small graph-oriented language for indexed Org data.
+
+Core decisions:
+
+- query targets are explicit:
+  - ~(headings ...)~
+  - ~(links ...)~
+  - ~(files ...)~
+- top-level heading shorthand is allowed only at the outermost query
+- nested relation queries must use explicit target wrappers
+- boolean composition uses Lisp-like ~(and ...)~, ~(or ...)~, ~(not ...)~
+- ~not~ accepts exactly one expression
+- multi-value semantics are documented per predicate family
+- regexp behavior uses ~:regexp t~
+- exact behavior uses ~:exact t~
+- root/file context is represented as ~kind: "file"~
+- root may act as synthetic heading context for selected predicates
+- output mode is separate from query semantics
+- includes enrich results without changing matches
+- links and files are first-class query targets
+- backlinks and outgoing links are modeled via link source/target relationships
+- FTS/full-text search is an implementation detail, not a query-language requirement
+
+This design intentionally avoids being a direct clone of org-ql.
+
+It keeps the useful sexp-style ergonomics while making files, links, root context, and output semantics explicit enough for a stable API.

@@ -31,9 +31,9 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 
 ** Documentation
 
-- CLI reference: [[./docs/cli.md][docs/cli.md]]
-- Config reference: [[./docs/config.md][docs/config.md]]
-- Phase 3 link indexing notes are documented alongside parser risks in [[./docs/parser-risks.org][docs/parser-risks.org]].
+- CLI reference: [[./docs/cli.org][docs/cli.org]]
+- Config reference: [[./docs/config.org][docs/config.org]]
+- Phase 3 link indexing notes are documented alongside parser risks in [[./docs/design/parser-risks.org][docs/design/parser-risks.org]].
 - Link resolving is documented in the CLI reference and summarized here so the Phase 3 source facts and Phase 4 resolver-owned fields stay clearly separated.
 
 ** Link Resolving Contract

@@ -17,7 +17,7 @@ Keep known or suspected parser risks in one central place.
 Possible file:
 
 #+begin_src text
-docs/parser-risks.org
+docs/design/parser-risks.org
 #+end_src
 
 Document:
@@ -47,7 +47,7 @@ The parser work now has active regression fixtures, an Orgize-backed adapter, an
 
 ** Goals
 
-- Create ~docs/parser-risks.org~ as the single central parser-risk register.
+- Create ~docs/design/parser-risks.org~ as the single central parser-risk register.
 - Cover both current Orgize-specific observations and project-owned parser contract gaps.
 - Cross-link each risk to active evidence where available, especially regression fixtures and earlier task notes.
 - Make the later ~Document parser risks~ backlog item effectively a maintenance/follow-up concern instead of a separate documentation effort.
@@ -67,7 +67,7 @@ The document should reflect the existing architecture decision that Orgize is is
 - parser-contract gaps in the project's own internal model
 - compatibility semantics that currently match Emacs/Org behavior and should not be mislabeled as backend bugs
 
-Planned structure for ~docs/parser-risks.org~:
+Planned structure for ~docs/design/parser-risks.org~:
 
 - ~#+TITLE: Parser Risks~
 - short purpose statement explaining why the adapter boundary exists and why the register is maintained
@@ -98,7 +98,7 @@ Planned structure for ~docs/parser-risks.org~:
 
 1. Create ~.project/tasks/2026-06-17--create-parser-risk-list.org~ from the template and preserve the full original task body.
 2. Link the task file from ~.project/tasks/todo.org~ under the task heading.
-3. Write the final risk-register document in ~docs/parser-risks.org~ during the later ~BUILD~ phase, not in this ~PLAN~ task.
+3. Write the final risk-register document in ~docs/design/parser-risks.org~ during the later ~BUILD~ phase, not in this ~PLAN~ task.
 4. In that future build, seed the register with the following initial risk entries:
    - Multi-line planning behavior
      - classify as parser semantics / compatibility risk
@@ -135,7 +135,7 @@ Planned structure for ~docs/parser-risks.org~:
 ** Risks & assumptions
 
 - Scope is intentionally ~parser + parser contract~, not full pipeline risk management.
-- The later backlog item ~Document parser risks~ should be treated as covered in substance by this task once ~docs/parser-risks.org~ is built; future work should maintain or refine the same document rather than create a competing one.
+- The later backlog item ~Document parser risks~ should be treated as covered in substance by this task once ~docs/design/parser-risks.org~ is built; future work should maintain or refine the same document rather than create a competing one.
 - Risks must be documented in English to match the repository documentation language.
 - The risk register should describe observed current behavior, desired contract, containment, and next decisions without inventing parser behavior that the repo has not yet established.
 - The repository is currently on branch ~rust~, which is an unexpected state under the workspace rules; this is noted here and not changed implicitly.
@@ -146,7 +146,7 @@ No blocking product or implementation questions remain for the planning phase. T
 
 ** Proposed checks
 
-- Verify that ~docs/parser-risks.org~ exists after the future ~BUILD~ task and reads as the single parser-risk register.
+- Verify that ~docs/design/parser-risks.org~ exists after the future ~BUILD~ task and reads as the single parser-risk register.
 - Verify that each currently known risk from this task appears in the document.
 - Verify that each risk entry has either a concrete current decision or an explicit open follow-up.
 - Verify that active risky or deliberately unsupported fixtures are referenced from the matching entries where applicable.
@@ -156,11 +156,11 @@ No blocking product or implementation questions remain for the planning phase. T
 
 ** Approach
 
-Create ~docs/parser-risks.org~ as the single parser-risk register using the planned structure from this task. Seed it with the currently known Orgize and parser-contract risks, link each risk to active fixtures or existing task evidence, and keep the scope limited to parser backend and parser contract concerns. Add one lightweight placeholder directory note for future body fixtures so the open body-boundary risk points to a concrete location in the active fixture tree.
+Create ~docs/design/parser-risks.org~ as the single parser-risk register using the planned structure from this task. Seed it with the currently known Orgize and parser-contract risks, link each risk to active fixtures or existing task evidence, and keep the scope limited to parser backend and parser contract concerns. Add one lightweight placeholder directory note for future body fixtures so the open body-boundary risk points to a concrete location in the active fixture tree.
 
 ** Changed files
 
-- ~docs/parser-risks.org~
+- ~docs/design/parser-risks.org~
 - ~tests/data/parser/body/README.org~
 - ~.project/tasks/todo.org~
 

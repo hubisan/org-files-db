@@ -45,14 +45,14 @@ Suggested structure:
 #+begin_src text
 README.md
 docs/
-  cli.md
+  cli.org
   link-indexing.md
   development.md
 #+end_src
 
 Scope:
 
-- Add or update ~docs/cli.md~.
+- Add or update ~docs/cli.org~.
 - Add a section for ~orgfdb links --json~.
 - Document command purpose.
 - Document that the command is read-only.
@@ -64,7 +64,7 @@ Scope:
 - Document output ordering.
 - Document public JSON fields.
 - Document root link behavior.
-- Link from ~README.md~ to ~docs/cli.md~ if a docs section already exists or if this is easy to add.
+- Link from ~README.md~ to ~docs/cli.org~ if a docs section already exists or if this is easy to add.
 
 Documented command:
 
@@ -117,7 +117,7 @@ Non-goals:
 
 Acceptance criteria:
 
-- [ ] ~docs/cli.md~ exists or is updated.
+- [ ] ~docs/cli.org~ exists or is updated.
 - [ ] ~orgfdb links --json~ is documented.
 - [ ] Documentation states that the command is read-only.
 - [ ] Documentation states that it reads stored database facts only.
@@ -126,7 +126,7 @@ Acceptance criteria:
 - [ ] Documentation states that ~link_type~ is used instead of ~type~.
 - [ ] Documentation describes deterministic output ordering.
 - [ ] Documentation describes root link behavior.
-- [ ] README links to ~docs/cli.md~ if appropriate.
+- [ ] README links to ~docs/cli.org~ if appropriate.
 - [ ] No mdBook or GitHub Pages setup is added yet.
 
 Follow-up candidates:
@@ -139,11 +139,11 @@ Follow-up candidates:
 * Results
 
 ** Approach
-Added a lightweight Markdown CLI reference at ~docs/cli.md~ and a separate config reference at ~docs/config.md~, then linked both from the repository README. The CLI page now documents ~orgfdb headings --json~ and ~orgfdb links --json~ as read-only database inspection commands, while the config page lists the supported ~config.toml~ variables and defaults. The scope stayed repository-local and did not introduce mdBook.
+Added a lightweight Markdown CLI reference at ~docs/cli.org~ and a separate config reference at ~docs/config.org~, then linked both from the repository README. The CLI page now documents ~orgfdb headings --json~ and ~orgfdb links --json~ as read-only database inspection commands, while the config page lists the supported ~config.toml~ variables and defaults. The scope stayed repository-local and did not introduce mdBook.
 
 ** Changed files
-- `docs/cli.md`
-- `docs/config.md`
+- `docs/cli.org`
+- `docs/config.org`
 - `README.org`
 - `.project/tasks/todo.org`
 - `.project/tasks/2026-07-01--add-minimal-project-documentation-for-cli-and-link-indexing.org`

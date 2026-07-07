@@ -29,8 +29,8 @@ Goal:
 Repository findings:
 
 - ~.dir-locals.el~ support still appears in:
-  - ~docs/config.md~
-  - ~docs/parser-risks.org~
+  - ~docs/config.org~
+  - ~docs/design/parser-risks.org~
   - ~README.org~
   - ~src/config.rs~
   - ~src/dir_locals.rs~
@@ -148,12 +148,12 @@ Files to inspect and likely update:
   - keep only if needed for legacy migration
   - otherwise remove
 
-- ~docs/config.md~
+- ~docs/config.org~
   - remove ~parse.dir_locals~ section completely
   - remove ~parse.dir_locals~ from supported top-level/nested keys
   - ensure config reference says no ~.dir-locals.el~ config exists
 
-- ~docs/parser-risks.org~
+- ~docs/design/parser-risks.org~
   - remove or rewrite active statements about ~.dir-locals.el~ handling
   - keep only a short risk/policy note if still useful:
     - ~.dir-locals.el~ is intentionally outside the config and parser contract
@@ -190,7 +190,7 @@ Acceptance criteria:
 - [ ] Indexer tests no longer configure ~[parse.dir_locals]~.
 - [ ] Active documentation no longer documents ~parse.dir_locals~.
 - [ ] Active documentation no longer presents ~.dir-locals.el~ as a supported feature.
-- [ ] ~docs/config.md~ contains no supported ~dir_locals~ config section.
+- [ ] ~docs/config.org~ contains no supported ~dir_locals~ config section.
 - [ ] README does not imply ~.dir-locals.el~ support.
 - [ ] Any remaining ~dir_locals~ mention is either legacy migration cleanup or historical archived context.
 - [ ] Existing TODO keyword behavior remains covered by in-buffer keyword and config-default tests.
@@ -249,9 +249,9 @@ Chat context:
 - ~src/indexer.rs~
 - ~src/lib.rs~
 - ~src/dir_locals.rs~ (deleted)
-- ~docs/config.md~
-- ~docs/cli.md~
-- ~docs/parser-risks.org~
+- ~docs/config.org~
+- ~docs/cli.org~
+- ~docs/design/parser-risks.org~
 - ~README.org~
 - ~.project/tasks/roadmap.org~
 

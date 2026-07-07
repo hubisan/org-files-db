@@ -1,3 +1,22 @@
+#+STARTUP: showall
+
+* My Feedback
+
+Sehr cool.
+
+Fragen:
+
+- Dies mit dem Root, kannst du deinen Lösung nochmals schildern? und ist bei Headings with-root der Default? steht dies irgendwo?
+- Wie kann ich den Output steuern? Möchte z. B. sagen, dass es mir die Headings zurückgeben soll und dabei auch alle Links je gematched Headings im JSON zurückgibt.
+- Wie sage ich ob als Path oder Flat?
+- Keywords sind glaube ich immmer beim Root angesiedelt, somit with-root obsolet oder immer t.
+- Bei Links (resolved) (broken): nicht so gut, besser (status "broken") oder so, kann noch weitere Status geben.
+- bei der Rückgabe des Pfades sollte Root Heading drin sein.
+- Erläutere noch
+  (outline-contains ...)
+  (outline-sequence ...)
+
+ 
 * Query model v0: revised with link queries
 
 ** Core decision
