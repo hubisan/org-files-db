@@ -1,0 +1,101 @@
+#+TITLE: Implement safe SQL translation and core metadata query execution
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-08 Wed 11:48]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Phase 5 task from ~todo.org~: *BUILD [#B] Implement safe SQL translation and core metadata query execution*
+- User constraints:
+  - add a SQLite query backend under ~src/query/sqlite.rs~
+  - keep compilation and execution separate and consume ~ValidatedQuery~ only
+  - use bound parameters for all user values
+  - return raw target-specific rows, not JSON/CLI-shaped output
+  - keep SQL identifiers, joins, selected columns, and ordering hardcoded
+  - implement only core metadata execution in this task
+  - keep hierarchy predicates unsupported
+  - keep relation support narrow and reject deferred graph semantics clearly
+
+* Planning
+
+** Problem summary
+The repository has a parsed and semantically validated query model, but no SQL translation or DB-backed execution layer yet. This task adds a safe SQLite backend for core metadata predicates only, without moving into later hierarchy or graph-relation semantics.
+
+** Goals
+- Add a SQLite query backend that compiles only ~ValidatedQuery~ into parameterized SQL.
+- Execute heading, link, and file metadata queries against persisted DB facts only.
+- Return raw backend rows for later shaping work.
+- Reject unsupported predicates and backend requirements clearly.
+
+** Non-goals
+- CLI query integration
+- JSON or outline result shaping
+- FTS or body text execution
+- Org file scanning, rebuilds, repairs, or any DB mutation
+- Hierarchy predicates
+- Broad graph relation predicates such as ~has-link~, ~links-to~, and ~linked-from~
+- Effective/inherited tag, property, keyword, or root semantics
+
+** Architecture
+- Add ~src/query/sqlite.rs~ and re-export its public surface from ~src/query.rs~.
+- Keep ~compile_sqlite_query~ and ~execute_sqlite_query~ separate.
+- Use a small internal SQL fragment representation for safe boolean composition and constrained joins.
+- Add raw query row structs and backend error types in the query module.
+
+** Execution plan
+- Add backend types, compile/execute APIs, and narrow predicate support.
+- Implement parameterized SQL generation for supported heading, link, and file metadata predicates.
+- Add execution code that binds values safely and maps rows into raw backend row structs.
+- Add focused compile and execution tests for supported and unsupported behavior.
+
+** Risks & assumptions
+- ~file-name~ and ~file-dir~ stay unsupported because the current schema does not store them directly and this task should not add SQL-specific path parsing behavior.
+- ~source~ and ~target~ support on link queries stays limited to direct stored ID checks or trivial constrained subqueries.
+- Any ~:regexp t~ usage fails explicitly because the current SQLite backend does not register a regexp function.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test query::sqlite --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a dedicated SQLite query backend in ~src/query/sqlite.rs~ with separate ~compile_sqlite_query~ and ~execute_sqlite_query~ entrypoints.
+- Kept SQL translation strictly on ~ValidatedQuery~ and bound every user-provided value as a parameter.
+- Implemented metadata execution for headings, links, and files plus boolean composition.
+- Limited link ~source~ / ~target~ to direct stored IDs and small nested ~EXISTS~ checks over persisted rows.
+- Rejected hierarchy, deferred graph relations, regexp matching, and effective/inherited semantics explicitly through backend errors.
+- Added backend tests for SQL placeholder safety, injection-like payloads, representative metadata queries, persisted-DB-only reads, and no-mutation execution.
+- Verified that the persisted ~timestamps~ table uses the ~type~ column name and added execution coverage for ~scheduled~ and ~ts-active~ against the seeded timestamp row.
+** Changed files
+- ~src/query.rs~
+- ~src/query/sqlite.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org~
+** Checks performed
+- Review follow-up:
+  - ~cargo fmt --all~
+  - ~cargo test query::sqlite --lib~
+  - ~make ci~
+- ~cargo test query::sqlite --lib~
+- ~cargo fmt --all~
+- ~make ci~
+** Test results
+- Review follow-up confirmed:
+  - the persisted ~timestamps~ schema uses the ~type~ column
+  - ~(headings (ts-active :on "2026-01-03"))~ matches the seeded timestamp row
+  - ~(headings (scheduled :on "2026-01-03"))~ matches the persisted planning column
+- Focused SQLite query backend tests passed.
+- Full ~make ci~ passed, including fmt, clippy, full test suite, and build.
+** Blockers
+- None.
+** Follow-ups
+- The later effective-semantics task should decide whether heading ~tags~ / ~property~ without explicit local-only options should stay rejected or become fully supported via effective resolution.
+- The later graph/hierarchy task should extend this backend with ~has-link~, ~links-to~, ~linked-from~, and hierarchy predicates without widening this task's metadata-only scope.

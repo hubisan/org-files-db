@@ -83,58 +83,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-07--implement-query-semantic-validation-and-normalization.org]]
 
-** TODO [#B] Implement safe SQL translation and core metadata query execution
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: High
-:END:
+** DONE [#B] Implement safe SQL translation and core metadata query execution
 
-Depends on:
-
-- Implement query semantic validation and normalization
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Translate validated Query Model v0 AST into safe database queries for non-FTS metadata predicates.
-
-Scope:
-
-- Heading queries.
-- Link queries.
-- File/root queries.
-- Boolean composition.
-- File/path predicates.
-- TODO/done/priority predicates.
-- Title predicates.
-- Tags where stored/effective data is already available.
-- Properties where stored/effective data is already available.
-- Keywords.
-- Planning/timestamp predicates where stored data already exists.
-- Link predicates such as ~link-type~, ~link-target~, and ~status~.
-- Source/target predicates where they can be implemented from stored resolver facts.
-
-Rules:
-
-- SQL generation must use bound parameters.
-- User input must never be concatenated directly into SQL.
-- Query execution must read persisted DB facts only.
-- Query execution must not scan Org files.
-- Query execution must not mutate the database.
-- Unsupported backend requirements must fail clearly.
-
-Acceptance criteria:
-
-- SQL generation uses bound parameters for all user-provided values.
-- SQL-injection-like inputs are covered by tests.
-- Query execution uses the DB layer, not the parser.
-- Heading queries can filter by heading metadata.
-- Heading queries can filter by containing file metadata where specified.
-- Link queries can filter by source facts and resolver-owned target facts.
-- File queries can filter by root/file metadata.
-- Boolean combinations work across supported predicates.
-- Unsupported predicates or backend requirements return clear errors.
-- Tests cover representative heading, link, file, and boolean queries.
+- Task file: [[file:archive/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org]]
 
 ** TODO [#B] Implement effective root, tag, property, and keyword semantics for queries
 :PROPERTIES:
