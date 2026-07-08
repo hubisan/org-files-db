@@ -767,20 +767,6 @@ fn compile_text_predicate(
 fn compile_heading_tags_predicate(
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool_with_default(&predicate.options, "inherit", true)? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "tags",
-            "heading tags require effective/inherited semantics unless :inherit nil is used",
-        ));
-    }
-    if option_bool_with_default(&predicate.options, "with-root", false)? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "tags",
-            "heading tags with :with-root t are not supported by the SQLite metadata backend",
-        ));
-    }
     if option_bool(&predicate.options, "regexp")? {
         return Err(QueryExecutionError::unsupported_backend_feature(
             QueryTarget::Headings,
@@ -788,7 +774,59 @@ fn compile_heading_tags_predicate(
             "heading tags with :regexp t are not supported by the SQLite metadata backend",
         ));
     }
-    compile_tags_exists(QueryTarget::Headings, predicate, "headings.id")
+    if !option_bool_with_default(&predicate.options, "inherit", true)? {
+        return compile_tags_exists(QueryTarget::Headings, predicate, "headings.id");
+    }
+
+    let with_root = option_bool_with_default(&predicate.options, "with-root", true)?;
+    compile_heading_effective_tags_exists(predicate, with_root)
+}
+
+fn compile_heading_effective_tags_exists(
+    predicate: &ValidatedPredicate,
+    with_root: bool,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let match_all = matches!(
+        keyword_option(&predicate.options, "match")?.as_deref(),
+        Some("all")
+    );
+    let tags = predicate
+        .args
+        .iter()
+        .map(arg_as_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(QueryTarget::Headings, "tags", message)
+        })?;
+
+    if match_all {
+        let mut parts = Vec::with_capacity(tags.len());
+        let mut params = Vec::with_capacity(tags.len());
+        for tag in tags {
+            parts.push(heading_lineage_exists_sql(
+                "tags",
+                "matched_tags",
+                "matched_tags.tag = ?",
+                with_root,
+            ));
+            params.push(QueryParam::Text(tag));
+        }
+        return Ok(SqlFragment {
+            sql: format!("({})", parts.join(" AND ")),
+            params,
+        });
+    }
+
+    let placeholders = vec!["?"; tags.len()].join(", ");
+    Ok(SqlFragment {
+        sql: heading_lineage_exists_sql(
+            "tags",
+            "matched_tags",
+            &format!("matched_tags.tag IN ({placeholders})"),
+            with_root,
+        ),
+        params: tags.into_iter().map(QueryParam::Text).collect(),
+    })
 }
 
 fn compile_file_tags_predicate(
@@ -847,24 +885,78 @@ fn compile_tags_exists(
     })
 }
 
+fn heading_lineage_exists_sql(
+    fact_table: &str,
+    fact_alias: &str,
+    fact_match_sql: &str,
+    with_root: bool,
+) -> String {
+    let lineage_filter = if with_root {
+        String::new()
+    } else {
+        "lineage.level > 0 AND ".to_string()
+    };
+
+    format!(
+        "(EXISTS (
+            WITH RECURSIVE lineage(id, parent_id, level) AS (
+                SELECT headings.id, headings.parent_id, headings.level
+                UNION ALL
+                SELECT ancestor.id, ancestor.parent_id, ancestor.level
+                FROM headings AS ancestor
+                INNER JOIN lineage ON lineage.parent_id = ancestor.id
+            )
+            SELECT 1
+            FROM lineage
+            INNER JOIN {fact_table} AS {fact_alias} ON {fact_alias}.heading_id = lineage.id
+            WHERE {lineage_filter}{fact_match_sql}
+        ))"
+    )
+}
+
 fn compile_heading_property_predicate(
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool_with_default(&predicate.options, "inherit", true)? {
+    if !option_bool_with_default(&predicate.options, "inherit", true)? {
+        return compile_property_exists(QueryTarget::Headings, predicate, "headings.id");
+    }
+
+    if option_bool(&predicate.options, "regexp")? {
         return Err(QueryExecutionError::unsupported_backend_feature(
             QueryTarget::Headings,
             "property",
-            "heading property queries require effective/inherited semantics unless :inherit nil is used",
+            "property with :regexp t is not supported by the SQLite metadata backend",
         ));
     }
-    if option_bool_with_default(&predicate.options, "with-root", false)? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "property",
-            "heading property queries with :with-root t are not supported by the SQLite metadata backend",
-        ));
+
+    let key = arg_as_string(&predicate.args[0]).map_err(|message| {
+        QueryExecutionError::unsupported_backend_feature(QueryTarget::Headings, "property", message)
+    })?;
+    let with_root = option_bool_with_default(&predicate.options, "with-root", true)?;
+    let mut fact_match_sql = "matched_properties.key = ? COLLATE NOCASE".to_string();
+    let mut params = vec![QueryParam::Text(key)];
+    if let Some(value) = predicate.args.get(1) {
+        fact_match_sql.push_str(" AND matched_properties.value = ?");
+        params.push(QueryParam::Text(arg_as_string(value).map_err(
+            |message| {
+                QueryExecutionError::unsupported_backend_feature(
+                    QueryTarget::Headings,
+                    "property",
+                    message,
+                )
+            },
+        )?));
     }
-    compile_property_exists(QueryTarget::Headings, predicate, "headings.id")
+
+    Ok(SqlFragment {
+        sql: heading_lineage_exists_sql(
+            "properties",
+            "matched_properties",
+            &fact_match_sql,
+            with_root,
+        ),
+        params,
+    })
 }
 
 fn compile_file_property_predicate(
@@ -1395,23 +1487,37 @@ mod tests {
     #[test]
     fn compile_uses_placeholders_instead_of_inlining_user_payload() {
         let user_value = "x' OR 1=1 --";
-        let query = validated(&format!(r#"(headings (title "{user_value}"))"#));
-
-        let compiled = compile_sqlite_query(&query).expect("query should compile");
-
-        assert!(compiled.sql.contains('?'));
-        assert!(!compiled.sql.contains(user_value));
-        assert_eq!(compiled.params.len(), 1);
+        for query in [
+            validated(&format!(r#"(headings (title "{user_value}"))"#)),
+            validated(&format!(r#"(headings (tags "{user_value}" :inherit nil))"#)),
+            validated(&format!(r#"(headings (property "OWNER" "{user_value}"))"#)),
+            validated(&format!(r#"(files (keyword "AUTHOR" "{user_value}"))"#)),
+        ] {
+            let compiled = compile_sqlite_query(&query).expect("query should compile");
+            assert!(compiled.sql.contains('?'));
+            assert!(!compiled.sql.contains(user_value));
+            assert!(!compiled.params.is_empty());
+            assert!(compiled.params.iter().any(|param| matches!(
+                param,
+                super::QueryParam::Text(value) if value == user_value
+            )));
+        }
     }
 
     #[test]
     fn compile_rejects_regex_and_deferred_relation_predicates() {
-        let regex_query = validated(r#"(links (link-target "notes.*" :regexp t))"#);
-        let regex_error = compile_sqlite_query(&regex_query).expect_err("regexp should fail");
-        assert_eq!(
-            regex_error.kind,
-            QueryExecutionErrorKind::UnsupportedBackendFeature
-        );
+        for query in [
+            validated(r#"(headings (tags "proj-.*" :regexp t))"#),
+            validated(r#"(headings (property "OWNER" "A.*" :regexp t))"#),
+            validated(r#"(files (keyword "AUTHOR" "A.*" :regexp t))"#),
+            validated(r#"(links (link-target "notes.*" :regexp t))"#),
+        ] {
+            let error = compile_sqlite_query(&query).expect_err("regexp should fail");
+            assert_eq!(
+                error.kind,
+                QueryExecutionErrorKind::UnsupportedBackendFeature
+            );
+        }
 
         let relation_query =
             validated(r#"(headings (links-to (files (file-path "notes.org" :exact t))))"#);
@@ -1425,7 +1531,7 @@ mod tests {
 
     #[test]
     fn execution_matches_metadata_queries_and_boolean_composition() {
-        let mut connection = seeded_connection();
+        let connection = seeded_connection();
 
         let headings_query = validated(
             r#"(headings
@@ -1462,7 +1568,7 @@ mod tests {
                 closed_ts: None,
                 archivedp: false,
                 footnote_section_p: false,
-                all_tags_json: "[\"project\"]".to_string(),
+                all_tags_json: "[\"filetag\",\"project\"]".to_string(),
             }])
         );
 
@@ -1515,7 +1621,7 @@ mod tests {
                   (and
                     (keyword "AUTHOR" "Alice")
                     (property "CATEGORY" "work")
-                    (tags "project"))))"#,
+                    (tags "filetag"))))"#,
         );
         let file_rows =
             execute_sqlite_query(&connection, &files_query).expect("file query should execute");
@@ -1546,21 +1652,203 @@ mod tests {
                 },
             ])
         );
+    }
 
-        let _ = &mut connection;
+    #[test]
+    fn execution_matches_effective_heading_tag_queries() {
+        let connection = seeded_connection();
+
+        let local_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "urgent" :inherit nil)))"#,
+            ),
+        )
+        .expect("local tag query should execute");
+        assert_eq!(heading_ids(local_rows), vec![12]);
+
+        let inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (and (title "Nested Task" :exact t) (tags "project")))"#),
+        )
+        .expect("inherited tag query should execute");
+        assert_eq!(heading_ids(inherited_rows), vec![12]);
+
+        let root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (and (title "Nested Task" :exact t) (tags "filetag")))"#),
+        )
+        .expect("root tag query should execute");
+        assert_eq!(heading_ids(root_rows), vec![12]);
+
+        let without_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "filetag" :with-root nil)))"#,
+            ),
+        )
+        .expect("without-root tag query should execute");
+        assert_eq!(heading_ids(without_root_rows), Vec::<i64>::new());
+
+        let match_all_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "project" "urgent" :match :all)))"#,
+            ),
+        )
+        .expect("match-all tag query should execute");
+        assert_eq!(heading_ids(match_all_rows), vec![12]);
+
+        let correlated_rows =
+            execute_sqlite_query(&connection, &validated(r#"(headings (tags "project"))"#))
+                .expect("correlated tag query should execute");
+        assert_eq!(heading_ids(correlated_rows), vec![11, 12]);
+
+        let file_tag_rows =
+            execute_sqlite_query(&connection, &validated(r#"(files (tags "filetag"))"#))
+                .expect("file tag query should execute");
+        assert_eq!(
+            file_paths(file_tag_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let file_heading_tag_rows =
+            execute_sqlite_query(&connection, &validated(r#"(files (tags "project"))"#))
+                .expect("file direct tag query should execute");
+        assert_eq!(file_paths(file_heading_tag_rows), Vec::<String>::new());
+    }
+
+    #[test]
+    fn execution_matches_effective_heading_property_queries() {
+        let connection = seeded_connection();
+        let before_rows = property_rows(&connection, 11, "LANG");
+
+        let local_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "OWNER" "Bob" :inherit nil)))"#,
+            ),
+        )
+        .expect("local property query should execute");
+        assert_eq!(heading_ids(local_rows), vec![12]);
+
+        let inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "AREA" "infra")))"#,
+            ),
+        )
+        .expect("inherited property query should execute");
+        assert_eq!(heading_ids(inherited_rows), vec![12]);
+
+        let root_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "CATEGORY" "work")))"#,
+            ),
+        )
+        .expect("root property query should execute");
+        assert_eq!(heading_ids(root_rows), vec![12]);
+
+        let without_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "CATEGORY" "work" :with-root nil)))"#,
+            ),
+        )
+        .expect("without-root property query should execute");
+        assert_eq!(heading_ids(without_root_rows), Vec::<i64>::new());
+
+        let file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (property "CATEGORY" "work"))"#),
+        )
+        .expect("file property query should execute");
+        assert_eq!(
+            file_paths(file_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let append_rust_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Query Engine" :exact t) (property "LANG" "rust" :inherit nil)))"#,
+            ),
+        )
+        .expect("append property query should execute");
+        assert_eq!(heading_ids(append_rust_rows), vec![11]);
+
+        let append_emacs_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Query Engine" :exact t) (property "LANG" "emacs" :inherit nil)))"#,
+            ),
+        )
+        .expect("append property query should execute");
+        assert_eq!(heading_ids(append_emacs_rows), vec![11]);
+
+        let correlated_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (property "AREA" "infra"))"#),
+        )
+        .expect("correlated property query should execute");
+        assert_eq!(heading_ids(correlated_rows), vec![11, 12]);
+
+        let after_rows = property_rows(&connection, 11, "LANG");
+        assert_eq!(before_rows, after_rows);
+        assert_eq!(
+            after_rows,
+            vec![
+                (Some("rust".to_string()), true),
+                (Some("emacs".to_string()), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn execution_matches_keyword_queries_through_root_context() {
+        let connection = seeded_connection();
+
+        let heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (keyword "AUTHOR" "Alice")))"#,
+            ),
+        )
+        .expect("heading keyword query should execute");
+        assert_eq!(heading_ids(heading_rows), vec![13]);
+
+        let file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (keyword "AUTHOR" "Alice"))"#),
+        )
+        .expect("file keyword query should execute");
+        assert_eq!(
+            file_paths(file_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
     }
 
     #[test]
     fn injection_like_strings_remain_bound_and_do_not_broaden_results() {
         let connection = seeded_connection();
-        let query = validated(r#"(headings (title "x' OR 1=1 --"))"#);
 
-        let compiled = compile_sqlite_query(&query).expect("query should compile");
-        assert!(!compiled.sql.contains("1=1"));
-        assert_eq!(compiled.params.len(), 1);
+        for query in [
+            validated(r#"(headings (title "x' OR 1=1 --"))"#),
+            validated(r#"(headings (tags "x' OR 1=1 --" :inherit nil))"#),
+            validated(r#"(headings (property "OWNER" "x' OR 1=1 --"))"#),
+            validated(r#"(files (keyword "AUTHOR" "x' OR 1=1 --"))"#),
+        ] {
+            let compiled = compile_sqlite_query(&query).expect("query should compile");
+            assert!(!compiled.sql.contains("1=1"));
+            assert!(!compiled.params.is_empty());
 
-        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
-        assert_eq!(rows, QueryRows::Headings(Vec::new()));
+            match execute_sqlite_query(&connection, &query).expect("query should execute") {
+                QueryRows::Headings(rows) => assert!(rows.is_empty()),
+                QueryRows::Files(rows) => assert!(rows.is_empty()),
+                other => panic!("unexpected rows for injection query: {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1635,6 +1923,42 @@ mod tests {
         assert_eq!(before_counts, after_counts);
     }
 
+    fn heading_ids(rows: QueryRows) -> Vec<i64> {
+        match rows {
+            QueryRows::Headings(rows) => rows.into_iter().map(|row| row.id).collect(),
+            other => panic!("expected heading rows, got {other:?}"),
+        }
+    }
+
+    fn file_paths(rows: QueryRows) -> Vec<String> {
+        match rows {
+            QueryRows::Files(rows) => rows.into_iter().map(|row| row.path).collect(),
+            other => panic!("expected file rows, got {other:?}"),
+        }
+    }
+
+    fn property_rows(
+        connection: &Connection,
+        heading_id: i64,
+        key: &str,
+    ) -> Vec<(Option<String>, bool)> {
+        let mut statement = connection
+            .prepare(
+                "SELECT value, append
+                 FROM properties
+                 WHERE heading_id = ?1 AND key = ?2 COLLATE NOCASE
+                 ORDER BY id",
+            )
+            .expect("property statement should prepare");
+        let rows = statement
+            .query_map(rusqlite::params![heading_id, key], |row| {
+                Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0))
+            })
+            .expect("property rows should query");
+        rows.collect::<Result<Vec<_>, _>>()
+            .expect("property rows should collect")
+    }
+
     fn seeded_connection() -> Connection {
         let schema = SchemaDefinition::new(3, false);
         let mut connection =
@@ -1701,6 +2025,22 @@ mod tests {
                     breadcrumbs_json: "[\"Beta Index\"]".to_string(),
                 }],
             )?;
+            DbWriter::insert_tags(
+                tx,
+                &[TagRecord {
+                    heading_id: root_id,
+                    tag: "archive".to_string(),
+                }],
+            )?;
+            DbWriter::insert_keywords(
+                tx,
+                &[KeywordRecord {
+                    heading_id: root_id,
+                    keyword: "AUTHOR".to_string(),
+                    value: Some("Bob".to_string()),
+                    line_number: Some(1),
+                }],
+            )?;
             Ok(())
         })
         .expect("beta file should seed");
@@ -1729,34 +2069,82 @@ mod tests {
                     closed_ts: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[\"project\"]".to_string(),
+                    all_tags_json: "[\"filetag\"]".to_string(),
                 },
             )?;
             DbWriter::insert_headings(
                 tx,
-                &[HeadingRecord {
-                    id: Some(11),
-                    file_id,
-                    parent_id: Some(root_id),
-                    level: 1,
-                    line_number: Some(3),
-                    byte_start: 10,
-                    byte_end: 40,
-                    title: "Query Engine".to_string(),
-                    title_raw: "Query Engine".to_string(),
-                    todo_keyword: Some("NEXT".to_string()),
-                    todo_type: Some("open".to_string()),
-                    priority: Some('A'),
-                    scheduled_raw: Some("<2026-01-03 Fri>".to_string()),
-                    scheduled_ts: Some(1_767_398_400),
-                    deadline_raw: None,
-                    deadline_ts: None,
-                    closed_raw: None,
-                    closed_ts: None,
-                    archivedp: false,
-                    footnote_section_p: false,
-                    all_tags_json: "[\"project\"]".to_string(),
-                }],
+                &[
+                    HeadingRecord {
+                        id: Some(11),
+                        file_id,
+                        parent_id: Some(root_id),
+                        level: 1,
+                        line_number: Some(3),
+                        byte_start: 10,
+                        byte_end: 40,
+                        title: "Query Engine".to_string(),
+                        title_raw: "Query Engine".to_string(),
+                        todo_keyword: Some("NEXT".to_string()),
+                        todo_type: Some("open".to_string()),
+                        priority: Some('A'),
+                        scheduled_raw: Some("<2026-01-03 Fri>".to_string()),
+                        scheduled_ts: Some(1_767_398_400),
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[\"filetag\",\"project\"]".to_string(),
+                    },
+                    HeadingRecord {
+                        id: Some(12),
+                        file_id,
+                        parent_id: Some(11),
+                        level: 2,
+                        line_number: Some(6),
+                        byte_start: 41,
+                        byte_end: 70,
+                        title: "Nested Task".to_string(),
+                        title_raw: "Nested Task".to_string(),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[\"filetag\",\"project\",\"urgent\"]".to_string(),
+                    },
+                    HeadingRecord {
+                        id: Some(13),
+                        file_id,
+                        parent_id: Some(root_id),
+                        level: 1,
+                        line_number: Some(8),
+                        byte_start: 71,
+                        byte_end: 95,
+                        title: "Loose Note".to_string(),
+                        title_raw: "Loose Note".to_string(),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[\"filetag\",\"misc\"]".to_string(),
+                    },
+                ],
             )?;
             DbWriter::insert_outline_path(
                 tx,
@@ -1777,6 +2165,23 @@ mod tests {
                         materialized_path: "0000.0001".to_string(),
                         breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\"]".to_string(),
                     },
+                    OutlinePathRecord {
+                        heading_id: 12,
+                        file_id,
+                        parent_id: Some(11),
+                        depth: 2,
+                        materialized_path: "0000.0001.0001".to_string(),
+                        breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\",\"Nested Task\"]"
+                            .to_string(),
+                    },
+                    OutlinePathRecord {
+                        heading_id: 13,
+                        file_id,
+                        parent_id: Some(10),
+                        depth: 1,
+                        materialized_path: "0000.0002".to_string(),
+                        breadcrumbs_json: "[\"Alpha Index\",\"Loose Note\"]".to_string(),
+                    },
                 ],
             )?;
             DbWriter::insert_tags(
@@ -1784,11 +2189,19 @@ mod tests {
                 &[
                     TagRecord {
                         heading_id: 10,
-                        tag: "project".to_string(),
+                        tag: "filetag".to_string(),
                     },
                     TagRecord {
                         heading_id: 11,
                         tag: "project".to_string(),
+                    },
+                    TagRecord {
+                        heading_id: 12,
+                        tag: "urgent".to_string(),
+                    },
+                    TagRecord {
+                        heading_id: 13,
+                        tag: "misc".to_string(),
                     },
                 ],
             )?;
@@ -1803,14 +2216,56 @@ mod tests {
             )?;
             DbWriter::insert_properties(
                 tx,
-                &[PropertyRecord {
-                    heading_id: 10,
-                    key: "CATEGORY".to_string(),
-                    value: Some("work".to_string()),
-                    source: "category_keyword".to_string(),
-                    append: false,
-                    line_number: Some(2),
-                }],
+                &[
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "CATEGORY".to_string(),
+                        value: Some("work".to_string()),
+                        source: "category_keyword".to_string(),
+                        append: false,
+                        line_number: Some(2),
+                    },
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "OWNER".to_string(),
+                        value: Some("Alice".to_string()),
+                        source: "property_keyword".to_string(),
+                        append: false,
+                        line_number: Some(2),
+                    },
+                    PropertyRecord {
+                        heading_id: 11,
+                        key: "AREA".to_string(),
+                        value: Some("infra".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(4),
+                    },
+                    PropertyRecord {
+                        heading_id: 11,
+                        key: "LANG".to_string(),
+                        value: Some("rust".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(5),
+                    },
+                    PropertyRecord {
+                        heading_id: 11,
+                        key: "LANG".to_string(),
+                        value: Some("emacs".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(6),
+                    },
+                    PropertyRecord {
+                        heading_id: 12,
+                        key: "OWNER".to_string(),
+                        value: Some("Bob".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(7),
+                    },
+                ],
             )?;
             DbWriter::insert_timestamps(
                 tx,

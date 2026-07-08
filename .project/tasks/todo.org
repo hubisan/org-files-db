@@ -87,48 +87,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org]]
 
-** TODO [#B] Implement effective root, tag, property, and keyword semantics for queries
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: High
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Implement effective root, tag, property, and keyword semantics for queries
 
-Depends on:
-
-- Implement safe SQL translation and core metadata query execution
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Implement query-time semantics for file/root context, inherited tags, effective properties, and file-level keywords.
-
-Rules:
-
-- File/root context is represented as a file/root object, not as a fake heading result.
-- Root/file result nodes use ~kind = "file"~.
-- Heading result nodes use ~kind = "heading"~.
-- Paths always include the file/root node.
-- Heading queries may use root facts only where the specification defines them.
-- ~property~ on headings uses effective property semantics by default.
-- ~:inherit t~ includes ancestor/root values where meaningful.
-- ~:inherit nil~ restricts matching to local heading values.
-- ~property~ on files means direct root/file property.
-- ~keyword~ is root/file-level.
-- Heading queries may use ~keyword~ to filter by containing file/root keywords where specified.
-- ~tags~ supports the documented v0 options such as ~:inherit~, ~:with-root~, ~:regexp~, and ~:match~.
-
-Acceptance criteria:
-
-- Root/file behavior matches the Query Model v0 specification.
-- File-level keywords can filter heading queries where documented.
-- Root/file properties can filter heading queries where documented.
-- FILETAGS participate in effective tag matching where documented.
-- Local-only property matching works with ~:inherit nil~.
-- Effective property matching works with inherited/root values where documented.
-- Direct parsed property rows remain unchanged.
-- Effective/derived semantics do not mutate source facts.
-- Tests cover local tags, inherited tags, FILETAGS, root properties, heading properties, inherited properties, local-only properties, file query properties, and keyword filtering.
+- Task file: [[file:archive/2026-07-08--implement-effective-root-tag-property-and-keyword-semantics-for-queries.org]]
 
 ** TODO [#B] Implement hierarchy and graph relation predicates
 :PROPERTIES:

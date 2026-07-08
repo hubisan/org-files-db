@@ -1,0 +1,133 @@
+#+TITLE: Implement effective root, tag, property, and keyword semantics for queries
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-08 Wed 12:51]
+#+TASK_COMPLETED: [2026-07-08 Wed 18:03]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: implement the approved Phase 5 SQLite backend follow-up for effective root, tag, property, and keyword query semantics.
+- Constraints:
+  - consume ~ValidatedQuery~ only
+  - keep ~src/query/sqlite.rs~
+  - keep ~compile_sqlite_query~ and ~execute_sqlite_query~ separate
+  - bind all user-provided values as SQL params
+  - do not change parser/indexer source facts
+  - do not add CLI, JSON shaping, outline output, include options, graph relations, hierarchy predicates, FTS, body text search, Org scanning, DB mutation, or schema changes unless unavoidable
+- Clarifications:
+  - verify exact Query Model v0 defaults for ~:inherit~ and ~:with-root~
+  - use ~headings.all_tags_json~ only where it exactly preserves requested semantics
+  - implement row-based effective property matching only
+  - keep ~:regexp t~ unsupported for ~tags~, ~property~, and ~keyword~
+  - add the requested execution and safety tests
+- Active todo entry:
+
+#+begin_quote
+** DONE [#B] Implement effective root, tag, property, and keyword semantics for queries
+#+end_quote
+
+* Planning
+
+** Problem summary
+
+- The SQLite backend currently supports only direct heading ~tags~ and ~property~ matching when ~:inherit nil~ is used.
+- Query Model v0 requires effective heading tag/property semantics by default and root/file keyword semantics for heading and file queries.
+
+** Goals
+
+- Extend the SQLite metadata backend with effective heading ~tags~, row-based effective heading ~property~, and root/file ~keyword~ support according to Query Model v0.
+- Keep all SQL generated from validated query structures and use bound params for all user values.
+- Cover root inclusion/exclusion, inheritance defaults, and backend safety with focused module tests.
+
+** Non-goals
+
+- CLI integration, JSON/result shaping, outline output, include options
+- graph relations, hierarchy predicates, FTS, body text search
+- parser/indexer fact changes, DB mutation, schema migrations
+
+** Architecture
+
+- Keep the implementation in ~src/query/sqlite.rs~.
+- Preserve ~compile_sqlite_query(&ValidatedQuery)~ and ~execute_sqlite_query(&Connection, &ValidatedQuery)~ as separate APIs.
+- Implement effective heading semantics with correlated SQL:
+  - local-only direct row checks for ~:inherit nil~
+  - inherited/effective tag matching via correlated lineage SQL over persisted ~tags~ rows
+  - level-0/root tags included or excluded according to ~:with-root~
+  - recursive ancestor/root traversal for heading properties when inheritance is enabled
+  - root/file keywords through direct ~keywords~ rows on the containing file's level-0 heading
+
+** Execution plan
+
+- Update heading tag compilation to honor exact Query Model defaults and ~:with-root~ behavior.
+- Update heading property compilation to use row-based inherited matching over local, ancestor, and optional root rows.
+- Keep file tag/property/keyword semantics direct to the level-0 heading.
+- Expand the SQLite backend tests to cover inherited/root behavior, regexp rejection, injection safety, persisted-only execution, and non-mutation.
+- Run ~cargo fmt --all~, ~cargo test query::sqlite --lib~, and ~make ci~.
+
+** Risks & assumptions
+
+- Recursive SQL must be correlated to each candidate heading to avoid global false positives.
+
+** Open questions
+
+- None after the approved scope clarification.
+
+** Proposed checks
+
+- ~cargo fmt --all~
+- ~cargo test query::sqlite --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Extended the SQLite backend in ~src/query/sqlite.rs~ only.
+- Implemented effective heading ~tags~ matching with correlated recursive SQL over persisted heading ancestry, respecting Query Model v0 defaults ~:inherit t~ and ~:with-root t~.
+- Kept local-only heading tag matching as direct ~tags.heading_id = headings.id~ checks.
+- Left ~all_tags_json~ as returned heading row data only; it is not used to decide effective tag matches in this backend.
+- Implemented row-based effective heading ~property~ matching over local, ancestor, and optional root property rows without collapsing precedence or concatenating append rows.
+- Kept file ~tags~, file ~property~, and ~keyword~ matching direct to the synthetic level-0 heading, and heading ~keyword~ matching via the containing file root.
+- Kept ~:regexp t~ unsupported for ~tags~, ~property~, and ~keyword~ in this SQLite backend.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-08--implement-effective-root-tag-property-and-keyword-semantics-for-queries.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test query::sqlite --lib~
+- ~make ci~
+
+** Test results
+
+- Added/updated SQLite backend tests for:
+  - local heading tags with ~:inherit nil~
+  - ancestor tag inheritance
+  - FILETAGS/root tag inclusion with default/~:with-root t~
+  - FILETAGS/root tag exclusion with ~:with-root nil~
+  - ~:match :all~ over effective tags
+  - file-target tags matching direct root/FILETAGS rows only
+  - local, inherited, and root-scoped heading property matching
+  - file-target direct root property matching
+  - append property rows remaining separate and unchanged before/after queries
+  - heading/file keyword matching through root context
+  - ~:regexp t~ backend rejection for ~tags~, ~property~, and ~keyword~
+  - injection-like values remaining bound params
+  - persisted-DB-only execution with no Org scanning and no DB mutation
+- ~cargo test query::sqlite --lib~ passed.
+- ~make ci~ passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- Later Phase 5 tasks still need hierarchy predicates, graph relations, and result shaping.
