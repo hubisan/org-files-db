@@ -3,7 +3,8 @@ db_path = "./data/org-files-db.sqlite"
 files = []
 
 [[dirs]]
-path = "./files/link-file-resolve/notes/"
+path = "./files/"
+# path = "./files/link-file-resolve/notes/"
 recursive = true
 
 [search]
