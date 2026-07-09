@@ -1,0 +1,128 @@
+#+TITLE: Implement hierarchy and graph relation predicates
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-08 Wed 18:15]
+#+TASK_COMPLETED: [2026-07-09 Thu 12:57]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User request: implement the approved Phase 5 hierarchy and graph relation predicates in the SQLite backend.
+- Constraints:
+  - keep implementation in ~src/query/sqlite.rs~
+  - consume ~ValidatedQuery~ only
+  - use persisted DB facts only
+  - do not resolve links at query time
+  - do not scan Org files
+  - do not mutate DB or resolver facts
+  - do not add CLI, JSON/result shaping, include options, FTS/body search, rebuilds, or repair commands
+- Locked semantics from approved plan:
+  - ~headings~ target returns real headings only, not level-0/root rows
+  - hierarchy uses persisted ~headings.parent_id~ and ~outline_path~
+  - direct graph relations use persisted ~links.heading_id~, ~links.file_id~, ~links.target_file_id~, and ~links.target_heading_id~
+  - ambiguous links match ~status~ only and do not satisfy structured target predicates
+- Active todo entry:
+
+#+begin_quote
+** BUILD Implement hierarchy and graph relation predicates
+#+end_quote
+
+* Planning
+
+** Problem summary
+
+- The SQLite backend already supports metadata predicates and direct link ~source~ / ~target~ filtering on top-level ~links~ queries.
+- Hierarchy predicates and graph relation predicates are already parsed and validated, but the backend still rejects them as unsupported.
+
+** Goals
+
+- Add hierarchy predicates for heading queries.
+- Add heading/file link relation predicates using persisted link and resolver facts only.
+- Extend nested target-query compilation safely for correlated hierarchy and graph subqueries.
+
+** Non-goals
+
+- CLI integration, JSON/result shaping, outline output, include options
+- FTS/body search
+- Org scanning, rebuilds, repair commands, or DB mutation
+- query-time link resolution or resolver semantic changes
+
+** Architecture
+
+- Keep the implementation in ~src/query/sqlite.rs~.
+- Keep ~compile_sqlite_query(&ValidatedQuery)~ and ~execute_sqlite_query(&Connection, &ValidatedQuery)~ separate.
+- Introduce scope-aware SQL compilation with unique aliases per nested query scope to avoid alias collisions.
+- Restrict ~headings~ query matches to real headings with ~level > 0~, while still allowing root/file context on the related side where the specification defines it.
+- Implement hierarchy relations from persisted ~headings.parent_id~ and ~outline_path~.
+- Implement graph relations from persisted ~links~ source/target columns and stored resolver statuses only.
+
+** Execution plan
+
+- Refactor predicate compilation to work against explicit query scopes and alias-qualified columns.
+- Add hierarchy predicate compilation for ~parent~, ~ancestors~, ~children~, and ~descendants~.
+- Add heading/file relation predicate compilation for ~has-link~, ~links-to~, and ~linked-from~.
+- Extend link ~source~ / ~target~ compilation to the new scoped nested-query helpers.
+- Expand the SQLite seed data and module tests for hierarchy, graph relations, resolver status behavior, SQL safety, and non-mutation.
+- Run ~cargo fmt --all~, ~cargo test query::sqlite --lib~, and ~make ci~.
+
+** Risks & assumptions
+
+- Nested alias scoping must stay unique across recursive nested queries to avoid self-shadowing bugs.
+- ~outline_path.materialized_path~ must be used with delimiter-safe predicates and same-file constraints.
+- File backlink semantics rely on persisted ~target_file_id~ also being set for heading-resolved links.
+
+** Open questions
+
+- None after the approved plan revision.
+
+** Proposed checks
+
+- ~cargo fmt --all~
+- ~cargo test query::sqlite --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Refactored the SQLite query compiler to use explicit query scopes with unique aliases per nested query scope.
+- Restricted ~headings~ query matches to real headings with ~level > 0~ while keeping root/file facts available through the existing root-context predicates and file-side relations.
+- Implemented hierarchy predicates over persisted ~headings.parent_id~ and ~outline_path~ using delimiter-safe materialized-path checks for ancestor/descendant matching.
+- Implemented heading/file graph relation predicates and link ~source~ / ~target~ predicates from persisted ~links~ rows and stored resolver-owned target IDs only.
+- Enforced resolved-target semantics for every structured target-side predicate so ambiguous, broken, unresolved, external, and unsupported links do not match based on stored candidate target IDs alone.
+- Extended the SQLite seed data with an ambiguous link that stores candidate target IDs and added regressions for ~target~, ~links-to~, and ~linked-from~ behavior.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-08--implement-hierarchy-and-graph-relation-predicates.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test query::sqlite --lib~
+- ~make ci~
+
+** Test results
+
+- Added/updated SQLite backend tests for:
+  - hierarchy predicates: ~parent~, ~ancestors~, ~children~, ~descendants~
+  - heading/file link relations: ~has-link~, ~links-to~, ~linked-from~
+  - link ~source~ / ~target~ queries over heading and file targets
+  - resolver status behavior for ~resolved~, ~broken~, ~unresolved~, and ~ambiguous~
+  - root/preamble link source behavior via level-0 persisted links
+  - nested relation SQL placeholder binding and injection-like values
+  - persisted-DB-only execution and non-mutation using relation queries
+- ~cargo test query::sqlite --lib~ passed.
+- ~make ci~ passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- Later Phase 5 work still needs result shaping/JSON output and CLI query integration.

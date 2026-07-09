@@ -196,94 +196,209 @@ enum TemporalUnit {
     Nanoseconds,
 }
 
+#[derive(Debug, Clone)]
+struct QueryScope {
+    target: QueryTarget,
+    heading_alias: String,
+    file_alias: String,
+    root_alias: String,
+    link_alias: String,
+    link_heading_alias: String,
+    outline_alias: String,
+}
+
+impl QueryScope {
+    fn new(target: QueryTarget, id: usize) -> Self {
+        Self {
+            target,
+            heading_alias: format!("h{id}"),
+            file_alias: format!("f{id}"),
+            root_alias: format!("r{id}"),
+            link_alias: format!("l{id}"),
+            link_heading_alias: format!("lh{id}"),
+            outline_alias: format!("op{id}"),
+        }
+    }
+
+    fn heading_col(&self, column: &str) -> String {
+        format!("{}.{}", self.heading_alias, column)
+    }
+
+    fn file_col(&self, column: &str) -> String {
+        format!("{}.{}", self.file_alias, column)
+    }
+
+    fn root_col(&self, column: &str) -> String {
+        format!("{}.{}", self.root_alias, column)
+    }
+
+    fn link_col(&self, column: &str) -> String {
+        format!("{}.{}", self.link_alias, column)
+    }
+
+    fn link_heading_col(&self, column: &str) -> String {
+        format!("{}.{}", self.link_heading_alias, column)
+    }
+
+    fn outline_col(&self, column: &str) -> String {
+        format!("{}.{}", self.outline_alias, column)
+    }
+}
+
+#[derive(Debug, Default)]
+struct AliasAllocator {
+    next_scope_id: usize,
+}
+
+impl AliasAllocator {
+    fn next_scope(&mut self, target: QueryTarget) -> QueryScope {
+        let scope = QueryScope::new(target, self.next_scope_id);
+        self.next_scope_id += 1;
+        scope
+    }
+}
+
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    let where_clause = query
-        .predicate
-        .as_ref()
-        .map(|expr| compile_expr(query.target, expr))
-        .transpose()?;
+    let mut aliases = AliasAllocator::default();
+    let scope = aliases.next_scope(query.target);
+    let where_clause = compile_query_match_filter(query, &scope, &mut aliases)?;
 
     let sql = match query.target {
         QueryTarget::Headings => format!(
             "SELECT
-                headings.id,
-                headings.file_id,
-                files.path,
-                headings.parent_id,
-                headings.level,
-                headings.line_number,
-                headings.byte_start,
-                headings.byte_end,
-                headings.title,
-                headings.title_raw,
-                headings.todo_keyword,
-                headings.todo_type,
-                headings.priority,
-                headings.scheduled_raw,
-                headings.scheduled_ts,
-                headings.deadline_raw,
-                headings.deadline_ts,
-                headings.closed_raw,
-                headings.closed_ts,
-                headings.archivedp,
-                headings.footnote_section_p,
-                headings.all_tags_json
+                {heading_id},
+                {heading_file_id},
+                {file_path},
+                {heading_parent_id},
+                {heading_level},
+                {heading_line_number},
+                {heading_byte_start},
+                {heading_byte_end},
+                {heading_title},
+                {heading_title_raw},
+                {heading_todo_keyword},
+                {heading_todo_type},
+                {heading_priority},
+                {heading_scheduled_raw},
+                {heading_scheduled_ts},
+                {heading_deadline_raw},
+                {heading_deadline_ts},
+                {heading_closed_raw},
+                {heading_closed_ts},
+                {heading_archivedp},
+                {heading_footnote_section_p},
+                {heading_all_tags_json}
              {}
              {}
-             ORDER BY files.path, headings.byte_start, headings.id",
-            heading_from_clause(),
-            render_where_clause(where_clause.as_ref())
+             ORDER BY {file_path}, {heading_byte_start}, {heading_id}",
+            heading_from_clause(&scope),
+            render_where_clause(where_clause.as_ref()),
+            heading_id = scope.heading_col("id"),
+            heading_file_id = scope.heading_col("file_id"),
+            file_path = scope.file_col("path"),
+            heading_parent_id = scope.heading_col("parent_id"),
+            heading_level = scope.heading_col("level"),
+            heading_line_number = scope.heading_col("line_number"),
+            heading_byte_start = scope.heading_col("byte_start"),
+            heading_byte_end = scope.heading_col("byte_end"),
+            heading_title = scope.heading_col("title"),
+            heading_title_raw = scope.heading_col("title_raw"),
+            heading_todo_keyword = scope.heading_col("todo_keyword"),
+            heading_todo_type = scope.heading_col("todo_type"),
+            heading_priority = scope.heading_col("priority"),
+            heading_scheduled_raw = scope.heading_col("scheduled_raw"),
+            heading_scheduled_ts = scope.heading_col("scheduled_ts"),
+            heading_deadline_raw = scope.heading_col("deadline_raw"),
+            heading_deadline_ts = scope.heading_col("deadline_ts"),
+            heading_closed_raw = scope.heading_col("closed_raw"),
+            heading_closed_ts = scope.heading_col("closed_ts"),
+            heading_archivedp = scope.heading_col("archivedp"),
+            heading_footnote_section_p = scope.heading_col("footnote_section_p"),
+            heading_all_tags_json = scope.heading_col("all_tags_json"),
         ),
         QueryTarget::Links => format!(
             "SELECT
-                links.id,
-                links.file_id,
-                files.path,
-                links.heading_id,
-                headings.level,
-                outline_path.breadcrumbs_json,
-                links.source_context,
-                links.format,
-                links.link_type,
-                links.raw,
-                links.raw_target,
-                links.raw_description,
-                links.path,
-                links.search_option,
-                links.path_absolute,
-                links.target_file_id,
-                links.target_heading_id,
-                links.target_custom_id,
-                links.target_id,
-                links.resolution_status,
-                links.resolution_diagnostic,
-                links.byte_start,
-                links.byte_end,
-                links.line
+                {link_id},
+                {link_file_id},
+                {file_path},
+                {link_heading_id},
+                {link_heading_level},
+                {outline_breadcrumbs},
+                {link_source_context},
+                {link_format},
+                {link_type},
+                {link_raw},
+                {link_raw_target},
+                {link_raw_description},
+                {link_path},
+                {link_search_option},
+                {link_path_absolute},
+                {link_target_file_id},
+                {link_target_heading_id},
+                {link_target_custom_id},
+                {link_target_id},
+                {link_resolution_status},
+                {link_resolution_diagnostic},
+                {link_byte_start},
+                {link_byte_end},
+                {link_line}
              {}
              {}
-             ORDER BY files.path, links.byte_start, links.id",
-            link_from_clause(),
-            render_where_clause(where_clause.as_ref())
+             ORDER BY {file_path}, {link_byte_start}, {link_id}",
+            link_from_clause(&scope),
+            render_where_clause(where_clause.as_ref()),
+            link_id = scope.link_col("id"),
+            link_file_id = scope.link_col("file_id"),
+            file_path = scope.file_col("path"),
+            link_heading_id = scope.link_col("heading_id"),
+            link_heading_level = scope.link_heading_col("level"),
+            outline_breadcrumbs = scope.outline_col("breadcrumbs_json"),
+            link_source_context = scope.link_col("source_context"),
+            link_format = scope.link_col("format"),
+            link_type = scope.link_col("link_type"),
+            link_raw = scope.link_col("raw"),
+            link_raw_target = scope.link_col("raw_target"),
+            link_raw_description = scope.link_col("raw_description"),
+            link_path = scope.link_col("path"),
+            link_search_option = scope.link_col("search_option"),
+            link_path_absolute = scope.link_col("path_absolute"),
+            link_target_file_id = scope.link_col("target_file_id"),
+            link_target_heading_id = scope.link_col("target_heading_id"),
+            link_target_custom_id = scope.link_col("target_custom_id"),
+            link_target_id = scope.link_col("target_id"),
+            link_resolution_status = scope.link_col("resolution_status"),
+            link_resolution_diagnostic = scope.link_col("resolution_diagnostic"),
+            link_byte_start = scope.link_col("byte_start"),
+            link_byte_end = scope.link_col("byte_end"),
+            link_line = scope.link_col("line"),
         ),
         QueryTarget::Files => format!(
             "SELECT
-                files.id,
-                files.path,
-                files.mtime_ns,
-                files.size,
-                files.content_hash,
-                files.indexed_at,
-                root.id,
-                root.title,
-                root.title_raw
+                {file_id},
+                {file_path},
+                {file_mtime_ns},
+                {file_size},
+                {file_content_hash},
+                {file_indexed_at},
+                {root_id},
+                {root_title},
+                {root_title_raw}
              {}
              {}
-             ORDER BY files.path, files.id",
-            file_from_clause(),
-            render_where_clause(where_clause.as_ref())
+             ORDER BY {file_path}, {file_id}",
+            file_from_clause(&scope),
+            render_where_clause(where_clause.as_ref()),
+            file_id = scope.file_col("id"),
+            file_path = scope.file_col("path"),
+            file_mtime_ns = scope.file_col("mtime_ns"),
+            file_size = scope.file_col("size"),
+            file_content_hash = scope.file_col("content_hash"),
+            file_indexed_at = scope.file_col("indexed_at"),
+            root_id = scope.root_col("id"),
+            root_title = scope.root_col("title"),
+            root_title_raw = scope.root_col("title_raw"),
         ),
     };
 
@@ -416,26 +531,76 @@ fn execute_files_query(
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
 }
 
+fn compile_query_match_filter(
+    query: &ValidatedQuery,
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+) -> Result<Option<SqlFragment>, QueryExecutionError> {
+    compile_scope_match_filter(scope, aliases, query.predicate.as_ref())
+}
+
+fn compile_scope_match_filter(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: Option<&ValidatedExpr>,
+) -> Result<Option<SqlFragment>, QueryExecutionError> {
+    let mut fragments = Vec::new();
+    if let Some(base_filter) = scope_base_filter(scope) {
+        fragments.push(base_filter);
+    }
+    if let Some(predicate) = predicate {
+        fragments.push(compile_expr(scope, aliases, predicate)?);
+    }
+    Ok(combine_fragments_with("AND", fragments))
+}
+
+fn scope_base_filter(scope: &QueryScope) -> Option<SqlFragment> {
+    match scope.target {
+        QueryTarget::Headings => Some(sql_literal(&format!(
+            "({} > 0)",
+            scope.heading_col("level")
+        ))),
+        QueryTarget::Links | QueryTarget::Files => None,
+    }
+}
+
+fn combine_fragments_with(op: &str, fragments: Vec<SqlFragment>) -> Option<SqlFragment> {
+    let mut fragments = fragments.into_iter();
+    let first = fragments.next()?;
+    let mut sql_parts = vec![first.sql];
+    let mut params = first.params;
+    for fragment in fragments {
+        sql_parts.push(fragment.sql);
+        params.extend(fragment.params);
+    }
+    Some(SqlFragment {
+        sql: format!("({})", sql_parts.join(&format!(" {op} "))),
+        params,
+    })
+}
+
 fn compile_expr(
-    target: QueryTarget,
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     expr: &ValidatedExpr,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match expr {
-        ValidatedExpr::And(children) => compile_logical(target, children, "AND", "1 = 1"),
-        ValidatedExpr::Or(children) => compile_logical(target, children, "OR", "0 = 1"),
+        ValidatedExpr::And(children) => compile_logical(scope, aliases, children, "AND", "1 = 1"),
+        ValidatedExpr::Or(children) => compile_logical(scope, aliases, children, "OR", "0 = 1"),
         ValidatedExpr::Not(child) => {
-            let fragment = compile_expr(target, child)?;
+            let fragment = compile_expr(scope, aliases, child)?;
             Ok(SqlFragment {
                 sql: format!("(NOT {})", fragment.sql),
                 params: fragment.params,
             })
         }
-        ValidatedExpr::Predicate(predicate) => compile_predicate(target, predicate),
+        ValidatedExpr::Predicate(predicate) => compile_predicate(scope, aliases, predicate),
     }
 }
 
 fn compile_logical(
-    target: QueryTarget,
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     children: &[ValidatedExpr],
     op: &str,
     empty_sql: &str,
@@ -450,7 +615,7 @@ fn compile_logical(
     let mut sql_parts = Vec::with_capacity(children.len());
     let mut params = Vec::new();
     for child in children {
-        let fragment = compile_expr(target, child)?;
+        let fragment = compile_expr(scope, aliases, child)?;
         sql_parts.push(fragment.sql);
         params.extend(fragment.params);
     }
@@ -461,50 +626,69 @@ fn compile_logical(
 }
 
 fn compile_predicate(
-    target: QueryTarget,
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    match target {
-        QueryTarget::Headings => compile_heading_predicate(predicate),
-        QueryTarget::Links => compile_link_predicate(predicate),
-        QueryTarget::Files => compile_file_predicate(predicate),
+    match scope.target {
+        QueryTarget::Headings => compile_heading_predicate(scope, aliases, predicate),
+        QueryTarget::Links => compile_link_predicate(scope, aliases, predicate),
+        QueryTarget::Files => compile_file_predicate(scope, aliases, predicate),
     }
 }
 
 fn compile_heading_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.name.as_str() {
-        "todo" => compile_todo_predicate(predicate),
-        "done" => Ok(sql_literal("(headings.todo_type = 'closed')")),
-        "priority" => {
-            compile_priority_predicate(QueryTarget::Headings, "headings.priority", predicate)
-        }
-        "title" => {
-            compile_text_predicate(QueryTarget::Headings, "headings.title", predicate, false)
-        }
-        "level" => compile_level_predicate(predicate),
-        "file-path" => {
-            compile_text_predicate(QueryTarget::Headings, "files.path", predicate, false)
-        }
-        "file-title" => {
-            compile_text_predicate(QueryTarget::Headings, "root.title", predicate, false)
-        }
+        "todo" => compile_todo_predicate(scope, predicate),
+        "done" => Ok(sql_literal(&format!(
+            "({} = 'closed')",
+            scope.heading_col("todo_type")
+        ))),
+        "priority" => compile_priority_predicate(
+            QueryTarget::Headings,
+            &scope.heading_col("priority"),
+            predicate,
+        ),
+        "title" => compile_text_predicate(
+            QueryTarget::Headings,
+            &scope.heading_col("title"),
+            predicate,
+            false,
+        ),
+        "level" => compile_level_predicate(scope, predicate),
+        "file-path" => compile_text_predicate(
+            QueryTarget::Headings,
+            &scope.file_col("path"),
+            predicate,
+            false,
+        ),
+        "file-title" => compile_text_predicate(
+            QueryTarget::Headings,
+            &scope.root_col("title"),
+            predicate,
+            false,
+        ),
         "file-modified" => compile_date_predicate(
             QueryTarget::Headings,
             "file-modified",
-            "files.mtime_ns",
+            &scope.file_col("mtime_ns"),
             &predicate.options,
             TemporalUnit::Nanoseconds,
             true,
         ),
-        "tags" => compile_heading_tags_predicate(predicate),
-        "property" => compile_heading_property_predicate(predicate),
-        "keyword" => compile_keyword_predicate(QueryTarget::Headings, predicate, "root.id"),
+        "tags" => compile_heading_tags_predicate(scope, predicate),
+        "property" => compile_heading_property_predicate(scope, predicate),
+        "keyword" => {
+            compile_keyword_predicate(QueryTarget::Headings, predicate, &scope.root_col("id"))
+        }
         "scheduled" => compile_date_predicate(
             QueryTarget::Headings,
             "scheduled",
-            "headings.scheduled_ts",
+            &scope.heading_col("scheduled_ts"),
             &predicate.options,
             TemporalUnit::Seconds,
             true,
@@ -512,7 +696,7 @@ fn compile_heading_predicate(
         "deadline" => compile_date_predicate(
             QueryTarget::Headings,
             "deadline",
-            "headings.deadline_ts",
+            &scope.heading_col("deadline_ts"),
             &predicate.options,
             TemporalUnit::Seconds,
             true,
@@ -520,25 +704,52 @@ fn compile_heading_predicate(
         "closed" => compile_date_predicate(
             QueryTarget::Headings,
             "closed",
-            "headings.closed_ts",
+            &scope.heading_col("closed_ts"),
             &predicate.options,
             TemporalUnit::Seconds,
             true,
         ),
-        "planning" => compile_planning_predicate(predicate),
-        "ts" => compile_timestamp_exists_predicate(predicate, None),
-        "ts-active" => compile_timestamp_exists_predicate(predicate, Some("active")),
-        "ts-inactive" => compile_timestamp_exists_predicate(predicate, Some("inactive")),
-        "has-text" | "outline-contains" | "outline-sequence" | "file-name" | "file-dir"
-        | "parent" | "ancestors" | "children" | "descendants" | "has-link" | "links-to"
-        | "linked-from" => Err(QueryExecutionError::unsupported_predicate(
-            QueryTarget::Headings,
-            predicate.name.as_str(),
-            format!(
-                "predicate {} is not supported by the SQLite metadata backend",
-                predicate.name
-            ),
-        )),
+        "planning" => compile_planning_predicate(scope, predicate),
+        "ts" => compile_timestamp_exists_predicate(scope, predicate, None),
+        "ts-active" => compile_timestamp_exists_predicate(scope, predicate, Some("active")),
+        "ts-inactive" => compile_timestamp_exists_predicate(scope, predicate, Some("inactive")),
+        "parent" => compile_heading_hierarchy_predicate(
+            scope,
+            aliases,
+            predicate,
+            HeadingHierarchyRelation::Parent,
+        ),
+        "ancestors" => compile_heading_hierarchy_predicate(
+            scope,
+            aliases,
+            predicate,
+            HeadingHierarchyRelation::Ancestor,
+        ),
+        "children" => compile_heading_hierarchy_predicate(
+            scope,
+            aliases,
+            predicate,
+            HeadingHierarchyRelation::Child,
+        ),
+        "descendants" => compile_heading_hierarchy_predicate(
+            scope,
+            aliases,
+            predicate,
+            HeadingHierarchyRelation::Descendant,
+        ),
+        "has-link" => compile_has_link_predicate(scope, aliases, predicate),
+        "links-to" => compile_links_to_predicate(scope, aliases, predicate),
+        "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
+        "has-text" | "outline-contains" | "outline-sequence" | "file-name" | "file-dir" => {
+            Err(QueryExecutionError::unsupported_predicate(
+                QueryTarget::Headings,
+                predicate.name.as_str(),
+                format!(
+                    "predicate {} is not supported by the SQLite metadata backend",
+                    predicate.name
+                ),
+            ))
+        }
         "link-type" | "link-target" | "link-description" | "has-description" | "status"
         | "source" | "target" => Err(QueryExecutionError::unsupported_predicate(
             QueryTarget::Headings,
@@ -557,22 +768,44 @@ fn compile_heading_predicate(
 }
 
 fn compile_link_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.name.as_str() {
-        "link-type" => compile_in_list("links.link_type", &predicate.args),
-        "link-target" => {
-            compile_text_predicate(QueryTarget::Links, "links.raw_target", predicate, true)
+        "link-type" => compile_in_list(
+            QueryTarget::Links,
+            &scope.link_col("link_type"),
+            &predicate.args,
+        ),
+        "link-target" => compile_text_predicate(
+            QueryTarget::Links,
+            &scope.link_col("raw_target"),
+            predicate,
+            true,
+        ),
+        "link-description" => compile_text_predicate(
+            QueryTarget::Links,
+            &scope.link_col("raw_description"),
+            predicate,
+            true,
+        ),
+        "has-description" => Ok(sql_literal(&format!(
+            "({} IS NOT NULL AND {} <> '')",
+            scope.link_col("raw_description"),
+            scope.link_col("raw_description")
+        ))),
+        "status" => compile_in_list(
+            QueryTarget::Links,
+            &scope.link_col("resolution_status"),
+            &predicate.args,
+        ),
+        "source" => {
+            compile_link_endpoint_predicate(scope, aliases, predicate, LinkEndpoint::Source)
         }
-        "link-description" => {
-            compile_text_predicate(QueryTarget::Links, "links.raw_description", predicate, true)
+        "target" => {
+            compile_link_endpoint_predicate(scope, aliases, predicate, LinkEndpoint::Target)
         }
-        "has-description" => Ok(sql_literal(
-            "(links.raw_description IS NOT NULL AND links.raw_description <> '')",
-        )),
-        "status" => compile_in_list("links.resolution_status", &predicate.args),
-        "source" => compile_link_endpoint_predicate(predicate, LinkEndpoint::Source),
-        "target" => compile_link_endpoint_predicate(predicate, LinkEndpoint::Target),
         "has-text" | "outline-contains" | "outline-sequence" | "file-name" | "file-dir"
         | "parent" | "ancestors" | "children" | "descendants" | "has-link" | "links-to"
         | "linked-from" => Err(QueryExecutionError::unsupported_predicate(
@@ -601,32 +834,50 @@ fn compile_link_predicate(
 }
 
 fn compile_file_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.name.as_str() {
-        "file-path" => compile_text_predicate(QueryTarget::Files, "files.path", predicate, false),
-        "file-title" => compile_text_predicate(QueryTarget::Files, "root.title", predicate, false),
+        "file-path" => compile_text_predicate(
+            QueryTarget::Files,
+            &scope.file_col("path"),
+            predicate,
+            false,
+        ),
+        "file-title" => compile_text_predicate(
+            QueryTarget::Files,
+            &scope.root_col("title"),
+            predicate,
+            false,
+        ),
         "file-modified" => compile_date_predicate(
             QueryTarget::Files,
             "file-modified",
-            "files.mtime_ns",
+            &scope.file_col("mtime_ns"),
             &predicate.options,
             TemporalUnit::Nanoseconds,
             true,
         ),
-        "tags" => compile_file_tags_predicate(predicate),
-        "property" => compile_file_property_predicate(predicate),
-        "keyword" => compile_keyword_predicate(QueryTarget::Files, predicate, "root.id"),
+        "tags" => compile_file_tags_predicate(scope, predicate),
+        "property" => compile_file_property_predicate(scope, predicate),
+        "keyword" => {
+            compile_keyword_predicate(QueryTarget::Files, predicate, &scope.root_col("id"))
+        }
+        "has-link" => compile_has_link_predicate(scope, aliases, predicate),
+        "links-to" => compile_links_to_predicate(scope, aliases, predicate),
+        "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
         "has-text" | "outline-contains" | "outline-sequence" | "file-name" | "file-dir"
-        | "parent" | "ancestors" | "children" | "descendants" | "has-link" | "links-to"
-        | "linked-from" => Err(QueryExecutionError::unsupported_predicate(
-            QueryTarget::Files,
-            predicate.name.as_str(),
-            format!(
-                "predicate {} is not supported by the SQLite metadata backend",
-                predicate.name
-            ),
-        )),
+        | "parent" | "ancestors" | "children" | "descendants" => {
+            Err(QueryExecutionError::unsupported_predicate(
+                QueryTarget::Files,
+                predicate.name.as_str(),
+                format!(
+                    "predicate {} is not supported by the SQLite metadata backend",
+                    predicate.name
+                ),
+            ))
+        }
         "todo" | "done" | "priority" | "title" | "level" | "scheduled" | "deadline" | "closed"
         | "planning" | "ts" | "ts-active" | "ts-inactive" | "link-type" | "link-target"
         | "link-description" | "has-description" | "status" | "source" | "target" => {
@@ -645,25 +896,34 @@ fn compile_file_predicate(
 }
 
 fn compile_todo_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if predicate.args.is_empty() {
-        return Ok(sql_literal("(headings.todo_type = 'open')"));
+        return Ok(sql_literal(&format!(
+            "({} = 'open')",
+            scope.heading_col("todo_type")
+        )));
     }
-    compile_in_list("headings.todo_keyword", &predicate.args)
+    compile_in_list(
+        QueryTarget::Headings,
+        &scope.heading_col("todo_keyword"),
+        &predicate.args,
+    )
 }
 
 fn compile_level_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.args.as_slice() {
         [ValidatedArg::Scalar(QueryValue::Integer(value))] => Ok(SqlFragment {
-            sql: "(headings.level = ?)".to_string(),
+            sql: format!("({} = ?)", scope.heading_col("level")),
             params: vec![QueryParam::Integer(*value)],
         }),
         [ValidatedArg::Scalar(QueryValue::Integer(minimum)), ValidatedArg::Scalar(QueryValue::Integer(maximum))] => {
             Ok(SqlFragment {
-                sql: "(headings.level BETWEEN ? AND ?)".to_string(),
+                sql: format!("({} BETWEEN ? AND ?)", scope.heading_col("level")),
                 params: vec![QueryParam::Integer(*minimum), QueryParam::Integer(*maximum)],
             })
         }
@@ -671,7 +931,7 @@ fn compile_level_predicate(
             if matches!(comparator.as_str(), "<" | "<=" | ">" | ">=") =>
         {
             Ok(SqlFragment {
-                sql: format!("(headings.level {} ?)", comparator),
+                sql: format!("({} {} ?)", scope.heading_col("level"), comparator),
                 params: vec![QueryParam::Integer(*value)],
             })
         }
@@ -765,6 +1025,7 @@ fn compile_text_predicate(
 }
 
 fn compile_heading_tags_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if option_bool(&predicate.options, "regexp")? {
@@ -775,14 +1036,15 @@ fn compile_heading_tags_predicate(
         ));
     }
     if !option_bool_with_default(&predicate.options, "inherit", true)? {
-        return compile_tags_exists(QueryTarget::Headings, predicate, "headings.id");
+        return compile_tags_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
 
     let with_root = option_bool_with_default(&predicate.options, "with-root", true)?;
-    compile_heading_effective_tags_exists(predicate, with_root)
+    compile_heading_effective_tags_exists(scope, predicate, with_root)
 }
 
 fn compile_heading_effective_tags_exists(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
     with_root: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
@@ -804,6 +1066,9 @@ fn compile_heading_effective_tags_exists(
         let mut params = Vec::with_capacity(tags.len());
         for tag in tags {
             parts.push(heading_lineage_exists_sql(
+                &scope.heading_col("id"),
+                &scope.heading_col("parent_id"),
+                &scope.heading_col("level"),
                 "tags",
                 "matched_tags",
                 "matched_tags.tag = ?",
@@ -820,6 +1085,9 @@ fn compile_heading_effective_tags_exists(
     let placeholders = vec!["?"; tags.len()].join(", ");
     Ok(SqlFragment {
         sql: heading_lineage_exists_sql(
+            &scope.heading_col("id"),
+            &scope.heading_col("parent_id"),
+            &scope.heading_col("level"),
             "tags",
             "matched_tags",
             &format!("matched_tags.tag IN ({placeholders})"),
@@ -830,6 +1098,7 @@ fn compile_heading_effective_tags_exists(
 }
 
 fn compile_file_tags_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if option_bool(&predicate.options, "regexp")? {
@@ -839,7 +1108,7 @@ fn compile_file_tags_predicate(
             "file tags with :regexp t are not supported by the SQLite metadata backend",
         ));
     }
-    compile_tags_exists(QueryTarget::Files, predicate, "root.id")
+    compile_tags_exists(QueryTarget::Files, predicate, &scope.root_col("id"))
 }
 
 fn compile_tags_exists(
@@ -886,6 +1155,9 @@ fn compile_tags_exists(
 }
 
 fn heading_lineage_exists_sql(
+    outer_heading_id_sql: &str,
+    outer_parent_id_sql: &str,
+    outer_level_sql: &str,
     fact_table: &str,
     fact_alias: &str,
     fact_match_sql: &str,
@@ -900,7 +1172,7 @@ fn heading_lineage_exists_sql(
     format!(
         "(EXISTS (
             WITH RECURSIVE lineage(id, parent_id, level) AS (
-                SELECT headings.id, headings.parent_id, headings.level
+                SELECT {outer_heading_id_sql}, {outer_parent_id_sql}, {outer_level_sql}
                 UNION ALL
                 SELECT ancestor.id, ancestor.parent_id, ancestor.level
                 FROM headings AS ancestor
@@ -915,10 +1187,11 @@ fn heading_lineage_exists_sql(
 }
 
 fn compile_heading_property_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if !option_bool_with_default(&predicate.options, "inherit", true)? {
-        return compile_property_exists(QueryTarget::Headings, predicate, "headings.id");
+        return compile_property_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
 
     if option_bool(&predicate.options, "regexp")? {
@@ -950,6 +1223,9 @@ fn compile_heading_property_predicate(
 
     Ok(SqlFragment {
         sql: heading_lineage_exists_sql(
+            &scope.heading_col("id"),
+            &scope.heading_col("parent_id"),
+            &scope.heading_col("level"),
             "properties",
             "matched_properties",
             &fact_match_sql,
@@ -960,9 +1236,10 @@ fn compile_heading_property_predicate(
 }
 
 fn compile_file_property_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    compile_property_exists(QueryTarget::Files, predicate, "root.id")
+    compile_property_exists(QueryTarget::Files, predicate, &scope.root_col("id"))
 }
 
 fn compile_property_exists(
@@ -1086,6 +1363,7 @@ fn compile_date_predicate(
 }
 
 fn compile_planning_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if option_present(&predicate.options, "with-time") {
@@ -1100,15 +1378,18 @@ fn compile_planning_predicate(
         && option_value(&predicate.options, "from").is_none()
         && option_value(&predicate.options, "to").is_none()
     {
-        return Ok(sql_literal(
-            "(headings.scheduled_ts IS NOT NULL OR headings.deadline_ts IS NOT NULL OR headings.closed_ts IS NOT NULL)",
-        ));
+        return Ok(sql_literal(&format!(
+            "({} IS NOT NULL OR {} IS NOT NULL OR {} IS NOT NULL)",
+            scope.heading_col("scheduled_ts"),
+            scope.heading_col("deadline_ts"),
+            scope.heading_col("closed_ts")
+        )));
     }
 
     let scheduled = compile_date_predicate(
         QueryTarget::Headings,
         "scheduled",
-        "headings.scheduled_ts",
+        &scope.heading_col("scheduled_ts"),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -1116,7 +1397,7 @@ fn compile_planning_predicate(
     let deadline = compile_date_predicate(
         QueryTarget::Headings,
         "deadline",
-        "headings.deadline_ts",
+        &scope.heading_col("deadline_ts"),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -1124,7 +1405,7 @@ fn compile_planning_predicate(
     let closed = compile_date_predicate(
         QueryTarget::Headings,
         "closed",
-        "headings.closed_ts",
+        &scope.heading_col("closed_ts"),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -1140,6 +1421,7 @@ fn compile_planning_predicate(
 }
 
 fn compile_timestamp_exists_predicate(
+    scope: &QueryScope,
     predicate: &ValidatedPredicate,
     timestamp_type: Option<&str>,
 ) -> Result<SqlFragment, QueryExecutionError> {
@@ -1163,9 +1445,10 @@ fn compile_timestamp_exists_predicate(
         true,
     )?;
 
-    let mut sql = String::from(
-        "(EXISTS (SELECT 1 FROM timestamps WHERE timestamps.heading_id = headings.id AND ",
-    );
+    let mut sql = String::from(&format!(
+        "(EXISTS (SELECT 1 FROM timestamps WHERE timestamps.heading_id = {} AND ",
+        scope.heading_col("id")
+    ));
     sql.push_str(&date_fragment.sql);
     if timestamp_type.is_some() {
         sql.push_str(" AND timestamps.type = ?");
@@ -1184,67 +1467,337 @@ enum LinkEndpoint {
     Target,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadingHierarchyRelation {
+    Parent,
+    Ancestor,
+    Child,
+    Descendant,
+}
+
 fn compile_link_endpoint_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
     predicate: &ValidatedPredicate,
     endpoint: LinkEndpoint,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match &predicate.args[0] {
         ValidatedArg::Scalar(QueryValue::Keyword(value)) if value == "any" => match endpoint {
             LinkEndpoint::Source => Ok(sql_literal("(1 = 1)")),
-            LinkEndpoint::Target => Ok(sql_literal(
-                "(links.target_file_id IS NOT NULL OR links.target_heading_id IS NOT NULL)",
-            )),
+            LinkEndpoint::Target => Ok(combine_fragments_with(
+                "AND",
+                vec![
+                    resolved_link_target_fragment(scope),
+                    sql_literal(&format!(
+                        "({} IS NOT NULL OR {} IS NOT NULL)",
+                        scope.link_col("target_file_id"),
+                        scope.link_col("target_heading_id")
+                    )),
+                ],
+            )
+            .expect("target :any should compile")),
         },
         ValidatedArg::NestedQuery(query) => {
-            let (target_column, expected_target) = match (endpoint, query.target) {
-                (LinkEndpoint::Source, QueryTarget::Headings) => {
-                    ("links.heading_id", QueryTarget::Headings)
-                }
-                (LinkEndpoint::Source, QueryTarget::Files) => ("links.file_id", QueryTarget::Files),
+            let target_column = match (endpoint, query.target) {
+                (LinkEndpoint::Source, QueryTarget::Headings) => scope.link_col("heading_id"),
+                (LinkEndpoint::Source, QueryTarget::Files) => scope.link_col("file_id"),
                 (LinkEndpoint::Target, QueryTarget::Headings) => {
-                    ("links.target_heading_id", QueryTarget::Headings)
+                    scope.link_col("target_heading_id")
                 }
-                (LinkEndpoint::Target, QueryTarget::Files) => {
-                    ("links.target_file_id", QueryTarget::Files)
-                }
+                (LinkEndpoint::Target, QueryTarget::Files) => scope.link_col("target_file_id"),
                 _ => unreachable!("validator should constrain source/target nested queries"),
             };
-            compile_nested_exists(query, expected_target, target_column)
+            let target_fragment = compile_nested_target_exists(query, aliases, &target_column)?;
+            match endpoint {
+                LinkEndpoint::Source => Ok(target_fragment),
+                LinkEndpoint::Target => Ok(combine_fragments_with(
+                    "AND",
+                    vec![resolved_link_target_fragment(scope), target_fragment],
+                )
+                .expect("structured target query should compile")),
+            }
         }
         _ => unreachable!("validator should constrain source/target args"),
     }
 }
 
-fn compile_nested_exists(
+fn resolved_link_target_fragment(scope: &QueryScope) -> SqlFragment {
+    sql_literal(&format!(
+        "({} = 'resolved')",
+        scope.link_col("resolution_status")
+    ))
+}
+
+fn compile_nested_target_exists(
     query: &ValidatedQuery,
-    expected_target: QueryTarget,
+    aliases: &mut AliasAllocator,
     outer_id_sql: &str,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    debug_assert_eq!(query.target, expected_target);
-    let predicate_fragment = query
-        .predicate
-        .as_ref()
-        .map(|expr| compile_expr(query.target, expr))
-        .transpose()?;
+    let nested_scope = aliases.next_scope(query.target);
+    let filter = compile_query_match_filter(query, &nested_scope, aliases)?;
 
     let (id_column, from_clause) = match query.target {
-        QueryTarget::Headings => ("headings.id", heading_from_clause()),
-        QueryTarget::Files => ("files.id", file_from_clause()),
+        QueryTarget::Headings => (
+            nested_scope.heading_col("id"),
+            heading_from_clause(&nested_scope),
+        ),
+        QueryTarget::Files => (nested_scope.file_col("id"), file_from_clause(&nested_scope)),
         QueryTarget::Links => unreachable!("validator should reject nested links here"),
     };
 
-    let mut sql = format!("(EXISTS (SELECT 1 {from_clause} WHERE {id_column} = {outer_id_sql}");
-    let mut params = Vec::new();
-    if let Some(fragment) = predicate_fragment {
-        sql.push_str(" AND ");
-        sql.push_str(&fragment.sql);
-        params.extend(fragment.params);
+    let mut fragments = vec![sql_literal(&format!("({id_column} = {outer_id_sql})"))];
+    if let Some(filter) = filter {
+        fragments.push(filter);
     }
-    sql.push_str("))");
-    Ok(SqlFragment { sql, params })
+    let combined = combine_fragments_with("AND", fragments).expect("relation filter should exist");
+    Ok(SqlFragment {
+        sql: format!("(EXISTS (SELECT 1 {from_clause} WHERE {}))", combined.sql),
+        params: combined.params,
+    })
+}
+
+fn compile_heading_hierarchy_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: &ValidatedPredicate,
+    relation: HeadingHierarchyRelation,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let nested_query = predicate.args.first().map(|arg| match arg {
+        ValidatedArg::NestedQuery(query) => query.as_ref(),
+        _ => unreachable!("validator should constrain hierarchy args"),
+    });
+    let nested_scope = aliases.next_scope(QueryTarget::Headings);
+    let nested_filter = compile_scope_match_filter(
+        &nested_scope,
+        aliases,
+        nested_query.and_then(|query| query.predicate.as_ref()),
+    )?;
+
+    let (extra_joins, relation_fragment) = match relation {
+        HeadingHierarchyRelation::Parent => (
+            String::new(),
+            sql_literal(&format!(
+                "({} = {})",
+                nested_scope.heading_col("id"),
+                scope.heading_col("parent_id")
+            )),
+        ),
+        HeadingHierarchyRelation::Child => (
+            String::new(),
+            sql_literal(&format!(
+                "({} = {})",
+                nested_scope.heading_col("parent_id"),
+                scope.heading_col("id")
+            )),
+        ),
+        HeadingHierarchyRelation::Ancestor => {
+            let current_outline_alias = format!("current_{}", nested_scope.outline_alias);
+            (
+                format!(
+                    " INNER JOIN outline_path AS {} ON {}.heading_id = {}
+                      INNER JOIN outline_path AS {} ON {}.heading_id = {}",
+                    nested_scope.outline_alias,
+                    nested_scope.outline_alias,
+                    nested_scope.heading_col("id"),
+                    current_outline_alias,
+                    current_outline_alias,
+                    scope.heading_col("id"),
+                ),
+                sql_literal(&format!(
+                    "({}.file_id = {}.file_id AND {}.depth < {}.depth AND {}.materialized_path LIKE {}.materialized_path || '.%')",
+                    nested_scope.outline_alias,
+                    current_outline_alias,
+                    nested_scope.outline_alias,
+                    current_outline_alias,
+                    current_outline_alias,
+                    nested_scope.outline_alias
+                )),
+            )
+        }
+        HeadingHierarchyRelation::Descendant => {
+            let current_outline_alias = format!("current_{}", nested_scope.outline_alias);
+            (
+                format!(
+                    " INNER JOIN outline_path AS {} ON {}.heading_id = {}
+                      INNER JOIN outline_path AS {} ON {}.heading_id = {}",
+                    nested_scope.outline_alias,
+                    nested_scope.outline_alias,
+                    nested_scope.heading_col("id"),
+                    current_outline_alias,
+                    current_outline_alias,
+                    scope.heading_col("id"),
+                ),
+                sql_literal(&format!(
+                    "({}.file_id = {}.file_id AND {}.depth > {}.depth AND {}.materialized_path LIKE {}.materialized_path || '.%')",
+                    nested_scope.outline_alias,
+                    current_outline_alias,
+                    nested_scope.outline_alias,
+                    current_outline_alias,
+                    nested_scope.outline_alias,
+                    current_outline_alias
+                )),
+            )
+        }
+    };
+
+    let mut fragments = vec![relation_fragment];
+    if let Some(nested_filter) = nested_filter {
+        fragments.push(nested_filter);
+    }
+    let combined = combine_fragments_with("AND", fragments).expect("hierarchy filter should exist");
+    Ok(SqlFragment {
+        sql: format!(
+            "(EXISTS (SELECT 1 {}{} WHERE {}))",
+            heading_from_clause(&nested_scope),
+            extra_joins,
+            combined.sql
+        ),
+        params: combined.params,
+    })
+}
+
+fn compile_has_link_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let nested_query = predicate.args.first().map(|arg| match arg {
+        ValidatedArg::NestedQuery(query) => query.as_ref(),
+        _ => unreachable!("validator should constrain has-link args"),
+    });
+    let link_scope = aliases.next_scope(QueryTarget::Links);
+    let link_filter = compile_scope_match_filter(
+        &link_scope,
+        aliases,
+        nested_query.and_then(|query| query.predicate.as_ref()),
+    )?;
+    let source_fragment = match scope.target {
+        QueryTarget::Headings => sql_literal(&format!(
+            "({} = {})",
+            link_scope.link_col("heading_id"),
+            scope.heading_col("id")
+        )),
+        QueryTarget::Files => sql_literal(&format!(
+            "({} = {})",
+            link_scope.link_col("file_id"),
+            scope.file_col("id")
+        )),
+        QueryTarget::Links => unreachable!("validator should constrain has-link target"),
+    };
+
+    let mut fragments = vec![source_fragment];
+    if let Some(link_filter) = link_filter {
+        fragments.push(link_filter);
+    }
+    let combined = combine_fragments_with("AND", fragments).expect("has-link filter should exist");
+    Ok(SqlFragment {
+        sql: format!(
+            "(EXISTS (SELECT 1 {} WHERE {}))",
+            link_from_clause(&link_scope),
+            combined.sql
+        ),
+        params: combined.params,
+    })
+}
+
+fn compile_links_to_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let ValidatedArg::NestedQuery(target_query) = &predicate.args[0] else {
+        unreachable!("validator should constrain links-to args");
+    };
+    let link_scope = aliases.next_scope(QueryTarget::Links);
+    let target_column = match target_query.target {
+        QueryTarget::Headings => link_scope.link_col("target_heading_id"),
+        QueryTarget::Files => link_scope.link_col("target_file_id"),
+        QueryTarget::Links => unreachable!("validator should constrain links-to targets"),
+    };
+    let source_fragment = match scope.target {
+        QueryTarget::Headings => sql_literal(&format!(
+            "({} = {})",
+            link_scope.link_col("heading_id"),
+            scope.heading_col("id")
+        )),
+        QueryTarget::Files => sql_literal(&format!(
+            "({} = {})",
+            link_scope.link_col("file_id"),
+            scope.file_col("id")
+        )),
+        QueryTarget::Links => unreachable!("validator should constrain links-to target"),
+    };
+    let target_fragment = compile_nested_target_exists(target_query, aliases, &target_column)?;
+    let combined = combine_fragments_with(
+        "AND",
+        vec![
+            source_fragment,
+            resolved_link_target_fragment(&link_scope),
+            target_fragment,
+        ],
+    )
+    .expect("links-to");
+    Ok(SqlFragment {
+        sql: format!(
+            "(EXISTS (SELECT 1 {} WHERE {}))",
+            link_from_clause(&link_scope),
+            combined.sql
+        ),
+        params: combined.params,
+    })
+}
+
+fn compile_linked_from_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let link_scope = aliases.next_scope(QueryTarget::Links);
+    let target_fragment = match scope.target {
+        QueryTarget::Headings => sql_literal(&format!(
+            "({} = {})",
+            link_scope.link_col("target_heading_id"),
+            scope.heading_col("id")
+        )),
+        QueryTarget::Files => sql_literal(&format!(
+            "({} = {})",
+            link_scope.link_col("target_file_id"),
+            scope.file_col("id")
+        )),
+        QueryTarget::Links => unreachable!("validator should constrain linked-from target"),
+    };
+    let source_fragment = match &predicate.args[0] {
+        ValidatedArg::Scalar(QueryValue::Keyword(value)) if value == "any" => None,
+        ValidatedArg::NestedQuery(query) => {
+            let outer_id = match query.target {
+                QueryTarget::Headings => link_scope.link_col("heading_id"),
+                QueryTarget::Files => link_scope.link_col("file_id"),
+                QueryTarget::Links => unreachable!("validator should constrain linked-from source"),
+            };
+            Some(compile_nested_target_exists(query, aliases, &outer_id)?)
+        }
+        _ => unreachable!("validator should constrain linked-from args"),
+    };
+
+    let mut fragments = vec![target_fragment];
+    fragments.push(resolved_link_target_fragment(&link_scope));
+    if let Some(source_fragment) = source_fragment {
+        fragments.push(source_fragment);
+    }
+    let combined =
+        combine_fragments_with("AND", fragments).expect("linked-from filter should exist");
+    Ok(SqlFragment {
+        sql: format!(
+            "(EXISTS (SELECT 1 {} WHERE {}))",
+            link_from_clause(&link_scope),
+            combined.sql
+        ),
+        params: combined.params,
+    })
 }
 
 fn compile_in_list(
+    target: QueryTarget,
     column: &str,
     args: &[ValidatedArg],
 ) -> Result<SqlFragment, QueryExecutionError> {
@@ -1253,7 +1806,7 @@ fn compile_in_list(
         .map(arg_as_string)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|message| {
-            QueryExecutionError::unsupported_backend_feature(QueryTarget::Links, column, message)
+            QueryExecutionError::unsupported_backend_feature(target, column, message)
         })?;
     let placeholders = vec!["?"; values.len()].join(", ");
     Ok(SqlFragment {
@@ -1396,22 +1949,47 @@ fn render_where_clause(fragment: Option<&SqlFragment>) -> String {
     }
 }
 
-fn heading_from_clause() -> &'static str {
-    "FROM headings
-     INNER JOIN files ON files.id = headings.file_id
-     INNER JOIN headings AS root ON root.file_id = headings.file_id AND root.level = 0"
+fn heading_from_clause(scope: &QueryScope) -> String {
+    format!(
+        "FROM headings AS {}
+         INNER JOIN files AS {} ON {}.id = {}.file_id
+         INNER JOIN headings AS {} ON {}.file_id = {}.file_id AND {}.level = 0",
+        scope.heading_alias,
+        scope.file_alias,
+        scope.file_alias,
+        scope.heading_alias,
+        scope.root_alias,
+        scope.root_alias,
+        scope.heading_alias,
+        scope.root_alias
+    )
 }
 
-fn link_from_clause() -> &'static str {
-    "FROM links
-     INNER JOIN files ON files.id = links.file_id
-     INNER JOIN headings ON headings.id = links.heading_id
-     INNER JOIN outline_path ON outline_path.heading_id = links.heading_id"
+fn link_from_clause(scope: &QueryScope) -> String {
+    format!(
+        "FROM links AS {}
+         INNER JOIN files AS {} ON {}.id = {}.file_id
+         INNER JOIN headings AS {} ON {}.id = {}.heading_id
+         INNER JOIN outline_path AS {} ON {}.heading_id = {}.heading_id",
+        scope.link_alias,
+        scope.file_alias,
+        scope.file_alias,
+        scope.link_alias,
+        scope.link_heading_alias,
+        scope.link_heading_alias,
+        scope.link_alias,
+        scope.outline_alias,
+        scope.outline_alias,
+        scope.link_alias
+    )
 }
 
-fn file_from_clause() -> &'static str {
-    "FROM files
-     INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0"
+fn file_from_clause(scope: &QueryScope) -> String {
+    format!(
+        "FROM files AS {}
+         INNER JOIN headings AS {} ON {}.file_id = {}.id AND {}.level = 0",
+        scope.file_alias, scope.root_alias, scope.root_alias, scope.file_alias, scope.root_alias
+    )
 }
 
 fn target_name(target: QueryTarget) -> &'static str {
@@ -1492,6 +2070,9 @@ mod tests {
             validated(&format!(r#"(headings (tags "{user_value}" :inherit nil))"#)),
             validated(&format!(r#"(headings (property "OWNER" "{user_value}"))"#)),
             validated(&format!(r#"(files (keyword "AUTHOR" "{user_value}"))"#)),
+            validated(&format!(
+                r#"(headings (links-to (headings (title "{user_value}"))))"#
+            )),
         ] {
             let compiled = compile_sqlite_query(&query).expect("query should compile");
             assert!(compiled.sql.contains('?'));
@@ -1519,8 +2100,7 @@ mod tests {
             );
         }
 
-        let relation_query =
-            validated(r#"(headings (links-to (files (file-path "notes.org" :exact t))))"#);
+        let relation_query = validated(r#"(headings (outline-sequence "todo" "done"))"#);
         let relation_error =
             compile_sqlite_query(&relation_query).expect_err("relation should fail");
         assert_eq!(
@@ -1652,6 +2232,279 @@ mod tests {
                 },
             ])
         );
+    }
+
+    #[test]
+    fn execution_matches_hierarchy_predicates() {
+        let connection = seeded_connection();
+
+        let parent_rows = execute_sqlite_query(&connection, &validated(r#"(headings (parent))"#))
+            .expect("parent query should execute");
+        assert_eq!(heading_ids(parent_rows), vec![12]);
+
+        let parent_nested_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (parent (headings (title "Query Engine" :exact t))))"#),
+        )
+        .expect("nested parent query should execute");
+        assert_eq!(heading_ids(parent_nested_rows), vec![12]);
+
+        let ancestor_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (ancestors (headings (title "Query Engine" :exact t))))"#),
+        )
+        .expect("ancestor query should execute");
+        assert_eq!(heading_ids(ancestor_rows), vec![12]);
+
+        let children_rows =
+            execute_sqlite_query(&connection, &validated(r#"(headings (children))"#))
+                .expect("children query should execute");
+        assert_eq!(heading_ids(children_rows), vec![11]);
+
+        let child_nested_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (children (headings (title "Nested Task" :exact t))))"#),
+        )
+        .expect("child nested query should execute");
+        assert_eq!(heading_ids(child_nested_rows), vec![11]);
+
+        let descendant_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (descendants (headings (title "Nested Task" :exact t))))"#),
+        )
+        .expect("descendant query should execute");
+        assert_eq!(heading_ids(descendant_rows), vec![11]);
+    }
+
+    #[test]
+    fn execution_matches_heading_and_file_link_relation_queries() {
+        let connection = seeded_connection();
+
+        let has_link_rows =
+            execute_sqlite_query(&connection, &validated(r#"(headings (has-link))"#))
+                .expect("has-link query should execute");
+        assert_eq!(heading_ids(has_link_rows), vec![11, 12, 13, 21]);
+
+        let has_file_link_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (has-link (links (link-type "file"))))"#),
+        )
+        .expect("has-link file query should execute");
+        assert_eq!(heading_ids(has_file_link_rows), vec![11, 12, 13, 21]);
+
+        let links_to_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (links-to (files (file-title "Beta Index" :exact t))))"#),
+        )
+        .expect("links-to file query should execute");
+        assert_eq!(heading_ids(links_to_file_rows), vec![11, 12]);
+
+        let links_to_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (links-to (headings (title "Beta Target" :exact t))))"#),
+        )
+        .expect("links-to heading query should execute");
+        assert_eq!(heading_ids(links_to_heading_rows), vec![12]);
+
+        let linked_from_any_rows =
+            execute_sqlite_query(&connection, &validated(r#"(headings (linked-from :any))"#))
+                .expect("linked-from any query should execute");
+        assert_eq!(heading_ids(linked_from_any_rows), vec![11, 21]);
+
+        let linked_from_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (linked-from (headings (title "Nested Task" :exact t))))"#),
+        )
+        .expect("linked-from heading query should execute");
+        assert_eq!(heading_ids(linked_from_heading_rows), vec![21]);
+
+        let linked_from_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (linked-from (files (file-title "Beta Index" :exact t))))"#),
+        )
+        .expect("linked-from file query should execute");
+        assert_eq!(heading_ids(linked_from_file_rows), vec![11]);
+
+        let file_has_link_rows =
+            execute_sqlite_query(&connection, &validated(r#"(files (has-link))"#))
+                .expect("file has-link query should execute");
+        assert_eq!(
+            file_paths(file_has_link_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string()
+            ]
+        );
+
+        let file_links_to_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (links-to (headings (title "Beta Target" :exact t))))"#),
+        )
+        .expect("file links-to heading query should execute");
+        assert_eq!(
+            file_paths(file_links_to_heading_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let file_linked_from_any_rows =
+            execute_sqlite_query(&connection, &validated(r#"(files (linked-from :any))"#))
+                .expect("file linked-from any query should execute");
+        assert_eq!(
+            file_paths(file_linked_from_any_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string()
+            ]
+        );
+
+        let file_linked_from_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (linked-from (headings (title "Beta Target" :exact t))))"#),
+        )
+        .expect("file linked-from heading query should execute");
+        assert_eq!(
+            file_paths(file_linked_from_heading_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+    }
+
+    #[test]
+    fn execution_matches_link_source_target_and_status_queries() {
+        let connection = seeded_connection();
+
+        let source_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (source (headings (title "Nested Task" :exact t))))"#),
+        )
+        .expect("source heading query should execute");
+        assert_eq!(link_ids(source_heading_rows), vec![101]);
+
+        let source_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (source (files (file-title "Beta Index" :exact t))))"#),
+        )
+        .expect("source file query should execute");
+        assert_eq!(link_ids(source_file_rows), vec![104, 103, 106]);
+
+        let target_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (target (headings (title "Beta Target" :exact t))))"#),
+        )
+        .expect("target heading query should execute");
+        assert_eq!(link_ids(target_heading_rows), vec![101]);
+
+        let target_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (target (files (file-title "Beta Index" :exact t))))"#),
+        )
+        .expect("target file query should execute");
+        assert_eq!(link_ids(target_file_rows), vec![102, 100, 101]);
+
+        let target_any_rows =
+            execute_sqlite_query(&connection, &validated(r#"(links (target :any))"#))
+                .expect("target any query should execute");
+        assert_eq!(link_ids(target_any_rows), vec![102, 100, 101, 104, 103]);
+
+        let broken_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(links (and (status "broken") (link-target "file:missing.org" :exact t)))"#,
+            ),
+        )
+        .expect("broken status query should execute");
+        assert_eq!(link_ids(broken_rows), vec![105]);
+
+        let unresolved_rows =
+            execute_sqlite_query(&connection, &validated(r#"(links (status "unresolved"))"#))
+                .expect("unresolved status query should execute");
+        assert_eq!(link_ids(unresolved_rows), vec![106]);
+
+        let ambiguous_rows =
+            execute_sqlite_query(&connection, &validated(r#"(links (status "ambiguous"))"#))
+                .expect("ambiguous status query should execute");
+        assert_eq!(link_ids(ambiguous_rows), vec![107]);
+
+        let ambiguous_target_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (and (status "ambiguous") (target :any)))"#),
+        )
+        .expect("ambiguous target-any query should execute");
+        assert_eq!(link_ids(ambiguous_target_rows), Vec::<i64>::new());
+
+        let ambiguous_target_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(links
+                    (and
+                      (status "ambiguous")
+                      (target (files (file-title "Gamma Index" :exact t)))))"#,
+            ),
+        )
+        .expect("ambiguous target-file query should execute");
+        assert_eq!(link_ids(ambiguous_target_file_rows), Vec::<i64>::new());
+
+        let ambiguous_target_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(links
+                    (and
+                      (status "ambiguous")
+                      (target (headings (title "Gamma Candidate" :exact t)))))"#,
+            ),
+        )
+        .expect("ambiguous target-heading query should execute");
+        assert_eq!(link_ids(ambiguous_target_heading_rows), Vec::<i64>::new());
+
+        let ambiguous_links_to_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (links-to (files (file-title "Gamma Index" :exact t))))"#),
+        )
+        .expect("ambiguous links-to file query should execute");
+        assert_eq!(heading_ids(ambiguous_links_to_file_rows), Vec::<i64>::new());
+
+        let ambiguous_links_to_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (links-to (headings (title "Gamma Candidate" :exact t))))"#),
+        )
+        .expect("ambiguous links-to heading query should execute");
+        assert_eq!(
+            heading_ids(ambiguous_links_to_heading_rows),
+            Vec::<i64>::new()
+        );
+
+        let ambiguous_file_links_to_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (links-to (headings (title "Gamma Candidate" :exact t))))"#),
+        )
+        .expect("ambiguous file links-to heading query should execute");
+        assert_eq!(
+            file_paths(ambiguous_file_links_to_heading_rows),
+            Vec::<String>::new()
+        );
+
+        let ambiguous_file_links_to_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (links-to (files (file-title "Gamma Index" :exact t))))"#),
+        )
+        .expect("ambiguous file links-to file query should execute");
+        assert_eq!(
+            file_paths(ambiguous_file_links_to_file_rows),
+            Vec::<String>::new()
+        );
+
+        let gamma_heading_backlink_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (linked-from (files (file-title "Gamma Index" :exact t))))"#),
+        )
+        .expect("gamma heading backlink query should execute");
+        assert_eq!(heading_ids(gamma_heading_backlink_rows), Vec::<i64>::new());
+
+        let gamma_file_backlink_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (linked-from (headings (title "Gamma Candidate" :exact t))))"#),
+        )
+        .expect("gamma file backlink query should execute");
+        assert_eq!(file_paths(gamma_file_backlink_rows), Vec::<String>::new());
     }
 
     #[test]
@@ -1838,6 +2691,7 @@ mod tests {
             validated(r#"(headings (tags "x' OR 1=1 --" :inherit nil))"#),
             validated(r#"(headings (property "OWNER" "x' OR 1=1 --"))"#),
             validated(r#"(files (keyword "AUTHOR" "x' OR 1=1 --"))"#),
+            validated(r#"(headings (links-to (headings (title "x' OR 1=1 --"))))"#),
         ] {
             let compiled = compile_sqlite_query(&query).expect("query should compile");
             assert!(!compiled.sql.contains("1=1"));
@@ -1907,14 +2761,15 @@ mod tests {
 
         let rows = execute_sqlite_query(
             &connection,
-            &validated(r#"(headings (title "Query Engine"))"#),
+            &validated(r#"(headings (links-to (files (file-title "Beta Index" :exact t))))"#),
         )
         .expect("query should execute from stored DB rows");
 
         match rows {
             QueryRows::Headings(rows) => {
-                assert_eq!(rows.len(), 1);
+                assert_eq!(rows.len(), 2);
                 assert_eq!(rows[0].title, "Query Engine");
+                assert_eq!(rows[1].title, "Nested Task");
             }
             other => panic!("unexpected query rows: {other:?}"),
         }
@@ -1927,6 +2782,13 @@ mod tests {
         match rows {
             QueryRows::Headings(rows) => rows.into_iter().map(|row| row.id).collect(),
             other => panic!("expected heading rows, got {other:?}"),
+        }
+    }
+
+    fn link_ids(rows: QueryRows) -> Vec<i64> {
+        match rows {
+            QueryRows::Links(rows) => rows.into_iter().map(|row| row.id).collect(),
+            other => panic!("expected link rows, got {other:?}"),
         }
     }
 
@@ -1985,6 +2847,13 @@ mod tests {
             size: 120,
             content_hash: None,
             indexed_at: Some(1_767_484_810),
+        };
+        let gamma = FileRecordInput {
+            path: Path::new("/tmp/query-gamma.org").to_path_buf(),
+            mtime_ns: 1_767_571_200_000_000_000,
+            size: 80,
+            content_hash: None,
+            indexed_at: Some(1_767_571_210),
         };
 
         let (beta_file_id, ()) = DbWriter::rebuild_file(connection, &beta, |tx, file_id| {
@@ -2045,7 +2914,7 @@ mod tests {
         })
         .expect("beta file should seed");
 
-        DbWriter::rebuild_file(connection, &alpha, |tx, file_id| {
+        let (alpha_file_id, ()) = DbWriter::rebuild_file(connection, &alpha, |tx, file_id| {
             let root_id = DbWriter::insert_level0_heading(
                 tx,
                 &HeadingRecord {
@@ -2313,6 +3182,310 @@ mod tests {
             Ok(())
         })
         .expect("alpha file should seed");
+
+        let (gamma_file_id, ()) = DbWriter::rebuild_file(connection, &gamma, |tx, file_id| {
+            let root_id = DbWriter::insert_level0_heading(
+                tx,
+                &HeadingRecord {
+                    id: Some(30),
+                    file_id,
+                    parent_id: None,
+                    level: 0,
+                    line_number: None,
+                    byte_start: -1,
+                    byte_end: 80,
+                    title: "Gamma Index".to_string(),
+                    title_raw: "Gamma Index".to_string(),
+                    todo_keyword: None,
+                    todo_type: None,
+                    priority: None,
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[]".to_string(),
+                },
+            )?;
+            DbWriter::insert_headings(
+                tx,
+                &[HeadingRecord {
+                    id: Some(31),
+                    file_id,
+                    parent_id: Some(root_id),
+                    level: 1,
+                    line_number: Some(2),
+                    byte_start: 10,
+                    byte_end: 28,
+                    title: "Gamma Candidate".to_string(),
+                    title_raw: "Gamma Candidate".to_string(),
+                    todo_keyword: None,
+                    todo_type: None,
+                    priority: None,
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[]".to_string(),
+                }],
+            )?;
+            DbWriter::insert_outline_path(
+                tx,
+                &[
+                    OutlinePathRecord {
+                        heading_id: root_id,
+                        file_id,
+                        parent_id: None,
+                        depth: 0,
+                        materialized_path: "0000".to_string(),
+                        breadcrumbs_json: "[\"Gamma Index\"]".to_string(),
+                    },
+                    OutlinePathRecord {
+                        heading_id: 31,
+                        file_id,
+                        parent_id: Some(root_id),
+                        depth: 1,
+                        materialized_path: "0000.0001".to_string(),
+                        breadcrumbs_json: "[\"Gamma Index\",\"Gamma Candidate\"]".to_string(),
+                    },
+                ],
+            )?;
+            Ok(())
+        })
+        .expect("gamma file should seed");
+
+        connection
+            .execute(
+                "INSERT INTO headings
+                 (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
+                  todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, deadline_raw,
+                  deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p, all_tags_json)
+                 VALUES
+                 (21, ?1, 20, 1, 3, 10, 40, 'Beta Target', 'Beta Target',
+                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, '[\"archive\",\"target\"]')",
+                rusqlite::params![beta_file_id],
+            )
+            .expect("beta child heading should insert");
+        DbWriter::insert_outline_path(
+            connection,
+            &[OutlinePathRecord {
+                heading_id: 21,
+                file_id: beta_file_id,
+                parent_id: Some(20),
+                depth: 1,
+                materialized_path: "0000.0001".to_string(),
+                breadcrumbs_json: "[\"Beta Index\",\"Beta Target\"]".to_string(),
+            }],
+        )
+        .expect("beta child outline should insert");
+        DbWriter::insert_tags(
+            connection,
+            &[TagRecord {
+                heading_id: 21,
+                tag: "target".to_string(),
+            }],
+        )
+        .expect("beta child tag should insert");
+
+        DbWriter::insert_links(
+            connection,
+            &[
+                LinkRecord {
+                    id: Some(101),
+                    file_id: alpha_file_id,
+                    heading_id: 12,
+                    byte_start: 60,
+                    byte_end: 95,
+                    line: 6,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[file:beta.org::*Beta Target][Beta heading]]".to_string(),
+                    raw_target: "file:beta.org::*Beta Target".to_string(),
+                    raw_description: Some("Beta heading".to_string()),
+                    link_type: "file".to_string(),
+                    path: "beta.org".to_string(),
+                    search_option: Some("*Beta Target".to_string()),
+                },
+                LinkRecord {
+                    id: Some(102),
+                    file_id: alpha_file_id,
+                    heading_id: 10,
+                    byte_start: 0,
+                    byte_end: 24,
+                    line: 1,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[file:beta.org][Preamble]]".to_string(),
+                    raw_target: "file:beta.org".to_string(),
+                    raw_description: Some("Preamble".to_string()),
+                    link_type: "file".to_string(),
+                    path: "beta.org".to_string(),
+                    search_option: None,
+                },
+                LinkRecord {
+                    id: Some(103),
+                    file_id: beta_file_id,
+                    heading_id: 21,
+                    byte_start: 50,
+                    byte_end: 84,
+                    line: 4,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[file:alpha.org::*Query Engine][Backlink]]".to_string(),
+                    raw_target: "file:alpha.org::*Query Engine".to_string(),
+                    raw_description: Some("Backlink".to_string()),
+                    link_type: "file".to_string(),
+                    path: "alpha.org".to_string(),
+                    search_option: Some("*Query Engine".to_string()),
+                },
+                LinkRecord {
+                    id: Some(104),
+                    file_id: beta_file_id,
+                    heading_id: 20,
+                    byte_start: 0,
+                    byte_end: 22,
+                    line: 1,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[file:alpha.org][Root]]".to_string(),
+                    raw_target: "file:alpha.org".to_string(),
+                    raw_description: Some("Root".to_string()),
+                    link_type: "file".to_string(),
+                    path: "alpha.org".to_string(),
+                    search_option: None,
+                },
+                LinkRecord {
+                    id: Some(105),
+                    file_id: alpha_file_id,
+                    heading_id: 13,
+                    byte_start: 80,
+                    byte_end: 104,
+                    line: 8,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[file:missing.org]]".to_string(),
+                    raw_target: "file:missing.org".to_string(),
+                    raw_description: None,
+                    link_type: "file".to_string(),
+                    path: "missing.org".to_string(),
+                    search_option: None,
+                },
+                LinkRecord {
+                    id: Some(106),
+                    file_id: beta_file_id,
+                    heading_id: 21,
+                    byte_start: 85,
+                    byte_end: 100,
+                    line: 5,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[id:missing-id]]".to_string(),
+                    raw_target: "id:missing-id".to_string(),
+                    raw_description: None,
+                    link_type: "id".to_string(),
+                    path: "missing-id".to_string(),
+                    search_option: None,
+                },
+                LinkRecord {
+                    id: Some(107),
+                    file_id: alpha_file_id,
+                    heading_id: 11,
+                    byte_start: 81,
+                    byte_end: 92,
+                    line: 5,
+                    source_context: "normal".to_string(),
+                    format: "bracket".to_string(),
+                    raw: "[[id:dup-id]]".to_string(),
+                    raw_target: "id:dup-id".to_string(),
+                    raw_description: None,
+                    link_type: "id".to_string(),
+                    path: "dup-id".to_string(),
+                    search_option: None,
+                },
+            ],
+        )
+        .expect("relation links should seed");
+
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?1,
+                     target_file_id = ?2,
+                     target_heading_id = ?3,
+                     resolution_status = 'resolved'
+                 WHERE id = 101",
+                rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id, 21],
+            )
+            .expect("heading target should update");
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?1,
+                     target_file_id = ?2,
+                     resolution_status = 'resolved'
+                 WHERE id = 102",
+                rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id],
+            )
+            .expect("preamble file target should update");
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?1,
+                     target_file_id = ?2,
+                     target_heading_id = ?3,
+                     resolution_status = 'resolved'
+                 WHERE id = 103",
+                rusqlite::params![alpha_path.to_string_lossy().to_string(), alpha_file_id, 11],
+            )
+            .expect("backlink heading target should update");
+        connection
+            .execute(
+                "UPDATE links
+                 SET path_absolute = ?1,
+                     target_file_id = ?2,
+                     resolution_status = 'resolved'
+                 WHERE id = 104",
+                rusqlite::params![alpha_path.to_string_lossy().to_string(), alpha_file_id],
+            )
+            .expect("backlink root target should update");
+        connection
+            .execute(
+                "UPDATE links
+                 SET resolution_status = 'broken',
+                     resolution_diagnostic = 'missing target'
+                 WHERE id = 105",
+                [],
+            )
+            .expect("broken link should update");
+        connection
+            .execute(
+                "UPDATE links
+                 SET target_id = 'missing-id',
+                     resolution_status = 'unresolved',
+                     resolution_diagnostic = 'missing org id'
+                 WHERE id = 106",
+                [],
+            )
+            .expect("unresolved link should update");
+        connection
+            .execute(
+                "UPDATE links
+                 SET target_file_id = ?1,
+                     target_heading_id = ?2,
+                     target_id = 'dup-id',
+                     resolution_status = 'ambiguous',
+                     resolution_diagnostic = 'duplicate org id'
+                 WHERE id = 107",
+                rusqlite::params![gamma_file_id, 31],
+            )
+            .expect("ambiguous link should update");
     }
 
     fn table_counts(connection: &Connection) -> Vec<(&'static str, i64)> {

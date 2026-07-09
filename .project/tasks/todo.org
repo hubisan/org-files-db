@@ -75,78 +75,27 @@ General rules:
 - FTS5 is optional and must only be required for FTS-specific functionality.
 - Mutation and repair operations are out of scope for Query Model v0.
 
-** DONE [#B] Implement query AST and parser
+** DONE Implement query AST and parser
 
 - Task file: [[file:archive/2026-07-07--implement-query-ast-and-parser.org]]
 
-** DONE [#B] Implement query semantic validation and normalization
+** DONE Implement query semantic validation and normalization
 
 - Task file: [[file:archive/2026-07-07--implement-query-semantic-validation-and-normalization.org]]
 
-** DONE [#B] Implement safe SQL translation and core metadata query execution
+** DONE Implement safe SQL translation and core metadata query execution
 
 - Task file: [[file:archive/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org]]
 
-** DONE [#B] Implement effective root, tag, property, and keyword semantics for queries
+** DONE Implement effective root, tag, property, and keyword semantics for queries
 
 - Task file: [[file:archive/2026-07-08--implement-effective-root-tag-property-and-keyword-semantics-for-queries.org]]
 
-** TODO [#B] Implement hierarchy and graph relation predicates
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: High
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE Implement hierarchy and graph relation predicates [2026-07-09 Thu]
 
-Depends on:
+- Task file: [[file:archive/2026-07-08--implement-hierarchy-and-graph-relation-predicates.org]]
 
-- Implement safe SQL translation and core metadata query execution
-- Implement effective root, tag, property, and keyword semantics for queries
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Implement predicates that depend on heading hierarchy, link source/target relationships, and nested target queries.
-
-Scope:
-
-- Hierarchy predicates:
-  - ~parent~
-  - ~ancestors~
-  - ~children~
-  - ~descendants~
-- Link relationship predicates on headings:
-  - ~has-link~
-  - ~links-to~
-  - ~linked-from~
-- Link source/target predicates:
-  - ~source~
-  - ~target~
-
-Rules:
-
-- Nested relation queries must use explicit target wrappers.
-- Hierarchy predicates that accept nested queries must use explicit ~(headings ...)~.
-- Link relation predicates that accept nested link queries must use explicit ~(links ...)~.
-- ~source~ and ~target~ must accept explicit heading/file target queries according to the specification.
-- Link resolver status must be treated as stored resolver-owned data.
-- Broken, unresolved, ambiguous, external, and unsupported link states must remain distinguishable where stored.
-
-Acceptance criteria:
-
-- ~(ancestors (headings ...))~ works according to the specification.
-- ~(children (headings ...))~ works according to the specification.
-- ~(has-link)~ works as an existence test.
-- ~(has-link (links ...))~ filters headings by outgoing links.
-- ~(links-to (files ...))~ and ~(links-to (headings ...))~ work where resolver facts allow it.
-- ~(linked-from (files ...))~ and ~(linked-from (headings ...))~ work where resolver facts allow it.
-- ~(links (source (headings ...)))~ works.
-- ~(links (source (files ...)))~ works.
-- ~(links (target (headings ...)))~ works.
-- ~(links (target (files ...)))~ works.
-- Tests cover heading-to-heading, heading-to-file, file-preamble, broken-link, unresolved-link, and ambiguous-link cases where the DB model supports them.
-
-** TODO [#B] Implement query result shaping and JSON output model
+** TODO Implement query result shaping and JSON output model
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
