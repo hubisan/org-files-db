@@ -99,12 +99,14 @@ General rules:
 
 - Task file: [[file:archive/2026-07-09--implement-query-result-shaping-and-json-output-model.org]]
 
-** TODO [#B] Implement CLI command ~query~
+** REVIEW [#B] Implement CLI command ~query~
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
 :API_CONTRACT_CHANGE: Yes
 :END:
+
+- Task file: [[file:2026-07-09--implement-cli-command-query.org]]
 
 Depends on:
 

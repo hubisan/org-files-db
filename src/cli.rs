@@ -6,7 +6,7 @@ use std::{
     process::ExitCode,
 };
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -15,6 +15,11 @@ use crate::{
     db::{open_existing_database_read_only, DbError, DbReader, HeadingListRow, LinkListRow},
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
+    query::{
+        execute_and_shape_query, parse_query, validate_query, QueryExecutionOptions, QueryInclude,
+        QueryOutputMode, QueryParseError, QueryResponse, QueryShapeError, QueryValidationError,
+        QueryValidationOptions,
+    },
 };
 
 #[derive(Debug, Parser)]
@@ -51,6 +56,58 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    Query {
+        #[arg(long)]
+        json: bool,
+        #[arg(long, value_enum, default_value_t = CliQueryOutput::Flat)]
+        output: CliQueryOutput,
+        #[arg(long, value_enum, value_delimiter = ',')]
+        include: Vec<CliQueryInclude>,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(help = "Query Model v0 expression, for example '(todo \"NEXT\")'")]
+        query: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliQueryOutput {
+    Flat,
+    Outline,
+}
+
+impl From<CliQueryOutput> for QueryOutputMode {
+    fn from(value: CliQueryOutput) -> Self {
+        match value {
+            CliQueryOutput::Flat => Self::Flat,
+            CliQueryOutput::Outline => Self::Outline,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliQueryInclude {
+    Path,
+    Properties,
+    Keywords,
+    Links,
+    Backlinks,
+    Source,
+    Target,
+}
+
+impl From<CliQueryInclude> for QueryInclude {
+    fn from(value: CliQueryInclude) -> Self {
+        match value {
+            CliQueryInclude::Path => Self::Path,
+            CliQueryInclude::Properties => Self::Properties,
+            CliQueryInclude::Keywords => Self::Keywords,
+            CliQueryInclude::Links => Self::Links,
+            CliQueryInclude::Backlinks => Self::Backlinks,
+            CliQueryInclude::Source => Self::Source,
+            CliQueryInclude::Target => Self::Target,
+        }
+    }
 }
 
 pub fn run() -> ExitCode {
@@ -94,10 +151,18 @@ where
         }
         Command::Links { json, config } => {
             let rows = links_json_rows(json, config.as_deref())?;
-            let stdout = io::stdout();
-            let mut handle = stdout.lock();
-            serde_json::to_writer_pretty(&mut handle, &rows).map_err(CliError::Json)?;
-            handle.write_all(b"\n").map_err(CliError::Io)?;
+            write_json_output(&rows)?;
+            Ok(())
+        }
+        Command::Query {
+            json,
+            output,
+            include,
+            config,
+            query,
+        } => {
+            let response = query_json_response(json, &query, output, &include, config.as_deref())?;
+            write_json_output(&response)?;
             Ok(())
         }
     }
@@ -139,6 +204,28 @@ fn links_json_rows(json: bool, config_path: Option<&Path>) -> Result<Vec<LinkJso
     links_rows_for_json(&connection)
 }
 
+fn query_json_response(
+    json: bool,
+    query: &str,
+    output: CliQueryOutput,
+    includes: &[CliQueryInclude],
+    config_path: Option<&Path>,
+) -> Result<QueryResponse, CliError> {
+    if !json {
+        return Err(CliError::MissingJsonFlag("query"));
+    }
+
+    let connection = open_cli_database(config_path)?;
+    let parsed = parse_query(query).map_err(CliError::QueryParse)?;
+    let validated = validate_query(parsed, &QueryValidationOptions::default())
+        .map_err(CliError::QueryValidate)?;
+    let options = QueryExecutionOptions {
+        output_mode: output.into(),
+        includes: includes.iter().copied().map(QueryInclude::from).collect(),
+    };
+    execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
+}
+
 fn headings_rows_for_json(
     connection: &Connection,
     exclude_root: bool,
@@ -169,6 +256,14 @@ fn open_cli_database(config_path: Option<&std::path::Path>) -> Result<Connection
     open_existing_database_read_only(&db_path).map_err(CliError::Database)
 }
 
+fn write_json_output<T: Serialize>(value: &T) -> Result<(), CliError> {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    serde_json::to_writer_pretty(&mut handle, value).map_err(CliError::Json)?;
+    handle.write_all(b"\n").map_err(CliError::Io)?;
+    Ok(())
+}
+
 fn print_diagnostics(report: &RebuildReport) {
     for diagnostic in &report.diagnostics {
         let label = match diagnostic.severity {
@@ -197,6 +292,9 @@ enum CliError {
     Database(DbError),
     DbRead(crate::db::DbReadError),
     Indexer(IndexerError),
+    QueryParse(QueryParseError),
+    QueryValidate(QueryValidationError),
+    QueryShape(QueryShapeError),
     InvalidHeadingTags {
         heading_id: i64,
         source: serde_json::Error,
@@ -217,6 +315,9 @@ impl CliError {
             | Self::Database(_)
             | Self::DbRead(_)
             | Self::Indexer(_)
+            | Self::QueryParse(_)
+            | Self::QueryValidate(_)
+            | Self::QueryShape(_)
             | Self::InvalidHeadingTags { .. }
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
@@ -236,6 +337,9 @@ impl fmt::Display for CliError {
             Self::Database(source) => write!(f, "{source}"),
             Self::DbRead(source) => write!(f, "{source}"),
             Self::Indexer(source) => write!(f, "{source}"),
+            Self::QueryParse(source) => write!(f, "{source}"),
+            Self::QueryValidate(source) => write!(f, "{source}"),
+            Self::QueryShape(source) => write!(f, "{source}"),
             Self::InvalidHeadingTags { heading_id, source } => {
                 write!(
                     f,
@@ -265,6 +369,9 @@ impl Error for CliError {
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
             Self::Indexer(source) => Some(source),
+            Self::QueryParse(source) => Some(source),
+            Self::QueryValidate(source) => Some(source),
+            Self::QueryShape(source) => Some(source),
             Self::InvalidHeadingTags { source, .. } => Some(source),
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
@@ -594,6 +701,290 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "query",
+            "--json",
+            "--output",
+            "outline",
+            "--include",
+            "path,links,path",
+            "(todo \"NEXT\")",
+        ])
+        .expect("query args should parse");
+
+        match cli.command {
+            super::Command::Query {
+                json,
+                output,
+                include,
+                config,
+                query,
+            } => {
+                assert!(json);
+                assert_eq!(output, super::CliQueryOutput::Outline);
+                assert_eq!(
+                    include,
+                    vec![
+                        super::CliQueryInclude::Path,
+                        super::CliQueryInclude::Links,
+                        super::CliQueryInclude::Path,
+                    ]
+                );
+                assert_eq!(config, None);
+                assert_eq!(query, "(todo \"NEXT\")");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_cli_rejects_unknown_include_value() {
+        let error = Cli::try_parse_from([
+            "orgfdb",
+            "query",
+            "--json",
+            "--include",
+            "path,unknown",
+            "(todo)",
+        ])
+        .expect_err("unknown include should fail");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        let rendered = error.to_string();
+        assert!(rendered.contains("unknown"));
+        assert!(rendered.contains("path"));
+    }
+
+    #[test]
+    fn query_cli_rejects_invalid_output_value() {
+        let error =
+            Cli::try_parse_from(["orgfdb", "query", "--json", "--output", "tree", "(todo)"])
+                .expect_err("invalid output should fail");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        let rendered = error.to_string();
+        assert!(rendered.contains("tree"));
+        assert!(rendered.contains("outline"));
+    }
+
+    #[test]
+    fn query_json_supports_heading_link_and_file_targets() {
+        let test_dir = TestDir::new("query-targets");
+        let config_path = write_query_fixture(&test_dir);
+
+        let heading = super::query_json_response(
+            true,
+            "(todo \"NEXT\")",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("heading query should succeed");
+        assert_eq!(heading.target, crate::query::QueryTarget::Headings);
+        assert_eq!(heading.output, crate::query::QueryOutputMode::Flat);
+        assert_eq!(heading.results.len(), 1);
+        match &heading.results[0] {
+            crate::query::QueryResultNode::Heading(node) => {
+                assert_eq!(node.title, "Query engine");
+            }
+            other => panic!("expected heading result, got {other:?}"),
+        }
+
+        let links = super::query_json_response(
+            true,
+            "(links (status \"broken\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("link query should succeed");
+        assert_eq!(links.target, crate::query::QueryTarget::Links);
+        assert_eq!(links.results.len(), 1);
+        match &links.results[0] {
+            crate::query::QueryResultNode::Link(node) => {
+                assert_eq!(node.resolution_status.as_deref(), Some("broken"));
+            }
+            other => panic!("expected link result, got {other:?}"),
+        }
+
+        let files = super::query_json_response(
+            true,
+            "(files (file-title \"Projects\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("file query should succeed");
+        assert_eq!(files.target, crate::query::QueryTarget::Files);
+        assert_eq!(files.results.len(), 1);
+        match &files.results[0] {
+            crate::query::QueryResultNode::File(node) => {
+                assert_eq!(node.title, "Projects");
+            }
+            other => panic!("expected file result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_json_supports_outline_and_multiple_includes() {
+        let test_dir = TestDir::new("query-outline");
+        let config_path = write_query_fixture(&test_dir);
+
+        let response = super::query_json_response(
+            true,
+            "(headings (title \"sqlite\"))",
+            super::CliQueryOutput::Outline,
+            &[
+                super::CliQueryInclude::Path,
+                super::CliQueryInclude::Links,
+                super::CliQueryInclude::Path,
+            ],
+            Some(&config_path),
+        )
+        .expect("outline query should succeed");
+
+        assert_eq!(response.output, crate::query::QueryOutputMode::Outline);
+        assert_eq!(
+            response.includes,
+            vec![
+                crate::query::QueryInclude::Path,
+                crate::query::QueryInclude::Links
+            ]
+        );
+        assert_eq!(response.results.len(), 1);
+        match &response.results[0] {
+            crate::query::QueryResultNode::File(file) => {
+                assert!(!file.matched);
+                assert_eq!(
+                    file.path,
+                    test_dir.path().join("notes.org").display().to_string()
+                );
+                let child = match &file.children.as_ref().expect("children")[0] {
+                    crate::query::QueryResultNode::Heading(node) => node,
+                    other => panic!("expected heading child, got {other:?}"),
+                };
+                assert!(child.matched);
+                assert_eq!(child.title, "SQLite notes");
+            }
+            other => panic!("expected outline file result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_json_examples_from_todo_work() {
+        let test_dir = TestDir::new("query-examples");
+        let config_path = write_query_fixture(&test_dir);
+
+        let examples = [
+            "(todo \"NEXT\")",
+            "(headings (tags \"project\" :match :all))",
+            "(links (status \"broken\"))",
+            "(files (file-title \"Projects\"))",
+        ];
+
+        for query in examples {
+            let response = super::query_json_response(
+                true,
+                query,
+                super::CliQueryOutput::Flat,
+                &[],
+                Some(&config_path),
+            )
+            .expect("example query should succeed");
+            assert!(!response.results.is_empty(), "expected matches for {query}");
+        }
+
+        let include_response = super::query_json_response(
+            true,
+            "(headings (todo \"NEXT\"))",
+            super::CliQueryOutput::Flat,
+            &[super::CliQueryInclude::Path, super::CliQueryInclude::Links],
+            Some(&config_path),
+        )
+        .expect("include example should succeed");
+        match &include_response.results[0] {
+            crate::query::QueryResultNode::Heading(node) => {
+                assert!(node.node_path.is_some());
+                assert!(node.links.is_some());
+            }
+            other => panic!("expected heading result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_json_reports_invalid_syntax_semantics_and_backend_requirements() {
+        let test_dir = TestDir::new("query-errors");
+        let config_path = write_query_fixture(&test_dir);
+
+        let syntax_error = super::query_json_response(
+            true,
+            "(todo \"NEXT\"",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect_err("invalid syntax should fail");
+        assert!(matches!(syntax_error, CliError::QueryParse(_)));
+        assert!(syntax_error.to_string().contains("unterminated"));
+
+        let semantic_error = super::query_json_response(
+            true,
+            "(links (todo \"NEXT\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect_err("invalid semantics should fail");
+        assert!(matches!(semantic_error, CliError::QueryValidate(_)));
+        assert!(semantic_error
+            .to_string()
+            .contains("predicate todo is not valid for target links"));
+
+        let backend_error = super::query_json_response(
+            true,
+            "(links (link-target \"notes.*\" :regexp t))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect_err("unsupported backend requirement should fail");
+        assert!(matches!(backend_error, CliError::QueryShape(_)));
+        assert!(backend_error.to_string().contains("regexp"));
+    }
+
+    #[test]
+    fn query_json_is_read_only_and_does_not_reparse_files() {
+        let test_dir = TestDir::new("query-read-only");
+        let config_path = write_query_fixture(&test_dir);
+        let db_path = test_dir.path().join("db.sqlite");
+        let org_path = test_dir.path().join("projects.org");
+
+        let initial = super::query_json_response(
+            true,
+            "(todo \"NEXT\")",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("initial query should succeed");
+
+        write_file(&org_path, "#+TITLE: Changed\n* DONE Different\n");
+
+        let stored = super::query_json_response(
+            true,
+            "(todo \"NEXT\")",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("stored query should succeed");
+        assert_eq!(initial, stored);
+
+        let reopened = Connection::open(&db_path).expect("database should reopen");
+        let version_after: u32 = reopened
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("user_version should load after read-only query");
+        assert_eq!(version_after, CURRENT_SCHEMA_VERSION);
     }
 
     #[test]
@@ -1557,6 +1948,52 @@ db_path = "./future.sqlite"
         let error = rebuild(Path::new("missing-config.toml")).expect_err("rebuild should fail");
 
         assert!(matches!(error, CliError::Indexer(_)));
+    }
+
+    fn write_query_fixture(test_dir: &TestDir) -> PathBuf {
+        let config_path = test_dir.path().join("config.toml");
+        let projects_path = test_dir.path().join("projects.org");
+        let notes_path = test_dir.path().join("notes.org");
+
+        write_file(
+            &projects_path,
+            r#"#+TITLE: Projects
+#+AUTHOR: Alice
+#+CATEGORY: work
+[[file:notes.org][Preamble]]
+* NEXT Query engine :project:
+:PROPERTIES:
+:AREA: infra
+:END:
+[[file:notes.org::*SQLite notes][Notes heading]]
+* Broken refs
+[[file:notes.org::*Missing heading][Missing]]
+"#,
+        );
+        write_file(
+            &notes_path,
+            r#"#+TITLE: Notes
+* SQLite notes
+"#,
+        );
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+files = ["./projects.org", "./notes.org"]
+
+[todo]
+default_open_keywords = ["TODO(t)", "NEXT(n)"]
+default_closed_keywords = ["DONE(d)"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+        let report = rebuild(&config_path).expect("fixture rebuild should succeed");
+        assert_eq!(report.indexed_files.len(), 2);
+        config_path
     }
 
     fn sorted_object_keys(value: &Value) -> Vec<String> {

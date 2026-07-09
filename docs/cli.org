@@ -101,6 +101,41 @@ Notes:
 - Org ~id:~ links resolve only against indexed non-root headings. External ~org-id-locations~ are not supported, so missing indexed IDs remain ~unresolved~ with ~id not found~.
 - The command opens the existing database in read-only mode. If ~--config~ is provided, only the stored ~db_path~ is read from that config file.
 
+* ~orgfdb query --json~
+
+~orgfdb query --json QUERY~ parses Query Model v0 syntax, validates it against the current query contract, executes it against the existing SQLite database, and prints the shaped JSON response.
+
+The command is read-only. It does not scan Org files, rebuild files, resolve links on demand, or mutate the database.
+
+Execution uses the persisted query stack only:
+
+- Query syntax is parsed by the Query Model v0 parser.
+- Validation uses the Query Model v0 semantic validator.
+- Execution uses the persisted SQLite query layer.
+- Output shaping uses the query result-shaping layer.
+
+Supported options:
+
+- ~--json~ :: required for the stable output mode
+- ~--output flat|outline~ :: controls result shape only; default is ~flat~
+- ~--include path,properties,keywords,links,backlinks,source,target~ :: enriches matched results only
+- ~--config PATH~ :: loads only the stored ~db_path~ from the config file before opening the database read-only
+
+Examples:
+
+#+begin_src shell
+orgfdb query --json '(todo "NEXT")'
+orgfdb query --json '(links (status "broken"))'
+orgfdb query --json --output outline '(headings (title "sqlite"))'
+orgfdb query --json --include path,links '(headings (todo "NEXT"))'
+#+end_src
+
+Notes:
+
+- Output mode and include flags do not change which objects match.
+- The command must be pointed at an already-built database; it does not rebuild missing facts.
+- For query syntax and semantic details, see [[./reference/query-model-v0.org][docs/reference/query-model-v0.org]].
+
 * Link storage contract
 
 Phase 3 stores raw link source facts, and later rebuild-time resolution may populate separate Phase 4 target fields. ~orgfdb links --json~ exposes both sets together without rebuilding, resolving on demand, or mutating the database. Root-attached links are part of the stored data model and remain visible in CLI output, including broken, ambiguous, unresolved, and unsupported rows.

@@ -1,0 +1,107 @@
+#+TITLE: Implement CLI command query
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-09 Thu 14:22]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Phase 5 task from ~todo.org~: *BUILD [#B] Implement CLI command ~query~*
+- User constraints:
+  - implement ~orgfdb query~ on top of the existing DB/query/result-shaping layer
+  - parse Query Model v0 syntax with the query parser
+  - use ~parse_query~, ~validate_query~, ~execute_and_shape_query~, ~QueryExecutionOptions~, ~QueryOutputMode~, and ~QueryInclude~
+  - keep query execution read-only with no Org scanning, no rebuild, and no DB mutation
+  - support ~--json~, ~--output flat|outline~, and ~--include path,properties,keywords,links,backlinks,source,target~
+  - do not implement FTS, ~search~, CLI-side query semantics changes, or parser/SQL semantics changes
+  - add CLI tests, help/docs, and run ~cargo fmt --all~, focused tests, and ~make ci~
+
+* Planning
+
+** Problem summary
+The query language and result-shaping stack are implemented, but there is no user-facing CLI command that parses Query Model v0 syntax, validates it, executes it against the read-only database, and returns the shaped JSON response.
+
+** Goals
+- Add a ~query~ subcommand that parses Query Model v0 and emits shaped JSON.
+- Keep the command read-only and strictly DB-backed.
+- Support output-mode and include flags as CLI execution options only.
+- Cover parsing, happy-path execution, and error cases with CLI-style tests.
+
+** Non-goals
+- Org parsing or file scanning at query time
+- DB rebuilds or mutation
+- query syntax or semantic changes
+- FTS or separate ~search~ command work
+- non-JSON output support
+
+** Architecture
+- Extend ~src/cli.rs~ with a ~Query~ subcommand and small CLI-only parsers for output/include flags.
+- Add a helper that opens the existing database read-only, parses and validates the query string, then calls ~execute_and_shape_query~.
+- Reuse existing CLI JSON rendering and error/exit-code conventions.
+
+** Execution plan
+- Add the new command, flag parsing, and read-only execution helper.
+- Extend CLI errors with query parse/validate/backend/result-shaping variants.
+- Add unit tests for argument parsing, execution, JSON shape, and failures.
+- Update ~docs/cli.org~ with a minimal ~orgfdb query~ section.
+
+** Risks & assumptions
+- ~QueryValidationOptions::default()~ is the correct CLI capability set for now, meaning body text is unavailable and regexp body matching is unsupported.
+- ~--json~ remains required, matching the current pattern of the stable read-only CLI commands.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo fmt --all~
+- ~cargo test cli::tests::query --lib~
+- ~cargo test query::sqlite --lib~
+- ~cargo test query::result --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a ~query~ subcommand in ~src/cli.rs~ that parses Query Model v0 syntax, validates it, opens the configured database read-only, and delegates execution plus shaping to ~execute_and_shape_query~.
+- Kept output mode and include parsing in the CLI layer only through small CLI enums mapped to ~QueryOutputMode~ and ~QueryInclude~.
+- Reused the existing CLI JSON writer and DB-opening path so ~query~ follows the same read-only behavior as ~headings~ and ~links~.
+- Extended CLI error handling with query-parse, query-validation, and query-execution/shaping variants while preserving the underlying messages.
+- Added CLI-focused tests for argument parsing, heading/link/file query execution, outline mode, include handling, duplicate includes, invalid flags, invalid query syntax/semantics, unsupported backend requirements, and read-only behavior against changed source files.
+- Added a minimal ~orgfdb query~ section to ~docs/cli.org~ with options, examples, and a reference to ~docs/reference/query-model-v0.org~.
+
+** Changed files
+- ~src/cli.rs~
+- ~docs/cli.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-09--implement-cli-command-query.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test cli::tests --lib~
+- ~cargo test query::sqlite --lib~
+- ~cargo test query::result --lib~
+- ~make ci~
+
+** Test results
+- Added CLI tests covering:
+  - query argument parsing for ~--json~, ~--output~, and ~--include~
+  - heading, link, and file query JSON responses
+  - ~flat~ and ~outline~ output
+  - multiple and duplicate include values
+  - unknown include and invalid output errors from CLI parsing
+  - invalid query syntax, invalid query semantics, and unsupported backend requirement errors
+  - the examples listed in the Phase 5 task entry
+  - read-only behavior with persisted DB results after source files changed on disk
+- ~cargo test cli::tests --lib~ passed.
+- ~cargo test query::sqlite --lib~ passed.
+- ~cargo test query::result --lib~ passed.
+- ~make ci~ passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- If the standalone query command gains non-JSON output later, keep that separate from the current stable JSON contract.
