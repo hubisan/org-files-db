@@ -95,62 +95,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-08--implement-hierarchy-and-graph-relation-predicates.org]]
 
-** TODO Implement query result shaping and JSON output model
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Implement query result shaping and JSON output model [2026-07-09 Thu]
 
-Depends on:
-
-- Implement safe SQL translation and core metadata query execution
-- Implement hierarchy and graph relation predicates
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Convert matched DB rows into stable result objects for CLI and editor integrations.
-
-Output modes:
-
-- ~flat~
-- ~outline~
-
-Include options:
-
-- ~path~
-- ~properties~
-- ~keywords~
-- ~links~
-- ~backlinks~
-- ~source~
-- ~target~
-
-Rules:
-
-- Output mode must not change which objects match.
-- Include options must not change which objects match.
-- Flat output returns matched objects as a list.
-- Outline output returns a tree with file/root nodes and context nodes.
-- Context-only nodes must be distinguishable from matched nodes.
-- File/root nodes must not be represented as fake headings.
-- Link nodes must preserve source and target information where available.
-- Links in file preamble have a source path containing only the file/root node.
-
-Acceptance criteria:
-
-- Flat output is documented by tests.
-- Outline output is documented by tests.
-- File/root nodes use ~kind = "file"~.
-- Heading nodes use ~kind = "heading"~.
-- Link nodes use ~kind = "link"~.
-- Real matches are marked with ~matched = true~.
-- Context-only nodes are marked with ~matched = false~.
-- Path output always includes the file/root node.
-- Include options enrich output without changing match semantics.
-- Result objects include enough location data for editor jumps.
-- Result shaping tests cover heading, link, file/root, flat, outline, path, source, target, links, and backlinks output.
+- Task file: [[file:archive/2026-07-09--implement-query-result-shaping-and-json-output-model.org]]
 
 ** TODO [#B] Implement CLI command ~query~
 :PROPERTIES:

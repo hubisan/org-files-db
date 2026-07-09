@@ -1,12 +1,19 @@
 pub mod ast;
 pub mod error;
 pub mod parser;
+pub mod result;
 pub mod sqlite;
 pub mod validate;
 
 pub use ast::{Expr, PredicateArg, PredicateCall, QueryAst, QueryOption, QueryTarget, QueryValue};
 pub use error::{QueryParseError, QueryParseErrorKind};
 pub use parser::parse_query;
+pub use result::{
+    execute_and_shape_query, shape_query_results, FileResultNode, HeadingResultNode, IncludedLink,
+    KeywordFact, LinkResultNode, LinkSource, LinkTarget, Location, PathEntry, PropertyFact,
+    QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse, QueryResultNode,
+    QueryShapeError, QueryShapeErrorKind,
+};
 pub use sqlite::{
     compile_sqlite_query, execute_sqlite_query, CompiledSqlQuery, FileQueryRow, HeadingQueryRow,
     LinkQueryRow, QueryExecutionError, QueryExecutionErrorKind, QueryParam, QueryRows,

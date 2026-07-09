@@ -1,0 +1,118 @@
+#+TITLE: Implement query result shaping and JSON output model
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-09 Thu 13:13]
+#+TASK_COMPLETED: [2026-07-09 Thu 14:35]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Phase 5 task from ~todo.org~: *BUILD Implement query result shaping and JSON output model*
+- User-approved constraints:
+  - add result shaping above ~execute_sqlite_query~
+  - do not change query parsing, validation, or SQL match semantics
+  - keep output mode and include options outside ~QueryAst~ and ~ValidatedQuery~
+  - use read-only enrichment queries after matches are known
+  - do not resolve links at shaping time
+  - do not scan Org files
+  - do not mutate DB facts
+  - do not implement CLI integration in this task
+- User clarifications:
+  - avoid ~path~ field collisions on link nodes
+  - avoid undocumented file/root sentinel locations in JSON output
+  - file ~links~ include is file-wide when requested
+  - file ~backlinks~ include includes heading-resolved links via stored ~target_file_id~
+  - add tests for path collision, file-wide links/backlinks, and file/root location semantics
+
+* Planning
+
+** Problem summary
+The query backend currently returns raw target-specific rows only. This task must turn those matched rows into a stable JSON-facing result model for later CLI/editor use without changing matching semantics or coupling the query AST to output concerns.
+
+** Goals
+- Add a result shaping layer above raw SQLite execution.
+- Support stable ~flat~ and ~outline~ query output modes.
+- Support include-based enrichment for ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~, ~source~, and ~target~.
+- Keep shaping read-only and based only on stored DB facts.
+- Document behavior with focused tests.
+
+** Non-goals
+- CLI command integration
+- parser, validator, or SQL predicate semantic changes
+- link resolution at shaping time
+- Org file scanning
+- DB mutation or repair
+- FTS/body search work
+
+** Architecture
+- Add a dedicated query result module re-exported from ~src/query.rs~.
+- Keep output mode/include options in a separate execution-options struct.
+- Execute raw matching first, then run read-only enrichment queries by matched IDs and relevant file IDs.
+- Use distinct JSON names for stored link target paths and include-generated node paths.
+
+** Execution plan
+- Add public result/output option types and shaping entrypoints.
+- Implement read-only enrichment loaders for files, headings, paths, properties, keywords, outgoing links, backlinks, and resolved target metadata.
+- Shape heading, file, and link results for flat and outline modes with deterministic ordering.
+- Add focused result-shaping tests and run the requested checks.
+
+** Risks & assumptions
+- The stable query JSON model for this task may differ from earlier raw CLI JSON row shapes.
+- File/root locations use explicit nullable location fields instead of exposing the internal level-0 byte sentinel.
+- File ~links~ and ~backlinks~ includes operate file-wide, not root-only.
+
+** Open questions
+- None after approval and clarifications.
+
+** Proposed checks
+- ~cargo fmt --all~
+- ~cargo test query::sqlite --lib~
+- ~cargo test query::result --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added ~src/query/result.rs~ as a result-shaping layer above raw SQLite execution and re-exported its public API from ~src/query.rs~.
+- Kept query parsing, validation, and SQL matching unchanged. Output mode and include handling live in ~QueryExecutionOptions~.
+- Loaded enrichment data only after raw matches were known, using read-only DB queries keyed by matched file IDs and heading IDs.
+- Renamed stored link target path output to ~link_path~ and include-generated ordered node paths to ~node_path~ to avoid JSON field collisions.
+- Represented file/root editor-jump locations without leaking the internal level-0 ~byte_start = -1~ sentinel: file/root JSON locations use nullable byte offsets.
+- Implemented file-wide ~links~ and ~backlinks~ includes for file result nodes via stored ~links.file_id~ and ~links.target_file_id~ facts.
+
+** Changed files
+- ~src/query.rs~
+- ~src/query/result.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-09--implement-query-result-shaping-and-json-output-model.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test query::sqlite --lib~
+- ~cargo test query::result --lib~
+- ~make ci~
+
+** Test results
+- Added focused ~query::result~ tests covering:
+  - link node ~link_path~ versus ~node_path~ field separation
+  - concrete ~source~ / ~target~ assertions for preamble, heading, resolved, and broken link output
+  - heading ~properties~ include and omission by default
+  - file/root ~properties~ and ~keywords~ includes and omission by default
+  - heading ~keywords~ include behavior for the current stored-facts model
+  - file-wide outgoing ~links~ include with both preamble/root and heading-local links
+  - file ~backlinks~ include for heading-resolved links through stored ~target_file_id~
+  - file/root location serialization without undocumented sentinel byte offsets
+  - invariant that output mode and include options do not change matched heading IDs
+  - read-only shaping behavior
+- ~cargo test query::sqlite --lib~ passed.
+- ~cargo test query::result --lib~ passed.
+- ~make ci~ passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- CLI integration can consume ~execute_and_shape_query~ later without moving output concerns into ~ValidatedQuery~.
+- If the project wants the Query Model reference document to mirror the final envelope and field names now, the examples in ~docs/reference/query-model-v0.org~ should be updated in the later CLI/query documentation step.
