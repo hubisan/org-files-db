@@ -152,6 +152,68 @@ Acceptance criteria:
 - Unsupported backend requirements return an understandable error.
 - CLI docs link to [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]] once the command is stable enough.
 
+** TODO [#B] Align ~title~ with root/file matching semantics
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- Implement effective root, tag, property, and keyword semantics for queries
+- Implement query result shaping and JSON output model
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Make ~title~ root/file behavior explicit and consistent with Query Model v0.
+
+Problem:
+
+- Query Model v0 says the root can act as a synthetic heading context for selected heading predicates.
+- For root/file context, ~title~ should match the file/root title.
+- The current ~title~ predicate contract only documents ~:regexp~ and ~:exact~.
+- The current validator/backend likely treat ~title~ as a real-heading-only predicate.
+
+Required decision:
+
+- ~title~ on real headings matches heading titles.
+- ~title :with-root t~ also allows the file/root node to match by file/root title.
+- ~title :with-root nil~ excludes file/root title matching.
+- ~title~ without explicit ~:with-root~ should use the Query Model v0 default for root inclusion.
+- ~title :with-root t~ must not behave like ~file-title~.
+- ~file-title~ continues to filter headings by their containing file title.
+- File/root matches must be represented as ~kind = "file"~, not as fake headings.
+
+Rules:
+
+- Do not change ~file-title~ semantics.
+- Do not make ~title :with-root t~ match every heading in a file just because the file title matches.
+- Do not represent root/file matches as fake heading rows.
+- Output mode and include options must not change match semantics.
+- SQL must still use bound parameters for user-provided title values.
+- Query execution must remain read-only and DB-backed.
+
+Acceptance criteria:
+
+- Query Model v0 documents ~title~ root behavior and allowed ~:with-root~ option.
+- Validator accepts ~:with-root~ on heading ~title~.
+- Validator rejects invalid ~:with-root~ values.
+- SQLite backend implements root/file title matching for ~title :with-root t~.
+- ~title :with-root t~ can return a file/root match represented as ~kind = "file"~.
+- ~title :with-root nil~ matches real heading titles only.
+- ~file-title~ still filters headings by containing file title.
+- Tests cover:
+  - real heading title match
+  - root/file title match
+  - ~title :with-root nil~
+  - difference between ~title :with-root t~ and ~file-title~
+  - flat output
+  - outline output
+  - file/root result uses ~kind = "file"~
+  - no fake heading output for root
+
 ** TODO [#C] Implement body text availability for ~(has-text ...)~
 :PROPERTIES:
 :PRIORITY: Low
