@@ -171,19 +171,23 @@ Rules:
 
 - ~(has-text ...)~ is part of the query language.
 - ~(has-text ...)~ does not require FTS5 by definition.
+- Body text availability means heading body text is stored or indexed in the DB/indexing contract, not read from Org files at query time.
 - If body text is available in the DB, a simple backend may use ordinary SQL matching.
 - If body text is unavailable, ~(has-text ...)~ must fail clearly.
 - ~:regexp t~ must fail clearly if the backend does not support regexp matching.
 - Body text availability must be explicit and testable.
+- Query execution must not scan Org files.
+- Query execution must not mutate parsed heading metadata facts.
 
 Acceptance criteria:
 
 - Body text availability is represented in the DB/indexing contract.
+- The configuration meaning of body text availability is documented clearly.
 - ~(has-text "sqlite")~ works when body text is available.
 - ~(has-text "sqlite" "fts")~ requires all terms to match.
 - ~(has-text "sqlite.*fts" :regexp t)~ either works or returns a clear unsupported-backend error.
 - If body text is unavailable, the query returns a clear error.
-- Tests cover available body text, unavailable body text, multiple terms, and unsupported regexp matching.
+- Tests cover available body text, unavailable body text, multiple terms, unsupported regexp matching, no Org file scanning, and no DB mutation.
 
 ** TODO [#C] Enable optional SQLite FTS5 for full-text search
 :PROPERTIES:
@@ -200,24 +204,27 @@ Goal:
 
 - Add an optional FTS5 backend for faster title and body text search.
 
-Planned table when FTS5 is enabled:
+Planned logical FTS columns when FTS5 is enabled:
 
 #+begin_src sql
-CREATE VIRTUAL TABLE heading_fts
-USING fts5(
-    title,
-    body,
-    tokenize = 'unicode61'
-);
+title
+body
 #+end_src
+
+The exact FTS5 schema should be decided during implementation. Prefer an external-content or contentless FTS5 design if that avoids duplicating stored body text.
 
 Rules:
 
 - FTS5 support is configured through ~search.fts5_enabled~.
-- Body indexing is configured separately through ~search.index_body_text~.
+- Body text storage/indexing is configured separately through ~search.index_body_text~.
+- FTS5 indexes the already stored body text when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- FTS5 must not become the only storage location for body text.
+- If body text storage/indexing is disabled, FTS5 may still index heading titles, but it must not index heading bodies.
 - FTS5 must not be required for non-FTS query functionality.
 - Query semantics must remain defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]], not by FTS5 behavior.
 - FTS-specific functionality must fail clearly when FTS5 is disabled.
+- Query execution must not scan Org files.
+- Query execution must not mutate parsed heading metadata facts.
 
 Acceptance criteria:
 
@@ -227,9 +234,10 @@ Acceptance criteria:
 - Heading titles are indexed when FTS5 is enabled.
 - Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
 - FTS-backed search can match title-only, body-only, or both where supported.
-- Body indexing can be disabled even when FTS5 is enabled.
+- Body text storage/indexing can be disabled even when FTS5 is enabled.
+- FTS5 does not duplicate raw body text unless explicitly justified by the chosen schema.
 - Queries or commands using unavailable FTS-specific functionality return clear errors.
-- Tests cover enabled FTS5, disabled FTS5, title indexing, optional body indexing, and disabled body indexing.
+- Tests cover enabled FTS5, disabled FTS5, title indexing, optional body indexing, disabled body indexing, no raw body duplication where the chosen schema supports that, no Org file scanning, and no DB mutation.
 
 ** TODO [#C] Provide CLI command ~search~
 :PROPERTIES:
@@ -257,21 +265,26 @@ Rules:
 - ~search~ is a convenience command, not the canonical query language.
 - ~search~ must not redefine Query Model v0 semantics.
 - ~search~ uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
-- If FTS5 is disabled, ~search~ returns a clear error or a documented fallback.
+- If FTS5 is disabled, ~search~ returns a clear documented error.
 - ~search~ is read-only.
 - ~search~ must not scan Org files.
 - ~search~ must not rebuild or mutate the database.
+- Body matches are available only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- Title matches may be available when ~search.fts5_enabled~ is enabled even if body text storage/indexing is disabled.
+- Output must include enough location data for editor jumps.
 
 Acceptance criteria:
 
 - Search returns JSON when ~--json~ is passed.
-- Results include heading id, file path, title, and byte_start.
+- Results include heading id, file path, title, line number where available, byte_start, and byte_end.
 - Results include enough location data for editor jumps.
 - Search can match heading titles when FTS5 is enabled.
-- Search can optionally include body matches when ~search.index_body_text~ is enabled.
-- If FTS5 is disabled, the command returns a clear documented error or fallback.
+- Search can include body matches when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- If FTS5 is disabled, the command returns a clear documented error.
+- If body text storage/indexing is disabled, body-only search returns a clear documented error or documented title-only behavior.
 - Output is usable from Emacs/editor integrations.
 - CLI docs describe ~search~ as a convenience command.
+- Tests cover JSON output, title matches, optional body matches, disabled FTS5, disabled body indexing, read-only behavior, and no Org file scanning.
 
 ** TODO [#C] Collect future graph operation commands
 :PROPERTIES:
