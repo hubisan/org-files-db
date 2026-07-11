@@ -1,0 +1,12 @@
+#+TITLE: Archive 2025
+#+FILETAGS: :archive:
+#+CATEGORY: archive
+
+* DONE Legacy migration :legacy:
+CLOSED: [2025-12-20 Sat 12:00]
+:PROPERTIES:
+:OWNER: Hubi
+:END:
+
+* CANCEL Obsolete experiment :experiment:
+CLOSED: [2025-11-01 Sat]

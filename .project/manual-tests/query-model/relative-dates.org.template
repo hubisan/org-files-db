@@ -1,0 +1,17 @@
+#+TITLE: Relative Date Tests
+#+FILETAGS: :relative:time:
+
+* TODO Due today without time
+DEADLINE: <__TODAY__ __DAY__>
+
+* TODO Due today with time
+DEADLINE: <__TODAY__ __DAY__ 14:30>
+
+* TODO Scheduled yesterday
+SCHEDULED: <__YESTERDAY__ __YESTERDAY_DAY__ 09:15>
+
+* TODO Scheduled tomorrow
+SCHEDULED: <__TOMORROW__ __TOMORROW_DAY__>
+
+* DONE Closed today
+CLOSED: [__TODAY__ __DAY__ 16:45]

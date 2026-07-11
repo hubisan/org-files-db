@@ -1,0 +1,44 @@
+#+TITLE: Projects
+#+FILETAGS: :work:project:
+#+CATEGORY: projects
+#+PROPERTY: AREA Engineering
+#+TODO: TODO(t) NEXT(n) WAIT(w) REVIEW(r) | DONE(d) CANCEL(c)
+
+* NEXT [#A] Query Engine :rust:sqlite:
+:PROPERTIES:
+:ID: project-query-engine
+:CUSTOM_ID: query-engine
+:OWNER: Hubi
+:EFFORT: 12:00
+:END:
+SCHEDULED: <2026-07-12 Sun 08:30>
+DEADLINE: <2026-07-20 Mon 16:00>
+
+Implement the Query Model v0 backend.
+
+Links:
+- [[file:notes.org::*Query Model][Specification notes]]
+- [[file:notes.org::#query-model][Specification custom ID]]
+- [[https://sqlite.org][SQLite]]
+
+** TODO Safe SQL translation :security:
+:PROPERTIES:
+:OWNER: Sam
+:END:
+DEADLINE: <2026-07-14 Tue>
+
+** REVIEW Result shaping :json:
+SCHEDULED: <2026-07-15 Wed>
+
+*** TODO Outline context nodes :tree:
+
+** DONE AST parser :parser:
+CLOSED: [2026-07-07 Tue 18:15]
+
+* WAIT Mobile integration :mobile:
+:PROPERTIES:
+:OWNER: Alex
+:END:
+
+* CANCEL Old prototype :archive:
+CLOSED: [2026-06-01 Mon]

@@ -1,0 +1,12 @@
+#+TITLE: Duplicate IDs
+#+FILETAGS: :test:duplicates:
+
+* First duplicate
+:PROPERTIES:
+:ID: duplicate-test-id
+:END:
+
+* Second duplicate
+:PROPERTIES:
+:ID: duplicate-test-id
+:END:

@@ -36,10 +36,10 @@ This test suite builds the db and outputs:
 #+name: run-all
 #+begin_src emacs-lisp :results silent
   (org-sbe run-rebuild)
-  (org-sbe dump-db)
+  ;; (org-sbe dump-db)
   (org-sbe write-headings-json-with-root)
-  (org-sbe write-links-json)
-  (org-sbe write-db-top10-md)
+  ;; (org-sbe write-links-json)
+  ;; (org-sbe write-db-top10-md)
 #+end_src
 
 ** Run rebuild. This rebuilds the database.

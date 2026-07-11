@@ -4,7 +4,6 @@ files = []
 
 [[dirs]]
 path = "./files/"
-# path = "./files/link-file-resolve/notes/"
 recursive = true
 
 [search]

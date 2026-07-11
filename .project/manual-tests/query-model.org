@@ -1,0 +1,303 @@
+#+TITLE: Query Model Test
+#+STARTUP: showall
+
+* Paths
+
+#+name: cargo-manifest
+: ../../Cargo.toml
+
+#+name: config-path
+: ./query-model/Config.toml
+
+#+name: headings-json-with-root
+: ./query-model/headings-with-root.json
+
+* Rebuld the Database
+
+#+name: run-rebuild
+#+begin_src shell :noweb yes :results silent
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- rebuild --config <<config-path()>>
+#+end_src
+
+* Write headings JSON including the root heading.
+
+[[./query-model/headings-with-root.json]]
+
+#+name: write-headings-json-with-root
+#+begin_src shell :noweb yes :results silent
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- headings --json --include-root --config <<config-path()>> > <<headings-json-with-root()>>
+#+end_src
+
+* Basic heading queries
+
+** Open NEXT headings
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(todo "NEXT")'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "headings",
+  "output": "flat",
+  "includes": [],
+  "results": [
+    {
+      "kind": "heading",
+      "matched": true,
+      "id": 2,
+      "file_id": 1,
+      "parent_id": 1,
+      "level": 1,
+      "title": "Review query CLI",
+      "title_raw": "[#A] Review query CLI",
+      "todo_keyword": "NEXT",
+      "todo_type": "open",
+      "priority": null,
+      "scheduled_raw": null,
+      "scheduled_ts": null,
+      "deadline_raw": null,
+      "deadline_ts": null,
+      "closed_raw": null,
+      "closed_ts": null,
+      "archivedp": false,
+      "footnote_section_p": false,
+      "all_tags": [
+        "dashboard",
+        "index",
+        "project"
+      ],
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/00-index.org",
+        "line": 13,
+        "byte_start": 338,
+        "byte_end": 788
+      }
+    },
+    {
+      "kind": "heading",
+      "matched": true,
+      "id": 24,
+      "file_id": 6,
+      "parent_id": 23,
+      "level": 1,
+      "title": "Query Engine",
+      "title_raw": "[#A] Query Engine",
+      "todo_keyword": "NEXT",
+      "todo_type": "open",
+      "priority": null,
+      "scheduled_raw": null,
+      "scheduled_ts": null,
+      "deadline_raw": null,
+      "deadline_ts": null,
+      "closed_raw": null,
+      "closed_ts": null,
+      "archivedp": false,
+      "footnote_section_p": false,
+      "all_tags": [
+        "work",
+        "project",
+        "rust",
+        "sqlite"
+      ],
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/projects.org",
+        "line": 7,
+        "byte_start": 158,
+        "byte_end": 818
+      }
+    }
+  ]
+}
+#+end_SRC
+
+** Priority A headings
+
+#+begin_src shell :noweb yes :results output :wrap SRC js
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(priority "A")'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "headings",
+  "output": "flat",
+  "includes": [],
+  "results": []
+}
+#+end_SRC
+
+** Exact heading title
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(headings (title "Query Engine" :exact t))'
+#+end_src
+
+** Heading tags
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(headings (tags "project" :match :all))'
+#+end_src
+
+** Heading property
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(headings (property "CUSTOM_ID" "query-model"))'
+#+end_src
+
+* File queries
+
+** Exact file title
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(files (file-title "Projects" :exact t))'
+#+end_src
+
+** File keyword
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(files (keyword "TITLE" "Projects"))'
+#+end_src
+
+* Link queries
+
+** Broken links
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(links (status "broken"))'
+#+end_src
+
+** Ambiguous links
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(links (status "ambiguous"))'
+#+end_src
+
+** Resolved links with source and target
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> --include source,target '(links (status "resolved"))'
+#+end_src
+
+** Links targeting a heading property
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(links (target (headings (property "CUSTOM_ID" "query-model"))))'
+#+end_src
+
+* Hierarchy queries
+
+** Descendants of Query Engine
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(descendants (headings (title "Query Engine" :exact t)))'
+#+end_src
+
+** Children of Query Engine
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(children (headings (title "Query Engine" :exact t)))'
+#+end_src
+
+* Planning and relative dates
+
+Run the setup blocks first. For reproducible timezone checks, start Emacs with an explicit timezone, for example ~TZ=Europe/Zurich emacs~.
+
+** Deadline today
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on today)'
+#+end_src
+
+** Scheduled yesterday
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(scheduled :on -1)'
+#+end_src
+
+** Deadline tomorrow
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on 1)'
+#+end_src
+
+** Date range from yesterday through tomorrow
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :from -1 :to 1)'
+#+end_src
+
+* Output modes and includes
+
+** Outline output
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> --output outline '(headings (title "Query Engine" :exact t))'
+#+end_src
+
+** Heading with path, properties, keywords, links, and backlinks
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> --include path,properties,keywords,links,backlinks '(headings (title "Query Engine" :exact t))'
+#+end_src
+
+* Boolean queries
+
+** NEXT and priority A
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(and (todo "NEXT") (priority "A"))'
+#+end_src
+
+** TODO or REVIEW
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(or (todo "TODO") (todo "REVIEW"))'
+#+end_src
+
+** Not done
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(not (done))'
+#+end_src
+
+* Expected errors
+
+These blocks capture stderr and force a successful shell exit so Org Babel inserts the diagnostic into the result.
+
+** Invalid syntax
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(todo "NEXT"' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
+
+** Invalid semantic option
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(todo "NEXT" :unknown t)' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
+
+** Unsupported body search
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(has-text "sqlite")' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
+
+** Unsupported explicit-time filter
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on today :with-time t)' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
