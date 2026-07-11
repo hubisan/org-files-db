@@ -106,13 +106,22 @@ General rules:
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-- Task file: [[file:2026-07-09--implement-cli-command-query.org]]
+- Task file: [[file:archive/2026-07-09--implement-cli-command-query.org]]
 
 ** DONE [#B] Parse priorities correctly with configured TODO keywords
 
-- Task file: [[file:2026-07-11--parse-priorities-correctly-with-configured-todo-keywords.org]]
+- Task file: [[file:archive/2026-07-11--parse-priorities-correctly-with-configured-todo-keywords.org]]
 
-** TODO [#B] Normalize heading titles and title-query matching
+** DONE [#B] Normalize heading titles and title-query matching
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-11--normalize-heading-titles-and-title-query-matching.org]]
+
+** TODO [#B] Include TODO keywords in ~title_raw~
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -121,19 +130,22 @@ General rules:
 
 Goal:
 
-- Fix heading title normalisation so ~title~ contains only the semantic heading title.
-- Always remove priority cookies from ~title~.
-- Always remove statistics cookies from ~title~.
-- Ensure title queries match against the cleaned ~headings.title~ value.
-- Preserve the source-oriented representation in ~title_raw~.
+- Make ~title_raw~ a consistent source-oriented representation of the heading title area.
+- Include the TODO keyword in ~title_raw~.
+- Keep ~title~ as the cleaned semantic title used for normal title queries.
+- Preserve separately parsed fields such as ~todo_keyword~, ~todo_type~, and ~priority~.
 
-Example:
+Problem:
+
+The current ~title_raw~ contract is only partially raw.
+
+For a heading such as:
 
 #+begin_src org
 ,* REVIEW [#B] Statistic Cookies [0/1]
 #+end_src
 
-Expected parsed and persisted values:
+the current representation may be:
 
 #+begin_src json
 {
@@ -144,97 +156,130 @@ Expected parsed and persisted values:
 }
 #+end_src
 
-Current incorrect result:
+The TODO keyword has already been removed from ~title_raw~, while priority and statistics cookies remain. This makes the field difficult to interpret and inconsistent as a source-oriented value.
+
+Expected representation:
 
 #+begin_src json
 {
   "todo_keyword": "REVIEW",
+  "todo_type": "open",
   "priority": "B",
-  "title": "[#B] Statistic Cookies [0/1]",
-  "title_raw": "[#B] Statistic Cookies [0/1]"
+  "title": "Statistic Cookies",
+  "title_raw": "REVIEW [#B] Statistic Cookies [0/1]"
 }
 #+end_src
 
 Rules:
 
-- ~title~ must not contain the TODO keyword.
-- ~title~ must not contain a priority cookie such as ~[#A]~, ~[#B]~, or ~[#C]~.
-- ~title~ must not contain a statistics cookie such as ~[0/1]~, ~[2/5]~, or ~[50%]~.
-- ~title_raw~ keeps priority and statistics cookies according to the existing raw-title contract.
-- The separately parsed ~priority~ field remains unchanged.
-- Statistics cookies should be removed using Org syntax information where available.
-- Arbitrary bracketed text such as ~[Linux]~ or ~[RFC]~ must remain part of ~title~.
-- Removing cookies must not leave leading, trailing, or duplicate whitespace in ~title~.
-- Built-in and configured TODO keywords must behave identically.
-- The normal ~title~ query predicate uses ~headings.title~.
-- Priority and statistics cookies must not participate in normal title matching.
-- ~title_raw~ is source-oriented output and must not be used by the normal ~title~ predicate.
-- Existing indexed data must be rebuilt after this parser change.
+- ~title~ contains only the cleaned semantic heading title.
+- ~title~ must not contain:
+  - the TODO keyword
+  - a priority cookie
+  - a statistics cookie
+  - trailing Org tags
+- ~title_raw~ contains the complete source title area after the headline stars.
+- ~title_raw~ includes:
+  - the TODO keyword
+  - the priority cookie
+  - statistics cookies
+  - inline Org markup
+- ~title_raw~ excludes trailing Org tags if tags continue to be represented separately by the existing tag model.
+- ~todo_keyword~ remains stored separately.
+- ~todo_type~ remains stored separately.
+- ~priority~ remains stored separately.
+- ~title_raw~ is source-oriented output and must not be used by the normal ~title~ query predicate.
+- Normal title queries continue to match against ~headings.title~.
+- Existing indexed data must be rebuilt after this change.
 
 Examples:
 
 #+begin_src org
-,* TODO [#A] Prepare release
+,* TODO [#A] Prepare release :project:
 ,* REVIEW [#B] Statistic Cookies [0/1]
 ,* NEXT Progress [50%]
-,* TODO Support [Linux]
+,* DONE Completed task
 #+end_src
 
-Expected normalised titles:
+Expected values:
 
-#+begin_src text
-Prepare release
-Statistic Cookies
-Progress
-Support [Linux]
+#+begin_src json
+[
+  {
+    "todo_keyword": "TODO",
+    "todo_type": "open",
+    "priority": "A",
+    "title": "Prepare release",
+    "title_raw": "TODO [#A] Prepare release"
+  },
+  {
+    "todo_keyword": "REVIEW",
+    "todo_type": "open",
+    "priority": "B",
+    "title": "Statistic Cookies",
+    "title_raw": "REVIEW [#B] Statistic Cookies [0/1]"
+  },
+  {
+    "todo_keyword": "NEXT",
+    "todo_type": "open",
+    "priority": null,
+    "title": "Progress",
+    "title_raw": "NEXT Progress [50%]"
+  },
+  {
+    "todo_keyword": "DONE",
+    "todo_type": "closed",
+    "priority": null,
+    "title": "Completed task",
+    "title_raw": "DONE Completed task"
+  }
+]
 #+end_src
 
-Expected query behaviour:
+Query behaviour:
+
+- Normal title queries use the cleaned ~headings.title~ value.
 
 #+begin_src lisp
-(title "Prepare release")
 (title "Statistic Cookies")
-(title "Progress")
-(title "Support [Linux]")
 #+end_src
 
-These queries must match the corresponding headings.
-
-These queries must not match through the normal ~title~ predicate:
+- TODO keywords, priorities, and statistics cookies do not participate in normal title matching.
 
 #+begin_src lisp
-(title "[#A] Prepare release")
-(title "[#B] Statistic Cookies [0/1]")
-(title "Progress [50%]")
+(title "REVIEW [#B] Statistic Cookies [0/1]")
 #+end_src
+
+- ~title_raw~ remains available for source-oriented JSON output but is not used by the normal ~title~ predicate.
 
 Implementation notes:
 
-- Reuse the parsed priority field instead of relying on reparsing a synthetic heading to remove the priority cookie.
-- Detect statistics cookies through Orgize syntax nodes where possible.
-- Avoid a broad bracket-removal regular expression because normal bracketed title text must remain intact.
-- Keep ~title_raw~ unchanged according to the current contract.
-- Rebuild the database after the parser change so existing rows receive the cleaned ~title~ value.
+- Derive ~title_raw~ directly from the original heading title area instead of reconstructing it from already-normalised fields where possible.
+- Keep the TODO keyword exactly as written in the source.
+- Preserve source ordering and inline Org markup.
+- Reuse the existing trailing-tag boundary so tags are not duplicated in both ~title_raw~ and tag fields.
+- Avoid changing the normalised ~title~ semantics in this task beyond the already planned removal of TODO keywords, priority cookies, and statistics cookies.
+- Review parser, persistence, JSON-output, and fixture expectations that currently assume ~title_raw~ excludes the TODO keyword.
+- Rebuild the database after implementation.
 
 Acceptance criteria:
 
-- A priority cookie is always absent from ~title~.
-- A fraction statistics cookie is always absent from ~title~.
-- A percentage statistics cookie is always absent from ~title~.
-- Priority and statistics cookies remain present in ~title_raw~.
-- The ~priority~ field continues to contain the parsed priority.
-- Configured TODO keywords such as ~REVIEW~ are handled correctly.
-- Built-in TODO keywords are handled correctly.
-- Statistics cookies at the beginning, middle, and end of a title are removed cleanly.
-- Normal bracketed title text is preserved.
-- Links and supported inline markup continue to be normalised correctly.
-- Title queries use the normalised ~headings.title~ value.
-- Priority and statistics cookies do not participate in ~title~ predicate matching.
-- Query results expose the cleaned ~title~ after rebuilding the database.
-- ~title_raw~ remains available for source-oriented output but is not used by the normal ~title~ predicate.
-- Regression tests cover title queries against headings containing priority and statistics cookies.
-- Regression tests cover priority-only, statistics-only, and combined priority/statistics cases.
-- Existing parser, persistence, query, and JSON-output tests continue to pass.
+- ~title_raw~ includes the TODO keyword for built-in TODO keywords.
+- ~title_raw~ includes the TODO keyword for configured TODO keywords.
+- ~title_raw~ includes priority cookies.
+- ~title_raw~ includes fraction statistics cookies.
+- ~title_raw~ includes percentage statistics cookies.
+- ~title_raw~ preserves supported inline Org markup.
+- ~title_raw~ excludes trailing tags according to the existing tag contract.
+- ~title~ remains free of TODO keywords, priority cookies, statistics cookies, and trailing tags.
+- ~todo_keyword~, ~todo_type~, and ~priority~ remain available as separate structured fields.
+- Title queries continue to use the normalised ~headings.title~ value.
+- Query results expose the updated ~title_raw~ after rebuilding the database.
+- Regression tests cover default, configured open, and configured closed TODO keywords.
+- Regression tests cover headings with and without priorities.
+- Regression tests cover headings with statistics cookies.
+- Regression tests cover trailing tags and inline markup.
+- Existing parser, persistence, query, and JSON-output tests are updated and continue to pass.
 
 ** TODO [#B] Align ~title~ with root/file matching semantics
 :PROPERTIES:

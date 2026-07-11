@@ -2683,6 +2683,36 @@ mod tests {
     }
 
     #[test]
+    fn execution_title_queries_match_normalized_heading_titles() {
+        let connection = seeded_connection();
+
+        let normalized_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (title "Statistic Cookies" :exact t))"#),
+        )
+        .expect("normalized title query should execute");
+        match normalized_rows {
+            QueryRows::Headings(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].id, 14);
+                assert_eq!(rows[0].title, "Statistic Cookies");
+                assert_eq!(rows[0].title_raw, "[#B] Statistic Cookies [0/1]");
+            }
+            other => panic!("unexpected rows for normalized title query: {other:?}"),
+        }
+
+        let raw_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (title "[#B] Statistic Cookies [0/1]" :exact t))"#),
+        )
+        .expect("raw title query should execute");
+        match raw_rows {
+            QueryRows::Headings(rows) => assert!(rows.is_empty()),
+            other => panic!("unexpected rows for raw title query: {other:?}"),
+        }
+    }
+
+    #[test]
     fn injection_like_strings_remain_bound_and_do_not_broaden_results() {
         let connection = seeded_connection();
 
@@ -3013,6 +3043,29 @@ mod tests {
                         footnote_section_p: false,
                         all_tags_json: "[\"filetag\",\"misc\"]".to_string(),
                     },
+                    HeadingRecord {
+                        id: Some(14),
+                        file_id,
+                        parent_id: Some(root_id),
+                        level: 1,
+                        line_number: Some(10),
+                        byte_start: 96,
+                        byte_end: 130,
+                        title: "Statistic Cookies".to_string(),
+                        title_raw: "[#B] Statistic Cookies [0/1]".to_string(),
+                        todo_keyword: Some("REVIEW".to_string()),
+                        todo_type: Some("open".to_string()),
+                        priority: Some('B'),
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[\"filetag\"]".to_string(),
+                    },
                 ],
             )?;
             DbWriter::insert_outline_path(
@@ -3051,6 +3104,14 @@ mod tests {
                         materialized_path: "0000.0002".to_string(),
                         breadcrumbs_json: "[\"Alpha Index\",\"Loose Note\"]".to_string(),
                     },
+                    OutlinePathRecord {
+                        heading_id: 14,
+                        file_id,
+                        parent_id: Some(10),
+                        depth: 1,
+                        materialized_path: "0000.0003".to_string(),
+                        breadcrumbs_json: "[\"Alpha Index\",\"Statistic Cookies\"]".to_string(),
+                    },
                 ],
             )?;
             DbWriter::insert_tags(
@@ -3071,6 +3132,10 @@ mod tests {
                     TagRecord {
                         heading_id: 13,
                         tag: "misc".to_string(),
+                    },
+                    TagRecord {
+                        heading_id: 14,
+                        tag: "filetag".to_string(),
                     },
                 ],
             )?;

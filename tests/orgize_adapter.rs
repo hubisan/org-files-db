@@ -764,12 +764,12 @@ fn orgize_adapter_uses_configured_project_todo_keywords_with_priority() {
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].priority, Some('A'));
     assert_eq!(document.headings[1].title, "Parser fixture");
-    assert_eq!(document.headings[1].title_raw, "Parser fixture");
+    assert_eq!(document.headings[1].title_raw, "[#A] Parser fixture");
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].priority, Some('B'));
     assert_eq!(document.headings[2].title, "Implemented");
-    assert_eq!(document.headings[2].title_raw, "Implemented");
+    assert_eq!(document.headings[2].title_raw, "[#B] Implemented");
 }
 
 #[test]
@@ -829,22 +829,22 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priorit
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].priority, Some('A'));
     assert_eq!(document.headings[1].title, "Priority Test");
-    assert_eq!(document.headings[1].title_raw, "Priority Test");
+    assert_eq!(document.headings[1].title_raw, "[#A] Priority Test");
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("REVIEW"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[2].priority, Some('B'));
     assert_eq!(document.headings[2].title, "Review query CLI");
-    assert_eq!(document.headings[2].title_raw, "Review query CLI");
+    assert_eq!(document.headings[2].title_raw, "[#B] Review query CLI");
     assert_eq!(document.headings[3].todo_keyword.as_deref(), Some("BUILD"));
     assert_eq!(document.headings[3].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[3].priority, Some('C'));
     assert_eq!(document.headings[3].title, "Build query backend");
-    assert_eq!(document.headings[3].title_raw, "Build query backend");
+    assert_eq!(document.headings[3].title_raw, "[#C] Build query backend");
     assert_eq!(document.headings[4].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[4].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[4].priority, Some('B'));
     assert_eq!(document.headings[4].title, "Completed task");
-    assert_eq!(document.headings[4].title_raw, "Completed task");
+    assert_eq!(document.headings[4].title_raw, "[#B] Completed task");
 }
 
 #[test]
@@ -1245,6 +1245,46 @@ fn orgize_adapter_normalizes_described_link_titles() {
         document.headings[1].title_raw,
         "[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]"
     );
+}
+
+#[test]
+fn orgize_adapter_removes_priority_and_statistics_cookies_from_titles() {
+    let content = "\
+#+TODO: TODO(t) NEXT(n) REVIEW(r) | DONE(d)
+* TODO [#A] Prepare release
+* REVIEW [#B] Statistic Cookies [0/1]
+* NEXT Progress [50%]
+* TODO Support [Linux]
+";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/title-cookies.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("title cookie fixture should parse");
+
+    assert_eq!(document.headings.len(), 5);
+
+    assert_eq!(document.headings[1].priority, Some('A'));
+    assert_eq!(document.headings[1].title, "Prepare release");
+    assert_eq!(document.headings[1].title_raw, "[#A] Prepare release");
+
+    assert_eq!(document.headings[2].priority, Some('B'));
+    assert_eq!(document.headings[2].title, "Statistic Cookies");
+    assert_eq!(
+        document.headings[2].title_raw,
+        "[#B] Statistic Cookies [0/1]"
+    );
+
+    assert_eq!(document.headings[3].priority, None);
+    assert_eq!(document.headings[3].title, "Progress");
+    assert_eq!(document.headings[3].title_raw, "Progress [50%]");
+
+    assert_eq!(document.headings[4].priority, None);
+    assert_eq!(document.headings[4].title, "Support [Linux]");
+    assert_eq!(document.headings[4].title_raw, "Support [Linux]");
 }
 
 #[test]

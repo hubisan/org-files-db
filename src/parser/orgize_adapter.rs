@@ -364,10 +364,12 @@ fn collect_headlines(
 
         let original_title_raw = headline.title_raw().trim_end().to_string();
         let source_title_raw = source_title_raw_from_content_line(content, start);
+        let parsed_priority = headline.priority().and_then(|token| token.chars().next());
         let normalized_title = normalize_title_elements(headline.title());
         let mut parsed =
             ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
         parsed.title_raw = original_title_raw.trim().to_string();
+        parsed.priority = parsed_priority;
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
         if parsed
             .todo_keyword
@@ -377,26 +379,33 @@ fn collect_headlines(
         {
             parsed.todo_keyword = None;
             parsed.title_raw = source_title_raw.clone();
-            parsed.title = normalize_title_preserving_leading_keyword(&source_title_raw);
+            parsed.title =
+                normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
+        }
+        if let Some(keyword) = parsed.todo_keyword.as_deref() {
+            if let Some(stripped_title_raw) = strip_leading_todo_keyword(&source_title_raw, keyword)
+            {
+                parsed.title_raw = stripped_title_raw;
+            }
         }
         if parsed.todo_keyword.is_none() {
             if source_title_raw != original_title_raw.trim() {
                 parsed.title_raw = source_title_raw.clone();
-                parsed.title = normalize_title_preserving_leading_keyword(&source_title_raw);
+                parsed.title =
+                    normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
             }
             if let Some((keyword, stripped_title_raw)) =
                 infer_todo_keyword(&source_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
                 parsed.title_raw = stripped_title_raw.clone();
-                parsed.title = normalize_title_from_raw(&stripped_title_raw);
+                parsed.title = normalize_title_from_raw(&stripped_title_raw, parsed.priority);
             }
         }
         parsed.todo_type = parsed
             .todo_keyword
             .as_deref()
             .and_then(|keyword| todo_type_for_keyword(keyword, todo_keywords));
-        parsed.priority = headline.priority().and_then(|token| token.chars().next());
         parsed.tags = headline.tags().map(|tag| tag.to_string()).collect();
         parsed.line_number = Some(line_number_for_offset(content, start));
         parsed.parent_index = parent_index;
@@ -520,26 +529,28 @@ fn body_metadata_kind(kind: SyntaxKind) -> bool {
     )
 }
 
-fn normalize_title_from_raw(title_raw: &str) -> String {
-    let parsed = Org::parse(format!("* {title_raw}\n"));
+fn normalize_title_from_raw(title_raw: &str, priority: Option<char>) -> String {
+    let stripped = strip_leading_priority_cookie(title_raw, priority);
+    let parsed = Org::parse(format!("* {stripped}\n"));
     parsed
         .document()
         .headlines()
         .next()
         .map(|headline| normalize_title_elements(headline.title()))
-        .unwrap_or_else(|| title_raw.trim().to_string())
+        .unwrap_or_else(|| stripped.trim().to_string())
 }
 
-fn normalize_title_preserving_leading_keyword(title_raw: &str) -> String {
+fn normalize_title_preserving_leading_keyword(title_raw: &str, priority: Option<char>) -> String {
     const SENTINEL: &str = "ORG_FILES_DB_SENTINEL ";
-    let parsed = Org::parse(format!("* {SENTINEL}{title_raw}\n"));
+    let stripped = strip_leading_priority_cookie(title_raw, priority);
+    let parsed = Org::parse(format!("* {SENTINEL}{stripped}\n"));
     parsed
         .document()
         .headlines()
         .next()
         .map(|headline| normalize_title_elements(headline.title()))
         .and_then(|title| title.strip_prefix(SENTINEL).map(str::to_string))
-        .unwrap_or_else(|| title_raw.trim().to_string())
+        .unwrap_or_else(|| stripped.trim().to_string())
 }
 
 fn populate_heading_timestamps(headline: &Headline, content: &str, parsed: &mut ParsedHeading) {
@@ -1181,6 +1192,7 @@ fn normalize_title_elements(elements: impl Iterator<Item = SyntaxElement>) -> St
 fn push_normalized_element(output: &mut String, element: SyntaxElement) {
     match element {
         NodeOrToken::Node(node) => match node.kind() {
+            SyntaxKind::COOKIE => {}
             SyntaxKind::LINK => {
                 if let Some(link) = Link::cast(node.clone()) {
                     if link.has_description() {
@@ -1390,6 +1402,39 @@ fn infer_todo_keyword(
     }
 
     None
+}
+
+fn strip_leading_todo_keyword(title_raw: &str, keyword: &str) -> Option<String> {
+    let remainder = title_raw.strip_prefix(keyword)?;
+    if remainder.is_empty() {
+        return None;
+    }
+
+    let stripped = remainder.trim_start();
+    if stripped.len() == remainder.len() {
+        return None;
+    }
+
+    Some(stripped.to_string())
+}
+
+fn strip_leading_priority_cookie(title_raw: &str, priority: Option<char>) -> &str {
+    let Some(priority) = priority else {
+        return title_raw;
+    };
+
+    let trimmed = title_raw.trim_start();
+    let prefix = format!("[#{priority}]");
+    let Some(remainder) = trimmed.strip_prefix(&prefix) else {
+        return title_raw;
+    };
+    if remainder.is_empty() {
+        ""
+    } else if remainder.starts_with(char::is_whitespace) {
+        remainder.trim_start()
+    } else {
+        title_raw
+    }
 }
 
 fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Option<TodoType> {

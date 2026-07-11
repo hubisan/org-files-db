@@ -1,0 +1,211 @@
+#+TITLE: Normalize heading titles and title-query matching
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-11 Sat 23:10]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Normalize heading titles and title-query matching
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-11--normalize-heading-titles-and-title-query-matching.org]]
+
+Goal:
+
+- Fix heading title normalisation so ~title~ contains only the semantic heading title.
+- Always remove priority cookies from ~title~.
+- Always remove statistics cookies from ~title~.
+- Ensure title queries match against the cleaned ~headings.title~ value.
+- Preserve the source-oriented representation in ~title_raw~.
+
+Example:
+
+#+begin_src org
+,* REVIEW [#B] Statistic Cookies [0/1]
+#+end_src
+
+Expected parsed and persisted values:
+
+#+begin_src json
+{
+  "todo_keyword": "REVIEW",
+  "priority": "B",
+  "title": "Statistic Cookies",
+  "title_raw": "[#B] Statistic Cookies [0/1]"
+}
+#+end_src
+
+Current incorrect result:
+
+#+begin_src json
+{
+  "todo_keyword": "REVIEW",
+  "priority": "B",
+  "title": "[#B] Statistic Cookies [0/1]",
+  "title_raw": "[#B] Statistic Cookies [0/1]"
+}
+#+end_src
+
+Rules:
+
+- ~title~ must not contain the TODO keyword.
+- ~title~ must not contain a priority cookie such as ~[#A]~, ~[#B]~, or ~[#C]~.
+- ~title~ must not contain a statistics cookie such as ~[0/1]~, ~[2/5]~, or ~[50%]~.
+- ~title_raw~ keeps priority and statistics cookies according to the existing raw-title contract.
+- The separately parsed ~priority~ field remains unchanged.
+- Statistics cookies should be removed using Org syntax information where available.
+- Arbitrary bracketed text such as ~[Linux]~ or ~[RFC]~ must remain part of ~title~.
+- Removing cookies must not leave leading, trailing, or duplicate whitespace in ~title~.
+- Built-in and configured TODO keywords must behave identically.
+- The normal ~title~ query predicate uses ~headings.title~.
+- Priority and statistics cookies must not participate in normal title matching.
+- ~title_raw~ is source-oriented output and must not be used by the normal ~title~ predicate.
+- Existing indexed data must be rebuilt after this parser change.
+
+Examples:
+
+#+begin_src org
+,* TODO [#A] Prepare release
+,* REVIEW [#B] Statistic Cookies [0/1]
+,* NEXT Progress [50%]
+,* TODO Support [Linux]
+#+end_src
+
+Expected normalised titles:
+
+#+begin_src text
+Prepare release
+Statistic Cookies
+Progress
+Support [Linux]
+#+end_src
+
+Expected query behaviour:
+
+#+begin_src lisp
+(title "Prepare release")
+(title "Statistic Cookies")
+(title "Progress")
+(title "Support [Linux]")
+#+end_src
+
+These queries must match the corresponding headings.
+
+These queries must not match through the normal ~title~ predicate:
+
+#+begin_src lisp
+(title "[#A] Prepare release")
+(title "[#B] Statistic Cookies [0/1]")
+(title "Progress [50%]")
+#+end_src
+
+Implementation notes:
+
+- Reuse the parsed priority field instead of relying on reparsing a synthetic heading to remove the priority cookie.
+- Detect statistics cookies through Orgize syntax nodes where possible.
+- Avoid a broad bracket-removal regular expression because normal bracketed title text must remain intact.
+- Keep ~title_raw~ unchanged according to the current contract.
+- Rebuild the database after the parser change so existing rows receive the cleaned ~title~ value.
+
+Acceptance criteria:
+
+- A priority cookie is always absent from ~title~.
+- A fraction statistics cookie is always absent from ~title~.
+- A percentage statistics cookie is always absent from ~title~.
+- Priority and statistics cookies remain present in ~title_raw~.
+- The ~priority~ field continues to contain the parsed priority.
+- Configured TODO keywords such as ~REVIEW~ are handled correctly.
+- Built-in TODO keywords are handled correctly.
+- Statistics cookies at the beginning, middle, and end of a title are removed cleanly.
+- Normal bracketed title text is preserved.
+- Links and supported inline markup continue to be normalised correctly.
+- Title queries use the normalised ~headings.title~ value.
+- Priority and statistics cookies do not participate in ~title~ predicate matching.
+- Query results expose the cleaned ~title~ after rebuilding the database.
+- ~title_raw~ remains available for source-oriented output but is not used by the normal ~title~ predicate.
+- Regression tests cover title queries against headings containing priority and statistics cookies.
+- Regression tests cover priority-only, statistics-only, and combined priority/statistics cases.
+- Existing parser, persistence, query, and JSON-output tests continue to pass.
+
+* Planning
+
+** Problem summary
+The parser currently derives normalised heading titles by reparsing raw heading text, which leaves priority and statistics cookies in ~title~ for some configured TODO cases. Query title matching must use the cleaned persisted ~headings.title~ value rather than any raw-title form.
+
+** Goals
+- Remove priority and statistics cookies from parsed heading ~title~.
+- Preserve ~title_raw~ as-is.
+- Ensure title query predicates match the cleaned persisted title values.
+
+** Non-goals
+- changing ~title_raw~ semantics
+- further priority parsing changes
+- TODO keyword configuration changes
+- unrelated query semantics changes
+
+** Architecture
+- Adjust title normalization in the Orgize adapter using headline/title syntax information and parsed priority metadata.
+- Keep persistence and query behavior aligned by continuing to read the normal ~headings.title~ column in title predicates.
+- Add parser and DB-backed query regressions for combined priority/statistics and normal bracket text preservation.
+
+** Execution plan
+- Add parser regression tests that currently fail for combined priority/statistics and statistics-only titles.
+- Add query regression coverage that proves title matching uses cleaned persisted ~headings.title~ and does not match raw cookie text.
+- Implement the title normalization change in the parser adapter.
+- Run focused tests and ~make ci~.
+
+** Risks & assumptions
+- Orgize ~COOKIE~ syntax nodes can distinguish real statistics cookies from ordinary bracketed text well enough for this task.
+- The query backend already targets ~headings.title~; the main need is regression coverage to lock that contract down.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test orgize_adapter_removes_priority_and_statistics_cookies_from_titles --test orgize_adapter~
+- ~cargo test execution_title_queries_match_normalized_heading_titles --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a parser regression for headings that combine TODO keywords, priority cookies, statistics cookies, and ordinary bracketed text, plus a DB-backed query regression that distinguishes ~title~ from ~title_raw~.
+- Changed heading-title normalization in ~src/parser/orgize_adapter.rs~ so Orgize ~COOKIE~ nodes are skipped during title rendering and fallback raw-title normalization strips only a leading parsed priority cookie before reusing Orgize for markup-aware normalization.
+- Kept ~title_raw~ unchanged in this task and left priority parsing / TODO keyword configuration behavior untouched apart from consuming the already parsed priority value.
+- Updated the query-model reference docs to state that ~title~ matching uses normalized stored heading titles and excludes TODO, priority, and statistics cookies.
+- Adjusted the native TODO-recognition path so ~title_raw~ is derived from the source heading line with only the leading TODO keyword removed, which preserves priority and statistics cookies consistently across native and fallback TODO detection.
+
+** Changed files
+- ~src/parser/orgize_adapter.rs~
+- ~src/query/sqlite.rs~
+- ~tests/orgize_adapter.rs~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-11--normalize-heading-titles-and-title-query-matching.org~
+
+** Checks performed
+- ~cargo test orgize_adapter_removes_priority_and_statistics_cookies_from_titles --test orgize_adapter~
+- ~cargo test execution_title_queries_match_normalized_heading_titles --lib~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+- The new parser regression failed before the implementation because the title normalization still retained statistics / raw cookie text in the tested case.
+- The new SQLite query regression passed and now locks in that title predicates match against normalized ~headings.title~ rather than ~title_raw~.
+- After the parser change, both focused regressions passed.
+- The review follow-up confirmed and fixed that recognized TODO headings such as ~NEXT [#A] Review query CLI~ now keep ~[#A]~ in ~title_raw~.
+- ~make ci~ passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- If the project later wants to change native Orgize-derived ~title_raw~ behavior for priority-bearing headings, that should stay separate from this title-normalization task.

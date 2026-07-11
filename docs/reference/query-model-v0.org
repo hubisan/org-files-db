@@ -1073,6 +1073,8 @@ This predicate replaces the earlier proposed ~heading~ predicate name.
 - With ~:regexp t~, all regexps must match.
 - With ~:exact t~, exactly one string must be provided.
 - ~:regexp t~ and ~:exact t~ must not be combined.
+- Matching uses the normalized stored heading title, not ~title_raw~.
+- TODO keywords, priority cookies such as ~[#A]~, and statistics cookies such as ~[2/5]~ or ~[50%]~ do not participate in ~title~ matching.
 
 **** Examples
 
