@@ -99,7 +99,7 @@ General rules:
 
 - Task file: [[file:archive/2026-07-09--implement-query-result-shaping-and-json-output-model.org]]
 
-** TODO [#B] Implement CLI command ~query~
+** DONE [#B] Implement CLI command ~query~
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -108,51 +108,7 @@ General rules:
 
 - Task file: [[file:2026-07-09--implement-cli-command-query.org]]
 
-Depends on:
-
-- Implement query AST and parser
-- Implement query semantic validation and normalization
-- Implement safe SQL translation and core metadata query execution
-- Implement query result shaping and JSON output model
-
-Goal:
-
-- Expose Query Model v0 through the CLI.
-
-Examples:
-
-#+begin_src shell
-orgfdb query --json '(todo "NEXT")'
-orgfdb query --json '(headings (tags "project" :match :all))'
-orgfdb query --json '(links (status "broken"))'
-orgfdb query --json '(files (file-title "Projects"))'
-orgfdb query --json --output outline '(headings (title "sqlite"))'
-orgfdb query --json --include path,links '(headings (todo "NEXT"))'
-#+end_src
-
-Rules:
-
-- ~query~ uses the DB layer, not th parser.
-- ~query~ is read-only.
-- ~query~ must not scan Org files.
-- ~query~ must not rebuild or mutate the database.
-- CLI flags control output and includes, not query semantics.
-- Query syntax and semantics are defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]].
-
-Acceptance criteria:
-
-- ~orgfdb query~ accepts Query Model v0 syntax.
-- Query output is JSON when ~--json~ is passed.
-- Query supports heading, link, and file targets.
-- Query supports flat output.
-- Query supports outline output.
-- Query supports include options from the specification.
-- Invalid query syntax returns an understandable error.
-- Invalid query semantics return an understandable error.
-- Unsupported backend requirements return an understandable error.
-- CLI docs link to [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]] once the command is stable enough.
-
-*** BUILD [#B] Parse priorities correctly with configured TODO keywords
+** PLAN [#B] Parse priorities correctly with configured TODO keywords
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -337,7 +293,7 @@ Acceptance criteria:
 - Regression tests cover headings with and without priority cookies.
 - Existing TODO keyword, title normalisation, persistence, query, and JSON-output tests continue to pass.
 
-*** TODO [#B] Normalize heading titles and title-query matching
+** TODO [#B] Normalize heading titles and title-query matching
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
