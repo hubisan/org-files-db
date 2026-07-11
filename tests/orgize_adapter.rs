@@ -741,6 +741,38 @@ fn orgize_adapter_uses_configured_project_todo_keywords() {
 }
 
 #[test]
+fn orgize_adapter_uses_configured_project_todo_keywords_with_priority() {
+    let content = "* PLAN [#A] Parser fixture\n** DONE [#B] Implemented\n";
+    let options = ParseOptions {
+        todo_keywords: TodoKeywordConfig {
+            open: vec![TodoKeyword::with_fast_key("PLAN", 'p')],
+            closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+        },
+        ..ParseOptions::default()
+    };
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/custom-todo-priority.org"),
+            content,
+            &options,
+        )
+        .expect("orgize adapter should parse configured todo keyword priorities");
+
+    assert_eq!(document.headings.len(), 3);
+    assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
+    assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[1].priority, Some('A'));
+    assert_eq!(document.headings[1].title, "Parser fixture");
+    assert_eq!(document.headings[1].title_raw, "Parser fixture");
+    assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
+    assert_eq!(document.headings[2].priority, Some('B'));
+    assert_eq!(document.headings[2].title, "Implemented");
+    assert_eq!(document.headings[2].title_raw, "Implemented");
+}
+
+#[test]
 fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults() {
     let content = include_str!("data/parser/todo-keywords/custom-sequence/fixture.org");
     let options = ParseOptions {
@@ -767,6 +799,52 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults() {
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].title, "Implemented");
+}
+
+#[test]
+fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priority() {
+    let content = "#+TODO: NEXT(n) REVIEW(r) BUILD(b) | DONE(d) CANCEL(c)\n\
+* NEXT [#A] Priority Test\n\
+* REVIEW [#B] Review query CLI\n\
+* BUILD [#C] Build query backend\n\
+* DONE [#B] Completed task\n";
+    let options = ParseOptions {
+        todo_keywords: TodoKeywordConfig {
+            open: vec![TodoKeyword::with_fast_key("TODO", 't')],
+            closed: vec![TodoKeyword::with_fast_key("DONE", 'd')],
+        },
+        ..ParseOptions::default()
+    };
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/file-local-priority.org"),
+            content,
+            &options,
+        )
+        .expect("orgize adapter should parse priorities from file-local todo keywords");
+
+    assert_eq!(document.headings.len(), 5);
+    assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("NEXT"));
+    assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[1].priority, Some('A'));
+    assert_eq!(document.headings[1].title, "Priority Test");
+    assert_eq!(document.headings[1].title_raw, "Priority Test");
+    assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("REVIEW"));
+    assert_eq!(document.headings[2].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[2].priority, Some('B'));
+    assert_eq!(document.headings[2].title, "Review query CLI");
+    assert_eq!(document.headings[2].title_raw, "Review query CLI");
+    assert_eq!(document.headings[3].todo_keyword.as_deref(), Some("BUILD"));
+    assert_eq!(document.headings[3].todo_type, Some(TodoType::Open));
+    assert_eq!(document.headings[3].priority, Some('C'));
+    assert_eq!(document.headings[3].title, "Build query backend");
+    assert_eq!(document.headings[3].title_raw, "Build query backend");
+    assert_eq!(document.headings[4].todo_keyword.as_deref(), Some("DONE"));
+    assert_eq!(document.headings[4].todo_type, Some(TodoType::Closed));
+    assert_eq!(document.headings[4].priority, Some('B'));
+    assert_eq!(document.headings[4].title, "Completed task");
+    assert_eq!(document.headings[4].title_raw, "Completed task");
 }
 
 #[test]

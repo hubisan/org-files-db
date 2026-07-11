@@ -6,6 +6,7 @@ use orgize::{
         ExportBlock, Headline, Keyword, Link, NodeProperty, PropertyDrawer, QuoteBlock,
         RepeaterType, Section, SourceBlock, SpecialBlock, TimeUnit, Timestamp, VerseBlock,
     },
+    config::ParseConfig,
     rowan::{ast::AstNode, NodeOrToken},
     Org, SyntaxElement, SyntaxKind, SyntaxNode,
 };
@@ -49,7 +50,7 @@ impl OrgParserCore for OrgizeAdapter {
         content: &str,
         options: &ParseOptions,
     ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
-        let org = Org::parse(content);
+        let org = parse_org_document(content, &options.todo_keywords);
         let document = org.document();
         let mut parsed = ParsedOrgDocument::new(path);
 
@@ -92,6 +93,25 @@ impl OrgParserCore for OrgizeAdapter {
 
         Ok(parsed)
     }
+}
+
+fn parse_org_document(content: &str, todo_keywords: &TodoKeywordConfig) -> Org {
+    ParseConfig {
+        todo_keywords: (
+            todo_keywords
+                .open
+                .iter()
+                .map(|keyword| keyword.name.clone())
+                .collect(),
+            todo_keywords
+                .closed
+                .iter()
+                .map(|keyword| keyword.name.clone())
+                .collect(),
+        ),
+        ..ParseConfig::default()
+    }
+    .parse(content)
 }
 
 fn collect_link_structural_context(document: &OrgDocument) -> LinkStructuralContext {

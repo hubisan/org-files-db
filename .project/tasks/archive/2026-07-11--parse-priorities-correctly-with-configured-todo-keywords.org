@@ -1,0 +1,86 @@
+#+TITLE: Parse priorities correctly with configured TODO keywords
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-11 Sat 00:00]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Phase 5 task from ~todo.org~: *BUILD [#B] Parse priorities correctly with configured TODO keywords*
+- User constraints:
+  - keep the scope limited to priority parsing for configured TODO keywords
+  - do not implement the separate statistics-cookie title-normalization task in this change
+  - allow title changes only where they result directly from Orgize correctly recognizing the configured TODO keyword and its priority cookie
+  - add failing regression tests before changing the parser
+  - run ~make ci~
+
+* Planning
+
+** Problem summary
+Orgize currently parses headings with its default TODO keyword set unless the adapter passes the effective configured TODO keywords into the parser. For configured keywords like ~PLAN~, ~NEXT~, or ~REVIEW~, Orgize can miss the priority cookie, causing ~priority~ to stay empty even though fallback TODO inference later recognizes the keyword.
+
+** Goals
+- Make priority parsing work for headings that use effective configured TODO keywords.
+- Keep the fix scoped to parser behavior for TODO keyword recognition and priority extraction.
+- Preserve the current contracts for ~priority~, ~title_raw~, and TODO type output.
+
+** Non-goals
+- separate statistics-cookie normalization work
+- unrelated parser refactors
+- query, DB schema, or CLI behavior changes
+
+** Architecture
+- Update the Orgize adapter to build the parser with the effective TODO keyword lists from ~ParseOptions.todo_keywords~.
+- Keep ~parse_document()~ as the resolver of file-local and configured TODO keywords, and let ~parse_document_core()~ consume that resolved configuration.
+- Use regression tests in the adapter layer to prove the failure before the parser change and the fix after it.
+
+** Execution plan
+- Add regression tests for configured project TODO keywords and file-local TODO sequences that include priority cookies.
+- Run focused tests to confirm the new regressions fail before changing parser construction.
+- Change the adapter parser construction to pass the effective open and closed TODO keyword lists into Orgize.
+- Re-run focused tests and then ~make ci~.
+
+** Risks & assumptions
+- Orgize provides a configurable parser entrypoint for TODO keyword lists in the currently pinned crate version.
+- Title output may change only as a direct consequence of Orgize now recognizing configured TODO keywords and valid priority cookies, which is within scope.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test orgize_adapter_uses_configured_project_todo_keywords_with_priority --test orgize_adapter~
+- ~cargo test orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priority --test orgize_adapter~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added two adapter-level regression tests that fail when configured non-default TODO keywords do not expose priority cookies through Orgize parsing.
+- Limited the implementation change to the Orgize parser construction path in ~src/parser/orgize_adapter.rs~ by passing the effective open and closed TODO keyword lists into ~orgize::ParseConfig~.
+- Kept the existing fallback TODO inference and other title-normalization behavior unchanged, so this task only fixes priority parsing for configured TODO keywords.
+
+** Changed files
+- ~src/parser/orgize_adapter.rs~
+- ~tests/orgize_adapter.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-11--parse-priorities-correctly-with-configured-todo-keywords.org~
+
+** Checks performed
+- ~cargo test orgize_adapter_uses_configured_project_todo_keywords_with_priority --test orgize_adapter~
+- ~cargo test orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priority --test orgize_adapter~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+- The new regression tests failed before the parser change with ~priority = None~ for configured TODO keywords.
+- After passing the effective TODO keywords into Orgize ~ParseConfig~, both new regression tests passed.
+- ~make ci~ passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- If the project wants ~title_raw~ to preserve priority cookies for natively recognized headings, that should remain a separate task from this priority-parsing fix.
