@@ -1804,6 +1804,269 @@ PRAGMA user_version = 2;
     }
 
     #[test]
+    fn open_database_upgrades_v4_timestamp_tables_with_explicit_time_columns() {
+        let test_dir = TestDir::new("explicit-time-columns");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+DROP TABLE timestamps;
+DROP TABLE headings;
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL CHECK (level >= 0),
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    title               TEXT NOT NULL,
+    title_raw           TEXT,
+    todo_keyword        TEXT,
+    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
+    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
+    all_tags_json       TEXT NOT NULL DEFAULT '[]',
+    CHECK (
+        (level = 0 AND parent_id IS NULL)
+        OR
+        (level > 0 AND parent_id IS NOT NULL)
+    )
+);
+
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT,
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT,
+    range_type      TEXT,
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line_number     INTEGER
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw,
+     scheduled_raw, scheduled_ts, all_tags_json)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', NULL, NULL, NULL, '[]'),
+    (2, 1, 1, 1, 21, 60, 'Timed task', 'Timed task',
+     '<2026-01-03 Fri 00:00>', 1767398400, '[]');
+
+INSERT INTO timestamps
+    (id, heading_id, role, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number)
+VALUES
+    (1, 2, 'scheduled', 1767398400, NULL, 'active', 'none', '<2026-01-03 Fri 00:00>', 21, 43, 2);
+
+PRAGMA user_version = 4;
+"#,
+                )
+                .expect("legacy explicit-time schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+        let schema_version = read_schema_version(&connection).expect("schema version should load");
+        assert_eq!(schema_version, CURRENT_SCHEMA_VERSION);
+
+        let heading_columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(headings)")
+                .expect("headings pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("headings pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("headings columns should collect")
+        };
+        assert!(heading_columns
+            .iter()
+            .any(|column| column == "scheduled_has_time"));
+        assert!(heading_columns
+            .iter()
+            .any(|column| column == "deadline_has_time"));
+        assert!(heading_columns
+            .iter()
+            .any(|column| column == "closed_has_time"));
+
+        let timestamp_columns: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(timestamps)")
+                .expect("timestamps pragma should prepare");
+            statement
+                .query_map([], |row| row.get(1))
+                .expect("timestamps pragma should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("timestamps columns should collect")
+        };
+        assert!(timestamp_columns.iter().any(|column| column == "has_time"));
+
+        let migrated_heading: (Option<i64>, Option<i64>) = connection
+            .query_row(
+                "SELECT scheduled_ts, scheduled_has_time
+                 FROM headings
+                 WHERE id = 2",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("migrated heading should load");
+        assert_eq!(migrated_heading, (Some(1_767_398_400), None));
+
+        let migrated_timestamp: (Option<i64>, Option<i64>) = connection
+            .query_row(
+                "SELECT start_ts, has_time
+                 FROM timestamps
+                 WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("migrated timestamp should load");
+        assert_eq!(migrated_timestamp, (Some(1_767_398_400), None));
+    }
+
+    #[test]
+    fn open_database_preserves_existing_explicit_time_values_during_table_rebuilds() {
+        let test_dir = TestDir::new("preserve-explicit-time-values");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+DROP TABLE timestamps;
+DROP TABLE headings;
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL CHECK (level >= 0),
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    title               TEXT NOT NULL,
+    title_raw           TEXT NOT NULL,
+    todo_keyword        TEXT,
+    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
+    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    scheduled_has_time  INTEGER CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    deadline_has_time   INTEGER CHECK (deadline_has_time IN (0, 1) OR deadline_has_time IS NULL),
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    closed_has_time     INTEGER CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL),
+    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
+    all_tags_json       TEXT NOT NULL DEFAULT '[]',
+    CHECK (
+        (level = 0 AND parent_id IS NULL)
+        OR
+        (level > 0 AND parent_id IS NOT NULL)
+    )
+);
+
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT,
+    has_time        INTEGER CHECK (has_time IN (0, 1) OR has_time IS NULL),
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT,
+    range_type      TEXT,
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line_number     INTEGER,
+    has_repeater    INTEGER
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/example.org', 10, 20);
+INSERT INTO headings
+    (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw,
+     scheduled_raw, scheduled_ts, scheduled_has_time,
+     deadline_raw, deadline_ts, deadline_has_time,
+     closed_raw, closed_ts, closed_has_time, all_tags_json)
+VALUES
+    (1, 1, NULL, 0, -1, 20, '/tmp/example.org', '/tmp/example.org',
+     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[]'),
+    (2, 1, 1, 1, 21, 60, 'Timed task', 'Timed task',
+     '<2026-01-03 Fri 00:00>', 1767398400, 1,
+     '<2026-01-04 Sat>', 1767484800, 0,
+     '[2026-01-05 Sun 09:30]', 1767605400, 1, '[]');
+
+INSERT INTO timestamps
+    (id, heading_id, role, has_time, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number, has_repeater)
+VALUES
+    (1, 2, 'scheduled', 1, 1767398400, NULL, 'active', 'none', '<2026-01-03 Fri 00:00>', 21, 43, 2, 0),
+    (2, 2, 'deadline', 0, 1767484800, NULL, 'active', 'none', '<2026-01-04 Sat>', 44, 60, 2, 0);
+
+PRAGMA user_version = 4;
+"#,
+                )
+                .expect("legacy explicit-time preservation schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+
+        let migrated_heading: (Option<i64>, Option<i64>, Option<i64>) = connection
+            .query_row(
+                "SELECT scheduled_has_time, deadline_has_time, closed_has_time
+                 FROM headings
+                 WHERE id = 2",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("migrated heading should load");
+        assert_eq!(migrated_heading, (Some(1), Some(0), Some(1)));
+
+        let migrated_timestamps: Vec<(String, Option<i64>)> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT role, has_time
+                     FROM timestamps
+                     WHERE heading_id = 2
+                     ORDER BY id",
+                )
+                .expect("timestamps query should prepare");
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("timestamps query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("timestamps should collect")
+        };
+        assert_eq!(
+            migrated_timestamps,
+            vec![
+                ("scheduled".to_string(), Some(1)),
+                ("deadline".to_string(), Some(0)),
+            ]
+        );
+    }
+
+    #[test]
     fn links_resolution_status_accepts_all_allowed_values() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let connection =

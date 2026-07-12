@@ -1,0 +1,106 @@
+#+TITLE: Persist explicit-time metadata for indexed Org timestamps
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-13 Mon 00:38]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Persist explicit-time metadata for indexed Org timestamps
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-13--persist-explicit-time-metadata-for-indexed-org-timestamps.org]]
+
+Depends on:
+
+- Complete date-only and datetime query-bound semantics
+
+Goal:
+
+- Persist whether each indexed Org timestamp contained an explicit time.
+- Allow date-only timestamps and explicit midnight timestamps to be distinguished reliably.
+
+Rules:
+
+- Explicit-time presence must be derived while parsing or indexing the original Org timestamp.
+- Explicit-time presence must not be inferred from the encoded timestamp value.
+- A date-only timestamp has ~has_time = 0~.
+- A timestamp containing an explicit hour and minute has ~has_time = 1~, including explicit midnight.
+- Missing or unavailable timestamp facts may use ~NULL~ where required by migration or compatibility constraints.
+- Existing timezone-naive timestamp values must remain unchanged.
+- All timestamp-bearing persisted facts needed by ~:with-time~ filtering must expose equivalent explicit-time metadata.
+
+Possible planning-column extension:
+
+#+begin_src sql
+scheduled_has_time INTEGER
+    CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),
+
+deadline_has_time INTEGER
+    CHECK (deadline_has_time IN (0, 1) OR deadline_has_time IS NULL),
+
+closed_has_time INTEGER
+    CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL)
+#+end_src
+
+The generic timestamp storage used by ~ts~, ~ts-active~, and ~ts-inactive~ must receive equivalent explicit-time metadata.
+
+Acceptance criteria:
+
+- The database schema persists explicit-time information for planning timestamps.
+- The database schema persists explicit-time information for generic timestamps used by timestamp query predicates.
+- Indexing a date-only timestamp stores ~has_time = 0~.
+- Indexing a timestamp with an explicit time stores ~has_time = 1~.
+- An explicit midnight timestamp stores ~has_time = 1~.
+- Existing encoded timestamp values remain unchanged.
+- Reindexing populates explicit-time facts consistently.
+- Schema and migration tests cover existing databases where applicable.
+- Indexer tests cover scheduled, deadline, closed, active, and inactive timestamps.
+- Date-only timestamps and explicit midnight timestamps are distinguishable from persisted facts.
+
+* Results
+
+** Approach
+
+- Added explicit-time metadata to parsed timestamps and propagated it through indexing into persisted heading planning columns and generic timestamp rows.
+- Extended SQLite schema and legacy migrations so existing databases gain the new columns, preserving existing explicit-time values when legacy tables already expose them and using compatibility-safe ~NULL~ backfill otherwise.
+- Added end-to-end rebuild and migration coverage for date-only, timed, explicit-midnight, planning, and generic inactive timestamp cases.
+
+** Changed files
+
+- ~src/parser/model.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~src/db/schema.rs~
+- ~src/db/writer.rs~
+- ~src/db.rs~
+- ~sql/schema.sql~
+- test fixture updates in ~src/cli.rs~, ~src/db/reader.rs~, ~src/query/result.rs~, ~src/query/sqlite.rs~, and ~tests/parser_contract.rs~
+
+** Checks performed
+
+- ~cargo test preserves_existing_explicit_time_values~
+- ~cargo test explicit_time~
+- ~cargo test rich_timestamp~
+- ~make ci~
+
+** Test results
+
+- Existing explicit-time values are preserved across rebuilding legacy heading and timestamp tables when those columns are already present.
+- All targeted explicit-time and rich-timestamp tests passed.
+- ~make ci~ passed, including format, clippy, full test suite, and build.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- The next ~:with-time~ SQLite task can now use persisted ~has_time~ facts instead of inferring from encoded timestamp values.

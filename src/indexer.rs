@@ -862,6 +862,7 @@ fn timestamp_record(
     Ok(TimestampRecord {
         heading_id,
         role: timestamp.role.map(timestamp_role_name),
+        has_time: timestamp.has_time,
         start_ts: timestamp.start_ts,
         end_ts: timestamp.end_ts,
         timestamp_type: Some(timestamp_type_name(timestamp).to_string()),
@@ -992,10 +993,13 @@ fn heading_record(
         priority: heading.priority,
         scheduled_raw: heading.planning.scheduled_raw().map(str::to_string),
         scheduled_ts: heading.planning.scheduled_ts(),
+        scheduled_has_time: heading.planning.scheduled_has_time(),
         deadline_raw: heading.planning.deadline_raw().map(str::to_string),
         deadline_ts: heading.planning.deadline_ts(),
+        deadline_has_time: heading.planning.deadline_has_time(),
         closed_raw: heading.planning.closed_raw().map(str::to_string),
         closed_ts: heading.planning.closed_ts(),
+        closed_has_time: heading.planning.closed_has_time(),
         archivedp: heading.is_archived,
         footnote_section_p: false,
         all_tags_json: serde_json::to_string(effective_tags)
@@ -1225,6 +1229,8 @@ mod tests {
     }
 
     type TimestampRow = (String, String, String, String, Option<i64>, Option<i64>);
+    type PlanningHasTimeRow = (String, Option<i64>, Option<i64>, Option<i64>, Option<i64>);
+    type TimestampHasTimeRow = (String, String, String, Option<i64>, Option<i64>);
     type RepeaterRow = (
         String,
         Option<String>,
@@ -1373,10 +1379,13 @@ mod tests {
                 priority: None,
                 scheduled_raw: None,
                 scheduled_ts: None,
+                scheduled_has_time: None,
                 deadline_raw: None,
                 deadline_ts: None,
+                deadline_has_time: None,
                 closed_raw: None,
                 closed_ts: None,
+                closed_has_time: None,
                 archivedp: false,
                 footnote_section_p: false,
                 all_tags_json: "[]".to_string(),
@@ -2512,12 +2521,24 @@ index_body_text = false
             query_rows(&connection, "PRAGMA table_info(timestamps)", |row| {
                 row.get(1)
             });
+        let heading_columns: Vec<String> =
+            query_rows(&connection, "PRAGMA table_info(headings)", |row| row.get(1));
         assert!(
             !timestamp_columns
                 .iter()
                 .any(|column| column == "has_repeater"),
             "timestamps table should not have has_repeater"
         );
+        assert!(timestamp_columns.iter().any(|column| column == "has_time"));
+        assert!(heading_columns
+            .iter()
+            .any(|column| column == "scheduled_has_time"));
+        assert!(heading_columns
+            .iter()
+            .any(|column| column == "deadline_has_time"));
+        assert!(heading_columns
+            .iter()
+            .any(|column| column == "closed_has_time"));
 
         let headings = DbReader::list_headings(&connection).expect("headings should load");
         let scheduled = headings
@@ -2649,6 +2670,140 @@ index_body_text = false
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn rebuild_persists_explicit_time_metadata_for_planning_and_generic_timestamps() {
+        let test_dir = TestDir::new("timestamp-has-time");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("explicit-time.org");
+
+        write_file(
+            &org_path,
+            r#"#+TITLE: Explicit Time Fixture
+
+* Scheduled Date Only
+SCHEDULED: <2026-06-23 Tue>
+
+* Scheduled Midnight
+SCHEDULED: <2026-06-24 Wed 00:00>
+
+* Deadline Timed
+DEADLINE: <2026-06-25 Thu 09:30>
+
+* Closed Date Only
+CLOSED: [2026-06-26 Fri]
+
+* Generic Active Date Only
+<2026-06-27 Sat>
+
+* Generic Active Midnight
+<2026-06-28 Sun 00:00>
+
+* Generic Inactive Timed
+[2026-06-29 Mon 18:45]
+"#,
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+
+        let planning_rows: Vec<PlanningHasTimeRow> = query_rows(
+            &connection,
+            "SELECT title, scheduled_ts, scheduled_has_time, deadline_has_time, closed_has_time
+                 FROM headings
+                 WHERE level > 0
+                 ORDER BY byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        );
+        assert!(planning_rows
+            .iter()
+            .any(|row| { row.0 == "Scheduled Date Only" && row.1.is_some() && row.2 == Some(0) }));
+        assert!(planning_rows
+            .iter()
+            .any(|row| { row.0 == "Scheduled Midnight" && row.1.is_some() && row.2 == Some(1) }));
+        assert!(planning_rows
+            .iter()
+            .any(|row| row.0 == "Deadline Timed" && row.3 == Some(1)));
+        assert!(planning_rows
+            .iter()
+            .any(|row| row.0 == "Closed Date Only" && row.4 == Some(0)));
+
+        let timestamp_rows: Vec<TimestampHasTimeRow> = query_rows(
+            &connection,
+            "SELECT h.title, t.role, t.raw_value, t.has_time, t.start_ts
+             FROM timestamps t
+             JOIN headings h ON h.id = t.heading_id
+             WHERE h.level > 0
+             ORDER BY h.byte_start, t.byte_start",
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        );
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Scheduled Date Only"
+                && row.1 == "scheduled"
+                && row.2 == "<2026-06-23 Tue>"
+                && row.3 == Some(0)
+                && row.4 == Some(1_782_172_800)
+        }));
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Scheduled Midnight"
+                && row.1 == "scheduled"
+                && row.2 == "<2026-06-24 Wed 00:00>"
+                && row.3 == Some(1)
+                && row.4 == Some(1_782_259_200)
+        }));
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Generic Active Date Only"
+                && row.1 == "body"
+                && row.2 == "<2026-06-27 Sat>"
+                && row.3 == Some(0)
+        }));
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Generic Active Midnight"
+                && row.1 == "body"
+                && row.2 == "<2026-06-28 Sun 00:00>"
+                && row.3 == Some(1)
+        }));
+        assert!(timestamp_rows.iter().any(|row| {
+            row.0 == "Generic Inactive Timed"
+                && row.1 == "body"
+                && row.2 == "[2026-06-29 Mon 18:45]"
+                && row.3 == Some(1)
+        }));
     }
 
     #[test]

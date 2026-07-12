@@ -134,6 +134,7 @@ fn sample_timestamp(
         raw_value: raw_value.to_string(),
         timestamp_type: ParsedTimestampType::Active,
         range_type: ParsedTimestampRangeType::None,
+        has_time: None,
         start_ts,
         end_ts: None,
         byte_start: 0,

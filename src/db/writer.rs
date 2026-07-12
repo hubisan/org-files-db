@@ -31,10 +31,13 @@ pub(crate) struct HeadingRecord {
     pub priority: Option<char>,
     pub scheduled_raw: Option<String>,
     pub scheduled_ts: Option<i64>,
+    pub scheduled_has_time: Option<bool>,
     pub deadline_raw: Option<String>,
     pub deadline_ts: Option<i64>,
+    pub deadline_has_time: Option<bool>,
     pub closed_raw: Option<String>,
     pub closed_ts: Option<i64>,
+    pub closed_has_time: Option<bool>,
     pub archivedp: bool,
     pub footnote_section_p: bool,
     pub all_tags_json: String,
@@ -62,6 +65,7 @@ pub(crate) struct TagRecord {
 pub(crate) struct TimestampRecord {
     pub heading_id: i64,
     pub role: Option<String>,
+    pub has_time: Option<bool>,
     pub start_ts: Option<i64>,
     pub end_ts: Option<i64>,
     pub timestamp_type: Option<String>,
@@ -353,12 +357,13 @@ impl DbWriter {
             connection
                 .execute(
                     "INSERT INTO timestamps
-                     (heading_id, role, start_ts, end_ts, type, range_type, raw_value, byte_start,
-                      byte_end, line_number)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     (heading_id, role, has_time, start_ts, end_ts, type, range_type, raw_value,
+                      byte_start, byte_end, line_number)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         row.heading_id,
                         row.role,
+                        row.has_time.map(bool_to_i64),
                         row.start_ts,
                         row.end_ts,
                         row.timestamp_type,
@@ -633,10 +638,11 @@ fn insert_heading(
         .execute(
             "INSERT INTO headings
              (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
-              todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, deadline_raw,
-              deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p, all_tags_json)
+              todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, scheduled_has_time,
+              deadline_raw, deadline_ts, deadline_has_time, closed_raw, closed_ts,
+              closed_has_time, archivedp, footnote_section_p, all_tags_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                     ?16, ?17, ?18, ?19, ?20, ?21)",
+                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             params![
                 heading.id,
                 heading.file_id,
@@ -652,10 +658,13 @@ fn insert_heading(
                 heading.priority.map(|value| value.to_string()),
                 heading.scheduled_raw,
                 heading.scheduled_ts,
+                heading.scheduled_has_time.map(bool_to_i64),
                 heading.deadline_raw,
                 heading.deadline_ts,
+                heading.deadline_has_time.map(bool_to_i64),
                 heading.closed_raw,
                 heading.closed_ts,
+                heading.closed_has_time.map(bool_to_i64),
                 bool_to_i64(heading.archivedp),
                 bool_to_i64(heading.footnote_section_p),
                 heading.all_tags_json
@@ -1187,10 +1196,13 @@ mod tests {
             priority: None,
             scheduled_raw: None,
             scheduled_ts: None,
+            scheduled_has_time: None,
             deadline_raw: None,
             deadline_ts: None,
+            deadline_has_time: None,
             closed_raw: None,
             closed_ts: None,
+            closed_has_time: None,
             archivedp: false,
             footnote_section_p: false,
             all_tags_json: "[]".to_string(),
@@ -1213,10 +1225,13 @@ mod tests {
             priority: Some('A'),
             scheduled_raw: None,
             scheduled_ts: None,
+            scheduled_has_time: None,
             deadline_raw: None,
             deadline_ts: None,
+            deadline_has_time: None,
             closed_raw: None,
             closed_ts: None,
+            closed_has_time: None,
             archivedp: false,
             footnote_section_p: false,
             all_tags_json: "[\"rust\"]".to_string(),

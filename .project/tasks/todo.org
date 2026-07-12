@@ -154,13 +154,15 @@ General rules:
 ** DONE [#B] Complete date-only and datetime query-bound semantics
 - Task file: [[file:archive/2026-07-13--complete-date-only-and-datetime-query-bound-semantics.org]]
 
-** TODO [#B] Persist explicit-time metadata for indexed Org timestamps
+** REVIEW [#B] Persist explicit-time metadata for indexed Org timestamps
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
 :DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
 :END:
+
+- Task file: [[file:archive/2026-07-13--persist-explicit-time-metadata-for-indexed-org-timestamps.org]]
 
 Depends on:
 

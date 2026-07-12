@@ -641,6 +641,7 @@ fn parsed_timestamp_from_orgize(
     let byte_start = usize::from(timestamp.start());
     let byte_end = usize::from(timestamp.end());
     let range_type = timestamp_range_type(timestamp, &raw_value);
+    let has_time = timestamp_has_explicit_time(timestamp, &raw_value);
     let (start_ts, end_ts) = normalize_timestamp_bounds(timestamp, range_type);
 
     ParsedTimestamp {
@@ -648,6 +649,7 @@ fn parsed_timestamp_from_orgize(
         raw_value,
         timestamp_type: timestamp_type(timestamp),
         range_type,
+        has_time,
         start_ts,
         end_ts,
         byte_start,
@@ -674,6 +676,7 @@ fn parsed_timestamp_from_planning_fallback(
         raw_value: raw_value.clone(),
         timestamp_type,
         range_type,
+        has_time: raw_timestamp_has_explicit_time(&raw_value),
         start_ts,
         end_ts,
         byte_start,
@@ -715,6 +718,7 @@ fn populate_repeater_deadline_planning_fallback(
             timestamp_type: timestamp_type_from_raw(&raw_value)
                 .unwrap_or(ParsedTimestampType::Active),
             range_type,
+            has_time: raw_timestamp_has_explicit_time(&raw_value),
             start_ts,
             end_ts,
             byte_start,
@@ -867,6 +871,38 @@ fn timestamp_type(timestamp: &Timestamp) -> ParsedTimestampType {
     } else {
         ParsedTimestampType::Active
     }
+}
+
+fn timestamp_has_explicit_time(timestamp: &Timestamp, raw_value: &str) -> Option<bool> {
+    if timestamp.is_diary() {
+        return None;
+    }
+
+    Some(
+        (timestamp.hour_start().is_some() && timestamp.minute_start().is_some())
+            || (timestamp.hour_end().is_some() && timestamp.minute_end().is_some())
+            || raw_timestamp_has_explicit_time(raw_value).unwrap_or(false),
+    )
+}
+
+fn raw_timestamp_has_explicit_time(raw_value: &str) -> Option<bool> {
+    if matches!(
+        timestamp_type_from_raw(raw_value),
+        Some(ParsedTimestampType::Diary)
+    ) {
+        return None;
+    }
+
+    let inner = raw_value
+        .strip_prefix(['<', '['])
+        .and_then(|value| value.strip_suffix(['>', ']']))
+        .unwrap_or(raw_value);
+
+    Some(
+        inner
+            .split_whitespace()
+            .any(|token| parse_time_token(token).is_some()),
+    )
 }
 
 fn timestamp_range_type(timestamp: &Timestamp, raw_value: &str) -> ParsedTimestampRangeType {

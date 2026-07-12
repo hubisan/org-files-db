@@ -300,6 +300,12 @@ impl ParsedPlanning {
             .and_then(|timestamp| timestamp.start_ts)
     }
 
+    pub fn scheduled_has_time(&self) -> Option<bool> {
+        self.scheduled
+            .as_ref()
+            .and_then(|timestamp| timestamp.has_time)
+    }
+
     pub fn deadline_raw(&self) -> Option<&str> {
         self.deadline
             .as_ref()
@@ -310,6 +316,12 @@ impl ParsedPlanning {
         self.deadline
             .as_ref()
             .and_then(|timestamp| timestamp.start_ts)
+    }
+
+    pub fn deadline_has_time(&self) -> Option<bool> {
+        self.deadline
+            .as_ref()
+            .and_then(|timestamp| timestamp.has_time)
     }
 
     pub fn closed_raw(&self) -> Option<&str> {
@@ -323,6 +335,12 @@ impl ParsedPlanning {
             .as_ref()
             .and_then(|timestamp| timestamp.start_ts)
     }
+
+    pub fn closed_has_time(&self) -> Option<bool> {
+        self.closed
+            .as_ref()
+            .and_then(|timestamp| timestamp.has_time)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -331,6 +349,7 @@ pub struct ParsedTimestamp {
     pub raw_value: String,
     pub timestamp_type: ParsedTimestampType,
     pub range_type: ParsedTimestampRangeType,
+    pub has_time: Option<bool>,
     pub start_ts: Option<i64>,
     pub end_ts: Option<i64>,
     pub byte_start: usize,

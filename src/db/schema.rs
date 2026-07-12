@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -163,6 +163,7 @@ impl SchemaDefinition {
         migrate_legacy_properties_table(connection)?;
         migrate_legacy_tags_table(connection)?;
         migrate_legacy_headings_table(connection)?;
+        migrate_legacy_timestamps_table(connection)?;
         migrate_legacy_links_table(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
@@ -457,7 +458,7 @@ fn migrate_legacy_headings_table(connection: &Connection) -> rusqlite::Result<()
     }
 
     let columns = table_columns(connection, "headings")?;
-    if headings_table_allows_nullable_title_raw(connection, &columns)? {
+    if headings_table_matches_current_contract(connection, &columns)? {
         return Ok(());
     }
 
@@ -468,7 +469,23 @@ ALTER TABLE headings RENAME TO headings_legacy;
     )?;
     drop_indexes_for_table(connection, "headings_legacy")?;
     connection.execute_batch(CORE_SCHEMA_SQL)?;
-    connection.execute_batch(
+    let scheduled_has_time_expr = if has_column(&columns, "scheduled_has_time") {
+        "scheduled_has_time"
+    } else {
+        "NULL"
+    };
+    let deadline_has_time_expr = if has_column(&columns, "deadline_has_time") {
+        "deadline_has_time"
+    } else {
+        "NULL"
+    };
+    let closed_has_time_expr = if has_column(&columns, "closed_has_time") {
+        "closed_has_time"
+    } else {
+        "NULL"
+    };
+
+    connection.execute_batch(&format!(
         r#"
 INSERT INTO headings (
     id,
@@ -485,10 +502,13 @@ INSERT INTO headings (
     priority,
     scheduled_raw,
     scheduled_ts,
+    scheduled_has_time,
     deadline_raw,
     deadline_ts,
+    deadline_has_time,
     closed_raw,
     closed_ts,
+    closed_has_time,
     archivedp,
     footnote_section_p,
     all_tags_json
@@ -511,10 +531,13 @@ SELECT
     priority,
     scheduled_raw,
     scheduled_ts,
+    {scheduled_has_time_expr},
     deadline_raw,
     deadline_ts,
+    {deadline_has_time_expr},
     closed_raw,
     closed_ts,
+    {closed_has_time_expr},
     archivedp,
     footnote_section_p,
     all_tags_json
@@ -522,16 +545,22 @@ FROM headings_legacy;
 
 DROP TABLE headings_legacy;
 "#,
-    )?;
+    ))?;
 
     Ok(())
 }
 
-fn headings_table_allows_nullable_title_raw(
+fn headings_table_matches_current_contract(
     connection: &Connection,
     columns: &[String],
 ) -> rusqlite::Result<bool> {
     if !columns.iter().any(|column| column == "title_raw") {
+        return Ok(false);
+    }
+    if !has_column(columns, "scheduled_has_time")
+        || !has_column(columns, "deadline_has_time")
+        || !has_column(columns, "closed_has_time")
+    {
         return Ok(false);
     }
 
@@ -548,6 +577,71 @@ fn headings_table_allows_nullable_title_raw(
     }
 
     Ok(false)
+}
+
+fn migrate_legacy_timestamps_table(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "timestamps")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "timestamps")?;
+    if timestamps_table_matches_current_contract(&columns) {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+ALTER TABLE timestamps RENAME TO timestamps_legacy;
+"#,
+    )?;
+    drop_indexes_for_table(connection, "timestamps_legacy")?;
+    connection.execute_batch(CORE_SCHEMA_SQL)?;
+    let has_time_expr = if has_column(&columns, "has_time") {
+        "has_time"
+    } else {
+        "NULL"
+    };
+
+    connection.execute_batch(&format!(
+        r#"
+INSERT INTO timestamps (
+    id,
+    heading_id,
+    role,
+    has_time,
+    start_ts,
+    end_ts,
+    type,
+    range_type,
+    raw_value,
+    byte_start,
+    byte_end,
+    line_number
+)
+SELECT
+    id,
+    heading_id,
+    role,
+    {has_time_expr},
+    start_ts,
+    end_ts,
+    type,
+    range_type,
+    raw_value,
+    byte_start,
+    byte_end,
+    line_number
+FROM timestamps_legacy;
+
+DROP TABLE timestamps_legacy;
+"#,
+    ))?;
+
+    Ok(())
+}
+
+fn timestamps_table_matches_current_contract(columns: &[String]) -> bool {
+    has_column(columns, "has_time") && !columns.iter().any(|column| column == "has_repeater")
 }
 
 fn migrate_legacy_links_table(connection: &Connection) -> rusqlite::Result<()> {

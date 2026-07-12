@@ -130,11 +130,16 @@ CREATE TABLE IF NOT EXISTS files (
     Original Org planning timestamp strings when present.
 
   scheduled_ts / deadline_ts / closed_ts:
-    Nullable Unix timestamp seconds in UTC.
+    Nullable timezone-naive Unix timestamp seconds.
     Populated only when the corresponding planning timestamp is a simple date or
     date-time timestamp. NULL when absent or when the Org timestamp contains
     unsupported syntax such as ranges, repeaters, warning delays, diary
     expressions, or other rich timestamp forms.
+
+  scheduled_has_time / deadline_has_time / closed_has_time:
+    Nullable 0/1 flags that record whether the original Org timestamp contained
+    an explicit hour and minute. Date-only timestamps use 0. Explicit midnight
+    uses 1.
 
   archivedp / footnote_section_p:
     Stored as 0/1 integers.
@@ -159,10 +164,13 @@ CREATE TABLE IF NOT EXISTS headings (
     priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
     scheduled_raw       TEXT,
     scheduled_ts        INTEGER,
+    scheduled_has_time  INTEGER CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),
     deadline_raw        TEXT,
     deadline_ts         INTEGER,
+    deadline_has_time   INTEGER CHECK (deadline_has_time IN (0, 1) OR deadline_has_time IS NULL),
     closed_raw          TEXT,
     closed_ts           INTEGER,
+    closed_has_time     INTEGER CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL),
     archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
     footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
     all_tags_json       TEXT NOT NULL DEFAULT '[]',
@@ -286,9 +294,14 @@ CREATE TABLE IF NOT EXISTS todo_keywords (
   range_type:
     none, date_range, time_range, datetime_range, or unknown.
 
+  has_time:
+    Nullable 0/1 flag that records whether the original Org timestamp contained
+    an explicit hour and minute. Date-only timestamps use 0. Explicit midnight
+    uses 1. Diary expressions may leave this column NULL.
+
   start_ts / end_ts:
-    Nullable Unix timestamp seconds in UTC. Diary expressions are preserved as
-    raw values and leave these columns NULL.
+    Nullable timezone-naive Unix timestamp seconds. Diary expressions are
+    preserved as raw values and leave these columns NULL.
 */
 CREATE TABLE IF NOT EXISTS timestamps (
     id              INTEGER PRIMARY KEY,
@@ -297,6 +310,7 @@ CREATE TABLE IF NOT EXISTS timestamps (
                         role IN ('scheduled', 'deadline', 'closed', 'body')
                         OR role IS NULL
                     ),
+    has_time        INTEGER CHECK (has_time IN (0, 1) OR has_time IS NULL),
     start_ts        INTEGER,
     end_ts          INTEGER,
     type            TEXT CHECK (
