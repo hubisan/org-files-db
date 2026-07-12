@@ -169,6 +169,14 @@ fn rejects_obsolete_with_root_option_with_clear_guidance() {
 }
 
 #[test]
+fn rejects_title_without_root_on_invalid_targets() {
+    let query = org_files_db::query::parse_query(r#"(files (title "Projects" :without-root t))"#)
+        .expect("query should parse");
+    let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
+    assert_eq!(error.kind, QueryValidationErrorKind::InvalidTarget);
+}
+
+#[test]
 fn rejects_invalid_match_values() {
     let query = org_files_db::query::parse_query(r#"(headings (tags "project" :match :one))"#)
         .expect("query should parse");

@@ -7,6 +7,7 @@ use std::{
 use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
+use super::sqlite::HeadingQueryMatch;
 use super::{
     execute_sqlite_query, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget, ValidatedQuery,
 };
@@ -348,10 +349,13 @@ pub fn shape_query_results(
     let results = match (&rows, options.output_mode) {
         (QueryRows::Headings(rows), QueryOutputMode::Flat) => rows
             .iter()
-            .map(|row| {
-                context
+            .map(|row| match row {
+                HeadingQueryMatch::File(row) => context
+                    .shape_file_node(row.id, true, &includes, false)
+                    .map(QueryResultNode::File),
+                HeadingQueryMatch::Heading(row) => context
                     .shape_heading_node(row.id, true, &includes, false)
-                    .map(QueryResultNode::Heading)
+                    .map(QueryResultNode::Heading),
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
         (QueryRows::Headings(rows), QueryOutputMode::Outline) => {
@@ -792,12 +796,15 @@ impl EnrichmentContext {
 
     fn shape_heading_outline(
         &self,
-        rows: &[super::HeadingQueryRow],
+        rows: &[HeadingQueryMatch],
         includes: &[QueryInclude],
     ) -> Result<Vec<QueryResultNode>, QueryShapeError> {
         let mut roots = BTreeMap::<String, FileResultNode>::new();
         for row in rows {
-            let file = self.file(row.file_id)?;
+            let file = match row {
+                HeadingQueryMatch::File(row) => self.file(row.id)?,
+                HeadingQueryMatch::Heading(row) => self.file(row.file_id)?,
+            };
             roots.entry(file.path.clone()).or_insert_with(|| {
                 self.shape_file_node(file.id, false, &[], true)
                     .expect("file root should shape")
@@ -805,12 +812,24 @@ impl EnrichmentContext {
         }
 
         for row in rows {
-            let file = self.file(row.file_id)?;
-            let heading_path = self.heading_chain_without_root(row.id)?;
             let file_node = roots
-                .get_mut(&file.path)
+                .get_mut(match row {
+                    HeadingQueryMatch::File(row) => &row.path,
+                    HeadingQueryMatch::Heading(row) => &row.file_path,
+                })
                 .expect("outline file root should exist");
-            insert_heading_outline(file_node, &heading_path, row.id, self, includes)?;
+            match row {
+                HeadingQueryMatch::File(file_row) => {
+                    file_node.matched = true;
+                    if includes.contains(&QueryInclude::Path) {
+                        file_node.node_path = Some(vec![self.file_path_entry(file_row.id)?]);
+                    }
+                }
+                HeadingQueryMatch::Heading(row) => {
+                    let heading_path = self.heading_chain_without_root(row.id)?;
+                    insert_heading_outline(file_node, &heading_path, row.id, self, includes)?;
+                }
+            }
         }
 
         Ok(roots.into_values().map(QueryResultNode::File).collect())
@@ -1193,8 +1212,15 @@ fn collect_matched_ids(rows: &QueryRows) -> (BTreeSet<i64>, BTreeSet<i64>, Vec<L
             let mut file_ids = BTreeSet::new();
             let mut heading_ids = BTreeSet::new();
             for row in rows {
-                file_ids.insert(row.file_id);
-                heading_ids.insert(row.id);
+                match row {
+                    HeadingQueryMatch::File(row) => {
+                        file_ids.insert(row.id);
+                    }
+                    HeadingQueryMatch::Heading(row) => {
+                        file_ids.insert(row.file_id);
+                        heading_ids.insert(row.id);
+                    }
+                }
             }
             (file_ids, heading_ids, Vec::new())
         }
@@ -1599,7 +1625,9 @@ mod tests {
         open_in_memory_database_with_schema, DbWriter, FileRecordInput, HeadingRecord,
         KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord,
     };
-    use crate::query::{execute_sqlite_query, parse_query, validate_query, QueryValidationOptions};
+    use crate::query::{
+        execute_sqlite_query, parse_query, validate_query, QueryTarget, QueryValidationOptions,
+    };
     use rusqlite::Connection;
     use serde_json::Value;
     use std::path::Path;
@@ -1863,6 +1891,41 @@ mod tests {
         assert!(!parent.matched);
         let child = heading_node(&parent.children.as_ref().expect("children")[0]);
         assert!(child.matched);
+    }
+
+    #[test]
+    fn heading_title_root_matches_shape_as_file_nodes_in_flat_and_outline_output() {
+        let connection = seeded_connection();
+
+        let flat = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Alpha Index" :exact t))"#),
+            &QueryExecutionOptions::default(),
+        )
+        .expect("flat root title query should shape");
+        assert_eq!(flat.target, QueryTarget::Headings);
+        let file = file_node(&flat.results[0]);
+        assert!(file.matched);
+        assert_eq!(file.title, "Alpha Index");
+        assert!(file.children.is_none());
+
+        let outline = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Alpha Index" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Outline,
+                includes: vec![],
+            },
+        )
+        .expect("outline root title query should shape");
+        assert_eq!(outline.target, QueryTarget::Headings);
+        let file = file_node(&outline.results[0]);
+        assert!(file.matched);
+        assert!(file
+            .children
+            .as_ref()
+            .expect("outline file children should exist")
+            .is_empty());
     }
 
     #[test]

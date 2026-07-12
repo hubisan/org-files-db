@@ -144,9 +144,17 @@ fn validate_call(
     match call.name.as_str() {
         "todo" => validate_todo(call, target),
         "done" => validate_done(call, target),
-        "title" => {
-            validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
-        }
+        "title" => match target {
+            QueryTarget::Headings => validate_text_predicate(
+                call,
+                target,
+                &["regexp", "exact", "without-root"],
+                ExactRule::SingleArg,
+            ),
+            QueryTarget::Files | QueryTarget::Links => {
+                validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
+            }
+        },
         "has-text" => validate_has_text(call, target, options),
         "level" => validate_level(call, target),
         "priority" => validate_priority(call, target),

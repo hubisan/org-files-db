@@ -36,9 +36,16 @@ impl ToSql for QueryParam {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum QueryRows {
-    Headings(Vec<HeadingQueryRow>),
+    Headings(Vec<HeadingQueryMatch>),
     Links(Vec<LinkQueryRow>),
     Files(Vec<FileQueryRow>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HeadingQueryMatch {
+    File(FileQueryRow),
+    Heading(HeadingQueryRow),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -106,6 +113,12 @@ pub struct FileQueryRow {
     pub root_heading_id: i64,
     pub root_title: String,
     pub root_title_raw: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadingMatchKind {
+    RealHeading,
+    RootFile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +212,7 @@ enum TemporalUnit {
 #[derive(Debug, Clone)]
 struct QueryScope {
     target: QueryTarget,
+    heading_match_kind: HeadingMatchKind,
     heading_alias: String,
     file_alias: String,
     root_alias: String,
@@ -211,6 +225,20 @@ impl QueryScope {
     fn new(target: QueryTarget, id: usize) -> Self {
         Self {
             target,
+            heading_match_kind: HeadingMatchKind::RealHeading,
+            heading_alias: format!("h{id}"),
+            file_alias: format!("f{id}"),
+            root_alias: format!("r{id}"),
+            link_alias: format!("l{id}"),
+            link_heading_alias: format!("lh{id}"),
+            outline_alias: format!("op{id}"),
+        }
+    }
+
+    fn heading_root(id: usize) -> Self {
+        Self {
+            target: QueryTarget::Headings,
+            heading_match_kind: HeadingMatchKind::RootFile,
             heading_alias: format!("h{id}"),
             file_alias: format!("f{id}"),
             root_alias: format!("r{id}"),
@@ -253,6 +281,12 @@ struct AliasAllocator {
 impl AliasAllocator {
     fn next_scope(&mut self, target: QueryTarget) -> QueryScope {
         let scope = QueryScope::new(target, self.next_scope_id);
+        self.next_scope_id += 1;
+        scope
+    }
+
+    fn next_heading_root_scope(&mut self) -> QueryScope {
+        let scope = QueryScope::heading_root(self.next_scope_id);
         self.next_scope_id += 1;
         scope
     }
@@ -413,18 +447,46 @@ pub fn execute_sqlite_query(
     connection: &Connection,
     query: &ValidatedQuery,
 ) -> Result<QueryRows, QueryExecutionError> {
-    let compiled = compile_sqlite_query(query)?;
-    match compiled.target {
-        QueryTarget::Headings => execute_headings_query(connection, &compiled),
-        QueryTarget::Links => execute_links_query(connection, &compiled),
-        QueryTarget::Files => execute_files_query(connection, &compiled),
+    match query.target {
+        QueryTarget::Headings => execute_headings_query(connection, query),
+        QueryTarget::Links => {
+            let compiled = compile_sqlite_query(query)?;
+            execute_links_query(connection, &compiled)
+        }
+        QueryTarget::Files => {
+            let compiled = compile_sqlite_query(query)?;
+            execute_files_query(connection, &compiled)
+        }
     }
 }
 
 fn execute_headings_query(
     connection: &Connection,
-    compiled: &CompiledSqlQuery,
+    query: &ValidatedQuery,
 ) -> Result<QueryRows, QueryExecutionError> {
+    let compiled = compile_sqlite_query(query)?;
+    let mut rows = execute_heading_rows_query(connection, &compiled)?
+        .into_iter()
+        .map(HeadingQueryMatch::Heading)
+        .collect::<Vec<_>>();
+
+    if query_supports_root_title_matches(query.predicate.as_ref()) {
+        let root_compiled = compile_heading_root_file_query(query)?;
+        rows.extend(
+            execute_file_rows_query(connection, &root_compiled)?
+                .into_iter()
+                .map(HeadingQueryMatch::File),
+        );
+    }
+
+    rows.sort_by(compare_heading_query_matches);
+    Ok(QueryRows::Headings(rows))
+}
+
+fn execute_heading_rows_query(
+    connection: &Connection,
+    compiled: &CompiledSqlQuery,
+) -> Result<Vec<HeadingQueryRow>, QueryExecutionError> {
     let mut statement = connection
         .prepare(&compiled.sql)
         .map_err(|source| QueryExecutionError::database(compiled.target, "prepare", source))?;
@@ -458,7 +520,6 @@ fn execute_headings_query(
         })
         .map_err(|source| QueryExecutionError::database(compiled.target, "query", source))?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map(QueryRows::Headings)
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
 }
 
@@ -508,6 +569,13 @@ fn execute_files_query(
     connection: &Connection,
     compiled: &CompiledSqlQuery,
 ) -> Result<QueryRows, QueryExecutionError> {
+    execute_file_rows_query(connection, compiled).map(QueryRows::Files)
+}
+
+fn execute_file_rows_query(
+    connection: &Connection,
+    compiled: &CompiledSqlQuery,
+) -> Result<Vec<FileQueryRow>, QueryExecutionError> {
     let mut statement = connection
         .prepare(&compiled.sql)
         .map_err(|source| QueryExecutionError::database(compiled.target, "prepare", source))?;
@@ -527,7 +595,6 @@ fn execute_files_query(
         })
         .map_err(|source| QueryExecutionError::database(compiled.target, "query", source))?;
     rows.collect::<Result<Vec<_>, _>>()
-        .map(QueryRows::Files)
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
 }
 
@@ -556,10 +623,10 @@ fn compile_scope_match_filter(
 
 fn scope_base_filter(scope: &QueryScope) -> Option<SqlFragment> {
     match scope.target {
-        QueryTarget::Headings => Some(sql_literal(&format!(
-            "({} > 0)",
-            scope.heading_col("level")
-        ))),
+        QueryTarget::Headings => Some(sql_literal(&match scope.heading_match_kind {
+            HeadingMatchKind::RealHeading => format!("({} > 0)", scope.heading_col("level")),
+            HeadingMatchKind::RootFile => format!("({} = 0)", scope.heading_col("level")),
+        })),
         QueryTarget::Links | QueryTarget::Files => None,
     }
 }
@@ -653,12 +720,7 @@ fn compile_heading_predicate(
             &scope.heading_col("priority"),
             predicate,
         ),
-        "title" => compile_text_predicate(
-            QueryTarget::Headings,
-            &scope.heading_col("title"),
-            predicate,
-            false,
-        ),
+        "title" => compile_heading_title_predicate(scope, predicate),
         "level" => compile_level_predicate(scope, predicate),
         "file-path" => compile_text_predicate(
             QueryTarget::Headings,
@@ -713,25 +775,25 @@ fn compile_heading_predicate(
         "ts" => compile_timestamp_exists_predicate(scope, predicate, None),
         "ts-active" => compile_timestamp_exists_predicate(scope, predicate, Some("active")),
         "ts-inactive" => compile_timestamp_exists_predicate(scope, predicate, Some("inactive")),
-        "parent" => compile_heading_hierarchy_predicate(
+        "parent" => compile_heading_hierarchy_or_root_false(
             scope,
             aliases,
             predicate,
             HeadingHierarchyRelation::Parent,
         ),
-        "ancestors" => compile_heading_hierarchy_predicate(
+        "ancestors" => compile_heading_hierarchy_or_root_false(
             scope,
             aliases,
             predicate,
             HeadingHierarchyRelation::Ancestor,
         ),
-        "children" => compile_heading_hierarchy_predicate(
+        "children" => compile_heading_hierarchy_or_root_false(
             scope,
             aliases,
             predicate,
             HeadingHierarchyRelation::Child,
         ),
-        "descendants" => compile_heading_hierarchy_predicate(
+        "descendants" => compile_heading_hierarchy_or_root_false(
             scope,
             aliases,
             predicate,
@@ -765,6 +827,37 @@ fn compile_heading_predicate(
             format!("predicate {other} is not supported by the SQLite metadata backend"),
         )),
     }
+}
+
+fn compile_heading_title_predicate(
+    scope: &QueryScope,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    if scope.heading_match_kind == HeadingMatchKind::RootFile
+        && option_bool(&predicate.options, "without-root")?
+    {
+        return Ok(sql_literal("(0 = 1)"));
+    }
+
+    compile_text_predicate(
+        QueryTarget::Headings,
+        &scope.heading_col("title"),
+        predicate,
+        false,
+    )
+}
+
+fn compile_heading_hierarchy_or_root_false(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: &ValidatedPredicate,
+    relation: HeadingHierarchyRelation,
+) -> Result<SqlFragment, QueryExecutionError> {
+    if scope.heading_match_kind == HeadingMatchKind::RootFile {
+        return Ok(sql_literal("(0 = 1)"));
+    }
+
+    compile_heading_hierarchy_predicate(scope, aliases, predicate, relation)
 }
 
 fn compile_link_predicate(
@@ -1992,6 +2085,91 @@ fn file_from_clause(scope: &QueryScope) -> String {
     )
 }
 
+fn compile_heading_root_file_query(
+    query: &ValidatedQuery,
+) -> Result<CompiledSqlQuery, QueryExecutionError> {
+    let mut aliases = AliasAllocator::default();
+    let scope = aliases.next_heading_root_scope();
+    let where_clause = compile_query_match_filter(query, &scope, &mut aliases)?;
+
+    Ok(CompiledSqlQuery {
+        target: QueryTarget::Files,
+        sql: format!(
+            "SELECT DISTINCT
+                {file_id},
+                {file_path},
+                {file_mtime_ns},
+                {file_size},
+                {file_content_hash},
+                {file_indexed_at},
+                {root_id},
+                {root_title},
+                {root_title_raw}
+             {}
+             {}
+             ORDER BY {file_path}, {file_id}",
+            heading_from_clause(&scope),
+            render_where_clause(where_clause.as_ref()),
+            file_id = scope.file_col("id"),
+            file_path = scope.file_col("path"),
+            file_mtime_ns = scope.file_col("mtime_ns"),
+            file_size = scope.file_col("size"),
+            file_content_hash = scope.file_col("content_hash"),
+            file_indexed_at = scope.file_col("indexed_at"),
+            root_id = scope.root_col("id"),
+            root_title = scope.root_col("title"),
+            root_title_raw = scope.root_col("title_raw"),
+        ),
+        params: where_clause.map_or_else(Vec::new, |fragment| fragment.params),
+    })
+}
+
+fn query_supports_root_title_matches(predicate: Option<&ValidatedExpr>) -> bool {
+    predicate.is_some_and(expr_supports_root_title_matches)
+}
+
+fn expr_supports_root_title_matches(expr: &ValidatedExpr) -> bool {
+    match expr {
+        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
+            children.iter().any(expr_supports_root_title_matches)
+        }
+        ValidatedExpr::Not(child) => expr_supports_root_title_matches(child),
+        ValidatedExpr::Predicate(predicate) => {
+            predicate.name == "title" && !option_has_true_bool(&predicate.options, "without-root")
+        }
+    }
+}
+
+fn option_has_true_bool(options: &[ValidatedOption], name: &str) -> bool {
+    options
+        .iter()
+        .any(|option| option.name == name && matches!(option.value, QueryValue::Bool(true)))
+}
+
+fn compare_heading_query_matches(
+    left: &HeadingQueryMatch,
+    right: &HeadingQueryMatch,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+
+    let left_key = match left {
+        HeadingQueryMatch::File(row) => (&row.path, -1_i64, row.id),
+        HeadingQueryMatch::Heading(row) => (&row.file_path, row.byte_start, row.id),
+    };
+    let right_key = match right {
+        HeadingQueryMatch::File(row) => (&row.path, -1_i64, row.id),
+        HeadingQueryMatch::Heading(row) => (&row.file_path, row.byte_start, row.id),
+    };
+
+    match left_key.0.cmp(right_key.0) {
+        Ordering::Equal => match left_key.1.cmp(&right_key.1) {
+            Ordering::Equal => left_key.2.cmp(&right_key.2),
+            other => other,
+        },
+        other => other,
+    }
+}
+
 fn target_name(target: QueryTarget) -> &'static str {
     match target {
         QueryTarget::Headings => "headings",
@@ -2003,8 +2181,8 @@ fn target_name(target: QueryTarget) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_sqlite_query, execute_sqlite_query, FileQueryRow, HeadingQueryRow, LinkQueryRow,
-        QueryExecutionErrorKind, QueryRows,
+        compile_sqlite_query, execute_sqlite_query, FileQueryRow, HeadingQueryMatch,
+        HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind, QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
@@ -2126,7 +2304,7 @@ mod tests {
             .expect("heading query should execute");
         assert_eq!(
             heading_rows,
-            QueryRows::Headings(vec![HeadingQueryRow {
+            QueryRows::Headings(vec![HeadingQueryMatch::Heading(HeadingQueryRow {
                 id: 11,
                 file_id: 2,
                 file_path: "/tmp/query-alpha.org".to_string(),
@@ -2149,7 +2327,7 @@ mod tests {
                 archivedp: false,
                 footnote_section_p: false,
                 all_tags_json: "[\"filetag\",\"project\"]".to_string(),
-            }])
+            })])
         );
 
         let links_query = validated(
@@ -2694,10 +2872,13 @@ mod tests {
         match normalized_rows {
             QueryRows::Headings(rows) => {
                 assert_eq!(rows.len(), 1);
-                assert_eq!(rows[0].id, 14);
-                assert_eq!(rows[0].title, "Statistic Cookies");
+                let HeadingQueryMatch::Heading(row) = &rows[0] else {
+                    panic!("expected heading row");
+                };
+                assert_eq!(row.id, 14);
+                assert_eq!(row.title, "Statistic Cookies");
                 assert_eq!(
-                    rows[0].title_raw.as_deref(),
+                    row.title_raw.as_deref(),
                     Some("REVIEW [#B] Statistic Cookies [0/1]")
                 );
             }
@@ -2713,6 +2894,54 @@ mod tests {
             QueryRows::Headings(rows) => assert!(rows.is_empty()),
             other => panic!("unexpected rows for raw title query: {other:?}"),
         }
+    }
+
+    #[test]
+    fn execution_title_queries_can_match_root_files_without_propagating_to_headings() {
+        let connection = seeded_connection();
+
+        let default_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (title "Alpha Index" :exact t))"#),
+        )
+        .expect("default root title query should execute");
+        match default_rows {
+            QueryRows::Headings(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert!(matches!(rows[0], HeadingQueryMatch::File(_)));
+            }
+            other => panic!("unexpected default title rows: {other:?}"),
+        }
+
+        let explicit_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (title "Alpha Index" :exact t :without-root nil))"#),
+        )
+        .expect("explicit root title query should execute");
+        match explicit_rows {
+            QueryRows::Headings(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert!(matches!(rows[0], HeadingQueryMatch::File(_)));
+            }
+            other => panic!("unexpected explicit title rows: {other:?}"),
+        }
+
+        let excluded_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (title "Alpha Index" :exact t :without-root t))"#),
+        )
+        .expect("without-root title query should execute");
+        match excluded_rows {
+            QueryRows::Headings(rows) => assert!(rows.is_empty()),
+            other => panic!("unexpected excluded title rows: {other:?}"),
+        }
+
+        let file_title_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-title "Alpha Index" :exact t))"#),
+        )
+        .expect("file-title query should execute");
+        assert_eq!(heading_ids(file_title_rows), vec![11, 12, 13, 14]);
     }
 
     #[test]
@@ -2750,8 +2979,11 @@ mod tests {
         match scheduled_rows {
             QueryRows::Headings(rows) => {
                 assert_eq!(rows.len(), 1);
-                assert_eq!(rows[0].id, 11);
-                assert_eq!(rows[0].scheduled_ts, Some(1_767_398_400));
+                let HeadingQueryMatch::Heading(row) = &rows[0] else {
+                    panic!("expected heading row");
+                };
+                assert_eq!(row.id, 11);
+                assert_eq!(row.scheduled_ts, Some(1_767_398_400));
             }
             other => panic!("unexpected scheduled rows: {other:?}"),
         }
@@ -2764,8 +2996,11 @@ mod tests {
         match ts_active_rows {
             QueryRows::Headings(rows) => {
                 assert_eq!(rows.len(), 1);
-                assert_eq!(rows[0].id, 11);
-                assert_eq!(rows[0].title, "Query Engine");
+                let HeadingQueryMatch::Heading(row) = &rows[0] else {
+                    panic!("expected heading row");
+                };
+                assert_eq!(row.id, 11);
+                assert_eq!(row.title, "Query Engine");
             }
             other => panic!("unexpected ts-active rows: {other:?}"),
         }
@@ -2801,8 +3036,14 @@ mod tests {
         match rows {
             QueryRows::Headings(rows) => {
                 assert_eq!(rows.len(), 2);
-                assert_eq!(rows[0].title, "Query Engine");
-                assert_eq!(rows[1].title, "Nested Task");
+                let HeadingQueryMatch::Heading(first) = &rows[0] else {
+                    panic!("expected first heading row");
+                };
+                let HeadingQueryMatch::Heading(second) = &rows[1] else {
+                    panic!("expected second heading row");
+                };
+                assert_eq!(first.title, "Query Engine");
+                assert_eq!(second.title, "Nested Task");
             }
             other => panic!("unexpected query rows: {other:?}"),
         }
@@ -2813,7 +3054,13 @@ mod tests {
 
     fn heading_ids(rows: QueryRows) -> Vec<i64> {
         match rows {
-            QueryRows::Headings(rows) => rows.into_iter().map(|row| row.id).collect(),
+            QueryRows::Headings(rows) => rows
+                .into_iter()
+                .filter_map(|row| match row {
+                    HeadingQueryMatch::Heading(row) => Some(row.id),
+                    HeadingQueryMatch::File(_) => None,
+                })
+                .collect(),
             other => panic!("expected heading rows, got {other:?}"),
         }
     }

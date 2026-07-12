@@ -248,7 +248,7 @@ Legend:
 | ~file-dir~ | yes | via relation | yes |
 | ~file-title~ | yes | via relation | yes |
 
-Note: ~file-title~ is marked as directly usable for heading queries because it filters headings by their containing file, like ~file-name~, ~file-path~, and ~file-dir~. Internally it is derived from root metadata such as ~#+TITLE~.
+Note: ~file-title~ is marked as directly usable for heading queries because it filters headings by their containing file, like ~file-name~, ~file-path~, and ~file-dir~. Internally it uses the effective root/file title, including the fallback file stem when no source ~#+TITLE~ is present.
 | ~file-modified~ | yes | via relation | yes |
 | ~outline-contains~ | yes | via relation | no |
 | ~outline-sequence~ | yes | via relation | no |
@@ -1051,7 +1051,7 @@ There is no hidden global rule for ~&rest~ arguments.
 
 ** 3. Basic heading predicates
 
-*** ~(title &rest strings &key regexp exact)~
+*** ~(title &rest strings &key regexp exact without-root)~
 
 **** Purpose
 
@@ -1064,6 +1064,7 @@ This predicate replaces the earlier proposed ~heading~ predicate name.
 - ~strings~ :: One or more strings or patterns.
 - ~:regexp t~ :: Interpret strings as regexps.
 - ~:exact t~ :: Require exact title equality.
+- ~:without-root t|nil~ :: Exclude or include root/file title matching for heading queries.
 
 **** Rules
 
@@ -1073,9 +1074,13 @@ This predicate replaces the earlier proposed ~heading~ predicate name.
 - With ~:regexp t~, all regexps must match.
 - With ~:exact t~, exactly one string must be provided.
 - ~:regexp t~ and ~:exact t~ must not be combined.
+- Without ~:without-root t~, heading queries may also match the effective root/file title and return the file/root object itself as a file result.
+- ~:without-root nil~ behaves like the default and keeps root/file title matching enabled.
+- ~:without-root t~ restricts matching to real headings only.
 - Matching uses the normalized stored heading title, not ~title_raw~.
 - ~title_raw~ is source-oriented output and preserves TODO keywords, priority cookies, and statistics cookies, excluding trailing Org tags.
 - TODO keywords, priority cookies such as ~[#A]~, and statistics cookies such as ~[2/5]~ or ~[50%]~ do not participate in ~title~ matching.
+- Root/file title matching uses the effective root/file ~title~, including file-stem fallback titles when no source ~#+TITLE~ exists.
 
 **** Examples
 
@@ -1098,6 +1103,12 @@ Matches headings whose title contains both ~sqlite~ and ~index~, in any order.
 Matches only headings whose title is exactly ~Query engine~, ignoring case unless exact matching is later defined as case-sensitive.
 
 #+begin_src lisp
+(title "Projects" :exact t)
+#+end_src
+
+Matches a real heading titled ~Projects~ and may also return the matching file/root object when the effective file/root title is ~Projects~.
+
+#+begin_src lisp
 (title "query.*engine" :regexp t)
 #+end_src
 
@@ -1111,9 +1122,16 @@ Matches headings whose title matches the regexp.
 
 Invalid because ~:exact t~ requires exactly one title argument.
 
+#+begin_src lisp
+(title "Projects" :exact t :without-root t)
+#+end_src
+
+Matches only real headings titled ~Projects~ and suppresses root/file title matches.
+
 **** Notes
 
-The file/root context may use file title for root-style matching, but real heading results are still headings.
+- ~title~ on heading queries can return a file/root match as ~kind = "file"~.
+- ~file-title~ remains distinct: it filters by the containing file title and does not by itself turn that file title into a heading-title match.
 
 *** ~(has-text &rest strings &key regexp)~
 
@@ -3181,8 +3199,8 @@ Heading query example:
 
 Notes:
 
-- If a file has no title, it does not match ~file-title~.
-- A project may define fallback behavior, such as using the file name as title, but that must be documented separately.
+- ~file-title~ uses the effective file/root title.
+- Files without a source ~#+TITLE~ still match through the effective fallback file stem.
 
 *** ~(file-modified &key from to on with-time)~
 

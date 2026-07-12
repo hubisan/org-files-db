@@ -17,7 +17,7 @@ fn validates_heading_predicate_families() {
             (and
               (todo "NEXT" "WAITING")
               (done)
-              (title "Query" :exact t)
+              (title "Query" :exact t :without-root nil)
               (has-text "sqlite")
               (level >= 2)
               (priority "A" "B")
@@ -128,4 +128,19 @@ fn validates_source_and_target_any_forms() {
 
     let target_query = parse_query("(links (target :any))").expect("query should parse");
     validate_query(target_query, &full_capabilities()).expect("query should validate");
+}
+
+#[test]
+fn validates_heading_title_without_root_option() {
+    let query = parse_query(r#"(headings (title "Projects" :without-root t))"#)
+        .expect("query should parse");
+    let validated = validate_query(query, &full_capabilities()).expect("query should validate");
+
+    let Some(ValidatedExpr::Predicate(predicate)) = validated.predicate else {
+        panic!("expected validated predicate");
+    };
+    assert_eq!(predicate.name, "title");
+    assert_eq!(predicate.options.len(), 1);
+    assert_eq!(predicate.options[0].name, "without-root");
+    assert_eq!(predicate.options[0].value, QueryValue::Bool(true));
 }

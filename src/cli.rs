@@ -869,6 +869,79 @@ index_body_text = false
     }
 
     #[test]
+    fn query_json_heading_title_root_matches_return_file_kind() {
+        let test_dir = TestDir::new("query-title-root-match");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = test_dir.path().join("projects.org");
+        let db_path = test_dir.path().join("org-files.sqlite");
+
+        write_file(&org_path, "#+TITLE: Projects\n* Projects overview\n");
+        write_file(
+            &config_path,
+            &format!(
+                "db_path = {:?}\nfiles = [{:?}]\n\n[search]\nfts5_enabled = false\nindex_body_text = false\n",
+                db_path, org_path
+            ),
+        );
+
+        rebuild(&config_path).expect("rebuild should succeed");
+
+        let response = super::query_json_response(
+            true,
+            "(headings (title \"Projects\" :exact t))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("root title query should succeed");
+
+        let value: serde_json::Value =
+            serde_json::to_value(&response).expect("json output should serialize");
+        assert_eq!(value["target"], "headings");
+        assert_eq!(value["results"].as_array().expect("results array").len(), 1);
+        let file = &value["results"][0];
+        assert_eq!(file["kind"], "file");
+        assert_eq!(file["title"], "Projects");
+    }
+
+    #[test]
+    fn query_json_heading_title_root_matches_fallback_file_titles() {
+        let test_dir = TestDir::new("query-title-root-fallback");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = test_dir.path().join("no-title-set.org");
+
+        write_file(&org_path, "* Heading\n");
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+files = ["./no-title-set.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        rebuild(&config_path).expect("rebuild should succeed");
+
+        let response = super::query_json_response(
+            true,
+            "(headings (title \"no-title-set\" :exact t))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("fallback root title query should succeed");
+
+        let value = serde_json::to_value(&response).expect("response should serialize");
+        let file = &value["results"][0];
+        assert_eq!(file["kind"], "file");
+        assert_eq!(file["title"], "no-title-set");
+        assert!(file["title_raw"].is_null());
+    }
+
+    #[test]
     fn query_json_supports_outline_and_multiple_includes() {
         let test_dir = TestDir::new("query-outline");
         let config_path = write_query_fixture(&test_dir);
