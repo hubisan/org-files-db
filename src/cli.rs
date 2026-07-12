@@ -215,13 +215,17 @@ fn query_json_response(
         return Err(CliError::MissingJsonFlag("query"));
     }
 
-    let connection = open_cli_database(config_path)?;
+    let config = load_cli_config(config_path)?;
+    let connection =
+        open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
     let parsed = parse_query(query).map_err(CliError::QueryParse)?;
     let validated = validate_query(parsed, &QueryValidationOptions::default())
         .map_err(CliError::QueryValidate)?;
     let options = QueryExecutionOptions {
         output_mode: output.into(),
         includes: includes.iter().copied().map(QueryInclude::from).collect(),
+        query_timezone: config.query.timezone.clone(),
+        now_utc: None,
     };
     execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
 }
@@ -246,14 +250,15 @@ fn links_rows_for_json(connection: &Connection) -> Result<Vec<LinkJsonRow>, CliE
 }
 
 fn open_cli_database(config_path: Option<&std::path::Path>) -> Result<Connection, CliError> {
-    let db_path = if let Some(config_path) = config_path {
-        Config::load_from_file(config_path)
-            .map_err(CliError::Config)?
-            .db_path
-    } else {
-        Config::default().db_path
-    };
-    open_existing_database_read_only(&db_path).map_err(CliError::Database)
+    let config = load_cli_config(config_path)?;
+    open_existing_database_read_only(&config.db_path).map_err(CliError::Database)
+}
+
+fn load_cli_config(config_path: Option<&std::path::Path>) -> Result<Config, CliError> {
+    match config_path {
+        Some(config_path) => Config::load_from_file(config_path).map_err(CliError::Config),
+        None => Ok(Config::default()),
+    }
 }
 
 fn write_json_output<T: Serialize>(value: &T) -> Result<(), CliError> {

@@ -147,58 +147,82 @@ General rules:
 
 - Task file: [[file:2026-07-12--align-title-with-root-file-matching-semantics.org]]
 
-** TODO [#B] Complete timestamp timezone and explicit-time query semantics
+** DONE [#B] Add configurable query timezone and deterministic relative-date resolution
+
+- Task file: [[file:archive/2026-07-12--add-configurable-query-timezone-and-deterministic-relative-date-resolution.org]]
+
+** TODO [#B] Complete date-only and datetime query-bound semantics
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
+:DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Yes
 :END:
 
 Depends on:
 
-- Implement safe SQL translation and core metadata query execution
-- Implement CLI command ~query~
+- Add configurable query timezone and deterministic relative-date resolution
 - [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
 
 Goal:
 
-- Complete and document the semantics of ~today~, integer day offsets, optional query timezones, datetime arguments, and ~:with-time~ filtering.
-- Keep relative date handling consistent with the timezone-naive representation of indexed Org timestamps.
-
-Current behavior:
-
-- ~today~ and integer day offsets use the current local system timezone.
-- An explicitly configured query timezone should override the local system timezone.
-- Stored Org planning timestamps use timezone-naive epoch-based integer values.
-- The SQLite metadata backend currently rejects ~:with-time~ as unsupported.
+- Define and implement consistent semantics for date-only and datetime arguments used with ~:on~, ~:from~, and ~:to~.
+- Keep query bounds consistent with the timezone-naive representation of indexed Org timestamps.
 
 Rules:
 
-- The query timezone is optional.
-- If a query timezone is configured, ~today~ and integer day offsets use that timezone.
-- If no query timezone is configured, the current local system timezone is used.
-- ~today~ means the current calendar date in the effective query timezone.
-- Integer day offsets are calendar-day offsets relative to ~today~.
-- Resolved dates and datetimes are encoded using the same timezone-naive representation as indexed Org timestamps.
+- Date-only arguments represent calendar-day boundaries.
+- Date-only ~:on~ matches the complete specified calendar day.
+- Date-only ~:from~ uses an inclusive start-of-day boundary.
+- Date-only ~:to~ includes the complete specified day by using an exclusive next-day boundary.
+- Datetime arguments use their explicit hour and minute.
+- Datetime arguments are not converted between timezones.
+- Datetime ~:from~ bounds are inclusive.
+- Datetime ~:to~ bounds follow the query model's documented upper-bound semantics.
+- Resolved dates and datetimes use the same timezone-naive representation as indexed Org timestamps.
 - Stored Org timestamps must not be converted between timezones.
-- Date-only ~:to~ bounds include the complete specified day by using an exclusive next-day boundary.
-- Datetime arguments use the explicit hour and minute without timezone conversion.
-- ~:with-time t~ matches only Org timestamps containing an explicit time.
-- ~:with-time nil~ matches only date-only Org timestamps.
-- Omitting ~:with-time~ matches both forms.
-- If explicit-time information is unavailable in persisted facts, ~:with-time~ must return a clear unsupported-backend error.
 
-Possible configuration:
+Acceptance criteria:
 
-#+begin_src toml
-[query]
-timezone = "Europe/Zurich"
-#+end_src
+- Date-only ~:on~, ~:from~, and ~:to~ semantics are documented.
+- Datetime ~:on~, ~:from~, and ~:to~ semantics are documented.
+- A date-only ~:to~ value includes timestamps throughout the specified day.
+- A date-only ~:to~ value excludes timestamps from the following day.
+- Explicit datetime arguments preserve their stated hour and minute.
+- Tests distinguish date-only bounds from datetime bounds.
+- Tests cover explicit midnight datetime arguments.
+- Tests cover month-end and year-end next-day boundaries.
+- Tests cover daylight-saving transition dates without converting stored values.
+- Query SQL continues to use bound parameters for all resolved values.
 
-If ~query.timezone~ is absent, the current local system timezone is used.
+** TODO [#B] Persist explicit-time metadata for indexed Org timestamps
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: No
+:END:
 
-Possible schema extension:
+Depends on:
+
+- Complete date-only and datetime query-bound semantics
+
+Goal:
+
+- Persist whether each indexed Org timestamp contained an explicit time.
+- Allow date-only timestamps and explicit midnight timestamps to be distinguished reliably.
+
+Rules:
+
+- Explicit-time presence must be derived while parsing or indexing the original Org timestamp.
+- Explicit-time presence must not be inferred from the encoded timestamp value.
+- A date-only timestamp has ~has_time = 0~.
+- A timestamp containing an explicit hour and minute has ~has_time = 1~, including explicit midnight.
+- Missing or unavailable timestamp facts may use ~NULL~ where required by migration or compatibility constraints.
+- Existing timezone-naive timestamp values must remain unchanged.
+- All timestamp-bearing persisted facts needed by ~:with-time~ filtering must expose equivalent explicit-time metadata.
+
+Possible planning-column extension:
 
 #+begin_src sql
 scheduled_has_time INTEGER
@@ -211,20 +235,64 @@ closed_has_time INTEGER
     CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL)
 #+end_src
 
+The generic timestamp storage used by ~ts~, ~ts-active~, and ~ts-inactive~ must receive equivalent explicit-time metadata.
+
 Acceptance criteria:
 
-- ~(deadline :on today)~ uses the current calendar date in the effective query timezone.
-- Explicit timezone configuration overrides the local system timezone.
-- Absence of timezone configuration uses the current local system timezone.
-- Integer offsets use the same effective timezone and calendar date as ~today~.
-- Date-only ~:from~, ~:to~, and ~:on~ semantics are documented and tested.
-- Datetime query arguments are documented and tested.
-- Tests cover explicit ~UTC~ and ~Europe/Zurich~ timezones.
-- Tests cover fallback to the local system timezone.
-- Tests cover execution around local midnight.
-- Tests cover a daylight-saving transition where supported.
-- ~:with-time~ is implemented from persisted facts or remains clearly documented as unsupported.
-- Date-only timestamps and explicit midnight timestamps can be distinguished if ~:with-time~ is implemented.
+- The database schema persists explicit-time information for planning timestamps.
+- The database schema persists explicit-time information for generic timestamps used by timestamp query predicates.
+- Indexing a date-only timestamp stores ~has_time = 0~.
+- Indexing a timestamp with an explicit time stores ~has_time = 1~.
+- An explicit midnight timestamp stores ~has_time = 1~.
+- Existing encoded timestamp values remain unchanged.
+- Reindexing populates explicit-time facts consistently.
+- Schema and migration tests cover existing databases where applicable.
+- Indexer tests cover scheduled, deadline, closed, active, and inactive timestamps.
+- Date-only timestamps and explicit midnight timestamps are distinguishable from persisted facts.
+
+** TODO [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- Persist explicit-time metadata for indexed Org timestamps
+- Complete date-only and datetime query-bound semantics
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Implement ~:with-time~ filtering using persisted explicit-time facts.
+- Apply the same semantics consistently to planning and generic timestamp predicates.
+
+Rules:
+
+- ~:with-time t~ matches only Org timestamps containing an explicit time.
+- ~:with-time nil~ matches only date-only Org timestamps.
+- Omitting ~:with-time~ matches both forms.
+- Explicit midnight counts as containing an explicit time.
+- Filtering must use persisted explicit-time facts.
+- Filtering must not infer explicit-time presence from encoded timestamp values.
+- A backend without explicit-time facts must return a clear unsupported-backend error.
+- All user-provided query values must continue to use bound SQL parameters.
+
+Acceptance criteria:
+
+- ~:with-time t~ matches timestamps containing an explicit hour and minute.
+- ~:with-time t~ matches explicit midnight timestamps.
+- ~:with-time t~ does not match date-only timestamps.
+- ~:with-time nil~ matches date-only timestamps.
+- ~:with-time nil~ does not match timestamps containing an explicit time.
+- Omitting ~:with-time~ matches both date-only and timed timestamps.
+- Planning predicates support ~:with-time~.
+- Generic ~ts~, ~ts-active~, and ~ts-inactive~ predicates support ~:with-time~.
+- Date-only timestamps and explicit midnight timestamps are distinguished correctly.
+- Missing explicit-time backend capabilities produce a clear unsupported-backend error.
+- The query model documentation describes the implemented semantics.
 - Query SQL continues to use bound parameters for user-provided values.
 
 ** TODO [#C] Implement body text availability for ~(has-text ...)~

@@ -7,7 +7,9 @@ use rusqlite::{
 };
 use serde::Serialize;
 
+use super::result::QueryExecutionOptions;
 use super::{
+    ensure_relative_dates_resolved, resolve_relative_dates, QueryDateResolutionOptions,
     QueryTarget, QueryValue, ValidatedArg, ValidatedExpr, ValidatedOption, ValidatedPredicate,
     ValidatedQuery,
 };
@@ -125,6 +127,7 @@ enum HeadingMatchKind {
 pub enum QueryExecutionErrorKind {
     UnsupportedPredicate,
     UnsupportedBackendFeature,
+    DateResolution,
     Database,
 }
 
@@ -159,6 +162,20 @@ impl QueryExecutionError {
     ) -> Self {
         Self {
             kind: QueryExecutionErrorKind::UnsupportedBackendFeature,
+            target,
+            predicate: predicate.into(),
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    fn date_resolution(
+        target: QueryTarget,
+        predicate: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: QueryExecutionErrorKind::DateResolution,
             target,
             predicate: predicate.into(),
             message: message.into(),
@@ -295,6 +312,13 @@ impl AliasAllocator {
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
+    ensure_relative_dates_resolved(query).map_err(|error| {
+        QueryExecutionError::date_resolution(
+            query.target,
+            "relative-date-resolution",
+            error.to_string(),
+        )
+    })?;
     let mut aliases = AliasAllocator::default();
     let scope = aliases.next_scope(query.target);
     let where_clause = compile_query_match_filter(query, &scope, &mut aliases)?;
@@ -447,14 +471,37 @@ pub fn execute_sqlite_query(
     connection: &Connection,
     query: &ValidatedQuery,
 ) -> Result<QueryRows, QueryExecutionError> {
-    match query.target {
-        QueryTarget::Headings => execute_headings_query(connection, query),
+    execute_sqlite_query_with_options(connection, query, &QueryExecutionOptions::default())
+}
+
+pub fn execute_sqlite_query_with_options(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+) -> Result<QueryRows, QueryExecutionError> {
+    let resolved = resolve_relative_dates(
+        query,
+        &QueryDateResolutionOptions {
+            timezone: options.query_timezone.clone(),
+            now_utc: options.now_utc,
+        },
+    )
+    .map_err(|error| {
+        QueryExecutionError::date_resolution(
+            query.target,
+            "relative-date-resolution",
+            error.to_string(),
+        )
+    })?;
+
+    match resolved.target {
+        QueryTarget::Headings => execute_headings_query(connection, &resolved),
         QueryTarget::Links => {
-            let compiled = compile_sqlite_query(query)?;
+            let compiled = compile_sqlite_query(&resolved)?;
             execute_links_query(connection, &compiled)
         }
         QueryTarget::Files => {
-            let compiled = compile_sqlite_query(query)?;
+            let compiled = compile_sqlite_query(&resolved)?;
             execute_files_query(connection, &compiled)
         }
     }
@@ -2181,15 +2228,19 @@ fn target_name(target: QueryTarget) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_sqlite_query, execute_sqlite_query, FileQueryRow, HeadingQueryMatch,
-        HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind, QueryRows,
+        compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
+        FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind,
+        QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
         HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord,
         SchemaDefinition, TagRecord, TimestampRecord,
     };
-    use crate::query::{parse_query, validate_query, QueryValidationOptions};
+    use crate::query::{
+        parse_query, resolve_relative_dates, validate_query, QueryDateResolutionOptions,
+        QueryExecutionOptions, QueryValidationOptions,
+    };
     use rusqlite::Connection;
     use std::{
         fs,
@@ -2285,6 +2336,21 @@ mod tests {
             relation_error.kind,
             QueryExecutionErrorKind::UnsupportedPredicate
         );
+    }
+
+    #[test]
+    fn compile_rejects_unresolved_relative_date_values() {
+        for query in [
+            validated(r#"(headings (scheduled :on today))"#),
+            validated(r#"(files (file-modified :from -7))"#),
+        ] {
+            let error =
+                compile_sqlite_query(&query).expect_err("unresolved relative date should fail");
+            assert_eq!(error.kind, QueryExecutionErrorKind::DateResolution);
+            assert!(error
+                .to_string()
+                .contains("resolve relative dates before SQL compilation"));
+        }
     }
 
     #[test]
@@ -3004,6 +3070,147 @@ mod tests {
             }
             other => panic!("unexpected ts-active rows: {other:?}"),
         }
+    }
+
+    #[test]
+    fn execution_resolves_relative_dates_before_sql_with_bound_parameters() {
+        let query = validated(r#"(headings (scheduled :from today :to 1))"#);
+        let resolved = resolve_relative_dates(
+            &query,
+            &QueryDateResolutionOptions {
+                timezone: Some("UTC".to_string()),
+                now_utc: Some(
+                    "2026-01-03T12:00:00Z"
+                        .parse()
+                        .expect("timestamp should parse"),
+                ),
+            },
+        )
+        .expect("query should resolve");
+        let compiled = compile_sqlite_query(&resolved).expect("query should compile");
+
+        assert!(!compiled.sql.contains("localtime"));
+        assert_eq!(
+            compiled.params,
+            vec![
+                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Text("2026-01-04".to_string()),
+            ]
+        );
+
+        let connection = seeded_connection();
+        let rows = execute_sqlite_query_with_options(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                now_utc: Some(
+                    "2026-01-03T12:00:00Z"
+                        .parse()
+                        .expect("timestamp should parse"),
+                ),
+                query_timezone: Some("UTC".to_string()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("query should execute");
+
+        match rows {
+            QueryRows::Headings(rows) => {
+                assert_eq!(rows.len(), 1);
+                let HeadingQueryMatch::Heading(row) = &rows[0] else {
+                    panic!("expected heading row");
+                };
+                assert_eq!(row.id, 11);
+                assert_eq!(row.scheduled_ts, Some(1_767_398_400));
+            }
+            other => panic!("unexpected scheduled rows: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn execution_uses_effective_timezone_for_relative_dates() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (scheduled :on today))"#);
+
+        let utc_rows = execute_sqlite_query_with_options(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                now_utc: Some(
+                    "2026-01-03T23:30:00Z"
+                        .parse()
+                        .expect("timestamp should parse"),
+                ),
+                query_timezone: Some("UTC".to_string()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("utc query should execute");
+        let zurich_rows = execute_sqlite_query_with_options(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                now_utc: Some(
+                    "2026-01-03T23:30:00Z"
+                        .parse()
+                        .expect("timestamp should parse"),
+                ),
+                query_timezone: Some("Europe/Zurich".to_string()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("zurich query should execute");
+
+        assert_eq!(heading_ids(utc_rows), vec![11]);
+        assert_eq!(heading_ids(zurich_rows), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn execution_returns_date_resolution_error_for_invalid_timezone() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (scheduled :on today))"#);
+
+        let error = execute_sqlite_query_with_options(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                now_utc: Some(
+                    "2026-01-03T23:30:00Z"
+                        .parse()
+                        .expect("timestamp should parse"),
+                ),
+                query_timezone: Some("Mars/Olympus".to_string()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect_err("query should fail");
+
+        assert_eq!(error.kind, QueryExecutionErrorKind::DateResolution);
+        assert!(error.to_string().contains("invalid query timezone"));
+    }
+
+    #[test]
+    fn execution_returns_date_resolution_error_for_out_of_range_offset() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (scheduled :to 9223372036854775807))"#);
+
+        let error = execute_sqlite_query_with_options(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                now_utc: Some(
+                    "2026-01-03T23:30:00Z"
+                        .parse()
+                        .expect("timestamp should parse"),
+                ),
+                query_timezone: Some("UTC".to_string()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect_err("query should fail");
+
+        assert_eq!(error.kind, QueryExecutionErrorKind::DateResolution);
+        assert!(error.to_string().contains("out of range"));
     }
 
     #[test]

@@ -10,6 +10,8 @@ keywords = ["org-mode", "sqlite", "cli", "indexer"]
 categories = ["command-line-interface", "database", "parsing", "text-processing"]
 
 [dependencies]
+chrono = "0.4"
+chrono-tz = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 orgize = "0.10.0-alpha.10"
 rusqlite = "0.32"

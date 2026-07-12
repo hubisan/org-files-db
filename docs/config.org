@@ -27,6 +27,9 @@ default_closed_keywords = ["DONE(d)", "CANCEL(c)"]
 [search]
 fts5_enabled = true
 index_body_text = false
+
+[query]
+timezone = "Europe/Zurich"
 #+end_src
 
 * Top-level keys
@@ -37,6 +40,7 @@ index_body_text = false
 - ~links~
 - ~todo~
 - ~search~
+- ~query~
 
 * ~db_path~
 
@@ -168,3 +172,21 @@ Controls whether heading body text is indexed for search.
 
 - Type: boolean
 - Default: ~false~
+
+* ~[query]~
+
+Controls query-time behavior for relative date resolution.
+
+Supported keys:
+
+- ~timezone~
+
+** ~query.timezone~
+
+Optional IANA timezone name used when resolving relative query date values such as ~today~, ~-1~, and ~7~.
+
+- Type: string
+- Required: no
+- Default: local system timezone
+
+If this field is set, it overrides the local system timezone for query-time relative-date resolution. Relative dates are resolved before SQL execution into timezone-naive date strings so stored Org timestamps are not converted between timezones.

@@ -3,8 +3,10 @@ use std::{
     error::Error,
     fmt, fs,
     path::{Component, Path, PathBuf},
+    str::FromStr,
 };
 
+use chrono_tz::Tz;
 use serde::Deserialize;
 use toml::Value;
 
@@ -24,6 +26,7 @@ pub struct Config {
     pub links: LinkConfig,
     pub todo: TodoConfig,
     pub search: SearchConfig,
+    pub query: QueryConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +70,7 @@ impl Config {
             links,
             todo,
             search,
+            query,
         } = raw;
         let base_dir = absolute_base_dir(path.parent().unwrap_or_else(|| Path::new(".")));
         let db_path = resolve_path(&base_dir, raw_db_path, home_dir)?;
@@ -92,6 +96,14 @@ impl Config {
             fts5_enabled: None,
             index_body_text: None,
         });
+        let query = query.unwrap_or(RawQueryConfig { timezone: None });
+        let query_timezone = match query.timezone {
+            Some(timezone) => {
+                validate_query_timezone(path, &timezone)?;
+                Some(timezone)
+            }
+            None => None,
+        };
 
         Ok(Self {
             db_path,
@@ -120,6 +132,9 @@ impl Config {
             search: SearchConfig {
                 fts5_enabled: search.fts5_enabled.unwrap_or(true),
                 index_body_text: search.index_body_text.unwrap_or(false),
+            },
+            query: QueryConfig {
+                timezone: query_timezone,
             },
         })
     }
@@ -164,6 +179,11 @@ pub struct SearchConfig {
     pub index_body_text: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct QueryConfig {
+    pub timezone: Option<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -173,6 +193,7 @@ impl Default for Config {
             links: LinkConfig::default(),
             todo: TodoConfig::default(),
             search: SearchConfig::default(),
+            query: QueryConfig::default(),
         }
     }
 }
@@ -229,6 +250,10 @@ pub enum ConfigError {
     MissingHomeDirectory {
         path: PathBuf,
     },
+    InvalidTimezone {
+        path: PathBuf,
+        value: String,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -264,6 +289,12 @@ impl fmt::Display for ConfigError {
                 "failed to expand config path {}: home directory could not be determined",
                 path.display()
             ),
+            Self::InvalidTimezone { path, value } => write!(
+                f,
+                "invalid query.timezone `{}` in config {}: expected an IANA timezone name such as `UTC` or `Europe/Zurich`",
+                value,
+                path.display()
+            ),
         }
     }
 }
@@ -276,7 +307,8 @@ impl Error for ConfigError {
             Self::UnsupportedConfig { .. }
             | Self::MissingFile { .. }
             | Self::MissingDirectory { .. }
-            | Self::MissingHomeDirectory { .. } => None,
+            | Self::MissingHomeDirectory { .. }
+            | Self::InvalidTimezone { .. } => None,
         }
     }
 }
@@ -292,6 +324,7 @@ struct RawConfig {
     links: Option<RawLinksConfig>,
     todo: Option<RawTodoConfig>,
     search: Option<RawSearchConfig>,
+    query: Option<RawQueryConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,6 +352,11 @@ struct RawSearchConfig {
     index_body_text: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RawQueryConfig {
+    timezone: Option<String>,
+}
+
 fn default_db_path() -> PathBuf {
     PathBuf::from("org-files-db.sqlite")
 }
@@ -343,6 +381,15 @@ fn default_closed_keywords() -> Vec<TodoKeyword> {
         .into_iter()
         .map(|spec| parse_todo_keyword_spec(&spec))
         .collect()
+}
+
+fn validate_query_timezone(path: &Path, timezone: &str) -> Result<(), ConfigError> {
+    Tz::from_str(timezone)
+        .map(|_| ())
+        .map_err(|_| ConfigError::InvalidTimezone {
+            path: path.to_path_buf(),
+            value: timezone.to_string(),
+        })
 }
 
 fn reject_legacy_discovery_config(path: &Path, value: &Value) -> Result<(), ConfigError> {
@@ -505,8 +552,8 @@ fn current_home_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_path, Config, ConfigError, ConfiguredDir, LinkConfig, RawConfig, RawConfiguredDir,
-        RawLinksConfig, RawSearchConfig, RawTodoConfig,
+        resolve_path, Config, ConfigError, ConfiguredDir, LinkConfig, QueryConfig, RawConfig,
+        RawConfiguredDir, RawLinksConfig, RawQueryConfig, RawSearchConfig, RawTodoConfig,
     };
     use crate::parser::{LinkScannerConfig, ParseOptions, TodoKeyword, TodoKeywordConfig};
     use std::{
@@ -570,6 +617,7 @@ db_path = "db.sqlite"
         assert_eq!(config.db_path, test_dir.path().join("db.sqlite"));
         assert!(config.files.is_empty());
         assert!(config.dirs.is_empty());
+        assert_eq!(config.query, QueryConfig::default());
     }
 
     #[test]
@@ -1007,6 +1055,57 @@ index_body_text = true
     }
 
     #[test]
+    fn loads_query_timezone() {
+        let test_dir = TestDir::new("query-timezone");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[query]
+timezone = "Europe/Zurich"
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+
+        assert_eq!(
+            config.query,
+            QueryConfig {
+                timezone: Some("Europe/Zurich".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_query_timezone() {
+        let test_dir = TestDir::new("invalid-query-timezone");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[query]
+timezone = "Mars/Olympus"
+"#,
+        );
+
+        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+        match error {
+            ConfigError::InvalidTimezone { path, value } => {
+                assert_eq!(path, config_path);
+                assert_eq!(value, "Mars/Olympus");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
     fn parse_options_carry_configured_todo_keywords() {
         let test_dir = TestDir::new("parse-options");
         let config_path = test_dir.path().join("config.toml");
@@ -1249,6 +1348,7 @@ custom_protocols = ["JIRA", "jira", "shell"]
                 fts5_enabled: None,
                 index_body_text: None,
             }),
+            query: Some(RawQueryConfig { timezone: None }),
         }
     }
 }

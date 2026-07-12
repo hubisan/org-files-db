@@ -4,12 +4,14 @@ use std::{
     path::Path,
 };
 
+use chrono::{DateTime, Utc};
 use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
 use super::sqlite::HeadingQueryMatch;
 use super::{
-    execute_sqlite_query, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget, ValidatedQuery,
+    execute_sqlite_query_with_options, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
+    ValidatedQuery,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -35,6 +37,8 @@ pub enum QueryInclude {
 pub struct QueryExecutionOptions {
     pub output_mode: QueryOutputMode,
     pub includes: Vec<QueryInclude>,
+    pub query_timezone: Option<String>,
+    pub now_utc: Option<DateTime<Utc>>,
 }
 
 impl Default for QueryExecutionOptions {
@@ -42,6 +46,8 @@ impl Default for QueryExecutionOptions {
         Self {
             output_mode: QueryOutputMode::Flat,
             includes: Vec::new(),
+            query_timezone: None,
+            now_utc: None,
         }
     }
 }
@@ -335,7 +341,7 @@ pub fn execute_and_shape_query(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let rows = execute_sqlite_query(connection, query)?;
+    let rows = execute_sqlite_query_with_options(connection, query, options)?;
     shape_query_results(connection, rows, options)
 }
 
@@ -1647,6 +1653,7 @@ mod tests {
                     QueryInclude::Source,
                     QueryInclude::Target,
                 ],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("results should shape");
@@ -1688,6 +1695,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Source, QueryInclude::Target],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("query should shape");
@@ -1713,6 +1721,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Links],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("query should shape");
@@ -1743,6 +1752,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Properties],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("included query should shape");
@@ -1779,6 +1789,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Properties, QueryInclude::Keywords],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("included query should shape");
@@ -1819,6 +1830,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Keywords],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("included query should shape");
@@ -1840,6 +1852,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Backlinks],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("query should shape");
@@ -1881,6 +1894,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Outline,
                 includes: vec![],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("query should shape");
@@ -1915,6 +1929,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Outline,
                 includes: vec![],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("outline root title query should shape");
@@ -1938,6 +1953,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Flat,
                 includes: vec![QueryInclude::Path],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("flat query should shape");
@@ -1947,6 +1963,7 @@ mod tests {
             &QueryExecutionOptions {
                 output_mode: QueryOutputMode::Outline,
                 includes: vec![QueryInclude::Path],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("outline query should shape");
@@ -1973,6 +1990,7 @@ mod tests {
                     QueryInclude::Links,
                     QueryInclude::Backlinks,
                 ],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("enriched query should shape");
@@ -1994,6 +2012,7 @@ mod tests {
                     QueryInclude::Source,
                     QueryInclude::Target,
                 ],
+                ..QueryExecutionOptions::default()
             },
         )
         .expect("query should shape");

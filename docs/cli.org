@@ -121,7 +121,7 @@ Supported options:
 - ~--json~ :: required for the stable output mode
 - ~--output flat|outline~ :: controls result shape only; default is ~flat~
 - ~--include path,properties,keywords,links,backlinks,source,target~ :: enriches matched results only
-- ~--config PATH~ :: loads only the stored ~db_path~ from the config file before opening the database read-only
+- ~--config PATH~ :: loads ~db_path~ and query-time settings such as ~query.timezone~ before opening the database read-only
 
 Examples:
 
@@ -135,6 +135,7 @@ orgfdb query --json --include path,links '(headings (todo "NEXT"))'
 Notes:
 
 - Output mode and include flags do not change which objects match.
+- Relative query dates such as ~today~ and integer day offsets are resolved before SQL execution using ~query.timezone~ when configured, otherwise the current local system timezone.
 - The command must be pointed at an already-built database; it does not rebuild missing facts.
 - For query syntax and semantic details, see [[./reference/query-model-v0.org][docs/reference/query-model-v0.org]].
 

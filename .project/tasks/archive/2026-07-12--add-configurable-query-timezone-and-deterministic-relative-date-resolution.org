@@ -1,0 +1,153 @@
+#+TITLE: Add configurable query timezone and deterministic relative-date resolution
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-12 Sun 23:42]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Add configurable query timezone and deterministic relative-date resolution
+
+- Task file: [[file:2026-07-12--add-configurable-query-timezone-and-deterministic-relative-date-resolution.org]]
+
+Depends on:
+
+- Implement safe SQL translation and core metadata query execution
+- Implement CLI command ~query~
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Add an optional query timezone configuration.
+- Resolve ~today~ and integer day offsets using the effective query timezone.
+- Make relative-date resolution deterministic and independently testable.
+
+Rules:
+
+- The query timezone is optional.
+- If ~query.timezone~ is configured, it overrides the local system timezone.
+- If ~query.timezone~ is absent, the current local system timezone is used.
+- ~today~ means the current calendar date in the effective query timezone.
+- Integer day offsets are calendar-day offsets relative to ~today~.
+- Relative dates must be resolved before SQL execution.
+- Stored Org timestamps must not be converted between timezones.
+- Resolved dates use the same timezone-naive representation as indexed Org timestamps.
+
+Configuration:
+
+#+begin_src toml
+[query]
+timezone = "Europe/Zurich"
+#+end_src
+
+Acceptance criteria:
+
+- ~(deadline :on today)~ uses the current calendar date in the configured query timezone.
+- Explicit timezone configuration overrides the local system timezone.
+- Absence of timezone configuration uses the current local system timezone.
+- Integer offsets use the same effective timezone and calendar date as ~today~.
+- Invalid timezone names produce a clear configuration error.
+- Tests cover explicit ~UTC~ and ~Europe/Zurich~ timezones.
+- Tests cover fallback to the local system timezone.
+- Tests cover execution around local midnight.
+- Tests cover a daylight-saving transition where supported.
+- Tests can inject or otherwise control the current time deterministically.
+- Resolved query values continue to be passed to SQL using bound parameters.
+
+* Planning
+
+** Problem summary
+
+Relative query dates are currently resolved inside SQLite via ~now~ and ~localtime~. That makes behavior dependent on the runtime environment, prevents deterministic tests, and does not allow a configured query timezone.
+
+** Goals
+
+- Add optional ~query.timezone~ config parsing and validation.
+- Resolve ~today~ and integer day offsets before SQL compilation/execution.
+- Make the resolver deterministic via injectable current time.
+- Preserve bound SQL parameters and timezone-naive matching semantics.
+
+** Non-goals
+
+- No database schema change.
+- No conversion of stored Org timestamps between timezones.
+- No broader redesign of date-bound semantics beyond relative-date resolution.
+
+** Architecture
+
+- Extend config with a dedicated query section.
+- Add a query-time resolver layer that rewrites validated relative date values into concrete date strings before SQL compilation.
+- Thread query execution settings from CLI config loading into query execution.
+
+** Execution plan
+
+- Add config model and error handling for ~query.timezone~.
+- Introduce deterministic relative-date resolver and tests around timezone behavior.
+- Update query execution and SQL compilation path to use resolved values.
+- Update config and CLI docs.
+
+** Risks & assumptions
+
+- IANA timezone support likely requires a dedicated timezone crate.
+- Local-time fallback tests may need temporary environment timezone control and careful isolation.
+
+** Open questions
+
+- None currently.
+
+** Proposed checks
+
+- ~cargo test~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added optional ~query.timezone~ config parsing and validation.
+- Introduced a dedicated query relative-date resolver with injectable ~now~ for deterministic tests.
+- Routed query execution through relative-date resolution before SQL compilation/execution.
+- Kept SQL matching timezone-naive by rewriting relative values to concrete date strings and continuing to use bound parameters.
+- Follow-up review fixes:
+  - ~compile_sqlite_query~ now rejects unresolved relative date values instead of silently compiling them.
+  - Query-time timezone/configuration failures now surface as dedicated date-resolution errors.
+  - Extreme integer day offsets are handled with checked date arithmetic and return an explicit out-of-range error.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~Cargo.lock~
+- ~src/config.rs~
+- ~src/query/resolve.rs~
+- ~src/query.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/cli.rs~
+- ~src/indexer.rs~
+- ~docs/config.org~
+- ~docs/cli.org~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+
+- Config tests cover valid and invalid ~query.timezone~ values.
+- Resolver tests cover ~UTC~, ~Europe/Zurich~, local-time fallback, local-midnight behavior, and a DST transition.
+- Query execution tests verify pre-SQL relative-date resolution, bound parameters, and timezone-sensitive matching behavior.
+- Additional regression tests cover unresolved relative compile input, invalid query timezone execution, and out-of-range integer day offsets.
+- Full repository CI passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- The remaining task ~Complete date-only and datetime query-bound semantics~ can now build on the new resolver and execution plumbing.

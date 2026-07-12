@@ -2844,6 +2844,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
 
         let error = Indexer::new(OrgizeAdapter::new())
@@ -2893,6 +2894,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
 
         let report = Indexer::new(OrgizeAdapter::new())
@@ -2963,6 +2965,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
 
         let report = Indexer::new(OrgizeAdapter::new())
@@ -5387,6 +5390,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5426,6 +5430,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5506,6 +5511,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5565,6 +5571,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5621,6 +5628,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5681,6 +5689,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5763,6 +5772,7 @@ index_body_text = false
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5947,6 +5957,7 @@ index_body_text = true
                 fts5_enabled: false,
                 index_body_text: true,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6069,6 +6080,7 @@ index_body_text = true
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6105,6 +6117,7 @@ index_body_text = true
                 fts5_enabled: false,
                 index_body_text: true,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6200,6 +6213,7 @@ index_body_text = true
                 fts5_enabled: false,
                 index_body_text: false,
             },
+            query: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
