@@ -1,0 +1,205 @@
+#+TITLE: Replace ~:with-root~ with ~:without-root~
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-12 Sun 14:12]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Replace ~:with-root~ with ~:without-root~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-12--replace-with-root-with-without-root.org]]
+
+Goal:
+
+- Replace the positive ~:with-root~ query option with the clearer negative ~:without-root~ option.
+- Make the query syntax communicate that root participation is enabled by default.
+- Apply the rename consistently across the Query Model v0 specification, parser, validation, normalization, execution, tests, and examples.
+
+Problem:
+
+Root/file facts participate by default in predicates where root inclusion is meaningful.
+
+The existing option:
+
+#+begin_src lisp
+(title "Projects" :with-root nil)
+#+end_src
+
+requires users to know that root matching is enabled by default and then disable it by passing a false value.
+
+The proposed syntax expresses the exception directly:
+
+#+begin_src lisp
+(title "Projects" :without-root t)
+#+end_src
+
+Required semantics:
+
+- Omitting ~:without-root~ includes root/file participation where supported.
+- ~:without-root nil~ behaves like the default and includes root/file participation.
+- ~:without-root t~ excludes root/file participation.
+- ~:with-root~ is removed from Query Model v0.
+- ~:with-root~ and ~:without-root~ must not both remain as supported aliases.
+- Predicates that do not support root participation must reject ~:without-root~.
+- The rename must not otherwise change match semantics.
+
+Examples:
+
+Default root inclusion:
+
+#+begin_src lisp
+(title "Projects")
+#+end_src
+
+Equivalent explicit form:
+
+#+begin_src lisp
+(title "Projects" :without-root nil)
+#+end_src
+
+Exclude root/file matching:
+
+#+begin_src lisp
+(title "Projects" :without-root t)
+#+end_src
+
+For tags, properties, or other predicates where root participation is supported, apply the same option semantics:
+
+#+begin_src lisp
+(tags "project" :without-root t)
+#+end_src
+
+Scope:
+
+- Find every use of ~with-root~ in:
+  - Query Model v0 documentation
+  - predicate signatures
+  - parser and AST tests
+  - semantic validation
+  - normalization
+  - SQLite translation and execution
+  - result-shaping tests
+  - CLI examples
+  - fixtures and manual tests
+  - error messages
+- Replace supported ~:with-root~ syntax with ~:without-root~.
+- Invert the Boolean interpretation at the semantic boundary.
+- Prefer normalizing the option to one internal value such as ~include_root~ so backend code does not need to reason about negative naming.
+- Remove obsolete ~with-root~ branches and tests.
+
+Parser and validation rules:
+
+- Accept ~:without-root t~ and ~:without-root nil~ only on predicates where root participation is meaningful.
+- Reject non-Boolean values.
+- Reject the obsolete ~:with-root~ keyword with a clear semantic error.
+- Reject duplicate ~:without-root~ options according to the existing duplicate-option rules.
+- Preserve the distinction between omitted and explicit values only where required for diagnostics or normalized output.
+- Normal execution semantics are:
+  - omitted: include root
+  - nil: include root
+  - t: exclude root
+
+Internal representation:
+
+- The public query syntax uses ~without-root~.
+- Internal code should preferably use positive terminology such as ~include_root~.
+- Normalize values as follows:
+
+#+begin_src text
+without-root omitted -> include_root = true
+without-root nil     -> include_root = true
+without-root t       -> include_root = false
+#+end_src
+
+- Do not propagate negatively named Boolean logic unnecessarily into SQL translation and result shaping.
+
+Documentation updates:
+
+- Replace predicate signatures containing ~with-root~.
+
+For example:
+
+#+begin_src lisp
+(title &rest strings &key regexp exact without-root)
+#+end_src
+
+- Document that root inclusion is the default.
+- Document ~:without-root t~ as the way to restrict matching to real headings.
+- Update all examples and explanatory text.
+- Keep the distinction between root matching and predicates such as ~file-title~ explicit.
+
+Compatibility:
+
+- This is an intentional Query Model v0 API contract change.
+- Do not silently reinterpret ~:with-root~.
+- Since the query language is still under development, prefer a clear unsupported-option error over maintaining an alias.
+- Update any saved manual queries and Org-Babel test files in the repository.
+
+Acceptance criteria:
+
+- No supported Query Model v0 predicate documents ~:with-root~.
+- Repository source and documentation contain no active use of ~:with-root~, except migration notes or tests asserting its rejection.
+- Supported predicates accept ~:without-root t~ and ~:without-root nil~.
+- Invalid ~:without-root~ values return a clear validation error.
+- Obsolete ~:with-root~ usage returns a clear validation error.
+- Omitting ~:without-root~ includes root/file participation.
+- ~:without-root nil~ includes root/file participation.
+- ~:without-root t~ excludes root/file participation.
+- Backend execution preserves all previous default root-inclusion semantics.
+- Normalized internal logic uses positive root-inclusion semantics where practical.
+- ~title~ root/file matching continues to return file/root objects as ~kind = "file"~.
+- ~:without-root t~ prevents file/root matches without changing real-heading matches.
+- Other predicates supporting root participation follow the same semantics.
+- Predicates without root semantics reject the option.
+- Flat and outline output preserve identical match semantics.
+- CLI and Org-Babel examples use ~:without-root~.
+- Regression tests cover omitted, nil, true, invalid, unsupported, and obsolete-option cases.
+- Existing query, parser, validation, backend, result-shaping, and CLI tests continue to pass.
+
+* Results
+
+** Approach
+
+- Added regression coverage first for the new public ~:without-root~ syntax and for rejecting obsolete ~:with-root~ with a guided error.
+- Replaced heading-query validation support from ~with-root~ to ~without-root~ and normalized execution back to a positive internal ~include_root~ decision.
+- Updated SQLite inherited tag/property execution and the Query Model v0 reference documentation to match the renamed option and default-root semantics.
+
+** Changed files
+
+- ~.project/tasks/todo.org~
+- ~docs/reference/query-model-v0.org~
+- ~src/query/sqlite.rs~
+- ~src/query/validate.rs~
+- ~tests/query_validate.rs~
+- ~tests/query_validate_errors.rs~
+
+** Checks performed
+
+- ~cargo test --test query_validate~
+- ~cargo test --test query_validate_errors~
+- ~cargo test execution_matches_effective_heading_tag_queries --lib~
+- ~cargo test execution_matches_effective_heading_property_queries --lib~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- All targeted regression tests passed after the rename.
+- ~make ci~ passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

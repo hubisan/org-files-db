@@ -570,7 +570,7 @@ For heading queries, root-level facts participate in inherited/effective matchin
 Default:
 
 #+begin_src lisp
-:with-root t
+:without-root nil
 #+end_src
 
 Example:
@@ -588,7 +588,7 @@ Explicitly excluding root:
 
 #+begin_src lisp
 (headings
-  (property "CATEGORY" "notes" :inherit t :with-root nil))
+  (property "CATEGORY" "notes" :inherit t :without-root t))
 #+end_src
 
 means:
@@ -600,7 +600,7 @@ means:
 
 Keywords are always root/file-level facts.
 
-Therefore ~keyword~ does not need a ~:with-root~ option.
+Therefore ~keyword~ does not need a ~:without-root~ option.
 
 Examples:
 
@@ -1270,7 +1270,7 @@ The ordering of priority letters follows Org priority ordering. Usually ~A~ is h
 
 ** 4. Tags predicate
 
-*** ~(tags &rest tags &key inherit with-root regexp match)~
+*** ~(tags &rest tags &key inherit without-root regexp match)~
 
 **** Purpose
 
@@ -1286,7 +1286,7 @@ Regexp tag matching uses the ~:regexp t~ option on ~tags~.
 
 - ~tags~ :: Tag names or tag regexps.
 - ~:inherit t|nil~ :: Whether inherited tags count.
-- ~:with-root t|nil~ :: Whether root/file-level tags count when inheritance is enabled.
+- ~:without-root t|nil~ :: Whether root/file-level tags are excluded when inheritance is enabled.
 - ~:regexp t|nil~ :: Interpret tag arguments as regexps.
 - ~:match :any|:all~ :: Whether any or all tag arguments must match.
 
@@ -1294,7 +1294,7 @@ Regexp tag matching uses the ~:regexp t~ option on ~tags~.
 
 #+begin_src lisp
 :inherit t
-:with-root t
+:without-root nil
 :regexp nil
 :match :any
 #+end_src
@@ -1305,7 +1305,7 @@ Regexp tag matching uses the ~:regexp t~ option on ~tags~.
 - With ~:match :all~, all listed tags must match.
 - With ~:inherit t~, local tags, inherited heading tags, and FILETAGS may match.
 - With ~:inherit nil~, only local tags on the current heading match.
-- With ~:with-root t~, FILETAGS/root tags may participate in inherited matching.
+- With ~:without-root nil~, FILETAGS/root tags may participate in inherited matching.
 - With ~:regexp t~, tag arguments are interpreted as regexps.
 - Tag matching is case-sensitive or case-normalized according to the tag normalization rules defined by the indexer.
 
@@ -1341,18 +1341,18 @@ Regexp tag matching:
 Inherited tags without root/FILETAGS:
 
 #+begin_src lisp
-(tags "project" :inherit t :with-root nil)
+(tags "project" :inherit t :without-root t)
 #+end_src
 
 **** Notes
 
-~FILETAGS~ are root/file-level tags. They count as inherited/effective tags when ~:inherit t~ and ~:with-root t~.
+~FILETAGS~ are root/file-level tags. They count as inherited/effective tags when ~:inherit t~ and ~:without-root nil~.
 
 The explicit ~:match~ option avoids separate ~tags-all~ and ~tags~ with ~:regexp t~ predicates while keeping the default behavior convenient for common tag filtering.
 
 ** 5. Property and keyword predicates
 
-*** ~(property key &optional value &key inherit with-root regexp)~
+*** ~(property key &optional value &key inherit without-root regexp)~
 
 **** Purpose
 
@@ -1363,14 +1363,14 @@ Match headings by property key and optional value.
 - ~key~ :: Property key.
 - ~value~ :: Optional property value.
 - ~:inherit t|nil~ :: Whether inherited/effective values count.
-- ~:with-root t|nil~ :: Whether root/file-level properties count when inheritance is enabled.
+- ~:without-root t|nil~ :: Whether root/file-level properties are excluded when inheritance is enabled.
 - ~:regexp t|nil~ :: Interpret ~value~ as regexp.
 
 **** Defaults
 
 #+begin_src lisp
 :inherit t
-:with-root t
+:without-root nil
 :regexp nil
 #+end_src
 
@@ -1382,7 +1382,7 @@ Match headings by property key and optional value.
 - With ~:inherit t~, effective property values are used.
 - With ~:inherit nil~, only properties directly set on the current heading are used.
 - There is no separate ~:direct~ option. Direct behavior is expressed by ~:inherit nil~.
-- With ~:with-root t~, root-level defaults/properties may participate in effective/inherited matching.
+- With ~:without-root nil~, root-level defaults/properties may participate in effective/inherited matching.
 - With ~:regexp t~, ~value~ is interpreted as regexp.
 - By default, property value matching is exact equality, not substring matching.
 
@@ -1393,7 +1393,7 @@ Match headings by property key and optional value.
 (property "OWNER" "Alice")
 (property "OWNER" "Alice" :inherit nil)
 (property "CATEGORY" "work" :inherit t)
-(property "CATEGORY" "work" :inherit t :with-root nil)
+(property "CATEGORY" "work" :inherit t :without-root t)
 (property "OWNER" "A.*" :regexp t)
 #+end_src
 
@@ -1442,7 +1442,7 @@ Filter headings by file/root-level keywords.
 - Keywords are always root/file-level facts.
 - Heading queries using ~keyword~ match headings located in files whose root keyword matches.
 - There is no ~:inherit~ option because keywords live at the root.
-- There is no ~:with-root~ option because root is implicit for keywords.
+- There is no ~:without-root~ option because root is implicit for keywords.
 - Without ~value~, matches existence of the keyword.
 - With ~value~, matches keyword value exactly by default.
 - With ~:regexp t~, value is interpreted as regexp.
@@ -3296,7 +3296,7 @@ Meaning:
 
 Notes:
 
-- ~keyword~ has no ~:with-root~ option because keywords are always root-level facts.
+- ~keyword~ has no ~:without-root~ option because keywords are always root-level facts.
 - Use ~file-title~ for common title matching.
 
 *** ~(property KEY &optional VALUE &key regexp)~ in file queries
@@ -5687,10 +5687,10 @@ Support for ~(headings)~ may be allowed to return all headings.
 (priority PRIORITY...)
 (priority COMPARATOR PRIORITY)
 
-(tags TAG... :inherit t|nil :with-root t|nil :regexp t|nil :match :any|:all)
-(tags-all TAG... :inherit t|nil :with-root t|nil :regexp t|nil)
+(tags TAG... :inherit t|nil :without-root t|nil :regexp t|nil :match :any|:all)
+(tags-all TAG... :inherit t|nil :without-root t|nil :regexp t|nil)
 
-(property KEY &optional VALUE :inherit t|nil :with-root t|nil :regexp t|nil)
+(property KEY &optional VALUE :inherit t|nil :without-root t|nil :regexp t|nil)
 
 (keyword KEY &optional VALUE :regexp t|nil)
 

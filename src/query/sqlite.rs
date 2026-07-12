@@ -1039,14 +1039,14 @@ fn compile_heading_tags_predicate(
         return compile_tags_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
 
-    let with_root = option_bool_with_default(&predicate.options, "with-root", true)?;
-    compile_heading_effective_tags_exists(scope, predicate, with_root)
+    let include_root = !option_bool(&predicate.options, "without-root")?;
+    compile_heading_effective_tags_exists(scope, predicate, include_root)
 }
 
 fn compile_heading_effective_tags_exists(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
-    with_root: bool,
+    include_root: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let match_all = matches!(
         keyword_option(&predicate.options, "match")?.as_deref(),
@@ -1072,7 +1072,7 @@ fn compile_heading_effective_tags_exists(
                 "tags",
                 "matched_tags",
                 "matched_tags.tag = ?",
-                with_root,
+                include_root,
             ));
             params.push(QueryParam::Text(tag));
         }
@@ -1091,7 +1091,7 @@ fn compile_heading_effective_tags_exists(
             "tags",
             "matched_tags",
             &format!("matched_tags.tag IN ({placeholders})"),
-            with_root,
+            include_root,
         ),
         params: tags.into_iter().map(QueryParam::Text).collect(),
     })
@@ -1161,9 +1161,9 @@ fn heading_lineage_exists_sql(
     fact_table: &str,
     fact_alias: &str,
     fact_match_sql: &str,
-    with_root: bool,
+    include_root: bool,
 ) -> String {
-    let lineage_filter = if with_root {
+    let lineage_filter = if include_root {
         String::new()
     } else {
         "lineage.level > 0 AND ".to_string()
@@ -1205,7 +1205,7 @@ fn compile_heading_property_predicate(
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(QueryTarget::Headings, "property", message)
     })?;
-    let with_root = option_bool_with_default(&predicate.options, "with-root", true)?;
+    let include_root = !option_bool(&predicate.options, "without-root")?;
     let mut fact_match_sql = "matched_properties.key = ? COLLATE NOCASE".to_string();
     let mut params = vec![QueryParam::Text(key)];
     if let Some(value) = predicate.args.get(1) {
@@ -1229,7 +1229,7 @@ fn compile_heading_property_predicate(
             "properties",
             "matched_properties",
             &fact_match_sql,
-            with_root,
+            include_root,
         ),
         params,
     })
@@ -2537,7 +2537,7 @@ mod tests {
         let without_root_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Nested Task" :exact t) (tags "filetag" :with-root nil)))"#,
+                r#"(headings (and (title "Nested Task" :exact t) (tags "filetag" :without-root t)))"#,
             ),
         )
         .expect("without-root tag query should execute");
@@ -2606,7 +2606,7 @@ mod tests {
         let without_root_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Nested Task" :exact t) (property "CATEGORY" "work" :with-root nil)))"#,
+                r#"(headings (and (title "Nested Task" :exact t) (property "CATEGORY" "work" :without-root t)))"#,
             ),
         )
         .expect("without-root property query should execute");
