@@ -114,8 +114,8 @@ CREATE TABLE IF NOT EXISTS files (
     the original Org syntax.
 
     For the level 0 heading this should match the raw #+TITLE value when a
-    #+TITLE keyword is present. Otherwise it should use the same file-name
-    fallback as title.
+    #+TITLE keyword is present. Otherwise it should be NULL so fallback file
+    title generation remains distinguishable from source-provided title text.
 
   todo_keyword:
     The TODO state found on the heading, for example TODO, NEXT, PLAN, DONE.
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS headings (
     byte_start          INTEGER NOT NULL,
     byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
     title               TEXT NOT NULL,
-    title_raw           TEXT NOT NULL,
+    title_raw           TEXT,
     todo_keyword        TEXT,
     todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
     priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),

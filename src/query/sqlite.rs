@@ -52,7 +52,7 @@ pub struct HeadingQueryRow {
     pub byte_start: i64,
     pub byte_end: i64,
     pub title: String,
-    pub title_raw: String,
+    pub title_raw: Option<String>,
     pub todo_keyword: Option<String>,
     pub todo_type: Option<String>,
     pub priority: Option<char>,
@@ -105,7 +105,7 @@ pub struct FileQueryRow {
     pub indexed_at: Option<i64>,
     pub root_heading_id: i64,
     pub root_title: String,
-    pub root_title_raw: String,
+    pub root_title_raw: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2136,7 +2136,7 @@ mod tests {
                 byte_start: 10,
                 byte_end: 40,
                 title: "Query Engine".to_string(),
-                title_raw: "Query Engine".to_string(),
+                title_raw: Some("Query Engine".to_string()),
                 todo_keyword: Some("NEXT".to_string()),
                 todo_type: Some("open".to_string()),
                 priority: Some('A'),
@@ -2217,7 +2217,7 @@ mod tests {
                     indexed_at: Some(1_767_398_410),
                     root_heading_id: 10,
                     root_title: "Alpha Index".to_string(),
-                    root_title_raw: "Alpha Index".to_string(),
+                    root_title_raw: Some("Alpha Index".to_string()),
                 },
                 FileQueryRow {
                     id: 1,
@@ -2228,7 +2228,7 @@ mod tests {
                     indexed_at: Some(1_767_484_810),
                     root_heading_id: 20,
                     root_title: "Beta Index".to_string(),
-                    root_title_raw: "Beta Index".to_string(),
+                    root_title_raw: Some("Beta Index".to_string()),
                 },
             ])
         );
@@ -2696,7 +2696,10 @@ mod tests {
                 assert_eq!(rows.len(), 1);
                 assert_eq!(rows[0].id, 14);
                 assert_eq!(rows[0].title, "Statistic Cookies");
-                assert_eq!(rows[0].title_raw, "REVIEW [#B] Statistic Cookies [0/1]");
+                assert_eq!(
+                    rows[0].title_raw.as_deref(),
+                    Some("REVIEW [#B] Statistic Cookies [0/1]")
+                );
             }
             other => panic!("unexpected rows for normalized title query: {other:?}"),
         }
@@ -2898,7 +2901,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 120,
                     title: "Beta Index".to_string(),
-                    title_raw: "Beta Index".to_string(),
+                    title_raw: Some("Beta Index".to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -2956,7 +2959,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 100,
                     title: "Alpha Index".to_string(),
-                    title_raw: "Alpha Index".to_string(),
+                    title_raw: Some("Alpha Index".to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -2983,7 +2986,7 @@ mod tests {
                         byte_start: 10,
                         byte_end: 40,
                         title: "Query Engine".to_string(),
-                        title_raw: "Query Engine".to_string(),
+                        title_raw: Some("Query Engine".to_string()),
                         todo_keyword: Some("NEXT".to_string()),
                         todo_type: Some("open".to_string()),
                         priority: Some('A'),
@@ -3006,7 +3009,7 @@ mod tests {
                         byte_start: 41,
                         byte_end: 70,
                         title: "Nested Task".to_string(),
-                        title_raw: "Nested Task".to_string(),
+                        title_raw: Some("Nested Task".to_string()),
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -3029,7 +3032,7 @@ mod tests {
                         byte_start: 71,
                         byte_end: 95,
                         title: "Loose Note".to_string(),
-                        title_raw: "Loose Note".to_string(),
+                        title_raw: Some("Loose Note".to_string()),
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -3052,7 +3055,7 @@ mod tests {
                         byte_start: 96,
                         byte_end: 130,
                         title: "Statistic Cookies".to_string(),
-                        title_raw: "REVIEW [#B] Statistic Cookies [0/1]".to_string(),
+                        title_raw: Some("REVIEW [#B] Statistic Cookies [0/1]".to_string()),
                         todo_keyword: Some("REVIEW".to_string()),
                         todo_type: Some("open".to_string()),
                         priority: Some('B'),
@@ -3260,7 +3263,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 80,
                     title: "Gamma Index".to_string(),
-                    title_raw: "Gamma Index".to_string(),
+                    title_raw: Some("Gamma Index".to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -3286,7 +3289,7 @@ mod tests {
                     byte_start: 10,
                     byte_end: 28,
                     title: "Gamma Candidate".to_string(),
-                    title_raw: "Gamma Candidate".to_string(),
+                    title_raw: Some("Gamma Candidate".to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,

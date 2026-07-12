@@ -194,7 +194,7 @@ pub struct ParsedHeading {
     pub file_path: PathBuf,
     pub level: u8,
     pub title: String,
-    pub title_raw: String,
+    pub title_raw: Option<String>,
     pub body_text: Option<String>,
     pub body_byte_start: Option<usize>,
     pub body_byte_end: Option<usize>,
@@ -225,7 +225,7 @@ impl ParsedHeading {
         Self {
             file_path: file_path.into(),
             level,
-            title_raw: title.clone(),
+            title_raw: Some(title.clone()),
             title,
             body_text: None,
             body_byte_start: None,

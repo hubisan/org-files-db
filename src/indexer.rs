@@ -571,7 +571,12 @@ fn normalize_document(
     if needs_level_zero {
         normalized.headings.insert(
             0,
-            synthetic_level_zero_heading(path, content, &level_zero_title),
+            synthetic_level_zero_heading(
+                path,
+                content,
+                &level_zero_title,
+                normalized.metadata.title.as_deref(),
+            ),
         );
     } else {
         let level_zero = &mut normalized.headings[0];
@@ -582,7 +587,7 @@ fn normalize_document(
         level_zero.byte_end = content.len();
         level_zero.line_number = Some(1);
         level_zero.title = level_zero_title;
-        level_zero.title_raw = level_zero.title.clone();
+        level_zero.title_raw = source_document_title(normalized.metadata.title.as_deref());
         level_zero.is_root = true;
     }
 
@@ -623,20 +628,22 @@ fn normalize_heading_parent_indexes(headings: &mut [ParsedHeading]) {
     }
 }
 
-fn synthetic_level_zero_heading(path: &Path, content: &str, title: &str) -> ParsedHeading {
+fn synthetic_level_zero_heading(
+    path: &Path,
+    content: &str,
+    title: &str,
+    source_title: Option<&str>,
+) -> ParsedHeading {
     let mut heading = ParsedHeading::new(path, 0, title.to_string(), 0, content.len());
-    heading.title_raw = title.to_string();
+    heading.title_raw = source_document_title(source_title);
     heading.line_number = Some(1);
     heading.is_root = true;
     heading
 }
 
 fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> String {
-    if let Some(title) = document_title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-    {
-        return title.to_string();
+    if let Some(title) = source_document_title(document_title) {
+        return title;
     }
 
     path.file_stem()
@@ -644,6 +651,13 @@ fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> Stri
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn source_document_title(document_title: Option<&str>) -> Option<String> {
+    document_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_string)
 }
 
 fn index_document(
@@ -1353,7 +1367,7 @@ mod tests {
                 byte_start: -1,
                 byte_end: 1,
                 title: "Existing".to_string(),
-                title_raw: "Existing".to_string(),
+                title_raw: Some("Existing".to_string()),
                 todo_keyword: None,
                 todo_type: None,
                 priority: None,
@@ -2291,15 +2305,21 @@ index_body_text = false
         let headings = DbReader::list_headings(&connection).expect("headings should load");
         assert_eq!(headings.len(), 4);
         assert_eq!(headings[1].title, "First heading");
-        assert_eq!(headings[1].title_raw, "TODO First heading");
+        assert_eq!(headings[1].title_raw.as_deref(), Some("TODO First heading"));
         assert_eq!(headings[1].todo_keyword.as_deref(), Some("TODO"));
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[2].title, "Second heading");
-        assert_eq!(headings[2].title_raw, "NEXT Second heading");
+        assert_eq!(
+            headings[2].title_raw.as_deref(),
+            Some("NEXT Second heading")
+        );
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("NEXT"));
         assert_eq!(headings[2].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[3].title, "Finished heading");
-        assert_eq!(headings[3].title_raw, "DONE Finished heading");
+        assert_eq!(
+            headings[3].title_raw.as_deref(),
+            Some("DONE Finished heading")
+        );
         assert_eq!(headings[3].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[3].todo_type.as_deref(), Some("closed"));
 
@@ -2409,13 +2429,52 @@ index_body_text = false
             "Title can span multiple lines, even here"
         );
         assert_eq!(
-            headings[0].title_raw,
-            "Title can span multiple lines, even here"
+            headings[0].title_raw.as_deref(),
+            Some("Title can span multiple lines, even here")
         );
         assert_eq!(headings[1].title, "Unfortunately Everywhere");
-        assert_eq!(headings[1].title_raw, "Unfortunately Everywhere");
+        assert_eq!(
+            headings[1].title_raw.as_deref(),
+            Some("Unfortunately Everywhere")
+        );
         assert_eq!(headings[2].title, "Plain Heading");
-        assert_eq!(headings[2].title_raw, "Plain Heading");
+        assert_eq!(headings[2].title_raw.as_deref(), Some("Plain Heading"));
+    }
+
+    #[test]
+    fn rebuild_distinguishes_source_titles_from_fallback_file_titles() {
+        let test_dir = TestDir::new("fallback-root-title");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("no-title-set.org");
+
+        write_file(&org_path, "Some preamble text.\n* Heading\n");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let headings = DbReader::list_headings(&connection).expect("headings should load");
+
+        assert_eq!(headings[0].title, "no-title-set");
+        let json = serde_json::to_value(&headings[0]).expect("row should serialize");
+        assert!(json["title_raw"].is_null());
+        assert_eq!(headings[1].title_raw.as_deref(), Some("Heading"));
     }
 
     #[test]
@@ -3002,15 +3061,15 @@ index_body_text = false
         assert_eq!(headings.len(), 4);
         assert_eq!(headings[0].title, "TODO Overrides");
         assert_eq!(headings[1].title, "me");
-        assert_eq!(headings[1].title_raw, "PLAN me");
+        assert_eq!(headings[1].title_raw.as_deref(), Some("PLAN me"));
         assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[2].title, "me");
-        assert_eq!(headings[2].title_raw, "DONE me");
+        assert_eq!(headings[2].title_raw.as_deref(), Some("DONE me"));
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[2].todo_type.as_deref(), Some("closed"));
         assert_eq!(headings[3].title, "REVIEW Mist");
-        assert_eq!(headings[3].title_raw, "REVIEW Mist");
+        assert_eq!(headings[3].title_raw.as_deref(), Some("REVIEW Mist"));
         assert_eq!(headings[3].todo_keyword, None);
         assert_eq!(headings[3].todo_type, None);
     }
@@ -3124,20 +3183,20 @@ index_body_text = false
         assert_eq!(headings.len(), 6);
         assert_eq!(headings[0].title, "test");
         assert_eq!(headings[1].title, "REVIEW Mist");
-        assert_eq!(headings[1].title_raw, "REVIEW *Mist*");
+        assert_eq!(headings[1].title_raw.as_deref(), Some("REVIEW *Mist*"));
         assert_eq!(headings[1].todo_keyword, None);
         assert_eq!(headings[1].todo_type, None);
         assert_eq!(headings[2].title, "me");
-        assert_eq!(headings[2].title_raw, "PLAN me");
+        assert_eq!(headings[2].title_raw.as_deref(), Some("PLAN me"));
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(headings[2].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[3].title, "me");
-        assert_eq!(headings[3].title_raw, "TODO me");
+        assert_eq!(headings[3].title_raw.as_deref(), Some("TODO me"));
         assert_eq!(headings[3].todo_keyword.as_deref(), Some("TODO"));
         assert_eq!(headings[3].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[4].title, "again");
         assert_eq!(headings[5].title, "me");
-        assert_eq!(headings[5].title_raw, "DONE me");
+        assert_eq!(headings[5].title_raw.as_deref(), Some("DONE me"));
         assert_eq!(headings[5].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[5].todo_type.as_deref(), Some("closed"));
 

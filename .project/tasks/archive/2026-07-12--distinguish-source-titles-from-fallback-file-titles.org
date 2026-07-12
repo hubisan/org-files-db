@@ -1,0 +1,118 @@
+#+TITLE: Distinguish source titles from fallback file titles
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-12 Sun 12:34]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Distinguish source titles from fallback file titles
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-12--distinguish-source-titles-from-fallback-file-titles.org]]
+
+Goal:
+
+- Make the distinction between source-provided titles and derived fallback titles explicit.
+- Keep ~title~ as the effective display and query title.
+- Use ~title_raw~ only for title text that actually exists in the Org source.
+- Represent the absence of a source title without copying the derived file stem into ~title_raw~.
+
+Rules:
+
+- Keep the change focused on file/root title semantics.
+- Heading ~title_raw~ semantics remain unchanged.
+- File/root title queries must continue to use the effective ~title~ value.
+- Query/JSON output must distinguish source titles from fallback file titles.
+- Rebuilds should persist the new distinction instead of reconstructing fallback values into ~title_raw~.
+
+* Planning
+
+** Problem summary
+The current level-0/file-root contract stores the fallback file stem in both ~title~ and ~title_raw~, which makes ~title_raw~ look source-backed even when the Org file contains no ~#+TITLE~ at all.
+
+** Goals
+- Make file/root ~title_raw~ nullable and use ~null~ when there is no source title.
+- Preserve effective ~title~ fallback behavior for display and query matching.
+- Keep real heading ~title_raw~ behavior unchanged.
+
+** Non-goals
+- changing heading title normalization
+- changing title query semantics beyond locking current root/file behavior in tests
+- unrelated query or indexing refactors
+
+** Architecture
+- Preserve the source document title separately from the fallback file-stem title during parser/indexer normalization.
+- Persist nullable ~title_raw~ for headings, with level-0 rows using ~NULL~ when no source title exists.
+- Update DB readers, query rows, result shaping, and CLI JSON structs to represent nullable root/file ~title_raw~ while keeping heading ~title_raw~ populated.
+
+** Execution plan
+- Add failing regressions for parser, indexer, query/output, and CLI JSON expectations.
+- Update parser/model, persistence, schema/migration logic, and result serialization.
+- Run focused tests, then ~make ci~.
+
+** Risks & assumptions
+- The cleanest implementation likely requires a schema version bump because SQLite cannot directly drop a ~NOT NULL~ constraint from ~headings.title_raw~.
+- Using nullable ~title_raw~ broadly may touch several shared structs, so regressions need to stay focused on root/file cases.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test orgize_adapter_falls_back_to_file_stem_for_synthetic_level_zero_heading --test orgize_adapter~
+- ~cargo test rebuild_uses_combined_document_title_for_root_heading --lib~
+- ~cargo test query_json_supports_heading_link_and_file_targets --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added failing regressions first for parser-level root headings, indexed level-0 rows, and query JSON file results so missing source titles now have to serialize as ~title_raw = null~ while fallback title queries still match.
+- Changed the parser/indexer title contract so synthetic level-0 headings keep the effective fallback in ~title~ but store ~title_raw~ only when a real ~#+TITLE~ value exists.
+- Made persisted ~headings.title_raw~ nullable, bumped the schema version, and added a headings-table migration that preserves existing heading raw titles while converting legacy level-0 fallback copies to ~NULL~.
+- Updated DB readers, query execution/result shaping, and CLI JSON structs to carry nullable root/file ~title_raw~ values through to output without changing normal ~title~ query semantics.
+- Kept non-root heading ~title_raw~ behavior unchanged by continuing to populate it for real headings and by preserving heading-path/heading-ref assumptions only for non-root nodes.
+
+** Changed files
+- ~src/parser/model.rs~
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~sql/schema.sql~
+- ~src/db/schema.rs~
+- ~src/db/writer.rs~
+- ~src/db/reader.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/cli.rs~
+- ~tests/orgize_adapter.rs~
+- ~tests/parser_contract.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-12--distinguish-source-titles-from-fallback-file-titles.org~
+
+** Checks performed
+- ~cargo test orgize_adapter_falls_back_to_file_stem_for_synthetic_level_zero_heading --test orgize_adapter~
+- ~cargo test rebuild_distinguishes_source_titles_from_fallback_file_titles --lib~
+- ~cargo test query_json_distinguishes_file_source_titles_from_fallback_titles --lib~
+- ~cargo test --test orgize_adapter~
+- ~cargo check --tests~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+- The new regressions failed first because fallback file stems were still copied into ~title_raw~ for synthetic level-0/file-root rows.
+- After the nullable ~title_raw~ change and schema migration, the focused parser, indexer, and query JSON regressions passed.
+- ~make ci~ passed after one formatting-only rerun with ~cargo fmt --all~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Existing databases should be rebuilt so persisted level-0/file-root rows reflect the new ~title_raw = null~ contract when no source ~#+TITLE~ exists.

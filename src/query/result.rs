@@ -69,7 +69,7 @@ pub struct FileResultNode {
     pub name: String,
     pub dir: String,
     pub title: String,
-    pub title_raw: String,
+    pub title_raw: Option<String>,
     pub root_heading_id: i64,
     pub mtime_ns: i64,
     pub size: i64,
@@ -99,7 +99,7 @@ pub struct HeadingResultNode {
     pub parent_id: Option<i64>,
     pub level: i64,
     pub title: String,
-    pub title_raw: String,
+    pub title_raw: Option<String>,
     pub todo_keyword: Option<String>,
     pub todo_type: Option<String>,
     pub priority: Option<char>,
@@ -178,7 +178,7 @@ pub struct FilePathEntry {
     pub id: i64,
     pub path: String,
     pub title: String,
-    pub title_raw: String,
+    pub title_raw: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -227,7 +227,7 @@ pub struct FileRef {
     pub id: i64,
     pub path: String,
     pub title: String,
-    pub title_raw: String,
+    pub title_raw: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -419,7 +419,7 @@ struct StoredFile {
     indexed_at: Option<i64>,
     root_heading_id: i64,
     root_title: String,
-    root_title_raw: String,
+    root_title_raw: Option<String>,
     root_line_number: Option<i64>,
 }
 
@@ -433,7 +433,7 @@ struct StoredHeading {
     byte_start: i64,
     byte_end: i64,
     title: String,
-    title_raw: String,
+    title_raw: Option<String>,
     todo_keyword: Option<String>,
     todo_type: Option<String>,
     priority: Option<char>,
@@ -1006,7 +1006,10 @@ impl EnrichmentContext {
         Ok(HeadingRef {
             id: heading.id,
             title: heading.title.clone(),
-            title_raw: heading.title_raw.clone(),
+            title_raw: heading
+                .title_raw
+                .clone()
+                .expect("non-root heading refs should have title_raw"),
             level: heading.level,
             outline_path: strip_root_breadcrumb(&heading.breadcrumbs, heading.level),
         })
@@ -1030,7 +1033,10 @@ impl EnrichmentContext {
             path.push(PathEntry::Heading(HeadingPathEntry {
                 id: entry.id,
                 title: entry.title.clone(),
-                title_raw: entry.title_raw.clone(),
+                title_raw: entry
+                    .title_raw
+                    .clone()
+                    .expect("non-root heading path entries should have title_raw"),
                 level: entry.level,
             }));
         }
@@ -2026,7 +2032,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 120,
                     title: "Beta Index".to_string(),
-                    title_raw: "Beta Index".to_string(),
+                    title_raw: Some("Beta Index".to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -2075,7 +2081,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 100,
                     title: "Alpha Index".to_string(),
-                    title_raw: "Alpha Index".to_string(),
+                    title_raw: Some("Alpha Index".to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -2102,7 +2108,7 @@ mod tests {
                         byte_start: 10,
                         byte_end: 40,
                         title: "Query Engine".to_string(),
-                        title_raw: "Query Engine".to_string(),
+                        title_raw: Some("Query Engine".to_string()),
                         todo_keyword: Some("NEXT".to_string()),
                         todo_type: Some("open".to_string()),
                         priority: Some('A'),
@@ -2125,7 +2131,7 @@ mod tests {
                         byte_start: 41,
                         byte_end: 70,
                         title: "Nested".to_string(),
-                        title_raw: "Nested".to_string(),
+                        title_raw: Some("Nested".to_string()),
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -2148,7 +2154,7 @@ mod tests {
                         byte_start: 71,
                         byte_end: 95,
                         title: "Loose Note".to_string(),
-                        title_raw: "Loose Note".to_string(),
+                        title_raw: Some("Loose Note".to_string()),
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,

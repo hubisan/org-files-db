@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -162,6 +162,7 @@ impl SchemaDefinition {
         migrate_legacy_todo_keywords_table(connection)?;
         migrate_legacy_properties_table(connection)?;
         migrate_legacy_tags_table(connection)?;
+        migrate_legacy_headings_table(connection)?;
         migrate_legacy_links_table(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
@@ -448,6 +449,105 @@ fn tags_table_uses_direct_facts(columns: &[String]) -> bool {
     columns.len() == 2
         && columns.iter().any(|column| column == "heading_id")
         && columns.iter().any(|column| column == "tag")
+}
+
+fn migrate_legacy_headings_table(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "headings")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "headings")?;
+    if headings_table_allows_nullable_title_raw(connection, &columns)? {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        r#"
+ALTER TABLE headings RENAME TO headings_legacy;
+"#,
+    )?;
+    drop_indexes_for_table(connection, "headings_legacy")?;
+    connection.execute_batch(CORE_SCHEMA_SQL)?;
+    connection.execute_batch(
+        r#"
+INSERT INTO headings (
+    id,
+    file_id,
+    parent_id,
+    level,
+    line_number,
+    byte_start,
+    byte_end,
+    title,
+    title_raw,
+    todo_keyword,
+    todo_type,
+    priority,
+    scheduled_raw,
+    scheduled_ts,
+    deadline_raw,
+    deadline_ts,
+    closed_raw,
+    closed_ts,
+    archivedp,
+    footnote_section_p,
+    all_tags_json
+)
+SELECT
+    id,
+    file_id,
+    parent_id,
+    level,
+    line_number,
+    byte_start,
+    byte_end,
+    title,
+    CASE
+        WHEN level = 0 AND title = title_raw THEN NULL
+        ELSE title_raw
+    END,
+    todo_keyword,
+    todo_type,
+    priority,
+    scheduled_raw,
+    scheduled_ts,
+    deadline_raw,
+    deadline_ts,
+    closed_raw,
+    closed_ts,
+    archivedp,
+    footnote_section_p,
+    all_tags_json
+FROM headings_legacy;
+
+DROP TABLE headings_legacy;
+"#,
+    )?;
+
+    Ok(())
+}
+
+fn headings_table_allows_nullable_title_raw(
+    connection: &Connection,
+    columns: &[String],
+) -> rusqlite::Result<bool> {
+    if !columns.iter().any(|column| column == "title_raw") {
+        return Ok(false);
+    }
+
+    let mut statement = connection.prepare("PRAGMA table_info(headings)")?;
+    let rows = statement.query_map([], |row| {
+        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
+    })?;
+
+    for row in rows {
+        let (name, not_null) = row?;
+        if name == "title_raw" {
+            return Ok(not_null == 0);
+        }
+    }
+
+    Ok(false)
 }
 
 fn migrate_legacy_links_table(connection: &Connection) -> rusqlite::Result<()> {

@@ -368,7 +368,7 @@ fn collect_headlines(
         let normalized_title = normalize_title_elements(headline.title());
         let mut parsed =
             ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
-        parsed.title_raw = source_title_raw.clone();
+        parsed.title_raw = Some(source_title_raw.clone());
         parsed.priority = parsed_priority;
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
         if parsed
@@ -378,13 +378,13 @@ fn collect_headlines(
             .is_some()
         {
             parsed.todo_keyword = None;
-            parsed.title_raw = source_title_raw.clone();
+            parsed.title_raw = Some(source_title_raw.clone());
             parsed.title =
                 normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
         }
         if parsed.todo_keyword.is_none() {
             if source_title_raw != original_title_raw.trim() {
-                parsed.title_raw = source_title_raw.clone();
+                parsed.title_raw = Some(source_title_raw.clone());
                 parsed.title =
                     normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
             }
@@ -433,17 +433,14 @@ fn collect_headlines(
 fn level_zero_heading(path: &Path, content: &str, document_title: Option<&str>) -> ParsedHeading {
     let title = synthetic_level_zero_title(path, document_title);
     let mut heading = ParsedHeading::new(path, 0, title.clone(), 0, content.len());
-    heading.title_raw = title;
+    heading.title_raw = source_document_title(document_title);
     heading.line_number = Some(1);
     heading.is_root = true;
     heading
 }
 
 fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> String {
-    if let Some(title) = document_title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-    {
+    if let Some(title) = source_document_title(document_title) {
         return title.to_string();
     }
 
@@ -452,6 +449,13 @@ fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> Stri
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+fn source_document_title(document_title: Option<&str>) -> Option<String> {
+    document_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .map(str::to_string)
 }
 
 fn populate_heading_body(section: Option<Section>, content: &str, parsed: &mut ParsedHeading) {

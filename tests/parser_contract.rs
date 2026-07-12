@@ -83,7 +83,7 @@ impl OrgParserCore for StubFixtureParser {
         }
 
         let mut heading = ParsedHeading::new(path, 1, "Inbox", 14, content.len());
-        heading.title_raw = "TODO [#A] Inbox :rust:parser:".to_string();
+        heading.title_raw = Some("TODO [#A] Inbox :rust:parser:".to_string());
         heading.todo_keyword = Some("TODO".to_string());
         heading.todo_type = Some(TodoType::Open);
         heading.priority = Some('A');
@@ -156,7 +156,7 @@ fn parsed_org_document_supports_schema_near_metadata() {
     };
 
     let mut heading = ParsedHeading::new("notes/project.org", 2, "Parser model", 32, 58);
-    heading.title_raw = "TODO [#B] Parser model".to_string();
+    heading.title_raw = Some("TODO [#B] Parser model".to_string());
     heading.todo_keyword = Some("TODO".to_string());
     heading.todo_type = Some(TodoType::Open);
     heading.priority = Some('B');
@@ -273,7 +273,7 @@ fn parse_options_default_to_org_mode_todo_keywords() {
 #[test]
 fn parsed_heading_serializes_with_expected_field_names() {
     let mut heading = ParsedHeading::new("notes/project.org", 0, "Project", 0, 12);
-    heading.title_raw = "Project".to_string();
+    heading.title_raw = Some("Project".to_string());
     heading.body_text = Some("Body".to_string());
     heading.body_byte_start = Some(13);
     heading.body_byte_end = Some(17);

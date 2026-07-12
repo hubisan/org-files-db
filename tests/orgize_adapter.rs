@@ -27,7 +27,10 @@ fn orgize_adapter_extracts_heading_basics_from_old_fixture() {
 
     assert_eq!(document.headings[0].level, 0);
     assert_eq!(document.headings[0].title, "Org Tests for Headings");
-    assert_eq!(document.headings[0].title_raw, "Org Tests for Headings");
+    assert_eq!(
+        document.headings[0].title_raw.as_deref(),
+        Some("Org Tests for Headings")
+    );
     assert_eq!(document.headings[0].byte_start, 0);
     assert_eq!(document.headings[0].byte_end, content.len());
     assert!(document.headings[0].is_root);
@@ -660,7 +663,7 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
     let level0 = &document.headings[0];
     assert_eq!(level0.level, 0);
     assert_eq!(level0.title, "Orgize Priority Fixture");
-    assert_eq!(level0.title_raw, "Orgize Priority Fixture");
+    assert_eq!(level0.title_raw.as_deref(), Some("Orgize Priority Fixture"));
 
     let first = &document.headings[1];
     assert_eq!(first.title, "Inbox");
@@ -734,11 +737,17 @@ fn orgize_adapter_uses_configured_project_todo_keywords() {
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].title, "Parser fixture");
-    assert_eq!(document.headings[1].title_raw, "PLAN Parser fixture");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("PLAN Parser fixture")
+    );
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].title, "Implemented");
-    assert_eq!(document.headings[2].title_raw, "DONE Implemented");
+    assert_eq!(
+        document.headings[2].title_raw.as_deref(),
+        Some("DONE Implemented")
+    );
 }
 
 #[test]
@@ -765,12 +774,18 @@ fn orgize_adapter_uses_configured_project_todo_keywords_with_priority() {
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].priority, Some('A'));
     assert_eq!(document.headings[1].title, "Parser fixture");
-    assert_eq!(document.headings[1].title_raw, "PLAN [#A] Parser fixture");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("PLAN [#A] Parser fixture")
+    );
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].priority, Some('B'));
     assert_eq!(document.headings[2].title, "Implemented");
-    assert_eq!(document.headings[2].title_raw, "DONE [#B] Implemented");
+    assert_eq!(
+        document.headings[2].title_raw.as_deref(),
+        Some("DONE [#B] Implemented")
+    );
 }
 
 #[test]
@@ -796,11 +811,17 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults() {
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].title, "Parser fixture");
-    assert_eq!(document.headings[1].title_raw, "PLAN Parser fixture");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("PLAN Parser fixture")
+    );
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].title, "Implemented");
-    assert_eq!(document.headings[2].title_raw, "DONE Implemented");
+    assert_eq!(
+        document.headings[2].title_raw.as_deref(),
+        Some("DONE Implemented")
+    );
 }
 
 #[test]
@@ -831,28 +852,34 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priorit
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].priority, Some('A'));
     assert_eq!(document.headings[1].title, "Priority Test");
-    assert_eq!(document.headings[1].title_raw, "NEXT [#A] Priority Test");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("NEXT [#A] Priority Test")
+    );
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("REVIEW"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[2].priority, Some('B'));
     assert_eq!(document.headings[2].title, "Review query CLI");
     assert_eq!(
-        document.headings[2].title_raw,
-        "REVIEW [#B] Review query CLI"
+        document.headings[2].title_raw.as_deref(),
+        Some("REVIEW [#B] Review query CLI")
     );
     assert_eq!(document.headings[3].todo_keyword.as_deref(), Some("BUILD"));
     assert_eq!(document.headings[3].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[3].priority, Some('C'));
     assert_eq!(document.headings[3].title, "Build query backend");
     assert_eq!(
-        document.headings[3].title_raw,
-        "BUILD [#C] Build query backend"
+        document.headings[3].title_raw.as_deref(),
+        Some("BUILD [#C] Build query backend")
     );
     assert_eq!(document.headings[4].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[4].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[4].priority, Some('B'));
     assert_eq!(document.headings[4].title, "Completed task");
-    assert_eq!(document.headings[4].title_raw, "DONE [#B] Completed task");
+    assert_eq!(
+        document.headings[4].title_raw.as_deref(),
+        Some("DONE [#B] Completed task")
+    );
 }
 
 #[test]
@@ -874,15 +901,18 @@ fn orgize_adapter_treats_org_todo_keywords_as_overrides() {
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[1].title, "me");
-    assert_eq!(document.headings[1].title_raw, "PLAN me");
+    assert_eq!(document.headings[1].title_raw.as_deref(), Some("PLAN me"));
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
     assert_eq!(document.headings[2].title, "me");
-    assert_eq!(document.headings[2].title_raw, "DONE me");
+    assert_eq!(document.headings[2].title_raw.as_deref(), Some("DONE me"));
     assert_eq!(document.headings[3].todo_keyword, None);
     assert_eq!(document.headings[3].todo_type, None);
     assert_eq!(document.headings[3].title, "REVIEW Mist");
-    assert_eq!(document.headings[3].title_raw, "REVIEW Mist");
+    assert_eq!(
+        document.headings[3].title_raw.as_deref(),
+        Some("REVIEW Mist")
+    );
 }
 
 #[test]
@@ -938,20 +968,23 @@ fn orgize_adapter_ignores_empty_document_title_keywords() {
     assert_eq!(document.metadata.title.as_deref(), Some("Project Notes"));
     assert_eq!(document.headings.len(), 6);
     assert_eq!(document.headings[1].title, "REVIEW Mist");
-    assert_eq!(document.headings[1].title_raw, "REVIEW *Mist*");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("REVIEW *Mist*")
+    );
     assert_eq!(document.headings[1].todo_keyword, None);
     assert_eq!(document.headings[1].todo_type, None);
     assert_eq!(document.headings[2].title, "me");
-    assert_eq!(document.headings[2].title_raw, "PLAN me");
+    assert_eq!(document.headings[2].title_raw.as_deref(), Some("PLAN me"));
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[3].title, "me");
-    assert_eq!(document.headings[3].title_raw, "TODO me");
+    assert_eq!(document.headings[3].title_raw.as_deref(), Some("TODO me"));
     assert_eq!(document.headings[3].todo_keyword.as_deref(), Some("TODO"));
     assert_eq!(document.headings[3].todo_type, Some(TodoType::Open));
     assert_eq!(document.headings[4].title, "again");
     assert_eq!(document.headings[5].title, "me");
-    assert_eq!(document.headings[5].title_raw, "DONE me");
+    assert_eq!(document.headings[5].title_raw.as_deref(), Some("DONE me"));
     assert_eq!(document.headings[5].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[5].todo_type, Some(TodoType::Closed));
 }
@@ -978,13 +1011,19 @@ fn orgize_adapter_combines_multiple_document_title_keywords_in_order() {
         "Title can span multiple lines, even here"
     );
     assert_eq!(
-        document.headings[0].title_raw,
-        "Title can span multiple lines, even here"
+        document.headings[0].title_raw.as_deref(),
+        Some("Title can span multiple lines, even here")
     );
     assert_eq!(document.headings[1].title, "Unfortunately Everywhere");
-    assert_eq!(document.headings[1].title_raw, "Unfortunately Everywhere");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("Unfortunately Everywhere")
+    );
     assert_eq!(document.headings[2].title, "Plain Heading");
-    assert_eq!(document.headings[2].title_raw, "Plain Heading");
+    assert_eq!(
+        document.headings[2].title_raw.as_deref(),
+        Some("Plain Heading")
+    );
 }
 
 #[test]
@@ -1202,8 +1241,8 @@ fn orgize_adapter_supports_simplified_org_todo_keyword_lines() {
         "TODO invalid keyword, even though it is a default it is overwritten"
     );
     assert_eq!(
-        document.headings[1].title_raw,
-        "TODO invalid keyword, even though it is a default it is overwritten"
+        document.headings[1].title_raw.as_deref(),
+        Some("TODO invalid keyword, even though it is a default it is overwritten")
     );
 
     assert_eq!(document.headings[2].todo_keyword, None);
@@ -1300,7 +1339,10 @@ fn orgize_adapter_supports_simplified_org_todo_keyword_lines() {
         );
         assert_eq!(document.headings[index].todo_type, Some(todo_type));
         assert_eq!(document.headings[index].title, expected_title);
-        assert_eq!(document.headings[index].title_raw, expected_title_raw);
+        assert_eq!(
+            document.headings[index].title_raw.as_deref(),
+            Some(expected_title_raw)
+        );
     }
 }
 
@@ -1316,8 +1358,8 @@ fn orgize_adapter_normalizes_described_link_titles() {
 
     assert_eq!(document.headings[1].title, "Thomas Krebs - Hausarzt");
     assert_eq!(
-        document.headings[1].title_raw,
-        "[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]"
+        document.headings[1].title_raw.as_deref(),
+        Some("[[file:natural/hausarzt-krebs-thomas.org][Thomas Krebs - Hausarzt]]")
     );
 }
 
@@ -1343,22 +1385,31 @@ fn orgize_adapter_removes_priority_and_statistics_cookies_from_titles() {
 
     assert_eq!(document.headings[1].priority, Some('A'));
     assert_eq!(document.headings[1].title, "Prepare release");
-    assert_eq!(document.headings[1].title_raw, "TODO [#A] Prepare release");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("TODO [#A] Prepare release")
+    );
 
     assert_eq!(document.headings[2].priority, Some('B'));
     assert_eq!(document.headings[2].title, "Statistic Cookies");
     assert_eq!(
-        document.headings[2].title_raw,
-        "REVIEW [#B] Statistic Cookies [0/1]"
+        document.headings[2].title_raw.as_deref(),
+        Some("REVIEW [#B] Statistic Cookies [0/1]")
     );
 
     assert_eq!(document.headings[3].priority, None);
     assert_eq!(document.headings[3].title, "Progress");
-    assert_eq!(document.headings[3].title_raw, "NEXT Progress [50%]");
+    assert_eq!(
+        document.headings[3].title_raw.as_deref(),
+        Some("NEXT Progress [50%]")
+    );
 
     assert_eq!(document.headings[4].priority, None);
     assert_eq!(document.headings[4].title, "Support [Linux]");
-    assert_eq!(document.headings[4].title_raw, "TODO Support [Linux]");
+    assert_eq!(
+        document.headings[4].title_raw.as_deref(),
+        Some("TODO Support [Linux]")
+    );
 }
 
 #[test]
@@ -1568,8 +1619,8 @@ fn orgize_adapter_normalizes_undescribed_link_titles() {
         "file:natural/hausarzt-krebs-thomas.org"
     );
     assert_eq!(
-        document.headings[1].title_raw,
-        "[[file:natural/hausarzt-krebs-thomas.org]]"
+        document.headings[1].title_raw.as_deref(),
+        Some("[[file:natural/hausarzt-krebs-thomas.org]]")
     );
 }
 
@@ -1588,8 +1639,8 @@ fn orgize_adapter_removes_basic_markup_from_display_title() {
         "bold italic underline code verbatim"
     );
     assert_eq!(
-        document.headings[1].title_raw,
-        "*bold* /italic/ _underline_ =code= ~verbatim~"
+        document.headings[1].title_raw.as_deref(),
+        Some("*bold* /italic/ _underline_ =code= ~verbatim~")
     );
 }
 
@@ -1604,7 +1655,10 @@ fn orgize_adapter_leaves_plain_heading_titles_unchanged() {
         .expect("plain heading should parse");
 
     assert_eq!(document.headings[1].title, "Plain Heading");
-    assert_eq!(document.headings[1].title_raw, "Plain Heading");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("Plain Heading")
+    );
 }
 
 #[test]
@@ -1618,7 +1672,10 @@ fn orgize_adapter_uses_document_title_for_synthetic_level_zero_heading() {
         .expect("document title should parse");
 
     assert_eq!(document.headings[0].title, "Project Dashboard");
-    assert_eq!(document.headings[0].title_raw, "Project Dashboard");
+    assert_eq!(
+        document.headings[0].title_raw.as_deref(),
+        Some("Project Dashboard")
+    );
 }
 
 #[test]
@@ -1632,5 +1689,6 @@ fn orgize_adapter_falls_back_to_file_stem_for_synthetic_level_zero_heading() {
         .expect("document without title should parse");
 
     assert_eq!(document.headings[0].title, "project");
-    assert_eq!(document.headings[0].title_raw, "project");
+    let json = serde_json::to_value(&document.headings[0]).expect("heading should serialize");
+    assert!(json["title_raw"].is_null());
 }

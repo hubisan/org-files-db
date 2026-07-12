@@ -391,7 +391,7 @@ struct HeadingJsonRow {
     byte_start: i64,
     byte_end: i64,
     title: String,
-    title_raw: String,
+    title_raw: Option<String>,
     todo_keyword: Option<String>,
     todo_type: Option<String>,
     priority: Option<char>,
@@ -826,6 +826,49 @@ mod tests {
     }
 
     #[test]
+    fn query_json_distinguishes_file_source_titles_from_fallback_titles() {
+        let test_dir = TestDir::new("query-fallback-file-title");
+        let config_path = test_dir.path().join("config.toml");
+        let untitled_path = test_dir.path().join("no-title-set.org");
+
+        write_file(&untitled_path, "* Heading\n");
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+files = ["./no-title-set.org"]
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+        let report = rebuild(&config_path).expect("fixture rebuild should succeed");
+        assert_eq!(report.indexed_files.len(), 1);
+
+        let response = super::query_json_response(
+            true,
+            "(files (file-title \"no-title-set\" :exact t))",
+            super::CliQueryOutput::Flat,
+            &[super::CliQueryInclude::Path],
+            Some(&config_path),
+        )
+        .expect("fallback file-title query should succeed");
+
+        let json = serde_json::to_value(&response).expect("response should serialize");
+        let file = &json["results"][0];
+        assert_eq!(file["kind"], "file");
+        assert_eq!(file["title"], "no-title-set");
+        assert!(file["title_raw"].is_null());
+
+        let path_entries = file["node_path"]
+            .as_array()
+            .expect("path include should serialize as array");
+        assert_eq!(path_entries.len(), 1);
+        assert!(path_entries[0]["title_raw"].is_null());
+    }
+
+    #[test]
     fn query_json_supports_outline_and_multiple_includes() {
         let test_dir = TestDir::new("query-outline");
         let config_path = write_query_fixture(&test_dir);
@@ -1012,7 +1055,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 100,
                     title: "/tmp/project.org".to_string(),
-                    title_raw: "/tmp/project.org".to_string(),
+                    title_raw: None,
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -1038,7 +1081,7 @@ mod tests {
                     byte_start: 10,
                     byte_end: 25,
                     title: "Inbox".to_string(),
-                    title_raw: "TODO [#A] Inbox".to_string(),
+                    title_raw: Some("TODO [#A] Inbox".to_string()),
                     todo_keyword: Some("TODO".to_string()),
                     todo_type: Some("open".to_string()),
                     priority: Some('A'),
@@ -1107,7 +1150,7 @@ mod tests {
                     byte_start: -1,
                     byte_end: 100,
                     title: "/tmp/project.org".to_string(),
-                    title_raw: "/tmp/project.org".to_string(),
+                    title_raw: None,
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -1133,7 +1176,7 @@ mod tests {
                     byte_start: 10,
                     byte_end: 25,
                     title: "Inbox".to_string(),
-                    title_raw: "Inbox".to_string(),
+                    title_raw: Some("Inbox".to_string()),
                     todo_keyword: Some("TODO".to_string()),
                     todo_type: Some("open".to_string()),
                     priority: Some('A'),
@@ -1196,7 +1239,7 @@ db_path = "../db.sqlite"
                         byte_start: -1,
                         byte_end: 100,
                         title: file_path.display().to_string(),
-                        title_raw: file_path.display().to_string(),
+                        title_raw: None,
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -1222,7 +1265,7 @@ db_path = "../db.sqlite"
                         byte_start: 10,
                         byte_end: 20,
                         title: "Heading".to_string(),
-                        title_raw: "Heading".to_string(),
+                        title_raw: Some("Heading".to_string()),
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -1308,7 +1351,10 @@ index_body_text = false
         assert_eq!(include_root_rows.len(), 2);
         assert_eq!(include_root_rows[0].level, 0);
         assert_eq!(include_root_rows[0].title, "Minimal Slice");
-        assert_eq!(include_root_rows[0].title_raw, "Minimal Slice");
+        assert_eq!(
+            include_root_rows[0].title_raw.as_deref(),
+            Some("Minimal Slice")
+        );
         assert!(include_root_rows[0].scheduled_raw.is_none());
         assert!(include_root_rows[0].all_tags.is_empty());
         assert_eq!(include_root_rows[1].level, 1);
@@ -1382,7 +1428,7 @@ db_path = "./db.sqlite"
                         byte_start: -1,
                         byte_end: 100,
                         title: org_path.display().to_string(),
-                        title_raw: org_path.display().to_string(),
+                        title_raw: None,
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -1408,7 +1454,7 @@ db_path = "./db.sqlite"
                         byte_start: 0,
                         byte_end: 9,
                         title: "Heading".to_string(),
-                        title_raw: "Heading".to_string(),
+                        title_raw: Some("Heading".to_string()),
                         todo_keyword: None,
                         todo_type: None,
                         priority: None,
@@ -2127,7 +2173,7 @@ index_body_text = false
                     byte_start: -1,
                     byte_end: 100,
                     title: root_title.to_string(),
-                    title_raw: root_title.to_string(),
+                    title_raw: Some(root_title.to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
@@ -2164,7 +2210,7 @@ index_body_text = false
                     byte_start: 10,
                     byte_end: 25,
                     title: child_title.to_string(),
-                    title_raw: child_title.to_string(),
+                    title_raw: Some(child_title.to_string()),
                     todo_keyword: None,
                     todo_type: None,
                     priority: None,
