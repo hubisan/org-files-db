@@ -2241,6 +2241,7 @@ mod tests {
         parse_query, resolve_relative_dates, validate_query, QueryDateResolutionOptions,
         QueryExecutionOptions, QueryValidationOptions,
     };
+    use chrono::NaiveDate;
     use rusqlite::Connection;
     use std::{
         fs,
@@ -3073,6 +3074,172 @@ mod tests {
     }
 
     #[test]
+    fn execution_date_only_to_includes_full_day_and_excludes_following_day() {
+        let connection = seeded_connection();
+
+        let file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-modified :to "2026-01-03"))"#),
+        )
+        .expect("file query should execute");
+
+        assert_eq!(
+            file_paths(file_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+    }
+
+    #[test]
+    fn execution_date_only_from_uses_inclusive_start_of_day_boundary() {
+        let connection = date_bound_test_connection();
+
+        let rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :from "2026-01-03"))"#),
+        )
+        .expect("date-only :from query should execute");
+
+        assert_eq!(
+            heading_ids(rows),
+            vec![100, 101, 102, 103, 106, 107, 104, 105]
+        );
+    }
+
+    #[test]
+    fn compile_distinguishes_date_only_and_datetime_bounds() {
+        let date_only = compile_sqlite_query(&validated(
+            r#"(headings (scheduled :from "2026-01-03" :to "2026-01-03"))"#,
+        ))
+        .expect("date-only query should compile");
+        let datetime = compile_sqlite_query(&validated(
+            r#"(headings (scheduled :from "2026-01-03 09:15" :to "2026-01-03 09:15"))"#,
+        ))
+        .expect("datetime query should compile");
+
+        assert_eq!(
+            date_only.params,
+            vec![
+                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Text("2026-01-03".to_string()),
+            ]
+        );
+        assert!(date_only.sql.contains("? || ' 00:00:00'"));
+        assert!(date_only.sql.contains("? || ' 00:00:00', '+1 day'"));
+
+        assert_eq!(
+            datetime.params,
+            vec![
+                super::QueryParam::Text("2026-01-03 09:15".to_string()),
+                super::QueryParam::Text("2026-01-03 09:15".to_string()),
+            ]
+        );
+        assert!(!datetime.sql.contains("? || ' 00:00:00'"));
+        assert!(datetime.sql.contains("CAST(unixepoch(?) AS INTEGER)"));
+        assert!(datetime.sql.contains("(CAST(unixepoch(?) AS INTEGER) + 1)"));
+    }
+
+    #[test]
+    fn execution_datetime_bounds_preserve_hour_and_minute_without_timezone_conversion() {
+        let connection = date_bound_test_connection();
+
+        let on_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-01-03 09:15"))"#),
+        )
+        .expect("datetime :on query should execute");
+        assert_eq!(heading_ids(on_rows), vec![101]);
+
+        let from_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :from "2026-01-03 09:15"))"#),
+        )
+        .expect("datetime :from query should execute");
+        assert_eq!(
+            heading_ids(from_rows),
+            vec![101, 102, 103, 106, 107, 104, 105]
+        );
+
+        let to_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :to "2026-01-03 09:15"))"#),
+        )
+        .expect("datetime :to query should execute");
+        assert_eq!(heading_ids(to_rows), vec![100, 101]);
+    }
+
+    #[test]
+    fn execution_distinguishes_date_only_and_explicit_midnight_datetime_bounds() {
+        let connection = date_bound_test_connection();
+
+        let day_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-01-03"))"#),
+        )
+        .expect("date-only query should execute");
+        assert_eq!(heading_ids(day_rows), vec![100, 101, 102]);
+
+        let midnight_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-01-03 00:00"))"#),
+        )
+        .expect("midnight datetime query should execute");
+        assert_eq!(heading_ids(midnight_rows), vec![100]);
+
+        let midnight_to_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :to "2026-01-03 00:00"))"#),
+        )
+        .expect("midnight datetime :to query should execute");
+        assert_eq!(heading_ids(midnight_to_rows), vec![100]);
+    }
+
+    #[test]
+    fn execution_date_only_next_day_boundaries_cover_month_end_year_end_and_dst_dates() {
+        let connection = date_bound_test_connection();
+
+        let month_end_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :to "2026-01-31"))"#),
+        )
+        .expect("month-end query should execute");
+        assert_eq!(heading_ids(month_end_rows), vec![100, 101, 102, 106]);
+
+        let february_first_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :to "2026-02-01"))"#),
+        )
+        .expect("february-first query should execute");
+        assert_eq!(
+            heading_ids(february_first_rows),
+            vec![100, 101, 102, 106, 107]
+        );
+
+        let year_end_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :to "2026-12-31"))"#),
+        )
+        .expect("year-end query should execute");
+        assert_eq!(
+            heading_ids(year_end_rows),
+            vec![100, 101, 102, 103, 106, 107, 104]
+        );
+
+        let dst_day_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-03-29"))"#),
+        )
+        .expect("dst date-only query should execute");
+        assert_eq!(heading_ids(dst_day_rows), vec![103]);
+
+        let dst_datetime_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-03-29 02:30"))"#),
+        )
+        .expect("dst datetime query should execute");
+        assert_eq!(heading_ids(dst_datetime_rows), vec![103]);
+    }
+
+    #[test]
     fn execution_resolves_relative_dates_before_sql_with_bound_parameters() {
         let query = validated(r#"(headings (scheduled :from today :to 1))"#);
         let resolved = resolve_relative_dates(
@@ -3318,6 +3485,301 @@ mod tests {
             Path::new("/tmp/query-beta.org"),
         );
         connection
+    }
+
+    fn date_bound_test_connection() -> Connection {
+        let schema = SchemaDefinition::new(3, false);
+        let mut connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+
+        let file = FileRecordInput {
+            path: Path::new("/tmp/date-bounds.org").to_path_buf(),
+            mtime_ns: naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
+            size: 100,
+            content_hash: None,
+            indexed_at: Some(naive_date_time_seconds(2026, 1, 3, 0, 1)),
+        };
+
+        DbWriter::rebuild_file(&mut connection, &file, |tx, file_id| {
+            let root_id = DbWriter::insert_level0_heading(
+                tx,
+                &HeadingRecord {
+                    id: Some(90),
+                    file_id,
+                    parent_id: None,
+                    level: 0,
+                    line_number: None,
+                    byte_start: -1,
+                    byte_end: 100,
+                    title: "Date Bounds".to_string(),
+                    title_raw: Some("Date Bounds".to_string()),
+                    todo_keyword: None,
+                    todo_type: None,
+                    priority: None,
+                    scheduled_raw: None,
+                    scheduled_ts: None,
+                    deadline_raw: None,
+                    deadline_ts: None,
+                    closed_raw: None,
+                    closed_ts: None,
+                    archivedp: false,
+                    footnote_section_p: false,
+                    all_tags_json: "[]".to_string(),
+                },
+            )?;
+
+            DbWriter::insert_headings(
+                tx,
+                &[
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        100,
+                        1,
+                        "Start Of Day",
+                        naive_date_time_seconds(2026, 1, 3, 0, 0),
+                        "<2026-01-03 00:00>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        101,
+                        2,
+                        "Morning Task",
+                        naive_date_time_seconds(2026, 1, 3, 9, 15),
+                        "<2026-01-03 09:15>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        102,
+                        3,
+                        "Late Task",
+                        naive_date_time_seconds(2026, 1, 3, 23, 59),
+                        "<2026-01-03 23:59>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        103,
+                        4,
+                        "Dst Task",
+                        naive_date_time_seconds(2026, 3, 29, 2, 30),
+                        "<2026-03-29 02:30>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        106,
+                        5,
+                        "Month End Task",
+                        naive_date_time_seconds(2026, 1, 31, 23, 59),
+                        "<2026-01-31 23:59>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        107,
+                        6,
+                        "February Start Task",
+                        naive_date_time_seconds(2026, 2, 1, 0, 0),
+                        "<2026-02-01 00:00>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        104,
+                        7,
+                        "Year End Task",
+                        naive_date_time_seconds(2026, 12, 31, 23, 59),
+                        "<2026-12-31 23:59>",
+                    ),
+                    scheduled_heading(
+                        file_id,
+                        root_id,
+                        105,
+                        8,
+                        "Next Year Task",
+                        naive_date_time_seconds(2027, 1, 1, 0, 0),
+                        "<2027-01-01 00:00>",
+                    ),
+                ],
+            )?;
+
+            DbWriter::insert_outline_path(
+                tx,
+                &[
+                    outline_row(90, file_id, None, 0, "0000", "[\"Date Bounds\"]"),
+                    outline_row(
+                        100,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0001",
+                        "[\"Date Bounds\",\"Start Of Day\"]",
+                    ),
+                    outline_row(
+                        101,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0002",
+                        "[\"Date Bounds\",\"Morning Task\"]",
+                    ),
+                    outline_row(
+                        102,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0003",
+                        "[\"Date Bounds\",\"Late Task\"]",
+                    ),
+                    outline_row(
+                        103,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0004",
+                        "[\"Date Bounds\",\"Dst Task\"]",
+                    ),
+                    outline_row(
+                        106,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0005",
+                        "[\"Date Bounds\",\"Month End Task\"]",
+                    ),
+                    outline_row(
+                        107,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0006",
+                        "[\"Date Bounds\",\"February Start Task\"]",
+                    ),
+                    outline_row(
+                        104,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0007",
+                        "[\"Date Bounds\",\"Year End Task\"]",
+                    ),
+                    outline_row(
+                        105,
+                        file_id,
+                        Some(90),
+                        1,
+                        "0000.0008",
+                        "[\"Date Bounds\",\"Next Year Task\"]",
+                    ),
+                ],
+            )?;
+
+            DbWriter::insert_timestamps(
+                tx,
+                &[
+                    scheduled_timestamp(100, 2026, 1, 3, 0, 0, "<2026-01-03 Sat 00:00>"),
+                    scheduled_timestamp(101, 2026, 1, 3, 9, 15, "<2026-01-03 Sat 09:15>"),
+                    scheduled_timestamp(102, 2026, 1, 3, 23, 59, "<2026-01-03 Sat 23:59>"),
+                    scheduled_timestamp(103, 2026, 3, 29, 2, 30, "<2026-03-29 Sun 02:30>"),
+                    scheduled_timestamp(106, 2026, 1, 31, 23, 59, "<2026-01-31 Sat 23:59>"),
+                    scheduled_timestamp(107, 2026, 2, 1, 0, 0, "<2026-02-01 Sun 00:00>"),
+                    scheduled_timestamp(104, 2026, 12, 31, 23, 59, "<2026-12-31 Thu 23:59>"),
+                    scheduled_timestamp(105, 2027, 1, 1, 0, 0, "<2027-01-01 Fri 00:00>"),
+                ],
+            )?;
+
+            Ok(())
+        })
+        .expect("date bound fixture should seed");
+
+        connection
+    }
+
+    fn naive_date_time_seconds(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {
+        NaiveDate::from_ymd_opt(year, month, day)
+            .expect("date should be valid")
+            .and_hms_opt(hour, minute, 0)
+            .expect("time should be valid")
+            .and_utc()
+            .timestamp()
+    }
+
+    fn scheduled_heading(
+        file_id: i64,
+        root_id: i64,
+        id: i64,
+        line_number: i64,
+        title: &str,
+        scheduled_ts: i64,
+        scheduled_raw: &str,
+    ) -> HeadingRecord {
+        HeadingRecord {
+            id: Some(id),
+            file_id,
+            parent_id: Some(root_id),
+            level: 1,
+            line_number: Some(line_number),
+            byte_start: line_number * 10,
+            byte_end: line_number * 10 + 5,
+            title: title.to_string(),
+            title_raw: Some(title.to_string()),
+            todo_keyword: None,
+            todo_type: None,
+            priority: None,
+            scheduled_raw: Some(scheduled_raw.to_string()),
+            scheduled_ts: Some(scheduled_ts),
+            deadline_raw: None,
+            deadline_ts: None,
+            closed_raw: None,
+            closed_ts: None,
+            archivedp: false,
+            footnote_section_p: false,
+            all_tags_json: "[]".to_string(),
+        }
+    }
+
+    fn scheduled_timestamp(
+        heading_id: i64,
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        raw_value: &str,
+    ) -> TimestampRecord {
+        TimestampRecord {
+            heading_id,
+            role: Some("scheduled".to_string()),
+            start_ts: Some(naive_date_time_seconds(year, month, day, hour, minute)),
+            end_ts: None,
+            timestamp_type: Some("active".to_string()),
+            range_type: Some("none".to_string()),
+            raw_value: raw_value.to_string(),
+            byte_start: heading_id,
+            byte_end: heading_id + 1,
+            line_number: Some(heading_id - 99),
+        }
+    }
+
+    fn outline_row(
+        heading_id: i64,
+        file_id: i64,
+        parent_id: Option<i64>,
+        depth: i64,
+        materialized_path: &str,
+        breadcrumbs_json: &str,
+    ) -> OutlinePathRecord {
+        OutlinePathRecord {
+            heading_id,
+            file_id,
+            parent_id,
+            depth,
+            materialized_path: materialized_path.to_string(),
+            breadcrumbs_json: breadcrumbs_json.to_string(),
+        }
     }
 
     fn seed_database(connection: &mut Connection, alpha_path: &Path, beta_path: &Path) {

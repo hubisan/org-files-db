@@ -151,49 +151,8 @@ General rules:
 
 - Task file: [[file:archive/2026-07-12--add-configurable-query-timezone-and-deterministic-relative-date-resolution.org]]
 
-** TODO [#B] Complete date-only and datetime query-bound semantics
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Depends on:
-
-- Add configurable query timezone and deterministic relative-date resolution
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Define and implement consistent semantics for date-only and datetime arguments used with ~:on~, ~:from~, and ~:to~.
-- Keep query bounds consistent with the timezone-naive representation of indexed Org timestamps.
-
-Rules:
-
-- Date-only arguments represent calendar-day boundaries.
-- Date-only ~:on~ matches the complete specified calendar day.
-- Date-only ~:from~ uses an inclusive start-of-day boundary.
-- Date-only ~:to~ includes the complete specified day by using an exclusive next-day boundary.
-- Datetime arguments use their explicit hour and minute.
-- Datetime arguments are not converted between timezones.
-- Datetime ~:from~ bounds are inclusive.
-- Datetime ~:to~ bounds follow the query model's documented upper-bound semantics.
-- Resolved dates and datetimes use the same timezone-naive representation as indexed Org timestamps.
-- Stored Org timestamps must not be converted between timezones.
-
-Acceptance criteria:
-
-- Date-only ~:on~, ~:from~, and ~:to~ semantics are documented.
-- Datetime ~:on~, ~:from~, and ~:to~ semantics are documented.
-- A date-only ~:to~ value includes timestamps throughout the specified day.
-- A date-only ~:to~ value excludes timestamps from the following day.
-- Explicit datetime arguments preserve their stated hour and minute.
-- Tests distinguish date-only bounds from datetime bounds.
-- Tests cover explicit midnight datetime arguments.
-- Tests cover month-end and year-end next-day boundaries.
-- Tests cover daylight-saving transition dates without converting stored values.
-- Query SQL continues to use bound parameters for all resolved values.
+** DONE [#B] Complete date-only and datetime query-bound semantics
+- Task file: [[file:archive/2026-07-13--complete-date-only-and-datetime-query-bound-semantics.org]]
 
 ** TODO [#B] Persist explicit-time metadata for indexed Org timestamps
 :PROPERTIES:

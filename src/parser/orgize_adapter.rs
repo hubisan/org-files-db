@@ -1156,7 +1156,7 @@ fn unix_seconds_from_utc_date_time(
     minute: u32,
 ) -> Option<i64> {
     // The project does not model time zones yet, so planning timestamps are
-    // normalized as UTC-naive Unix seconds.
+    // normalized as timezone-naive Unix seconds.
     let days = days_from_civil(year, month, day)?;
     let seconds = i64::from(hour) * 3_600 + i64::from(minute) * 60;
     days.checked_mul(86_400)?.checked_add(seconds)

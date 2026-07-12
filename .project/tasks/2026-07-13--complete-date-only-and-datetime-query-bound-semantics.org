@@ -1,0 +1,102 @@
+#+TITLE: Complete date-only and datetime query-bound semantics
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-13 Mon 00:22]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Continue task: *BUILD [#B] Complete date-only and datetime query-bound semantics*
+- Goal:
+  - Define and implement consistent semantics for date-only and datetime arguments used with ~:on~, ~:from~, and ~:to~.
+  - Keep query bounds consistent with the timezone-naive representation of indexed Org timestamps.
+- Key rules:
+  - Date-only ~:on~ matches the complete specified calendar day.
+  - Date-only ~:from~ is inclusive start-of-day.
+  - Date-only ~:to~ includes the complete day via exclusive next-day boundary.
+  - Datetime arguments preserve explicit hour and minute and are not converted between timezones.
+
+* Planning
+
+** Problem summary
+
+The current SQLite query layer already approximates separate date-only and datetime bound behavior, but the semantics are not explicitly documented and the edge cases are not covered by targeted tests.
+
+** Goals
+
+- Make the date-only and datetime bound semantics explicit in code-adjacent documentation.
+- Keep query execution aligned with the parser's timezone-naive timestamp encoding.
+- Add regression tests for date-only and datetime ~:on~, ~:from~, and ~:to~ behavior, including edge boundaries.
+
+** Non-goals
+
+- No schema change.
+- No ~:with-time~ backend support yet.
+- No conversion of stored Org timestamps between timezones.
+
+** Architecture
+
+- Reuse the existing resolved date-string flow.
+- Keep SQL generation on bound parameters.
+- Clarify semantics in the Query Model reference and prove them through SQLite query tests.
+
+** Execution plan
+
+- Review and, if needed, tighten SQL bound generation for date-only vs datetime values.
+- Add tests for whole-day inclusion, explicit datetime preservation, midnight datetimes, month/year boundaries, and DST-adjacent dates.
+- Update reference docs and task results.
+
+** Risks & assumptions
+
+- SQLite datetime parsing must stay aligned with the parser's timezone-naive timestamp encoding.
+- Datetime upper-bound semantics must remain consistent with persisted minute-precision timestamps.
+
+** Open questions
+
+- None currently.
+
+** Proposed checks
+
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Kept the existing timezone-naive bound generation model and made its date-only vs datetime semantics explicit through tests and reference docs.
+- Added focused SQLite query tests for full-day date-only bounds, inclusive date-only ~:from~, exact datetime bounds, explicit midnight datetimes, real month-end and February 1 boundaries, year-end boundaries, and a DST-adjacent date.
+- Verified that the SQL layer continues to use bound parameters for both date-only and datetime inputs.
+- Replaced the misleading ~UTC-naive~ wording with ~timezone-naive~ in the relevant code and documentation touched by this task.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~docs/reference/query-model-v0.org~
+- ~src/parser/orgize_adapter.rs~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+
+- ~cargo test query::sqlite::tests:: --all-targets --all-features~
+- ~make ci~
+
+** Test results
+
+- Date-only ~:from~ and ~:to~ now have explicit regression coverage showing inclusive start-of-day behavior and exclusion of the following day.
+- Date-only and datetime bound compilation is covered separately, including parameter preservation.
+- Datetime ~:on~, ~:from~, and ~:to~ behavior is covered for explicit hour/minute values, including explicit midnight.
+- Month-end with real January 31 and February 1 fixture values, year-end, and DST-adjacent date-only/day-bound semantics are covered without timezone conversion.
+- Terminology now consistently refers to stored values and bounds as ~timezone-naive~ rather than ~UTC-naive~.
+- Full repository CI passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- The next task to persist explicit-time metadata can build on these bound semantics without changing their date-only vs datetime rules.

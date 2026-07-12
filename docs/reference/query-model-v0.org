@@ -1724,6 +1724,19 @@ Common keyword arguments:
 - ~:on~ :: exactly on the given date
 - ~:with-time t|nil~ :: restrict by whether timestamp includes an explicit time
 
+Shared bound semantics:
+
+- Date-only arguments such as ~"2026-01-03"~ represent a calendar day, not an exact instant.
+- Date-only ~:from~ uses an inclusive start-of-day boundary for the specified day.
+- Date-only ~:to~ includes the complete specified day by using an exclusive start-of-next-day boundary.
+- Date-only ~:on~ matches the complete specified calendar day.
+- Datetime arguments such as ~"2026-01-03 09:15"~ preserve their explicit hour and minute as written.
+- Datetime arguments are matched against the stored timezone-naive timestamp representation and are not converted between timezones.
+- Datetime ~:from~ is inclusive at the stated datetime.
+- Datetime ~:to~ uses the query model's upper-bound form: values at the stated datetime are included and later values are excluded.
+- Datetime ~:on~ matches the stored timestamp value at the stated datetime.
+- An explicit midnight datetime such as ~"2026-01-03 00:00"~ is treated as a datetime argument, not as a date-only day-wide query.
+
 *** ~(ts &key from to on with-time)~
 
 **** Purpose
