@@ -1038,7 +1038,7 @@ mod tests {
                     byte_start: 10,
                     byte_end: 25,
                     title: "Inbox".to_string(),
-                    title_raw: "Inbox".to_string(),
+                    title_raw: "TODO [#A] Inbox".to_string(),
                     todo_keyword: Some("TODO".to_string()),
                     todo_type: Some("open".to_string()),
                     priority: Some('A'),
@@ -1075,6 +1075,9 @@ mod tests {
             array[1]["all_tags"],
             Value::Array(vec![Value::String("rust".to_string())])
         );
+        assert_eq!(array[1]["title"], "Inbox");
+        assert_eq!(array[1]["title_raw"], "TODO [#A] Inbox");
+        assert_eq!(array[1]["todo_keyword"], "TODO");
         assert!(array[1].get("all_tags_json").is_none());
         assert_eq!(sorted_object_keys(&array[1]), expected_heading_json_keys());
     }

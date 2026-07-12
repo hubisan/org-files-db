@@ -1,0 +1,370 @@
+#+TITLE: Explore DB Outline Path
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
+
+* Outline Path
+
+** Raw outline paths
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+    op.heading_id,
+    op.file_id,
+    op.parent_id,
+    op.depth,
+    op.materialized_path,
+    op.breadcrumbs_json,
+    h.level,
+    h.title
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+   ORDER BY op.file_id, op.materialized_path;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+heading_id  file_id  parent_id  depth  materialized_path    breadcrumbs_json                                                                                                           level  title                                                                                   
+----------  -------  ---------  -----  -------------------  -------------------------------------------------------------------------------------------------------------------------  -----  ----------------------------------------------------------------------------------------
+1           1        NULL       0      0000                 ["dir-locals test structure"]                                                                                              0      dir-locals test structure                                                               
+2           1        1          1      0000.0001            ["dir-locals test structure","How to use"]                                                                                 1      How to use                                                                              
+3           2        NULL       0      0000                 ["Deepest .dir-locals wins test"]                                                                                          0      Deepest .dir-locals wins test                                                           
+4           2        3          1      0000.0001            ["Deepest .dir-locals wins test","Should be open from notes/child/.dir-locals.el"]                                         1      Should be open from notes/child/.dir-locals.el                                          
+5           2        3          1      0000.0002            ["Deepest .dir-locals wins test","Should be closed from notes/child/.dir-locals.el"]                                       1      Should be closed from notes/child/.dir-locals.el                                        
+6           2        3          1      0000.0003            ["Deepest .dir-locals wins test","PLAN Should NOT be recognized because child .dir-locals.el wins"]                        1      PLAN Should NOT be recognized because child .dir-locals.el wins                         
+7           2        3          1      0000.0004            ["Deepest .dir-locals wins test","DONE Should NOT be recognized because child .dir-locals.el wins"]                        1      DONE Should NOT be recognized because child .dir-locals.el wins                         
+8           3        NULL       0      0000                 ["Org in-buffer TODO override test"]                                                                                       0      Org in-buffer TODO override test                                                        
+9           3        8          1      0000.0001            ["Org in-buffer TODO override test","Should be open from in-buffer #+TODO"]                                                1      Should be open from in-buffer #+TODO                                                    
+10          3        8          1      0000.0002            ["Org in-buffer TODO override test","Should also be open from in-buffer #+TODO"]                                           1      Should also be open from in-buffer #+TODO                                               
+11          3        8          1      0000.0003            ["Org in-buffer TODO override test","Should be closed from in-buffer #+TODO"]                                              1      Should be closed from in-buffer #+TODO                                                  
+12          3        8          1      0000.0004            ["Org in-buffer TODO override test","PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el"]               1      PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el                   
+13          3        8          1      0000.0005            ["Org in-buffer TODO override test","DONE Should NOT be recognized because #+TODO overrides .dir-locals.el"]               1      DONE Should NOT be recognized because #+TODO overrides .dir-locals.el                   
+14          4        NULL       0      0000                 ["Root dir-locals test"]                                                                                                   0      Root dir-locals test                                                                    
+15          4        14         1      0000.0001            ["Root dir-locals test","Should be open from .dir-locals.el"]                                                              1      Should be open from .dir-locals.el                                                      
+16          4        14         1      0000.0002            ["Root dir-locals test","Should also be open from .dir-locals.el"]                                                         1      Should also be open from .dir-locals.el                                                 
+17          4        14         1      0000.0003            ["Root dir-locals test","Should be closed from .dir-locals.el"]                                                            1      Should be closed from .dir-locals.el                                                    
+18          4        14         1      0000.0004            ["Root dir-locals test","Should also be closed from .dir-locals.el"]                                                       1      Should also be closed from .dir-locals.el                                               
+19          4        14         1      0000.0005            ["Root dir-locals test","TODO Should NOT be recognized when .dir-locals.el is active"]                                     1      TODO Should NOT be recognized when .dir-locals.el is active                             
+20          5        NULL       0      0000                 ["Unsafe syntax warning test"]                                                                                             0      Unsafe syntax warning test                                                              
+21          5        20         1      0000.0001            ["Unsafe syntax warning test","Should be open from config fallback when unsafe .dir-locals.el is ignored with warning"]    1      Should be open from config fallback when unsafe .dir-locals.el is ignored with warning  
+22          5        20         1      0000.0002            ["Unsafe syntax warning test","Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning"]  1      Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning
+23          5        20         1      0000.0003            ["Unsafe syntax warning test","PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable"]    1      PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable  
+24          6        NULL       0      0000                 ["File-local TODO keywords"]                                                                                               0      File-local TODO keywords                                                                
+25          6        24         1      0000.0001            ["File-local TODO keywords","TODO default keyword should stay in title"]                                                   1      TODO default keyword should stay in title                                               
+26          6        24         1      0000.0002            ["File-local TODO keywords","DONE default done keyword should stay in title"]                                              1      DONE default done keyword should stay in title                                          
+27          6        24         1      0000.0003            ["File-local TODO keywords","open keyword with fast key"]                                                                  1      open keyword with fast key                                                              
+28          6        24         1      0000.0004            ["File-local TODO keywords","another open keyword with fast key"]                                                          1      another open keyword with fast key                                                      
+29          6        24         1      0000.0005            ["File-local TODO keywords","closed keyword with fast key"]                                                                1      closed keyword with fast key                                                            
+30          6        24         1      0000.0006            ["File-local TODO keywords","closed keyword with extended fast key"]                                                       1      closed keyword with extended fast key                                                   
+31          6        24         1      0000.0007            ["File-local TODO keywords","open keyword from empty-done-side line"]                                                      1      open keyword from empty-done-side line                                                  
+32          6        24         1      0000.0008            ["File-local TODO keywords","another open keyword from empty-done-side line"]                                              1      another open keyword from empty-done-side line                                          
+33          6        24         1      0000.0009            ["File-local TODO keywords","open keyword from TYP_TODO"]                                                                  1      open keyword from TYP_TODO                                                              
+34          6        24         1      0000.0010            ["File-local TODO keywords","closed keyword from TYP_TODO"]                                                                1      closed keyword from TYP_TODO                                                            
+35          6        24         1      0000.0011            ["File-local TODO keywords","open keyword from SEQ_TODO"]                                                                  1      open keyword from SEQ_TODO                                                              
+36          6        24         1      0000.0012            ["File-local TODO keywords","closed keyword from SEQ_TODO"]                                                                1      closed keyword from SEQ_TODO                                                            
+37          6        24         1      0000.0013            ["File-local TODO keywords","closed keyword from later TODO line"]                                                         1      closed keyword from later TODO line                                                     
+38          6        24         1      0000.0014            ["File-local TODO keywords","open keyword from line defined later in file"]                                                1      open keyword from line defined later in file                                            
+39          6        24         1      0000.0015            ["File-local TODO keywords","closed keyword from line defined later in file"]                                              1      closed keyword from line defined later in file                                          
+40          6        24         1      0000.0016            ["File-local TODO keywords","TODO still not valid after later local lines"]                                                1      TODO still not valid after later local lines                                            
+41          6        24         1      0000.0017            ["File-local TODO keywords","DONE still not valid after later local lines"]                                                1      DONE still not valid after later local lines                                            
+42          7        NULL       0      0000                 ["Keyword Parsing Fixture Later Title"]                                                                                    0      Keyword Parsing Fixture Later Title                                                     
+43          7        42         1      0000.0001            ["Keyword Parsing Fixture Later Title","First heading"]                                                                    1      First heading                                                                           
+44          7        43         2      0000.0001.0001       ["Keyword Parsing Fixture Later Title","First heading","Child heading"]                                                    2      Child heading                                                                           
+45          7        42         1      0000.0002            ["Keyword Parsing Fixture Later Title","Second heading"]                                                                   1      Second heading                                                                          
+46          7        42         1      0000.0003            ["Keyword Parsing Fixture Later Title","Boundary: keyword-looking body text"]                                              1      Boundary: keyword-looking body text                                                     
+47          7        42         1      0000.0004            ["Keyword Parsing Fixture Later Title","Expected behavior"]                                                                1      Expected behavior                                                                       
+48          8        NULL       0      0000                 ["Title can span multiple lines, even here"]                                                                               0      Title can span multiple lines, even here                                                
+49          8        48         1      0000.0001            ["Title can span multiple lines, even here","Unfortunately Everywhere"]                                                    1      Unfortunately Everywhere                                                                
+50          9        NULL       0      0000                 ["Planning timestamp"]                                                                                                     0      Planning timestamp                                                                      
+51          9        50         1      0000.0001            ["Planning timestamp","Planning"]                                                                                          1      Planning                                                                                
+52          9        51         2      0000.0001.0001       ["Planning timestamp","Planning","Simple scheduled"]                                                                       2      Simple scheduled                                                                        
+53          9        51         2      0000.0001.0002       ["Planning timestamp","Planning","Simple deadline"]                                                                        2      Simple deadline                                                                         
+54          9        51         2      0000.0001.0003       ["Planning timestamp","Planning","Simple closed"]                                                                          2      Simple closed                                                                           
+55          9        51         2      0000.0001.0004       ["Planning timestamp","Planning","All on one planning line"]                                                               2      All on one planning line                                                                
+56          9        51         2      0000.0001.0005       ["Planning timestamp","Planning","With time"]                                                                              2      With time                                                                               
+57          9        51         2      0000.0001.0006       ["Planning timestamp","Planning","Time range same day"]                                                                    2      Time range same day                                                                     
+58          9        51         2      0000.0001.0007       ["Planning timestamp","Planning","Date range"]                                                                             2      Date range                                                                              
+59          9        51         2      0000.0001.0008       ["Planning timestamp","Planning","Repeater"]                                                                               2      Repeater                                                                                
+60          9        51         2      0000.0001.0009       ["Planning timestamp","Planning","Diary expression"]                                                                       2      Diary expression                                                                        
+61          9        51         2      0000.0001.0010       ["Planning timestamp","Planning","Multiple same keyword"]                                                                  2      Multiple same keyword                                                                   
+62          9        51         2      0000.0001.0011       ["Planning timestamp","Planning","Not valid"]                                                                              2      Not valid                                                                               
+63          9        62         3      0000.0001.0011.0001  ["Planning timestamp","Planning","Not valid","Multiple planning lines"]                                                    3      Multiple planning lines                                                                 
+64          9        62         3      0000.0001.0011.0002  ["Planning timestamp","Planning","Not valid","Planning not immediately after headline"]                                    3      Planning not immediately after headline                                                 
+65          9        62         3      0000.0001.0011.0003  ["Planning timestamp","Planning","Not valid","Looks like planning in body"]                                                3      Looks like planning in body                                                             
+66          9        62         3      0000.0001.0011.0004  ["Planning timestamp","Planning","Not valid","Lowercase should probably not count"]                                        3      Lowercase should probably not count                                                     
+67          9        62         3      0000.0001.0011.0005  ["Planning timestamp","Planning","Not valid","Multiple same keyword"]                                                      3      Multiple same keyword                                                                   
+68          10       NULL       0      0000                 ["Org Property and Keyword Test"]                                                                                          0      Org Property and Keyword Test                                                           
+69          10       68         1      0000.0001            ["Org Property and Keyword Test","Task with multiple drawer properties"]                                                   1      Task with multiple drawer properties                                                    
+70          10       68         1      0000.0002            ["Org Property and Keyword Test","Task with duplicate drawer properties"]                                                  1      Task with duplicate drawer properties                                                   
+71          10       68         1      0000.0003            ["Org Property and Keyword Test","Task with append operator in drawer"]                                                    1      Task with append operator in drawer                                                     
+72          10       68         1      0000.0004            ["Org Property and Keyword Test","Task with mixed-case keys"]                                                              1      Task with mixed-case keys                                                               
+73          10       68         1      0000.0005            ["Org Property and Keyword Test","Task with empty property accepted by Orgize"]                                            1      Task with empty property accepted by Orgize                                             
+74          10       68         1      0000.0006            ["Org Property and Keyword Test","Task with Orgize empty-property limitation"]                                             1      Task with Orgize empty-property limitation                                              
+75          10       68         1      0000.0007            ["Org Property and Keyword Test","Task after file-level property keywords"]                                                1      Task after file-level property keywords                                                 
+76          10       68         1      0000.0008            ["Org Property and Keyword Test","Task after later file-level keywords"]                                                   1      Task after later file-level keywords                                                    
+77          10       68         1      0000.0009            ["Org Property and Keyword Test","Boundary: property-like but not properties"]                                             1      Boundary: property-like but not properties                                              
+78          11       NULL       0      0000                 ["Tags and FILETAGS Fixture"]                                                                                              0      Tags and FILETAGS Fixture                                                               
+79          11       78         1      0000.0001            ["Tags and FILETAGS Fixture","Parent"]                                                                                     1      Parent                                                                                  
+80          11       79         2      0000.0001.0001       ["Tags and FILETAGS Fixture","Parent","Child"]                                                                             2      Child                                                                                   
+81          11       80         3      0000.0001.0001.0001  ["Tags and FILETAGS Fixture","Parent","Child","Grandchild"]                                                                3      Grandchild                                                                              
+82          11       78         1      0000.0002            ["Tags and FILETAGS Fixture","Sibling"]                                                                                    1      Sibling                                                                                 
+83          11       78         1      0000.0003            ["Tags and FILETAGS Fixture","Duplicate Local"]                                                                            1      Duplicate Local                                                                         
+84          11       78         1      0000.0004            ["Tags and FILETAGS Fixture","After Later FILETAGS"]                                                                       1      After Later FILETAGS                                                                    
+85          11       78         1      0000.0005            ["Tags and FILETAGS Fixture","parent with one tag"]                                                                        1      parent with one tag                                                                     
+86          11       85         2      0000.0005.0001       ["Tags and FILETAGS Fixture","parent with one tag","child inherits parent tag"]                                            2      child inherits parent tag                                                               
+87          11       85         2      0000.0005.0002       ["Tags and FILETAGS Fixture","parent with one tag","child with local tag"]                                                 2      child with local tag                                                                    
+88          11       87         3      0000.0005.0002.0001  ["Tags and FILETAGS Fixture","parent with one tag","child with local tag","grandchild inherits both"]                      3      grandchild inherits both                                                                
+89          11       87         3      0000.0005.0002.0002  ["Tags and FILETAGS Fixture","parent with one tag","child with local tag","grandchild with duplicate local tag"]           3      grandchild with duplicate local tag                                                     
+90          11       78         1      0000.0006            ["Tags and FILETAGS Fixture","second parent"]                                                                              1      second parent                                                                           
+91          11       90         2      0000.0006.0001       ["Tags and FILETAGS Fixture","second parent","second child with local tag"]                                                2      second child with local tag                                                             
+92          11       91         3      0000.0006.0001.0001  ["Tags and FILETAGS Fixture","second parent","second child with local tag","second grandchild with extra tag"]             3      second grandchild with extra tag                                                        
+93          11       78         1      0000.0007            ["Tags and FILETAGS Fixture","untagged parent"]                                                                            1      untagged parent                                                                         
+94          11       93         2      0000.0007.0001       ["Tags and FILETAGS Fixture","untagged parent","child with only local tag"]                                                2      child with only local tag                                                               
+95          11       93         2      0000.0007.0002       ["Tags and FILETAGS Fixture","untagged parent","child without tags"]                                                       2      child without tags                                                                      
+96          12       NULL       0      0000                 ["timestamp-repeaters"]                                                                                                    0      timestamp-repeaters                                                                     
+97          12       96         1      0000.0001            ["timestamp-repeaters","Repeater markers"]                                                                                 1      Repeater markers                                                                        
+98          12       97         2      0000.0001.0001       ["timestamp-repeaters","Repeater markers","Cumulate plus"]                                                                 2      Cumulate plus                                                                           
+99          12       97         2      0000.0001.0002       ["timestamp-repeaters","Repeater markers","Catch up plus plus"]                                                            2      Catch up plus plus                                                                      
+100         12       97         2      0000.0001.0003       ["timestamp-repeaters","Repeater markers","Restart dot plus"]                                                              2      Restart dot plus                                                                        
+101         12       96         1      0000.0002            ["timestamp-repeaters","Repeater units"]                                                                                   1      Repeater units                                                                          
+102         12       101        2      0000.0002.0001       ["timestamp-repeaters","Repeater units","Repeater hour"]                                                                   2      Repeater hour                                                                           
+103         12       101        2      0000.0002.0002       ["timestamp-repeaters","Repeater units","Repeater day"]                                                                    2      Repeater day                                                                            
+104         12       101        2      0000.0002.0003       ["timestamp-repeaters","Repeater units","Repeater week"]                                                                   2      Repeater week                                                                           
+105         12       101        2      0000.0002.0004       ["timestamp-repeaters","Repeater units","Repeater month"]                                                                  2      Repeater month                                                                          
+106         12       101        2      0000.0002.0005       ["timestamp-repeaters","Repeater units","Repeater year"]                                                                   2      Repeater year                                                                           
+107         12       96         1      0000.0003            ["timestamp-repeaters","Repeater deadline part"]                                                                           1      Repeater deadline part                                                                  
+108         12       107        2      0000.0003.0001       ["timestamp-repeaters","Repeater deadline part","Repeater with deadline day"]                                              2      Repeater with deadline day                                                              
+109         12       107        2      0000.0003.0002       ["timestamp-repeaters","Repeater deadline part","Repeater with deadline week"]                                             2      Repeater with deadline week                                                             
+110         12       107        2      0000.0003.0003       ["timestamp-repeaters","Repeater deadline part","Repeater with deadline month"]                                            2      Repeater with deadline month                                                            
+111         12       96         1      0000.0004            ["timestamp-repeaters","Warning delays"]                                                                                   1      Warning delays                                                                          
+112         12       111        2      0000.0004.0001       ["timestamp-repeaters","Warning delays","Warning all"]                                                                     2      Warning all                                                                             
+113         12       111        2      0000.0004.0002       ["timestamp-repeaters","Warning delays","Warning first"]                                                                   2      Warning first                                                                           
+114         12       111        2      0000.0004.0003       ["timestamp-repeaters","Warning delays","Warning hour"]                                                                    2      Warning hour                                                                            
+115         12       111        2      0000.0004.0004       ["timestamp-repeaters","Warning delays","Warning month"]                                                                   2      Warning month                                                                           
+116         12       111        2      0000.0004.0005       ["timestamp-repeaters","Warning delays","Warning year"]                                                                    2      Warning year                                                                            
+117         12       96         1      0000.0005            ["timestamp-repeaters","Repeater and warning combinations"]                                                                1      Repeater and warning combinations                                                       
+118         12       117        2      0000.0005.0001       ["timestamp-repeaters","Repeater and warning combinations","Repeater and warning"]                                         2      Repeater and warning                                                                    
+119         12       117        2      0000.0005.0002       ["timestamp-repeaters","Repeater and warning combinations","Catch up repeater with deadline part and warning"]             2      Catch up repeater with deadline part and warning                                        
+120         12       117        2      0000.0005.0003       ["timestamp-repeaters","Repeater and warning combinations","Restart repeater with first warning"]                          2      Restart repeater with first warning                                                     
+121         12       96         1      0000.0006            ["timestamp-repeaters","Time and range combinations"]                                                                      1      Time and range combinations                                                             
+122         12       121        2      0000.0006.0001       ["timestamp-repeaters","Time and range combinations","Time with repeater"]                                                 2      Time with repeater                                                                      
+123         12       121        2      0000.0006.0002       ["timestamp-repeaters","Time and range combinations","Time range with repeater"]                                           2      Time range with repeater                                                                
+124         12       121        2      0000.0006.0003       ["timestamp-repeaters","Time and range combinations","Date range with repeater"]                                           2      Date range with repeater                                                                
+125         12       96         1      0000.0007            ["timestamp-repeaters","Inactive timestamp with repeater"]                                                                 1      Inactive timestamp with repeater                                                        
+126         12       125        2      0000.0007.0001       ["timestamp-repeaters","Inactive timestamp with repeater","Inactive repeater"]                                             2      Inactive repeater                                                                       
+127         12       96         1      0000.0008            ["timestamp-repeaters","Diary negative case"]                                                                              1      Diary negative case                                                                     
+128         12       127        2      0000.0008.0001       ["timestamp-repeaters","Diary negative case","Diary with apparent repeater text"]                                          2      Diary with apparent repeater text                                                       
+129         13       NULL       0      0000                 ["Timestamps"]                                                                                                             0      Timestamps                                                                              
+130         13       129        1      0000.0001            ["Timestamps","Meet Peter at the movies"]                                                                                  1      Meet Peter at the movies                                                                
+131         13       129        1      0000.0002            ["Timestamps","Discussion on climate change"]                                                                              1      Discussion on climate change                                                            
+132         13       129        1      0000.0003            ["Timestamps","My days off"]                                                                                               1      My days off                                                                             
+133         13       129        1      0000.0004            ["Timestamps","Can be anywhere"]                                                                                           1      Can be anywhere                                                                         
+#+end_example
+
+** Outline tree
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+    CASE
+    WHEN op.depth = 0 THEN f.path || ' - ' || op.materialized_path || ' ' || h.title
+    ELSE printf(
+      '%s- %s %s',
+      substr('                                                                                ', 1, op.depth * 2),
+      op.materialized_path,
+      h.title
+    )
+    END AS line
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+         JOIN files f ON f.id = op.file_id
+   ORDER BY op.file_id, op.materialized_path;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+line                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/README.org - 0000 dir-locals test structure                                 
+  - 0000.0001 How to use                                                                                                                                                     
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/child/deepest-wins-test.org - 0000 Deepest .dir-locals wins test      
+  - 0000.0001 Should be open from notes/child/.dir-locals.el                                                                                                                 
+  - 0000.0002 Should be closed from notes/child/.dir-locals.el                                                                                                               
+  - 0000.0003 PLAN Should NOT be recognized because child .dir-locals.el wins                                                                                                
+  - 0000.0004 DONE Should NOT be recognized because child .dir-locals.el wins                                                                                                
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/override/org-override-test.org - 0000 Org in-buffer TODO override test
+  - 0000.0001 Should be open from in-buffer #+TODO                                                                                                                           
+  - 0000.0002 Should also be open from in-buffer #+TODO                                                                                                                      
+  - 0000.0003 Should be closed from in-buffer #+TODO                                                                                                                         
+  - 0000.0004 PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el                                                                                          
+  - 0000.0005 DONE Should NOT be recognized because #+TODO overrides .dir-locals.el                                                                                          
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/root-test.org - 0000 Root dir-locals test                             
+  - 0000.0001 Should be open from .dir-locals.el                                                                                                                             
+  - 0000.0002 Should also be open from .dir-locals.el                                                                                                                        
+  - 0000.0003 Should be closed from .dir-locals.el                                                                                                                           
+  - 0000.0004 Should also be closed from .dir-locals.el                                                                                                                      
+  - 0000.0005 TODO Should NOT be recognized when .dir-locals.el is active                                                                                                    
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/dir-locals-test-structure/notes/unsafe/unsafe-warn-test.org - 0000 Unsafe syntax warning test         
+  - 0000.0001 Should be open from config fallback when unsafe .dir-locals.el is ignored with warning                                                                         
+  - 0000.0002 Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning                                                                       
+  - 0000.0003 PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable                                                                         
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/file-local-todo-keywords.org - 0000 File-local TODO keywords                                          
+  - 0000.0001 TODO default keyword should stay in title                                                                                                                      
+  - 0000.0002 DONE default done keyword should stay in title                                                                                                                 
+  - 0000.0003 open keyword with fast key                                                                                                                                     
+  - 0000.0004 another open keyword with fast key                                                                                                                             
+  - 0000.0005 closed keyword with fast key                                                                                                                                   
+  - 0000.0006 closed keyword with extended fast key                                                                                                                          
+  - 0000.0007 open keyword from empty-done-side line                                                                                                                         
+  - 0000.0008 another open keyword from empty-done-side line                                                                                                                 
+  - 0000.0009 open keyword from TYP_TODO                                                                                                                                     
+  - 0000.0010 closed keyword from TYP_TODO                                                                                                                                   
+  - 0000.0011 open keyword from SEQ_TODO                                                                                                                                     
+  - 0000.0012 closed keyword from SEQ_TODO                                                                                                                                   
+  - 0000.0013 closed keyword from later TODO line                                                                                                                            
+  - 0000.0014 open keyword from line defined later in file                                                                                                                   
+  - 0000.0015 closed keyword from line defined later in file                                                                                                                 
+  - 0000.0016 TODO still not valid after later local lines                                                                                                                   
+  - 0000.0017 DONE still not valid after later local lines                                                                                                                   
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/keywords.org - 0000 Keyword Parsing Fixture Later Title                                               
+  - 0000.0001 First heading                                                                                                                                                  
+    - 0000.0001.0001 Child heading                                                                                                                                           
+  - 0000.0002 Second heading                                                                                                                                                 
+  - 0000.0003 Boundary: keyword-looking body text                                                                                                                            
+  - 0000.0004 Expected behavior                                                                                                                                              
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/multipe-title-keywords.org - 0000 Title can span multiple lines, even here                            
+  - 0000.0001 Unfortunately Everywhere                                                                                                                                       
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/planning-lines.org - 0000 Planning timestamp                                                          
+  - 0000.0001 Planning                                                                                                                                                       
+    - 0000.0001.0001 Simple scheduled                                                                                                                                        
+    - 0000.0001.0002 Simple deadline                                                                                                                                         
+    - 0000.0001.0003 Simple closed                                                                                                                                           
+    - 0000.0001.0004 All on one planning line                                                                                                                                
+    - 0000.0001.0005 With time                                                                                                                                               
+    - 0000.0001.0006 Time range same day                                                                                                                                     
+    - 0000.0001.0007 Date range                                                                                                                                              
+    - 0000.0001.0008 Repeater                                                                                                                                                
+    - 0000.0001.0009 Diary expression                                                                                                                                        
+    - 0000.0001.0010 Multiple same keyword                                                                                                                                   
+    - 0000.0001.0011 Not valid                                                                                                                                               
+      - 0000.0001.0011.0001 Multiple planning lines                                                                                                                          
+      - 0000.0001.0011.0002 Planning not immediately after headline                                                                                                          
+      - 0000.0001.0011.0003 Looks like planning in body                                                                                                                      
+      - 0000.0001.0011.0004 Lowercase should probably not count                                                                                                              
+      - 0000.0001.0011.0005 Multiple same keyword                                                                                                                            
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/properties.org - 0000 Org Property and Keyword Test                                                   
+  - 0000.0001 Task with multiple drawer properties                                                                                                                           
+  - 0000.0002 Task with duplicate drawer properties                                                                                                                          
+  - 0000.0003 Task with append operator in drawer                                                                                                                            
+  - 0000.0004 Task with mixed-case keys                                                                                                                                      
+  - 0000.0005 Task with empty property accepted by Orgize                                                                                                                    
+  - 0000.0006 Task with Orgize empty-property limitation                                                                                                                     
+  - 0000.0007 Task after file-level property keywords                                                                                                                        
+  - 0000.0008 Task after later file-level keywords                                                                                                                           
+  - 0000.0009 Boundary: property-like but not properties                                                                                                                     
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/tags.org - 0000 Tags and FILETAGS Fixture                                                             
+  - 0000.0001 Parent                                                                                                                                                         
+    - 0000.0001.0001 Child                                                                                                                                                   
+      - 0000.0001.0001.0001 Grandchild                                                                                                                                       
+  - 0000.0002 Sibling                                                                                                                                                        
+  - 0000.0003 Duplicate Local                                                                                                                                                
+  - 0000.0004 After Later FILETAGS                                                                                                                                           
+  - 0000.0005 parent with one tag                                                                                                                                            
+    - 0000.0005.0001 child inherits parent tag                                                                                                                               
+    - 0000.0005.0002 child with local tag                                                                                                                                    
+      - 0000.0005.0002.0001 grandchild inherits both                                                                                                                         
+      - 0000.0005.0002.0002 grandchild with duplicate local tag                                                                                                              
+  - 0000.0006 second parent                                                                                                                                                  
+    - 0000.0006.0001 second child with local tag                                                                                                                             
+      - 0000.0006.0001.0001 second grandchild with extra tag                                                                                                                 
+  - 0000.0007 untagged parent                                                                                                                                                
+    - 0000.0007.0001 child with only local tag                                                                                                                               
+    - 0000.0007.0002 child without tags                                                                                                                                      
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamp-repeaters.org - 0000 timestamp-repeaters                                                    
+  - 0000.0001 Repeater markers                                                                                                                                               
+    - 0000.0001.0001 Cumulate plus                                                                                                                                           
+    - 0000.0001.0002 Catch up plus plus                                                                                                                                      
+    - 0000.0001.0003 Restart dot plus                                                                                                                                        
+  - 0000.0002 Repeater units                                                                                                                                                 
+    - 0000.0002.0001 Repeater hour                                                                                                                                           
+    - 0000.0002.0002 Repeater day                                                                                                                                            
+    - 0000.0002.0003 Repeater week                                                                                                                                           
+    - 0000.0002.0004 Repeater month                                                                                                                                          
+    - 0000.0002.0005 Repeater year                                                                                                                                           
+  - 0000.0003 Repeater deadline part                                                                                                                                         
+    - 0000.0003.0001 Repeater with deadline day                                                                                                                              
+    - 0000.0003.0002 Repeater with deadline week                                                                                                                             
+    - 0000.0003.0003 Repeater with deadline month                                                                                                                            
+  - 0000.0004 Warning delays                                                                                                                                                 
+    - 0000.0004.0001 Warning all                                                                                                                                             
+    - 0000.0004.0002 Warning first                                                                                                                                           
+    - 0000.0004.0003 Warning hour                                                                                                                                            
+    - 0000.0004.0004 Warning month                                                                                                                                           
+    - 0000.0004.0005 Warning year                                                                                                                                            
+  - 0000.0005 Repeater and warning combinations                                                                                                                              
+    - 0000.0005.0001 Repeater and warning                                                                                                                                    
+    - 0000.0005.0002 Catch up repeater with deadline part and warning                                                                                                        
+    - 0000.0005.0003 Restart repeater with first warning                                                                                                                     
+  - 0000.0006 Time and range combinations                                                                                                                                    
+    - 0000.0006.0001 Time with repeater                                                                                                                                      
+    - 0000.0006.0002 Time range with repeater                                                                                                                                
+    - 0000.0006.0003 Date range with repeater                                                                                                                                
+  - 0000.0007 Inactive timestamp with repeater                                                                                                                               
+    - 0000.0007.0001 Inactive repeater                                                                                                                                       
+  - 0000.0008 Diary negative case                                                                                                                                            
+    - 0000.0008.0001 Diary with apparent repeater text                                                                                                                       
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/files/timestamps.org - 0000 Timestamps                                                                      
+  - 0000.0001 Meet Peter at the movies                                                                                                                                       
+  - 0000.0002 Discussion on climate change                                                                                                                                   
+  - 0000.0003 My days off                                                                                                                                                    
+  - 0000.0004 Can be anywhere                                                                                                                                                
+#+end_example
+
+** Breadcrumb preview
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+    op.materialized_path,
+    h.title,
+    op.breadcrumbs_json
+    FROM outline_path op
+         JOIN headings h ON h.id = op.heading_id
+   ORDER BY op.file_id, op.materialized_path
+   LIMIT 30;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+materialized_path  title                                                                                     breadcrumbs_json                                                                                                         
+-----------------  ----------------------------------------------------------------------------------------  -------------------------------------------------------------------------------------------------------------------------
+0000               dir-locals test structure                                                                 ["dir-locals test structure"]                                                                                            
+0000.0001          How to use                                                                                ["dir-locals test structure","How to use"]                                                                               
+0000               Deepest .dir-locals wins test                                                             ["Deepest .dir-locals wins test"]                                                                                        
+0000.0001          Should be open from notes/child/.dir-locals.el                                            ["Deepest .dir-locals wins test","Should be open from notes/child/.dir-locals.el"]                                       
+0000.0002          Should be closed from notes/child/.dir-locals.el                                          ["Deepest .dir-locals wins test","Should be closed from notes/child/.dir-locals.el"]                                     
+0000.0003          PLAN Should NOT be recognized because child .dir-locals.el wins                           ["Deepest .dir-locals wins test","PLAN Should NOT be recognized because child .dir-locals.el wins"]                      
+0000.0004          DONE Should NOT be recognized because child .dir-locals.el wins                           ["Deepest .dir-locals wins test","DONE Should NOT be recognized because child .dir-locals.el wins"]                      
+0000               Org in-buffer TODO override test                                                          ["Org in-buffer TODO override test"]                                                                                     
+0000.0001          Should be open from in-buffer #+TODO                                                      ["Org in-buffer TODO override test","Should be open from in-buffer #+TODO"]                                              
+0000.0002          Should also be open from in-buffer #+TODO                                                 ["Org in-buffer TODO override test","Should also be open from in-buffer #+TODO"]                                         
+0000.0003          Should be closed from in-buffer #+TODO                                                    ["Org in-buffer TODO override test","Should be closed from in-buffer #+TODO"]                                            
+0000.0004          PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el                     ["Org in-buffer TODO override test","PLAN Should NOT be recognized because #+TODO overrides .dir-locals.el"]             
+0000.0005          DONE Should NOT be recognized because #+TODO overrides .dir-locals.el                     ["Org in-buffer TODO override test","DONE Should NOT be recognized because #+TODO overrides .dir-locals.el"]             
+0000               Root dir-locals test                                                                      ["Root dir-locals test"]                                                                                                 
+0000.0001          Should be open from .dir-locals.el                                                        ["Root dir-locals test","Should be open from .dir-locals.el"]                                                            
+0000.0002          Should also be open from .dir-locals.el                                                   ["Root dir-locals test","Should also be open from .dir-locals.el"]                                                       
+0000.0003          Should be closed from .dir-locals.el                                                      ["Root dir-locals test","Should be closed from .dir-locals.el"]                                                          
+0000.0004          Should also be closed from .dir-locals.el                                                 ["Root dir-locals test","Should also be closed from .dir-locals.el"]                                                     
+0000.0005          TODO Should NOT be recognized when .dir-locals.el is active                               ["Root dir-locals test","TODO Should NOT be recognized when .dir-locals.el is active"]                                   
+0000               Unsafe syntax warning test                                                                ["Unsafe syntax warning test"]                                                                                           
+0000.0001          Should be open from config fallback when unsafe .dir-locals.el is ignored with warning    ["Unsafe syntax warning test","Should be open from config fallback when unsafe .dir-locals.el is ignored with warning"]  
+0000.0002          Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning  ["Unsafe syntax warning test","Should be closed from config fallback when unsafe .dir-locals.el is ignored with warning"]
+0000.0003          PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable    ["Unsafe syntax warning test","PLAN Should NOT be recognized in this folder because unsafe .dir-locals.el is unusable"]  
+0000               File-local TODO keywords                                                                  ["File-local TODO keywords"]                                                                                             
+0000.0001          TODO default keyword should stay in title                                                 ["File-local TODO keywords","TODO default keyword should stay in title"]                                                 
+0000.0002          DONE default done keyword should stay in title                                            ["File-local TODO keywords","DONE default done keyword should stay in title"]                                            
+0000.0003          open keyword with fast key                                                                ["File-local TODO keywords","open keyword with fast key"]                                                                
+0000.0004          another open keyword with fast key                                                        ["File-local TODO keywords","another open keyword with fast key"]                                                        
+0000.0005          closed keyword with fast key                                                              ["File-local TODO keywords","closed keyword with fast key"]                                                              
+0000.0006          closed keyword with extended fast key                                                     ["File-local TODO keywords","closed keyword with extended fast key"]                                                     
+#+end_example

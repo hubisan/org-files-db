@@ -121,165 +121,131 @@ General rules:
 
 - Task file: [[file:archive/2026-07-11--normalize-heading-titles-and-title-query-matching.org]]
 
-** TODO [#B] Include TODO keywords in ~title_raw~
+** DONE [#B] Include TODO keywords in ~title_raw~
+
+- Task file: [[file:archive/2026-07-12--include-todo-keywords-in-title-raw.org]]
+
+** TODO [#B] Distinguish source titles from fallback file titles
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
 :API_CONTRACT_CHANGE: Yes
 :END:
 
 Goal:
 
-- Make ~title_raw~ a consistent source-oriented representation of the heading title area.
-- Include the TODO keyword in ~title_raw~.
-- Keep ~title~ as the cleaned semantic title used for normal title queries.
-- Preserve separately parsed fields such as ~todo_keyword~, ~todo_type~, and ~priority~.
+- Make the distinction between source-provided titles and derived fallback titles explicit.
+- Keep ~title~ as the effective display and query title.
+- Use ~title_raw~ only for title text that actually exists in the Org source.
+- Represent the absence of a source title without copying the derived file stem into ~title_raw~.
 
 Problem:
 
-The current ~title_raw~ contract is only partially raw.
-
-For a heading such as:
-
-#+begin_src org
-,* REVIEW [#B] Statistic Cookies [0/1]
-#+end_src
-
-the current representation may be:
+For a file without a ~#+TITLE~ keyword, the current root/file object may look like this:
 
 #+begin_src json
 {
-  "todo_keyword": "REVIEW",
-  "priority": "B",
-  "title": "Statistic Cookies",
-  "title_raw": "[#B] Statistic Cookies [0/1]"
+  "title": "no-title-set",
+  "title_raw": "no-title-set"
 }
 #+end_src
 
-The TODO keyword has already been removed from ~title_raw~, while priority and statistics cookies remain. This makes the field difficult to interpret and inconsistent as a source-oriented value.
+Both values are derived from the file name. This makes ~title_raw~ misleading because it suggests that ~no-title-set~ appeared as title text in the Org source.
 
 Expected representation:
 
 #+begin_src json
 {
-  "todo_keyword": "REVIEW",
-  "todo_type": "open",
-  "priority": "B",
-  "title": "Statistic Cookies",
-  "title_raw": "REVIEW [#B] Statistic Cookies [0/1]"
+  "title": "no-title-set",
+  "title_raw": null
 }
 #+end_src
 
 Rules:
 
-- ~title~ contains only the cleaned semantic heading title.
-- ~title~ must not contain:
-  - the TODO keyword
-  - a priority cookie
-  - a statistics cookie
-  - trailing Org tags
-- ~title_raw~ contains the complete source title area after the headline stars.
-- ~title_raw~ includes:
-  - the TODO keyword
-  - the priority cookie
-  - statistics cookies
-  - inline Org markup
-- ~title_raw~ excludes trailing Org tags if tags continue to be represented separately by the existing tag model.
-- ~todo_keyword~ remains stored separately.
-- ~todo_type~ remains stored separately.
-- ~priority~ remains stored separately.
-- ~title_raw~ is source-oriented output and must not be used by the normal ~title~ query predicate.
-- Normal title queries continue to match against ~headings.title~.
+- ~title~ is the effective display and query title.
+- For file/root objects with a ~#+TITLE~ keyword:
+  - ~title~ contains the effective file title.
+  - ~title_raw~ contains the source-provided title value.
+- For file/root objects without a ~#+TITLE~ keyword:
+  - ~title~ falls back to the file stem.
+  - ~title_raw~ is ~null~.
+- A derived file stem must never be copied into ~title_raw~.
+- ~title_raw = null~ means that no source title exists.
+- An empty string must not be used as a substitute for a missing source title unless the database contract cannot be made nullable.
+- Heading ~title_raw~ semantics remain unchanged.
+- Normal title queries continue to use the effective ~title~ value.
+- Query results must preserve the distinction between a source title and a fallback title.
 - Existing indexed data must be rebuilt after this change.
 
 Examples:
 
+File with source title:
+
 #+begin_src org
-,* TODO [#A] Prepare release :project:
-,* REVIEW [#B] Statistic Cookies [0/1]
-,* NEXT Progress [50%]
-,* DONE Completed task
+#+TITLE: Project Notes
 #+end_src
 
-Expected values:
+Expected root/file values:
 
 #+begin_src json
-[
-  {
-    "todo_keyword": "TODO",
-    "todo_type": "open",
-    "priority": "A",
-    "title": "Prepare release",
-    "title_raw": "TODO [#A] Prepare release"
-  },
-  {
-    "todo_keyword": "REVIEW",
-    "todo_type": "open",
-    "priority": "B",
-    "title": "Statistic Cookies",
-    "title_raw": "REVIEW [#B] Statistic Cookies [0/1]"
-  },
-  {
-    "todo_keyword": "NEXT",
-    "todo_type": "open",
-    "priority": null,
-    "title": "Progress",
-    "title_raw": "NEXT Progress [50%]"
-  },
-  {
-    "todo_keyword": "DONE",
-    "todo_type": "closed",
-    "priority": null,
-    "title": "Completed task",
-    "title_raw": "DONE Completed task"
-  }
-]
+{
+  "title": "Project Notes",
+  "title_raw": "Project Notes"
+}
+#+end_src
+
+File without source title:
+
+#+begin_src org
+Some preamble text.
+#+end_src
+
+For a file named ~no-title-set.org~, expected root/file values are:
+
+#+begin_src json
+{
+  "title": "no-title-set",
+  "title_raw": null
+}
 #+end_src
 
 Query behaviour:
 
-- Normal title queries use the cleaned ~headings.title~ value.
+- File and root title queries continue to use ~title~.
+- A query for the fallback file title may still match the file/root object.
 
 #+begin_src lisp
-(title "Statistic Cookies")
+(files (file-title "no-title-set"))
 #+end_src
 
-- TODO keywords, priorities, and statistics cookies do not participate in normal title matching.
-
-#+begin_src lisp
-(title "REVIEW [#B] Statistic Cookies [0/1]")
-#+end_src
-
-- ~title_raw~ remains available for source-oriented JSON output but is not used by the normal ~title~ predicate.
+- Source-oriented output must expose ~title_raw = null~ when no ~#+TITLE~ keyword exists.
+- The normal ~title~ predicate must not depend on ~title_raw~.
 
 Implementation notes:
 
-- Derive ~title_raw~ directly from the original heading title area instead of reconstructing it from already-normalised fields where possible.
-- Keep the TODO keyword exactly as written in the source.
-- Preserve source ordering and inline Org markup.
-- Reuse the existing trailing-tag boundary so tags are not duplicated in both ~title_raw~ and tag fields.
-- Avoid changing the normalised ~title~ semantics in this task beyond the already planned removal of TODO keywords, priority cookies, and statistics cookies.
-- Review parser, persistence, JSON-output, and fixture expectations that currently assume ~title_raw~ excludes the TODO keyword.
+- Preserve the source title separately before applying the file-stem fallback.
+- Apply the fallback only to the effective ~title~ field.
+- Make the persisted ~title_raw~ column nullable if it is currently constrained to ~NOT NULL~.
+- Review parser, database schema, migrations, persistence code, result shaping, JSON serialization, fixtures, and tests.
+- Use ~Option<String>~ or the project-equivalent nullable representation for root/file ~title_raw~.
+- Do not change heading ~title_raw~ semantics as part of this task.
 - Rebuild the database after implementation.
 
 Acceptance criteria:
 
-- ~title_raw~ includes the TODO keyword for built-in TODO keywords.
-- ~title_raw~ includes the TODO keyword for configured TODO keywords.
-- ~title_raw~ includes priority cookies.
-- ~title_raw~ includes fraction statistics cookies.
-- ~title_raw~ includes percentage statistics cookies.
-- ~title_raw~ preserves supported inline Org markup.
-- ~title_raw~ excludes trailing tags according to the existing tag contract.
-- ~title~ remains free of TODO keywords, priority cookies, statistics cookies, and trailing tags.
-- ~todo_keyword~, ~todo_type~, and ~priority~ remain available as separate structured fields.
-- Title queries continue to use the normalised ~headings.title~ value.
-- Query results expose the updated ~title_raw~ after rebuilding the database.
-- Regression tests cover default, configured open, and configured closed TODO keywords.
-- Regression tests cover headings with and without priorities.
-- Regression tests cover headings with statistics cookies.
-- Regression tests cover trailing tags and inline markup.
-- Existing parser, persistence, query, and JSON-output tests are updated and continue to pass.
+- A file/root object with ~#+TITLE~ stores the source value in both ~title~ and ~title_raw~ where no further normalization changes the effective title.
+- A file/root object without ~#+TITLE~ uses the file stem for ~title~.
+- A file/root object without ~#+TITLE~ stores ~title_raw = null~.
+- The fallback file stem is not stored in ~title_raw~.
+- File/root title queries continue to match against the effective ~title~.
+- JSON output distinguishes missing source titles from source-provided titles.
+- Heading ~title_raw~ behaviour remains unchanged.
+- Regression tests cover files with and without ~#+TITLE~.
+- Regression tests cover fallback title queries.
+- Schema and persistence tests cover nullable ~title_raw~ if a schema change is required.
+- Existing parser, database, query, and JSON-output tests continue to pass.
 
 ** TODO [#B] Align ~title~ with root/file matching semantics
 :PROPERTIES:

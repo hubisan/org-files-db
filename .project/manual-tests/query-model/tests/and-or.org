@@ -1,0 +1,32 @@
+#+TITLE: Query Model Tests - And & Or
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* NEXT and priority A
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(and (todo "NEXT") (priority "A"))'
+#+end_src
+
+* TODO or REVIEW
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(or (todo "TODO") (todo "REVIEW"))'
+#+end_src
+
+* Not done
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(not (done))'
+#+end_src
+

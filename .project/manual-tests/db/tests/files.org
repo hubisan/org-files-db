@@ -1,0 +1,30 @@
+#+TITLE: Explore DB Files
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
+
+* Files
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT *
+    FROM files
+   ORDER BY id
+   LIMIT 10;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  path                                                                                                            mtime_ns             size  content_hash  indexed_at
+--  --------------------------------------------------------------------------------------------------------------  -------------------  ----  ------------  ----------
+1   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/file-local-todo-keywords.org            1781826194941471477  1188  NULL          1783851090
+2   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/keywords.org                            1783029353233070171  2276  NULL          1783851090
+3   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/link-file-resolve/README.org            1783094478000000000  1237  NULL          1783851090
+4   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/link-file-resolve/external/outside.org  1783094478000000000  319   NULL          1783851090
+5   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/link-file-resolve/notes/index.org       1783114181649212594  2629  NULL          1783851090
+6   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/link-file-resolve/notes/other/peer.org  1783094478000000000  549   NULL          1783851090
+7   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/link-file-resolve/notes/sub/child.org   1783094478000000000  725   NULL          1783851090
+8   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/link-file-resolve/notes/target.org      1783094478000000000  1034  NULL          1783851090
+9   /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/links-angle.org                         1783029353234070177  2491  NULL          1783851090
+10  /home/hubisan/projects/coding/org-files-db/.project/manual-tests/db/org/links-bracket--weird-ones.org           1783029353234070177  1591  NULL          1783851090
+#+end_example

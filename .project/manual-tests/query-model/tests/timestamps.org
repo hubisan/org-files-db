@@ -1,0 +1,36 @@
+#+TITLE: Query Model Tests
+#+STARTUP: showall
+
+* Paths
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+
+* Deadline today
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on today)'
+#+end_src
+
+* Scheduled yesterday
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(scheduled :on -1)'
+#+end_src
+
+* Deadline tomorrow
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on 1)'
+#+end_src
+
+* Date range from yesterday through tomorrow
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :from -1 :to 1)'
+#+end_src
+

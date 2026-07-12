@@ -1,0 +1,46 @@
+#+TITLE: Query Model Tests - Links
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Broken links
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(links (status "broken"))'
+#+end_src
+
+#+RESULTS:
+
+* Ambiguous links
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(links (status "ambiguous"))'
+#+end_src
+
+#+RESULTS:
+
+* Resolved links with source and target
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> --include source,target '(links (status "resolved"))'
+#+end_src
+
+#+RESULTS:
+
+* Links targeting a heading property
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(links (target (headings (property "CUSTOM_ID" "query-model"))))'
+#+end_src
+
+#+RESULTS:
+

@@ -1,0 +1,49 @@
+#+TITLE: Query Model - Expected Errors
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Invalid syntax
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(todo "NEXT"' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
+
+* Invalid semantic option
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(todo "NEXT" :unknown t)' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
+
+* Unsupported body search
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(has-text "sqlite")' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src
+
+* Unsupported explicit-time filter
+
+#+begin_src shell
+set +e
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on today :with-time t)' 2>&1
+printf 'exit=%s\n' "$?"
+true
+#+end_src

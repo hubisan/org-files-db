@@ -1,0 +1,28 @@
+#+TITLE: Explore DB Bodies
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
+
+* Bodies
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT
+    hb.heading_id,
+    h.file_id,
+    h.level,
+    h.title,
+    length(hb.body_text) AS body_len,
+    quote(substr(hb.body_text, 1, 120)) AS body_preview,
+    f.path AS file_path
+  FROM heading_bodies hb
+  JOIN headings h
+    ON h.id = hb.heading_id
+  JOIN files f
+    ON f.id = h.file_id
+  ORDER BY
+    h.file_id,
+    h.id;
+#+END_SRC
+
+#+RESULTS:

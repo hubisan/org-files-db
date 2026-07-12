@@ -2696,14 +2696,14 @@ mod tests {
                 assert_eq!(rows.len(), 1);
                 assert_eq!(rows[0].id, 14);
                 assert_eq!(rows[0].title, "Statistic Cookies");
-                assert_eq!(rows[0].title_raw, "[#B] Statistic Cookies [0/1]");
+                assert_eq!(rows[0].title_raw, "REVIEW [#B] Statistic Cookies [0/1]");
             }
             other => panic!("unexpected rows for normalized title query: {other:?}"),
         }
 
         let raw_rows = execute_sqlite_query(
             &connection,
-            &validated(r#"(headings (title "[#B] Statistic Cookies [0/1]" :exact t))"#),
+            &validated(r#"(headings (title "REVIEW [#B] Statistic Cookies [0/1]" :exact t))"#),
         )
         .expect("raw title query should execute");
         match raw_rows {
@@ -3052,7 +3052,7 @@ mod tests {
                         byte_start: 96,
                         byte_end: 130,
                         title: "Statistic Cookies".to_string(),
-                        title_raw: "[#B] Statistic Cookies [0/1]".to_string(),
+                        title_raw: "REVIEW [#B] Statistic Cookies [0/1]".to_string(),
                         todo_keyword: Some("REVIEW".to_string()),
                         todo_type: Some("open".to_string()),
                         priority: Some('B'),

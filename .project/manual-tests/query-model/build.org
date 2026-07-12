@@ -1,0 +1,107 @@
+#+TITLE: Query Model Build
+#+STARTUP: showall
+
+This test suite builds the db and outputs:
+- headings with root as json
+- db dump
+- top 10 rows of alle tables formatted as markdown
+
+* Paths
+
+#+name: cargo-manifest
+: ../../../Cargo.toml
+
+#+name: config-path
+: ./Config.toml
+
+#+name: headings-json-with-root
+: ./data/headings-with-root.json
+
+#+name: links-json
+: ./data/links.json
+
+#+name: db-path
+: ./data/org-files-db.sqlite
+
+#+name: db-dump
+: ./data/db-dump.sql
+
+#+name: db-top10-md
+: ./data/db-top10.md
+
+* Commands
+
+** Run all
+
+#+name: run-all
+#+begin_src emacs-lisp :results silent
+  (org-sbe run-rebuild)
+  ;; (org-sbe dump-db)
+  (org-sbe write-headings-json-with-root)
+  ;; (org-sbe write-links-json)
+  ;; (org-sbe write-db-top10-md)
+#+end_src
+
+** Run rebuild. This rebuilds the database.
+
+#+name: run-rebuild
+#+begin_src shell :noweb yes :results silent
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- rebuild --config <<config-path()>>
+#+end_src
+
+** Dump SQLite database.
+
+[[./data/db-dump.sql]]
+
+#+name: dump-db
+#+begin_src shell :noweb yes :results silent
+sqlite3 ./data/org-files-db.sqlite .dump > <<db-dump()>>
+#+end_src
+
+** Write headings JSON including the root heading.
+
+[[./data/headings-with-root.json]]
+
+#+name: write-headings-json-with-root
+#+begin_src shell :noweb yes :results silent
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- headings --json --include-root --config <<config-path()>> > <<headings-json-with-root()>>
+#+end_src
+
+** Write links JSON
+
+#+name: write-links-json
+#+begin_src shell :noweb yes :results silent
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- links --json --config <<config-path()>> > <<links-json()>>
+#+end_src
+
+** DB as Markdown, Top 10 Rows
+
+[[./data/db-top10.md]]
+
+Write top 10 rows from every SQLite table as Markdown.
+
+#+name: write-db-top10-md
+#+begin_src shell :noweb yes :results silent
+  {
+    echo "# SQLite DB preview"
+    echo
+
+    for table in $(sqlite3 <<db-path()>> "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name;"); do
+      echo "## $table"
+      echo
+      sqlite3 -markdown <<db-path()>> "SELECT * FROM \"$table\" LIMIT 10;"
+      echo
+    done
+
+    cat <<'EOF'
+  <!--
+  Local Variables:
+  eval: (visual-fill-column-mode -1)
+  truncate-lines: t
+  End:
+  -->
+  EOF
+  } > <<db-top10-md()>>
+#+end_src
+
+

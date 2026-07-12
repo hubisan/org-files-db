@@ -1,0 +1,249 @@
+#+TITLE: Include TODO keywords in `title_raw`
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-12 Sun 11:41]
+#+TASK_COMPLETED:
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Include TODO keywords in ~title_raw~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-12--include-todo-keywords-in-title-raw.org]]
+
+Goal:
+
+- Make ~title_raw~ a consistent source-oriented representation of the heading title area.
+- Include the TODO keyword in ~title_raw~.
+- Keep ~title~ as the cleaned semantic title used for normal title queries.
+- Preserve separately parsed fields such as ~todo_keyword~, ~todo_type~, and ~priority~.
+
+Problem:
+
+The current ~title_raw~ contract is only partially raw.
+
+For a heading such as:
+
+#+begin_src org
+,* REVIEW [#B] Statistic Cookies [0/1]
+#+end_src
+
+the current representation may be:
+
+#+begin_src json
+{
+  "todo_keyword": "REVIEW",
+  "priority": "B",
+  "title": "Statistic Cookies",
+  "title_raw": "[#B] Statistic Cookies [0/1]"
+}
+#+end_src
+
+The TODO keyword has already been removed from ~title_raw~, while priority and statistics cookies remain. This makes the field difficult to interpret and inconsistent as a source-oriented value.
+
+Expected representation:
+
+#+begin_src json
+{
+  "todo_keyword": "REVIEW",
+  "todo_type": "open",
+  "priority": "B",
+  "title": "Statistic Cookies",
+  "title_raw": "REVIEW [#B] Statistic Cookies [0/1]"
+}
+#+end_src
+
+Rules:
+
+- ~title~ contains only the cleaned semantic heading title.
+- ~title~ must not contain:
+  - the TODO keyword
+  - a priority cookie
+  - a statistics cookie
+  - trailing Org tags
+- ~title_raw~ contains the complete source title area after the headline stars.
+- ~title_raw~ includes:
+  - the TODO keyword
+  - the priority cookie
+  - statistics cookies
+  - inline Org markup
+- ~title_raw~ excludes trailing Org tags if tags continue to be represented separately by the existing tag model.
+- ~todo_keyword~ remains stored separately.
+- ~todo_type~ remains stored separately.
+- ~priority~ remains stored separately.
+- ~title_raw~ is source-oriented output and must not be used by the normal ~title~ query predicate.
+- Normal title queries continue to match against ~headings.title~.
+- Existing indexed data must be rebuilt after this change.
+
+Examples:
+
+#+begin_src org
+,* TODO [#A] Prepare release :project:
+,* REVIEW [#B] Statistic Cookies [0/1]
+,* NEXT Progress [50%]
+,* DONE Completed task
+#+end_src
+
+Expected values:
+
+#+begin_src json
+[
+  {
+    "todo_keyword": "TODO",
+    "todo_type": "open",
+    "priority": "A",
+    "title": "Prepare release",
+    "title_raw": "TODO [#A] Prepare release"
+  },
+  {
+    "todo_keyword": "REVIEW",
+    "todo_type": "open",
+    "priority": "B",
+    "title": "Statistic Cookies",
+    "title_raw": "REVIEW [#B] Statistic Cookies [0/1]"
+  },
+  {
+    "todo_keyword": "NEXT",
+    "todo_type": "open",
+    "priority": null,
+    "title": "Progress",
+    "title_raw": "NEXT Progress [50%]"
+  },
+  {
+    "todo_keyword": "DONE",
+    "todo_type": "closed",
+    "priority": null,
+    "title": "Completed task",
+    "title_raw": "DONE Completed task"
+  }
+]
+#+end_src
+
+Query behaviour:
+
+- Normal title queries use the cleaned ~headings.title~ value.
+
+#+begin_src lisp
+(title "Statistic Cookies")
+#+end_src
+
+- TODO keywords, priorities, and statistics cookies do not participate in normal title matching.
+
+#+begin_src lisp
+(title "REVIEW [#B] Statistic Cookies [0/1]")
+#+end_src
+
+- ~title_raw~ remains available for source-oriented JSON output but is not used by the normal ~title~ predicate.
+
+Implementation notes:
+
+- Derive ~title_raw~ directly from the original heading title area instead of reconstructing it from already-normalised fields where possible.
+- Keep the TODO keyword exactly as written in the source.
+- Preserve source ordering and inline Org markup.
+- Reuse the existing trailing-tag boundary so tags are not duplicated in both ~title_raw~ and tag fields.
+- Avoid changing the normalised ~title~ semantics in this task beyond the already planned removal of TODO keywords, priority cookies, and statistics cookies.
+- Review parser, persistence, JSON-output, and fixture expectations that currently assume ~title_raw~ excludes the TODO keyword.
+- Rebuild the database after implementation.
+
+Acceptance criteria:
+
+- ~title_raw~ includes the TODO keyword for built-in TODO keywords.
+- ~title_raw~ includes the TODO keyword for configured TODO keywords.
+- ~title_raw~ includes priority cookies.
+- ~title_raw~ includes fraction statistics cookies.
+- ~title_raw~ includes percentage statistics cookies.
+- ~title_raw~ preserves supported inline Org markup.
+- ~title_raw~ excludes trailing tags according to the existing tag contract.
+- ~title~ remains free of TODO keywords, priority cookies, statistics cookies, and trailing tags.
+- ~todo_keyword~, ~todo_type~, and ~priority~ remain available as separate structured fields.
+- Title queries continue to use the normalised ~headings.title~ value.
+- Query results expose the updated ~title_raw~ after rebuilding the database.
+- Regression tests cover default, configured open, and configured closed TODO keywords.
+- Regression tests cover headings with and without priorities.
+- Regression tests cover headings with statistics cookies.
+- Regression tests cover trailing tags and inline markup.
+- Existing parser, persistence, query, and JSON-output tests are updated and continue to pass.
+
+* Planning
+
+** Problem summary
+The parser currently strips recognized TODO keywords out of ~title_raw~, which makes the field inconsistent with the rest of the source-oriented title area and with the task contract.
+
+** Goals
+- Add regressions that lock in TODO-inclusive ~title_raw~ behavior for built-in and configured keywords.
+- Keep ~title~ normalized and keep title queries matched against ~headings.title~.
+- Propagate the updated ~title_raw~ through persistence and JSON-shaped query output.
+
+** Non-goals
+- changing normal ~title~ matching semantics
+- changing trailing tag handling
+- unrelated parser or query refactors
+
+** Architecture
+- Derive ~title_raw~ from the source heading line after the stars and before trailing tags.
+- Continue to derive ~title~ from normalized syntax-aware parsing so TODO, priority, and statistics cookies stay excluded there.
+- Update DB-backed query/output regressions to prove stored/query-visible ~title_raw~ changes while ~title~ matching does not.
+
+** Execution plan
+- Add failing parser and DB/query regressions first.
+- Update parser extraction and any downstream persistence/output expectations.
+- Refresh task results and run ~make ci~.
+
+** Risks & assumptions
+- Orgize headline title parsing still provides the right normalized ~title~ once ~title_raw~ stops being stripped.
+- Existing fallback TODO inference paths will need the same source-oriented ~title_raw~ treatment as built-in keyword parsing.
+
+** Open questions
+- None at implementation start.
+
+** Proposed checks
+- ~cargo test orgize_adapter_preserves_todo_keywords_in_title_raw --test orgize_adapter~
+- ~cargo test execution_title_queries_match_normalized_heading_titles --lib~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added failing parser and persistence/query regressions first by updating ~title_raw~ expectations for built-in keywords, configured keywords, priority/statistics cookies, and trailing-tag cases.
+- Switched heading ~title_raw~ derivation in ~src/parser/orgize_adapter.rs~ to use the original source title area after the stars and before trailing tags, instead of stripping recognized TODO keywords out of the stored raw value.
+- Kept ~title~ normalization unchanged for query semantics by continuing to normalize from syntax-aware parsing and from stripped fallback text only when deriving the semantic title.
+- Updated persisted seed rows, indexer expectations, and CLI JSON expectations so stored/query-visible ~title_raw~ now includes TODO keywords while title predicates still match the cleaned ~headings.title~ column.
+- Documented the updated ~title_raw~ contract in the CLI, README, and query model reference.
+
+** Changed files
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~src/query/sqlite.rs~
+- ~src/cli.rs~
+- ~tests/orgize_adapter.rs~
+- ~README.org~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-12--include-todo-keywords-in-title-raw.org~
+
+** Checks performed
+- ~cargo test orgize_adapter_removes_priority_and_statistics_cookies_from_titles --test orgize_adapter~
+- ~cargo test rebuild_handles_manual_org_todo_fixture --lib~
+- ~cargo test execution_title_queries_match_normalized_heading_titles --lib~
+- ~cargo test --test orgize_adapter~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+- The new parser and indexer regressions failed first because recognized TODO keywords were still stripped from ~title_raw~.
+- After the parser change and expectation updates, focused parser, persistence, query, and CLI JSON checks passed.
+- ~make ci~ passed after one formatting-only rerun with ~cargo fmt --all~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Existing indexed databases should be rebuilt so persisted ~title_raw~ values pick up the new source-oriented contract.

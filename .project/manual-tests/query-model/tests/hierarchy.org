@@ -1,0 +1,26 @@
+#+TITLE: Query Model Tests - Hierarchy
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Descendants of Query Engine
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(descendants (headings (title "Query Engine" :exact t)))'
+#+end_src
+
+* Children of Query Engine
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(children (headings (title "Query Engine" :exact t)))'
+#+end_src
+

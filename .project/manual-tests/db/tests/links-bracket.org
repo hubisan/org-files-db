@@ -1,0 +1,248 @@
+#+TITLE: Explore DB Bracket Links
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+Run all in [[./manual-test.org]] to update the database with the files from [[./files/]].
+
+This file only inspects rows belonging to ~links-bracket.org~.
+
+* All stored links for links-bracket.org
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.id,
+         h.title AS heading_title,
+         l.source_context,
+         l.format,
+         l.raw,
+         l.raw_target,
+         l.raw_description,
+         l.link_type,
+         l.path,
+         l.search_option,
+         l.path_absolute,
+         l.target_file_id,
+         l.target_heading_id,
+         l.target_custom_id,
+         l.target_id
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+    JOIN headings h ON h.id = l.heading_id
+   WHERE f.path LIKE '%/links-bracket.org'
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+id  heading_title                           source_context  format   raw                                                                       raw_target                                              raw_description                          link_type   path                              search_option                path_absolute  target_file_id  target_heading_id  target_custom_id  target_id
+--  --------------------------------------  --------------  -------  ------------------------------------------------------------------------  ------------------------------------------------------  ---------------------------------------  ----------  --------------------------------  ---------------------------  -------------  --------------  -----------------  ----------------  ---------
+1   Bracket Link Fixture                    normal          bracket  [[FILE:root-notes.org::42]]                                               FILE:root-notes.org::42                                 NULL                                     file        root-notes.org                    42                           NULL           NULL            NULL               NULL              NULL     
+2   Bracket Link Fixture                    normal          bracket  [[root target][root description]]                                         root target                                             root description                         fuzzy       root target                       NULL                         NULL           NULL            NULL               NULL              NULL     
+3   Custom ID links                         normal          bracket  [[#internal-link-to-custom-id]]                                           #internal-link-to-custom-id                             NULL                                     custom-id   #internal-link-to-custom-id       NULL                         NULL           NULL            NULL               NULL              NULL     
+4   Custom ID links                         normal          bracket  [[#internal-link-to-custom-id][description: internal-link-to-custom-id]]  #internal-link-to-custom-id                             description: internal-link-to-custom-id  custom-id   #internal-link-to-custom-id       NULL                         NULL           NULL            NULL               NULL              NULL     
+5   Fuzzy heading links                     normal          bracket  [[*Internal bracket links]]                                               *Internal bracket links                                 NULL                                     fuzzy       *Internal bracket links           NULL                         NULL           NULL            NULL               NULL              NULL     
+6   Fuzzy heading links                     normal          bracket  [[*Internal bracket links][description: heading link]]                    *Internal bracket links                                 description: heading link                fuzzy       *Internal bracket links           NULL                         NULL           NULL            NULL               NULL              NULL     
+7   Dedicated target links                  normal          bracket  [[dedicated target]]                                                      dedicated target                                        NULL                                     fuzzy       dedicated target                  NULL                         NULL           NULL            NULL               NULL              NULL     
+8   Dedicated target links                  normal          bracket  [[dedicated target][description: dedicated target]]                       dedicated target                                        description: dedicated target            fuzzy       dedicated target                  NULL                         NULL           NULL            NULL               NULL              NULL     
+9   Named target style fuzzy links          normal          bracket  [[named target]]                                                          named target                                            NULL                                     fuzzy       named target                      NULL                         NULL           NULL            NULL               NULL              NULL     
+10  Named target style fuzzy links          normal          bracket  [[named target][description: named target]]                               named target                                            description: named target                fuzzy       named target                      NULL                         NULL           NULL            NULL               NULL              NULL     
+11  Fuzzy fallback                          normal          bracket  [[no matching target]]                                                    no matching target                                      NULL                                     fuzzy       no matching target                NULL                         NULL           NULL            NULL               NULL              NULL     
+12  Fuzzy fallback                          normal          bracket  [[no matching target][description: no matching target]]                   no matching target                                      description: no matching target          fuzzy       no matching target                NULL                         NULL           NULL            NULL               NULL              NULL     
+13  Fuzzy fallback                          normal          bracket  [[notes.org]]                                                             notes.org                                               NULL                                     fuzzy       notes.org                         NULL                         NULL           NULL            NULL               NULL              NULL     
+14  Explicit file links                     normal          bracket  [[file:/etc]]                                                             file:/etc                                               NULL                                     file        /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+15  Explicit file links                     normal          bracket  [[file:/etc][description: /etc]]                                          file:/etc                                               description: /etc                        file        /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+16  Explicit file links                     normal          bracket  [[file:/etc/]]                                                            file:/etc/                                              NULL                                     file        /etc/                             NULL                         NULL           NULL            NULL               NULL              NULL     
+17  Explicit file links                     normal          bracket  [[file:/etc/host.conf]]                                                   file:/etc/host.conf                                     NULL                                     file        /etc/host.conf                    NULL                         NULL           NULL            NULL               NULL              NULL     
+18  Explicit file links                     normal          bracket  [[file:../]]                                                              file:../                                                NULL                                     file        ../                               NULL                         NULL           NULL            NULL               NULL              NULL     
+19  Explicit file links                     normal          bracket  [[file:../../sql]]                                                        file:../../sql                                          NULL                                     file        ../../sql                         NULL                         NULL           NULL            NULL               NULL              NULL     
+20  Explicit file links                     normal          bracket  [[file:../../sql/]]                                                       file:../../sql/                                         NULL                                     file        ../../sql/                        NULL                         NULL           NULL            NULL               NULL              NULL     
+21  Explicit file links                     normal          bracket  [[file:../parser_test.rs]]                                                file:../parser_test.rs                                  NULL                                     file        ../parser_test.rs                 NULL                         NULL           NULL            NULL               NULL              NULL     
+22  Explicit file links                     normal          bracket  [[file:./org-test-links.org]]                                             file:./org-test-links.org                               NULL                                     file        ./org-test-links.org              NULL                         NULL           NULL            NULL               NULL              NULL     
+23  Explicit file links                     normal          bracket  [[file:~/.emacs.d]]                                                       file:~/.emacs.d                                         NULL                                     file        ~/.emacs.d                        NULL                         NULL           NULL            NULL               NULL              NULL     
+24  Explicit file links                     normal          bracket  [[file:~/.emacs.d/]]                                                      file:~/.emacs.d/                                        NULL                                     file        ~/.emacs.d/                       NULL                         NULL           NULL            NULL               NULL              NULL     
+25  Explicit file links                     normal          bracket  [[file:~/.emacs.d/init.el]]                                               file:~/.emacs.d/init.el                                 NULL                                     file        ~/.emacs.d/init.el                NULL                         NULL           NULL            NULL               NULL              NULL     
+26  Explicit file variants                  normal          bracket  [[file+sys:/etc]]                                                         file+sys:/etc                                           NULL                                     file+sys    /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+27  Explicit file variants                  normal          bracket  [[file+emacs:/etc]]                                                       file+emacs:/etc                                         NULL                                     file+emacs  /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+28  Explicit file variants                  normal          bracket  [[file+sys:/etc][description: file+sys:/etc]]                             file+sys:/etc                                           description: file+sys:/etc               file+sys    /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+29  Explicit file variants                  normal          bracket  [[file+emacs:/etc][description: file+emacs:/etc]]                         file+emacs:/etc                                         description: file+emacs:/etc             file+emacs  /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+30  Implicit file links                     normal          bracket  [[/etc]]                                                                  /etc                                                    NULL                                     file        /etc                              NULL                         NULL           NULL            NULL               NULL              NULL     
+31  Implicit file links                     normal          bracket  [[/etc/]]                                                                 /etc/                                                   NULL                                     file        /etc/                             NULL                         NULL           NULL            NULL               NULL              NULL     
+32  Implicit file links                     normal          bracket  [[/etc/host.conf]]                                                        /etc/host.conf                                          NULL                                     file        /etc/host.conf                    NULL                         NULL           NULL            NULL               NULL              NULL     
+33  Implicit file links                     normal          bracket  [[../]]                                                                   ../                                                     NULL                                     file        ../                               NULL                         NULL           NULL            NULL               NULL              NULL     
+34  Implicit file links                     normal          bracket  [[../../sql]]                                                             ../../sql                                               NULL                                     file        ../../sql                         NULL                         NULL           NULL            NULL               NULL              NULL     
+35  Implicit file links                     normal          bracket  [[../../sql/]]                                                            ../../sql/                                              NULL                                     file        ../../sql/                        NULL                         NULL           NULL            NULL               NULL              NULL     
+36  Implicit file links                     normal          bracket  [[../parser_test.rs]]                                                     ../parser_test.rs                                       NULL                                     file        ../parser_test.rs                 NULL                         NULL           NULL            NULL               NULL              NULL     
+37  Implicit file links                     normal          bracket  [[./org-test-links.org]]                                                  ./org-test-links.org                                    NULL                                     file        ./org-test-links.org              NULL                         NULL           NULL            NULL               NULL              NULL     
+38  Implicit file links                     normal          bracket  [[~/memento]]                                                             ~/memento                                               NULL                                     file        ~/memento                         NULL                         NULL           NULL            NULL               NULL              NULL     
+39  File search options                     normal          bracket  [[file:./org-test-links.org::10]]                                         file:./org-test-links.org::10                           NULL                                     file        ./org-test-links.org              10                           NULL           NULL            NULL               NULL              NULL     
+40  File search options                     normal          bracket  [[file:./org-test-links.org::#internal-link-to-custom-id]]                file:./org-test-links.org::#internal-link-to-custom-id  NULL                                     file        ./org-test-links.org              #internal-link-to-custom-id  NULL           NULL            NULL               NULL              NULL     
+41  File search options                     normal          bracket  [[file:./org-test-links.org::dedicated target]]                           file:./org-test-links.org::dedicated target             NULL                                     file        ./org-test-links.org              dedicated target             NULL           NULL            NULL               NULL              NULL     
+42  File search options                     normal          bracket  [[file:./org-test-links.org::*Internal bracket links]]                    file:./org-test-links.org::*Internal bracket links      NULL                                     file        ./org-test-links.org              *Internal bracket links      NULL           NULL            NULL               NULL              NULL     
+43  File search options                     normal          bracket  [[file:./org-test-links.org::/*.File-like.*/]]                            file:./org-test-links.org::/*.File-like.*/              NULL                                     file        ./org-test-links.org              /*.File-like.*/              NULL           NULL            NULL               NULL              NULL     
+44  File search options                     normal          bracket  [[./org-test-links.org::10]]                                              ./org-test-links.org::10                                NULL                                     file        ./org-test-links.org              10                           NULL           NULL            NULL               NULL              NULL     
+45  File search options                     normal          bracket  [[./org-test-links.org::#internal-link-to-custom-id]]                     ./org-test-links.org::#internal-link-to-custom-id       NULL                                     file        ./org-test-links.org              #internal-link-to-custom-id  NULL           NULL            NULL               NULL              NULL     
+46  File search options                     normal          bracket  [[./org-test-links.org::dedicated target]]                                ./org-test-links.org::dedicated target                  NULL                                     file        ./org-test-links.org              dedicated target             NULL           NULL            NULL               NULL              NULL     
+47  File search options                     normal          bracket  [[./org-test-links.org::*Internal bracket links]]                         ./org-test-links.org::*Internal bracket links           NULL                                     file        ./org-test-links.org              *Internal bracket links      NULL           NULL            NULL               NULL              NULL     
+48  File search options                     normal          bracket  [[./org-test-links.org::/*.File-like.*/]]                                 ./org-test-links.org::/*.File-like.*/                   NULL                                     file        ./org-test-links.org              /*.File-like.*/              NULL           NULL            NULL               NULL              NULL     
+49  File search options                     normal          bracket  [[file:::10]]                                                             file:::10                                               NULL                                     file                                          10                           NULL           NULL            NULL               NULL              NULL     
+50  File search options                     normal          bracket  [[file:::*Internal bracket links]]                                        file:::*Internal bracket links                          NULL                                     file                                          *Internal bracket links      NULL           NULL            NULL               NULL              NULL     
+51  Built-in typed links                    normal          bracket  [[http://orgmode.org]]                                                    http://orgmode.org                                      NULL                                     http        //orgmode.org                     NULL                         NULL           NULL            NULL               NULL              NULL     
+52  Built-in typed links                    normal          bracket  [[http://orgmode.org][description: http://orgmode.org]]                   http://orgmode.org                                      description: http://orgmode.org          http        //orgmode.org                     NULL                         NULL           NULL            NULL               NULL              NULL     
+53  Built-in typed links                    normal          bracket  [[https://orgmode.org]]                                                   https://orgmode.org                                     NULL                                     https       //orgmode.org                     NULL                         NULL           NULL            NULL               NULL              NULL     
+54  Built-in typed links                    normal          bracket  [[https://orgmode.org][description: https://orgmode.org]]                 https://orgmode.org                                     description: https://orgmode.org         https       //orgmode.org                     NULL                         NULL           NULL            NULL               NULL              NULL     
+55  Built-in typed links                    normal          bracket  [[news:comp.emacs]]                                                       news:comp.emacs                                         NULL                                     news        comp.emacs                        NULL                         NULL           NULL            NULL               NULL              NULL     
+56  Built-in typed links                    normal          bracket  [[mailto:emacs-orgmode@gnu.org]]                                          mailto:emacs-orgmode@gnu.org                            NULL                                     mailto      emacs-orgmode@gnu.org             NULL                         NULL           NULL            NULL               NULL              NULL     
+57  Built-in typed links                    normal          bracket  [[help:org-store-link]]                                                   help:org-store-link                                     NULL                                     help        org-store-link                    NULL                         NULL           NULL            NULL               NULL              NULL     
+58  Built-in typed links                    normal          bracket  [[info:org#External Link]]                                                info:org#External Link                                  NULL                                     info        org#External Link                 NULL                         NULL           NULL            NULL               NULL              NULL     
+59  Built-in typed links                    normal          bracket  [[shell:ls *.org  ]]                                                      shell:ls *.org                                          NULL                                     shell       ls *.org                          NULL                         NULL           NULL            NULL               NULL              NULL     
+60  Built-in typed links                    normal          bracket  [[elisp:(find-file "~/.emacs.d/init.el")]]                                elisp:(find-file "~/.emacs.d/init.el")                  NULL                                     elisp       (find-file "~/.emacs.d/init.el")  NULL                         NULL           NULL            NULL               NULL              NULL     
+61  Unknown and custom typed links          normal          bracket  [[unknown:foo]]                                                           unknown:foo                                             NULL                                     unknown     foo                               NULL                         NULL           NULL            NULL               NULL              NULL     
+62  Unknown and custom typed links          normal          bracket  [[unknown:foo][description: unknown type]]                                unknown:foo                                             description: unknown type                unknown     foo                               NULL                         NULL           NULL            NULL               NULL              NULL     
+63  Unknown and custom typed links          normal          bracket  [[customlink:test]]                                                       customlink:test                                         NULL                                     customlink  test                              NULL                         NULL           NULL            NULL               NULL              NULL     
+64  Unknown and custom typed links          normal          bracket  [[customlink:test][description: customlink:test]]                         customlink:test                                         description: customlink:test             customlink  test                              NULL                         NULL           NULL            NULL               NULL              NULL     
+65  Unknown and custom typed links          normal          bracket  [[doi:10.1000/182]]                                                       doi:10.1000/182                                         NULL                                     doi         10.1000/182                       NULL                         NULL           NULL            NULL               NULL              NULL     
+66  Unknown and custom typed links          normal          bracket  [[irc:/irc.com/#emacs/bob]]                                               irc:/irc.com/#emacs/bob                                 NULL                                     irc         /irc.com/#emacs/bob               NULL                         NULL           NULL            NULL               NULL              NULL     
+67  Übung 🚀 Ein Titel mit Umlaut und Emoji  normal          bracket  [[file:sub/äöü.txt::target][A file link with Umlaut]]                     file:sub/äöü.txt::target                                A file link with Umlaut                  file        sub/äöü.txt                       target                       NULL           NULL            NULL               NULL              NULL     
+68  Übung 🚀 Ein Titel mit Umlaut und Emoji  normal          bracket  [[https://orgmode.org/🔥]]                                                 https://orgmode.org/🔥                                   NULL                                     https       //orgmode.org/🔥                   NULL                         NULL           NULL            NULL               NULL              NULL     
+69  Übung 🚀 Ein Titel mit Umlaut und Emoji  normal          bracket  [[https://orgmode.org/🔥][Emoji description 😀]]                            https://orgmode.org/🔥                                   Emoji description 😀                      https       //orgmode.org/🔥                   NULL                         NULL           NULL            NULL               NULL              NULL     
+70  Übung 🚀 Ein Titel mit Umlaut und Emoji  normal          bracket  [[dedicated target äöü]]                                                  dedicated target äöü                                    NULL                                     fuzzy       dedicated target äöü              NULL                         NULL           NULL            NULL               NULL              NULL     
+#+end_example
+
+* Root-attached links before first heading
+
+These should attach to the synthetic/root heading.
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT h.level AS heading_level,
+         h.title AS heading_title,
+         l.line,
+         l.raw,
+         l.raw_target,
+         l.raw_description,
+         l.link_type,
+         l.path,
+         l.search_option
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+    JOIN headings h ON h.id = l.heading_id
+   WHERE f.path LIKE '%/links-bracket.org'
+     AND h.level = 0
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+: heading_level  heading_title         line  raw                                                    raw_target                                           raw_description   link_type  path                                           search_option
+: -------------  --------------------  ----  -----------------------------------------------------  ---------------------------------------------------  ----------------  ---------  ---------------------------------------------  -------------
+: 0              Bracket Link Fixture  5     [[FILE:root-notes.org::42]]                            FILE:root-notes.org::42                              NULL              file       root-notes.org                                 42           
+: 0              Bracket Link Fixture  6     [[root target][root description]]                      root target                                          root description  fuzzy      root target                                    NULL         
+: 0              Bracket Link Fixture  8     <https://example.org/root-angle-should-not-be-stored>  https://example.org/root-angle-should-not-be-stored  NULL              https      //example.org/root-angle-should-not-be-stored  NULL         
+
+* Non-bracket links should not be stored yet
+
+This should return no rows for the current bracket-link storage task.
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.format,
+         l.raw,
+         l.raw_target,
+         l.link_type,
+         l.path
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+   WHERE f.path LIKE '%/links-bracket.org'
+     AND l.format <> 'bracket'
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+: format  raw                                                    raw_target                                           link_type  path                                         
+: ------  -----------------------------------------------------  ---------------------------------------------------  ---------  ---------------------------------------------
+: angle   <https://example.org/root-angle-should-not-be-stored>  https://example.org/root-angle-should-not-be-stored  https      //example.org/root-angle-should-not-be-stored
+: angle   <file:::*Negative non-bracket examples>                file:::*Negative non-bracket examples                file                                                    
+: angle   <shell:ls *.org>                                       shell:ls *.org                                       shell      ls *.org                                     
+: angle   <https://orgmode.org/ spaces >                         https://orgmode.org/ spaces                          https      //orgmode.org/ spaces                        
+
+* notes.org should remain fuzzy
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.raw,
+         l.raw_target,
+         l.link_type,
+         l.path,
+         l.search_option
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+   WHERE f.path LIKE '%/links-bracket.org'
+     AND l.raw = '[[notes.org]]';
+#+END_SRC
+
+#+RESULTS:
+: raw            raw_target  link_type  path       search_option
+: -------------  ----------  ---------  ---------  -------------
+: [[notes.org]]  notes.org   fuzzy      notes.org  NULL         
+
+* File-like search option splitting
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.raw,
+         l.raw_target,
+         l.link_type,
+         l.path,
+         l.search_option
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+   WHERE f.path LIKE '%/links-bracket.org'
+     AND l.search_option IS NOT NULL
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+raw                                                         raw_target                                              link_type  path                  search_option                 
+----------------------------------------------------------  ------------------------------------------------------  ---------  --------------------  ------------------------------
+[[FILE:root-notes.org::42]]                                 FILE:root-notes.org::42                                 file       root-notes.org        42                            
+[[file:./org-test-links.org::10]]                           file:./org-test-links.org::10                           file       ./org-test-links.org  10                            
+[[file:./org-test-links.org::#internal-link-to-custom-id]]  file:./org-test-links.org::#internal-link-to-custom-id  file       ./org-test-links.org  #internal-link-to-custom-id   
+[[file:./org-test-links.org::dedicated target]]             file:./org-test-links.org::dedicated target             file       ./org-test-links.org  dedicated target              
+[[file:./org-test-links.org::*Internal bracket links]]      file:./org-test-links.org::*Internal bracket links      file       ./org-test-links.org  *Internal bracket links       
+[[file:./org-test-links.org::/*.File-like.*/]]              file:./org-test-links.org::/*.File-like.*/              file       ./org-test-links.org  /*.File-like.*/               
+[[./org-test-links.org::10]]                                ./org-test-links.org::10                                file       ./org-test-links.org  10                            
+[[./org-test-links.org::#internal-link-to-custom-id]]       ./org-test-links.org::#internal-link-to-custom-id       file       ./org-test-links.org  #internal-link-to-custom-id   
+[[./org-test-links.org::dedicated target]]                  ./org-test-links.org::dedicated target                  file       ./org-test-links.org  dedicated target              
+[[./org-test-links.org::*Internal bracket links]]           ./org-test-links.org::*Internal bracket links           file       ./org-test-links.org  *Internal bracket links       
+[[./org-test-links.org::/*.File-like.*/]]                   ./org-test-links.org::/*.File-like.*/                   file       ./org-test-links.org  /*.File-like.*/               
+[[file:::10]]                                               file:::10                                               file                             10                            
+[[file:::*Internal bracket links]]                          file:::*Internal bracket links                          file                             *Internal bracket links       
+<file:::*Negative non-bracket examples>                     file:::*Negative non-bracket examples                   file                             *Negative non-bracket examples
+[[file:sub/äöü.txt::target][A file link with Umlaut]]       file:sub/äöü.txt::target                                file       sub/äöü.txt           target                        
+#+end_example
+
+* Unknown and custom typed links
+
+#+BEGIN_SRC sqlite :db ../db/org-files-db.sqlite :colnames yes :column yes :nullvalue 'NULL' :results output
+  SELECT l.raw,
+         l.raw_target,
+         l.raw_description,
+         l.link_type,
+         l.path,
+         l.search_option
+    FROM links l
+    JOIN files f ON f.id = l.file_id
+   WHERE f.path LIKE '%/links-bracket.org'
+     AND l.link_type IN ('unknown', 'customlink', 'doi', 'irc', 'shell', 'elisp')
+   ORDER BY l.byte_start;
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+raw                                                raw_target                              raw_description               link_type   path                              search_option
+-------------------------------------------------  --------------------------------------  ----------------------------  ----------  --------------------------------  -------------
+[[shell:ls *.org  ]]                               shell:ls *.org                          NULL                          shell       ls *.org                          NULL         
+[[elisp:(find-file "~/.emacs.d/init.el")]]         elisp:(find-file "~/.emacs.d/init.el")  NULL                          elisp       (find-file "~/.emacs.d/init.el")  NULL         
+[[unknown:foo]]                                    unknown:foo                             NULL                          unknown     foo                               NULL         
+[[unknown:foo][description: unknown type]]         unknown:foo                             description: unknown type     unknown     foo                               NULL         
+[[customlink:test]]                                customlink:test                         NULL                          customlink  test                              NULL         
+[[customlink:test][description: customlink:test]]  customlink:test                         description: customlink:test  customlink  test                              NULL         
+[[doi:10.1000/182]]                                doi:10.1000/182                         NULL                          doi         10.1000/182                       NULL         
+[[irc:/irc.com/#emacs/bob]]                        irc:/irc.com/#emacs/bob                 NULL                          irc         /irc.com/#emacs/bob               NULL         
+<shell:ls *.org>                                   shell:ls *.org                          NULL                          shell       ls *.org                          NULL         
+#+end_example

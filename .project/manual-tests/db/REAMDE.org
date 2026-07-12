@@ -1,0 +1,20 @@
+#+TITLE: Explore DB
+#+STARTUP: showall
+#+MY_VISUAL_FILL: off
+
+* Explore files
+
+- [[./explore-db-files.org]]
+- [[./explore-db-headings.org]]
+- [[./explore-db-outline.org]]
+- [[./explore-db-properties-keywords.org]]
+- [[./explore-db-tags.org]]
+- [[./explore-db-bodies.org]]
+- [[./explore-db-dir-locals.org]]
+
+* Suggested workflow
+
+1. Run [[file:_build.org]] to rebuild the database.
+2. Open the specific explore file for the area you want to inspect.
+3. Execute the relevant source blocks.
+

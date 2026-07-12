@@ -368,7 +368,7 @@ fn collect_headlines(
         let normalized_title = normalize_title_elements(headline.title());
         let mut parsed =
             ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
-        parsed.title_raw = original_title_raw.trim().to_string();
+        parsed.title_raw = source_title_raw.clone();
         parsed.priority = parsed_priority;
         parsed.todo_keyword = headline.todo_keyword().map(|token| token.to_string());
         if parsed
@@ -382,12 +382,6 @@ fn collect_headlines(
             parsed.title =
                 normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
         }
-        if let Some(keyword) = parsed.todo_keyword.as_deref() {
-            if let Some(stripped_title_raw) = strip_leading_todo_keyword(&source_title_raw, keyword)
-            {
-                parsed.title_raw = stripped_title_raw;
-            }
-        }
         if parsed.todo_keyword.is_none() {
             if source_title_raw != original_title_raw.trim() {
                 parsed.title_raw = source_title_raw.clone();
@@ -398,7 +392,6 @@ fn collect_headlines(
                 infer_todo_keyword(&source_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
-                parsed.title_raw = stripped_title_raw.clone();
                 parsed.title = normalize_title_from_raw(&stripped_title_raw, parsed.priority);
             }
         }
@@ -1402,20 +1395,6 @@ fn infer_todo_keyword(
     }
 
     None
-}
-
-fn strip_leading_todo_keyword(title_raw: &str, keyword: &str) -> Option<String> {
-    let remainder = title_raw.strip_prefix(keyword)?;
-    if remainder.is_empty() {
-        return None;
-    }
-
-    let stripped = remainder.trim_start();
-    if stripped.len() == remainder.len() {
-        return None;
-    }
-
-    Some(stripped.to_string())
 }
 
 fn strip_leading_priority_cookie(title_raw: &str, priority: Option<char>) -> &str {

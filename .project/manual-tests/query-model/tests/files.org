@@ -1,0 +1,26 @@
+#+TITLE: Query Model Tests - Files
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Exact file title
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(files (file-title "Projects" :exact t))'
+#+end_src
+
+* File keyword
+
+#+begin_src shell
+<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(files (keyword "TITLE" "Projects"))'
+#+end_src
+

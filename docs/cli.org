@@ -38,6 +38,8 @@ The JSON objects expose the heading fields used by the current CLI contract:
 - ~deadline_ts~
 - ~closed_raw~
 - ~closed_ts~
+
+For real headings, ~title~ is the cleaned semantic title. ~title_raw~ preserves the source title area after the headline stars, including TODO keywords, priorities, and statistics cookies, while still excluding trailing Org tags.
 - ~archivedp~
 - ~footnote_section_p~
 - ~all_tags~

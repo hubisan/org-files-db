@@ -2291,15 +2291,15 @@ index_body_text = false
         let headings = DbReader::list_headings(&connection).expect("headings should load");
         assert_eq!(headings.len(), 4);
         assert_eq!(headings[1].title, "First heading");
-        assert_eq!(headings[1].title_raw, "First heading");
+        assert_eq!(headings[1].title_raw, "TODO First heading");
         assert_eq!(headings[1].todo_keyword.as_deref(), Some("TODO"));
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[2].title, "Second heading");
-        assert_eq!(headings[2].title_raw, "Second heading");
+        assert_eq!(headings[2].title_raw, "NEXT Second heading");
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("NEXT"));
         assert_eq!(headings[2].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[3].title, "Finished heading");
-        assert_eq!(headings[3].title_raw, "Finished heading");
+        assert_eq!(headings[3].title_raw, "DONE Finished heading");
         assert_eq!(headings[3].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[3].todo_type.as_deref(), Some("closed"));
 
@@ -3002,11 +3002,11 @@ index_body_text = false
         assert_eq!(headings.len(), 4);
         assert_eq!(headings[0].title, "TODO Overrides");
         assert_eq!(headings[1].title, "me");
-        assert_eq!(headings[1].title_raw, "me");
+        assert_eq!(headings[1].title_raw, "PLAN me");
         assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[2].title, "me");
-        assert_eq!(headings[2].title_raw, "me");
+        assert_eq!(headings[2].title_raw, "DONE me");
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[2].todo_type.as_deref(), Some("closed"));
         assert_eq!(headings[3].title, "REVIEW Mist");
@@ -3128,16 +3128,16 @@ index_body_text = false
         assert_eq!(headings[1].todo_keyword, None);
         assert_eq!(headings[1].todo_type, None);
         assert_eq!(headings[2].title, "me");
-        assert_eq!(headings[2].title_raw, "me");
+        assert_eq!(headings[2].title_raw, "PLAN me");
         assert_eq!(headings[2].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(headings[2].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[3].title, "me");
-        assert_eq!(headings[3].title_raw, "me");
+        assert_eq!(headings[3].title_raw, "TODO me");
         assert_eq!(headings[3].todo_keyword.as_deref(), Some("TODO"));
         assert_eq!(headings[3].todo_type.as_deref(), Some("open"));
         assert_eq!(headings[4].title, "again");
         assert_eq!(headings[5].title, "me");
-        assert_eq!(headings[5].title_raw, "me");
+        assert_eq!(headings[5].title_raw, "DONE me");
         assert_eq!(headings[5].todo_keyword.as_deref(), Some("DONE"));
         assert_eq!(headings[5].todo_type.as_deref(), Some("closed"));
 
