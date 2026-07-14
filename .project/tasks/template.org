@@ -1,10 +1,10 @@
 #+TITLE: <Short Task Title>
 #+STARTUP: showall
-#+TEMPLATE_VERSION: 0.7.0
+#+TEMPLATE_VERSION: 0.8.0
 #+TASK_STARTED:
 #+TASK_COMPLETED:
 
-* Input & Todo Task
+* Original Task (User only)
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
