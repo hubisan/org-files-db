@@ -1,0 +1,135 @@
+#+TITLE: Implement :with-time timestamp filtering in the SQLite metadata backend
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.7.0
+#+TASK_STARTED: [2026-07-14 Tue 23:49]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
+
+Depends on:
+
+- Persist explicit-time metadata for indexed Org timestamps
+- Complete date-only and datetime query-bound semantics
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Implement ~:with-time~ filtering using persisted explicit-time facts.
+- Apply the same semantics consistently to planning and generic timestamp predicates.
+
+Rules:
+
+- ~:with-time t~ matches only Org timestamps containing an explicit time.
+- ~:with-time nil~ matches only date-only Org timestamps.
+- Omitting ~:with-time~ matches both forms.
+- Explicit midnight counts as containing an explicit time.
+- Filtering must use persisted explicit-time facts.
+- Filtering must not infer explicit-time presence from encoded timestamp values.
+- A backend without explicit-time facts must return a clear unsupported-backend error.
+- All user-provided query values must continue to use bound SQL parameters.
+
+Acceptance criteria:
+
+- ~:with-time t~ matches timestamps containing an explicit hour and minute.
+- ~:with-time t~ matches explicit midnight timestamps.
+- ~:with-time t~ does not match date-only timestamps.
+- ~:with-time nil~ matches date-only timestamps.
+- ~:with-time nil~ does not match timestamps containing an explicit time.
+- Omitting ~:with-time~ matches both date-only and timed timestamps.
+- Planning predicates support ~:with-time~.
+- Generic ~ts~, ~ts-active~, and ~ts-inactive~ predicates support ~:with-time~.
+- Date-only timestamps and explicit midnight timestamps are distinguished correctly.
+- Missing explicit-time backend capabilities produce a clear unsupported-backend error.
+- The query model documentation describes the implemented semantics.
+- Query SQL continues to use bound parameters for user-provided values.
+
+* Planning
+
+** Problem summary
+
+The SQLite query backend still rejects ~:with-time~ for planning and generic timestamp predicates even though explicit-time facts are already persisted.
+
+** Goals
+
+- Compile ~:with-time~ into SQLite filters using only persisted ~has_time~ columns.
+- Preserve existing date-bound semantics and bound SQL parameters.
+- Fail clearly on schemas that do not expose the required explicit-time columns.
+
+** Non-goals
+
+- No schema, parser, or indexer changes.
+- No inference from raw timestamp strings or encoded timestamp values.
+
+** Architecture
+
+- Extend timestamp predicate SQL compilation to add optional ~has_time = 1|0~ constraints.
+- Add execute-time schema capability checks before SQLite compilation/execution when a query uses ~:with-time~.
+- Add focused backend tests using seeded in-memory SQLite fixtures.
+
+** Execution plan
+
+- Update task tracking files for the active BUILD task.
+- Patch SQLite query compilation and capability detection.
+- Add execution and compilation tests for planning and generic timestamps plus reduced-schema failures.
+- Update query model documentation.
+- Run required checks and record results.
+
+** Risks & assumptions
+
+- Standalone SQL compilation without a database connection will remain possible; schema capability checks will run in the execution path.
+- Reduced-schema tests will use deliberately minimal SQLite schemas to verify classified errors instead of raw SQLite failures.
+
+** Proposed checks
+
+- targeted query tests
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added execute-time backend capability checks that inspect ~headings~ and ~timestamps~ columns before compiling or executing any query that uses ~:with-time~.
+- Extended SQLite timestamp predicate compilation to emit persisted explicit-time filters using the relevant ~*_has_time~ or ~timestamps.has_time~ column while preserving bound parameters for date inputs.
+- Added focused SQLite compilation and execution tests for planning predicates, generic timestamp predicates, composed date-bound queries, and reduced-schema capability failures.
+- Updated the query model reference to document explicit-time semantics, unknown persisted facts, and unsupported-backend behavior.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test with_time~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+
+- ~cargo test with_time~ passed.
+- ~cargo test --all-targets --all-features~ passed.
+- ~make ci~ passed.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.

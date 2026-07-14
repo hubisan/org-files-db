@@ -1736,6 +1736,14 @@ Shared bound semantics:
 - Datetime ~:to~ uses the query model's upper-bound form: values at the stated datetime are included and later values are excluded.
 - Datetime ~:on~ matches the stored timestamp value at the stated datetime.
 - An explicit midnight datetime such as ~"2026-01-03 00:00"~ is treated as a datetime argument, not as a date-only day-wide query.
+- ~:with-time t~ matches timestamps whose persisted explicit-time fact says they contain an explicit hour and minute.
+- ~:with-time nil~ matches timestamps whose persisted explicit-time fact says they are date-only.
+- Explicit midnight counts as timed.
+- Omitting ~:with-time~ applies no explicit-time filter, so timestamps with known or unknown explicit-time metadata may match.
+- ~:with-time t~ matches only timestamps with ~has_time = 1~.
+- ~:with-time nil~ matches only timestamps with ~has_time = 0~.
+- Timestamps with ~has_time = NULL~ match neither explicit filter.
+- Backends that do not expose the required persisted explicit-time facts return a clear unsupported-backend capability error.
 
 *** ~(ts &key from to on with-time)~
 

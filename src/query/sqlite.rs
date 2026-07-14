@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 
 use rusqlite::{
@@ -309,6 +310,14 @@ impl AliasAllocator {
     }
 }
 
+#[derive(Debug, Clone)]
+struct WithTimeRequirement {
+    target: QueryTarget,
+    predicate: String,
+    table: &'static str,
+    columns: &'static [&'static str],
+}
+
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
@@ -494,6 +503,8 @@ pub fn execute_sqlite_query_with_options(
         )
     })?;
 
+    ensure_with_time_backend_capabilities(connection, &resolved)?;
+
     match resolved.target {
         QueryTarget::Headings => execute_headings_query(connection, &resolved),
         QueryTarget::Links => {
@@ -645,6 +656,171 @@ fn execute_file_rows_query(
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
 }
 
+fn ensure_with_time_backend_capabilities(
+    connection: &Connection,
+    query: &ValidatedQuery,
+) -> Result<(), QueryExecutionError> {
+    let requirements = collect_with_time_requirements(query);
+    if requirements.is_empty() {
+        return Ok(());
+    }
+
+    let mut headings_columns = None;
+    let mut timestamps_columns = None;
+
+    for requirement in requirements {
+        let available_columns = match requirement.table {
+            "headings" => {
+                if headings_columns.is_none() {
+                    headings_columns = Some(load_table_columns(connection, "headings").map_err(
+                        |source| {
+                            QueryExecutionError::database(
+                                requirement.target,
+                                "inspect schema",
+                                source,
+                            )
+                        },
+                    )?);
+                }
+                headings_columns
+                    .as_ref()
+                    .expect("headings columns should be loaded")
+            }
+            "timestamps" => {
+                if timestamps_columns.is_none() {
+                    timestamps_columns = Some(
+                        load_table_columns(connection, "timestamps").map_err(|source| {
+                            QueryExecutionError::database(
+                                requirement.target,
+                                "inspect schema",
+                                source,
+                            )
+                        })?,
+                    );
+                }
+                timestamps_columns
+                    .as_ref()
+                    .expect("timestamps columns should be loaded")
+            }
+            _ => unreachable!("unexpected with-time requirement table"),
+        };
+
+        let missing = requirement
+            .columns
+            .iter()
+            .copied()
+            .filter(|column| !available_columns.contains(*column))
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            let missing_columns = missing
+                .iter()
+                .map(|column| format!("{}.{}", requirement.table, column))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(QueryExecutionError::unsupported_backend_feature(
+                requirement.target,
+                requirement.predicate,
+                format!(
+                    ":with-time requires backend column(s) {missing_columns}, but the SQLite metadata backend schema does not provide them"
+                ),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_with_time_requirements(query: &ValidatedQuery) -> Vec<WithTimeRequirement> {
+    let mut requirements = Vec::new();
+    if let Some(predicate) = &query.predicate {
+        collect_with_time_requirements_from_expr(predicate, query.target, &mut requirements);
+    }
+    requirements
+}
+
+fn collect_with_time_requirements_from_expr(
+    expr: &ValidatedExpr,
+    target: QueryTarget,
+    requirements: &mut Vec<WithTimeRequirement>,
+) {
+    match expr {
+        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
+            for child in children {
+                collect_with_time_requirements_from_expr(child, target, requirements);
+            }
+        }
+        ValidatedExpr::Not(child) => {
+            collect_with_time_requirements_from_expr(child, target, requirements);
+        }
+        ValidatedExpr::Predicate(predicate) => {
+            collect_with_time_requirements_from_predicate(predicate, target, requirements);
+        }
+    }
+}
+
+fn collect_with_time_requirements_from_predicate(
+    predicate: &ValidatedPredicate,
+    target: QueryTarget,
+    requirements: &mut Vec<WithTimeRequirement>,
+) {
+    if option_present(&predicate.options, "with-time") {
+        let requirement = match predicate.name.as_str() {
+            "scheduled" => Some(WithTimeRequirement {
+                target,
+                predicate: predicate.name.clone(),
+                table: "headings",
+                columns: &["scheduled_has_time"],
+            }),
+            "deadline" => Some(WithTimeRequirement {
+                target,
+                predicate: predicate.name.clone(),
+                table: "headings",
+                columns: &["deadline_has_time"],
+            }),
+            "closed" => Some(WithTimeRequirement {
+                target,
+                predicate: predicate.name.clone(),
+                table: "headings",
+                columns: &["closed_has_time"],
+            }),
+            "planning" => Some(WithTimeRequirement {
+                target,
+                predicate: predicate.name.clone(),
+                table: "headings",
+                columns: &["scheduled_has_time", "deadline_has_time", "closed_has_time"],
+            }),
+            "ts" | "ts-active" | "ts-inactive" => Some(WithTimeRequirement {
+                target,
+                predicate: predicate.name.clone(),
+                table: "timestamps",
+                columns: &["has_time"],
+            }),
+            _ => None,
+        };
+        if let Some(requirement) = requirement {
+            requirements.push(requirement);
+        }
+    }
+
+    for arg in &predicate.args {
+        if let ValidatedArg::NestedQuery(query) = arg {
+            if let Some(predicate) = &query.predicate {
+                collect_with_time_requirements_from_expr(predicate, query.target, requirements);
+            }
+        }
+    }
+}
+
+fn load_table_columns(
+    connection: &Connection,
+    table: &str,
+) -> Result<HashSet<String>, rusqlite::Error> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut statement = connection.prepare(&pragma)?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+    rows.collect::<Result<HashSet<_>, _>>()
+}
+
 fn compile_query_match_filter(
     query: &ValidatedQuery,
     scope: &QueryScope,
@@ -785,6 +961,7 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "file-modified",
             &scope.file_col("mtime_ns"),
+            None,
             &predicate.options,
             TemporalUnit::Nanoseconds,
             true,
@@ -798,6 +975,7 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "scheduled",
             &scope.heading_col("scheduled_ts"),
+            Some(&scope.heading_col("scheduled_has_time")),
             &predicate.options,
             TemporalUnit::Seconds,
             true,
@@ -806,6 +984,7 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "deadline",
             &scope.heading_col("deadline_ts"),
+            Some(&scope.heading_col("deadline_has_time")),
             &predicate.options,
             TemporalUnit::Seconds,
             true,
@@ -814,6 +993,7 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "closed",
             &scope.heading_col("closed_ts"),
+            Some(&scope.heading_col("closed_has_time")),
             &predicate.options,
             TemporalUnit::Seconds,
             true,
@@ -995,6 +1175,7 @@ fn compile_file_predicate(
             QueryTarget::Files,
             "file-modified",
             &scope.file_col("mtime_ns"),
+            None,
             &predicate.options,
             TemporalUnit::Nanoseconds,
             true,
@@ -1443,26 +1624,18 @@ fn compile_keyword_predicate(
 }
 
 fn compile_date_predicate(
-    target: QueryTarget,
-    predicate_name: &str,
+    _target: QueryTarget,
+    _predicate_name: &str,
     column: &str,
+    with_time_column: Option<&str>,
     options: &[ValidatedOption],
     unit: TemporalUnit,
     require_not_null_when_unbounded: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_present(options, "with-time") {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            target,
-            predicate_name,
-            format!(
-                "{predicate_name} with :with-time is not supported by the SQLite metadata backend"
-            ),
-        ));
-    }
-
     let on = option_value(options, "on");
     let from = option_value(options, "from");
     let to = option_value(options, "to");
+    let with_time = option_value(options, "with-time");
 
     let mut parts = Vec::new();
     let mut params = Vec::new();
@@ -1492,6 +1665,17 @@ fn compile_date_predicate(
         }
     }
 
+    if let Some(with_time) = with_time {
+        let with_time_column = with_time_column
+            .expect("validator should constrain :with-time to timestamp predicates");
+        let explicit_time_value = match with_time {
+            QueryValue::Bool(true) => "1",
+            QueryValue::Bool(false) => "0",
+            _ => unreachable!("validator should constrain boolean options"),
+        };
+        parts.push(format!("{with_time_column} = {explicit_time_value}"));
+    }
+
     if parts.is_empty() && require_not_null_when_unbounded {
         parts.push(format!("{column} IS NOT NULL"));
     }
@@ -1506,30 +1690,11 @@ fn compile_planning_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_present(&predicate.options, "with-time") {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "planning",
-            "planning with :with-time is not supported by the SQLite metadata backend",
-        ));
-    }
-
-    if option_value(&predicate.options, "on").is_none()
-        && option_value(&predicate.options, "from").is_none()
-        && option_value(&predicate.options, "to").is_none()
-    {
-        return Ok(sql_literal(&format!(
-            "({} IS NOT NULL OR {} IS NOT NULL OR {} IS NOT NULL)",
-            scope.heading_col("scheduled_ts"),
-            scope.heading_col("deadline_ts"),
-            scope.heading_col("closed_ts")
-        )));
-    }
-
     let scheduled = compile_date_predicate(
         QueryTarget::Headings,
         "scheduled",
         &scope.heading_col("scheduled_ts"),
+        Some(&scope.heading_col("scheduled_has_time")),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -1538,6 +1703,7 @@ fn compile_planning_predicate(
         QueryTarget::Headings,
         "deadline",
         &scope.heading_col("deadline_ts"),
+        Some(&scope.heading_col("deadline_has_time")),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -1546,6 +1712,7 @@ fn compile_planning_predicate(
         QueryTarget::Headings,
         "closed",
         &scope.heading_col("closed_ts"),
+        Some(&scope.heading_col("closed_has_time")),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -1565,21 +1732,11 @@ fn compile_timestamp_exists_predicate(
     predicate: &ValidatedPredicate,
     timestamp_type: Option<&str>,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_present(&predicate.options, "with-time") {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            predicate.name.as_str(),
-            format!(
-                "{} with :with-time is not supported by the SQLite metadata backend",
-                predicate.name
-            ),
-        ));
-    }
-
     let date_fragment = compile_date_predicate(
         QueryTarget::Headings,
         predicate.name.as_str(),
         "timestamps.start_ts",
+        Some("timestamps.has_time"),
         &predicate.options,
         TemporalUnit::Seconds,
         true,
@@ -2248,6 +2405,13 @@ mod tests {
         path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    struct PlanningFixture<'a> {
+        kind: &'a str,
+        timestamp: Option<i64>,
+        has_time: Option<bool>,
+        raw_value: &'a str,
+    }
 
     struct TestDir {
         path: PathBuf,
@@ -3074,6 +3238,294 @@ mod tests {
     }
 
     #[test]
+    fn compile_with_time_uses_persisted_columns_and_bound_date_params() {
+        let scheduled = compile_sqlite_query(&validated(
+            r#"(headings (scheduled :from "2026-01-03" :to "2026-01-03" :with-time t))"#,
+        ))
+        .expect("scheduled query should compile");
+        assert!(scheduled.sql.contains("h0.scheduled_has_time = 1"));
+        assert_eq!(
+            scheduled.params,
+            vec![
+                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Text("2026-01-03".to_string()),
+            ]
+        );
+
+        let ts_active = compile_sqlite_query(&validated(
+            r#"(headings (ts-active :on "2026-01-03" :with-time nil))"#,
+        ))
+        .expect("ts-active query should compile");
+        assert!(ts_active.sql.contains("timestamps.has_time = 0"));
+        assert_eq!(
+            ts_active.params,
+            vec![
+                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Text("active".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn execution_supports_with_time_for_planning_predicates() {
+        let connection = with_time_test_connection();
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (scheduled :with-time nil))"#),
+                )
+                .expect("scheduled nil query should execute")
+            ),
+            vec![201]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (scheduled :with-time t))"#),
+                )
+                .expect("scheduled timed query should execute")
+            ),
+            vec![202, 203]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (scheduled))"#),)
+                    .expect("scheduled query should execute")
+            ),
+            vec![201, 202, 203, 204]
+        );
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (deadline :with-time nil))"#),
+                )
+                .expect("deadline nil query should execute")
+            ),
+            vec![205]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (deadline :with-time t))"#),
+                )
+                .expect("deadline timed query should execute")
+            ),
+            vec![206, 207]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (deadline))"#),)
+                    .expect("deadline query should execute")
+            ),
+            vec![205, 206, 207, 208]
+        );
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (closed :with-time nil))"#),
+                )
+                .expect("closed nil query should execute")
+            ),
+            vec![209]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (closed :with-time t))"#),
+                )
+                .expect("closed timed query should execute")
+            ),
+            vec![210, 211]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (closed))"#),)
+                    .expect("closed query should execute")
+            ),
+            vec![209, 210, 211, 212]
+        );
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (planning :with-time nil))"#),
+                )
+                .expect("planning nil query should execute")
+            ),
+            vec![201, 205, 209]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (planning :with-time t))"#),
+                )
+                .expect("planning timed query should execute")
+            ),
+            vec![202, 203, 206, 207, 210, 211]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (planning))"#),)
+                    .expect("planning query should execute")
+            ),
+            vec![201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212]
+        );
+    }
+
+    #[test]
+    fn execution_supports_with_time_for_generic_timestamp_predicates() {
+        let connection = with_time_test_connection();
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (ts))"#))
+                    .expect("ts query should execute")
+            ),
+            vec![213, 214, 215, 216, 217, 218, 219, 220]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (ts :with-time nil))"#),)
+                    .expect("ts nil query should execute")
+            ),
+            vec![213, 217]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (ts :with-time t))"#),)
+                    .expect("ts timed query should execute")
+            ),
+            vec![214, 215, 218, 219]
+        );
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (ts-active))"#),)
+                    .expect("ts-active query should execute")
+            ),
+            vec![213, 214, 215, 216]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (ts-active :with-time nil))"#),
+                )
+                .expect("ts-active nil query should execute")
+            ),
+            vec![213]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (ts-active :with-time t))"#),
+                )
+                .expect("ts-active timed query should execute")
+            ),
+            vec![214, 215]
+        );
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(&connection, &validated(r#"(headings (ts-inactive))"#),)
+                    .expect("ts-inactive query should execute")
+            ),
+            vec![217, 218, 219, 220]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (ts-inactive :with-time nil))"#),
+                )
+                .expect("ts-inactive nil query should execute")
+            ),
+            vec![217]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (ts-inactive :with-time t))"#),
+                )
+                .expect("ts-inactive timed query should execute")
+            ),
+            vec![218, 219]
+        );
+    }
+
+    #[test]
+    fn execution_composes_with_time_with_date_bounds() {
+        let connection = with_time_test_connection();
+
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (scheduled :with-time t :on "2026-01-03"))"#),
+                )
+                .expect("scheduled composition query should execute")
+            ),
+            vec![202, 203]
+        );
+        assert_eq!(
+            heading_ids(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (ts-active :with-time t :to "2026-01-03 09:15"))"#),
+                )
+                .expect("ts-active composition query should execute")
+            ),
+            vec![214, 215]
+        );
+    }
+
+    #[test]
+    fn execution_returns_clear_error_when_planning_with_time_columns_are_missing() {
+        let connection = reduced_planning_with_time_schema_connection();
+        let error = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (planning :with-time t))"#),
+        )
+        .expect_err("planning with-time query should fail on reduced schema");
+
+        assert_eq!(
+            error.kind,
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert!(error.to_string().contains("headings.scheduled_has_time"));
+        assert!(!error.to_string().contains("no such column"));
+    }
+
+    #[test]
+    fn execution_returns_clear_error_when_generic_with_time_column_is_missing() {
+        let connection = reduced_generic_with_time_schema_connection();
+        let error =
+            execute_sqlite_query(&connection, &validated(r#"(headings (ts :with-time t))"#))
+                .expect_err("generic with-time query should fail on reduced schema");
+
+        assert_eq!(
+            error.kind,
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert!(error.to_string().contains("timestamps.has_time"));
+        assert!(!error.to_string().contains("no such column"));
+    }
+
+    #[test]
     fn execution_date_only_to_includes_full_day_and_excludes_following_day() {
         let connection = seeded_connection();
 
@@ -3699,6 +4151,527 @@ mod tests {
         .expect("date bound fixture should seed");
 
         connection
+    }
+
+    fn with_time_test_connection() -> Connection {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::default())
+            .expect("database should open");
+        let file = FileRecordInput {
+            path: Path::new("/tmp/with-time.org").to_path_buf(),
+            mtime_ns: naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
+            size: 100,
+            content_hash: None,
+            indexed_at: Some(naive_date_time_seconds(2026, 1, 3, 0, 1)),
+        };
+
+        DbWriter::rebuild_file(&mut connection, &file, |tx, file_id| {
+            let root_id = DbWriter::insert_level0_heading(
+                tx,
+                &base_heading(file_id, None, 200, 0, "With Time"),
+            )?;
+
+            let headings = vec![
+                planning_heading(
+                    file_id,
+                    root_id,
+                    201,
+                    1,
+                    "Scheduled Date Only",
+                    PlanningFixture {
+                        kind: "scheduled",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
+                        has_time: Some(false),
+                        raw_value: "<2026-01-03 Sat>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    202,
+                    2,
+                    "Scheduled Timed",
+                    PlanningFixture {
+                        kind: "scheduled",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 9, 15)),
+                        has_time: Some(true),
+                        raw_value: "<2026-01-03 Sat 09:15>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    203,
+                    3,
+                    "Scheduled Midnight",
+                    PlanningFixture {
+                        kind: "scheduled",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
+                        has_time: Some(true),
+                        raw_value: "<2026-01-03 Sat 00:00>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    204,
+                    4,
+                    "Scheduled Unknown",
+                    PlanningFixture {
+                        kind: "scheduled",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 12, 0)),
+                        has_time: None,
+                        raw_value: "<2026-01-03 Sat 12:00>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    205,
+                    5,
+                    "Deadline Date Only",
+                    PlanningFixture {
+                        kind: "deadline",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
+                        has_time: Some(false),
+                        raw_value: "<2026-01-03 Sat>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    206,
+                    6,
+                    "Deadline Timed",
+                    PlanningFixture {
+                        kind: "deadline",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 10, 45)),
+                        has_time: Some(true),
+                        raw_value: "<2026-01-03 Sat 10:45>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    207,
+                    7,
+                    "Deadline Midnight",
+                    PlanningFixture {
+                        kind: "deadline",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
+                        has_time: Some(true),
+                        raw_value: "<2026-01-03 Sat 00:00>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    208,
+                    8,
+                    "Deadline Unknown",
+                    PlanningFixture {
+                        kind: "deadline",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 18, 0)),
+                        has_time: None,
+                        raw_value: "<2026-01-03 Sat 18:00>",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    209,
+                    9,
+                    "Closed Date Only",
+                    PlanningFixture {
+                        kind: "closed",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
+                        has_time: Some(false),
+                        raw_value: "[2026-01-03 Sat]",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    210,
+                    10,
+                    "Closed Timed",
+                    PlanningFixture {
+                        kind: "closed",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 11, 30)),
+                        has_time: Some(true),
+                        raw_value: "[2026-01-03 Sat 11:30]",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    211,
+                    11,
+                    "Closed Midnight",
+                    PlanningFixture {
+                        kind: "closed",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 0, 0)),
+                        has_time: Some(true),
+                        raw_value: "[2026-01-03 Sat 00:00]",
+                    },
+                ),
+                planning_heading(
+                    file_id,
+                    root_id,
+                    212,
+                    12,
+                    "Closed Unknown",
+                    PlanningFixture {
+                        kind: "closed",
+                        timestamp: Some(naive_date_time_seconds(2026, 1, 3, 16, 0)),
+                        has_time: None,
+                        raw_value: "[2026-01-03 Sat 16:00]",
+                    },
+                ),
+                base_heading(file_id, Some(root_id), 213, 13, "Active Date Only"),
+                base_heading(file_id, Some(root_id), 214, 14, "Active Timed"),
+                base_heading(file_id, Some(root_id), 215, 15, "Active Midnight"),
+                base_heading(file_id, Some(root_id), 216, 16, "Active Unknown"),
+                base_heading(file_id, Some(root_id), 217, 17, "Inactive Date Only"),
+                base_heading(file_id, Some(root_id), 218, 18, "Inactive Timed"),
+                base_heading(file_id, Some(root_id), 219, 19, "Inactive Midnight"),
+                base_heading(file_id, Some(root_id), 220, 20, "Inactive Unknown"),
+            ];
+            DbWriter::insert_headings(tx, &headings)?;
+
+            let outline_rows = (1_i64..=20_i64)
+                .map(|line_number| {
+                    let heading_id = 200 + line_number;
+                    outline_row(
+                        heading_id,
+                        file_id,
+                        Some(root_id),
+                        1,
+                        &format!("0000.{line_number:04}"),
+                        &format!("[\"With Time\",\"{}\"]", heading_title(heading_id)),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut outline_rows_with_root = vec![outline_row(
+                200,
+                file_id,
+                None,
+                0,
+                "0000",
+                "[\"With Time\"]",
+            )];
+            outline_rows_with_root.extend(outline_rows);
+            DbWriter::insert_outline_path(tx, &outline_rows_with_root)?;
+
+            DbWriter::insert_timestamps(
+                tx,
+                &[
+                    generic_timestamp(
+                        213,
+                        Some(false),
+                        naive_date_time_seconds(2026, 1, 3, 0, 0),
+                        "active",
+                        "<2026-01-03 Sat>",
+                    ),
+                    generic_timestamp(
+                        214,
+                        Some(true),
+                        naive_date_time_seconds(2026, 1, 3, 9, 15),
+                        "active",
+                        "<2026-01-03 Sat 09:15>",
+                    ),
+                    generic_timestamp(
+                        215,
+                        Some(true),
+                        naive_date_time_seconds(2026, 1, 3, 0, 0),
+                        "active",
+                        "<2026-01-03 Sat 00:00>",
+                    ),
+                    generic_timestamp(
+                        216,
+                        None,
+                        naive_date_time_seconds(2026, 1, 3, 12, 0),
+                        "active",
+                        "<2026-01-03 Sat 12:00>",
+                    ),
+                    generic_timestamp(
+                        217,
+                        Some(false),
+                        naive_date_time_seconds(2026, 1, 3, 0, 0),
+                        "inactive",
+                        "[2026-01-03 Sat]",
+                    ),
+                    generic_timestamp(
+                        218,
+                        Some(true),
+                        naive_date_time_seconds(2026, 1, 3, 13, 45),
+                        "inactive",
+                        "[2026-01-03 Sat 13:45]",
+                    ),
+                    generic_timestamp(
+                        219,
+                        Some(true),
+                        naive_date_time_seconds(2026, 1, 3, 0, 0),
+                        "inactive",
+                        "[2026-01-03 Sat 00:00]",
+                    ),
+                    generic_timestamp(
+                        220,
+                        None,
+                        naive_date_time_seconds(2026, 1, 3, 17, 0),
+                        "inactive",
+                        "[2026-01-03 Sat 17:00]",
+                    ),
+                ],
+            )?;
+
+            Ok(())
+        })
+        .expect("with-time fixture should seed");
+
+        connection
+    }
+
+    fn reduced_planning_with_time_schema_connection() -> Connection {
+        let connection = Connection::open_in_memory().expect("reduced schema should open");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL,
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL,
+    title               TEXT NOT NULL,
+    title_raw           TEXT,
+    todo_keyword        TEXT,
+    todo_type           TEXT,
+    priority            TEXT,
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    archivedp           INTEGER NOT NULL DEFAULT 0,
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0,
+    all_tags_json       TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT,
+    has_time        INTEGER,
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT,
+    range_type      TEXT,
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL,
+    line_number     INTEGER
+);
+"#,
+            )
+            .expect("reduced planning schema should initialize");
+        connection
+    }
+
+    fn reduced_generic_with_time_schema_connection() -> Connection {
+        let connection = Connection::open_in_memory().expect("reduced schema should open");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL,
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL,
+    title               TEXT NOT NULL,
+    title_raw           TEXT,
+    todo_keyword        TEXT,
+    todo_type           TEXT,
+    priority            TEXT,
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    scheduled_has_time  INTEGER,
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    deadline_has_time   INTEGER,
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    closed_has_time     INTEGER,
+    archivedp           INTEGER NOT NULL DEFAULT 0,
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0,
+    all_tags_json       TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT,
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT,
+    range_type      TEXT,
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL,
+    line_number     INTEGER
+);
+"#,
+            )
+            .expect("reduced generic schema should initialize");
+        connection
+    }
+
+    fn base_heading(
+        file_id: i64,
+        parent_id: Option<i64>,
+        id: i64,
+        line_number: i64,
+        title: &str,
+    ) -> HeadingRecord {
+        HeadingRecord {
+            id: Some(id),
+            file_id,
+            parent_id,
+            level: if parent_id.is_some() { 1 } else { 0 },
+            line_number: if line_number > 0 {
+                Some(line_number)
+            } else {
+                None
+            },
+            byte_start: if line_number > 0 {
+                line_number * 10
+            } else {
+                -1
+            },
+            byte_end: if line_number > 0 {
+                line_number * 10 + 5
+            } else {
+                100
+            },
+            title: title.to_string(),
+            title_raw: Some(title.to_string()),
+            todo_keyword: None,
+            todo_type: None,
+            priority: None,
+            scheduled_raw: None,
+            scheduled_ts: None,
+            scheduled_has_time: None,
+            deadline_raw: None,
+            deadline_ts: None,
+            deadline_has_time: None,
+            closed_raw: None,
+            closed_ts: None,
+            closed_has_time: None,
+            archivedp: false,
+            footnote_section_p: false,
+            all_tags_json: "[]".to_string(),
+        }
+    }
+
+    fn planning_heading(
+        file_id: i64,
+        root_id: i64,
+        id: i64,
+        line_number: i64,
+        title: &str,
+        planning: PlanningFixture<'_>,
+    ) -> HeadingRecord {
+        let mut heading = base_heading(file_id, Some(root_id), id, line_number, title);
+        match planning.kind {
+            "scheduled" => {
+                heading.scheduled_raw = Some(planning.raw_value.to_string());
+                heading.scheduled_ts = planning.timestamp;
+                heading.scheduled_has_time = planning.has_time;
+            }
+            "deadline" => {
+                heading.deadline_raw = Some(planning.raw_value.to_string());
+                heading.deadline_ts = planning.timestamp;
+                heading.deadline_has_time = planning.has_time;
+            }
+            "closed" => {
+                heading.closed_raw = Some(planning.raw_value.to_string());
+                heading.closed_ts = planning.timestamp;
+                heading.closed_has_time = planning.has_time;
+            }
+            _ => unreachable!("unexpected planning heading kind"),
+        }
+        heading
+    }
+
+    fn generic_timestamp(
+        heading_id: i64,
+        has_time: Option<bool>,
+        start_ts: i64,
+        timestamp_type: &str,
+        raw_value: &str,
+    ) -> TimestampRecord {
+        TimestampRecord {
+            heading_id,
+            role: None,
+            has_time,
+            start_ts: Some(start_ts),
+            end_ts: None,
+            timestamp_type: Some(timestamp_type.to_string()),
+            range_type: Some("none".to_string()),
+            raw_value: raw_value.to_string(),
+            byte_start: heading_id,
+            byte_end: heading_id + 1,
+            line_number: Some(heading_id - 200),
+        }
+    }
+
+    fn heading_title(heading_id: i64) -> &'static str {
+        match heading_id {
+            201 => "Scheduled Date Only",
+            202 => "Scheduled Timed",
+            203 => "Scheduled Midnight",
+            204 => "Scheduled Unknown",
+            205 => "Deadline Date Only",
+            206 => "Deadline Timed",
+            207 => "Deadline Midnight",
+            208 => "Deadline Unknown",
+            209 => "Closed Date Only",
+            210 => "Closed Timed",
+            211 => "Closed Midnight",
+            212 => "Closed Unknown",
+            213 => "Active Date Only",
+            214 => "Active Timed",
+            215 => "Active Midnight",
+            216 => "Active Unknown",
+            217 => "Inactive Date Only",
+            218 => "Inactive Timed",
+            219 => "Inactive Midnight",
+            220 => "Inactive Unknown",
+            _ => unreachable!("unexpected with-time fixture heading"),
+        }
     }
 
     fn naive_date_time_seconds(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> i64 {

@@ -154,107 +154,13 @@ General rules:
 ** DONE [#B] Complete date-only and datetime query-bound semantics
 - Task file: [[file:archive/2026-07-13--complete-date-only-and-datetime-query-bound-semantics.org]]
 
-** REVIEW [#B] Persist explicit-time metadata for indexed Org timestamps
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#B] Persist explicit-time metadata for indexed Org timestamps
 
 - Task file: [[file:archive/2026-07-13--persist-explicit-time-metadata-for-indexed-org-timestamps.org]]
 
-Depends on:
+** DONE [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
 
-- Complete date-only and datetime query-bound semantics
-
-Goal:
-
-- Persist whether each indexed Org timestamp contained an explicit time.
-- Allow date-only timestamps and explicit midnight timestamps to be distinguished reliably.
-
-Rules:
-
-- Explicit-time presence must be derived while parsing or indexing the original Org timestamp.
-- Explicit-time presence must not be inferred from the encoded timestamp value.
-- A date-only timestamp has ~has_time = 0~.
-- A timestamp containing an explicit hour and minute has ~has_time = 1~, including explicit midnight.
-- Missing or unavailable timestamp facts may use ~NULL~ where required by migration or compatibility constraints.
-- Existing timezone-naive timestamp values must remain unchanged.
-- All timestamp-bearing persisted facts needed by ~:with-time~ filtering must expose equivalent explicit-time metadata.
-
-Possible planning-column extension:
-
-#+begin_src sql
-scheduled_has_time INTEGER
-    CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),
-
-deadline_has_time INTEGER
-    CHECK (deadline_has_time IN (0, 1) OR deadline_has_time IS NULL),
-
-closed_has_time INTEGER
-    CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL)
-#+end_src
-
-The generic timestamp storage used by ~ts~, ~ts-active~, and ~ts-inactive~ must receive equivalent explicit-time metadata.
-
-Acceptance criteria:
-
-- The database schema persists explicit-time information for planning timestamps.
-- The database schema persists explicit-time information for generic timestamps used by timestamp query predicates.
-- Indexing a date-only timestamp stores ~has_time = 0~.
-- Indexing a timestamp with an explicit time stores ~has_time = 1~.
-- An explicit midnight timestamp stores ~has_time = 1~.
-- Existing encoded timestamp values remain unchanged.
-- Reindexing populates explicit-time facts consistently.
-- Schema and migration tests cover existing databases where applicable.
-- Indexer tests cover scheduled, deadline, closed, active, and inactive timestamps.
-- Date-only timestamps and explicit midnight timestamps are distinguishable from persisted facts.
-
-** TODO [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Depends on:
-
-- Persist explicit-time metadata for indexed Org timestamps
-- Complete date-only and datetime query-bound semantics
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Implement ~:with-time~ filtering using persisted explicit-time facts.
-- Apply the same semantics consistently to planning and generic timestamp predicates.
-
-Rules:
-
-- ~:with-time t~ matches only Org timestamps containing an explicit time.
-- ~:with-time nil~ matches only date-only Org timestamps.
-- Omitting ~:with-time~ matches both forms.
-- Explicit midnight counts as containing an explicit time.
-- Filtering must use persisted explicit-time facts.
-- Filtering must not infer explicit-time presence from encoded timestamp values.
-- A backend without explicit-time facts must return a clear unsupported-backend error.
-- All user-provided query values must continue to use bound SQL parameters.
-
-Acceptance criteria:
-
-- ~:with-time t~ matches timestamps containing an explicit hour and minute.
-- ~:with-time t~ matches explicit midnight timestamps.
-- ~:with-time t~ does not match date-only timestamps.
-- ~:with-time nil~ matches date-only timestamps.
-- ~:with-time nil~ does not match timestamps containing an explicit time.
-- Omitting ~:with-time~ matches both date-only and timed timestamps.
-- Planning predicates support ~:with-time~.
-- Generic ~ts~, ~ts-active~, and ~ts-inactive~ predicates support ~:with-time~.
-- Date-only timestamps and explicit midnight timestamps are distinguished correctly.
-- Missing explicit-time backend capabilities produce a clear unsupported-backend error.
-- The query model documentation describes the implemented semantics.
-- Query SQL continues to use bound parameters for user-provided values.
+- Task file: [[file:archive/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
 
 ** TODO [#C] Implement body text availability for ~(has-text ...)~
 :PROPERTIES:
