@@ -19,6 +19,8 @@ pub(crate) use writer::{
     TimestampRepeaterRecord, TodoKeywordRecord,
 };
 
+pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
+
 #[cfg(test)]
 const IN_MEMORY_DATABASE: &str = ":memory:";
 
@@ -234,7 +236,7 @@ mod tests {
         open_in_memory_database_with_schema, read_schema_version, sqlite_supports_fts5, DbError,
         SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
-    use rusqlite::{params, Connection};
+    use rusqlite::{params, Connection, OptionalExtension};
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -408,6 +410,15 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
         let version = read_schema_version(&opened).expect("schema version should load");
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
 
+        let metadata_table_exists: i64 = opened
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'db_metadata'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("db_metadata table existence should load");
+        assert_eq!(metadata_table_exists, 1);
+
         let provenance: (String, Option<String>, Option<i64>) = opened
             .query_row(
                 "SELECT source_kind, source_keyword, source_line_number
@@ -418,6 +429,79 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
             )
             .expect("migrated todo keyword provenance should remain queryable");
         assert_eq!(provenance, ("config_default".to_string(), None, None));
+    }
+
+    #[test]
+    fn migrating_legacy_database_does_not_enable_body_text_capability_before_rebuild() {
+        let test_dir = TestDir::new("legacy-body-text-capability");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = Connection::open(&db_path).expect("legacy database should open");
+        connection
+            .execute_batch(
+                r#"
+PRAGMA user_version = 0;
+
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL UNIQUE,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL,
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL,
+    title               TEXT NOT NULL,
+    title_raw           TEXT,
+    todo_keyword        TEXT,
+    todo_type           TEXT,
+    priority            TEXT,
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    archivedp           INTEGER NOT NULL DEFAULT 0,
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0,
+    all_tags_json       TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE heading_bodies (
+    heading_id          INTEGER PRIMARY KEY,
+    body_text           TEXT NOT NULL,
+    body_byte_start     INTEGER,
+    body_byte_end       INTEGER
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/project.org', 1, 1);
+INSERT INTO headings (id, file_id, parent_id, level, byte_start, byte_end, title, title_raw)
+VALUES (1, 1, NULL, 0, 0, 10, '/tmp/project.org', '/tmp/project.org');
+INSERT INTO heading_bodies (heading_id, body_text, body_byte_start, body_byte_end)
+VALUES (1, 'legacy body text', 0, 10);
+"#,
+            )
+            .expect("legacy schema should seed");
+        drop(connection);
+
+        let opened = open_database(&db_path).expect("legacy database should migrate");
+        let capability_value: Option<String> = opened
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = ?1",
+                [crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("body-text capability should query cleanly");
+        assert_eq!(capability_value, None);
     }
 
     #[test]

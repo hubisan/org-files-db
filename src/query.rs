@@ -21,8 +21,8 @@ pub use result::{
 };
 pub use sqlite::{
     compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
-    CompiledSqlQuery, FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError,
-    QueryExecutionErrorKind, QueryParam, QueryRows,
+    sqlite_query_validation_options, CompiledSqlQuery, FileQueryRow, HeadingQueryRow, LinkQueryRow,
+    QueryExecutionError, QueryExecutionErrorKind, QueryParam, QueryRows,
 };
 pub use validate::{
     validate_query, QueryValidationError, QueryValidationErrorKind, QueryValidationOptions,

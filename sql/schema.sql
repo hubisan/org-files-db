@@ -53,6 +53,32 @@ CREATE TABLE IF NOT EXISTS files (
 );
 
 --------------------------------------------------
+-- DATABASE METADATA
+--------------------------------------------------
+/*
+  Small persisted capability/configuration facts about the indexed database
+  instance.
+
+  key:
+    Stable metadata key.
+
+  value:
+    Canonical string representation written by the indexer/database layer.
+
+  Current keys:
+
+  body_text_available:
+    "1" when the database instance was last rebuilt with canonical heading body
+    text persistence enabled.
+    "0" when the database instance was last rebuilt with body-text persistence
+    disabled.
+*/
+CREATE TABLE IF NOT EXISTS db_metadata (
+    key             TEXT PRIMARY KEY,
+    value           TEXT NOT NULL
+);
+
+--------------------------------------------------
 -- HEADINGS
 --------------------------------------------------
 /*

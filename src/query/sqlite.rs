@@ -11,9 +11,10 @@ use serde::Serialize;
 use super::result::QueryExecutionOptions;
 use super::{
     ensure_relative_dates_resolved, resolve_relative_dates, QueryDateResolutionOptions,
-    QueryTarget, QueryValue, ValidatedArg, ValidatedExpr, ValidatedOption, ValidatedPredicate,
-    ValidatedQuery,
+    QueryTarget, QueryValidationOptions, QueryValue, ValidatedArg, ValidatedExpr, ValidatedOption,
+    ValidatedPredicate, ValidatedQuery,
 };
+use crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledSqlQuery {
@@ -503,6 +504,7 @@ pub fn execute_sqlite_query_with_options(
         )
     })?;
 
+    ensure_body_text_backend_capabilities(connection, &resolved)?;
     ensure_with_time_backend_capabilities(connection, &resolved)?;
 
     match resolved.target {
@@ -516,6 +518,15 @@ pub fn execute_sqlite_query_with_options(
             execute_files_query(connection, &compiled)
         }
     }
+}
+
+pub fn sqlite_query_validation_options(
+    connection: &Connection,
+) -> Result<QueryValidationOptions, QueryExecutionError> {
+    Ok(QueryValidationOptions {
+        body_text_available: sqlite_body_text_available(connection)?,
+        regexp_body_matching_supported: false,
+    })
 }
 
 fn execute_headings_query(
@@ -730,6 +741,48 @@ fn ensure_with_time_backend_capabilities(
     Ok(())
 }
 
+fn ensure_body_text_backend_capabilities(
+    connection: &Connection,
+    query: &ValidatedQuery,
+) -> Result<(), QueryExecutionError> {
+    if !query_requires_body_text(query) {
+        return Ok(());
+    }
+
+    if sqlite_body_text_available(connection)? {
+        return Ok(());
+    }
+
+    Err(QueryExecutionError::unsupported_backend_feature(
+        query.target,
+        "has-text",
+        "has-text requires body text to be available in the database",
+    ))
+}
+
+fn query_requires_body_text(query: &ValidatedQuery) -> bool {
+    query
+        .predicate
+        .as_ref()
+        .is_some_and(expr_requires_body_text)
+}
+
+fn expr_requires_body_text(expr: &ValidatedExpr) -> bool {
+    match expr {
+        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
+            children.iter().any(expr_requires_body_text)
+        }
+        ValidatedExpr::Not(child) => expr_requires_body_text(child),
+        ValidatedExpr::Predicate(predicate) => {
+            predicate.name == "has-text"
+                || predicate
+                    .args
+                    .iter()
+                    .any(|arg| matches!(arg, ValidatedArg::NestedQuery(query) if query_requires_body_text(query)))
+        }
+    }
+}
+
 fn collect_with_time_requirements(query: &ValidatedQuery) -> Vec<WithTimeRequirement> {
     let mut requirements = Vec::new();
     if let Some(predicate) = &query.predicate {
@@ -819,6 +872,43 @@ fn load_table_columns(
     let mut statement = connection.prepare(&pragma)?;
     let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
     rows.collect::<Result<HashSet<_>, _>>()
+}
+
+fn sqlite_body_text_available(connection: &Connection) -> Result<bool, QueryExecutionError> {
+    if !table_exists(connection, "db_metadata").map_err(|source| {
+        QueryExecutionError::database(QueryTarget::Headings, "inspect schema", source)
+    })? {
+        return Ok(false);
+    }
+
+    let value = connection
+        .query_row(
+            "SELECT value FROM db_metadata WHERE key = ?1",
+            [DB_METADATA_BODY_TEXT_AVAILABLE_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+        .map_err(|source| {
+            QueryExecutionError::database(QueryTarget::Headings, "load db_metadata", source)
+        })?;
+
+    Ok(matches!(value.as_deref(), Some("1")))
+}
+
+fn table_exists(connection: &Connection, table: &str) -> Result<bool, rusqlite::Error> {
+    connection.query_row(
+        "SELECT EXISTS(
+             SELECT 1
+             FROM sqlite_master
+             WHERE type = 'table' AND name = ?1
+         )",
+        [table],
+        |row| row.get(0),
+    )
 }
 
 fn compile_query_match_filter(
@@ -2386,8 +2476,8 @@ fn target_name(target: QueryTarget) -> &'static str {
 mod tests {
     use super::{
         compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
-        FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind,
-        QueryRows,
+        sqlite_query_validation_options, FileQueryRow, HeadingQueryMatch, HeadingQueryRow,
+        LinkQueryRow, QueryExecutionErrorKind, QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
@@ -2454,6 +2544,70 @@ mod tests {
     fn validated(query: &str) -> crate::query::ValidatedQuery {
         let parsed = parse_query(query).expect("query should parse");
         validate_query(parsed, &validation_options()).expect("query should validate")
+    }
+
+    #[test]
+    fn validation_options_read_persisted_body_text_capability() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            crate::db::CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+
+        let unavailable =
+            sqlite_query_validation_options(&connection).expect("validation options should load");
+        assert!(!unavailable.body_text_available);
+        assert!(!unavailable.regexp_body_matching_supported);
+
+        DbWriter::set_metadata_flag(
+            &connection,
+            crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+            true,
+        )
+        .expect("metadata should persist");
+
+        let available =
+            sqlite_query_validation_options(&connection).expect("validation options should reload");
+        assert!(available.body_text_available);
+        assert!(!available.regexp_body_matching_supported);
+    }
+
+    #[test]
+    fn validation_options_treat_missing_metadata_table_as_body_text_unavailable() {
+        let connection = Connection::open_in_memory().expect("database should open");
+
+        let options =
+            sqlite_query_validation_options(&connection).expect("validation options should load");
+        assert!(!options.body_text_available);
+        assert!(!options.regexp_body_matching_supported);
+    }
+
+    #[test]
+    fn execution_rejects_has_text_when_body_text_capability_is_unavailable() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            crate::db::CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let parsed = parse_query(r#"(headings (has-text "sqlite"))"#).expect("query should parse");
+        let query = validate_query(
+            parsed,
+            &QueryValidationOptions {
+                body_text_available: true,
+                regexp_body_matching_supported: false,
+            },
+        )
+        .expect("query should validate with permissive options");
+
+        let error = execute_sqlite_query(&connection, &query).expect_err("query should fail");
+        assert_eq!(
+            error.kind,
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert_eq!(
+            error.message,
+            "has-text requires body text to be available in the database"
+        );
     }
 
     #[test]

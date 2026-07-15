@@ -266,6 +266,33 @@ impl DbWriter {
         Ok(())
     }
 
+    pub(crate) fn set_metadata_value(
+        connection: &Connection,
+        key: &str,
+        value: &str,
+    ) -> Result<(), DbWriteError> {
+        connection
+            .execute(
+                "INSERT INTO db_metadata (key, value)
+                 VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "set_metadata_value",
+                source,
+            })?;
+        Ok(())
+    }
+
+    pub(crate) fn set_metadata_flag(
+        connection: &Connection,
+        key: &str,
+        value: bool,
+    ) -> Result<(), DbWriteError> {
+        Self::set_metadata_value(connection, key, if value { "1" } else { "0" })
+    }
+
     pub(crate) fn insert_level0_heading(
         connection: &Connection,
         heading: &HeadingRecord,

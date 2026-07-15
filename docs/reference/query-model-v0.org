@@ -1148,6 +1148,8 @@ Match stored body text for the heading.
 
 - Multiple strings mean AND.
 - Matching requires body text to be available in the database.
+- Availability is a persisted database-instance capability, not merely the presence of a body-text table in the schema.
+- After upgrading an older database schema, a rebuild is required before this capability becomes available.
 - The query model does not require a specific backend.
 - A simple backend may use stored body text with SQL matching.
 - An optimized backend may use SQLite FTS5 or another full-text index.
@@ -5537,6 +5539,7 @@ Examples:
 - ~has-text~ requires body text to be available in the database
 - ~has-text :regexp t~ requires regexp-capable body matching
 - optimized text search may use FTS5, but the query model does not require FTS5
+- backends should persist capability metadata so they can distinguish unavailable body-text indexing from an empty body on a particular heading
 
 Unsupported backend features must fail clearly.
 

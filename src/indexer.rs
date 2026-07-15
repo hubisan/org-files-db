@@ -15,6 +15,7 @@ use crate::{
         HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord, LinkRecord,
         OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
         TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
+        DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
     },
     link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
@@ -79,6 +80,12 @@ where
         if discovery.files.is_empty() {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
             if existing_indexed_files == 0 {
+                DbWriter::set_metadata_flag(
+                    connection,
+                    DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+                    config.search.index_body_text,
+                )
+                .map_err(IndexerError::Write)?;
                 return Ok(RebuildReport::default());
             }
             if !allow_empty {
@@ -134,6 +141,12 @@ where
             .transaction()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
         DbWriter::delete_all_indexed_data(&tx).map_err(IndexerError::Write)?;
+        DbWriter::set_metadata_flag(
+            &tx,
+            DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+            config.search.index_body_text,
+        )
+        .map_err(IndexerError::Write)?;
 
         let mut report = RebuildReport::default();
         for pending_file in pending {
@@ -6128,6 +6141,15 @@ index_body_text = true
             .rebuild(&mut connection, &config)
             .expect("rebuild should succeed");
 
+        let body_text_available: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = 'body_text_available'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("body-text capability should load");
+        assert_eq!(body_text_available, "1");
+
         let level_zero_body: String = connection
             .query_row(
                 "SELECT heading_bodies.body_text
@@ -6250,6 +6272,79 @@ index_body_text = true
         Indexer::new(OrgizeAdapter::new())
             .rebuild(&mut connection, &config)
             .expect("rebuild should succeed");
+
+        let body_text_available: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = 'body_text_available'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("body-text capability should load");
+        assert_eq!(body_text_available, "0");
+
+        let body_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM heading_bodies", [], |row| row.get(0))
+            .expect("heading body count should load");
+        assert_eq!(body_count, 0);
+    }
+
+    #[test]
+    fn rebuild_updates_body_text_capability_when_configuration_changes() {
+        let test_dir = TestDir::new("heading-bodies-capability-toggle");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(1, false),
+        )
+        .expect("db should open");
+
+        write_file(&org_path, "* Parent\nBody that may be stored.\n");
+
+        let enabled = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: true,
+            },
+            query: Default::default(),
+        };
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &enabled)
+            .expect("enabled rebuild should succeed");
+
+        let enabled_value: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = 'body_text_available'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("enabled capability should load");
+        assert_eq!(enabled_value, "1");
+
+        let disabled = Config {
+            search: crate::config::SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            ..enabled
+        };
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &disabled)
+            .expect("disabled rebuild should succeed");
+
+        let disabled_value: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = 'body_text_available'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("disabled capability should load");
+        assert_eq!(disabled_value, "0");
 
         let body_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM heading_bodies", [], |row| row.get(0))

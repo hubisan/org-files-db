@@ -1,0 +1,181 @@
+#+TITLE: Persist heading body text for query execution
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 00:13]
+
+* Input & Todo Task
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User task: *BUILD [#C] Persist heading body text for query execution*
+- Follow-up note from user: updated ~AGENTS.md~ during planning; plan refreshed against the current workspace instructions before writing this task file.
+- Build decision from user: body-text availability means the opened database instance was built with canonical body-text persistence enabled; the ~heading_bodies~ table alone is not sufficient, and the capability must be persisted in DB metadata.
+
+** BUILD [#C] Persist heading body text for query execution
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-16--persist-heading-body-text-for-query-execution.org]]
+
+Depends on:
+
+- Implement safe SQL translation and core metadata query execution
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Persist heading body text as an optional canonical database fact.
+- Make body-text availability explicit and testable in the database and indexing contract.
+- Provide the persisted source used later by ~(has-text ...)~ and optional FTS5 indexing.
+
+Configuration:
+
+#+begin_src toml
+,[search]
+,index_body_text = true
+#+end_src
+
+Rules:
+
+- Body-text persistence is controlled by ~search.index_body_text~.
+- If ~search.index_body_text = true~, heading body text is extracted during indexing and stored in the database.
+- If ~search.index_body_text = false~, heading body text is not stored.
+- Body text must be stored canonically outside FTS5.
+- FTS5 must not become the only storage location for body text.
+- Query execution must never read Org files to obtain body text.
+- Persisted body text must correspond to the heading body defined by the parser and indexing contract.
+- Heading metadata facts must not be mutated during query execution.
+- Body-text availability must be discoverable from the opened database and must not be inferred only from the current configuration file.
+- Existing databases must migrate safely.
+- Disabling body-text persistence must not require FTS5 to be disabled.
+
+Suggested schema:
+
+#+begin_src sql
+,CREATE TABLE heading_body_text (
+,    heading_id INTEGER PRIMARY KEY
+,        REFERENCES headings(id)
+,        ON DELETE CASCADE,
+,    body_text TEXT NOT NULL
+,);
+#+end_src
+
+The exact capability representation may use schema inspection, persisted database metadata, or another explicit database-level contract. It must not rely only on the configuration used by the current process.
+
+Acceptance criteria:
+
+- Heading body text is stored in a canonical non-FTS table when ~search.index_body_text~ is enabled.
+- Heading body text is not stored when ~search.index_body_text~ is disabled.
+- Stored body rows use the corresponding ~headings.id~ as their identity.
+- Rebuilding a file replaces its previously persisted body-text facts.
+- Removing or rebuilding headings does not leave orphan body-text rows.
+- Body-text availability is explicit and discoverable from the database.
+- Existing databases migrate safely.
+- Reindexing produces stable body-text facts.
+- Empty heading bodies have documented and tested behaviour.
+- Body text is not read from Org files during query execution.
+- Tests cover enabled storage, disabled storage, rebuild replacement, deletion, empty bodies, migration, no Org file scanning during queries, and no query-time DB mutation.
+
+* Planning
+
+** Problem summary
+
+The codebase already persists heading bodies in ~heading_bodies~ and gates writes behind ~search.index_body_text~, but the query contract still lacks a database-level capability signal. The current validation/test helpers assume body text is always available, while the phase task requires availability to be explicit from the opened database rather than inferred from current config or parser access.
+
+** Goals
+
+- Preserve ~heading_bodies~ as the canonical non-FTS storage for heading body text.
+- Make body-text capability explicit at database-open or query-execution time.
+- Ensure rebuild, delete, and migration behavior stays correct when body-text indexing is enabled or disabled.
+- Align docs and tests with the actual indexing and query contract.
+
+** Non-goals
+
+- No implementation of ~(has-text ...)~ in this task.
+- No new FTS5 query behavior or tokenizer changes.
+- No parser-semantic changes to what counts as heading body text unless a bug blocks persistence correctness.
+
+** Architecture
+
+- Reuse the existing ~heading_bodies~ table as the canonical storage instead of introducing a parallel table.
+- Add an explicit backend capability check for body-text availability, likely via schema inspection and/or persisted database metadata, so query execution can distinguish "body storage supported by this database" from "this specific heading has no stored body row".
+- Keep indexer writes controlled by ~search.index_body_text~, with FTS rows derived from the same canonical body source when enabled.
+- Extend migration handling and open-database tests so legacy databases without the required body-text contract are upgraded or classified deterministically.
+
+** Execution plan
+
+- Review the current ~heading_bodies~ schema, indexer write path, and query validation/execution path to identify where availability is currently assumed instead of discovered.
+- Implement an explicit database capability contract for body text and thread it into query validation/execution without consulting Org files.
+- Tighten rebuild and migration behavior/tests for enabled storage, disabled storage, replacement, deletion, empty bodies, and legacy schemas.
+- Update configuration and query-model docs so ~search.index_body_text~ and body-text availability semantics match the implemented database contract.
+- Run focused tests first, then ~make ci~, and record outcomes in this task file.
+
+** Risks & assumptions
+
+- The existing ~heading_bodies~ table likely satisfies the canonical storage requirement, so the main risk is contract drift between prior parser/indexer work and the new query capability requirements.
+- Schema inspection alone may be insufficient if the project needs to distinguish "table exists but this database was built with storage disabled"; if so, persisted metadata will be needed.
+- Empty-body semantics need to stay distinct from unavailable-body capability errors.
+
+** Open questions
+
+- Whether explicit availability should mean "database schema can store body text" or "this database instance was built with ~index_body_text = true~ and therefore may contain canonical body rows". The acceptance criteria suggest the latter is safer for ~(has-text ...)~ capability checks.
+
+** Proposed checks
+
+- targeted indexer and DB migration tests for ~heading_bodies~
+- targeted query/backend capability tests for body-text availability
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added a persisted ~db_metadata~ table and stored ~body_text_available~ as an explicit database-instance capability set by rebuilds.
+- Kept ~heading_bodies~ as the canonical non-FTS body-text store and updated rebuild logic to write the capability alongside indexed content, including empty fresh databases.
+- Switched CLI query validation to inspect the opened SQLite database for body-text capability instead of assuming default availability.
+- Added execute-time protection so ~(has-text ...)~ still fails clearly if validation was bypassed and the opened database does not expose body text.
+- Updated config and query-model docs to define availability as persisted database metadata rather than schema-table presence.
+- Added a focused legacy-migration regression test and documented that schema upgrade alone does not enable body-text capability until a rebuild persists the new metadata value.
+
+** Changed files
+
+- ~sql/schema.sql~
+- ~src/db.rs~
+- ~src/db/schema.rs~
+- ~src/db/writer.rs~
+- ~src/indexer.rs~
+- ~src/query.rs~
+- ~src/query/sqlite.rs~
+- ~src/cli.rs~
+- ~docs/config.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/2026-07-16--persist-heading-body-text-for-query-execution.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test validation_options_read_persisted_body_text_capability~
+- ~cargo test rebuild_updates_body_text_capability_when_configuration_changes~
+- ~cargo test query_json_rejects_has_text_when_body_text_capability_is_disabled~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+
+- Focused body-text capability tests passed for SQLite validation, rebuild toggling, and CLI validation behavior.
+- ~cargo test --all-targets --all-features~ passed.
+- ~make ci~ passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- The next ~(has-text ...)~ backend task can now rely on persisted ~db_metadata.body_text_available~ instead of inferring availability from schema shape or current config.

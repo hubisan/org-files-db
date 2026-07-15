@@ -16,9 +16,9 @@ use crate::{
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
     query::{
-        execute_and_shape_query, parse_query, validate_query, QueryExecutionOptions, QueryInclude,
-        QueryOutputMode, QueryParseError, QueryResponse, QueryShapeError, QueryValidationError,
-        QueryValidationOptions,
+        execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
+        QueryExecutionError, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryParseError,
+        QueryResponse, QueryShapeError, QueryValidationError,
     },
 };
 
@@ -219,8 +219,9 @@ fn query_json_response(
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
     let parsed = parse_query(query).map_err(CliError::QueryParse)?;
-    let validated = validate_query(parsed, &QueryValidationOptions::default())
-        .map_err(CliError::QueryValidate)?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
+    let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
     let options = QueryExecutionOptions {
         output_mode: output.into(),
         includes: includes.iter().copied().map(QueryInclude::from).collect(),
@@ -299,6 +300,7 @@ enum CliError {
     Indexer(IndexerError),
     QueryParse(QueryParseError),
     QueryValidate(QueryValidationError),
+    QueryExecute(QueryExecutionError),
     QueryShape(QueryShapeError),
     InvalidHeadingTags {
         heading_id: i64,
@@ -322,6 +324,7 @@ impl CliError {
             | Self::Indexer(_)
             | Self::QueryParse(_)
             | Self::QueryValidate(_)
+            | Self::QueryExecute(_)
             | Self::QueryShape(_)
             | Self::InvalidHeadingTags { .. }
             | Self::InvalidHeadingPath { .. }
@@ -344,6 +347,7 @@ impl fmt::Display for CliError {
             Self::Indexer(source) => write!(f, "{source}"),
             Self::QueryParse(source) => write!(f, "{source}"),
             Self::QueryValidate(source) => write!(f, "{source}"),
+            Self::QueryExecute(source) => write!(f, "{source}"),
             Self::QueryShape(source) => write!(f, "{source}"),
             Self::InvalidHeadingTags { heading_id, source } => {
                 write!(
@@ -376,6 +380,7 @@ impl Error for CliError {
             Self::Indexer(source) => Some(source),
             Self::QueryParse(source) => Some(source),
             Self::QueryValidate(source) => Some(source),
+            Self::QueryExecute(source) => Some(source),
             Self::QueryShape(source) => Some(source),
             Self::InvalidHeadingTags { source, .. } => Some(source),
             Self::InvalidHeadingPath { source, .. } => Some(source),
@@ -828,6 +833,27 @@ mod tests {
             }
             other => panic!("expected file result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn query_json_rejects_has_text_when_body_text_capability_is_disabled() {
+        let test_dir = TestDir::new("query-has-text-disabled");
+        let config_path = write_query_fixture(&test_dir);
+
+        let error = super::query_json_response(
+            true,
+            "(headings (has-text \"sqlite\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect_err("query should fail");
+
+        assert!(matches!(error, CliError::QueryValidate(_)));
+        assert_eq!(
+            error.to_string(),
+            "has-text requires body text to be available in the database (target headings, predicate has-text)"
+        );
     }
 
     #[test]

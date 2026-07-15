@@ -162,13 +162,15 @@ General rules:
 
 - Task file: [[file:archive/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
 
-** TODO [#C] Implement body text availability for ~(has-text ...)~
+** BUILD [#C] Persist heading body text for query execution
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
-:API_CONTRACT_CHANGE: Maybe
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Yes
 :END:
+
+- Task file: [[file:2026-07-16--persist-heading-body-text-for-query-execution.org]]
 
 Depends on:
 
@@ -177,44 +179,131 @@ Depends on:
 
 Goal:
 
-- Support ~(has-text ...)~ when heading body text is available in the database.
+- Persist heading body text as an optional canonical database fact.
+- Make body-text availability explicit and testable in the database and indexing contract.
+- Provide the persisted source used later by ~(has-text ...)~ and optional FTS5 indexing.
+
+Configuration:
+
+#+begin_src toml
+[search]
+index_body_text = true
+#+end_src
 
 Rules:
 
-- ~(has-text ...)~ is part of the query language.
-- ~(has-text ...)~ does not require FTS5 by definition.
-- Body text availability means heading body text is stored or indexed in the DB/indexing contract, not read from Org files at query time.
-- If body text is available in the DB, a simple backend may use ordinary SQL matching.
-- If body text is unavailable, ~(has-text ...)~ must fail clearly.
-- ~:regexp t~ must fail clearly if the backend does not support regexp matching.
-- Body text availability must be explicit and testable.
-- Query execution must not scan Org files.
-- Query execution must not mutate parsed heading metadata facts.
+- Body-text persistence is controlled by ~search.index_body_text~.
+- If ~search.index_body_text = true~, heading body text is extracted during indexing and stored in the database.
+- If ~search.index_body_text = false~, heading body text is not stored.
+- Body text must be stored canonically outside FTS5.
+- FTS5 must not become the only storage location for body text.
+- Query execution must never read Org files to obtain body text.
+- Persisted body text must correspond to the heading body defined by the parser and indexing contract.
+- Heading metadata facts must not be mutated during query execution.
+- Body-text availability must be discoverable from the opened database and must not be inferred only from the current configuration file.
+- Existing databases must migrate safely.
+- Disabling body-text persistence must not require FTS5 to be disabled.
+
+Suggested schema:
+
+#+begin_src sql
+CREATE TABLE heading_body_text (
+    heading_id INTEGER PRIMARY KEY
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    body_text TEXT NOT NULL
+);
+#+end_src
+
+The exact capability representation may use schema inspection, persisted database metadata, or another explicit database-level contract. It must not rely only on the configuration used by the current process.
 
 Acceptance criteria:
 
-- Body text availability is represented in the DB/indexing contract.
-- The configuration meaning of body text availability is documented clearly.
-- ~(has-text "sqlite")~ works when body text is available.
-- ~(has-text "sqlite" "fts")~ requires all terms to match.
-- ~(has-text "sqlite.*fts" :regexp t)~ either works or returns a clear unsupported-backend error.
-- If body text is unavailable, the query returns a clear error.
-- Tests cover available body text, unavailable body text, multiple terms, unsupported regexp matching, no Org file scanning, and no DB mutation.
+- Heading body text is stored in a canonical non-FTS table when ~search.index_body_text~ is enabled.
+- Heading body text is not stored when ~search.index_body_text~ is disabled.
+- Stored body rows use the corresponding ~headings.id~ as their identity.
+- Rebuilding a file replaces its previously persisted body-text facts.
+- Removing or rebuilding headings does not leave orphan body-text rows.
+- Body-text availability is explicit and discoverable from the database.
+- Existing databases migrate safely.
+- Reindexing produces stable body-text facts.
+- Empty heading bodies have documented and tested behaviour.
+- Body text is not read from Org files during query execution.
+- Tests cover enabled storage, disabled storage, rebuild replacement, deletion, empty bodies, migration, no Org file scanning during queries, and no query-time DB mutation.
 
-** TODO [#C] Enable optional SQLite FTS5 for full-text search
+** TODO [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
-:DB_SCHEMA_CHANGE: Maybe
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
 :END:
 
 Depends on:
 
-- Implement body text availability for ~(has-text ...)~
+- Persist heading body text for query execution
+- Implement safe SQL translation and core metadata query execution
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
 
 Goal:
 
-- Add an optional FTS5 backend for faster title and body text search.
+- Implement ~(has-text ...)~ as part of the query language using canonically persisted heading body text.
+- Keep ~(has-text ...)~ independent of FTS5 semantics.
+
+Rules:
+
+- ~(has-text ...)~ is part of the canonical query language.
+- ~(has-text ...)~ does not require FTS5.
+- The SQLite metadata backend initially uses ordinary SQL matching against persisted heading body text.
+- Query execution must not scan Org files.
+- Query execution must not mutate parsed heading metadata or persisted body-text facts.
+- If body text is unavailable in the opened database, ~(has-text ...)~ must return a clear unsupported-backend capability error.
+- Missing body-text capability must not be represented as an empty result set.
+- Multiple search terms use AND semantics: every term must match the same heading body.
+- Matching semantics must be documented independently of FTS5 tokenisation and query syntax.
+- User-provided terms must use bound SQL parameters.
+- ~:regexp t~ must return a clear unsupported-backend error unless the SQLite backend explicitly provides regexp matching.
+- The implementation must not infer body text from title, properties, keywords, raw Org files, or FTS-only content.
+
+Initial matching semantics:
+
+- ~(has-text "sqlite")~ matches when the persisted heading body contains ~sqlite~.
+- ~(has-text "sqlite" "fts")~ matches only when the same persisted heading body contains both terms.
+- Matching should follow the Query Model's documented case-sensitivity rules.
+- Empty search terms and duplicate terms must follow validation rules defined by the Query Model.
+
+Acceptance criteria:
+
+- ~(has-text "sqlite")~ works when persisted body text is available.
+- ~(has-text "sqlite" "fts")~ requires both terms to match the same heading body.
+- Terms are passed to SQLite through bound parameters.
+- ~(has-text "sqlite.*fts" :regexp t)~ returns a clear unsupported-backend error unless regexp support is explicitly implemented.
+- If body text is unavailable, the query returns a clear capability error.
+- If the body-text table or required capability is missing, the backend does not expose a raw SQLite error.
+- A heading with no matching body text is excluded.
+- Empty bodies behave as documented.
+- Query execution does not scan Org files.
+- Query execution does not mutate the database.
+- Tests cover available body text, unavailable body text, single-term matching, multiple-term AND matching, case behaviour, empty bodies, unsupported regexp matching, bound parameters, no Org file scanning, and no DB mutation.
+- The query model documentation defines ~(has-text ...)~ independently of FTS5.
+
+** TODO [#C] Enable optional contentless SQLite FTS5 for full-text search
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Depends on:
+
+- Persist heading body text for query execution
+- Implement ~(has-text ...)~ in the SQLite metadata backend
+
+Goal:
+
+- Add an optional contentless FTS5 index for faster title and body-text search.
+- Keep normal relational storage as the canonical source for titles and heading body text.
 
 Planned logical FTS columns when FTS5 is enabled:
 
@@ -223,48 +312,66 @@ title
 body
 #+end_src
 
-The exact FTS5 schema should be decided during implementation. Prefer an external-content or contentless FTS5 design if that avoids duplicating stored body text.
+Preferred design:
+
+#+begin_src sql
+CREATE VIRTUAL TABLE heading_fts USING fts5(
+    title,
+    body,
+    content=''
+);
+#+end_src
+
+The exact contentless FTS5 schema may be adjusted during implementation, but FTS5 must remain rebuildable derived index data and must not become canonical storage.
 
 Rules:
 
 - FTS5 support is configured through ~search.fts5_enabled~.
-- Body text storage/indexing is configured separately through ~search.index_body_text~.
-- FTS5 indexes the already stored body text when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
-- FTS5 must not become the only storage location for body text.
-- If body text storage/indexing is disabled, FTS5 may still index heading titles, but it must not index heading bodies.
-- FTS5 must not be required for non-FTS query functionality.
-- Query semantics must remain defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]], not by FTS5 behavior.
-- FTS-specific functionality must fail clearly when FTS5 is disabled.
-- Query execution must not scan Org files.
-- Query execution must not mutate parsed heading metadata facts.
+- Canonical body-text persistence is configured separately through ~search.index_body_text~.
+- Heading titles remain canonically stored in ~headings.title~.
+- Heading body text remains canonically stored in the normal body-text table.
+- FTS5 stores only the derived search index needed for full-text search and must not retain an additional raw body-text copy unless explicitly justified.
+- If both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled, FTS5 indexes titles and persisted body text.
+- If FTS5 is enabled but body-text persistence is disabled, FTS5 indexes titles only.
+- If FTS5 is disabled, rebuild must not create or write ~heading_fts~.
+- FTS5 must not be required for ~(has-text ...)~ or other non-FTS query functionality.
+- Query Model semantics remain defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]], not by FTS5 tokenisation or syntax.
+- FTS-specific functionality must fail clearly when FTS5 is unavailable or disabled.
+- The FTS index must be safely rebuildable from canonical relational facts.
+- Query and search execution must not scan Org files.
+- Query and search execution must not mutate canonical parsed heading metadata facts.
 
 Acceptance criteria:
 
 - If FTS5 is disabled, rebuild works without creating or writing ~heading_fts~.
 - If FTS5 is enabled, ~heading_fts~ is created and maintained.
 - ~heading_fts.rowid~ matches ~headings.id~.
-- Heading titles are indexed when FTS5 is enabled.
+- Heading titles are indexed whenever FTS5 is enabled.
 - Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
 - FTS-backed search can match title-only, body-only, or both where supported.
-- Body text storage/indexing can be disabled even when FTS5 is enabled.
-- FTS5 does not duplicate raw body text unless explicitly justified by the chosen schema.
+- Body-text persistence can be disabled while FTS5 remains enabled for title-only indexing.
+- The FTS table is contentless or otherwise avoids retaining a second raw body-text copy.
+- Canonical body text remains queryable without FTS5.
+- Rebuilding the FTS index from canonical facts produces equivalent search results.
+- Removing or rebuilding headings removes stale FTS rows.
 - Queries or commands using unavailable FTS-specific functionality return clear errors.
-- Tests cover enabled FTS5, disabled FTS5, title indexing, optional body indexing, disabled body indexing, no raw body duplication where the chosen schema supports that, no Org file scanning, and no DB mutation.
+- Tests cover enabled FTS5, disabled FTS5, title indexing, optional body indexing, disabled body indexing, contentless storage behaviour, FTS rebuilds, stale-row removal, no Org file scanning, and no mutation of canonical facts.
 
 ** TODO [#C] Provide CLI command ~search~
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
-:API_CONTRACT_CHANGE: Maybe
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
 :END:
 
 Depends on:
 
-- Enable optional SQLite FTS5 for full-text search
+- Enable optional contentless SQLite FTS5 for full-text search
 
 Goal:
 
-- Provide a simple FTS-focused convenience command before or alongside the full query language.
+- Provide a simple FTS-focused convenience command before or alongside the canonical query language.
 
 Example:
 
@@ -276,56 +383,66 @@ Rules:
 
 - ~search~ is a convenience command, not the canonical query language.
 - ~search~ must not redefine Query Model v0 semantics.
+- ~search~ may expose documented FTS5-specific matching, tokenisation, ranking, prefix, or operator behaviour.
 - ~search~ uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
-- If FTS5 is disabled, ~search~ returns a clear documented error.
+- If FTS5 is disabled or unavailable, ~search~ returns a clear documented error.
 - ~search~ is read-only.
 - ~search~ must not scan Org files.
 - ~search~ must not rebuild or mutate the database.
 - Body matches are available only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
-- Title matches may be available when ~search.fts5_enabled~ is enabled even if body text storage/indexing is disabled.
+- Title matches remain available when FTS5 is enabled and body-text persistence is disabled.
+- Body-only requests against a title-only index must return clear documented behaviour.
 - Output must include enough location data for editor jumps.
+- User-provided search expressions must be handled safely and must not be interpolated into unrelated SQL.
 
 Acceptance criteria:
 
 - Search returns JSON when ~--json~ is passed.
-- Results include heading id, file path, title, line number where available, byte_start, and byte_end.
+- Results include heading id, file path, title, line number where available, ~byte_start~, and ~byte_end~.
 - Results include enough location data for editor jumps.
 - Search can match heading titles when FTS5 is enabled.
 - Search can include body matches when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- Title-only search works when FTS5 is enabled and body-text persistence is disabled.
 - If FTS5 is disabled, the command returns a clear documented error.
-- If body text storage/indexing is disabled, body-only search returns a clear documented error or documented title-only behavior.
-- Output is usable from Emacs/editor integrations.
-- CLI docs describe ~search~ as a convenience command.
-- Tests cover JSON output, title matches, optional body matches, disabled FTS5, disabled body indexing, read-only behavior, and no Org file scanning.
+- If body-text persistence is disabled, body-only search returns a clear error or follows explicitly documented title-only behaviour.
+- Search ranking and FTS-specific syntax are documented where exposed.
+- Output is usable from Emacs and other editor integrations.
+- The command is read-only and does not rebuild or mutate the database.
+- Tests cover JSON output, title matches, optional body matches, disabled FTS5, disabled body persistence, FTS syntax errors, read-only behaviour, no Org file scanning, and editor-jump location fields.
 
 ** TODO [#C] Collect future graph operation commands
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
 :END:
 
 Goal:
 
-- Capture CLI operations that are related to the indexed graph but should not be mixed into Query Model v0.
+- Capture CLI operations that are related to the indexed graph but should not be mixed into Query Model v0 or read-only search.
 
 Potential operations:
 
-- Rename file and update affected links.
+- Rename a file and update affected links.
 - Update link descriptions when a file title changes.
 - Fix broken links by replacing an old destination with a new destination.
-- Warn when a change breaks links, possibly via watcher.
+- Warn when a change breaks links, possibly through a watcher.
 - Suggest possible targets for unresolved or ambiguous links.
 
 Rules:
 
-- Query/search scope remains read-only.
+- Query and search scope remains read-only.
 - Mutation and repair commands are not part of Query Model v0.
 - Future operation commands must be split into separate tasks before implementation.
 - Operation commands must not be hidden inside ~query~ or ~search~.
+- Each future mutation command requires its own safety, preview, rollback, and API contract.
+- No graph mutation functionality is implemented in this collection task.
 
 Acceptance criteria:
 
 - Future operation ideas are documented as future work.
-- Query/search scope remains separate from mutation/repair operations.
+- Query and search scope remains separate from mutation and repair operations.
 - No mutation command is implemented as part of Query Model v0.
-- Any future mutation command gets its own explicit API and safety contract.
+- No mutation behaviour is added to ~search~.
+- Every future mutation command receives a separate task with an explicit API and safety contract before implementation.

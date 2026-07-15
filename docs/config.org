@@ -168,7 +168,11 @@ Controls whether SQLite FTS5 indexing is enabled during rebuild.
 
 ** ~search.index_body_text~
 
-Controls whether heading body text is indexed for search.
+Controls whether heading body text is persisted as canonical database data during rebuild.
+
+- When enabled, the indexer stores heading body text in ~heading_bodies~ and persists a database capability flag indicating that body text is available for query backends.
+- When disabled, the indexer does not store heading body text and persists the capability flag as unavailable even though the ~heading_bodies~ table may still exist in the schema.
+- Upgrading an older database schema creates the metadata storage, but body-text capability does not become available until a rebuild writes the current capability value for that database instance.
 
 - Type: boolean
 - Default: ~false~
