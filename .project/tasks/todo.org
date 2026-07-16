@@ -192,4 +192,8 @@ General rules:
 
 - Task file: [[file:archive/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
 
+** DONE [#B] Make bare ~(headings)~ include file/root results
+
+- Task file: [[file:archive/2026-07-16--make-bare-headings-include-file-root-results.org]]
+
 ** TODO Manual Test the Implementation

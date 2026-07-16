@@ -1,0 +1,329 @@
+#+TITLE: Make bare ~(headings)~ include file/root results
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 01:39]
+#+TASK_COMPLETED: [2026-07-16 Thu 02:24]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Make the bare ~(headings)~ query include file/root results so the default ~headings~ target domain contains all real headings plus one file/root object per indexed file.
+** REVIEW [#B] Make bare ~(headings)~ include file/root results
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-16--make-bare-headings-include-file-root-results.org]]
+
+Goal:
+
+- Make the bare ~(headings)~ query use the same default result domain as heading queries whose predicates can match file/root objects.
+- Return all real headings and all indexed file/root objects when no predicate is supplied.
+- Keep root/file representation consistent across bare and filtered heading queries.
+
+Current problem:
+
+- Queries such as:
+
+#+begin_src lisp
+(headings (title "Property"))
+#+end_src
+
+can match file/root objects when the file title satisfies the predicate.
+
+- The bare query:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+does not currently guarantee that the same file/root objects are returned.
+
+- This makes the target domain dependent on whether a predicate is present:
+  - filtered heading queries may consider roots
+  - the unfiltered heading query may omit them
+
+- A predicate should filter the target domain, not change which kinds of objects belong to the target domain.
+
+Required semantics:
+
+- The default domain of the ~headings~ target consists of:
+  - all real Org headings
+  - one file/root object per indexed Org file
+
+- Therefore:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+returns every object in that domain.
+
+- A filtered query such as:
+
+#+begin_src lisp
+(headings (title "Property"))
+#+end_src
+
+evaluates the predicate against the same domain and returns only matching objects.
+
+Result representation:
+
+- Real headings are returned as:
+
+#+begin_src json
+{
+  "kind": "heading"
+}
+#+end_src
+
+- File/root objects are returned as:
+
+#+begin_src json
+{
+  "kind": "file"
+}
+#+end_src
+
+- Synthetic level-0 storage rows must never be exposed as:
+
+#+begin_src json
+{
+  "kind": "heading",
+  "level": 0
+}
+#+end_src
+
+- Every result returned by bare ~(headings)~ has:
+
+#+begin_src json
+{
+  "matched": true
+}
+#+end_src
+
+Flat output:
+
+- Include every file/root object.
+- Include every real heading.
+- Keep ordering deterministic.
+- Prefer each file/root object before the headings belonging to that file.
+- Do not emit duplicate root results.
+- Do not expose the internal level-0 heading row separately in addition to the file result.
+
+Outline output:
+
+- Use the file/root object as the root of each file tree.
+- Place real headings beneath the corresponding file/root object.
+- Preserve heading hierarchy.
+- Mark every emitted object as matched because the bare query selects the complete target domain.
+- Do not create a second synthetic heading node for the file root.
+
+Implementation requirements:
+
+- Do not special-case root inclusion only for predicates such as ~title~.
+- Define the ~headings~ target domain independently of the predicate.
+- Apply predicates as filters over that domain.
+- Reuse the existing file/root result hydration path where practical.
+- Exclude level-0 rows from normal heading result hydration.
+- Ensure includes work for file/root results where supported.
+- Preserve current filtered-query semantics.
+- Preserve deterministic ordering across files and headings.
+
+Query model documentation:
+
+- Replace tentative wording about bare ~(headings)~ with a definitive rule.
+- Document in ~docs/reference/query-model-v0.org~:
+  - the default domain of the ~headings~ target
+  - that bare ~(headings)~ includes file/root objects
+  - result kinds
+  - level-0 storage-row encapsulation
+  - flat ordering
+  - outline structure
+
+- Document the same public behavior in ~docs/cli.org~.
+
+Suggested contract text:
+
+#+begin_src org
+- The ~headings~ target includes real headings and file/root objects by default.
+- ~(headings)~ returns all real headings and all file/root objects.
+- Heading predicates are evaluated against the same target domain.
+- File/root results use ~kind = "file"~.
+- Real heading results use ~kind = "heading"~.
+- Synthetic level-0 storage rows are internal and are never exposed as heading results.
+#+end_src
+
+Acceptance criteria:
+
+- ~(headings)~ returns one ~kind = "file"~ result for every indexed file.
+- ~(headings)~ returns every real heading as ~kind = "heading"~.
+- No result has both:
+  - ~kind = "heading"~
+  - ~level = 0~
+
+- The number of file results equals the number of indexed files.
+- The number of heading results equals the number of stored real headings with ~level > 0~.
+- A filtered query such as ~(headings (title "Property"))~ uses the same root/file domain.
+- Flat output is deterministic and does not duplicate roots.
+- Outline output uses file results as tree roots.
+- Includes continue to work where valid.
+- Existing heading predicate tests continue to pass.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~ describe the same behavior.
+- ~make ci~ passes.
+
+Regression tests:
+
+- Build a fixture with:
+  - at least two indexed Org files
+  - at least one real heading per file
+  - one file title that also matches a real heading title
+
+- Run:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+- Assert:
+  - all files are present as ~kind = "file"~
+  - all real headings are present as ~kind = "heading"~
+  - no level-0 heading is exposed
+  - no file/root result is duplicated
+
+- Run:
+
+#+begin_src lisp
+(headings (title "Property"))
+#+end_src
+
+- Assert that matching is evaluated against both:
+  - real heading titles
+  - file/root titles
+
+- Compare bare and filtered domains:
+  - every filtered result must correspond to an object that is also present in the bare ~(headings)~ result
+  - applying a predicate must only reduce the bare domain, never introduce a new result kind
+
+- Test both:
+  - ~--output flat~
+  - ~--output outline~
+
+Manual check:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json --config ../Config.toml \
+  '(headings)' \
+  | jq -e '
+      any(.results[]; .kind == "file")
+      and any(.results[]; .kind == "heading")
+      and all(
+        .results[];
+        (.kind != "heading") or (.level > 0)
+      )
+    '
+#+end_src
+
+* Planning
+
+** Problem summary
+
+- Bare ~(headings)~ currently returns only real headings from the main heading-row query.
+- File/root results are currently appended only for predicate forms that explicitly support root title matching.
+- This makes the visible ~headings~ target domain depend on whether a predicate is present.
+
+** Goals
+
+- Make bare ~(headings)~ return all real headings and all file/root objects.
+- Preserve the existing ~kind = "file"~ representation for root/file results and avoid exposing level-0 rows as ~kind = "heading"~.
+- Keep deterministic flat and outline ordering.
+- Update the public docs in ~docs/cli.org~ and ~docs/reference/query-model-v0.org~.
+
+** Non-goals
+
+- No parser or query grammar change.
+- No broad rework of root-matching semantics for unrelated heading predicates beyond the bare ~(headings)~ domain fix.
+
+** Architecture
+
+- Extend the existing root-file append gate in the SQLite heading execution path so bare ~(headings)~ reuses the same file/root hydration path already used by root title matches.
+- Cover the new behavior at two levels:
+  - raw SQLite query execution returns file/root and real heading matches
+  - shaped flat/outline output keeps file nodes as roots and never exposes level-0 headings directly
+- Update both user-facing and normative docs to state that bare ~(headings)~ includes file/root objects.
+
+** Execution plan
+
+- Create and link this task file.
+- Update the heading execution path for the bare-query case.
+- Add regression tests for raw execution and shaped output.
+- Update ~docs/cli.org~ and ~docs/reference/query-model-v0.org~.
+- Run formatting, focused tests, and ~make ci~.
+
+** Risks & assumptions
+
+- The smallest safe change is to reuse the existing file/root query path rather than invent a new level-0 shaping path.
+- Existing filtered root-title semantics should remain unchanged.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~cargo fmt --all~
+- focused bare ~(headings)~ query tests
+- ~make ci~
+
+* Results
+
+** Approach
+- Reused the existing file/root hydration path in the SQLite heading executor instead of introducing a second level-0 result path.
+- Changed the root-file append gate so bare ~(headings)~ now includes file/root results even when no predicate is present.
+- Left existing filtered root-title behavior unchanged by still using the same predicate analysis for non-empty heading queries.
+- Added regression coverage at both the raw SQLite execution layer and the shaped flat/outline result layer.
+- Updated the public and normative docs to make bare ~(headings)~ semantics explicit.
+
+** Changed files
+- ~src/query/sqlite.rs~
+  - Renamed the gate helper to reflect file/root inclusion semantics.
+  - Made bare ~(headings)~ append file/root rows.
+  - Added a regression test covering counts, ordering, lack of duplicate roots, and filtered-domain subset behavior.
+- ~src/query/result.rs~
+  - Added flat/outline shaping coverage for bare ~(headings)~.
+  - Verified that file nodes remain tree roots and that no ~kind = "heading", level = 0~ result is exposed.
+- ~docs/reference/query-model-v0.org~
+  - Replaced tentative wording with the definitive bare ~(headings)~ domain rule.
+- ~docs/cli.org~
+  - Documented that bare ~(headings)~ returns both real headings and file/root objects, with file/root ordering and outline behavior.
+
+** Checks performed
+- Exploratory inspection:
+  - Reviewed the existing SQLite heading execution path, root-title gate, shaping logic, and current docs before editing.
+- Formatting:
+  - ~cargo fmt --all~
+- Focused tests:
+  - ~cargo test bare_headings_query_returns_file_roots_and_real_headings~
+  - ~cargo test bare_headings_query_shapes_file_roots_and_real_headings_in_flat_and_outline_output~
+  - ~cargo test execution_title_queries_can_match_root_files_without_propagating_to_headings~
+  - ~cargo test heading_title_root_matches_shape_as_file_nodes_in_flat_and_outline_output~
+- Full checks:
+  - ~cargo test --all-targets --all-features~
+  - ~make ci~
+
+** Test results
+- All focused regression tests passed.
+- ~cargo test --all-targets --all-features~ passed with 312 unit tests plus all integration targets green.
+- ~make ci~ passed, including ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test --all-targets --all-features~, and ~cargo build --all-targets --all-features~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Ready for review.
