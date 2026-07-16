@@ -1,4 +1,4 @@
-#+TITLE: Query Model v0 Specification — Version 2, Revision 3
+#+TITLE: Query Model v0 Specification — Version 2, Revision 4
 #+LANGUAGE: en
 #+STARTUP: content
 
@@ -190,7 +190,18 @@ predicate
    | (not predicate)
 #+end_src
 
-Empty target queries such as ~(links)~ and ~(files)~ are allowed and return all objects for that target. ~(headings)~ is also allowed and returns the full heading-query domain: all real headings plus one file/root result per indexed file.
+Empty target queries are allowed and return the complete default domain for that target.
+
+- ~(links)~ returns all indexed links.
+- ~(files)~ returns all indexed files/root objects.
+- ~(headings)~ returns all real headings and all indexed file/root objects.
+
+The ~headings~ target therefore has a stable default domain consisting of:
+
+- every real Org heading
+- one file/root object for every indexed Org file
+
+Predicates filter this domain; they do not introduce additional result kinds that are absent from the bare target query.
 
 A complete formal grammar will be defined together with the parser specification.
 
@@ -492,6 +503,21 @@ The root must not be represented as:
 
 even if it participates in heading-style matching.
 
+The synthetic level-0 storage row is an internal implementation detail. It must never be exposed as a normal heading result.
+
+The bare query:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+returns:
+
+- every indexed file/root object as ~kind = "file"~
+- every real heading as ~kind = "heading"~
+
+A filtered heading query evaluates its predicate against this same domain. Applying a predicate may only reduce the bare ~(headings)~ result set; it must not add a new object kind that was absent from the bare target domain.
+
 *** 6.2 Root path behavior
 
 Every returned path includes the root/file node.
@@ -565,7 +591,17 @@ Predicates that are not meaningful on the root return false rather than failing,
 
 *** 6.4 Default root inclusion for heading queries
 
-For heading queries, root-level facts participate in inherited/effective matching by default where inheritance is meaningful.
+The ~headings~ target includes file/root objects by default.
+
+Therefore:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+returns all real headings and all file/root objects.
+
+Heading predicates are evaluated against the same target domain. Root-level facts participate in inherited/effective matching by default where inheritance is meaningful.
 
 Default:
 
@@ -932,9 +968,20 @@ This document does not define link result predicates or file result predicates i
 
 ** 2. General rules for heading predicates
 
-*** 2.1 Heading predicates return headings
+*** 2.1 Heading predicates filter the headings target domain
 
-A heading predicate never returns files or links by itself.
+A heading predicate filters the default ~headings~ target domain.
+
+That domain contains:
+
+- all real headings
+- all file/root objects
+
+A matching real heading is returned as ~kind = "heading"~.
+
+A matching file/root object is returned as ~kind = "file"~.
+
+A heading predicate never returns links by itself.
 
 Example:
 
@@ -956,7 +1003,7 @@ To return links, use the ~links~ target:
 
 *** 2.2 Root/file context may participate in matching
 
-Heading queries operate on real headings, but root/file-level facts can participate in matching where documented.
+Heading queries operate on a domain containing real headings and file/root objects. Root/file-level facts participate in matching where documented.
 
 Examples of root/file-level facts:
 
@@ -1559,9 +1606,14 @@ The directory excludes the file name.
 
 **** Purpose
 
-Match headings by the containing file's title.
+Match headings by the containing file's effective title.
 
-The file title usually comes from ~#+TITLE~.
+**** Effective file title
+
+- If the file contains ~#+TITLE~, its value is used as the file title.
+- If the file does not contain ~#+TITLE~, the final file-name component without its extension is used.
+- For example, ~dateiname.org~ has the fallback title ~dateiname~.
+- The fallback is derived from the file name, not from the complete path.
 
 **** Rules
 
@@ -1569,7 +1621,7 @@ The file title usually comes from ~#+TITLE~.
 - Matching is case-insensitive by default.
 - With ~:regexp t~, strings are regexps.
 - With ~:exact t~, exactly one string must be provided.
-- Headings in files without a title do not match, unless an implementation defines a derived fallback title.
+- Every indexed file has an effective title because the file stem is used when ~#+TITLE~ is absent.
 
 **** Examples
 
@@ -1578,6 +1630,7 @@ The file title usually comes from ~#+TITLE~.
 (file-title "Projects" "Archive")
 (file-title "Project.*" :regexp t)
 (file-title "Projects" :exact t)
+(file-title "dateiname" :exact t)
 #+end_src
 
 *** ~(file-modified &key from to on)~
@@ -2258,7 +2311,6 @@ Reasons:
 - ~clocked~ requires clock data indexing.
 - ~category~ is handled through ~(property "CATEGORY" ...)~.
 
-
 ** Tags alias note
 
 ~(tags-all "a" "b")~ is an alias for ~(tags "a" "b" :match :all)~. Regexp tag matching uses ~(tags "pattern" :regexp t)~.
@@ -2282,7 +2334,7 @@ This part depends on the core semantics defined in Part 1.1 and Part 1.2.
 Important core rules repeated here:
 
 - The outer target form decides which objects are returned.
-- ~(headings ...)~ returns headings.
+- ~(headings ...)~ returns real headings and matching file/root objects.
 - ~(links ...)~ returns links.
 - ~(files ...)~ returns files / root nodes.
 - Top-level heading shorthand applies only at the outermost query.
@@ -3184,9 +3236,14 @@ Heading query example:
 
 *** ~(file-title &rest strings &key regexp exact)~
 
-Match the file title.
+Match the effective file title.
 
-The file title is usually derived from ~#+TITLE~.
+The effective file title is defined as follows:
+
+- use the value of ~#+TITLE~ when present
+- otherwise use the final file-name component without its extension
+
+For example, ~dateiname.org~ has the effective fallback title ~dateiname~.
 
 Text semantics:
 
@@ -3224,6 +3281,8 @@ Notes:
 
 - ~file-title~ uses the effective file/root title.
 - Files without a source ~#+TITLE~ still match through the effective fallback file stem.
+- The fallback is derived from the final file-name component and excludes the extension.
+- The same effective title is used for file queries, containing-file filters, and root title matching in heading queries.
 
 *** ~(file-modified &key from to on with-time)~
 
@@ -4190,6 +4249,13 @@ Meaning:
 #+begin_src lisp
 (files
   (file-title "Projects"))
+#+end_src
+
+If ~dateiname.org~ has no ~#+TITLE~, this matches its effective fallback title:
+
+#+begin_src lisp
+(files
+  (file-title "dateiname" :exact t))
 #+end_src
 
 *** 5.6 Keyword
@@ -5704,15 +5770,19 @@ Rules:
 (files PREDICATE)
 #+end_src
 
-Empty target queries may return all objects of that target:
+Empty target queries return the complete default domain of that target:
 
 #+begin_src lisp
+(headings)
 (links)
 (files)
-(headings)
 #+end_src
 
-For ~(headings)~, the returned set is all real headings plus one file/root result per indexed file. File/root results are exposed as ~kind = "file"~ in shaped output; the internal level-0 heading rows are not exposed as ~kind = "heading"~ results.
+- ~(headings)~ returns all real headings and all file/root objects.
+- ~(links)~ returns all indexed links.
+- ~(files)~ returns all indexed files/root objects.
+
+File/root objects in the ~headings~ target use ~kind = "file"~. Synthetic level-0 storage rows are never exposed as ~kind = "heading"~.
 
 *** 21.3 Heading predicates
 
@@ -5959,6 +6029,8 @@ Core decisions:
   - ~(headings ...)~
   - ~(links ...)~
   - ~(files ...)~
+- the bare ~(headings)~ query returns all real headings and all file/root objects
+- filtered heading queries use the same default domain as bare ~(headings)~
 - top-level heading shorthand is allowed only at the outermost query
 - nested relation queries must use explicit target wrappers
 - boolean composition uses Lisp-like ~(and ...)~, ~(or ...)~, ~(not ...)~
