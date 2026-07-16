@@ -880,6 +880,11 @@ fn sqlite_body_text_available(connection: &Connection) -> Result<bool, QueryExec
     })? {
         return Ok(false);
     }
+    if !table_exists(connection, "heading_bodies").map_err(|source| {
+        QueryExecutionError::database(QueryTarget::Headings, "inspect schema", source)
+    })? {
+        return Ok(false);
+    }
 
     let value = connection
         .query_row(
@@ -1119,7 +1124,8 @@ fn compile_heading_predicate(
         "has-link" => compile_has_link_predicate(scope, aliases, predicate),
         "links-to" => compile_links_to_predicate(scope, aliases, predicate),
         "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
-        "has-text" | "outline-contains" | "outline-sequence" | "file-name" | "file-dir" => {
+        "has-text" => compile_has_text_predicate(scope, predicate),
+        "outline-contains" | "outline-sequence" | "file-name" | "file-dir" => {
             Err(QueryExecutionError::unsupported_predicate(
                 QueryTarget::Headings,
                 predicate.name.as_str(),
@@ -1162,6 +1168,53 @@ fn compile_heading_title_predicate(
         predicate,
         false,
     )
+}
+
+fn compile_has_text_predicate(
+    scope: &QueryScope,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    if option_bool(&predicate.options, "regexp")? {
+        return Err(QueryExecutionError::unsupported_backend_feature(
+            QueryTarget::Headings,
+            "has-text",
+            "predicate has-text with :regexp t is not supported by the SQLite metadata backend",
+        ));
+    }
+
+    let values = predicate
+        .args
+        .iter()
+        .map(arg_as_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(
+                QueryTarget::Headings,
+                "has-text",
+                message,
+            )
+        })?;
+
+    let mut parts = Vec::with_capacity(values.len());
+    let mut params = Vec::with_capacity(values.len());
+
+    for value in values {
+        parts.push(format!(
+            "EXISTS (
+                SELECT 1
+                FROM heading_bodies
+                WHERE heading_bodies.heading_id = {}
+                  AND INSTR(LOWER(heading_bodies.body_text), LOWER(?)) > 0
+            )",
+            scope.heading_col("id")
+        ));
+        params.push(QueryParam::Text(value));
+    }
+
+    Ok(SqlFragment {
+        sql: format!("({})", parts.join(" AND ")),
+        params,
+    })
 }
 
 fn compile_heading_hierarchy_or_root_false(
@@ -2481,12 +2534,12 @@ mod tests {
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
-        HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord,
-        SchemaDefinition, TagRecord, TimestampRecord,
+        HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord,
+        PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
     };
     use crate::query::{
         parse_query, resolve_relative_dates, validate_query, QueryDateResolutionOptions,
-        QueryExecutionOptions, QueryValidationOptions,
+        QueryExecutionOptions, QueryTarget, QueryValidationOptions,
     };
     use chrono::NaiveDate;
     use rusqlite::Connection;
@@ -2541,6 +2594,13 @@ mod tests {
         }
     }
 
+    fn validation_options_with_regexp() -> QueryValidationOptions {
+        QueryValidationOptions {
+            body_text_available: true,
+            regexp_body_matching_supported: true,
+        }
+    }
+
     fn validated(query: &str) -> crate::query::ValidatedQuery {
         let parsed = parse_query(query).expect("query should parse");
         validate_query(parsed, &validation_options()).expect("query should validate")
@@ -2583,6 +2643,36 @@ mod tests {
     }
 
     #[test]
+    fn validation_options_treat_missing_heading_bodies_table_as_body_text_unavailable() {
+        let connection = reduced_body_text_capability_connection(true, true);
+
+        let options =
+            sqlite_query_validation_options(&connection).expect("validation options should load");
+        assert!(!options.body_text_available);
+        assert!(!options.regexp_body_matching_supported);
+    }
+
+    #[test]
+    fn validation_options_treat_missing_body_text_metadata_row_as_unavailable() {
+        let connection = reduced_body_text_capability_connection(false, true);
+
+        let options =
+            sqlite_query_validation_options(&connection).expect("validation options should load");
+        assert!(!options.body_text_available);
+        assert!(!options.regexp_body_matching_supported);
+    }
+
+    #[test]
+    fn validation_options_treat_disabled_body_text_metadata_value_as_unavailable() {
+        let connection = reduced_body_text_capability_connection(true, false);
+
+        let options =
+            sqlite_query_validation_options(&connection).expect("validation options should load");
+        assert!(!options.body_text_available);
+        assert!(!options.regexp_body_matching_supported);
+    }
+
+    #[test]
     fn execution_rejects_has_text_when_body_text_capability_is_unavailable() {
         let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
             crate::db::CURRENT_SCHEMA_VERSION,
@@ -2611,10 +2701,36 @@ mod tests {
     }
 
     #[test]
+    fn execution_rejects_has_text_when_metadata_claims_capability_but_heading_bodies_is_missing() {
+        let connection = reduced_body_text_capability_connection(true, true);
+        let parsed = parse_query(r#"(headings (has-text "sqlite"))"#).expect("query should parse");
+        let query = validate_query(
+            parsed,
+            &QueryValidationOptions {
+                body_text_available: true,
+                regexp_body_matching_supported: false,
+            },
+        )
+        .expect("query should validate with permissive options");
+
+        let error = execute_sqlite_query(&connection, &query).expect_err("query should fail");
+        assert_eq!(
+            error.kind,
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert_eq!(
+            error.message,
+            "has-text requires body text to be available in the database"
+        );
+        assert!(!error.to_string().contains("no such table: heading_bodies"));
+    }
+
+    #[test]
     fn compile_uses_placeholders_instead_of_inlining_user_payload() {
         let user_value = "x' OR 1=1 --";
         for query in [
             validated(&format!(r#"(headings (title "{user_value}"))"#)),
+            validated(&format!(r#"(headings (has-text "{user_value}"))"#)),
             validated(&format!(r#"(headings (tags "{user_value}" :inherit nil))"#)),
             validated(&format!(r#"(headings (property "OWNER" "{user_value}"))"#)),
             validated(&format!(r#"(files (keyword "AUTHOR" "{user_value}"))"#)),
@@ -2647,6 +2763,21 @@ mod tests {
                 QueryExecutionErrorKind::UnsupportedBackendFeature
             );
         }
+
+        let parsed = parse_query(r#"(headings (has-text "sqlite.*fts" :regexp t))"#)
+            .expect("query should parse");
+        let validated_query = validate_query(parsed, &validation_options_with_regexp())
+            .expect("query should validate for compile coverage");
+        let has_text_error =
+            compile_sqlite_query(&validated_query).expect_err("regexp should fail");
+        assert_eq!(
+            has_text_error.kind,
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert_eq!(
+            has_text_error.message,
+            "predicate has-text with :regexp t is not supported by the SQLite metadata backend"
+        );
 
         let relation_query = validated(r#"(headings (outline-sequence "todo" "done"))"#);
         let relation_error =
@@ -3330,11 +3461,98 @@ mod tests {
     }
 
     #[test]
+    fn compile_has_text_uses_correlated_exists_with_bound_params() {
+        let compiled = compile_sqlite_query(&validated(
+            r#"(headings (has-text "sqlite" "fts" "x' OR 1=1 --"))"#,
+        ))
+        .expect("query should compile");
+
+        assert_eq!(compiled.target, QueryTarget::Headings);
+        assert_eq!(compiled.params.len(), 3);
+        assert_eq!(
+            compiled.params,
+            vec![
+                super::QueryParam::Text("sqlite".to_string()),
+                super::QueryParam::Text("fts".to_string()),
+                super::QueryParam::Text("x' OR 1=1 --".to_string()),
+            ]
+        );
+        assert!(compiled.sql.contains("FROM heading_bodies"));
+        assert!(compiled.sql.contains("heading_bodies.heading_id = h0.id"));
+        assert!(compiled.sql.matches("EXISTS (").count() >= 3);
+        assert!(!compiled.sql.contains("x' OR 1=1 --"));
+        assert!(!compiled.sql.contains("1=1 --"));
+    }
+
+    #[test]
+    fn execution_matches_has_text_against_persisted_heading_bodies() {
+        let connection = seeded_connection();
+
+        let single_term_rows =
+            execute_sqlite_query(&connection, &validated(r#"(headings (has-text "sqlite"))"#))
+                .expect("single-term has-text query should execute");
+        assert_eq!(heading_ids(single_term_rows), vec![11, 12, 21]);
+
+        let and_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (has-text "sqlite" "fts"))"#),
+        )
+        .expect("multi-term has-text query should execute");
+        assert_eq!(heading_ids(and_rows), vec![11, 21]);
+
+        let case_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (has-text "SQLITE" "FTS"))"#),
+        )
+        .expect("case-insensitive has-text query should execute");
+        assert_eq!(heading_ids(case_rows), vec![11, 21]);
+
+        let no_match_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (has-text "missing phrase"))"#),
+        )
+        .expect("no-match has-text query should execute");
+        assert_eq!(heading_ids(no_match_rows), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn execution_has_text_excludes_empty_or_missing_body_rows_without_mutation() {
+        let connection = seeded_connection();
+        let body_count_before: i64 = connection
+            .query_row("SELECT COUNT(*) FROM heading_bodies", [], |row| row.get(0))
+            .expect("body count should load");
+
+        let empty_body_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Statistic Cookies" :exact t) (has-text "sqlite")))"#,
+            ),
+        )
+        .expect("empty-body query should execute");
+        assert_eq!(heading_ids(empty_body_rows), Vec::<i64>::new());
+
+        let missing_body_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Gamma Candidate" :exact t) (has-text "sqlite")))"#,
+            ),
+        )
+        .expect("missing-body query should execute");
+        assert_eq!(heading_ids(missing_body_rows), Vec::<i64>::new());
+
+        let body_count_after: i64 = connection
+            .query_row("SELECT COUNT(*) FROM heading_bodies", [], |row| row.get(0))
+            .expect("body count should reload");
+        assert_eq!(body_count_before, body_count_after);
+    }
+
+    #[test]
     fn injection_like_strings_remain_bound_and_do_not_broaden_results() {
         let connection = seeded_connection();
 
         for query in [
             validated(r#"(headings (title "x' OR 1=1 --"))"#),
+            validated(r#"(headings (has-text "x' OR 1=1 --"))"#),
             validated(r#"(headings (tags "x' OR 1=1 --" :inherit nil))"#),
             validated(r#"(headings (property "OWNER" "x' OR 1=1 --"))"#),
             validated(r#"(files (keyword "AUTHOR" "x' OR 1=1 --"))"#),
@@ -4643,6 +4861,37 @@ CREATE TABLE timestamps (
         connection
     }
 
+    fn reduced_body_text_capability_connection(
+        include_metadata_row: bool,
+        metadata_value: bool,
+    ) -> Connection {
+        let connection = Connection::open_in_memory().expect("reduced schema should open");
+        connection
+            .execute_batch(
+                r#"
+CREATE TABLE db_metadata (
+    key     TEXT PRIMARY KEY,
+    value   TEXT NOT NULL
+);
+"#,
+            )
+            .expect("reduced body-text schema should initialize");
+
+        if include_metadata_row {
+            connection
+                .execute(
+                    "INSERT INTO db_metadata (key, value) VALUES (?1, ?2)",
+                    rusqlite::params![
+                        crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+                        if metadata_value { "1" } else { "0" }
+                    ],
+                )
+                .expect("body-text metadata should insert");
+        }
+
+        connection
+    }
+
     fn reduced_generic_with_time_schema_connection() -> Connection {
         let connection = Connection::open_in_memory().expect("reduced schema should open");
         connection
@@ -5436,6 +5685,49 @@ CREATE TABLE timestamps (
             }],
         )
         .expect("beta child tag should insert");
+
+        DbWriter::set_metadata_flag(
+            connection,
+            crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+            true,
+        )
+        .expect("body-text capability should persist");
+        DbWriter::insert_heading_bodies(
+            connection,
+            &[
+                HeadingBodyRecord {
+                    heading_id: 11,
+                    body_text: "SQLite index notes with FTS fallback guidance.".to_string(),
+                    body_byte_start: Some(16),
+                    body_byte_end: Some(62),
+                },
+                HeadingBodyRecord {
+                    heading_id: 12,
+                    body_text: "Nested sqlite implementation checklist.".to_string(),
+                    body_byte_start: Some(63),
+                    body_byte_end: Some(101),
+                },
+                HeadingBodyRecord {
+                    heading_id: 13,
+                    body_text: "General notes without the keyword.".to_string(),
+                    body_byte_start: Some(102),
+                    body_byte_end: Some(136),
+                },
+                HeadingBodyRecord {
+                    heading_id: 14,
+                    body_text: String::new(),
+                    body_byte_start: Some(137),
+                    body_byte_end: Some(137),
+                },
+                HeadingBodyRecord {
+                    heading_id: 21,
+                    body_text: "BETA target body mentions sqlite and fts together.".to_string(),
+                    body_byte_start: Some(12),
+                    body_byte_end: Some(60),
+                },
+            ],
+        )
+        .expect("heading body rows should insert");
 
         DbWriter::insert_links(
             connection,

@@ -129,6 +129,7 @@ Examples:
 orgfdb query --json '(todo "NEXT")'
 orgfdb query --json '(links (status "broken"))'
 orgfdb query --json --output outline '(headings (title "sqlite"))'
+orgfdb query --json '(headings (has-text "sqlite" "fts"))'
 orgfdb query --json --include path,links '(headings (todo "NEXT"))'
 #+end_src
 

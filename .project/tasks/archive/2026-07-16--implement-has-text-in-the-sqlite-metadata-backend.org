@@ -1,0 +1,170 @@
+#+TITLE: Implement has-text in the SQLite metadata backend
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 13:37]
+#+TASK_COMPLETED: [2026-07-16 Thu 13:46]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User task: *BUILD [#C] Implement ~(has-text ...)~ in the SQLite metadata backend*
+- Follow current workspace instructions from ~.project/agents/AGENTS.md~ updated by user before this build step.
+- Follow-up review scope: close the remaining backend-capability gap so missing ~heading_bodies~ never leaks a raw SQLite schema error when ~db_metadata.body_text_available = "1"~.
+
+** BUILD [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
+
+Depends on:
+
+- Persist heading body text for query execution
+- Implement safe SQL translation and core metadata query execution
+- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
+
+Goal:
+
+- Implement ~(has-text ...)~ as part of the query language using canonically persisted heading body text.
+- Keep ~(has-text ...)~ independent of FTS5 semantics.
+
+Rules:
+
+- ~(has-text ...)~ is part of the canonical query language.
+- ~(has-text ...)~ does not require FTS5.
+- The SQLite metadata backend initially uses ordinary SQL matching against persisted heading body text.
+- Query execution must not scan Org files.
+- Query execution must not mutate parsed heading metadata or persisted body-text facts.
+- If body text is unavailable in the opened database, ~(has-text ...)~ must return a clear unsupported-backend capability error.
+- Missing body-text capability must not be represented as an empty result set.
+- Multiple search terms use AND semantics: every term must match the same heading body.
+- Matching semantics must be documented independently of FTS5 tokenisation and query syntax.
+- User-provided terms must use bound SQL parameters.
+- ~:regexp t~ must return a clear unsupported-backend error unless the SQLite backend explicitly provides regexp matching.
+- The implementation must not infer body text from title, properties, keywords, raw Org files, or FTS-only content.
+
+Implementation decisions:
+
+- Compile each term to a separate correlated ~EXISTS~ condition against ~heading_bodies~.
+- Match terms as literal substrings using bound parameters.
+- Apply the Query Model's existing case-sensitivity rules consistently.
+- Multiple terms are combined with ~AND~.
+- A missing ~heading_bodies~ table or unavailable persisted capability returns an unsupported-backend error.
+- ~:regexp t~ returns an unsupported-backend error before SQL execution.
+
+Initial matching semantics:
+
+- ~(has-text "sqlite")~ matches when the persisted heading body contains ~sqlite~.
+- ~(has-text "sqlite" "fts")~ matches only when the same persisted heading body contains both terms.
+- Matching should follow the Query Model's documented case-sensitivity rules.
+- Empty search terms and duplicate terms must follow validation rules defined by the Query Model.
+
+Acceptance criteria:
+
+- ~(has-text "sqlite")~ works when persisted body text is available.
+- ~(has-text "sqlite" "fts")~ requires both terms to match the same heading body.
+- Terms are passed to SQLite through bound parameters.
+- ~(has-text "sqlite.*fts" :regexp t)~ returns a clear unsupported-backend error unless regexp support is explicitly implemented.
+- If body text is unavailable, the query returns a clear capability error.
+- If the body-text table or required capability is missing, the backend does not expose a raw SQLite error.
+- A heading with no matching body text is excluded.
+- Empty bodies behave as documented.
+- Query execution does not scan Org files.
+- Query execution does not mutate the database.
+- Tests cover available body text, unavailable body text, single-term matching, multiple-term AND matching, case behaviour, empty bodies, unsupported regexp matching, bound parameters, no Org file scanning, and no DB mutation.
+- The query model documentation defines ~(has-text ...)~ independently of FTS5.
+
+* Planning
+
+** Problem summary
+
+The query model already validates ~(has-text ...)~ and the indexer already persists canonical heading body text, but the SQLite backend still rejects the predicate during SQL compilation. That leaves a contract gap where the capability exists in validation metadata and database storage, yet execution cannot match against persisted heading bodies.
+
+** Goals
+
+- Implement ~(has-text ...)~ for heading queries using persisted ~heading_bodies.body_text~.
+- Keep matching independent from FTS5 and raw Org file access.
+- Preserve clear capability errors when body text is unavailable.
+- Add focused tests for SQL compilation, execution semantics, and bound parameters.
+
+** Non-goals
+
+- No FTS5 query syntax or tokenizer behavior.
+- No regexp support beyond existing explicit rejection.
+- No changes to parser or indexing semantics for what counts as heading body text.
+
+** Architecture
+
+- Compile ~(has-text ...)~ to correlated ~EXISTS~ subqueries against ~heading_bodies~ keyed by the current heading id.
+- Reuse the backend's existing case-insensitive substring matching strategy via ~LOWER(...)~ and ~INSTR(..., LOWER(?)) > 0~.
+- Keep one correlated ~EXISTS~ per term so multiple terms naturally mean AND on the same heading body.
+- Leave capability gating in validation and execute-time checks unchanged.
+
+** Execution plan
+
+- Add SQLite compilation support for heading-target ~(has-text ...)~.
+- Extend compiler and execution tests around bound parameters, AND semantics, case behavior, empty bodies, and no-match cases.
+- Update query-model and CLI docs where they still describe backend support as unavailable.
+- Run focused tests, then ~cargo test --all-targets --all-features~, then ~make ci~.
+
+** Risks & assumptions
+
+- Root/file pseudo-heading rows should not match because they have no ~heading_bodies~ row; the base heading scope filter should keep normal heading semantics intact.
+- Existing validation should already prevent zero-arity and unsupported regexp queries, but compilation still needs defensive handling consistent with other text predicates.
+
+** Open questions
+
+- None at the moment.
+
+** Proposed checks
+
+- focused ~src/query/sqlite.rs~ tests for compile/execution behavior
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added SQLite compilation support for ~(has-text ...)~ on heading queries using correlated ~EXISTS~ subqueries against ~heading_bodies~.
+- Reused the backend's current case-insensitive substring semantics via ~LOWER(...)~ and ~INSTR(..., LOWER(?)) > 0~, with one bound parameter per search term and AND semantics across terms.
+- Seeded persisted heading-body fixtures in the SQLite query tests so execution coverage exercises available capability, missing rows, and empty-body rows without touching parser or indexer behavior.
+- Updated CLI docs with a direct ~has-text~ example against the persisted query layer.
+- Tightened the shared SQLite body-text capability check so it now requires all of: existing ~db_metadata~, existing ~heading_bodies~, and a persisted ~body_text_available~ value of exactly ~"1"~.
+- Reused that complete capability check for both validation-option loading and the execute-time backend guard, so inconsistent reduced schemas are classified as unavailable capability instead of surfacing raw ~no such table: heading_bodies~ errors.
+- Added reduced-schema regression coverage for missing ~db_metadata~, missing ~heading_bodies~, missing metadata row, explicit ~"0"~, and the valid ~heading_bodies + "1"~ case.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~docs/cli.org~
+- ~.project/tasks/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test body_text_capability~
+- ~cargo test has_text~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+
+- Focused ~has_text~ tests passed, including bound-parameter compilation, case-insensitive substring matching, AND semantics across multiple terms, empty-body exclusion, missing-body-row exclusion, and disabled-capability failure.
+- Focused body-text capability tests passed for missing ~db_metadata~, missing ~heading_bodies~, missing metadata row, explicit ~"0"~, valid persisted capability, and execute-time rejection of the inconsistent reduced schema without leaking raw SQLite table errors.
+- ~cargo test --all-targets --all-features~ passed.
+- ~make ci~ passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- The remaining FTS5 task can stay optional; ~(has-text ...)~ now works independently from FTS-specific indexing or query syntax.

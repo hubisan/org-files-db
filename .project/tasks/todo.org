@@ -162,7 +162,7 @@ General rules:
 
 - Task file: [[file:archive/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
 
-** BUILD [#C] Persist heading body text for query execution
+** DONE [#C] Persist heading body text for query execution
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
@@ -170,68 +170,9 @@ General rules:
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-- Task file: [[file:2026-07-16--persist-heading-body-text-for-query-execution.org]]
+- Task file: [[file:archive/2026-07-16--persist-heading-body-text-for-query-execution.org]]
 
-Depends on:
-
-- Implement safe SQL translation and core metadata query execution
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Persist heading body text as an optional canonical database fact.
-- Make body-text availability explicit and testable in the database and indexing contract.
-- Provide the persisted source used later by ~(has-text ...)~ and optional FTS5 indexing.
-
-Configuration:
-
-#+begin_src toml
-[search]
-index_body_text = true
-#+end_src
-
-Rules:
-
-- Body-text persistence is controlled by ~search.index_body_text~.
-- If ~search.index_body_text = true~, heading body text is extracted during indexing and stored in the database.
-- If ~search.index_body_text = false~, heading body text is not stored.
-- Body text must be stored canonically outside FTS5.
-- FTS5 must not become the only storage location for body text.
-- Query execution must never read Org files to obtain body text.
-- Persisted body text must correspond to the heading body defined by the parser and indexing contract.
-- Heading metadata facts must not be mutated during query execution.
-- Body-text availability must be discoverable from the opened database and must not be inferred only from the current configuration file.
-- Existing databases must migrate safely.
-- Disabling body-text persistence must not require FTS5 to be disabled.
-
-Suggested schema:
-
-#+begin_src sql
-CREATE TABLE heading_body_text (
-    heading_id INTEGER PRIMARY KEY
-        REFERENCES headings(id)
-        ON DELETE CASCADE,
-    body_text TEXT NOT NULL
-);
-#+end_src
-
-The exact capability representation may use schema inspection, persisted database metadata, or another explicit database-level contract. It must not rely only on the configuration used by the current process.
-
-Acceptance criteria:
-
-- Heading body text is stored in a canonical non-FTS table when ~search.index_body_text~ is enabled.
-- Heading body text is not stored when ~search.index_body_text~ is disabled.
-- Stored body rows use the corresponding ~headings.id~ as their identity.
-- Rebuilding a file replaces its previously persisted body-text facts.
-- Removing or rebuilding headings does not leave orphan body-text rows.
-- Body-text availability is explicit and discoverable from the database.
-- Existing databases migrate safely.
-- Reindexing produces stable body-text facts.
-- Empty heading bodies have documented and tested behaviour.
-- Body text is not read from Org files during query execution.
-- Tests cover enabled storage, disabled storage, rebuild replacement, deletion, empty bodies, migration, no Org file scanning during queries, and no query-time DB mutation.
-
-** TODO [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
+** DONE [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
 :PROPERTIES:
 :PRIORITY: Low
 :RISK: Medium
@@ -239,53 +180,7 @@ Acceptance criteria:
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-Depends on:
-
-- Persist heading body text for query execution
-- Implement safe SQL translation and core metadata query execution
-- [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]]
-
-Goal:
-
-- Implement ~(has-text ...)~ as part of the query language using canonically persisted heading body text.
-- Keep ~(has-text ...)~ independent of FTS5 semantics.
-
-Rules:
-
-- ~(has-text ...)~ is part of the canonical query language.
-- ~(has-text ...)~ does not require FTS5.
-- The SQLite metadata backend initially uses ordinary SQL matching against persisted heading body text.
-- Query execution must not scan Org files.
-- Query execution must not mutate parsed heading metadata or persisted body-text facts.
-- If body text is unavailable in the opened database, ~(has-text ...)~ must return a clear unsupported-backend capability error.
-- Missing body-text capability must not be represented as an empty result set.
-- Multiple search terms use AND semantics: every term must match the same heading body.
-- Matching semantics must be documented independently of FTS5 tokenisation and query syntax.
-- User-provided terms must use bound SQL parameters.
-- ~:regexp t~ must return a clear unsupported-backend error unless the SQLite backend explicitly provides regexp matching.
-- The implementation must not infer body text from title, properties, keywords, raw Org files, or FTS-only content.
-
-Initial matching semantics:
-
-- ~(has-text "sqlite")~ matches when the persisted heading body contains ~sqlite~.
-- ~(has-text "sqlite" "fts")~ matches only when the same persisted heading body contains both terms.
-- Matching should follow the Query Model's documented case-sensitivity rules.
-- Empty search terms and duplicate terms must follow validation rules defined by the Query Model.
-
-Acceptance criteria:
-
-- ~(has-text "sqlite")~ works when persisted body text is available.
-- ~(has-text "sqlite" "fts")~ requires both terms to match the same heading body.
-- Terms are passed to SQLite through bound parameters.
-- ~(has-text "sqlite.*fts" :regexp t)~ returns a clear unsupported-backend error unless regexp support is explicitly implemented.
-- If body text is unavailable, the query returns a clear capability error.
-- If the body-text table or required capability is missing, the backend does not expose a raw SQLite error.
-- A heading with no matching body text is excluded.
-- Empty bodies behave as documented.
-- Query execution does not scan Org files.
-- Query execution does not mutate the database.
-- Tests cover available body text, unavailable body text, single-term matching, multiple-term AND matching, case behaviour, empty bodies, unsupported regexp matching, bound parameters, no Org file scanning, and no DB mutation.
-- The query model documentation defines ~(has-text ...)~ independently of FTS5.
+- Task file: [[file:archive/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
 
 ** TODO [#C] Enable optional contentless SQLite FTS5 for full-text search
 :PROPERTIES:
