@@ -189,40 +189,5 @@ General rules:
 ** DONE [#C] Provide CLI command ~search~
 
 - Task file: [[file:2026-07-16--provide-cli-command-search.org]]
-
-** TODO [#C] Collect future graph operation commands
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Goal:
-
-- Capture CLI operations that are related to the indexed graph but should not be mixed into Query Model v0 or read-only search.
-
-Potential operations:
-
-- Rename a file and update affected links.
-- Update link descriptions when a file title changes.
-- Fix broken links by replacing an old destination with a new destination.
-- Warn when a change breaks links, possibly through a watcher.
-- Suggest possible targets for unresolved or ambiguous links.
-
-Rules:
-
-- Query and search scope remains read-only.
-- Mutation and repair commands are not part of Query Model v0.
-- Future operation commands must be split into separate tasks before implementation.
-- Operation commands must not be hidden inside ~query~ or ~search~.
-- Each future mutation command requires its own safety, preview, rollback, and API contract.
-- No graph mutation functionality is implemented in this collection task.
-
-Acceptance criteria:
-
-- Future operation ideas are documented as future work.
-- Query and search scope remains separate from mutation and repair operations.
-- No mutation command is implemented as part of Query Model v0.
-- No mutation behaviour is added to ~search~.
-- Every future mutation command receives a separate task with an explicit API and safety contract before implementation.
+  
+** TODO Manual Test the Implementation

@@ -14,7 +14,7 @@ General rules:
 - Parsing and DB writing should remain cleanly separated.
 - Rebuilds should be deterministic.
 - Derived/cache tables must stay consistent with core rows.
-- Parallel parsing is tracked separately in Phase 7; Phase 6 should keep the indexer structure clean enough to enable it later.
+- Parallel parsing is tracked separately in Phase 8; Phase 6 should keep the indexer structure clean enough to enable it later.
 
 ** TODO Recursive file discovery ~(find_org_files)~
 
@@ -45,6 +45,29 @@ Acceptance criteria:
 - ~content_hash~ is explicitly defined as file content bytes unless decided otherwise.
 - Deleted files are removed from the DB or marked as missing.
 - Tests cover unchanged, changed, and deleted files.
+
+** TODO Implement transactional per-file replacement
+
+Goal: Provide a reusable indexer operation for replacing or removing exactly one file without requiring a watcher.
+
+General rules:
+
+- The operation must use the same parser adapter and DB write path as a full rebuild.
+- A file update replaces all rows belonging to that file inside one transaction.
+- File removal deletes or marks all rows belonging to that file consistently.
+- The operation must be callable and testable independently of filesystem events.
+- Link resolution updates may be deferred but must be documented.
+
+Acceptance criteria:
+
+- One changed file can be parsed and replaced transactionally.
+- One deleted file can be removed or marked missing consistently.
+- Old headings, TODO keywords, tags, keywords, properties, timestamps, links, bodies, outline rows, and FTS rows for the file are replaced where applicable.
+- Level 0 heading is recreated consistently.
+- The operation works when FTS5 is disabled.
+- FTS rows are updated when FTS5 is enabled.
+- Transaction errors do not leave partial file data.
+- Tests cover modified, created, deleted, and failed replacements where practical.
 
 ** TODO Optimize transaction batching
 
@@ -86,13 +109,56 @@ Acceptance criteria:
 - Findings are documented.
 - Schema changes are based on measurements, not assumptions.
 
-* Phase 7: Parallel indexing pipeline
+* Phase 7: Watcher for incremental updates
+
+Goal of this phase: Detect file changes and index selectively.
+
+General rules:
+
+- Selective reparse should call the transactional per-file replacement operation from Phase 6.
+- Filesystem events should remain separate from parsing and DB mutation logic.
+- Link resolution updates may be deferred but must be documented.
+
+** TODO Integrate file watcher via ~notify~
+
+Acceptance criteria:
+
+- Changes to Org files are detected.
+- New files are detected.
+- Deleted files are detected.
+- Ignored directories are respected if file discovery supports them.
+- Watcher errors are reported clearly.
+
+** TODO Implement debounce mechanism
+
+Goal: Combine editor save events.
+
+Acceptance criteria:
+
+- Multiple quick events lead to one reparse.
+- Debounce duration is configurable or sensibly fixed.
+- Behavior is deterministic enough for tests or documented manual checks.
+
+** TODO Selective reparse
+
+Goal: Translate watcher events into calls to the transactional per-file replacement or removal operation from Phase 6.
+
+Acceptance criteria:
+
+- Only the affected file operation is triggered.
+- Modified and created files call the Phase 6 replacement operation.
+- Deleted files call the Phase 6 removal operation.
+- Link resolution is updated for affected targets or explicitly marked as later work.
+- Duplicate or redundant watcher events do not cause inconsistent DB state.
+- Tests cover modified, created, and deleted files where practical.
+
+* Phase 8: Parallel indexing pipeline
 
 Goal of this phase: Make rebuild fast on larger Org collections by parallelizing file parsing while keeping filesystem discovery, per-file context resolution, and SQLite writes deterministic.
 
 Reason for separate phase:
 
-- Parallel scanning/parsing affects indexer architecture, DB write ordering, error handling, resolver caches, and later watcher behavior.
+- Parallel scanning/parsing affects indexer architecture, DB write ordering, error handling, and resolver caches.
 - It should not be mixed into TODO keyword resolution or parser correctness tasks.
 - New resolver code should already avoid global mutable state so this phase can be implemented cleanly later.
 
@@ -154,50 +220,6 @@ Acceptance criteria:
 - Parallel parsing rebuild time is measured.
 - SQLite write time is measured separately where practical.
 - Results document CPU, IO, and memory tradeoffs.
-
-* Phase 8: Watcher for incremental updates
-
-Goal of this phase: Detect file changes and index selectively.
-
-General rules:
-
-- Selective reparse should use the same parser adapter and DB write path as full rebuild.
-- A file update replaces all rows belonging to that file inside one transaction.
-- Link resolution updates may be deferred but must be documented.
-
-** TODO Integrate file watcher via ~notify~
-
-Acceptance criteria:
-
-- Changes to Org files are detected.
-- New files are detected.
-- Deleted files are detected.
-- Ignored directories are respected if file discovery supports them.
-- Watcher errors are reported clearly.
-
-** TODO Implement debounce mechanism
-
-Goal: Combine editor save events.
-
-Acceptance criteria:
-
-- Multiple quick events lead to one reparse.
-- Debounce duration is configurable or sensibly fixed.
-- Behavior is deterministic enough for tests or documented manual checks.
-
-** TODO Selective reparse
-
-Goal: When a file changes, reparse exactly the affected file through the parser adapter and replace it in the DB through a transaction.
-
-Acceptance criteria:
-
-- Only the affected file is reindexed.
-- Old headings, TODO keywords, tags, keywords, properties, timestamps, links, bodies, outline rows, and FTS rows for the file are replaced where applicable.
-- Link resolution is updated for affected targets or explicitly marked as later work.
-- Level 0 heading is recreated consistently.
-- Selective reparse works when FTS5 is disabled.
-- Selective reparse updates FTS rows when FTS5 is enabled.
-- Tests cover modified, created, and deleted files where practical.
 
 * Phase 9: Emacs integration
 
