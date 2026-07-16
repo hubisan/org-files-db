@@ -185,59 +185,10 @@ General rules:
 ** DONE [#C] Enable optional contentless SQLite FTS5 for full-text search
 
 - Task file: [[file:archive/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
+  
+** DONE [#C] Provide CLI command ~search~
 
-** TODO [#C] Provide CLI command ~search~
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Depends on:
-
-- Enable optional contentless SQLite FTS5 for full-text search
-
-Goal:
-
-- Provide a simple FTS-focused convenience command before or alongside the canonical query language.
-
-Example:
-
-#+begin_src shell
-orgfdb search --json sqlite
-#+end_src
-
-Rules:
-
-- ~search~ is a convenience command, not the canonical query language.
-- ~search~ must not redefine Query Model v0 semantics.
-- ~search~ may expose documented FTS5-specific matching, tokenisation, ranking, prefix, or operator behaviour.
-- ~search~ uses ~heading_fts~ only when ~search.fts5_enabled~ is enabled.
-- If FTS5 is disabled or unavailable, ~search~ returns a clear documented error.
-- ~search~ is read-only.
-- ~search~ must not scan Org files.
-- ~search~ must not rebuild or mutate the database.
-- Body matches are available only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
-- Title matches remain available when FTS5 is enabled and body-text persistence is disabled.
-- Body-only requests against a title-only index must return clear documented behaviour.
-- Output must include enough location data for editor jumps.
-- User-provided search expressions must be handled safely and must not be interpolated into unrelated SQL.
-
-Acceptance criteria:
-
-- Search returns JSON when ~--json~ is passed.
-- Results include heading id, file path, title, line number where available, ~byte_start~, and ~byte_end~.
-- Results include enough location data for editor jumps.
-- Search can match heading titles when FTS5 is enabled.
-- Search can include body matches when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
-- Title-only search works when FTS5 is enabled and body-text persistence is disabled.
-- If FTS5 is disabled, the command returns a clear documented error.
-- If body-text persistence is disabled, body-only search returns a clear error or follows explicitly documented title-only behaviour.
-- Search ranking and FTS-specific syntax are documented where exposed.
-- Output is usable from Emacs and other editor integrations.
-- The command is read-only and does not rebuild or mutate the database.
-- Tests cover JSON output, title matches, optional body matches, disabled FTS5, disabled body persistence, FTS syntax errors, read-only behaviour, no Org file scanning, and editor-jump location fields.
+- Task file: [[file:2026-07-16--provide-cli-command-search.org]]
 
 ** TODO [#C] Collect future graph operation commands
 :PROPERTIES:

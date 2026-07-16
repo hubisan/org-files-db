@@ -12,7 +12,12 @@ use serde::Serialize;
 
 use crate::{
     config::{Config, ConfigError},
-    db::{open_existing_database_read_only, DbError, DbReader, HeadingListRow, LinkListRow},
+    db::{
+        open_existing_database_read_only, sqlite_supports_fts5, DbError, DbReader, HeadingListRow,
+        LinkListRow, SearchHeadingRow, DB_METADATA_FTS_AVAILABLE_KEY,
+        DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+        FTS_SCHEMA_CONTRACT_VERSION,
+    },
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
     query::{
@@ -67,6 +72,18 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(help = "Query Model v0 expression, for example '(todo \"NEXT\")'")]
         query: String,
+    },
+    Search {
+        #[arg(long)]
+        json: bool,
+        #[arg(long, conflicts_with = "body")]
+        title: bool,
+        #[arg(long, conflicts_with = "title")]
+        body: bool,
+        #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(help = "Raw SQLite FTS5 MATCH expression")]
+        expression: String,
     },
 }
 
@@ -165,6 +182,22 @@ where
             write_json_output(&response)?;
             Ok(())
         }
+        Command::Search {
+            json,
+            title,
+            body,
+            config,
+            expression,
+        } => {
+            let rows = search_json_rows(
+                json,
+                cli_search_scope(title, body),
+                &expression,
+                config.as_deref(),
+            )?;
+            write_json_output(&rows)?;
+            Ok(())
+        }
     }
 }
 
@@ -231,6 +264,294 @@ fn query_json_response(
     execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CliSearchScope {
+    All,
+    Title,
+    Body,
+}
+
+fn cli_search_scope(title: bool, body: bool) -> CliSearchScope {
+    if title {
+        CliSearchScope::Title
+    } else if body {
+        CliSearchScope::Body
+    } else {
+        CliSearchScope::All
+    }
+}
+
+fn search_json_rows(
+    json: bool,
+    scope: CliSearchScope,
+    expression: &str,
+    config_path: Option<&Path>,
+) -> Result<Vec<SearchJsonRow>, CliError> {
+    if !json {
+        return Err(CliError::MissingJsonFlag("search"));
+    }
+
+    if expression.trim().is_empty() {
+        return Err(CliError::InvalidSearchUsage(
+            "search requires a non-empty FTS expression".to_string(),
+        ));
+    }
+
+    let compiled_expression = compile_search_expression(scope, expression)?;
+
+    let config = load_cli_config(config_path)?;
+    if !config.search.fts5_enabled {
+        return Err(CliError::Search(SearchError::DisabledByConfig));
+    }
+
+    let connection =
+        open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
+    match sqlite_supports_fts5(&connection) {
+        Ok(true) => {}
+        Ok(false) => return Err(CliError::Search(SearchError::FtsUnavailable)),
+        Err(source) => {
+            return Err(CliError::Search(SearchError::Inspect {
+                operation: "probe SQLite FTS5 support",
+                source,
+            }))
+        }
+    }
+
+    let trust = inspect_search_backend_state(&connection)?;
+    if scope == CliSearchScope::Body && !trust.body_indexed {
+        return Err(CliError::Search(SearchError::BodyScopeUnavailable));
+    }
+
+    DbReader::search_headings(&connection, &compiled_expression)
+        .map_err(map_search_db_read_error)?
+        .into_iter()
+        .map(SearchJsonRow::from_db_row)
+        .collect()
+}
+
+fn map_search_db_read_error(error: crate::db::DbReadError) -> CliError {
+    match error {
+        crate::db::DbReadError::Query { operation, source }
+            if is_expected_fts5_expression_error(&source) =>
+        {
+            let _operation = operation;
+            CliError::Search(SearchError::InvalidExpression { expression: None })
+        }
+        crate::db::DbReadError::Query { operation, source } => {
+            CliError::Search(SearchError::Execute { operation, source })
+        }
+    }
+}
+
+fn compile_search_expression(scope: CliSearchScope, expression: &str) -> Result<String, CliError> {
+    match scope {
+        CliSearchScope::All => Ok(expression.to_string()),
+        CliSearchScope::Title => {
+            reject_explicit_column_filter(expression, "title")?;
+            Ok(format!("title: ({expression})"))
+        }
+        CliSearchScope::Body => {
+            reject_explicit_column_filter(expression, "body")?;
+            Ok(format!("body: ({expression})"))
+        }
+    }
+}
+
+fn reject_explicit_column_filter(expression: &str, scope: &'static str) -> Result<(), CliError> {
+    if contains_unquoted_colon(expression) {
+        return Err(CliError::Search(SearchError::ScopedColumnFilter { scope }));
+    }
+    Ok(())
+}
+
+fn contains_unquoted_colon(expression: &str) -> bool {
+    let mut in_quotes = false;
+    let mut chars = expression.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                if in_quotes && chars.peek() == Some(&'"') {
+                    chars.next();
+                } else {
+                    in_quotes = !in_quotes;
+                }
+            }
+            ':' if !in_quotes => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn inspect_search_backend_state(connection: &Connection) -> Result<SearchBackendState, CliError> {
+    let metadata_table_exists = table_exists(connection, "db_metadata").map_err(|source| {
+        CliError::Search(SearchError::Inspect {
+            operation: "inspect db_metadata existence",
+            source,
+        })
+    })?;
+    if !metadata_table_exists {
+        return Err(CliError::Search(SearchError::MissingTrustMetadata));
+    }
+
+    let fts_available =
+        load_metadata_value(connection, DB_METADATA_FTS_AVAILABLE_KEY).map_err(|source| {
+            CliError::Search(SearchError::Inspect {
+                operation: "load fts_available",
+                source,
+            })
+        })?;
+    let fts_body_indexed = load_metadata_value(connection, DB_METADATA_FTS_BODY_INDEXED_KEY)
+        .map_err(|source| {
+            CliError::Search(SearchError::Inspect {
+                operation: "load fts_body_indexed",
+                source,
+            })
+        })?;
+    let fts_schema_version = load_metadata_value(connection, DB_METADATA_FTS_SCHEMA_VERSION_KEY)
+        .map_err(|source| {
+            CliError::Search(SearchError::Inspect {
+                operation: "load fts_schema_version",
+                source,
+            })
+        })?;
+
+    let Some(fts_available) = fts_available else {
+        return Err(CliError::Search(SearchError::MissingTrustMetadata));
+    };
+    let Some(fts_body_indexed) = fts_body_indexed else {
+        return Err(CliError::Search(SearchError::MissingTrustMetadata));
+    };
+    let Some(fts_schema_version) = fts_schema_version else {
+        return Err(CliError::Search(SearchError::MissingTrustMetadata));
+    };
+
+    if fts_available != "1" && fts_available != "0" {
+        return Err(CliError::Search(SearchError::InvalidTrustMetadata));
+    }
+    if fts_body_indexed != "1" && fts_body_indexed != "0" {
+        return Err(CliError::Search(SearchError::InvalidTrustMetadata));
+    }
+    if fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION && fts_schema_version != "0" {
+        return Err(CliError::Search(SearchError::InvalidTrustMetadata));
+    }
+    if fts_available != "1" || fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION {
+        return Err(CliError::Search(SearchError::MissingTrustedIndex));
+    }
+
+    let heading_fts_exists = table_exists(connection, "heading_fts").map_err(|source| {
+        CliError::Search(SearchError::Inspect {
+            operation: "inspect heading_fts existence",
+            source,
+        })
+    })?;
+    if !heading_fts_exists {
+        return Err(CliError::Search(SearchError::MissingTrustedIndex));
+    }
+
+    let table_sql = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'heading_fts'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|source| {
+            CliError::Search(SearchError::Inspect {
+                operation: "load heading_fts definition",
+                source,
+            })
+        })?;
+    let normalized = normalize_sql_definition(&table_sql);
+    if !normalized.contains("createvirtualtable")
+        || !normalized.contains("usingfts5")
+        || !normalized.contains("content=''")
+        || !normalized.contains("tokenize='unicode61'")
+    {
+        return Err(CliError::Search(SearchError::IncompatibleIndexSchema));
+    }
+
+    let columns = load_table_columns(connection, "heading_fts").map_err(|source| {
+        CliError::Search(SearchError::Inspect {
+            operation: "inspect heading_fts columns",
+            source,
+        })
+    })?;
+    if columns != ["title".to_string(), "body".to_string()] {
+        return Err(CliError::Search(SearchError::IncompatibleIndexSchema));
+    }
+
+    Ok(SearchBackendState {
+        body_indexed: fts_body_indexed == "1",
+    })
+}
+
+fn load_metadata_value(
+    connection: &Connection,
+    key: &str,
+) -> Result<Option<String>, rusqlite::Error> {
+    connection
+        .query_row(
+            "SELECT value FROM db_metadata WHERE key = ?1",
+            [key],
+            |row| row.get::<_, String>(0),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+}
+
+fn table_exists(connection: &Connection, table: &str) -> Result<bool, rusqlite::Error> {
+    connection.query_row(
+        "SELECT EXISTS(
+             SELECT 1
+             FROM sqlite_master
+             WHERE type = 'table' AND name = ?1
+         )",
+        [table],
+        |row| row.get(0),
+    )
+}
+
+fn load_table_columns(
+    connection: &Connection,
+    table: &str,
+) -> Result<Vec<String>, rusqlite::Error> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut statement = connection.prepare(&pragma)?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
+    rows.collect::<Result<Vec<_>, _>>()
+}
+
+fn normalize_sql_definition(sql: &str) -> String {
+    sql.chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn is_expected_fts5_expression_error(error: &rusqlite::Error) -> bool {
+    let Some(message) = sqlite_error_message(error) else {
+        return false;
+    };
+    message.contains("fts5:")
+        || message.contains("unterminated string")
+        || message.contains("no such column:")
+}
+
+fn sqlite_error_message(error: &rusqlite::Error) -> Option<&str> {
+    match error {
+        rusqlite::Error::SqliteFailure(_, Some(message)) => Some(message.as_str()),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SearchBackendState {
+    body_indexed: bool,
+}
+
 fn headings_rows_for_json(
     connection: &Connection,
     exclude_root: bool,
@@ -294,6 +615,7 @@ fn print_diagnostics(report: &RebuildReport) {
 enum CliError {
     Parse(clap::Error),
     MissingJsonFlag(&'static str),
+    InvalidSearchUsage(String),
     Config(ConfigError),
     Database(DbError),
     DbRead(crate::db::DbReadError),
@@ -302,6 +624,7 @@ enum CliError {
     QueryValidate(QueryValidationError),
     QueryExecute(QueryExecutionError),
     QueryShape(QueryShapeError),
+    Search(SearchError),
     InvalidHeadingTags {
         heading_id: i64,
         source: serde_json::Error,
@@ -317,7 +640,7 @@ enum CliError {
 impl CliError {
     fn exit_code(&self) -> u8 {
         match self {
-            Self::Parse(_) | Self::MissingJsonFlag(_) => 2,
+            Self::Parse(_) | Self::MissingJsonFlag(_) | Self::InvalidSearchUsage(_) => 2,
             Self::Config(_)
             | Self::Database(_)
             | Self::DbRead(_)
@@ -326,6 +649,7 @@ impl CliError {
             | Self::QueryValidate(_)
             | Self::QueryExecute(_)
             | Self::QueryShape(_)
+            | Self::Search(_)
             | Self::InvalidHeadingTags { .. }
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
@@ -341,6 +665,7 @@ impl fmt::Display for CliError {
             Self::MissingJsonFlag(command) => {
                 write!(f, "{command} currently only supports --json")
             }
+            Self::InvalidSearchUsage(message) => write!(f, "{message}"),
             Self::Config(source) => write!(f, "{source}"),
             Self::Database(source) => write!(f, "{source}"),
             Self::DbRead(source) => write!(f, "{source}"),
@@ -349,6 +674,7 @@ impl fmt::Display for CliError {
             Self::QueryValidate(source) => write!(f, "{source}"),
             Self::QueryExecute(source) => write!(f, "{source}"),
             Self::QueryShape(source) => write!(f, "{source}"),
+            Self::Search(source) => write!(f, "{source}"),
             Self::InvalidHeadingTags { heading_id, source } => {
                 write!(
                     f,
@@ -373,7 +699,7 @@ impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Parse(error) => Some(error),
-            Self::MissingJsonFlag(_) => None,
+            Self::MissingJsonFlag(_) | Self::InvalidSearchUsage(_) => None,
             Self::Config(source) => Some(source),
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
@@ -382,10 +708,104 @@ impl Error for CliError {
             Self::QueryValidate(source) => Some(source),
             Self::QueryExecute(source) => Some(source),
             Self::QueryShape(source) => Some(source),
+            Self::Search(source) => Some(source),
             Self::InvalidHeadingTags { source, .. } => Some(source),
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum SearchError {
+    DisabledByConfig,
+    FtsUnavailable,
+    MissingTrustMetadata,
+    InvalidTrustMetadata,
+    MissingTrustedIndex,
+    IncompatibleIndexSchema,
+    BodyScopeUnavailable,
+    ScopedColumnFilter {
+        scope: &'static str,
+    },
+    InvalidExpression {
+        expression: Option<String>,
+    },
+    Inspect {
+        operation: &'static str,
+        source: rusqlite::Error,
+    },
+    Execute {
+        operation: &'static str,
+        source: rusqlite::Error,
+    },
+}
+
+impl fmt::Display for SearchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DisabledByConfig => {
+                write!(f, "search requires [search].fts5_enabled = true in the active config")
+            }
+            Self::FtsUnavailable => write!(
+                f,
+                "search is unavailable because the opened SQLite connection does not support FTS5"
+            ),
+            Self::MissingTrustMetadata => write!(
+                f,
+                "search is unavailable because this database has no trusted FTS metadata; run orgfdb rebuild to create the search index"
+            ),
+            Self::InvalidTrustMetadata => write!(
+                f,
+                "search is unavailable because this database has invalid FTS metadata; run orgfdb rebuild to refresh the search index"
+            ),
+            Self::MissingTrustedIndex => write!(
+                f,
+                "search is unavailable because this database does not contain a trusted FTS index; run orgfdb rebuild to create the search index"
+            ),
+            Self::IncompatibleIndexSchema => write!(
+                f,
+                "search is unavailable because the stored FTS index is incompatible with this build; run orgfdb rebuild to refresh the search index"
+            ),
+            Self::BodyScopeUnavailable => write!(
+                f,
+                "body search is unavailable because the stored FTS index was built without body text; rebuild with body indexing enabled"
+            ),
+            Self::ScopedColumnFilter { scope } => write!(
+                f,
+                "invalid SQLite FTS5 search expression: explicit column filters are not allowed with --{scope}"
+            ),
+            Self::InvalidExpression { expression } => {
+                if let Some(expression) = expression {
+                    write!(f, "invalid SQLite FTS5 search expression: {expression}")
+                } else {
+                    write!(f, "invalid SQLite FTS5 search expression")
+                }
+            }
+            Self::Inspect { operation, source } => {
+                write!(f, "failed to inspect SQLite search state during {operation}: {source}")
+            }
+            Self::Execute { operation, source } => {
+                write!(f, "failed to execute SQLite search query during {operation}: {source}")
+            }
+        }
+    }
+}
+
+impl Error for SearchError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::DisabledByConfig
+            | Self::FtsUnavailable
+            | Self::MissingTrustMetadata
+            | Self::InvalidTrustMetadata
+            | Self::MissingTrustedIndex
+            | Self::IncompatibleIndexSchema
+            | Self::BodyScopeUnavailable
+            | Self::ScopedColumnFilter { .. }
+            | Self::InvalidExpression { .. } => None,
+            Self::Inspect { source, .. } | Self::Execute { source, .. } => Some(source),
         }
     }
 }
@@ -441,6 +861,17 @@ struct LinkJsonRow {
     byte_start: i64,
     byte_end: i64,
     line: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct SearchJsonRow {
+    heading_id: i64,
+    path: String,
+    title: String,
+    line_number: Option<i64>,
+    byte_start: i64,
+    byte_end: i64,
+    rank: f64,
 }
 
 impl TryFrom<HeadingListRow> for HeadingJsonRow {
@@ -520,6 +951,20 @@ impl TryFrom<LinkListRow> for LinkJsonRow {
     }
 }
 
+impl SearchJsonRow {
+    fn from_db_row(row: SearchHeadingRow) -> Result<Self, CliError> {
+        Ok(Self {
+            heading_id: row.heading_id,
+            path: row.path,
+            title: row.title,
+            line_number: row.line_number,
+            byte_start: row.byte_start,
+            byte_end: row.byte_end,
+            rank: row.rank,
+        })
+    }
+}
+
 fn strip_root_breadcrumb(mut breadcrumbs: Vec<String>, heading_level: i64) -> Vec<String> {
     if heading_level == 0 {
         Vec::new()
@@ -533,10 +978,13 @@ fn strip_root_breadcrumb(mut breadcrumbs: Vec<String>, heading_level: i64) -> Ve
 
 #[cfg(test)]
 mod tests {
-    use super::{rebuild, Cli, CliError};
+    use super::{rebuild, search_json_rows, Cli, CliError, CliSearchScope, SearchError};
     use crate::db::{
-        open_database, open_in_memory_database_with_schema, DbError, DbWriter, FileRecordInput,
-        HeadingRecord, LinkRecord, OutlinePathRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        open_database, open_database_with_schema, open_in_memory_database_with_schema,
+        sqlite_supports_fts5, DbError, DbWriter, FileRecordInput, HeadingRecord, LinkRecord,
+        OutlinePathRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY,
+        DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+        FTS_SCHEMA_CONTRACT_VERSION,
     };
     use clap::Parser;
     use rusqlite::Connection;
@@ -583,6 +1031,57 @@ mod tests {
             fs::create_dir_all(parent).expect("parent dir should be created");
         }
         fs::write(path, content).expect("file should be written");
+    }
+
+    fn write_search_config(
+        path: &Path,
+        db_path: &str,
+        file_names: &[&str],
+        fts5_enabled: bool,
+        index_body_text: bool,
+    ) {
+        let files = file_names
+            .iter()
+            .map(|file| format!("{file:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        write_file(
+            path,
+            &format!(
+                "db_path = {db_path:?}\nfiles = [{files}]\n\n[search]\nfts5_enabled = {fts5_enabled}\nindex_body_text = {index_body_text}\n",
+            ),
+        );
+    }
+
+    fn build_search_fixture(
+        name: &str,
+        files: &[(&str, &str)],
+        index_body_text: bool,
+    ) -> (TestDir, PathBuf, PathBuf) {
+        let probe = Connection::open_in_memory().expect("probe should open");
+        assert!(
+            sqlite_supports_fts5(&probe).expect("fts5 probe should run"),
+            "search fixture requires SQLite FTS5 support"
+        );
+
+        let test_dir = TestDir::new(name);
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        for (file_name, content) in files {
+            write_file(&test_dir.path().join(file_name), content);
+        }
+        let file_names = files.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+        write_search_config(
+            &config_path,
+            "./db.sqlite",
+            &file_names,
+            true,
+            index_body_text,
+        );
+
+        rebuild(&config_path).expect("search fixture rebuild should succeed");
+        (test_dir, config_path, db_path)
     }
 
     #[test]
@@ -746,6 +1245,551 @@ mod tests {
                 assert_eq!(query, "(todo \"NEXT\")");
             }
             other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["orgfdb", "search", "--json", "sqlite"])
+            .expect("search args should parse");
+        match cli.command {
+            super::Command::Search {
+                json,
+                title,
+                body,
+                config,
+                expression,
+            } => {
+                assert!(json);
+                assert!(!title);
+                assert!(!body);
+                assert_eq!(config, None);
+                assert_eq!(expression, "sqlite");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "search",
+            "--json",
+            "--title",
+            "--config",
+            "config.toml",
+            "\"sqlite phrase\"",
+        ])
+        .expect("search scoped args should parse");
+        match cli.command {
+            super::Command::Search {
+                json,
+                title,
+                body,
+                config,
+                expression,
+            } => {
+                assert!(json);
+                assert!(title);
+                assert!(!body);
+                assert_eq!(config, Some(PathBuf::from("config.toml")));
+                assert_eq!(expression, "\"sqlite phrase\"");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn search_cli_rejects_conflicting_scope_flags() {
+        let error =
+            Cli::try_parse_from(["orgfdb", "search", "--json", "--title", "--body", "sqlite"])
+                .expect_err("conflicting scope flags should fail");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn search_cli_rejects_unexpected_extra_expression_arguments() {
+        let error = Cli::try_parse_from(["orgfdb", "search", "--json", "sqlite", "extra"])
+            .expect_err("multiple expression args should fail");
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn search_requires_json_flag() {
+        let error = search_json_rows(false, CliSearchScope::All, "sqlite", None)
+            .expect_err("search should require json");
+        assert!(matches!(error, CliError::MissingJsonFlag("search")));
+    }
+
+    #[test]
+    fn search_rejects_empty_expression() {
+        let error = search_json_rows(true, CliSearchScope::All, "   ", None)
+            .expect_err("empty expression should fail");
+        match error {
+            CliError::InvalidSearchUsage(message) => {
+                assert!(message.contains("non-empty FTS expression"));
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn search_returns_json_rows_from_canonical_tables() {
+        let (_test_dir, config_path, db_path) = build_search_fixture(
+            "search-canonical",
+            &[(
+                "notes.org",
+                "* Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            true,
+        );
+
+        let connection = open_database(&db_path).expect("database should open");
+        connection
+            .execute(
+                "UPDATE headings SET title = 'Canonical Override' WHERE level > 0",
+                [],
+            )
+            .expect("canonical title should update");
+        drop(connection);
+
+        let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect("search should succeed");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "Canonical Override");
+        assert_eq!(
+            rows[0].path,
+            db_path
+                .parent()
+                .unwrap()
+                .join("notes.org")
+                .display()
+                .to_string()
+        );
+        assert_eq!(rows[0].line_number, Some(1));
+        assert_eq!(rows[0].byte_start, 0);
+        assert!(rows[0].byte_end >= rows[0].byte_start);
+    }
+
+    #[test]
+    fn search_supports_default_title_and_body_matching() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-default-scope",
+            &[(
+                "notes.org",
+                "* Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            true,
+        );
+
+        let title_rows =
+            search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+                .expect("title search should succeed");
+        let body_rows = search_json_rows(true, CliSearchScope::All, "phrase", Some(&config_path))
+            .expect("body search should succeed");
+
+        assert_eq!(title_rows.len(), 1);
+        assert_eq!(body_rows.len(), 1);
+    }
+
+    #[test]
+    fn search_enforces_title_and_body_scopes() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-scopes",
+            &[(
+                "notes.org",
+                "* Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            true,
+        );
+
+        let title_rows = search_json_rows(
+            true,
+            CliSearchScope::Title,
+            "Searchable",
+            Some(&config_path),
+        )
+        .expect("title scope should succeed");
+        let no_body_rows =
+            search_json_rows(true, CliSearchScope::Title, "phrase", Some(&config_path))
+                .expect("title scope should return empty on body term");
+        let body_rows = search_json_rows(true, CliSearchScope::Body, "phrase", Some(&config_path))
+            .expect("body scope should succeed");
+
+        assert_eq!(title_rows.len(), 1);
+        assert!(no_body_rows.is_empty());
+        assert_eq!(body_rows.len(), 1);
+    }
+
+    #[test]
+    fn search_rejects_explicit_column_filters_when_scope_is_fixed() {
+        let error = search_json_rows(true, CliSearchScope::Title, "body:sqlite", None)
+            .expect_err("scoped explicit column filter should fail");
+        match error {
+            CliError::Search(SearchError::ScopedColumnFilter { scope }) => {
+                assert_eq!(scope, "title");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn search_all_scope_allows_explicit_column_filters() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-allows-column-filters",
+            &[(
+                "notes.org",
+                "* Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            true,
+        );
+
+        let title_rows = search_json_rows(
+            true,
+            CliSearchScope::All,
+            "title:(Searchable)",
+            Some(&config_path),
+        )
+        .expect("title filter should succeed");
+        let body_rows = search_json_rows(
+            true,
+            CliSearchScope::All,
+            "body:(phrase)",
+            Some(&config_path),
+        )
+        .expect("body filter should succeed");
+
+        assert_eq!(title_rows.len(), 1);
+        assert_eq!(body_rows.len(), 1);
+    }
+
+    #[test]
+    fn search_rejects_body_scope_when_trusted_index_is_title_only() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-title-only",
+            &[(
+                "notes.org",
+                "* Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            false,
+        );
+
+        let error = search_json_rows(true, CliSearchScope::Body, "phrase", Some(&config_path))
+            .expect_err("body scope should fail for title-only index");
+        assert!(matches!(
+            error,
+            CliError::Search(SearchError::BodyScopeUnavailable)
+        ));
+    }
+
+    #[test]
+    fn rebuild_persists_search_trust_metadata_for_search_command() {
+        let (_test_dir, _config_path, db_path) = build_search_fixture(
+            "search-trust-metadata",
+            &[(
+                "notes.org",
+                "* Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            true,
+        );
+        let connection = open_database(&db_path).expect("database should open");
+        let rows: Vec<(String, String)> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT key, value FROM db_metadata
+                     WHERE key IN (?1, ?2, ?3)
+                     ORDER BY key",
+                )
+                .expect("metadata query should prepare");
+            statement
+                .query_map(
+                    [
+                        DB_METADATA_FTS_AVAILABLE_KEY,
+                        DB_METADATA_FTS_BODY_INDEXED_KEY,
+                        DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+                    ],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("metadata query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("metadata rows should collect")
+        };
+
+        assert_eq!(
+            rows,
+            vec![
+                (DB_METADATA_FTS_AVAILABLE_KEY.to_string(), "1".to_string()),
+                (
+                    DB_METADATA_FTS_BODY_INDEXED_KEY.to_string(),
+                    "1".to_string(),
+                ),
+                (
+                    DB_METADATA_FTS_SCHEMA_VERSION_KEY.to_string(),
+                    FTS_SCHEMA_CONTRACT_VERSION.to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_rejects_missing_trust_metadata_and_requires_rebuild() {
+        let test_dir = TestDir::new("search-missing-metadata");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        write_search_config(&config_path, "./db.sqlite", &[], true, true);
+
+        let connection = open_database_with_schema(
+            &db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, true),
+        )
+        .expect("database should open");
+        drop(connection);
+
+        let error = search_json_rows(true, CliSearchScope::All, "sqlite", Some(&config_path))
+            .expect_err("missing metadata should fail");
+        match error {
+            CliError::Search(SearchError::MissingTrustMetadata) => {}
+            other => panic!("unexpected error: {other}"),
+        }
+        assert!(error.to_string().contains("run orgfdb rebuild"));
+    }
+
+    #[test]
+    fn search_accepts_trusted_empty_fts_rebuilds() {
+        let probe = Connection::open_in_memory().expect("probe should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let test_dir = TestDir::new("search-empty-trusted-rebuild");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        write_file(
+            &config_path,
+            r#"
+db_path = "./db.sqlite"
+
+[search]
+fts5_enabled = true
+index_body_text = true
+"#,
+        );
+
+        let report = rebuild(&config_path).expect("empty rebuild should succeed");
+        assert!(report.indexed_files.is_empty());
+        assert!(report.diagnostics.is_empty());
+
+        let rows = search_json_rows(true, CliSearchScope::All, "sqlite", Some(&config_path))
+            .expect("search should trust the empty rebuild");
+        assert!(rows.is_empty());
+
+        let connection = open_database(&db_path).expect("database should open");
+        let metadata_rows: Vec<(String, String)> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT key, value FROM db_metadata
+                     WHERE key IN (?1, ?2, ?3)
+                     ORDER BY key",
+                )
+                .expect("metadata query should prepare");
+            statement
+                .query_map(
+                    [
+                        DB_METADATA_FTS_AVAILABLE_KEY,
+                        DB_METADATA_FTS_BODY_INDEXED_KEY,
+                        DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+                    ],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .expect("metadata query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("metadata rows should collect")
+        };
+
+        assert_eq!(
+            metadata_rows,
+            vec![
+                (DB_METADATA_FTS_AVAILABLE_KEY.to_string(), "1".to_string()),
+                (
+                    DB_METADATA_FTS_BODY_INDEXED_KEY.to_string(),
+                    "1".to_string(),
+                ),
+                (
+                    DB_METADATA_FTS_SCHEMA_VERSION_KEY.to_string(),
+                    FTS_SCHEMA_CONTRACT_VERSION.to_string(),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_rejects_disabled_config_even_when_index_is_trusted() {
+        let (test_dir, trusted_config_path, _db_path) = build_search_fixture(
+            "search-disabled-config",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+        let disabled_config_path = test_dir.path().join("disabled.toml");
+        write_search_config(
+            &disabled_config_path,
+            "./db.sqlite",
+            &["notes.org"],
+            false,
+            true,
+        );
+
+        let error = search_json_rows(
+            true,
+            CliSearchScope::All,
+            "Searchable",
+            Some(&disabled_config_path),
+        )
+        .expect_err("disabled config should fail");
+        assert!(matches!(
+            error,
+            CliError::Search(SearchError::DisabledByConfig)
+        ));
+
+        let trusted_rows = search_json_rows(
+            true,
+            CliSearchScope::All,
+            "Searchable",
+            Some(&trusted_config_path),
+        )
+        .expect("trusted config should still work");
+        assert_eq!(trusted_rows.len(), 1);
+    }
+
+    #[test]
+    fn search_rejects_missing_heading_fts_even_with_trusted_metadata() {
+        let (_test_dir, config_path, db_path) = build_search_fixture(
+            "search-missing-heading-fts",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+
+        let connection = open_database(&db_path).expect("database should open");
+        connection
+            .execute_batch("DROP TABLE heading_fts;")
+            .expect("fts table should drop");
+        drop(connection);
+
+        let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect_err("missing table should fail");
+        assert!(matches!(
+            error,
+            CliError::Search(SearchError::MissingTrustedIndex)
+        ));
+    }
+
+    #[test]
+    fn search_rejects_incompatible_heading_fts_schema() {
+        let (_test_dir, config_path, db_path) = build_search_fixture(
+            "search-incompatible-heading-fts",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+
+        let connection = open_database(&db_path).expect("database should open");
+        connection
+            .execute_batch(
+                "DROP TABLE heading_fts;
+                 CREATE TABLE heading_fts (title TEXT, body TEXT);",
+            )
+            .expect("incompatible fts table should install");
+        drop(connection);
+
+        let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect_err("incompatible schema should fail");
+        assert!(matches!(
+            error,
+            CliError::Search(SearchError::IncompatibleIndexSchema)
+        ));
+    }
+
+    #[test]
+    fn search_rejects_invalid_fts_expression_without_raw_sqlite_leak() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-invalid-expression",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+
+        let error = search_json_rows(true, CliSearchScope::All, "AND", Some(&config_path))
+            .expect_err("invalid expression should fail");
+        match error {
+            CliError::Search(SearchError::InvalidExpression { .. }) => {}
+            other => panic!("unexpected error: {other}"),
+        }
+        assert_eq!(error.to_string(), "invalid SQLite FTS5 search expression");
+    }
+
+    #[test]
+    fn search_is_read_only_and_does_not_scan_org_files() {
+        let (test_dir, config_path, db_path) = build_search_fixture(
+            "search-read-only",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+
+        let writable = open_database(&db_path).expect("database should open");
+        let version_before: u32 = writable
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("user_version should load");
+        let metadata_before: Vec<(String, String)> = {
+            let mut stmt = writable
+                .prepare("SELECT key, value FROM db_metadata ORDER BY key")
+                .expect("metadata query should prepare");
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("metadata query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("metadata rows should collect")
+        };
+        let heading_fts_rows_before: i64 = writable
+            .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
+            .expect("fts row count should load");
+        drop(writable);
+
+        fs::remove_file(test_dir.path().join("notes.org")).expect("source org file should delete");
+
+        let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect("search should succeed without source file");
+        assert_eq!(rows.len(), 1);
+
+        let reopened = Connection::open(&db_path).expect("database should reopen");
+        let version_after: u32 = reopened
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("user_version should reload");
+        let metadata_after: Vec<(String, String)> = {
+            let mut stmt = reopened
+                .prepare("SELECT key, value FROM db_metadata ORDER BY key")
+                .expect("metadata query should prepare");
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("metadata query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("metadata rows should collect")
+        };
+        let heading_fts_rows_after: i64 = reopened
+            .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
+            .expect("fts row count should reload");
+
+        assert_eq!(version_after, version_before);
+        assert_eq!(metadata_after, metadata_before);
+        assert_eq!(heading_fts_rows_after, heading_fts_rows_before);
+    }
+
+    #[test]
+    fn search_orders_equal_rank_results_deterministically_by_heading_id() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-deterministic-order",
+            &[
+                ("a.org", "* Shared\nsqlite\n"),
+                ("b.org", "* Shared\nsqlite\n"),
+            ],
+            true,
+        );
+
+        let rows = search_json_rows(true, CliSearchScope::All, "Shared", Some(&config_path))
+            .expect("search should succeed");
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].rank <= rows[1].rank);
+        if (rows[0].rank - rows[1].rank).abs() < f64::EPSILON {
+            assert!(rows[0].heading_id < rows[1].heading_id);
         }
     }
 

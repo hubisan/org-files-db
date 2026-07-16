@@ -72,6 +72,23 @@ CREATE TABLE IF NOT EXISTS files (
     text persistence enabled.
     "0" when the database instance was last rebuilt with body-text persistence
     disabled.
+
+  fts_available:
+    "1" when the database instance was last rebuilt successfully with FTS
+    enabled and a trusted ~=heading_fts= index was recreated transactionally.
+    "0" when the database instance was last rebuilt successfully with FTS
+    disabled, so any on-disk ~=heading_fts= table is intentionally untrusted.
+
+  fts_body_indexed:
+    "1" when the trusted ~=heading_fts= index contains canonical body text.
+    "0" when the trusted index is title-only, or when no trusted FTS index is
+    currently available.
+
+  fts_schema_version:
+    Search-specific trusted FTS contract version as a canonical string.
+    "1" is the current contract for the contentless ~=heading_fts= layout used
+    by the ~=orgfdb search --json= command.
+    "0" indicates that no trusted search index is currently available.
 */
 CREATE TABLE IF NOT EXISTS db_metadata (
     key             TEXT PRIMARY KEY,

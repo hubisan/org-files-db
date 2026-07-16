@@ -15,7 +15,9 @@ use crate::{
         FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
         OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
         TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
-        DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+        DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
+        DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+        FTS_SCHEMA_CONTRACT_VERSION,
     },
     link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
@@ -190,6 +192,10 @@ where
         if config.search.fts5_enabled {
             DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
                 .map_err(IndexerError::Write)?;
+            persist_search_trust_metadata(&tx, true, config.search.index_body_text)
+                .map_err(IndexerError::Write)?;
+        } else {
+            persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
         }
 
         LinkResolver::resolve_all(&tx, &discovery.indexed_universe).map_err(IndexerError::Write)?;
@@ -199,6 +205,25 @@ where
 
         Ok(report)
     }
+}
+
+fn persist_search_trust_metadata(
+    connection: &Connection,
+    fts_available: bool,
+    body_indexed: bool,
+) -> Result<(), DbWriteError> {
+    DbWriter::set_metadata_flag(connection, DB_METADATA_FTS_AVAILABLE_KEY, fts_available)?;
+    DbWriter::set_metadata_flag(connection, DB_METADATA_FTS_BODY_INDEXED_KEY, body_indexed)?;
+    DbWriter::set_metadata_value(
+        connection,
+        DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+        if fts_available {
+            FTS_SCHEMA_CONTRACT_VERSION
+        } else {
+            "0"
+        },
+    )?;
+    Ok(())
 }
 
 struct PendingRebuildFile {

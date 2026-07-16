@@ -1,0 +1,398 @@
+#+TITLE: Provide CLI command ~search~
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 15:25]
+#+TASK_COMPLETED: [2026-07-16 Thu 15:33]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User task: *PLAN [#C] Provide CLI command ~search~*
+- Follow-up task: implement the finalized build-ready plan for the read-only ~orgfdb search~ CLI command.
+
+** BUILD [#C] Provide CLI command ~search~
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Maybe
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-16--provide-cli-command-search.org]]
+
+Depends on:
+
+- Enable optional contentless SQLite FTS5 for full-text search
+
+Goal:
+
+- Design and implement a read-only FTS5-focused convenience command.
+- Keep ~search~ separate from the canonical Query Model.
+- Return canonical heading and file metadata suitable for editor integrations.
+- Use the derived contentless ~heading_fts~ index without reading text payloads from it.
+
+Example:
+
+#+begin_src shell
+orgfdb search --json sqlite
+#+end_src
+
+Command shape under consideration:
+
+#+begin_src shell
+orgfdb search [OPTIONS] <EXPRESSION>
+#+end_src
+
+Recommended initial options:
+
+#+begin_src shell
+orgfdb search --json sqlite
+orgfdb search --json --title sqlite
+orgfdb search --json --body sqlite
+#+end_src
+
+Planning decisions required:
+
+- Define whether the positional argument is:
+  - a literal search term,
+  - a whitespace-separated list of terms,
+  - or a raw SQLite FTS5 ~MATCH~ expression.
+- Define which FTS5 syntax is exposed publicly.
+- Define whether operators such as ~AND~, ~OR~, ~NOT~, phrases, prefixes, column filters, and grouping are accepted.
+- Define default search scope:
+  - title and body,
+  - title only,
+  - or all columns available in the persisted index.
+- Define explicit title-only and body-only options.
+- Define whether ~--title~ and ~--body~ are mutually exclusive.
+- Define behavior when body-only search is requested but the persisted FTS index contains title data only.
+- Define ranking semantics.
+- Define deterministic secondary ordering.
+- Define the stable JSON result schema.
+- Define non-JSON output.
+- Define whether snippets or matched-column information are included in the first version.
+- Define result limits, pagination, or defaults.
+- Define how malformed FTS5 expressions are classified.
+- Define how the command distinguishes:
+  - FTS5 disabled by configuration,
+  - FTS5 unavailable in the SQLite build,
+  - missing ~heading_fts~ schema,
+  - incompatible ~heading_fts~ schema,
+  - stale or untrusted FTS state,
+  - title-only FTS data,
+  - and title-plus-body FTS data.
+- Decide whether additional persisted FTS metadata is required.
+- Define whether current configuration may disable search access without being treated as proof of persisted index availability.
+- Define how read-only database opening avoids schema creation or migration.
+- Define how output remains usable from Emacs and other editor integrations.
+
+Recommended v1 decisions:
+
+- Treat the positional argument as an SQLite FTS5 ~MATCH~ expression.
+- Document that ~search~ exposes backend-specific FTS5 syntax and does not define Query Model semantics.
+- Search all indexed FTS columns by default.
+- Add ~--title~ and ~--body~ as mutually exclusive scope options.
+- Compile title-only matching with the FTS5 title column filter.
+- Compile body-only matching with the FTS5 body column filter.
+- Reject body-only search clearly when the persisted index does not include body text.
+- Do not silently fall back to title search, ~(has-text ...)~, ordinary SQL, or Org-file scanning.
+- Query only real headings represented by ~heading_fts.rowid~.
+- Join ~heading_fts.rowid~ to canonical ~headings.id~.
+- Join headings to canonical ~files~ rows for paths and location metadata.
+- Read title and location fields from canonical relational tables.
+- Never read title or body payload columns from the contentless FTS table.
+- Use ~bm25(heading_fts)~ for relevance ranking.
+- Sort by rank first and heading id second for deterministic output.
+- Treat malformed FTS5 syntax as a classified search-expression error.
+- Treat disabled, unavailable, missing, incompatible, or untrusted FTS state as classified backend-capability errors.
+- Keep the command fully read-only.
+- Do not rebuild, migrate, repair, or mutate the FTS index from ~search~.
+
+Recommended JSON result shape:
+
+#+begin_src json
+{
+  "heading_id": 42,
+  "path": "/notes/project.org",
+  "title": "SQLite indexing",
+  "line_number": 18,
+  "byte_start": 241,
+  "byte_end": 390,
+  "rank": -1.375
+}
+#+end_src
+
+Configuration and persisted-state semantics:
+
+- ~search.fts5_enabled~ may control whether the command is deliberately enabled for the current invocation.
+- The current configuration must not be treated as proof that the opened database contains a valid FTS index.
+- Database schema and persisted database facts determine whether a compatible ~heading_fts~ index exists.
+- Persisted body-text capability determines whether body search may be available.
+- If the current config enables FTS but the database lacks a compatible index, ~search~ must fail clearly.
+- If the current config disables FTS, ~search~ must fail clearly even if a stale ~heading_fts~ table remains on disk.
+- A stale table left from an earlier rebuild must not automatically be trusted.
+- If the existing persisted capability contract cannot prove whether ~heading_fts~ includes body data or is current, introduce explicit persisted FTS metadata.
+
+Possible persisted metadata:
+
+#+begin_src text
+fts_available = 1
+fts_schema_version = 1
+fts_body_indexed = 1
+#+end_src
+
+The exact metadata representation must be decided during planning. Schema inspection alone may be used only if it can reliably distinguish compatible and current index state.
+
+Rules:
+
+- ~search~ is a convenience command, not the canonical query language.
+- ~search~ must not redefine Query Model v0 semantics.
+- FTS5 tokenisation, operators, ranking, and column filters must be documented as backend-specific behavior.
+- ~search~ uses only a compatible derived ~heading_fts~ index.
+- ~search~ must not query contentless title or body payload values directly.
+- Result metadata must come from canonical relational tables.
+- If FTS5 is disabled or unavailable, ~search~ returns a clear documented error.
+- If ~heading_fts~ is missing, incompatible, stale, or untrusted, ~search~ returns a clear documented error.
+- ~search~ is read-only.
+- ~search~ must not scan Org files.
+- ~search~ must not rebuild, migrate, repair, or mutate the database.
+- Body matches are available only when the persisted index includes body text.
+- Title search remains available for a valid title-only FTS index.
+- Body-only search against a title-only index returns a clear capability error.
+- User-provided FTS expressions must be passed only to the intended FTS5 ~MATCH~ clause.
+- User input must not be interpolated into unrelated SQL.
+- Scope selection must use fixed compiler-controlled SQL, not user-provided column names.
+- Results must include enough canonical location data for editor jumps.
+- Results must use deterministic ordering.
+- Expected FTS syntax and capability failures must not expose unclassified raw SQLite errors.
+
+Non-goals:
+
+- Do not change ~(has-text ...)~ or other Query Model predicates.
+- Do not fall back from FTS search to ordinary SQL.
+- Do not scan Org files.
+- Do not rebuild or repair ~heading_fts~.
+- Do not modify canonical heading or body-text facts.
+- Do not add graph mutation or link-repair behavior.
+- Do not expose snippets, highlighting, pagination, or advanced ranking controls unless explicitly selected during planning.
+- Do not make FTS5 mandatory for ~orgfdb query~ or other existing commands.
+
+Acceptance criteria:
+
+- The public command syntax and supported FTS5 expression syntax are documented.
+- Search returns JSON when ~--json~ is passed.
+- JSON results include:
+  - heading id,
+  - file path,
+  - title,
+  - line number where available,
+  - ~byte_start~,
+  - ~byte_end~,
+  - and rank.
+- Result title and location values come from canonical relational tables.
+- Search never relies on retrievable payload values from contentless ~heading_fts~ columns.
+- Search can match heading titles when a valid FTS index is available.
+- Search can match heading bodies when the persisted index includes body text.
+- Default search scope behaves as documented.
+- Title-only scope behaves as documented.
+- Body-only scope behaves as documented.
+- Title-only search works when body-text indexing was disabled.
+- Body-only search against a title-only index returns a clear capability error.
+- Results are ranked with documented semantics.
+- Equal-rank results have deterministic ordering.
+- Malformed FTS5 expressions return a classified search-expression error.
+- If FTS5 is disabled by current configuration, the command returns a clear error.
+- If FTS5 is unavailable in the SQLite build, the command returns a clear error.
+- If ~heading_fts~ is missing, incompatible, stale, or untrusted, the command returns a clear error.
+- Expected search errors do not expose raw SQLite messages.
+- The command opens the database read-only.
+- The command does not initialize a missing database.
+- The command does not apply migrations.
+- The command does not create or rebuild ~heading_fts~.
+- The command does not mutate canonical or derived database facts.
+- The command does not scan Org files.
+- Output is usable from Emacs and other editor integrations.
+- CLI documentation describes ~search~ as an FTS5-specific convenience command rather than canonical Query Model functionality.
+
+Tests cover:
+
+- JSON output,
+- canonical result fields,
+- editor-jump location data,
+- default title-and-body matching,
+- title-only matching,
+- body-only matching,
+- title-only persisted indexes,
+- body-enabled persisted indexes,
+- ranking,
+- deterministic ordering,
+- phrase and operator syntax where supported,
+- malformed FTS5 expressions,
+- disabled FTS5 configuration,
+- unavailable SQLite FTS5 support where testable,
+- missing ~heading_fts~,
+- incompatible FTS schema,
+- stale or untrusted FTS state,
+- read-only database opening,
+- no database creation,
+- no migration,
+- no rebuild,
+- no DB mutation,
+- no Org file scanning,
+- and safe handling of user-provided expressions.
+
+Proposed checks:
+
+- Inspect the existing CLI argument and output conventions.
+- Inspect persisted FTS and body-text capability metadata.
+- Decide whether an FTS schema/version metadata contract must be added.
+- Add focused CLI parser tests.
+- Add focused search SQL and result-shaping tests.
+- Add read-only and missing-database tests.
+- Add reduced-schema and stale-index tests.
+- Run ~cargo test --all-targets --all-features~.
+- Run ~make ci~.
+
+* Planning
+
+** Problem summary
+
+The repository already provides optional contentless FTS5 indexing through ~heading_fts~, but there is no public CLI command that uses that derived index directly. The new ~search~ command must expose backend-specific FTS5 search as a read-only convenience feature without changing Query Model semantics, relying on contentless payload reads, or trusting stale on-disk FTS state.
+
+** Goals
+
+- Add a JSON-only ~orgfdb search~ command for raw SQLite FTS5 ~MATCH~ expressions.
+- Return canonical heading/file metadata joined from ~headings~ and ~files~, never from FTS payload columns.
+- Enforce explicit title/body scope options without allowing user expressions to broaden the selected scope.
+- Require current config opt-in plus trusted persisted FTS metadata and structural compatibility checks.
+- Keep the command strictly read-only and require one successful rebuild before pre-metadata databases become searchable.
+
+** Non-goals
+
+- No change to ~(has-text ...)~ or Query Model v0.
+- No snippets, highlighting, pagination, result limits, or text-mode output.
+- No fallback search path, no implicit rebuild, no repair, and no incremental FTS maintenance changes.
+- No graph mutation, link repair, or Org-file scanning during search.
+
+** Architecture
+
+- Add ~search~ as a new CLI subcommand with required ~--json~, optional ~--config~, mutually exclusive ~--title/~--body~, and a single required raw FTS5 expression argument.
+- Reuse the existing read-only DB open helper and the existing runtime SQLite FTS5 capability probe.
+- Persist explicit FTS trust metadata in ~db_metadata~:
+  - ~fts_available~
+  - ~fts_body_indexed~
+  - ~fts_schema_version~
+- Write that metadata transactionally during rebuild:
+  - successful FTS-enabled rebuild => trusted metadata for the current schema contract
+  - successful FTS-disabled rebuild => explicit untrusted metadata
+  - failed rebuild => rollback leaves prior state unchanged
+- Implement search trust checks using persisted metadata first, then structural checks:
+  - ~heading_fts~ existence
+  - virtual-table/FTS5 identity
+  - logical columns ~= title, body~
+  - contentless layout
+  - ~unicode61~ tokenizer where inspectable
+- Compile search SQL against ~heading_fts MATCH ?~ joined to canonical ~headings~ and ~files~, with ~headings.level > 0~, ~bm25(heading_fts)~, and deterministic ~rank ASC, heading_id ASC~ ordering.
+- Reject scoped expressions containing explicit FTS column-filter syntax when ~--title~ or ~--body~ is selected, then compile the enforced scope as a fixed outer FTS expression.
+
+** Execution plan
+
+- Extend rebuild-time metadata writes and document the persisted FTS trust contract.
+- Add read-only search execution, trust inspection, scoped-expression validation, result mapping, and search-specific error handling.
+- Add CLI parsing, JSON output, and regression coverage for trusted search, malformed expressions, scope bypass attempts, read-only guarantees, and pre-metadata databases.
+- Update CLI/config/README documentation and record implementation plus checks in this task file.
+
+** Risks & assumptions
+
+- Scoped-expression validation intentionally fails closed on ambiguous unquoted ~:~ usage when a fixed scope is requested.
+- FTS5 syntax and rank values remain backend-specific and may vary across SQLite builds.
+- Read-only FTS5 probing is assumed to work on the opened connection and will be covered by tests through the search path.
+
+** Open questions
+
+- None. The implementation follows the finalized plan decisions from the current thread.
+
+** Proposed checks
+
+- focused ~cargo test search~
+- focused trust/metadata and FTS rebuild tests
+- ~cargo fmt --all~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+- Added a new read-only ~orgfdb search --json~ CLI command that executes raw SQLite FTS5 ~MATCH~ expressions against trusted ~=heading_fts= state and returns a top-level JSON array of canonical heading/file match rows.
+- Reused the existing read-only DB open helper and runtime FTS5 probe, then added a dedicated search trust contract on top of persisted ~db_metadata~ keys:
+  - ~fts_available~
+  - ~fts_body_indexed~
+  - ~fts_schema_version~
+- Search now requires:
+  - active ~search.fts5_enabled = true~ in the current config
+  - runtime SQLite FTS5 support on the opened connection
+  - exact trusted persisted FTS metadata from a successful rebuild
+  - structural compatibility of the current ~=heading_fts= table
+- Rebuild now writes the FTS trust metadata transactionally:
+  - successful FTS-enabled rebuild => trusted current search index
+  - successful FTS-disabled rebuild => explicitly untrusted/stale-on-disk FTS state
+  - failed rebuild => rollback leaves prior metadata untouched
+- Scope enforcement is fail-closed:
+  - default scope allows raw backend-specific column filters
+  - ~--title~ and ~--body~ reject explicit unquoted column-filter syntax in the user expression and then compile a fixed outer column scope
+- Search result fields come only from canonical ~=headings= and ~=files=~ rows, never from contentless FTS payload columns, with defensive ~headings.level > 0~ filtering and deterministic ~bm25(heading_fts), heading_id~ ordering.
+- Existing databases without the new trusted FTS metadata are rejected as untrusted and must be rebuilt once before ~search~ works.
+- Follow-up fix: extracted rebuild-time search trust metadata persistence into a shared helper so empty successful rebuilds and non-empty successful rebuilds write the same ~=fts_available= / =fts_body_indexed= / =fts_schema_version=~ contract.
+- Added a regression proving that a zero-input successful FTS-enabled rebuild on an otherwise empty database leaves ~=heading_fts= trusted and allows ~orgfdb search --json~ to return an empty JSON array instead of rejecting the database as untrusted.
+
+** Changed files
+- ~src/cli.rs~
+- ~src/db.rs~
+- ~src/db/reader.rs~
+- ~src/indexer.rs~
+- ~docs/cli.org~
+- ~docs/config.org~
+- ~README.org~
+- ~sql/schema.sql~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-16--provide-cli-command-search.org~
+
+** Checks performed
+- exploratory checks:
+  - ~sqlite3 ':memory:'~ FTS5 scope-filter experiments for ~=title:(...)~ / ~=body:(...)~
+  - targeted repo inspection of CLI, DB, config, and schema paths
+- ~cargo fmt --all~
+- ~cargo test search~
+- ~cargo test fts~
+- ~cargo test search_accepts_trusted_empty_fts_rebuilds~
+- ~cargo test empty_rebuild_with_fts_enabled_recreates_empty_heading_fts_state~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+- Focused search tests passed for:
+  - CLI parsing and JSON-only enforcement
+  - empty-expression rejection
+  - default/title/body scope behavior
+  - scoped column-filter bypass rejection
+  - trusted title-only/body-enabled index behavior
+  - canonical result sourcing
+  - malformed FTS expression classification
+  - missing trust metadata
+  - disabled config gating
+  - missing/incompatible ~=heading_fts=
+  - read-only/no-Org-scan behavior
+  - deterministic ordering
+  - persisted search trust metadata
+  - trusted empty FTS rebuilds with zero search results
+- ~cargo test --all-targets --all-features~ passed with 305 tests.
+- ~make ci~ passed.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Exact FTS5 syntax and rank values remain backend-specific SQLite behavior and are documented as such.
+- Scoped-expression validation intentionally fails closed on ambiguous unquoted ~:~ usage under ~--title~ / ~--body~; if future requirements need broader scoped syntax, that should be planned as a deliberate parser/validator refinement.

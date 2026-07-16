@@ -168,13 +168,17 @@ Controls whether SQLite FTS5 indexing is enabled during rebuild.
 - When enabled and supported by the opened SQLite build, rebuild recreates a derived contentless ~heading_fts~ table from canonical relational facts.
 - When enabled but unsupported by the opened SQLite build, rebuild fails with a clear backend-capability error.
 - When disabled, rebuild does not create or refresh ~heading_fts~. A stale table may still exist on disk, but it is not trusted without a new FTS-enabled rebuild.
+- The read-only ~orgfdb search --json~ command also requires the active config to leave ~search.fts5_enabled = true~. A trusted persisted FTS index on disk is not usable when the current config disables FTS.
+- Current config does not prove that a trusted search index exists. ~orgfdb search --json~ additionally requires persisted FTS trust metadata written by a successful rebuild.
 
 ** ~search.index_body_text~
 
 Controls whether heading body text is persisted as canonical database data during rebuild.
 
 - When enabled, the indexer stores heading body text in ~heading_bodies~ and persists a database capability flag indicating that body text is available for query backends.
+- When enabled together with ~search.fts5_enabled = true~, rebuild also records that the trusted FTS index contains body text so ~orgfdb search --json --body~ is allowed.
 - When disabled, the indexer does not store heading body text and persists the capability flag as unavailable even though the ~heading_bodies~ table may still exist in the schema.
+- When disabled, a trusted FTS rebuild remains title-only and ~orgfdb search --json --body~ fails clearly until a later rebuild enables both FTS and body persistence.
 - Upgrading an older database schema creates the metadata storage, but body-text capability does not become available until a rebuild writes the current capability value for that database instance.
 
 - Type: boolean

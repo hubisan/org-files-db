@@ -10,7 +10,7 @@ pub(crate) mod reader;
 pub mod schema;
 pub(crate) mod writer;
 
-pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
+pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow, SearchHeadingRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::DbWriteError;
 pub(crate) use writer::{
@@ -20,6 +20,10 @@ pub(crate) use writer::{
 };
 
 pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
+pub const DB_METADATA_FTS_AVAILABLE_KEY: &str = "fts_available";
+pub const DB_METADATA_FTS_BODY_INDEXED_KEY: &str = "fts_body_indexed";
+pub const DB_METADATA_FTS_SCHEMA_VERSION_KEY: &str = "fts_schema_version";
+pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "1";
 
 #[cfg(test)]
 const IN_MEMORY_DATABASE: &str = ":memory:";
