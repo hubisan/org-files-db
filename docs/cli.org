@@ -107,38 +107,707 @@ Notes:
 
 ~orgfdb query --json QUERY~ parses Query Model v0 syntax, validates it against the current query contract, executes it against the existing SQLite database, and prints the shaped JSON response.
 
-The command is read-only. It does not scan Org files, rebuild files, resolve links on demand, or mutate the database.
+The command is strictly read-only. It does not scan Org files, rebuild files, resolve links on demand, apply migrations beyond opening the existing DB read-only, or mutate stored facts.
 
 Execution uses the persisted query stack only:
 
 - Query syntax is parsed by the Query Model v0 parser.
-- Validation uses the Query Model v0 semantic validator.
+- Validation uses the Query Model v0 semantic validator plus backend capability checks against the opened SQLite database.
 - Execution uses the persisted SQLite query layer.
-- Output shaping uses the query result-shaping layer.
+- Output shaping uses the persisted result-enrichment layer.
 
-Supported options:
+The normative language contract remains [[./reference/query-model-v0.org][docs/reference/query-model-v0.org]]. This CLI page is the complete user-facing reference for the implemented ~orgfdb query~ command.
 
-- ~--json~ :: required for the stable output mode
-- ~--output flat|outline~ :: controls result shape only; default is ~flat~
-- ~--include path,properties,keywords,links,backlinks,source,target~ :: enriches matched results only
-- ~--config PATH~ :: loads ~db_path~ and query-time settings such as ~query.timezone~ before opening the database read-only
+** Synopsis
+
+#+begin_src shell
+orgfdb query --json [OPTIONS] QUERY
+#+end_src
+
+~QUERY~ is a single Query Model v0 expression. In normal shells, quote the whole expression with single quotes and keep query strings inside it in double quotes.
+
+#+begin_src shell
+orgfdb query --json '(todo "NEXT")'
+orgfdb query --json '(files (file-title "Projects" :exact t))'
+orgfdb query --json '(links (status "broken"))'
+#+end_src
+
+Accepted options:
+
+- ~--json~ :: Required for the stable output mode.
+  Without it, the command exits with code ~2~ and prints ~query currently only supports --json~.
+- ~--output~ :: Accepted values: ~flat~, ~outline~.
+  Default: ~flat~.
+  Repeatable: no.
+  Changes output shape only, never matching semantics.
+- ~--include~ :: Accepted values: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~, ~source~, ~target~.
+  Default: none.
+  Repeatable: yes.
+  Values may be comma-separated and/or supplied in repeated flags. Duplicates are removed before serialization.
+- ~--config PATH~ :: Accepted value: filesystem path.
+  Default: none.
+  Repeatable: no.
+  Loads ~db_path~ and query-time settings such as ~query.timezone~ before opening the DB read-only.
+
+~--include~ validation:
+
+- ~path~ is valid for all targets.
+- ~properties~, ~keywords~, ~links~, and ~backlinks~ are valid for ~headings~ and ~files~ output only.
+- ~source~ and ~target~ are valid for ~links~ output only.
+- Unknown include values are rejected by Clap with exit code ~2~.
+
+** Query Grammar Overview
+
+Complete supported top-level forms:
+
+#+begin_src text
+(headings EXPR?)
+(links EXPR?)
+(files EXPR?)
+
+(and EXPR...)
+(or EXPR...)
+(not EXPR)
+
+(predicate ARG... :option VALUE...)
+#+end_src
+
+Important public rules:
+
+- Top-level heading shorthand is supported. Bare heading predicates such as ~(todo "NEXT")~ are equivalent to ~(headings (todo "NEXT"))~.
+- Nested relation queries must always use an explicit target wrapper such as ~(links (status "broken"))~ or ~(files (file-path "notes.org"))~.
+- Empty target wrappers are supported for implemented targets, for example ~(links)~ or ~(files)~.
+- Boolean operators are ordinary query expressions, not predicates:
+  - ~(and EXPR...)~ requires all children to match.
+  - ~(or EXPR...)~ requires any child to match.
+  - ~(not EXPR)~ negates exactly one child expression.
+- Strings use double quotes.
+- Integers are bare numeric values.
+- Boolean options use ~t~ or ~nil~.
+- Enum-like keyword values use symbols such as ~:all~ or ~:any~.
+- Invalid syntax is a parse error with exit code ~1~.
 
 Examples:
 
 #+begin_src shell
-orgfdb query --json '(todo "NEXT")'
-orgfdb query --json '(links (status "broken"))'
-orgfdb query --json --output outline '(headings (title "sqlite"))'
-orgfdb query --json '(headings (has-text "sqlite" "fts"))'
-orgfdb query --json --include path,links '(headings (todo "NEXT"))'
+orgfdb query --json '(and (todo "NEXT") (priority "A"))'
+orgfdb query --json '(headings (not (tags "archive")))'
+orgfdb query --json '(links (source (headings (title "Query Engine" :exact t))))'
+orgfdb query --json '(files)'
 #+end_src
 
-Notes:
+** Targets
 
-- Output mode and include flags do not change which objects match.
-- Relative query dates such as ~today~ and integer day offsets are resolved before SQL execution using ~query.timezone~ when configured, otherwise the current local system timezone.
-- The command must be pointed at an already-built database; it does not rebuild missing facts.
-- For query syntax and semantic details, see [[./reference/query-model-v0.org][docs/reference/query-model-v0.org]].
+- ~headings~ ::
+  - Returns matched headings, plus synthetic file/root matches represented as ~kind = "file"~ when applicable.
+  - Bare top-level shorthand: yes.
+  - Valid output modes: ~flat~, ~outline~.
+  - Valid includes: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~.
+- ~links~ ::
+  - Returns matched links.
+  - Bare top-level shorthand: no.
+  - Valid output modes: ~flat~, ~outline~.
+  - Valid includes: ~path~, ~source~, ~target~.
+- ~files~ ::
+  - Returns matched files.
+  - Bare top-level shorthand: no.
+  - Valid output modes: ~flat~, ~outline~.
+  - Valid includes: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~.
+
+Target notes:
+
+- ~headings~ can match either real headings or the synthetic level-0 root/file object for predicates that explicitly participate in root matching.
+- ~links~ always return link objects. Nested source/target/file/headings relations affect matching only; they do not change the returned object kind.
+- ~files~ return file objects and use the file root heading as the storage source for tags, keywords, properties, and file-level links.
+
+** Predicate Option Index
+
+The current public predicate options are:
+
+- ~:exact~ :: 
+  - Valid on: ~title~, ~link-target~, ~link-description~, ~file-name~, ~file-path~, ~file-dir~, ~file-title~, ~outline-sequence~.
+  - Value type: ~t~ or ~nil~.
+  - Default: ~nil~.
+  - Usually requires exactly one text argument. ~outline-sequence~ applies it per path segment and allows multiple arguments.
+- ~:regexp~ ::
+  - Valid on: ~title~, ~has-text~, ~tags~, ~property~, ~keyword~, ~file-name~, ~file-path~, ~file-dir~, ~file-title~, ~outline-contains~, ~outline-sequence~, ~link-target~, ~link-description~.
+  - Value type: ~t~ or ~nil~.
+  - Default: ~nil~.
+  - Meaning is predicate-specific. ~has-text :regexp t~ is currently unsupported by the backend.
+- ~:match~ ::
+  - Valid on: ~tags~.
+  - Value type: ~:any~ or ~:all~.
+  - Default: ~:any~.
+  - ~(tags-all ...)~ is a parser alias for ~(tags ... :match :all)~.
+- ~:inherit~ ::
+  - Valid on: ~tags~, ~property~ on ~headings~.
+  - Value type: ~t~ or ~nil~.
+  - Default: ~t~.
+  - Invalid on file queries.
+- ~:without-root~ ::
+  - Valid on: ~title~, ~tags~, ~property~ on ~headings~.
+  - Value type: ~t~ or ~nil~.
+  - Default: ~nil~.
+  - Restricts heading matching to real headings by excluding synthetic file/root participation.
+- ~:from~ ::
+  - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
+  - Value type: date/time value.
+  - Default: none.
+  - Inclusive lower bound.
+- ~:to~ ::
+  - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
+  - Value type: date/time value.
+  - Default: none.
+  - Inclusive query-model upper bound. Date-only ~:to~ covers the full day.
+- ~:on~ ::
+  - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
+  - Value type: date/time value.
+  - Default: none.
+  - Matches the given day or the given datetime, depending on the value form.
+- ~:with-time~ ::
+  - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
+  - Value type: ~t~ or ~nil~.
+  - Default: none.
+  - Filters on persisted explicit-time metadata when that predicate supports it.
+
+Options are validated per predicate. A supported option on one predicate does not imply support elsewhere.
+
+** Complete Predicate Reference
+
+*** Boolean expressions
+
+- ~(and EXPR...)~ :: Valid on all targets.
+  All child expressions must match.
+  Example: ~'(and (todo "NEXT") (tags "project"))'~.
+- ~(or EXPR...)~ :: Valid on all targets.
+  Any child expression may match.
+  Example: ~'(or (priority "A") (priority "B"))'~.
+- ~(not EXPR)~ :: Valid on all targets.
+  Negates exactly one child.
+  Example: ~'(not (done))'~.
+
+*** Heading predicates
+
+- ~todo~ :: Syntax: ~(todo [KEYWORD...])~.
+  Targets: ~headings~.
+  No args means any heading with a TODO keyword. With args, matches any listed TODO keyword. Case-sensitive against stored keyword values.
+  Example: ~'(todo "NEXT" "PLAN")'~.
+- ~done~ :: Syntax: ~(done)~.
+  Targets: ~headings~.
+  Matches headings whose TODO type is ~closed~.
+  Example: ~'(done)'~.
+- ~title~ :: Syntax: ~(title STRING... :regexp t|nil :exact t|nil :without-root t|nil)~.
+  Targets: ~headings~.
+  Default is case-insensitive substring matching against normalized heading titles. Root/file title matches are enabled by default and return ~kind = "file"~ nodes.
+  Example: ~'(title "Query Engine" :exact t)'~.
+- ~has-text~ :: Syntax: ~(has-text STRING... :regexp t|nil)~.
+  Targets: ~headings~.
+  Matches persisted heading body text. Default is case-insensitive substring matching for all supplied terms. Requires persisted body text capability. ~:regexp t~ is currently rejected by the backend.
+  Example: ~'(has-text "sqlite" "fts")'~.
+- ~level~ :: Syntax: ~(level NUMBER)~, ~(level MIN MAX)~, ~(level COMPARATOR NUMBER)~.
+  Targets: ~headings~.
+  Matches heading levels. Comparator form uses scalar comparators such as ~<~, ~<=~, ~>~, ~>=~, ~=~, and ~!=~.
+  Example: ~'(level 1 2)'~.
+- ~priority~ :: Syntax: ~(priority VALUE...)~ or ~(priority COMPARATOR VALUE)~.
+  Targets: ~headings~.
+  Multi-value form is OR. Comparator form compares stored priorities.
+  Example: ~'(priority "A" "B")'~.
+- ~tags~ :: Syntax: ~(tags TAG... :inherit t|nil :without-root t|nil :regexp t|nil :match :any|:all)~.
+  Targets: ~headings~, ~files~.
+  Heading queries use effective tags by default, including inherited/root tags unless excluded. File queries match tags stored on the file root heading.
+  Example: ~'(tags "project" "urgent" :match :all)'~.
+- ~tags-all~ :: Syntax: ~(tags-all TAG... [same options as tags except :match])~.
+  Targets: parser alias.
+  Readability alias for ~(tags ... :match :all)~. It is normalized before validation.
+  Example: ~'(tags-all "project" "urgent")'~.
+- ~property~ :: Syntax: ~(property KEY [VALUE] :inherit t|nil :without-root t|nil :regexp t|nil)~.
+  Targets: ~headings~, ~files~.
+  With one argument, matches by property key existence. With two, matches key/value. Heading queries use effective properties by default; ~:inherit nil~ restricts to direct rows. File queries are always direct root/file property matches and reject ~:inherit~.
+  Example: ~'(property "CATEGORY" "work")'~.
+- ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil)~.
+  Targets: ~headings~, ~files~.
+  Matches root/file keyword facts. Heading queries access them via the containing file root context. No ~:inherit~ or ~:without-root~ option exists.
+  Example: ~'(keyword "AUTHOR" "Alice")'~.
+- ~file-name~ :: Syntax: ~(file-name STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~headings~, ~files~.
+  Matches the containing file name. Heading queries filter by their containing file.
+  Example: ~'(file-name "notes.org" :exact t)'~.
+- ~file-path~ :: Syntax: ~(file-path STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~headings~, ~links~, ~files~.
+  Matches the containing file path. On links this applies through the source file relation.
+  Example: ~'(file-path "projects/.*\\.org" :regexp t)'~.
+- ~file-dir~ :: Syntax: ~(file-dir STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~headings~, ~links~, ~files~.
+  Matches the containing directory path.
+  Example: ~'(file-dir "/home/me/org/projects" :exact t)'~.
+- ~file-title~ :: Syntax: ~(file-title STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~headings~, ~links~, ~files~.
+  Matches the effective file/root title. On ~headings~, this filters by containing file title; it is different from ~title~, which can match real headings and, by default, the root object itself.
+  Example: ~'(file-title "Projects" :exact t)'~.
+- ~file-modified~ :: Syntax: ~(file-modified :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~, ~files~.
+  Matches persisted file modification timestamps. Relative dates such as ~today~ or integer day offsets are resolved before SQL execution.
+  Example: ~'(file-modified :from -7 :to today)'~.
+- ~outline-contains~ :: Syntax: ~(outline-contains STRING... :regexp t|nil)~.
+  Targets: ~headings~.
+  Matches headings whose outline/breadcrumb path contains all supplied components somewhere in the path. No ~:exact~ option.
+  Example: ~'(outline-contains "Project" "Query")'~.
+- ~outline-sequence~ :: Syntax: ~(outline-sequence STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~headings~.
+  Matches contiguous outline path segments in order. With ~:exact t~, each supplied segment must exactly match the corresponding path component.
+  Example: ~'(outline-sequence "Projects" "Org database" :exact t)'~.
+- ~ts~ :: Syntax: ~(ts :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Matches any stored timestamp row associated with the heading.
+  Example: ~'(ts :on today)'~.
+- ~ts-active~ :: Syntax: ~(ts-active :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Like ~ts~, but only active timestamps.
+  Example: ~'(ts-active :from "2026-01-01" :to "2026-12-31")'~.
+- ~ts-inactive~ :: Syntax: ~(ts-inactive :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Like ~ts~, but only inactive timestamps.
+  Example: ~'(ts-inactive :from -30 :to today)'~.
+- ~deadline~ :: Syntax: ~(deadline :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Matches persisted heading deadline metadata.
+  Example: ~'(deadline :to 7)'~.
+- ~scheduled~ :: Syntax: ~(scheduled :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Matches persisted heading scheduled metadata.
+  Example: ~'(scheduled :on today)'~.
+- ~closed~ :: Syntax: ~(closed :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Matches persisted heading closed metadata.
+  Example: ~'(closed :from -7)'~.
+- ~planning~ :: Syntax: ~(planning :from DATE :to DATE :on DATE :with-time t|nil)~.
+  Targets: ~headings~.
+  Matches any of ~scheduled~, ~deadline~, or ~closed~.
+  Example: ~'(planning :from today :to 7)'~.
+- ~parent~ :: Syntax: ~(parent)~ or ~(parent (headings EXPR))~.
+  Targets: ~headings~.
+  Zero-arg form matches headings that have any parent. Nested form matches headings whose direct parent matches the nested heading query.
+  Example: ~'(parent (headings (tags "project")))'~.
+- ~children~ :: Syntax: ~(children)~ or ~(children (headings EXPR))~.
+  Targets: ~headings~.
+  Zero-arg form matches headings with at least one child. Nested form matches headings having a direct child that matches the nested heading query.
+  Example: ~'(children (headings (todo "NEXT")))'~.
+- ~ancestors~ :: Syntax: ~(ancestors)~ or ~(ancestors (headings EXPR))~.
+  Targets: ~headings~.
+  Zero-arg form matches headings that have any ancestor. Nested form is transitive over all ancestors.
+  Example: ~'(ancestors (headings (priority "A")))'~.
+- ~descendants~ :: Syntax: ~(descendants)~ or ~(descendants (headings EXPR))~.
+  Targets: ~headings~.
+  Zero-arg form matches headings that have any descendant. Nested form is transitive over descendants.
+  Example: ~'(descendants (headings (todo "WAITING")))'~.
+- ~has-link~ :: Syntax: ~(has-link)~ or ~(has-link (links EXPR))~.
+  Targets: ~headings~, ~files~.
+  Zero-arg form matches objects containing any stored link. Nested form filters by contained links. File queries include preamble/root links.
+  Example: ~'(has-link (links (link-type "file")))'~.
+- ~links-to~ :: Syntax: ~(links-to (headings EXPR))~ or ~(links-to (files EXPR))~.
+  Targets: ~headings~, ~links~.
+  Matches objects that link to a target heading or file matching the nested query. The matched object is still the outer heading or link.
+  Example: ~'(links-to (files (file-title "Beta Index" :exact t)))'~.
+- ~linked-from~ :: Syntax: ~(linked-from any)~, ~(linked-from (headings EXPR))~, ~(linked-from (files EXPR))~.
+  Targets: ~headings~, ~links~.
+  Matches objects that have incoming links from the nested source. ~any~ means any incoming link.
+  Example: ~'(linked-from (headings (property "CUSTOM_ID" "query-model" :inherit nil)))'~.
+
+*** Link predicates
+
+- ~link-type~ :: Syntax: ~(link-type TYPE...)~.
+  Targets: ~links~.
+  OR-matches stored link types.
+  Example: ~'(links (link-type "file" "id"))'~.
+- ~link-target~ :: Syntax: ~(link-target STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~links~.
+  Matches stored raw target text with substring, regexp, or exact semantics.
+  Example: ~'(links (link-target "notes.org" :exact t))'~.
+- ~link-description~ :: Syntax: ~(link-description STRING... :regexp t|nil :exact t|nil)~.
+  Targets: ~links~.
+  Matches stored raw description text.
+  Example: ~'(links (link-description "Project.*" :regexp t))'~.
+- ~has-description~ :: Syntax: ~(has-description)~.
+  Targets: ~links~.
+  Matches links with any stored description.
+  Example: ~'(links (has-description))'~.
+- ~status~ :: Syntax: ~(status STATUS...)~.
+  Targets: ~links~.
+  Matches persisted resolver state such as ~resolved~, ~broken~, ~unresolved~, ~ambiguous~, or ~unsupported~.
+  Example: ~'(links (status "broken" "unresolved"))'~.
+- ~source~ :: Syntax: ~(source any)~ or ~(source (headings EXPR))~.
+  Targets: ~links~.
+  Matches links by source heading relation. ~any~ means any heading source.
+  Example: ~'(links (source (headings (tags "project"))))'~.
+- ~target~ :: Syntax: ~(target any)~, ~(target (headings EXPR))~, ~(target (files EXPR))~.
+  Targets: ~links~.
+  Matches links by resolved target relation.
+  Example: ~'(links (target (files (file-path "notes.org" :exact t))))'~.
+- ~file-name~, ~file-path~, ~file-dir~, ~file-title~ :: Same syntax as above.
+  Targets: ~links~.
+  These filter links by their containing source file.
+  Example: ~'(links (file-title "Projects" :exact t))'~.
+- ~links-to~, ~linked-from~ :: Same syntax as above.
+  Targets: ~links~.
+  Relation predicates over link targets or incoming links.
+  Example: ~'(links (links-to (headings (title "Beta Target" :exact t))))'~.
+
+*** File predicates
+
+- ~file-name~, ~file-path~, ~file-dir~, ~file-title~, ~file-modified~ :: Same syntax as above.
+  Targets: ~files~.
+  Direct file metadata predicates.
+  Example: ~'(files (file-path ".*/projects/.*\\.org" :regexp t))'~.
+- ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil)~.
+  Targets: ~files~.
+  Matches root/file keyword facts.
+  Example: ~'(files (keyword "TITLE" "Proj.*" :regexp t))'~.
+- ~property~ :: Syntax: ~(property KEY [VALUE] :regexp t|nil)~.
+  Targets: ~files~.
+  Matches direct root/file property facts only. ~:inherit~ is invalid in file queries.
+  Example: ~'(files (property "CATEGORY" "work"))'~.
+- ~tags~ / ~tags-all~ :: Same syntax as above, without ~:inherit~.
+  Targets: ~files~.
+  Matches tags stored on the synthetic file root heading. ~:match :all~ and ~:regexp~ are supported.
+  Example: ~'(files (tags "project" "archive" :match :all))'~.
+- ~has-link~ :: Syntax: ~(has-link)~ or ~(has-link (links EXPR))~.
+  Targets: ~files~.
+  Matches files by contained links, including preamble/root links.
+  Example: ~'(files (has-link (links (status "broken"))))'~.
+
+*** Unsupported or intentionally absent operators
+
+- ~tags-regexp~ is not a supported public predicate. Use ~(tags ... :regexp t)~ instead.
+- Query Model output options stay outside the query language itself. ~--output~ and ~--include~ are CLI options, not query forms.
+
+** Root and File Matching Semantics
+
+Synthetic root/file behavior matters most for heading queries:
+
+- Every indexed file has a synthetic level-0 heading in storage.
+- Some heading predicates may match that root/file object.
+- When a heading query matches the root/file object, the JSON result is emitted as ~kind = "file"~, not ~kind = "heading"~.
+- This is why a heading query may legitimately return file nodes.
+
+Important distinctions:
+
+- ~title~ on ~headings~:
+  - matches real headings
+  - by default may also match the effective file/root title
+  - returns a file node when the root/file object is the match
+- ~file-title~:
+  - filters by the containing file title
+  - on ~headings~, still returns heading results unless the outer target is ~files~
+- ~files~ target:
+  - directly returns file nodes
+  - never returns heading nodes
+
+~:without-root t~ is currently meaningful on:
+
+- ~title~
+- ~tags~ / ~tags-all~ on heading queries
+- ~property~ on heading queries
+
+Examples:
+
+#+begin_src shell
+orgfdb query --json '(headings (title "Alpha Index" :exact t))'
+orgfdb query --json '(headings (title "Alpha Index" :exact t :without-root t))'
+orgfdb query --json '(headings (file-title "Alpha Index" :exact t))'
+orgfdb query --json '(files (file-title "Alpha Index" :exact t))'
+#+end_src
+
+** Timestamp Semantics
+
+Implemented date/time value forms:
+
+- ISO-like date strings such as ~"2026-01-03"~
+- ISO-like date-time strings such as ~"2026-01-03 09:15"~
+- ~today~
+- integer day offsets such as ~-7~, ~0~, or ~7~
+
+Resolution and boundary rules:
+
+- Relative values are resolved before SQL execution.
+- If ~query.timezone~ is configured, that timezone is used.
+- Otherwise the current local system timezone is used.
+- Date-only ~:from~ is inclusive from the start of that day.
+- Date-only ~:to~ includes the entire stated day.
+- Date-only ~:on~ matches the entire stated day.
+- Datetime ~:from~ is inclusive at the stated minute.
+- Datetime ~:to~ uses the query model's inclusive upper-bound form.
+- Datetime ~:on~ matches the stored timestamp at that stated datetime.
+
+~:with-time~ behavior:
+
+- ~:with-time t~ matches rows whose persisted explicit-time flag is ~1~.
+- ~:with-time nil~ matches rows whose persisted explicit-time flag is ~0~.
+- Omitting ~:with-time~ applies no explicit-time filter.
+- For planning predicates, explicit-time filtering uses the persisted ~scheduled_has_time~, ~deadline_has_time~, or ~closed_has_time~ columns.
+- For generic timestamp predicates, explicit-time filtering uses persisted timestamp-row metadata.
+
+Examples:
+
+#+begin_src shell
+orgfdb query --json '(scheduled :on today)'
+orgfdb query --json '(deadline :to 7)'
+orgfdb query --json '(ts-active :from "2026-01-01" :to "2026-12-31")'
+orgfdb query --json '(scheduled :from "2026-01-03" :to "2026-01-03" :with-time t)'
+orgfdb query --json '(planning :from -30 :to today)'
+#+end_src
+
+** Relation and Hierarchy Semantics
+
+Public rules for nested relation predicates:
+
+- The outer target determines the returned result kind.
+- The nested query filters related rows only.
+- Nested queries must use explicit target wrappers.
+- Invalid nested targets are validation errors.
+
+Implemented relation directions:
+
+- ~parent~ :: Outer target ~headings~, nested target ~headings~, direction direct parent.
+- ~children~ :: Outer target ~headings~, nested target ~headings~, direction direct child.
+- ~ancestors~ :: Outer target ~headings~, nested target ~headings~, direction transitive upward.
+- ~descendants~ :: Outer target ~headings~, nested target ~headings~, direction transitive downward.
+- ~has-link~ :: Outer target ~headings~ or ~files~, nested target ~links~, direction contained link existence.
+- ~links-to~ :: Outer target ~headings~ or ~links~, nested target ~headings~ or ~files~, direction outgoing target relation.
+- ~linked-from~ :: Outer target ~headings~ or ~links~, nested target ~headings~, ~files~, or ~any~, direction incoming source relation.
+- ~source~ :: Outer target ~links~, nested target ~headings~ or ~any~, direction source heading relation.
+- ~target~ :: Outer target ~links~, nested target ~headings~, ~files~, or ~any~, direction resolved target relation.
+
+Examples:
+
+#+begin_src shell
+orgfdb query --json '(headings (children (headings (todo "NEXT"))))'
+orgfdb query --json '(headings (ancestors (headings (tags "project"))))'
+orgfdb query --json '(headings (links-to (files (file-title "Beta Index" :exact t))))'
+orgfdb query --json '(links (source (headings (title "Query Engine" :exact t))))'
+orgfdb query --json '(links (target (files (file-path "notes.org" :exact t))))'
+#+end_src
+
+** Includes
+
+Includes enrich output only. They never change which rows match.
+
+- ~path~ :: Valid on all targets.
+  Added field: ~node_path~ on result nodes.
+  File roots appear as the first path entry.
+- ~properties~ :: Valid on ~headings~ and ~files~.
+  Added field: ~properties~.
+  Direct/effective property facts already persisted in the DB.
+- ~keywords~ :: Valid on ~headings~ and ~files~.
+  Added field: ~keywords~.
+  Root/file keyword facts. Heading queries read them through root context where applicable.
+- ~links~ :: Valid on ~headings~ and ~files~.
+  Added field: ~links~.
+  Outgoing included-link objects.
+- ~backlinks~ :: Valid on ~headings~ and ~files~.
+  Added field: ~backlinks~.
+  Incoming included-link objects.
+- ~source~ :: Valid on ~links~.
+  Added field: ~source~.
+  Structured source file/heading context for the matched link.
+- ~target~ :: Valid on ~links~.
+  Added field: ~target~.
+  Structured resolved target context where available.
+
+Included-link objects expose:
+
+- ~id~
+- ~source_context~
+- ~format~
+- ~link_type~
+- ~raw~
+- ~raw_target~
+- ~raw_description~
+- ~link_path~
+- ~search_option~
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+- ~resolution_status~
+- ~resolution_diagnostic~
+- ~location~
+- ~source_path~
+- ~source~
+- ~target~
+
+** Output Modes
+
+- ~flat~ :: Valid on all targets.
+  Returns matched objects only.
+- ~outline~ :: Valid on all targets.
+  Returns file-root trees. Unmatched ancestor context rows may appear for heading and link queries.
+
+Outline specifics:
+
+- ~headings~ outline:
+  - emits file roots as top-level nodes
+  - inserts ancestor headings as context where needed
+  - sets ~matched = true~ only on matched headings or matched file roots
+- ~links~ outline:
+  - emits file roots as top-level nodes
+  - groups links under the source heading or directly under the file root for level-0 links
+  - inserts ancestor heading context when needed
+- ~files~ outline:
+  - returns matched file roots with ~children: []~
+  - does not expand contained headings or links just because ~outline~ was requested
+
+Ordering:
+
+- The response ~includes~ list is normalized to unique sorted values.
+- Flat results use deterministic DB/result-shaper ordering.
+- Outline children are sorted deterministically by stored location and object type.
+
+** JSON Output Reference
+
+Top-level response envelope:
+
+- ~target~ :: ~"headings"~, ~"links"~, or ~"files"~
+- ~output~ :: ~"flat"~ or ~"outline"~
+- ~includes~ :: normalized array of enabled includes
+- ~results~ :: array of ~file~, ~heading~, and/or ~link~ nodes
+
+Common result fields:
+
+- every result node has ~kind~
+- every result node has ~matched~
+- every result node has a ~location~ object
+- ~location~ contains:
+  - ~file_path~
+  - ~line~
+  - ~byte_start~
+  - ~byte_end~
+
+File result fields:
+
+- ~id~, ~path~, ~name~, ~dir~
+- ~title~, ~title_raw~
+- ~root_heading_id~
+- ~mtime_ns~, ~size~, ~content_hash~, ~indexed_at~
+- ~tags~
+- optional: ~node_path~, ~properties~, ~keywords~, ~links~, ~backlinks~, ~children~
+
+Heading result fields:
+
+- ~id~, ~file_id~, ~parent_id~, ~level~
+- ~title~, ~title_raw~
+- ~todo_keyword~, ~todo_type~, ~priority~
+- ~scheduled_raw~, ~scheduled_ts~
+- ~deadline_raw~, ~deadline_ts~
+- ~closed_raw~, ~closed_ts~
+- ~archivedp~, ~footnote_section_p~
+- ~all_tags~
+- optional: ~node_path~, ~properties~, ~keywords~, ~links~, ~backlinks~, ~children~
+
+Link result fields:
+
+- ~id~, ~file_id~, ~heading_id~, ~heading_level~
+- ~source_context~, ~format~, ~link_type~
+- ~raw~, ~raw_target~, ~raw_description~
+- ~link_path~, ~search_option~, ~path_absolute~
+- ~target_file_id~, ~target_heading_id~, ~target_custom_id~, ~target_id~
+- ~resolution_status~, ~resolution_diagnostic~
+- optional: ~node_path~, ~source~, ~target~
+
+Included source/target objects:
+
+- ~source~ contains:
+  - ~file~
+  - optional ~heading~
+  - ~source_path~
+- ~target~ contains:
+  - ~resolved_kind~
+  - optional ~file~
+  - optional ~heading~
+  - ~raw_target~
+  - ~resolution_status~
+  - ~resolution_diagnostic~
+
+Representative examples:
+
+#+begin_src shell
+orgfdb query --json '(todo "NEXT")'
+orgfdb query --json --output outline '(headings (title "sqlite"))'
+orgfdb query --json --include path,properties,keywords,links '(headings (todo "NEXT"))'
+orgfdb query --json --include source,target '(links (status "broken"))'
+#+end_src
+
+** Errors and Exit Codes
+
+Exit codes:
+
+- ~0~ :: success
+- ~1~ :: query parse/validation/backend/config/database/output error
+- ~2~ :: CLI usage error reported by Clap or missing required ~--json~
+
+User-visible error categories include:
+
+- parse errors such as malformed syntax
+- validation errors such as unknown predicates, wrong arity, invalid options, invalid nested targets, or target/predicate mismatches
+- backend capability errors such as ~has-text~ without persisted body-text capability
+- date resolution errors such as invalid timezone or out-of-range relative offsets
+- result-shaping integrity errors such as missing stored rows needed for enrichment
+- ordinary DB read failures
+
+Important expected messages:
+
+- ~query currently only supports --json~
+- ~unsupported operator: tags-regexp; use (tags ... :regexp t) instead~
+- ~has-text requires body text to be available in the database~
+- ~has-text with :regexp t is not supported by the current backend~
+
+** Executable Query Examples
+
+#+begin_src shell
+orgfdb query --json '(todo)'
+orgfdb query --json '(done)'
+orgfdb query --json '(title "Query Engine" :exact t)'
+orgfdb query --json '(title "Alpha Index" :exact t :without-root t)'
+orgfdb query --json '(has-text "sqlite" "fts")'
+orgfdb query --json '(level 1 2)'
+orgfdb query --json '(priority "A" "B")'
+orgfdb query --json '(tags "project" "urgent" :match :all)'
+orgfdb query --json '(tags-all "project" "urgent")'
+orgfdb query --json '(property "CATEGORY" "work")'
+orgfdb query --json '(keyword "AUTHOR" "Alice")'
+orgfdb query --json '(file-name "notes.org" :exact t)'
+orgfdb query --json '(file-path "projects/.*\\.org" :regexp t)'
+orgfdb query --json '(file-dir "/home/me/org/projects" :exact t)'
+orgfdb query --json '(file-title "Projects" :exact t)'
+orgfdb query --json '(file-modified :from -7 :to today)'
+orgfdb query --json '(outline-contains "Project" "Query")'
+orgfdb query --json '(outline-sequence "Projects" "Org database" :exact t)'
+orgfdb query --json '(ts :on today)'
+orgfdb query --json '(ts-active :from "2026-01-01" :to "2026-12-31")'
+orgfdb query --json '(deadline :to 7)'
+orgfdb query --json '(scheduled :from "2026-01-03" :to "2026-01-03" :with-time t)'
+orgfdb query --json '(closed :from -7)'
+orgfdb query --json '(planning :from today :to 7)'
+orgfdb query --json '(parent (headings (tags "project")))'
+orgfdb query --json '(children (headings (todo "NEXT")))'
+orgfdb query --json '(ancestors (headings (priority "A")))'
+orgfdb query --json '(descendants (headings (todo "WAITING")))'
+orgfdb query --json '(has-link (links (link-type "file")))'
+orgfdb query --json '(links-to (files (file-title "Beta Index" :exact t)))'
+orgfdb query --json '(linked-from (headings (property "CUSTOM_ID" "query-model" :inherit nil)))'
+orgfdb query --json '(links (link-type "file" "id"))'
+orgfdb query --json '(links (link-target "notes.org" :exact t))'
+orgfdb query --json '(links (link-description "Project.*" :regexp t))'
+orgfdb query --json '(links (has-description))'
+orgfdb query --json '(links (status "broken" "unresolved"))'
+orgfdb query --json '(links (source (headings (title "Query Engine" :exact t))))'
+orgfdb query --json '(links (target (files (file-path "notes.org" :exact t))))'
+orgfdb query --json --output outline '(headings (todo "NEXT"))'
+orgfdb query --json --include path '(todo "NEXT")'
+orgfdb query --json --include properties,keywords '(files (file-title "Projects" :exact t))'
+orgfdb query --json --include links,backlinks '(property "CUSTOM_ID")'
+orgfdb query --json --include source,target '(links (status "broken"))'
+#+end_src
 
 * ~orgfdb search --json~
 

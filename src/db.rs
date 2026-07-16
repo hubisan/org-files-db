@@ -262,7 +262,7 @@ mod tests {
     use super::{
         initialize_database, open_database, open_in_memory_database,
         open_in_memory_database_with_schema, read_schema_version, sqlite_supports_fts5, DbError,
-        SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        DbReader, SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
     use rusqlite::{params, Connection, OptionalExtension};
     use std::{
@@ -319,6 +319,36 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    fn count_rows(connection: &Connection, sql: &str) -> i64 {
+        connection
+            .query_row(sql, [], |row| row.get(0))
+            .expect("count query should succeed")
+    }
+
+    fn foreign_key_targets(connection: &Connection, table_name: &str) -> Vec<String> {
+        let mut statement = connection
+            .prepare(&format!("PRAGMA foreign_key_list({table_name})"))
+            .expect("foreign_key_list should prepare");
+        statement
+            .query_map([], |row| row.get(2))
+            .expect("foreign_key_list should query")
+            .collect::<Result<Vec<String>, _>>()
+            .expect("foreign_key_list rows should collect")
+    }
+
+    fn foreign_key_check_rows(connection: &Connection) -> Vec<(String, i64, String, i64)> {
+        let mut statement = connection
+            .prepare("PRAGMA foreign_key_check")
+            .expect("foreign_key_check should prepare");
+        statement
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .expect("foreign_key_check should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("foreign_key_check rows should collect")
     }
 
     #[test]
@@ -2132,6 +2162,629 @@ PRAGMA user_version = 4;
             )
             .expect("migrated timestamp should load");
         assert_eq!(migrated_timestamp, (Some(1_767_398_400), None));
+    }
+
+    #[test]
+    fn open_database_preserves_headings_dependents_during_headings_migration() {
+        let test_dir = TestDir::new("headings-dependent-repair");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        open_database(&database_path).expect("database should initialize");
+
+        {
+            let legacy = Connection::open(&database_path).expect("legacy database should open");
+            legacy
+                .execute_batch(
+                    r#"
+DROP TABLE outline_path;
+DROP TABLE heading_bodies;
+DROP TABLE timestamp_repeaters;
+DROP TABLE timestamps;
+DROP TABLE links;
+DROP TABLE tags;
+DROP TABLE properties;
+DROP TABLE keywords;
+DROP TABLE headings;
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL CHECK (level >= 0),
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    title               TEXT NOT NULL,
+    title_raw           TEXT,
+    todo_keyword        TEXT,
+    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
+    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
+    all_tags_json       TEXT NOT NULL DEFAULT '[]',
+    CHECK (
+        (level = 0 AND parent_id IS NULL)
+        OR
+        (level > 0 AND parent_id IS NOT NULL)
+    )
+);
+
+CREATE TABLE keywords (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    keyword         TEXT NOT NULL,
+    value           TEXT,
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    UNIQUE (heading_id, keyword, line_number)
+);
+
+CREATE TABLE properties (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    key             TEXT NOT NULL,
+    value           TEXT,
+    source          TEXT NOT NULL CHECK (
+                        source IN ('property_keyword', 'property_drawer', 'category_keyword')
+                    ),
+    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE tags (
+    heading_id      INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (heading_id, tag)
+);
+
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT,
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT,
+    range_type      TEXT,
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE timestamp_repeaters (
+    id                          INTEGER PRIMARY KEY,
+    timestamp_id                INTEGER NOT NULL UNIQUE,
+    repeater_type               TEXT,
+    repeater_value              INTEGER,
+    repeater_unit               TEXT,
+    repeater_deadline_value     INTEGER,
+    repeater_deadline_unit      TEXT,
+    warning_type                TEXT,
+    warning_value               INTEGER,
+    warning_unit                TEXT,
+    FOREIGN KEY (timestamp_id)
+        REFERENCES timestamps(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE links (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    heading_id          INTEGER NOT NULL,
+    byte_start          INTEGER NOT NULL CHECK (byte_start >= 0),
+    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line                INTEGER NOT NULL CHECK (line > 0),
+    source_context      TEXT NOT NULL,
+    format              TEXT NOT NULL,
+    raw                 TEXT NOT NULL,
+    raw_target          TEXT NOT NULL,
+    raw_description     TEXT,
+    link_type           TEXT NOT NULL,
+    path                TEXT NOT NULL,
+    search_option       TEXT,
+    path_absolute       TEXT,
+    target_file_id      INTEGER,
+    target_heading_id   INTEGER,
+    target_custom_id    TEXT,
+    target_id           TEXT,
+    resolution_status   TEXT,
+    resolution_diagnostic TEXT,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (target_file_id)
+        REFERENCES files(id)
+        ON DELETE SET NULL,
+    FOREIGN KEY (target_heading_id)
+        REFERENCES headings(id)
+        ON DELETE SET NULL,
+    UNIQUE (file_id, byte_start)
+);
+
+CREATE TABLE heading_bodies (
+    heading_id          INTEGER PRIMARY KEY,
+    body_text           TEXT NOT NULL,
+    body_byte_start     INTEGER,
+    body_byte_end       INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE outline_path (
+    heading_id          INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    depth               INTEGER NOT NULL CHECK (depth >= 0),
+    materialized_path   TEXT NOT NULL,
+    breadcrumbs_json    TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (parent_id)
+        REFERENCES headings(id)
+        ON DELETE SET NULL
+);
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/migrate.org', 10, 90);
+INSERT INTO headings
+    (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
+     scheduled_raw, scheduled_ts, all_tags_json)
+VALUES
+    (1, 1, NULL, 0, 1, -1, 90, 'Migrate Index', 'Migrate Index', NULL, NULL, '[]'),
+    (2, 1, 1, 1, 3, 20, 80, 'Migrated Task', 'Migrated Task',
+     '<2026-01-03 Fri 00:00>', 1767398400, '["project"]');
+
+INSERT INTO keywords (id, heading_id, keyword, value, line_number)
+VALUES (1, 1, 'TITLE', 'Migrate Index', 1);
+INSERT INTO properties (id, heading_id, key, value, source, append, line_number)
+VALUES (1, 2, 'CUSTOM_ID', 'migrated-task', 'property_drawer', 0, 4);
+INSERT INTO tags (heading_id, tag) VALUES (2, 'project');
+INSERT INTO timestamps
+    (id, heading_id, role, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number)
+VALUES
+    (1, 2, 'scheduled', 1767398400, NULL, 'active', 'none', '<2026-01-03 Fri 00:00>', 25, 47, 3);
+INSERT INTO timestamp_repeaters
+    (id, timestamp_id, repeater_type, repeater_value, repeater_unit, repeater_deadline_value,
+     repeater_deadline_unit, warning_type, warning_value, warning_unit)
+VALUES
+    (1, 1, 'restart', 1, 'week', NULL, NULL, NULL, NULL, NULL);
+INSERT INTO links
+    (id, file_id, heading_id, byte_start, byte_end, line, source_context, format, raw, raw_target,
+     raw_description, link_type, path, search_option, path_absolute, target_file_id, target_heading_id,
+     target_custom_id, target_id, resolution_status, resolution_diagnostic)
+VALUES
+    (1, 1, 2, 50, 70, 5, 'normal', 'bracket', '[[file:target.org][Target]]', 'file:target.org',
+     'Target', 'file', 'target.org', NULL, '/tmp/target.org', NULL, NULL, NULL, NULL, 'resolved', NULL);
+INSERT INTO heading_bodies (heading_id, body_text, body_byte_start, body_byte_end)
+VALUES (2, 'Migrated body', 48, 79);
+INSERT INTO outline_path
+    (heading_id, file_id, parent_id, depth, materialized_path, breadcrumbs_json)
+VALUES
+    (1, 1, NULL, 0, '0000', '["Migrate Index"]'),
+    (2, 1, 1, 1, '0000.0001', '["Migrate Index","Migrated Task"]');
+
+PRAGMA user_version = 4;
+"#,
+                )
+                .expect("legacy headings schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should upgrade");
+
+        for table_name in [
+            "keywords",
+            "properties",
+            "tags",
+            "timestamps",
+            "heading_bodies",
+            "links",
+            "outline_path",
+        ] {
+            assert!(
+                !foreign_key_targets(&connection, table_name)
+                    .iter()
+                    .any(|target| target == "headings_legacy"),
+                "{table_name} should not retain headings_legacy foreign keys"
+            );
+        }
+        assert!(
+            foreign_key_check_rows(&connection).is_empty(),
+            "foreign_key_check should be empty after repair"
+        );
+
+        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM keywords"), 1);
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM properties"),
+            1
+        );
+        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM tags"), 1);
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM timestamps"),
+            1
+        );
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM timestamp_repeaters"),
+            1
+        );
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM heading_bodies"),
+            1
+        );
+        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM links"), 1);
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM outline_path"),
+            2
+        );
+
+        let child_outline: (i64, String) = connection
+            .query_row(
+                "SELECT depth, breadcrumbs_json
+                 FROM outline_path
+                 WHERE heading_id = 2",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("rebuilt outline path should load");
+        assert_eq!(child_outline.0, 1);
+        assert_eq!(child_outline.1, "[\"Migrate Index\",\"Migrated Task\"]");
+
+        let links = DbReader::list_links(&connection).expect("links should remain queryable");
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].heading_id, 2);
+    }
+
+    #[test]
+    fn open_database_repairs_tables_still_referencing_headings_legacy() {
+        let test_dir = TestDir::new("repair-headings-legacy-fks");
+        let database_path = test_dir.path().join("org-files-db.sqlite");
+
+        {
+            let broken = Connection::open(&database_path).expect("broken database should open");
+            broken
+                .execute_batch(
+                    r#"
+PRAGMA foreign_keys = OFF;
+PRAGMA user_version = 7;
+
+CREATE TABLE files (
+    id              INTEGER PRIMARY KEY,
+    path            TEXT NOT NULL UNIQUE,
+    mtime_ns        INTEGER NOT NULL,
+    size            INTEGER NOT NULL,
+    content_hash    TEXT,
+    indexed_at      INTEGER
+);
+
+CREATE TABLE db_metadata (
+    key             TEXT PRIMARY KEY,
+    value           TEXT NOT NULL
+);
+
+CREATE TABLE headings (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    level               INTEGER NOT NULL CHECK (level >= 0),
+    line_number         INTEGER,
+    byte_start          INTEGER NOT NULL,
+    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    title               TEXT NOT NULL,
+    title_raw           TEXT,
+    todo_keyword        TEXT,
+    todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
+    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
+    scheduled_raw       TEXT,
+    scheduled_ts        INTEGER,
+    scheduled_has_time  INTEGER CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),
+    deadline_raw        TEXT,
+    deadline_ts         INTEGER,
+    deadline_has_time   INTEGER CHECK (deadline_has_time IN (0, 1) OR deadline_has_time IS NULL),
+    closed_raw          TEXT,
+    closed_ts           INTEGER,
+    closed_has_time     INTEGER CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL),
+    archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
+    footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
+    all_tags_json       TEXT NOT NULL DEFAULT '[]',
+    CHECK (
+        (level = 0 AND parent_id IS NULL)
+        OR
+        (level > 0 AND parent_id IS NOT NULL)
+    ),
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (parent_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    UNIQUE (file_id, byte_start)
+);
+
+CREATE TABLE keywords (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    keyword         TEXT NOT NULL,
+    value           TEXT,
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE,
+    UNIQUE (heading_id, keyword, line_number)
+);
+
+CREATE TABLE properties (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    key             TEXT NOT NULL,
+    value           TEXT,
+    source          TEXT NOT NULL CHECK (
+                        source IN ('property_keyword', 'property_drawer', 'category_keyword')
+                    ),
+    append          INTEGER NOT NULL DEFAULT 0 CHECK (append IN (0, 1)),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE tags (
+    heading_id      INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE,
+    PRIMARY KEY (heading_id, tag)
+);
+
+CREATE TABLE timestamps (
+    id              INTEGER PRIMARY KEY,
+    heading_id      INTEGER NOT NULL,
+    role            TEXT CHECK (
+                        role IN ('scheduled', 'deadline', 'closed', 'body')
+                        OR role IS NULL
+                    ),
+    has_time        INTEGER CHECK (has_time IN (0, 1) OR has_time IS NULL),
+    start_ts        INTEGER,
+    end_ts          INTEGER,
+    type            TEXT CHECK (
+                        type IN ('active', 'inactive', 'diary')
+                        OR type IS NULL
+                    ),
+    range_type      TEXT CHECK (
+                        range_type IN ('none', 'date_range', 'time_range', 'datetime_range', 'unknown')
+                        OR range_type IS NULL
+                    ),
+    raw_value       TEXT NOT NULL,
+    byte_start      INTEGER NOT NULL,
+    byte_end        INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line_number     INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE timestamp_repeaters (
+    id                          INTEGER PRIMARY KEY,
+    timestamp_id                INTEGER NOT NULL UNIQUE,
+    repeater_type               TEXT,
+    repeater_value              INTEGER,
+    repeater_unit               TEXT,
+    repeater_deadline_value     INTEGER,
+    repeater_deadline_unit      TEXT,
+    warning_type                TEXT,
+    warning_value               INTEGER,
+    warning_unit                TEXT,
+    FOREIGN KEY (timestamp_id)
+        REFERENCES timestamps(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE links (
+    id                  INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    heading_id          INTEGER NOT NULL,
+    byte_start          INTEGER NOT NULL CHECK (byte_start >= 0),
+    byte_end            INTEGER NOT NULL CHECK (byte_end >= byte_start),
+    line                INTEGER NOT NULL CHECK (line > 0),
+    source_context      TEXT NOT NULL,
+    format              TEXT NOT NULL,
+    raw                 TEXT NOT NULL,
+    raw_target          TEXT NOT NULL,
+    raw_description     TEXT,
+    link_type           TEXT NOT NULL,
+    path                TEXT NOT NULL,
+    search_option       TEXT,
+    path_absolute       TEXT,
+    target_file_id      INTEGER,
+    target_heading_id   INTEGER,
+    target_custom_id    TEXT,
+    target_id           TEXT,
+    resolution_status   TEXT,
+    resolution_diagnostic TEXT,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (target_file_id)
+        REFERENCES files(id)
+        ON DELETE SET NULL,
+    FOREIGN KEY (target_heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE SET NULL,
+    UNIQUE (file_id, byte_start)
+);
+
+CREATE TABLE heading_bodies (
+    heading_id          INTEGER PRIMARY KEY,
+    body_text           TEXT NOT NULL,
+    body_byte_start     INTEGER,
+    body_byte_end       INTEGER,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE
+);
+
+CREATE TABLE outline_path (
+    heading_id          INTEGER PRIMARY KEY,
+    file_id             INTEGER NOT NULL,
+    parent_id           INTEGER,
+    depth               INTEGER NOT NULL CHECK (depth >= 0),
+    materialized_path   TEXT NOT NULL,
+    breadcrumbs_json    TEXT NOT NULL,
+    FOREIGN KEY (heading_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (parent_id)
+        REFERENCES headings_legacy(id)
+        ON DELETE SET NULL
+);
+
+INSERT INTO db_metadata (key, value) VALUES
+    ('fts_available', '1'),
+    ('fts_body_indexed', '1'),
+    ('fts_schema_version', '1');
+
+INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/repair.org', 10, 80);
+INSERT INTO headings
+    (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, all_tags_json)
+VALUES
+    (1, 1, NULL, 0, 1, -1, 80, 'Repair Index', 'Repair Index', '[]'),
+    (2, 1, 1, 1, 3, 10, 70, 'Repair Heading', 'Repair Heading', '["repair"]');
+INSERT INTO keywords (id, heading_id, keyword, value, line_number)
+VALUES (1, 1, 'TITLE', 'Repair Index', 1);
+INSERT INTO properties (id, heading_id, key, value, source, append, line_number)
+VALUES (1, 2, 'CUSTOM_ID', 'repair-heading', 'property_drawer', 0, 4);
+INSERT INTO tags (heading_id, tag) VALUES (2, 'repair');
+INSERT INTO timestamps
+    (id, heading_id, role, has_time, start_ts, end_ts, type, range_type, raw_value, byte_start, byte_end, line_number)
+VALUES
+    (1, 2, 'body', NULL, NULL, NULL, 'active', 'none', '<2026-01-03 Fri>', 20, 36, 5);
+INSERT INTO timestamp_repeaters
+    (id, timestamp_id, repeater_type, repeater_value, repeater_unit, repeater_deadline_value,
+     repeater_deadline_unit, warning_type, warning_value, warning_unit)
+VALUES
+    (1, 1, 'restart', 2, 'week', NULL, NULL, NULL, NULL, NULL);
+INSERT INTO links
+    (id, file_id, heading_id, byte_start, byte_end, line, source_context, format, raw, raw_target,
+     raw_description, link_type, path, search_option, path_absolute, target_file_id, target_heading_id,
+     target_custom_id, target_id, resolution_status, resolution_diagnostic)
+VALUES
+    (1, 1, 2, 40, 60, 6, 'normal', 'plain', 'https://example.com', 'https://example.com',
+     NULL, 'https', 'https://example.com', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+INSERT INTO heading_bodies (heading_id, body_text, body_byte_start, body_byte_end)
+VALUES (2, 'Repair body', 37, 69);
+
+PRAGMA foreign_keys = ON;
+"#,
+                )
+                .expect("broken headings-dependent schema should initialize");
+        }
+
+        let connection = open_database(&database_path).expect("database should repair");
+
+        for table_name in [
+            "keywords",
+            "properties",
+            "tags",
+            "timestamps",
+            "heading_bodies",
+            "links",
+            "outline_path",
+        ] {
+            assert!(
+                !foreign_key_targets(&connection, table_name)
+                    .iter()
+                    .any(|target| target == "headings_legacy"),
+                "{table_name} should not retain headings_legacy foreign keys"
+            );
+        }
+        assert!(
+            foreign_key_check_rows(&connection).is_empty(),
+            "foreign_key_check should be empty after repair"
+        );
+
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM outline_path"),
+            2
+        );
+        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM keywords"), 1);
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM properties"),
+            1
+        );
+        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM tags"), 1);
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM timestamps"),
+            1
+        );
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM timestamp_repeaters"),
+            1
+        );
+        assert_eq!(
+            count_rows(&connection, "SELECT COUNT(*) FROM heading_bodies"),
+            1
+        );
+        assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM links"), 1);
+
+        let fts_metadata: Vec<(String, String)> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT key, value
+                     FROM db_metadata
+                     WHERE key IN ('fts_available', 'fts_body_indexed', 'fts_schema_version')
+                     ORDER BY key",
+                )
+                .expect("fts metadata query should prepare");
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("fts metadata query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("fts metadata rows should collect")
+        };
+        assert_eq!(
+            fts_metadata,
+            vec![
+                ("fts_available".to_string(), "0".to_string()),
+                ("fts_body_indexed".to_string(), "0".to_string()),
+                ("fts_schema_version".to_string(), "0".to_string()),
+            ]
+        );
+
+        let links = DbReader::list_links(&connection).expect("links should remain queryable");
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            links[0].heading_breadcrumbs_json,
+            "[\"Repair Index\",\"Repair Heading\"]"
+        );
     }
 
     #[test]

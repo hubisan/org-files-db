@@ -173,12 +173,6 @@ General rules:
 - Task file: [[file:archive/2026-07-16--persist-heading-body-text-for-query-execution.org]]
 
 ** DONE [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
 
 - Task file: [[file:archive/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
 
@@ -190,4 +184,12 @@ General rules:
 
 - Task file: [[file:2026-07-16--provide-cli-command-search.org]]
   
+** DONE [#A] Repair dependent tables after ~headings~ schema migration
+
+- Task file: [[file:archive/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org]]
+  
+** DONE [#B] Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
+
+- Task file: [[file:archive/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
+
 ** TODO Manual Test the Implementation

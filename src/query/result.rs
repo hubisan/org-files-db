@@ -1345,7 +1345,7 @@ fn load_headings_for_files(
             headings.all_tags_json,
             outline_path.breadcrumbs_json
          FROM headings
-         INNER JOIN outline_path ON outline_path.heading_id = headings.id
+         LEFT JOIN outline_path ON outline_path.heading_id = headings.id
          INNER JOIN files ON files.id = headings.file_id
          WHERE headings.file_id IN ({})
          ORDER BY files.path, headings.byte_start, headings.id",
@@ -1361,7 +1361,7 @@ fn load_headings_for_files(
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(20)?,
-                row.get::<_, String>(21)?,
+                row.get::<_, Option<String>>(21)?,
                 StoredHeading {
                     id: row.get(0)?,
                     file_id: row.get(1)?,
@@ -1398,6 +1398,11 @@ fn load_headings_for_files(
         let (id, tags_json, breadcrumbs_json, mut heading) = row;
         heading.all_tags = serde_json::from_str(&tags_json)
             .map_err(|source| QueryShapeError::invalid_json("all_tags_json", id, source))?;
+        let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing outline_path row for stored heading id {id}"
+            ))
+        })?;
         heading.breadcrumbs = serde_json::from_str(&breadcrumbs_json)
             .map_err(|source| QueryShapeError::invalid_json("breadcrumbs_json", id, source))?;
         headings.insert(id, heading);
@@ -1710,6 +1715,28 @@ mod tests {
         assert!(target.file.is_none());
         assert!(target.heading.is_none());
         assert!(target.resolved_kind.is_none());
+    }
+
+    #[test]
+    fn missing_outline_path_row_reports_outline_specific_error() {
+        let connection = seeded_connection();
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 11", [])
+            .expect("outline path row should delete");
+
+        let error = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Query Engine" :exact t))"#),
+            &QueryExecutionOptions::default(),
+        )
+        .expect_err("query shaping should fail when outline_path is missing");
+
+        assert!(
+            error
+                .to_string()
+                .contains("missing outline_path row for stored heading id 11"),
+            "expected outline-specific error, got {error}"
+        );
     }
 
     #[test]

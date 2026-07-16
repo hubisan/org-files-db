@@ -2,6 +2,7 @@
 #+FILETAGS: :notes:reference:
 #+CATEGORY: notes
 #+PROPERTY: LANGUAGE English
+#+STARTUP: showall
 
 * Query Model :query:spec:
 :PROPERTIES:

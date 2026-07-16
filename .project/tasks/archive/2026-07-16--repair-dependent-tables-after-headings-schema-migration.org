@@ -1,0 +1,269 @@
+#+TITLE: Repair dependent tables after ~headings~ schema migration
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 20:49]
+#+TASK_COMPLETED: [2026-07-16 Thu 22:20]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Fix the legacy ~headings~ migration so that dependent tables remain valid, queries keep working, and already-affected databases are structurally repaired.
+
+** BUILD [#A] Repair dependent tables after ~headings~ schema migration
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: No
+:END:
+
+- Task file: [[file:archive/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org]]
+
+Goal:
+
+- Fix the legacy ~headings~ migration so that tables referencing ~headings~ keep valid foreign keys and indexed data remains internally consistent.
+- Prevent successful database opening or rebuilding from leaving populated ~headings~ rows with empty dependent tables.
+- Restore query execution after a ~headings~ schema migration.
+
+Observed failure:
+
+- Query commands fail with errors such as:
+
+#+begin_src text
+missing stored heading row for id 31
+#+end_src
+
+- The affected database contains rows in ~headings~, but tables such as ~outline_path~ and ~links~ are empty.
+- The dumped schema contains foreign keys that still reference the removed table ~headings_legacy~.
+- Additional affected tables include at least:
+  - ~keywords~
+  - ~properties~
+  - ~tags~
+  - ~timestamps~
+  - ~heading_bodies~
+  - ~links~
+  - ~outline_path~
+
+Root cause:
+
+- ~migrate_legacy_headings_table~ currently renames ~headings~:
+
+#+begin_src sql
+ALTER TABLE headings RENAME TO headings_legacy;
+#+end_src
+
+- SQLite updates foreign keys in dependent tables so that they reference ~headings_legacy~.
+- The migration then creates the new ~headings~ table and drops ~headings_legacy~.
+- Dependent tables are not recreated, so their foreign keys continue to reference the removed legacy table.
+- Dropping the legacy heading table can also remove dependent rows through cascading foreign keys.
+- The query result loader uses an ~INNER JOIN~ from ~headings~ to ~outline_path~, so missing outline rows make existing headings appear unavailable.
+
+Implementation requirements:
+
+- Perform the ~headings~ migration without leaving any foreign key that references ~headings_legacy~.
+- Recreate every table whose schema references ~headings~ as part of the same migration.
+- Preserve canonical source data where safe and practical.
+- Treat derived/cache data such as ~outline_path~ and FTS rows as rebuildable.
+- Ensure migration and schema repair run transactionally.
+- Do not leave a partially migrated database if any migration step fails.
+- Do not rely on disabling foreign-key enforcement as the only fix.
+- Ensure the final schema matches the current definitions in ~sql/schema.sql~.
+- Decide explicitly whether dependent rows are:
+  - copied during migration, or
+  - discarded and regenerated through a mandatory rebuild.
+- If a rebuild is required after migration, enforce or perform it rather than allowing queries against an incomplete database.
+- Ensure the migration also repairs already affected databases whose tables currently reference ~headings_legacy~.
+
+Suggested approach:
+
+- Detect foreign keys whose target table is ~headings_legacy~ using ~PRAGMA foreign_key_list~.
+- Create replacement versions of all affected dependent tables with foreign keys targeting ~headings~.
+- Copy source-of-truth rows using stable heading IDs where applicable.
+- Rebuild derived tables after the canonical rows have been restored.
+- Drop the broken table versions only after their replacement tables are ready.
+- Run ~PRAGMA foreign_key_check~ before committing.
+- Consider increasing the schema version so already opened broken databases receive the repair migration.
+
+Query robustness:
+
+- Improve the current error so that a missing ~outline_path~ row is distinguishable from a missing ~headings~ row.
+- The query layer should report an integrity error such as:
+
+#+begin_src text
+missing outline_path row for stored heading id 31
+#+end_src
+
+- This clearer error is diagnostic only and must not replace fixing the migration.
+
+Acceptance criteria:
+
+- After migrating an older database, no foreign key references ~headings_legacy~.
+- ~PRAGMA foreign_key_check~ returns no rows.
+- Every stored heading has exactly one ~outline_path~ row.
+- Query commands no longer fail with ~missing stored heading row~ after migration and rebuild.
+- Existing links, tags, properties, timestamps, bodies, and keywords are preserved or deterministically regenerated according to the documented migration strategy.
+- A full rebuild after migration populates ~outline_path~ and ~links~ correctly.
+- Existing already-broken databases are repaired automatically or rejected with a clear recovery message.
+- The migration is atomic.
+- FTS-disabled databases migrate successfully.
+- FTS-enabled databases migrate successfully and recreate consistent FTS rows.
+- ~make ci~ passes.
+
+Regression tests:
+
+- Create a legacy schema fixture whose ~headings~ table lacks the new timestamp metadata columns.
+- Populate the fixture with:
+  - one file
+  - a level 0 heading
+  - nested headings
+  - tags
+  - properties
+  - timestamps
+  - heading bodies
+  - links
+  - outline paths
+- Apply the current schema migration.
+- Assert that no table references ~headings_legacy~:
+
+#+begin_src sql
+SELECT m.name, fk."table"
+FROM sqlite_schema AS m,
+     pragma_foreign_key_list(m.name) AS fk
+WHERE m.type = 'table'
+  AND fk."table" = 'headings_legacy';
+#+end_src
+
+- Assert that the query returns no rows.
+- Assert:
+
+#+begin_src sql
+PRAGMA foreign_key_check;
+#+end_src
+
+- Assert that the result is empty.
+- Assert that every heading has an outline row:
+
+#+begin_src sql
+SELECT h.id
+FROM headings AS h
+LEFT JOIN outline_path AS op
+    ON op.heading_id = h.id
+WHERE op.heading_id IS NULL;
+#+end_src
+
+- Assert that the result is empty.
+- Run representative ~files~, ~headings~, ~links~, and ~query~ commands against the migrated database.
+- Add a regression test for an already affected database containing foreign keys to ~headings_legacy~.
+
+* Planning
+
+** Problem summary
+
+- ~migrate_legacy_headings_table~ renames ~headings~ to ~headings_legacy~, creates the new table, copies rows, and drops the legacy table.
+- SQLite rewrites dependent foreign keys to reference ~headings_legacy~ during the rename.
+- Dependent tables are not rebuilt as part of that migration, so dropping ~headings_legacy~ can cascade-delete their rows and leaves broken FK targets behind.
+- Query shaping currently loads headings through an ~INNER JOIN~ on ~outline_path~, so missing derived rows are reported misleadingly as missing stored heading rows.
+
+** Goals
+
+- Repair the legacy ~headings~ migration so dependent tables are rebuilt transactionally alongside ~headings~.
+- Preserve canonical dependent rows during the real migration path where the source data still exists.
+- Repair already-affected databases by rebuilding structural tables and FK definitions so query execution no longer fails because of broken ~outline_path~ / FK state.
+- Improve the query-shaping error so missing ~outline_path~ rows are reported distinctly.
+
+** Non-goals
+
+- No Query Model syntax changes.
+- No changes to ~has-text~ semantics.
+- No incremental FTS maintenance changes beyond keeping trust state safe when a headings repair invalidates derived search state.
+
+** Architecture
+
+- Add a dedicated schema-repair path for tables that reference ~headings~:
+  - canonical tables: ~keywords~, ~properties~, ~tags~, ~timestamps~, ~heading_bodies~, ~links~
+  - derived table: ~outline_path~
+- When ~headings~ itself needs migration:
+  - rename ~headings~ to ~headings_legacy~
+  - rename dependent tables to temporary repair tables before dropping the legacy headings table
+  - recreate current schema objects
+  - copy canonical rows forward
+  - rebuild ~outline_path~ from canonical ~headings~
+- When an already-openable database still contains FK targets pointing at ~headings_legacy~, run the same dependent-table repair without re-migrating ~headings~.
+- Invalidate trusted FTS metadata when a headings-dependent repair runs, because ~heading_fts~ is derived and full-rebuild-owned.
+- Change query heading loading from ~INNER JOIN outline_path~ to ~LEFT JOIN~, then raise a dedicated missing-~outline_path~ shape error when canonical headings exist but the derived row does not.
+
+** Execution plan
+
+- Update the task index entry to ~BUILD~ and link this task file.
+- Implement the dependent-table repair helpers in ~src/db/schema.rs~.
+- Rebuild ~outline_path~ from canonical ~headings~ during repair.
+- Invalidate trusted FTS metadata after a headings-dependent repair.
+- Tighten query-shape diagnostics for missing ~outline_path~ rows.
+- Add migration regressions for:
+  - a real legacy headings migration with populated dependent tables
+  - an already-affected database with FK targets pointing at ~headings_legacy~
+- Run formatting and relevant Rust / CI checks.
+
+** Risks & assumptions
+
+- Already-affected databases may have permanently lost canonical dependent rows before this fix; those rows cannot be reconstructed during open without rereading Org files.
+- Rebuilding ~outline_path~ from canonical headings is sufficient to restore the main heading-query failure mode.
+- Search trust should be invalidated on repair rather than attempting a partial FTS rebuild during schema open.
+
+** Open questions
+
+- None. Proceed with the smallest repair that preserves existing data when still available and makes prior damage explicit/safe.
+
+** Proposed checks
+
+- ~cargo fmt --all~
+- focused migration regressions for headings repair
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+- Confirmed the root cause locally: renaming ~headings~ causes SQLite to retarget dependent foreign keys to ~headings_legacy~, and dropping that table can delete dependent rows or leave broken targets behind.
+- Reworked the schema migration so a legacy ~headings~ rebuild now also stages and restores all dependent tables in the same transaction.
+- Added a post-migration repair pass for already-openable databases whose dependent tables still reference ~headings_legacy~.
+- Rebuild ~outline_path~ from canonical ~headings~ during repair and invalidate trusted FTS metadata rather than trusting stale derived search state.
+- Tightened query shaping so a missing ~outline_path~ row is reported explicitly instead of masquerading as a missing stored heading row.
+
+** Changed files
+- ~src/db/schema.rs~
+  - repair and migration helpers for tables depending on ~headings~
+  - transactional restore of canonical dependent rows
+  - ~outline_path~ rebuild from canonical headings
+  - FTS trust metadata invalidation on headings-dependent repair
+- ~src/db.rs~
+  - regression tests for the real legacy migration path
+  - regression tests for already-damaged databases with ~headings_legacy~ FK targets
+- ~src/query/result.rs~
+  - explicit missing-~outline_path~ shape error
+- ~.project/tasks/todo.org~
+  - task status update and task-file link
+- ~.project/tasks/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org~
+  - planning and build record
+
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test open_database_preserves_headings_dependents_during_headings_migration~
+- ~cargo test open_database_repairs_tables_still_referencing_headings_legacy~
+- ~cargo test missing_outline_path_row_reports_outline_specific_error~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+- All targeted regressions passed.
+- ~cargo test --all-targets --all-features~ passed.
+- ~make ci~ passed, including ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test --all-targets --all-features~, and ~cargo build --all-targets --all-features~.
+- The newly added coverage explains why the previous suite stayed green: it did not assert dependent FK retargeting, ~foreign_key_check~, or the missing-~outline_path~ failure mode after a ~headings~ migration.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Already-affected databases whose canonical dependent rows were physically deleted before this fix cannot recover those lost rows during ~open_database~ alone; a normal rebuild is still required to repopulate source-derived facts beyond the repaired structural state.

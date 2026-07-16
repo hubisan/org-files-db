@@ -1,0 +1,564 @@
+#+TITLE: Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 23:19]
+#+TASK_COMPLETED: [2026-07-16 Thu 23:25]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Make ~docs/cli.org~ the complete user-facing reference for the implemented ~orgfdb query~ command without changing query behavior.
+
+** DONE [#B] Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
+
+- Task file: [[file:archive/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
+
+Goal:
+
+- Make ~docs/cli.org~ the complete user-facing reference for the implemented ~orgfdb query~ command.
+- Document every supported query target, predicate, option, include value, output mode, result shape, default, and important semantic rule in one place.
+- Keep ~docs/reference/query-model-v0.org~ as the normative Query Model v0 contract and design reference, but do not require users to read it merely to discover or use CLI functionality.
+
+Current problem:
+
+- ~docs/cli.org~ documents only a small part of the implemented query surface.
+- Many supported predicates, predicate options, relation forms, timestamp semantics, root/file semantics, includes, and output details are currently documented only in ~docs/reference/query-model-v0.org~.
+- Users cannot determine the complete CLI functionality from ~docs/cli.org~ alone.
+- This creates documentation drift and makes the public CLI appear less capable than the implementation.
+
+Documentation policy:
+
+- ~docs/cli.org~ is the complete public usage reference.
+- ~docs/reference/query-model-v0.org~ remains the normative contract for:
+  - grammar decisions
+  - validation rules
+  - precise semantic definitions
+  - implementation-oriented notes
+  - compatibility and versioning decisions
+- It is acceptable for both documents to contain the same predicate names and core semantics.
+- Avoid contradictory wording by deriving both documents from the accepted Query Model v0 contract.
+- Document only functionality that is currently implemented and publicly supported.
+- Mark specified but unimplemented functionality clearly and do not mix it into the supported predicate inventory.
+
+Required ~orgfdb query~ documentation in ~docs/cli.org~:
+
+*** Command synopsis
+
+Document the complete invocation:
+
+#+begin_src shell
+orgfdb query --json [OPTIONS] QUERY
+#+end_src
+
+Document all implemented command options, including at least:
+
+- ~--json~
+- ~--output flat|outline~
+- ~--include LIST~
+- ~--config PATH~
+- any other implemented query options
+
+For every option, document:
+
+- accepted values
+- default value
+- whether it is repeatable
+- whether values are comma-separated
+- validation behavior
+- interaction with query targets and output modes
+
+*** Query grammar
+
+Document the complete public grammar for:
+
+- explicit target wrappers
+- heading shorthand
+- predicates
+- nested expressions
+- boolean expressions
+- keyword arguments
+- string values
+- integer values
+- booleans
+- enum-like values
+- quoting rules
+- invalid-expression behavior
+
+Include a compact grammar overview or equivalent examples for:
+
+#+begin_src lisp
+(headings EXPR)
+(links EXPR)
+(files EXPR)
+
+(and EXPR...)
+(or EXPR...)
+(not EXPR)
+
+(predicate ARG... :option VALUE...)
+#+end_src
+
+*** Query targets
+
+Document every implemented target:
+
+- ~headings~
+- ~links~
+- ~files~
+
+For each target, explain:
+
+- what kind of rows or objects it selects
+- which predicates are valid
+- whether bare predicates can target it
+- which result object kinds are returned
+- which includes are valid
+- whether ~flat~ and ~outline~ output are supported
+
+*** Complete predicate reference
+
+Document every implemented predicate in ~docs/cli.org~.
+
+For every predicate, include:
+
+- syntax
+- valid target or targets
+- positional arguments
+- keyword options
+- defaults
+- matching semantics
+- case sensitivity
+- exact versus substring behavior
+- regular-expression behavior where supported
+- root/file behavior where relevant
+- inheritance behavior where relevant
+- date and time behavior where relevant
+- possible validation errors
+- at least one executable example
+
+Group predicates into clear sections.
+
+Suggested groups:
+
+**** Boolean predicates
+
+- ~and~
+- ~or~
+- ~not~
+
+**** Heading predicates
+
+Include every implemented predicate for:
+
+- title and text
+- TODO state and TODO type
+- priority
+- level
+- tags
+- properties
+- keywords
+- planning timestamps
+- general timestamps
+- archive and footnote state
+- hierarchy and outline relations
+- links and backlinks
+- containing-file metadata
+- any other implemented heading fields
+
+**** Link predicates
+
+Include every implemented predicate for:
+
+- link type
+- raw target
+- normalized target
+- description
+- source heading
+- target heading or file
+- resolution status
+- broken, unresolved, unsupported, or ambiguous state
+- source and target relations
+- containing-file metadata
+- any other implemented link fields
+
+**** File predicates
+
+Include every implemented predicate for:
+
+- file name
+- file path
+- directory
+- file title
+- file keywords
+- file properties
+- modification metadata
+- contained headings
+- contained links
+- relations to matched headings or links
+- any other implemented file fields
+
+*** Predicate options
+
+Document every implemented keyword option in the predicate where it is valid.
+
+Create an additional option index containing at least:
+
+- ~:exact~
+- ~:regexp~
+- ~:match~
+- ~:inherit~
+- ~:without-root~
+- ~:from~
+- ~:to~
+- ~:on~
+- ~:with-time~
+
+For each option, document:
+
+- valid predicates
+- accepted value type
+- default
+- semantics
+- invalid combinations
+
+Do not imply that an option is globally valid merely because it appears in the index.
+
+*** Root and file matching semantics
+
+Document fully:
+
+- which heading predicates may also match the synthetic file/root object
+- the default root-inclusion behavior
+- ~:without-root t~
+- why root matches are returned as ~kind = "file"~
+- the difference between:
+  - heading title matching against the file/root title
+  - ~file-title~ as a containing-file predicate
+  - querying the ~files~ target directly
+- how root/file matches behave in boolean expressions
+- how root/file matches behave with ~flat~ and ~outline~ output
+
+*** Timestamp semantics
+
+Document all implemented timestamp behavior, including:
+
+- supported timestamp predicates
+- date-only bounds
+- datetime bounds
+- local timezone behavior
+- configured query timezone behavior
+- integer date offsets if supported
+- ~today~
+- ~:from~
+- ~:to~
+- ~:on~
+- inclusive or exclusive bounds
+- explicit-time metadata
+- ~:with-time t~
+- ~:with-time nil~
+- behavior for timestamps without an explicit time
+- invalid date and datetime values
+
+*** Hierarchy and relation semantics
+
+Document all implemented:
+
+- parent relations
+- child relations
+- ancestor relations
+- descendant relations
+- outline containment
+- outline sequence
+- heading-to-link relations
+- link-to-heading relations
+- file-to-heading relations
+- file-to-link relations
+
+For nested relation predicates, document:
+
+- inner target
+- matching direction
+- whether matching is direct or transitive
+- whether the matched result or related result is returned
+- validation rules
+
+*** Includes
+
+Document every implemented ~--include~ value.
+
+For each include, state:
+
+- valid target or targets
+- added JSON field or fields
+- whether the data is direct, derived, or resolved
+- whether it changes matching or only output
+- behavior when the data is unavailable
+- interaction with FTS5 where relevant
+
+Include at least all currently implemented values such as:
+
+- ~path~
+- ~properties~
+- ~keywords~
+- ~links~
+- ~backlinks~
+- ~source~
+- ~target~
+
+Verify the actual implementation and include any additional supported values.
+
+*** Output modes
+
+Document:
+
+- ~flat~
+- ~outline~
+
+For each mode, state:
+
+- supported targets
+- result ordering
+- parent and child inclusion behavior
+- whether unmatched context rows are emitted
+- meaning of ~matched~
+- root/file object behavior
+- limitations
+
+*** JSON output reference
+
+Document the complete response envelope:
+
+- ~target~
+- ~output~
+- ~includes~
+- ~results~
+
+Document every result object kind:
+
+- ~heading~
+- ~file~
+- ~link~
+- any other implemented kind
+
+For each object kind, document:
+
+- always-present fields
+- nullable fields
+- include-dependent fields
+- location object
+- identifiers
+- source and target fields
+- timestamp fields
+- tag and property fields
+- root/file-specific fields
+
+Provide complete representative JSON examples for:
+
+- heading result
+- file result
+- root match returned from a heading query
+- link result
+- outline output
+- output with includes
+
+*** Errors
+
+Document user-visible errors for:
+
+- parse errors
+- unknown predicates
+- invalid arity
+- invalid option names
+- invalid option values
+- target/predicate mismatch
+- invalid nested targets
+- invalid date or timestamp bounds
+- unsupported FTS-dependent behavior
+- invalid include values
+- database integrity failures
+- backend limitations
+
+Explain the exit-code behavior where implemented.
+
+*** Executable examples
+
+Add executable examples covering every predicate and option.
+
+At minimum include examples for:
+
+- every target
+- every boolean operator
+- every predicate
+- every keyword option
+- root matching
+- root exclusion
+- exact matching
+- regex matching
+- tag any/all matching
+- direct and inherited properties
+- date-only and datetime bounds
+- explicit-time filtering
+- hierarchy relations
+- link status
+- nested relations
+- every include value
+- flat output
+- outline output
+
+Examples must use the current syntax and be manually executable against the Query Model fixture.
+
+Implementation audit:
+
+- Compare the accepted contract in ~docs/reference/query-model-v0.org~ against:
+  - CLI argument definitions
+  - query AST
+  - parser
+  - validator
+  - SQLite compiler
+  - result hydration
+  - JSON serialization
+- Build a complete matrix with:
+  - target
+  - predicate
+  - arguments
+  - options
+  - implementation status
+  - documentation status
+  - test coverage
+- Resolve stale or conflicting names before documenting them.
+- Verify especially:
+  - ~:without-root~ versus older root options
+  - current timestamp predicate syntax
+  - current relation predicate syntax
+  - quoted versus unquoted enum values
+  - all include names
+  - all output object kinds
+  - FTS5-dependent behavior
+
+Consistency requirements:
+
+- Every implemented public predicate appears in ~docs/cli.org~.
+- Every implemented predicate option appears in its predicate documentation.
+- Every implemented include appears in ~docs/cli.org~.
+- Every documented predicate exists in the parser and validator.
+- Every documented example passes.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~ use identical public names and defaults.
+- Differences between the user-facing explanation and the normative specification are intentional and not semantic contradictions.
+
+Testing and maintenance:
+
+- Add a lightweight documentation consistency test if practical.
+- Prefer a machine-readable inventory in code or test data for:
+  - targets
+  - predicates
+  - predicate options
+  - includes
+  - output modes
+- Compare that inventory against explicit markers or generated sections in ~docs/cli.org~.
+- At minimum, add a test that fails when a newly registered public predicate is absent from the documentation inventory.
+- Do not generate prose automatically unless the result remains readable and maintainable.
+
+Acceptance criteria:
+
+- ~docs/cli.org~ is sufficient to use the complete implemented Query Model v0 CLI without opening another document.
+- Every implemented query target is documented.
+- Every implemented predicate is documented with syntax, semantics, options, and an example.
+- Every implemented predicate option is documented.
+- Every implemented include is documented.
+- Root/file semantics are fully documented.
+- Timestamp and timezone semantics are fully documented.
+- Hierarchy and relation semantics are fully documented.
+- All JSON result kinds and fields are documented.
+- Error behavior is documented.
+- All examples execute successfully against the manual Query Model fixture.
+- No unimplemented feature is presented as supported.
+- ~docs/reference/query-model-v0.org~ remains the normative contract and is cross-linked from the CLI documentation.
+- A consistency check reduces future documentation drift.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+- ~docs/cli.org~ currently documents only a small subset of the implemented ~orgfdb query~ surface.
+- The parser, validator, SQLite backend, and JSON shaper already expose a materially larger public contract than the current CLI reference describes.
+- Users currently need ~docs/reference/query-model-v0.org~ or the tests/source to discover implemented predicates, options, includes, root semantics, output modes, and result fields.
+
+** Goals
+
+- Expand ~docs/cli.org~ into a complete public usage reference for ~orgfdb query~.
+- Keep wording aligned with the implemented CLI and the accepted Query Model v0 contract.
+- Add a lightweight consistency test that fails when public predicate/include names drift away from the CLI reference.
+
+** Non-goals
+
+- No query parser, validator, backend, or result-shaping behavior changes.
+- No Query Model grammar changes.
+- No search, rebuild, headings, or links feature changes outside documentation/tests needed for drift prevention.
+
+** Architecture
+
+- Replace the minimal ~orgfdb query~ section in ~docs/cli.org~ with a structured reference covering:
+  - synopsis and CLI options
+  - grammar and quoting rules
+  - targets, predicates, predicate options, and relation semantics
+  - root/file semantics
+  - timestamp semantics
+  - includes, output modes, and JSON result shapes
+  - user-visible error and exit-code behavior
+- Keep ~docs/reference/query-model-v0.org~ as the normative specification and link to it for deeper semantic detail, but avoid requiring it for ordinary CLI use.
+- Add a small inventory test in ~src/cli.rs~ that asserts all currently public predicate/include names appear in ~docs/cli.org~.
+
+** Execution plan
+
+- Create and link this task file.
+- Audit the implemented CLI/query surface against the parser, validator, result shaper, and current spec wording.
+- Rewrite the ~orgfdb query~ section in ~docs/cli.org~ to cover the full public contract.
+- Add a lightweight drift test for predicate/include documentation coverage.
+- Run formatting and CI checks.
+
+** Risks & assumptions
+
+- The documentation section will be long; compact tables and grouped sections are preferable to prose duplication.
+- The consistency test should check public inventory names, not fragile prose wording.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~cargo fmt --all~
+- focused CLI documentation consistency test
+- ~make ci~
+
+* Results
+
+** Approach
+- Replaced the minimal ~orgfdb query~ section in ~docs/cli.org~ with a complete user-facing reference aligned with the implemented CLI surface rather than a small example-only overview.
+- Documented the public contract for synopsis, CLI flags, grammar, targets, predicates, predicate options, root/file semantics, timestamps, relations, includes, output modes, JSON result shapes, and user-visible errors.
+- Added a lightweight documentation drift test in ~src/cli.rs~ that asserts the public predicate/include/option inventory remains present in ~docs/cli.org~.
+** Changed files
+- ~docs/cli.org~
+  - expanded the ~orgfdb query~ section into the complete CLI reference
+- ~src/cli.rs~
+  - added a focused docs consistency inventory test
+- ~.project/tasks/todo.org~
+  - linked this task file and moved the task to ~REVIEW~
+- ~.project/tasks/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org~
+  - planning and build record
+** Checks performed
+- ~cargo fmt --all~
+- ~cargo test docs_cli_query_reference_mentions_public_predicates_includes_and_options~
+- ~make ci~
+** Test results
+- The new focused documentation inventory test passed.
+- ~make ci~ passed, including ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test --all-targets --all-features~, and ~cargo build --all-targets --all-features~.
+- The full test suite now passes with 310 tests.
+** Blockers
+- None.
+** Follow-ups
+- The new consistency test guards public inventory drift, not prose quality. Future query-surface changes should still update examples and semantic explanations in ~docs/cli.org~ as part of the same task.
+- Review follow-up applied: wide Org tables in the ~orgfdb query~ section were replaced with lists/definition-list style prose so the reference remains readable without line wrapping.

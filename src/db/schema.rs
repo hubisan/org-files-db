@@ -2,6 +2,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use rusqlite::Connection;
 
+use super::{
+    DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
+    DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+};
+
 pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
@@ -170,6 +175,7 @@ impl SchemaDefinition {
         migrate_legacy_headings_table(connection)?;
         migrate_legacy_timestamps_table(connection)?;
         migrate_legacy_links_table(connection)?;
+        repair_tables_depending_on_headings(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
 }
@@ -499,6 +505,7 @@ ALTER TABLE headings RENAME TO headings_legacy;
 "#,
     )?;
     drop_indexes_for_table(connection, "headings_legacy")?;
+    let dependent_backups = collect_headings_repair_backups(connection, true)?;
     connection.execute_batch(CORE_SCHEMA_SQL)?;
     let scheduled_has_time_expr = if has_column(&columns, "scheduled_has_time") {
         "scheduled_has_time"
@@ -573,10 +580,13 @@ SELECT
     footnote_section_p,
     all_tags_json
 FROM headings_legacy;
-
-DROP TABLE headings_legacy;
 "#,
     ))?;
+    restore_headings_dependent_tables(connection, &dependent_backups)?;
+    rebuild_outline_path(connection)?;
+    invalidate_search_trust_metadata(connection)?;
+    drop_table_if_exists(connection, "headings_legacy")?;
+    drop_backed_up_tables(connection, &dependent_backups)?;
 
     Ok(())
 }
@@ -695,6 +705,7 @@ ALTER TABLE links RENAME TO links_legacy;
     connection.execute_batch(CORE_SCHEMA_SQL)?;
     connection.execute_batch(&migration_sql)?;
     ensure_links_indexes(connection)?;
+    drop_table_if_exists(connection, "links_legacy")?;
 
     Ok(())
 }
@@ -717,6 +728,456 @@ fn table_columns(connection: &Connection, table_name: &str) -> rusqlite::Result<
         .query_map([], |row| row.get(1))?
         .collect::<Result<Vec<String>, _>>()?;
     Ok(columns)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeadingsDependentTable {
+    Keywords,
+    Properties,
+    Tags,
+    Timestamps,
+    TimestampRepeaters,
+    HeadingBodies,
+    Links,
+    OutlinePath,
+}
+
+impl HeadingsDependentTable {
+    fn table_name(self) -> &'static str {
+        match self {
+            Self::Keywords => "keywords",
+            Self::Properties => "properties",
+            Self::Tags => "tags",
+            Self::Timestamps => "timestamps",
+            Self::TimestampRepeaters => "timestamp_repeaters",
+            Self::HeadingBodies => "heading_bodies",
+            Self::Links => "links",
+            Self::OutlinePath => "outline_path",
+        }
+    }
+
+    fn backup_table_name(self) -> &'static str {
+        match self {
+            Self::Keywords => "keywords_headings_repair_backup",
+            Self::Properties => "properties_headings_repair_backup",
+            Self::Tags => "tags_headings_repair_backup",
+            Self::Timestamps => "timestamps_headings_repair_backup",
+            Self::TimestampRepeaters => "timestamp_repeaters_headings_repair_backup",
+            Self::HeadingBodies => "heading_bodies_headings_repair_backup",
+            Self::Links => "links_headings_repair_backup",
+            Self::OutlinePath => "outline_path_headings_repair_backup",
+        }
+    }
+}
+
+fn repair_tables_depending_on_headings(connection: &Connection) -> rusqlite::Result<()> {
+    let repairs = collect_headings_repair_backups(connection, false)?;
+    if repairs.is_empty() {
+        return Ok(());
+    }
+
+    connection.execute_batch(CORE_SCHEMA_SQL)?;
+    restore_headings_dependent_tables(connection, &repairs)?;
+    rebuild_outline_path(connection)?;
+    invalidate_search_trust_metadata(connection)?;
+    drop_backed_up_tables(connection, &repairs)?;
+    Ok(())
+}
+
+fn collect_headings_repair_backups(
+    connection: &Connection,
+    force: bool,
+) -> rusqlite::Result<Vec<HeadingsDependentTable>> {
+    let candidates = [
+        HeadingsDependentTable::Keywords,
+        HeadingsDependentTable::Properties,
+        HeadingsDependentTable::Tags,
+        HeadingsDependentTable::Timestamps,
+        HeadingsDependentTable::HeadingBodies,
+        HeadingsDependentTable::Links,
+        HeadingsDependentTable::OutlinePath,
+    ];
+    let mut repairs = Vec::new();
+    let mut needs_timestamp_repeaters = false;
+
+    for candidate in candidates {
+        let table_name = candidate.table_name();
+        if !table_exists(connection, table_name)? {
+            continue;
+        }
+        if force || table_references(connection, table_name, "headings_legacy")? {
+            rename_table_for_headings_repair(connection, candidate)?;
+            if candidate == HeadingsDependentTable::Timestamps {
+                needs_timestamp_repeaters = true;
+            }
+            repairs.push(candidate);
+        }
+    }
+
+    if needs_timestamp_repeaters && table_exists(connection, "timestamp_repeaters")? {
+        rename_table_for_headings_repair(connection, HeadingsDependentTable::TimestampRepeaters)?;
+        repairs.push(HeadingsDependentTable::TimestampRepeaters);
+    }
+
+    Ok(repairs)
+}
+
+fn rename_table_for_headings_repair(
+    connection: &Connection,
+    table: HeadingsDependentTable,
+) -> rusqlite::Result<()> {
+    let table_name = quote_sqlite_identifier(table.table_name());
+    let backup_name = quote_sqlite_identifier(table.backup_table_name());
+    connection.execute_batch(&format!(
+        "ALTER TABLE {table_name} RENAME TO {backup_name};"
+    ))?;
+    drop_indexes_for_table(connection, table.backup_table_name())
+}
+
+fn restore_headings_dependent_tables(
+    connection: &Connection,
+    repairs: &[HeadingsDependentTable],
+) -> rusqlite::Result<()> {
+    for table in repairs.iter().copied() {
+        match table {
+            HeadingsDependentTable::Keywords => restore_keywords_table(connection)?,
+            HeadingsDependentTable::Properties => restore_properties_table(connection)?,
+            HeadingsDependentTable::Tags => restore_tags_table(connection)?,
+            HeadingsDependentTable::Timestamps => restore_timestamps_table(connection)?,
+            HeadingsDependentTable::TimestampRepeaters => {
+                restore_timestamp_repeaters_table(connection)?
+            }
+            HeadingsDependentTable::HeadingBodies => restore_heading_bodies_table(connection)?,
+            HeadingsDependentTable::Links => restore_links_table(connection)?,
+            HeadingsDependentTable::OutlinePath => {}
+        }
+    }
+    Ok(())
+}
+
+fn restore_keywords_table(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+INSERT INTO keywords (id, heading_id, keyword, value, line_number)
+SELECT id, heading_id, keyword, value, line_number
+FROM keywords_headings_repair_backup;
+"#,
+    )
+}
+
+fn restore_properties_table(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+INSERT INTO properties (id, heading_id, key, value, source, append, line_number)
+SELECT id, heading_id, key, value, source, append, line_number
+FROM properties_headings_repair_backup;
+"#,
+    )
+}
+
+fn restore_tags_table(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+INSERT INTO tags (heading_id, tag)
+SELECT heading_id, tag
+FROM tags_headings_repair_backup;
+"#,
+    )
+}
+
+fn restore_timestamps_table(connection: &Connection) -> rusqlite::Result<()> {
+    let source = HeadingsDependentTable::Timestamps.backup_table_name();
+    let columns = table_columns(connection, source)?;
+    let has_time_expr = if has_column(&columns, "has_time") {
+        "has_time"
+    } else {
+        "NULL"
+    };
+
+    connection.execute_batch(&format!(
+        r#"
+INSERT INTO timestamps (
+    id,
+    heading_id,
+    role,
+    has_time,
+    start_ts,
+    end_ts,
+    type,
+    range_type,
+    raw_value,
+    byte_start,
+    byte_end,
+    line_number
+)
+SELECT
+    id,
+    heading_id,
+    role,
+    {has_time_expr},
+    start_ts,
+    end_ts,
+    type,
+    range_type,
+    raw_value,
+    byte_start,
+    byte_end,
+    line_number
+FROM {source};
+"#,
+    ))
+}
+
+fn restore_timestamp_repeaters_table(connection: &Connection) -> rusqlite::Result<()> {
+    let source = HeadingsDependentTable::TimestampRepeaters.backup_table_name();
+    let columns = table_columns(connection, source)?;
+
+    if timestamp_repeaters_uses_explicit_columns(&columns) {
+        return connection.execute_batch(&format!(
+            r#"
+INSERT INTO timestamp_repeaters (
+    id,
+    timestamp_id,
+    repeater_type,
+    repeater_value,
+    repeater_unit,
+    repeater_deadline_value,
+    repeater_deadline_unit,
+    warning_type,
+    warning_value,
+    warning_unit
+)
+SELECT
+    id,
+    timestamp_id,
+    repeater_type,
+    repeater_value,
+    repeater_unit,
+    repeater_deadline_value,
+    repeater_deadline_unit,
+    warning_type,
+    warning_value,
+    warning_unit
+FROM {source};
+"#,
+        ));
+    }
+
+    let has_kind = columns.iter().any(|column| column == "kind");
+    let has_repeater_deadline_value = columns
+        .iter()
+        .any(|column| column == "repeater_deadline_value");
+    let has_repeater_deadline_unit = columns
+        .iter()
+        .any(|column| column == "repeater_deadline_unit");
+    let has_deadline_value = columns.iter().any(|column| column == "deadline_value");
+    let has_deadline_unit = columns.iter().any(|column| column == "deadline_unit");
+
+    let repeater_type_expr = if has_kind {
+        "MAX(CASE WHEN kind = 'repeater' THEN type ELSE NULL END)"
+    } else {
+        "MAX(CASE WHEN type IN ('cumulate', 'catch_up', 'restart') THEN type ELSE NULL END)"
+    };
+    let repeater_value_expr = if has_kind {
+        "MAX(CASE WHEN kind = 'repeater' THEN value ELSE NULL END)"
+    } else {
+        "MAX(CASE WHEN type IN ('cumulate', 'catch_up', 'restart') THEN value ELSE NULL END)"
+    };
+    let repeater_unit_expr = if has_kind {
+        "MAX(CASE WHEN kind = 'repeater' THEN unit ELSE NULL END)"
+    } else {
+        "MAX(CASE WHEN type IN ('cumulate', 'catch_up', 'restart') THEN unit ELSE NULL END)"
+    };
+    let warning_type_expr = if has_kind {
+        "MAX(CASE WHEN kind = 'warning' THEN type ELSE NULL END)"
+    } else {
+        "NULL"
+    };
+    let warning_value_expr = if has_kind {
+        "MAX(CASE WHEN kind = 'warning' THEN value ELSE NULL END)"
+    } else {
+        "NULL"
+    };
+    let warning_unit_expr = if has_kind {
+        "MAX(CASE WHEN kind = 'warning' THEN unit ELSE NULL END)"
+    } else {
+        "NULL"
+    };
+    let repeater_deadline_value_expr = match (has_repeater_deadline_value, has_deadline_value) {
+        (true, true) => "MAX(COALESCE(repeater_deadline_value, deadline_value))",
+        (true, false) => "MAX(repeater_deadline_value)",
+        (false, true) => "MAX(deadline_value)",
+        (false, false) => "NULL",
+    };
+    let repeater_deadline_unit_expr = match (has_repeater_deadline_unit, has_deadline_unit) {
+        (true, true) => "MAX(COALESCE(repeater_deadline_unit, deadline_unit))",
+        (true, false) => "MAX(repeater_deadline_unit)",
+        (false, true) => "MAX(deadline_unit)",
+        (false, false) => "NULL",
+    };
+
+    connection.execute_batch(&format!(
+        r#"
+INSERT INTO timestamp_repeaters (
+    id,
+    timestamp_id,
+    repeater_type,
+    repeater_value,
+    repeater_unit,
+    repeater_deadline_value,
+    repeater_deadline_unit,
+    warning_type,
+    warning_value,
+    warning_unit
+)
+SELECT
+    MIN(id),
+    timestamp_id,
+    {repeater_type_expr} AS repeater_type,
+    {repeater_value_expr} AS repeater_value,
+    {repeater_unit_expr} AS repeater_unit,
+    {repeater_deadline_value_expr} AS repeater_deadline_value,
+    {repeater_deadline_unit_expr} AS repeater_deadline_unit,
+    {warning_type_expr} AS warning_type,
+    {warning_value_expr} AS warning_value,
+    {warning_unit_expr} AS warning_unit
+FROM {source}
+GROUP BY timestamp_id;
+"#,
+    ))
+}
+
+fn restore_heading_bodies_table(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+INSERT INTO heading_bodies (heading_id, body_text, body_byte_start, body_byte_end)
+SELECT heading_id, body_text, body_byte_start, body_byte_end
+FROM heading_bodies_headings_repair_backup;
+"#,
+    )
+}
+
+fn restore_links_table(connection: &Connection) -> rusqlite::Result<()> {
+    let source = HeadingsDependentTable::Links.backup_table_name();
+    let columns = table_columns(connection, source)?;
+    let migration_sql = render_links_migration_sql_from_table(&columns, source);
+    connection.execute_batch(&migration_sql)?;
+    ensure_links_indexes(connection)
+}
+
+fn rebuild_outline_path(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+DELETE FROM outline_path;
+
+WITH RECURSIVE computed_outline (
+    heading_id,
+    file_id,
+    parent_id,
+    depth,
+    materialized_path,
+    breadcrumbs_json
+) AS (
+    SELECT
+        headings.id,
+        headings.file_id,
+        headings.parent_id,
+        0,
+        '0000',
+        json_array(headings.title)
+    FROM headings
+    WHERE headings.level = 0
+
+    UNION ALL
+
+    SELECT
+        child.id,
+        child.file_id,
+        child.parent_id,
+        parent.depth + 1,
+        parent.materialized_path || '.' || printf(
+            '%04d',
+            (
+                SELECT COUNT(*)
+                FROM headings AS sibling
+                WHERE sibling.parent_id = child.parent_id
+                  AND (
+                      sibling.byte_start < child.byte_start
+                      OR (sibling.byte_start = child.byte_start AND sibling.id <= child.id)
+                  )
+            )
+        ),
+        json_insert(parent.breadcrumbs_json, '$[#]', child.title)
+    FROM headings AS child
+    INNER JOIN computed_outline AS parent ON parent.heading_id = child.parent_id
+    WHERE child.level > 0
+)
+INSERT INTO outline_path (
+    heading_id,
+    file_id,
+    parent_id,
+    depth,
+    materialized_path,
+    breadcrumbs_json
+)
+SELECT
+    heading_id,
+    file_id,
+    parent_id,
+    depth,
+    materialized_path,
+    breadcrumbs_json
+FROM computed_outline;
+"#,
+    )
+}
+
+fn invalidate_search_trust_metadata(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?1, ?2)",
+        (DB_METADATA_FTS_AVAILABLE_KEY, "0"),
+    )?;
+    connection.execute(
+        "INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?1, ?2)",
+        (DB_METADATA_FTS_BODY_INDEXED_KEY, "0"),
+    )?;
+    connection.execute(
+        "INSERT OR REPLACE INTO db_metadata (key, value) VALUES (?1, ?2)",
+        (DB_METADATA_FTS_SCHEMA_VERSION_KEY, "0"),
+    )?;
+    Ok(())
+}
+
+fn drop_backed_up_tables(
+    connection: &Connection,
+    repairs: &[HeadingsDependentTable],
+) -> rusqlite::Result<()> {
+    for table in repairs.iter().copied() {
+        drop_table_if_exists(connection, table.backup_table_name())?;
+    }
+    Ok(())
+}
+
+fn drop_table_if_exists(connection: &Connection, table_name: &str) -> rusqlite::Result<()> {
+    let quoted = quote_sqlite_identifier(table_name);
+    connection.execute_batch(&format!("DROP TABLE IF EXISTS {quoted};"))
+}
+
+fn table_references(
+    connection: &Connection,
+    table_name: &str,
+    target_table: &str,
+) -> rusqlite::Result<bool> {
+    let quoted = quote_sqlite_identifier(table_name);
+    let mut statement = connection.prepare(&format!("PRAGMA foreign_key_list({quoted})"))?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let referenced_table: String = row.get(2)?;
+        if referenced_table == target_table {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn links_table_matches_current_contract(columns: &[String]) -> bool {
@@ -749,6 +1210,10 @@ fn links_table_matches_current_contract(columns: &[String]) -> bool {
 }
 
 fn render_links_migration_sql(columns: &[String]) -> String {
+    render_links_migration_sql_from_table(columns, "links_legacy")
+}
+
+fn render_links_migration_sql_from_table(columns: &[String], source_table: &str) -> String {
     let line_expr = if has_column(columns, "line") {
         "line"
     } else {
@@ -893,9 +1358,7 @@ SELECT
     {target_id_expr} AS target_id,
     {resolution_status_expr} AS resolution_status,
     {resolution_diagnostic_expr} AS resolution_diagnostic
-FROM links_legacy;
-
-DROP TABLE links_legacy;
+FROM {source_table};
 "#,
     )
 }
