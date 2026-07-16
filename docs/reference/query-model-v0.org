@@ -190,7 +190,7 @@ predicate
    | (not predicate)
 #+end_src
 
-Empty target queries such as ~(links)~ and ~(files)~ are allowed and return all objects for that target. Support for ~(headings)~ may be allowed to return all headings.
+Empty target queries such as ~(links)~ and ~(files)~ are allowed and return all objects for that target. ~(headings)~ is also allowed and returns the full heading-query domain: all real headings plus one file/root result per indexed file.
 
 A complete formal grammar will be defined together with the parser specification.
 
@@ -5709,9 +5709,10 @@ Empty target queries may return all objects of that target:
 #+begin_src lisp
 (links)
 (files)
+(headings)
 #+end_src
 
-Support for ~(headings)~ may be allowed to return all headings.
+For ~(headings)~, the returned set is all real headings plus one file/root result per indexed file. File/root results are exposed as ~kind = "file"~ in shaped output; the internal level-0 heading rows are not exposed as ~kind = "heading"~ results.
 
 *** 21.3 Heading predicates
 

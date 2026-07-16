@@ -539,7 +539,7 @@ fn execute_headings_query(
         .map(HeadingQueryMatch::Heading)
         .collect::<Vec<_>>();
 
-    if query_supports_root_title_matches(query.predicate.as_ref()) {
+    if query_includes_file_root_results(query.predicate.as_ref()) {
         let root_compiled = compile_heading_root_file_query(query)?;
         rows.extend(
             execute_file_rows_query(connection, &root_compiled)?
@@ -2471,8 +2471,8 @@ fn compile_heading_root_file_query(
     })
 }
 
-fn query_supports_root_title_matches(predicate: Option<&ValidatedExpr>) -> bool {
-    predicate.is_some_and(expr_supports_root_title_matches)
+fn query_includes_file_root_results(predicate: Option<&ValidatedExpr>) -> bool {
+    predicate.is_none() || predicate.is_some_and(expr_supports_root_title_matches)
 }
 
 fn expr_supports_root_title_matches(expr: &ValidatedExpr) -> bool {
@@ -3458,6 +3458,66 @@ mod tests {
         )
         .expect("file-title query should execute");
         assert_eq!(heading_ids(file_title_rows), vec![11, 12, 13, 14]);
+    }
+
+    #[test]
+    fn bare_headings_query_returns_file_roots_and_real_headings() {
+        let connection = seeded_connection();
+
+        let rows = execute_sqlite_query(&connection, &validated(r#"(headings)"#))
+            .expect("bare headings query should execute");
+        let QueryRows::Headings(rows) = rows else {
+            panic!("expected heading rows");
+        };
+
+        let expected_file_count: usize = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        let expected_heading_count: usize = connection
+            .query_row("SELECT COUNT(*) FROM headings WHERE level > 0", [], |row| {
+                row.get(0)
+            })
+            .expect("real heading count should load");
+
+        let file_rows = rows
+            .iter()
+            .filter_map(|row| match row {
+                HeadingQueryMatch::File(row) => Some(row),
+                HeadingQueryMatch::Heading(_) => None,
+            })
+            .collect::<Vec<_>>();
+        let heading_rows = rows
+            .iter()
+            .filter_map(|row| match row {
+                HeadingQueryMatch::Heading(row) => Some(row),
+                HeadingQueryMatch::File(_) => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(file_rows.len(), expected_file_count);
+        assert_eq!(heading_rows.len(), expected_heading_count);
+        assert!(heading_rows.iter().all(|row| row.level > 0));
+
+        let mut unique_file_ids = file_rows.iter().map(|row| row.id).collect::<Vec<_>>();
+        unique_file_ids.sort_unstable();
+        unique_file_ids.dedup();
+        assert_eq!(unique_file_ids.len(), expected_file_count);
+
+        assert!(
+            matches!(rows.first(), Some(HeadingQueryMatch::File(row)) if row.path == "/tmp/query-alpha.org")
+        );
+        assert!(
+            matches!(rows.get(1), Some(HeadingQueryMatch::Heading(row)) if row.file_path == "/tmp/query-alpha.org" && row.id == 11)
+        );
+
+        let bare_heading_ids = heading_rows.iter().map(|row| row.id).collect::<Vec<_>>();
+        let filtered_heading_ids = heading_ids(
+            execute_sqlite_query(&connection, &validated(r#"(headings (title "Property"))"#))
+                .expect("filtered headings query should execute"),
+        );
+        assert!(filtered_heading_ids
+            .iter()
+            .all(|id| bare_heading_ids.contains(id)));
     }
 
     #[test]

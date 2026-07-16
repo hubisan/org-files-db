@@ -199,7 +199,7 @@ orgfdb query --json '(files)'
 ** Targets
 
 - ~headings~ ::
-  - Returns matched headings, plus synthetic file/root matches represented as ~kind = "file"~ when applicable.
+  - Returns matched real headings and, when the heading query domain includes file/root objects, those file/root matches as ~kind = "file"~.
   - Bare top-level shorthand: yes.
   - Valid output modes: ~flat~, ~outline~.
   - Valid includes: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~.
@@ -216,7 +216,11 @@ orgfdb query --json '(files)'
 
 Target notes:
 
-- ~headings~ can match either real headings or the synthetic level-0 root/file object for predicates that explicitly participate in root matching.
+- Bare ~(headings)~ returns the complete heading-query domain: all real headings plus one file/root object per indexed file.
+- ~headings~ root/file results are always serialized as ~kind = "file"~. The internal level-0 storage rows are never exposed as ~kind = "heading"~ results.
+- In flat output, the file/root result sorts before headings from the same file.
+- In outline output, the file/root result is the tree root for headings in that file.
+- Predicates such as ~title~ may also match the synthetic root/file object when their documented root participation is enabled.
 - ~links~ always return link objects. Nested source/target/file/headings relations affect matching only; they do not change the returned object kind.
 - ~files~ return file objects and use the file root heading as the storage source for tags, keywords, properties, and file-level links.
 

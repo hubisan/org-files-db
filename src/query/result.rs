@@ -1971,6 +1971,63 @@ mod tests {
     }
 
     #[test]
+    fn bare_headings_query_shapes_file_roots_and_real_headings_in_flat_and_outline_output() {
+        let connection = seeded_connection();
+
+        let flat = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings)"#),
+            &QueryExecutionOptions::default(),
+        )
+        .expect("flat bare headings query should shape");
+        assert_eq!(flat.target, QueryTarget::Headings);
+        assert!(matches!(
+            flat.results.first(),
+            Some(QueryResultNode::File(_))
+        ));
+        let flat_file = file_node(&flat.results[0]);
+        assert!(flat_file.matched);
+        assert_eq!(flat_file.path, "/tmp/query-alpha.org");
+        assert_eq!(flat_file.title, "Alpha Index");
+        let flat_heading = heading_node(&flat.results[1]);
+        assert!(flat_heading.matched);
+        assert!(flat_heading.level > 0);
+
+        let outline = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings)"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Outline,
+                includes: vec![],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("outline bare headings query should shape");
+        assert_eq!(outline.target, QueryTarget::Headings);
+        assert_eq!(outline.results.len(), 2);
+        let outline_file = file_node(&outline.results[0]);
+        assert!(outline_file.matched);
+        let outline_children = outline_file
+            .children
+            .as_ref()
+            .expect("outline file children should exist");
+        assert!(!outline_children.is_empty());
+        let outline_heading = heading_node(&outline_children[0]);
+        assert!(outline_heading.matched);
+        assert!(outline_heading.level > 0);
+
+        let flat_json = serde_json::to_value(&flat).expect("flat response should serialize");
+        assert!(flat_json["results"]
+            .as_array()
+            .expect("flat results should be an array")
+            .iter()
+            .all(
+                |node| node["kind"] != "heading" || node["level"].as_i64().unwrap_or_default() > 0
+            ));
+        assert_eq!(matched_heading_ids(&flat), matched_heading_ids(&outline));
+    }
+
+    #[test]
     fn output_modes_do_not_change_matched_heading_ids() {
         let connection = seeded_connection();
         let query = validated(r#"(headings (tags "project"))"#);
