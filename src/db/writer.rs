@@ -4,7 +4,7 @@ use std::{fmt, path::PathBuf};
 use rusqlite::Transaction;
 use rusqlite::{params, Connection};
 
-use super::schema::sqlite_supports_fts5;
+use super::schema::{heading_fts_sql, sqlite_supports_fts5};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileRecordInput {
@@ -144,6 +144,7 @@ pub(crate) struct LinkRecord {
     pub search_option: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HeadingFtsRecord {
     pub heading_id: i64,
@@ -218,19 +219,6 @@ impl DbWriter {
         connection: &Connection,
         file_id: i64,
     ) -> Result<(), DbWriteError> {
-        if heading_fts_table_exists(connection)? {
-            connection
-                .execute(
-                    "DELETE FROM heading_fts
-                     WHERE rowid IN (SELECT id FROM headings WHERE file_id = ?1)",
-                    [file_id],
-                )
-                .map_err(|source| DbWriteError::Write {
-                    operation: "delete_file_data.heading_fts",
-                    source,
-                })?;
-        }
-
         connection
             .execute("DELETE FROM todo_keywords WHERE file_id = ?1", [file_id])
             .map_err(|source| DbWriteError::Write {
@@ -247,15 +235,6 @@ impl DbWriter {
     }
 
     pub(crate) fn delete_all_indexed_data(connection: &Connection) -> Result<(), DbWriteError> {
-        if heading_fts_table_exists(connection)? {
-            connection
-                .execute("DELETE FROM heading_fts", [])
-                .map_err(|source| DbWriteError::Write {
-                    operation: "delete_all_indexed_data.heading_fts",
-                    source,
-                })?;
-        }
-
         connection
             .execute("DELETE FROM files", [])
             .map_err(|source| DbWriteError::Write {
@@ -561,11 +540,17 @@ impl DbWriter {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn insert_heading_fts(
         connection: &Connection,
         rows: &[HeadingFtsRecord],
     ) -> Result<(), DbWriteError> {
-        if !heading_fts_table_exists(connection)? || !sqlite_supports_fts5(connection) {
+        if !heading_fts_table_exists(connection)?
+            || !sqlite_supports_fts5(connection).map_err(|source| DbWriteError::Write {
+                operation: "insert_heading_fts.probe",
+                source,
+            })?
+        {
             return Ok(());
         }
 
@@ -580,6 +565,56 @@ impl DbWriter {
                     source,
                 })?;
         }
+        Ok(())
+    }
+
+    pub(crate) fn rebuild_heading_fts(
+        connection: &Connection,
+        index_body_text: bool,
+    ) -> Result<(), DbWriteError> {
+        if !sqlite_supports_fts5(connection).map_err(|source| DbWriteError::Write {
+            operation: "rebuild_heading_fts.probe",
+            source,
+        })? {
+            return Err(DbWriteError::UnsupportedBackendFeature {
+                feature: "SQLite FTS5",
+                message:
+                    "SQLite FTS5 was requested, but the opened SQLite connection does not support FTS5"
+                        .to_string(),
+            });
+        }
+
+        connection
+            .execute_batch("DROP TABLE IF EXISTS heading_fts;")
+            .map_err(|source| DbWriteError::Write {
+                operation: "rebuild_heading_fts.drop",
+                source,
+            })?;
+        connection
+            .execute_batch(heading_fts_sql())
+            .map_err(|source| DbWriteError::Write {
+                operation: "rebuild_heading_fts.create",
+                source,
+            })?;
+        connection
+            .execute(
+                "INSERT INTO heading_fts (rowid, title, body)
+                 SELECT headings.id,
+                        headings.title,
+                        CASE
+                            WHEN ?1 = 1 THEN COALESCE(heading_bodies.body_text, '')
+                            ELSE ''
+                        END
+                 FROM headings
+                 LEFT JOIN heading_bodies
+                   ON heading_bodies.heading_id = headings.id
+                 WHERE headings.level > 0",
+                [i64::from(index_body_text)],
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "rebuild_heading_fts.populate",
+                source,
+            })?;
         Ok(())
     }
 
@@ -612,6 +647,10 @@ impl DbWriter {
 #[derive(Debug)]
 pub enum DbWriteError {
     InvalidInput(&'static str),
+    UnsupportedBackendFeature {
+        feature: &'static str,
+        message: String,
+    },
     ReadBack {
         operation: &'static str,
         source: rusqlite::Error,
@@ -629,6 +668,7 @@ impl fmt::Display for DbWriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidInput(message) => write!(f, "invalid DB write input: {message}"),
+            Self::UnsupportedBackendFeature { message, .. } => write!(f, "{message}"),
             Self::ReadBack { operation, source } => {
                 write!(
                     f,
@@ -648,7 +688,7 @@ impl fmt::Display for DbWriteError {
 impl std::error::Error for DbWriteError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::InvalidInput(_) => None,
+            Self::InvalidInput(_) | Self::UnsupportedBackendFeature { .. } => None,
             Self::ReadBack { source, .. }
             | Self::Transaction { source }
             | Self::Write { source, .. } => Some(source),
@@ -710,6 +750,7 @@ fn bool_to_i64(value: bool) -> i64 {
     }
 }
 
+#[cfg(test)]
 fn heading_fts_table_exists(connection: &Connection) -> Result<bool, DbWriteError> {
     connection
         .query_row(
@@ -806,7 +847,7 @@ mod tests {
 
     #[test]
     fn delete_file_data_removes_stale_rows_but_keeps_file_row() {
-        let schema = SchemaDefinition::new(1, true);
+        let schema = SchemaDefinition::new(1, false);
         let connection =
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file_id = DbWriter::upsert_file(&connection, &file_record("/tmp/project.org", 10, 100))
@@ -910,18 +951,6 @@ mod tests {
         )
         .expect("link should insert");
 
-        if sqlite_supports_fts5(&connection) {
-            DbWriter::insert_heading_fts(
-                &connection,
-                &[HeadingFtsRecord {
-                    heading_id: child_id,
-                    title: "Inbox".to_string(),
-                    body: String::new(),
-                }],
-            )
-            .expect("fts row should insert");
-        }
-
         DbWriter::delete_file_data(&connection, file_id).expect("cleanup should succeed");
 
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM files"), 1);
@@ -933,9 +962,148 @@ mod tests {
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM outline_path"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_bodies"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM links"), 0);
-        if sqlite_supports_fts5(&connection) {
-            assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_fts"), 0);
+    }
+
+    #[test]
+    fn rebuild_heading_fts_populates_only_real_headings() {
+        let probe = Connection::open_in_memory().expect("probe connection should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
         }
+
+        let schema = SchemaDefinition::new(1, true);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        let file_id = DbWriter::upsert_file(&connection, &file_record("/tmp/project.org", 10, 100))
+            .expect("file should upsert");
+        let root_id = DbWriter::insert_level0_heading(
+            &connection,
+            &level0_heading(file_id, "/tmp/project.org"),
+        )
+        .expect("root should insert");
+        let child_id = DbWriter::insert_headings(
+            &connection,
+            &[HeadingRecord {
+                id: Some(42),
+                ..child_heading(file_id, root_id, 10, "Inbox")
+            }],
+        )
+        .expect("child should insert")[0];
+        DbWriter::insert_heading_bodies(
+            &connection,
+            &[super::HeadingBodyRecord {
+                heading_id: child_id,
+                body_text: "Search phrase".to_string(),
+                body_byte_start: Some(12),
+                body_byte_end: Some(25),
+            }],
+        )
+        .expect("body row should insert");
+
+        DbWriter::rebuild_heading_fts(&connection, true).expect("fts rebuild should succeed");
+
+        assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_fts"), 1);
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Inbox'"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'project'"
+            ),
+            0
+        );
+        let rowid: i64 = connection
+            .query_row("SELECT rowid FROM heading_fts", [], |row| row.get(0))
+            .expect("fts rowid should load");
+        assert_eq!(rowid, child_id);
+    }
+
+    #[test]
+    fn rebuild_heading_fts_uses_empty_body_when_body_indexing_is_disabled() {
+        let probe = Connection::open_in_memory().expect("probe connection should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let schema = SchemaDefinition::new(1, true);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        let file_id = DbWriter::upsert_file(&connection, &file_record("/tmp/project.org", 10, 100))
+            .expect("file should upsert");
+        let root_id = DbWriter::insert_level0_heading(
+            &connection,
+            &level0_heading(file_id, "/tmp/project.org"),
+        )
+        .expect("root should insert");
+        let child_id = DbWriter::insert_headings(
+            &connection,
+            &[HeadingRecord {
+                id: Some(43),
+                ..child_heading(file_id, root_id, 10, "Title Only")
+            }],
+        )
+        .expect("child should insert")[0];
+        DbWriter::insert_heading_bodies(
+            &connection,
+            &[super::HeadingBodyRecord {
+                heading_id: child_id,
+                body_text: "Body phrase".to_string(),
+                body_byte_start: Some(12),
+                body_byte_end: Some(23),
+            }],
+        )
+        .expect("body row should insert");
+
+        DbWriter::rebuild_heading_fts(&connection, false).expect("fts rebuild should succeed");
+
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Title'"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'phrase'"
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn rebuild_heading_fts_rolls_back_when_population_fails() {
+        let probe = Connection::open_in_memory().expect("probe connection should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let mut connection = Connection::open_in_memory().expect("database should open");
+        let tx = connection.transaction().expect("transaction should open");
+        let error = DbWriter::rebuild_heading_fts(&tx, true).expect_err("fts rebuild should fail");
+        match error {
+            DbWriteError::Write {
+                operation: "rebuild_heading_fts.populate",
+                ..
+            } => {}
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+        drop(tx);
+
+        let table_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'heading_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("sqlite_master query should succeed");
+        assert_eq!(table_count, 0);
     }
 
     #[test]

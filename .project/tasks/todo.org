@@ -182,75 +182,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
 
-** TODO [#C] Enable optional contentless SQLite FTS5 for full-text search
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: Yes
-:END:
+** DONE [#C] Enable optional contentless SQLite FTS5 for full-text search
 
-Depends on:
-
-- Persist heading body text for query execution
-- Implement ~(has-text ...)~ in the SQLite metadata backend
-
-Goal:
-
-- Add an optional contentless FTS5 index for faster title and body-text search.
-- Keep normal relational storage as the canonical source for titles and heading body text.
-
-Planned logical FTS columns when FTS5 is enabled:
-
-#+begin_src sql
-title
-body
-#+end_src
-
-Preferred design:
-
-#+begin_src sql
-CREATE VIRTUAL TABLE heading_fts USING fts5(
-    title,
-    body,
-    content=''
-);
-#+end_src
-
-The exact contentless FTS5 schema may be adjusted during implementation, but FTS5 must remain rebuildable derived index data and must not become canonical storage.
-
-Rules:
-
-- FTS5 support is configured through ~search.fts5_enabled~.
-- Canonical body-text persistence is configured separately through ~search.index_body_text~.
-- Heading titles remain canonically stored in ~headings.title~.
-- Heading body text remains canonically stored in the normal body-text table.
-- FTS5 stores only the derived search index needed for full-text search and must not retain an additional raw body-text copy unless explicitly justified.
-- If both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled, FTS5 indexes titles and persisted body text.
-- If FTS5 is enabled but body-text persistence is disabled, FTS5 indexes titles only.
-- If FTS5 is disabled, rebuild must not create or write ~heading_fts~.
-- FTS5 must not be required for ~(has-text ...)~ or other non-FTS query functionality.
-- Query Model semantics remain defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]], not by FTS5 tokenisation or syntax.
-- FTS-specific functionality must fail clearly when FTS5 is unavailable or disabled.
-- The FTS index must be safely rebuildable from canonical relational facts.
-- Query and search execution must not scan Org files.
-- Query and search execution must not mutate canonical parsed heading metadata facts.
-
-Acceptance criteria:
-
-- If FTS5 is disabled, rebuild works without creating or writing ~heading_fts~.
-- If FTS5 is enabled, ~heading_fts~ is created and maintained.
-- ~heading_fts.rowid~ matches ~headings.id~.
-- Heading titles are indexed whenever FTS5 is enabled.
-- Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
-- FTS-backed search can match title-only, body-only, or both where supported.
-- Body-text persistence can be disabled while FTS5 remains enabled for title-only indexing.
-- The FTS table is contentless or otherwise avoids retaining a second raw body-text copy.
-- Canonical body text remains queryable without FTS5.
-- Rebuilding the FTS index from canonical facts produces equivalent search results.
-- Removing or rebuilding headings removes stale FTS rows.
-- Queries or commands using unavailable FTS-specific functionality return clear errors.
-- Tests cover enabled FTS5, disabled FTS5, title indexing, optional body indexing, disabled body indexing, contentless storage behaviour, FTS rebuilds, stale-row removal, no Org file scanning, and no mutation of canonical facts.
+- Task file: [[file:archive/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
 
 ** TODO [#C] Provide CLI command ~search~
 :PROPERTIES:

@@ -1,6 +1,8 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use rusqlite::Connection;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -8,7 +10,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS heading_fts
 USING fts5(
     title,
     body,
-    tokenize = 'unicode61'
+    tokenize = 'unicode61',
+    content = ''
 )
 "#;
 const HEADING_FTS_MARKER: &str = "/*__HEADING_FTS__*/";
@@ -132,6 +135,7 @@ CREATE TABLE tags (
     PRIMARY KEY (heading_id, tag)
 )
 "#;
+static SQLITE_FTS5_PROBE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaDefinition {
@@ -148,11 +152,12 @@ impl SchemaDefinition {
     }
 
     pub fn render_sql(&self, connection: &Connection) -> String {
-        let heading_fts_sql = if self.enable_fts && sqlite_supports_fts5(connection) {
-            HEADING_FTS_SQL
-        } else {
-            ""
-        };
+        let heading_fts_sql =
+            if self.enable_fts && sqlite_supports_fts5(connection).unwrap_or(false) {
+                HEADING_FTS_SQL
+            } else {
+                ""
+            };
 
         CORE_SCHEMA_SQL.replace(HEADING_FTS_MARKER, heading_fts_sql)
     }
@@ -178,27 +183,53 @@ impl Default for SchemaDefinition {
     }
 }
 
-pub fn sqlite_supports_fts5(connection: &Connection) -> bool {
-    let mut statement = match connection.prepare("PRAGMA compile_options;") {
-        Ok(statement) => statement,
-        Err(_) => return false,
-    };
-    let rows = match statement.query_map([], |row| row.get::<_, String>(0)) {
-        Ok(rows) => rows,
-        Err(_) => return false,
-    };
+pub fn sqlite_supports_fts5(connection: &Connection) -> rusqlite::Result<bool> {
+    let probe_id = SQLITE_FTS5_PROBE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let savepoint_name = format!("org_files_db_fts5_probe_sp_{probe_id}");
+    let table_name = format!("org_files_db_fts5_probe_vt_{probe_id}");
 
-    for row in rows {
-        let option = match row {
-            Ok(option) => option,
-            Err(_) => return false,
-        };
-        if option == "ENABLE_FTS5" {
-            return true;
-        }
+    connection.execute_batch(&format!("SAVEPOINT {savepoint_name};"))?;
+    let probe_result = connection.execute_batch(&format!(
+        "CREATE VIRTUAL TABLE temp.{table_name}
+         USING fts5(
+             title,
+             body,
+             tokenize = 'unicode61',
+             content = ''
+         );"
+    ));
+    let cleanup_result = connection.execute_batch(&format!(
+        "ROLLBACK TO {savepoint_name}; RELEASE {savepoint_name};"
+    ));
+
+    match (probe_result, cleanup_result) {
+        (Ok(()), Ok(())) => Ok(true),
+        (Err(error), Ok(())) if is_expected_fts5_unavailable_error(&error) => Ok(false),
+        (Err(error), Ok(())) => Err(error),
+        (_, Err(cleanup_error)) => Err(cleanup_error),
     }
+}
 
-    false
+pub(crate) fn heading_fts_sql() -> &'static str {
+    HEADING_FTS_SQL
+}
+
+fn is_expected_fts5_unavailable_error(error: &rusqlite::Error) -> bool {
+    let Some(message) = sqlite_error_message(error) else {
+        return false;
+    };
+
+    message.contains("no such module: fts5")
+        || message.contains("no such module: fts")
+        || message.contains("unknown tokenizer")
+        || message.contains("unrecognized option")
+}
+
+fn sqlite_error_message(error: &rusqlite::Error) -> Option<&str> {
+    match error {
+        rusqlite::Error::SqliteFailure(_, Some(message)) => Some(message.as_str()),
+        _ => None,
+    }
 }
 
 fn migrate_legacy_timestamp_repeaters(connection: &Connection) -> rusqlite::Result<()> {

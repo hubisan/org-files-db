@@ -1,0 +1,280 @@
+#+TITLE: Enable optional contentless SQLite FTS5 for full-text search
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 14:00]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- User task: *BUILD [#C] Enable optional contentless SQLite FTS5 for full-text search*
+- Build from the approved plan and final planning decisions in the current thread.
+
+** BUILD [#C] Enable optional contentless SQLite FTS5 for full-text search
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
+
+Depends on:
+
+- Persist heading body text for query execution
+- Implement ~(has-text ...)~ in the SQLite metadata backend
+
+Goal:
+
+- Design and implement an optional SQLite FTS5 index for fast title and body-text search.
+- Keep ~headings.title~ and ~heading_bodies.body_text~ as the only canonical text storage.
+- Treat ~heading_fts~ as derived, disposable, and fully rebuildable index data.
+- Prepare the backend for the later ~orgfdb search~ convenience command without defining its public CLI syntax in this task.
+
+Planned logical FTS columns:
+
+#+begin_src sql
+title
+body
+#+end_src
+
+Preferred schema direction:
+
+#+begin_src sql
+CREATE VIRTUAL TABLE heading_fts USING fts5(
+    title,
+    body,
+    content=''
+);
+#+end_src
+
+The planning phase must determine whether plain contentless FTS5, contentless-delete FTS5, or another derived-index design best fits the supported SQLite version and rebuild semantics.
+
+Configuration:
+
+#+begin_src toml
+[search]
+fts5_enabled = true
+index_body_text = true
+#+end_src
+
+Configuration semantics:
+
+- ~search.fts5_enabled~ controls whether the derived FTS5 index is created and maintained.
+- ~search.index_body_text~ independently controls canonical body-text persistence.
+- When ~search.fts5_enabled = true~ and ~search.index_body_text = true~, FTS5 indexes heading titles and canonical body text.
+- When ~search.fts5_enabled = true~ and ~search.index_body_text = false~, FTS5 indexes heading titles with no body content.
+- When ~search.fts5_enabled = false~, rebuild must not create or write ~heading_fts~.
+- Enabling FTS5 must not be required for ~(has-text ...)~ or other canonical Query Model functionality.
+
+Planning decisions required:
+
+- Select the exact FTS5 table design:
+  - plain contentless FTS5,
+  - contentless FTS5 with ~contentless_delete=1~, if supported,
+  - or another design that does not make FTS5 canonical storage.
+- Define the minimum supported SQLite version and confirm whether it supports the selected FTS5 options.
+- Define how the backend distinguishes:
+  - FTS5 disabled by configuration,
+  - FTS5 unavailable in the linked SQLite build,
+  - FTS5 schema missing or inconsistent,
+  - and FTS5 available and maintained.
+- Decide whether FTS5 availability requires persisted database metadata in addition to schema inspection.
+- Define how ~heading_fts~ is created, cleared, dropped, or rebuilt.
+- Define update and deletion semantics for contentless rows.
+- Define how stale FTS rows are prevented when headings or files are removed.
+- Define whether a full database rebuild recreates the FTS table or clears and repopulates it.
+- Define whether incremental indexing must maintain FTS rows in this task.
+- Define how title-only rows are represented when body-text persistence is disabled.
+- Define how an empty heading body differs from body-text persistence being unavailable.
+- Define how low-level FTS-backed behavior is tested before the public ~search~ command exists.
+- Define how tests demonstrate that FTS5 does not retain an additional retrievable raw-text copy.
+- Define how malformed or unavailable FTS-specific operations return classified errors instead of raw SQLite errors.
+
+Recommended architecture:
+
+- Keep ~headings.title~ as canonical title storage.
+- Keep ~heading_bodies.body_text~ as canonical body storage.
+- Store one derived FTS row per real heading.
+- Use ~heading_fts.rowid = headings.id~.
+- Populate the FTS title column from ~headings.title~.
+- Populate the FTS body column from ~heading_bodies.body_text~ only when canonical body-text persistence is enabled.
+- Use an empty body value for title-only indexing.
+- Treat ~heading_fts~ as disposable cache data that can be reconstructed entirely from canonical relational facts.
+- Prefer contentless storage so FTS5 keeps the search index without becoming a second raw-text store.
+- Prefer ~contentless_delete=1~ only if the supported SQLite version and Rust SQLite dependency provide reliable update and deletion behavior.
+- Otherwise use an explicit safe rebuild strategy such as dropping and recreating the FTS table.
+- Keep ~(has-text ...)~ on its existing ordinary SQL implementation.
+- Leave public search syntax, ranking, snippets, result shaping, and editor-jump output to the later ~orgfdb search~ task.
+
+Rules:
+
+- FTS5 must not become the only storage location for heading titles or body text.
+- Query Model semantics remain defined by [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]], not by FTS5 tokenisation or query syntax.
+- FTS-specific matching behavior must be documented separately from canonical Query Model predicates.
+- FTS-specific functionality must fail clearly when FTS5 is disabled or unavailable.
+- Missing or inconsistent FTS schema must not expose unclassified raw SQLite errors.
+- User-provided FTS expressions must not be interpolated into unrelated SQL.
+- Query and search execution must not scan Org files.
+- Query and search execution must not mutate canonical heading metadata or body-text facts.
+- Rebuilding the FTS index must use only canonical relational data already stored in the database.
+- Disabling body-text persistence must not require disabling title-only FTS indexing.
+- Disabling FTS5 must not affect canonical body-text persistence.
+- Removing or rebuilding headings must not leave stale FTS rows.
+- FTS index maintenance must participate safely in database transactions.
+
+Non-goals:
+
+- Do not change ~(has-text ...)~ to use FTS5.
+- Do not implement the public ~orgfdb search~ command.
+- Do not define final CLI search syntax, ranking, snippets, pagination, or output shaping.
+- Do not change parser semantics for heading titles or body text.
+- Do not make FTS5 mandatory for database creation, indexing, or canonical queries.
+- Do not scan Org files during FTS-backed query execution.
+- Do not introduce FTS5-specific semantics into Query Model v0.
+
+Acceptance criteria:
+
+- The exact FTS5 schema and deletion/rebuild strategy are documented before implementation.
+- The selected design is compatible with the project's supported SQLite version.
+- If FTS5 is disabled, rebuild succeeds without creating or writing ~heading_fts~.
+- If FTS5 is enabled and supported, ~heading_fts~ is created and maintained.
+- If FTS5 is requested but unavailable in the SQLite build, the operation returns a clear classified capability error.
+- ~heading_fts.rowid~ matches ~headings.id~.
+- Heading titles are indexed whenever FTS5 is enabled.
+- Heading body text is indexed only when both ~search.fts5_enabled~ and ~search.index_body_text~ are enabled.
+- Title-only indexing works when FTS5 is enabled and body-text persistence is disabled.
+- Empty bodies have documented and tested indexing behavior.
+- The FTS table is contentless or otherwise avoids retaining a second retrievable raw-text copy.
+- Canonical title and body-text facts remain available independently of FTS5.
+- Rebuilding the FTS index from canonical relational facts produces equivalent search matches.
+- Removing or rebuilding headings removes stale FTS rows.
+- FTS maintenance is transactional and does not leave partially updated index state after failure.
+- FTS-specific operations against disabled, unavailable, missing, or inconsistent FTS support return clear errors.
+- No raw SQLite schema error escapes for expected unsupported-backend conditions.
+- Tests cover:
+  - FTS5 enabled,
+  - FTS5 disabled,
+  - unavailable SQLite FTS5 support where testable,
+  - title indexing,
+  - body indexing,
+  - title-only indexing,
+  - empty bodies,
+  - contentless storage behavior,
+  - rowid identity,
+  - rebuild equivalence,
+  - stale-row removal,
+  - transactional failure behavior,
+  - no Org file scanning,
+  - and no mutation of canonical facts.
+
+Proposed checks:
+
+- Inspect the SQLite and ~rusqlite~ versions and available FTS5 compile options.
+- Add focused schema tests for the chosen contentless design.
+- Add focused rebuild and stale-row tests.
+- Add low-level FTS match tests for title-only, body-only, and combined content.
+- Add reduced-schema and unavailable-capability tests.
+- Run ~cargo test --all-targets --all-features~.
+- Run ~make ci~.
+
+* Planning
+
+** Problem summary
+
+The repository already has optional ~heading_fts~ support, but it still uses a normal FTS5 table, writes per-heading FTS rows during indexing, includes the synthetic level-0 heading, and relies on deletion behavior that does not fit contentless FTS5. The task requires converting ~heading_fts~ into a derived contentless cache built only from canonical relational data.
+
+** Goals
+
+- Switch ~heading_fts~ to plain contentless FTS5 with ~tokenize = 'unicode61'~ and ~content = ''~.
+- Rebuild FTS rows transactionally from canonical tables during full rebuilds only.
+- Keep headings/body canonical storage entirely in ~headings~ and ~heading_bodies~.
+- Preserve title-only indexing when body persistence is disabled.
+- Return classified unsupported-backend errors when FTS5 is requested but unavailable.
+
+** Non-goals
+
+- No public ~search~ CLI command.
+- No change to ~(has-text ...)~ semantics or implementation.
+- No parser/body extraction semantic changes.
+- No incremental or selective FTS maintenance outside full rebuild.
+
+** Architecture
+
+- Keep ~heading_fts~ optional at schema level, but make its DDL contentless.
+- Detect FTS5 support at runtime on the opened connection using a side-effect-free SQLite feature probe.
+- During rebuild with ~search.fts5_enabled = true~, drop any existing ~heading_fts~, recreate it, and bulk-populate one row per heading with ~level > 0~ using ~rowid = headings.id~.
+- Populate ~title~ from ~headings.title~ and ~body~ from canonical body rows only when ~search.index_body_text = true~; otherwise use empty strings.
+- Ensure successful zero-input full rebuilds with FTS enabled still recreate ~heading_fts~ inside the same transaction, so stale derived rows cannot survive when canonical indexed data is empty.
+- Leave stale ~heading_fts~ artifacts untouched when FTS is disabled; they are not trusted without a new FTS-enabled rebuild.
+
+** Execution plan
+
+- Update DB schema/version and runtime FTS capability handling.
+- Move FTS maintenance out of per-heading indexing into a dedicated transactional rebuild step.
+- Refresh tests for contentless behavior, root exclusion, title-only/body indexing, stale-row replacement, and rollback/error behavior.
+- Update README/config/schema comments to document contentless derived FTS.
+- Run focused FTS checks, then ~cargo test --all-targets --all-features~, then ~make ci~.
+
+** Risks & assumptions
+
+- Local SQLite appears to support FTS5, so unavailable-FTS behavior is only partially testable and must remain conditionally covered.
+- Contentless FTS5 does not support plain DELETE statements, so any lingering row-by-row cleanup paths must be removed or isolated from production rebuilds.
+
+** Open questions
+
+- None after the user's final planning decisions.
+
+** Proposed checks
+
+- focused DB/schema/FTS/indexer tests
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Switched the optional ~heading_fts~ schema to plain contentless FTS5 with ~tokenize = 'unicode61'~ and ~content = ''~, and bumped the schema version.
+- Replaced compile-option-only FTS5 detection with a side-effect-free runtime feature probe that creates the required contentless FTS5 table shape inside a uniquely named temp virtual table under a savepoint and rolls it back immediately.
+- Added classified unsupported-backend errors when FTS5 is requested on a connection without FTS5 support.
+- Removed production row-by-row FTS maintenance from heading indexing and replaced it with a dedicated transactional ~drop -> recreate -> bulk populate~ rebuild step sourced only from canonical relational tables.
+- Rebuild now indexes only real headings (~level > 0~), uses ~heading_fts.rowid = headings.id~, and writes empty-body FTS entries when canonical body persistence is disabled or a heading body is empty.
+- Fixed the zero-input / zero-canonical-data rebuild path so successful FTS-enabled full rebuilds still persist the current ~body_text_available~ metadata value and atomically recreate an empty ~heading_fts~ instead of returning before the derived-index refresh.
+- Left stale ~heading_fts~ artifacts untouched when FTS is disabled, matching the approved plan that disabled mode must not trust or refresh them without a new FTS-enabled rebuild.
+- Updated schema/config/README documentation to describe the contentless derived-cache design and the new capability/error behavior.
+
+** Changed files
+
+- ~src/db/schema.rs~
+- ~src/db.rs~
+- ~src/db/writer.rs~
+- ~src/indexer.rs~
+- ~sql/schema.sql~
+- ~README.org~
+- ~docs/config.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org~
+
+** Checks performed
+
+- ~cargo fmt --all~
+- focused FTS/schema/indexer tests via ~cargo test sqlite_fts5_probe~ and ~cargo test empty_rebuild_with_fts_enabled_recreates_empty_heading_fts_state~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+** Test results
+
+- Focused FTS tests passed for the runtime capability probe, temp-schema cleanup, probe use inside active transactions, and zero-input replacement of stale derived FTS rows.
+- ~cargo test --all-targets --all-features~ passed with 287 tests.
+- ~make ci~ passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- Future FTS-facing work such as the public ~search~ command can now rely on a contentless derived ~heading_fts~ cache without changing canonical query semantics or body-text storage.

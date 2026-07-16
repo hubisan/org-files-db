@@ -11,8 +11,8 @@ use rusqlite::Connection;
 use crate::{
     config::{Config, ConfigError},
     db::{
-        open_database_with_schema, DbError, DbWriteError, DbWriter, FileRecordInput,
-        HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord, LinkRecord,
+        open_database_with_schema, sqlite_supports_fts5, DbError, DbWriteError, DbWriter,
+        FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
         OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
         TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
         DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
@@ -76,19 +76,26 @@ where
         config: &Config,
         allow_empty: bool,
     ) -> Result<RebuildReport, IndexerError> {
+        if config.search.fts5_enabled
+            && !sqlite_supports_fts5(connection).map_err(|source| {
+                IndexerError::Database(DbError::Inspect {
+                    target: config.db_path.display().to_string(),
+                    source,
+                })
+            })?
+        {
+            return Err(IndexerError::Write(DbWriteError::UnsupportedBackendFeature {
+                feature: "SQLite FTS5",
+                message:
+                    "SQLite FTS5 was requested, but the opened SQLite connection does not support FTS5"
+                        .to_string(),
+            }));
+        }
+
         let discovery = discover_org_files(config)?;
         if discovery.files.is_empty() {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
-            if existing_indexed_files == 0 {
-                DbWriter::set_metadata_flag(
-                    connection,
-                    DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
-                    config.search.index_body_text,
-                )
-                .map_err(IndexerError::Write)?;
-                return Ok(RebuildReport::default());
-            }
-            if !allow_empty {
+            if existing_indexed_files > 0 && !allow_empty {
                 return Err(IndexerError::RefusedEmptyRebuild {
                     existing_indexed_files,
                 });
@@ -157,7 +164,6 @@ where
                 file_id,
                 &pending_file.document,
                 &pending_file.todo_keywords,
-                config.search.fts5_enabled,
                 config.search.index_body_text,
             )
             .map_err(IndexerError::Write)?;
@@ -179,6 +185,11 @@ where
                     .map(IndexDiagnostic::from),
             );
             report.indexed_files.push(indexed_file);
+        }
+
+        if config.search.fts5_enabled {
+            DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
+                .map_err(IndexerError::Write)?;
         }
 
         LinkResolver::resolve_all(&tx, &discovery.indexed_universe).map_err(IndexerError::Write)?;
@@ -678,7 +689,6 @@ fn index_document(
     file_id: i64,
     document: &ParsedOrgDocument,
     todo_keywords: &ResolvedTodoKeywords,
-    fts5_enabled: bool,
     index_body_text: bool,
 ) -> Result<usize, DbWriteError> {
     if document.headings.is_empty() || document.headings[0].level != 0 {
@@ -705,15 +715,6 @@ fn index_document(
         vec![level0_heading.title.clone()],
     )
     .map_err(db_write_invalid_input)?];
-    let mut fts_rows = Vec::new();
-
-    if fts5_enabled {
-        fts_rows.push(HeadingFtsRecord {
-            heading_id: level0_id,
-            title: level0_heading.title.clone(),
-            body: body_for_fts(level0_heading, index_body_text),
-        });
-    }
 
     let mut child_ordinals = vec![0usize; document.headings.len()];
 
@@ -755,14 +756,6 @@ fn index_document(
             )
             .map_err(db_write_invalid_input)?,
         );
-
-        if fts5_enabled {
-            fts_rows.push(HeadingFtsRecord {
-                heading_id,
-                title: heading.title.clone(),
-                body: body_for_fts(heading, index_body_text),
-            });
-        }
     }
 
     let keyword_rows = document
@@ -860,10 +853,6 @@ fn index_document(
         .collect::<Result<Vec<_>, _>>()
         .map_err(db_write_invalid_input)?;
     DbWriter::insert_timestamp_repeaters(connection, &timestamp_repeater_rows)?;
-
-    if fts5_enabled {
-        DbWriter::insert_heading_fts(connection, &fts_rows)?;
-    }
 
     Ok(document.headings.len())
 }
@@ -1192,14 +1181,6 @@ fn heading_body_record(
     }))
 }
 
-fn body_for_fts(heading: &ParsedHeading, index_body_text: bool) -> String {
-    if !index_body_text {
-        return String::new();
-    }
-
-    heading.body_text.clone().unwrap_or_default()
-}
-
 fn db_write_invalid_input(message: &'static str) -> DbWriteError {
     DbWriteError::InvalidInput(message)
 }
@@ -1212,6 +1193,7 @@ mod tests {
         db::{
             open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+            DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
         },
         link_resolver::{
             CUSTOM_ID_MISSING_DIAGNOSTIC, DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
@@ -6057,7 +6039,7 @@ index_body_text = false
     #[test]
     fn rebuild_populates_fts_rows_when_supported_and_enabled() {
         let probe = Connection::open_in_memory().expect("probe should open");
-        if !sqlite_supports_fts5(&probe) {
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
             return;
         }
 
@@ -6090,6 +6072,9 @@ index_body_text = true
         let row_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
             .expect("fts rows should load");
+        let indexed_rowid: i64 = connection
+            .query_row("SELECT rowid FROM heading_fts", [], |row| row.get(0))
+            .expect("fts rowid should load");
         let match_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Searchable'",
@@ -6104,10 +6089,219 @@ index_body_text = true
                 |row| row.get(0),
             )
             .expect("fts body match should load");
+        let root_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'notes'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("root title match should load");
+        let stored_payload: (Option<String>, Option<String>) = connection
+            .query_row(
+                "SELECT title, body FROM heading_fts WHERE rowid = ?1",
+                [indexed_rowid],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("contentless payload should load as null");
 
-        assert_eq!(row_count, 2);
+        assert_eq!(row_count, 1);
         assert_eq!(match_count, 1);
         assert_eq!(body_match_count, 1);
+        assert_eq!(root_match_count, 0);
+        assert_eq!(stored_payload, (None, None));
+    }
+
+    #[test]
+    fn rebuild_populates_title_only_fts_rows_when_body_indexing_is_disabled() {
+        let probe = Connection::open_in_memory().expect("probe should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let test_dir = TestDir::new("fts-title-only");
+        let org_path = test_dir.path().join("notes.org");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        write_file(
+            &org_path,
+            "* Searchable Heading\nBody phrase for full text search.\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+files = ["notes.org"]
+
+[search]
+fts5_enabled = true
+index_body_text = false
+"#,
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let title_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Searchable'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts title match should load");
+        let body_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'phrase'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts body match should load");
+
+        assert_eq!(title_match_count, 1);
+        assert_eq!(body_match_count, 0);
+    }
+
+    #[test]
+    fn rebuild_recreates_fts_rows_from_canonical_data_without_stale_matches() {
+        let probe = Connection::open_in_memory().expect("probe should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let test_dir = TestDir::new("fts-rebuild-recreate");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: true,
+                index_body_text: true,
+            },
+            query: Default::default(),
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(crate::db::CURRENT_SCHEMA_VERSION, true),
+        )
+        .expect("db should open");
+
+        write_file(&org_path, "* First Heading\nAlpha phrase.\n");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("first rebuild should succeed");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Alpha'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("alpha match should load"),
+            1
+        );
+
+        write_file(&org_path, "* Second Heading\nBeta phrase.\n");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("second rebuild should succeed");
+
+        let row_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
+            .expect("fts rows should load");
+        let alpha_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Alpha'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("alpha match should load");
+        let beta_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Beta'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("beta match should load");
+
+        assert_eq!(row_count, 1);
+        assert_eq!(alpha_match_count, 0);
+        assert_eq!(beta_match_count, 1);
+    }
+
+    #[test]
+    fn empty_rebuild_with_fts_enabled_recreates_empty_heading_fts_state() {
+        let probe = Connection::open_in_memory().expect("probe should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let mut connection = crate::db::open_in_memory_database_with_schema(
+            &crate::db::SchemaDefinition::new(crate::db::CURRENT_SCHEMA_VERSION, true),
+        )
+        .expect("db should open");
+        connection
+            .execute(
+                "INSERT INTO heading_fts (rowid, title, body) VALUES (?1, ?2, ?3)",
+                (1_i64, "Stale Heading", "obsoletetoken"),
+            )
+            .expect("stale fts row should insert");
+        DbWriter::set_metadata_flag(&connection, DB_METADATA_BODY_TEXT_AVAILABLE_KEY, false)
+            .expect("metadata flag should persist");
+
+        let config = Config {
+            db_path: PathBuf::from("db.sqlite"),
+            files: Vec::new(),
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: crate::config::SearchConfig {
+                fts5_enabled: true,
+                index_body_text: true,
+            },
+            query: Default::default(),
+        };
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_with_options(&mut connection, &config, false)
+            .expect("empty rebuild should succeed");
+
+        let heading_fts_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'heading_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts table existence should load");
+        let row_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
+            .expect("fts row count should load");
+        let stale_match_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'obsoletetoken'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("stale match count should load");
+        let body_text_available: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_BODY_TEXT_AVAILABLE_KEY],
+                |row| row.get(0),
+            )
+            .expect("body text metadata should load");
+
+        assert!(report.indexed_files.is_empty());
+        assert!(report.diagnostics.is_empty());
+        assert_eq!(heading_fts_exists, 1);
+        assert_eq!(row_count, 0);
+        assert_eq!(stale_match_count, 0);
+        assert_eq!(body_text_available, "1");
     }
 
     #[test]

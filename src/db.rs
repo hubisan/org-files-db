@@ -14,9 +14,9 @@ pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::DbWriteError;
 pub(crate) use writer::{
-    DbWriter, FileRecordInput, HeadingBodyRecord, HeadingFtsRecord, HeadingRecord, KeywordRecord,
-    LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
-    TimestampRepeaterRecord, TodoKeywordRecord,
+    DbWriter, FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
+    OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord,
+    TodoKeywordRecord,
 };
 
 pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
@@ -102,6 +102,21 @@ PRAGMA synchronous = NORMAL;
             source,
         })?;
 
+    if schema.enable_fts
+        && !sqlite_supports_fts5(connection).map_err(|source| DbError::Initialize {
+            target: target.to_string(),
+            source,
+        })?
+    {
+        return Err(DbError::UnsupportedBackendFeature {
+            target: target.to_string(),
+            feature: "SQLite FTS5",
+            message:
+                "SQLite FTS5 was requested, but the opened SQLite connection does not support FTS5"
+                    .to_string(),
+        });
+    }
+
     let on_disk_version =
         read_schema_version(connection).map_err(|source| DbError::Initialize {
             target: target.to_string(),
@@ -178,6 +193,11 @@ pub enum DbError {
         on_disk_version: u32,
         supported_version: u32,
     },
+    UnsupportedBackendFeature {
+        target: String,
+        feature: &'static str,
+        message: String,
+    },
 }
 
 impl fmt::Display for DbError {
@@ -213,6 +233,9 @@ impl fmt::Display for DbError {
                 "failed to open SQLite database {}: unsupported future schema version {} (this binary supports up to {})",
                 target, on_disk_version, supported_version
             ),
+            Self::UnsupportedBackendFeature {
+                target, message, ..
+            } => write!(f, "failed to initialize SQLite database {}: {}", target, message),
         }
     }
 }
@@ -224,7 +247,8 @@ impl Error for DbError {
             | Self::OpenInMemory { source }
             | Self::Initialize { source, .. }
             | Self::Inspect { source, .. } => Some(source),
-            Self::UnsupportedFutureSchemaVersion { .. } => None,
+            Self::UnsupportedFutureSchemaVersion { .. }
+            | Self::UnsupportedBackendFeature { .. } => None,
         }
     }
 }
@@ -650,7 +674,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
     #[test]
     fn applies_schema_with_fts_when_supported() {
         let probe = Connection::open_in_memory().expect("probe connection should open");
-        if !sqlite_supports_fts5(&probe) {
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
             return;
         }
 
@@ -667,6 +691,57 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
             .expect("sqlite_master should be queryable");
 
         assert_eq!(heading_fts_exists, 1);
+    }
+
+    #[test]
+    fn sqlite_fts5_probe_leaves_no_temp_schema_artifacts() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+
+        let supports_fts5 = sqlite_supports_fts5(&connection).expect("fts5 probe should run");
+        let temp_artifacts: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_temp_master WHERE name LIKE 'org_files_db_fts5_probe_%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("temp schema should be queryable");
+
+        assert_eq!(temp_artifacts, 0);
+        if !supports_fts5 {
+            return;
+        }
+
+        assert!(supports_fts5);
+    }
+
+    #[test]
+    fn sqlite_fts5_probe_works_inside_active_transaction() {
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let tx = connection.transaction().expect("transaction should start");
+
+        let supports_fts5 = sqlite_supports_fts5(&tx).expect("fts5 probe should run");
+        let temp_artifacts: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_temp_master WHERE name LIKE 'org_files_db_fts5_probe_%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("temp schema should be queryable");
+
+        assert_eq!(temp_artifacts, 0);
+        if !supports_fts5 {
+            return;
+        }
+
+        assert!(supports_fts5);
     }
 
     #[test]
@@ -1238,7 +1313,7 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
     #[test]
     fn supports_title_only_fts_rows() {
         let probe = Connection::open_in_memory().expect("probe connection should open");
-        if !sqlite_supports_fts5(&probe) {
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
             return;
         }
 
@@ -1260,8 +1335,39 @@ VALUES (1, 'PLAN', 'open', 'p', 0);
                 |row| row.get(0),
             )
             .expect("fts query should succeed");
+        let stored_row: (Option<String>, Option<String>) = connection
+            .query_row(
+                "SELECT title, body FROM heading_fts WHERE rowid = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("contentless row should be readable as null payload");
 
         assert_eq!(match_count, 1);
+        assert_eq!(stored_row, (None, None));
+    }
+
+    #[test]
+    fn contentless_fts_schema_is_rendered_when_enabled() {
+        let probe = Connection::open_in_memory().expect("probe connection should open");
+        if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
+            return;
+        }
+
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, true);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+
+        let sql: String = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'heading_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("heading_fts sql should load");
+
+        assert!(sql.contains("content = ''"));
+        assert!(sql.contains("tokenize = 'unicode61'"));
     }
 
     #[test]

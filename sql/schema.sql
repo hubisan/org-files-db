@@ -810,23 +810,28 @@ CREATE TABLE IF NOT EXISTS outline_path (
 /*
   FTS5 table for heading title and body search.
 
-  This is a manually maintained FTS table.
+  This is a manually maintained derived/cache FTS table.
 
-  The indexer should insert/update/delete rows together with headings and
-  heading_bodies during rebuild.
+  The indexer recreates and bulk-populates it from canonical relational facts
+  during FTS-enabled full rebuilds.
 
   rowid:
     Must match headings.id.
+    Only real headings (level > 0) are indexed.
 
   title:
     Normalized heading title.
 
   body:
-    Heading body text, if available.
+    Heading body text, if available; otherwise the empty string.
+
+  content:
+    Contentless. Canonical title/body storage remains in headings and
+    heading_bodies rather than in the FTS virtual table.
 
   Note:
     SQLite virtual tables cannot enforce normal foreign keys here. The indexer
-    is responsible for keeping heading_fts in sync with headings.
+    is responsible for rebuilding heading_fts from canonical facts.
 
   This schema file keeps FTS optional. The marker below is replaced with the
   CREATE VIRTUAL TABLE statement only when FTS5 is enabled.

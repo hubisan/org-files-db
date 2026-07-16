@@ -165,6 +165,9 @@ Controls whether SQLite FTS5 indexing is enabled during rebuild.
 
 - Type: boolean
 - Default: ~true~
+- When enabled and supported by the opened SQLite build, rebuild recreates a derived contentless ~heading_fts~ table from canonical relational facts.
+- When enabled but unsupported by the opened SQLite build, rebuild fails with a clear backend-capability error.
+- When disabled, rebuild does not create or refresh ~heading_fts~. A stale table may still exist on disk, but it is not trusted without a new FTS-enabled rebuild.
 
 ** ~search.index_body_text~
 
