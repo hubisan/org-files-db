@@ -21,7 +21,7 @@ This test suite builds the db and outputs:
 : ./data/links.json
 
 #+name: db-path
-: ./data/org-files-db.sqlite
+: ./db/org-files-db.sqlite
 
 #+name: db-dump
 : ./data/db-dump.sql
@@ -36,10 +36,10 @@ This test suite builds the db and outputs:
 #+name: run-all
 #+begin_src emacs-lisp :results silent
   (org-sbe run-rebuild)
-  ;; (org-sbe dump-db)
+  (org-sbe dump-db)
   (org-sbe write-headings-json-with-root)
-  ;; (org-sbe write-links-json)
-  ;; (org-sbe write-db-top10-md)
+  (org-sbe write-links-json)
+  (org-sbe write-db-top10-md)
 #+end_src
 
 ** Run rebuild. This rebuilds the database.
@@ -51,11 +51,11 @@ cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- rebuild --config 
 
 ** Dump SQLite database.
 
-[[./data/db-dump.sql]]
+[[./db/db-dump.sql]]
 
 #+name: dump-db
 #+begin_src shell :noweb yes :results silent
-sqlite3 ./data/org-files-db.sqlite .dump > <<db-dump()>>
+sqlite3 <<db-path()>> .dump > <<db-dump()>>
 #+end_src
 
 ** Write headings JSON including the root heading.

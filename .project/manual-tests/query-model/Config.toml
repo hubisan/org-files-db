@@ -13,3 +13,6 @@ index_body_text = false
 [todo]
 default_open_keywords = ["TODO", "NEXT"]
 default_closed_keywords = ["DONE", "CANCEL"]
+
+[query]
+timezone = "Europe/Zurich"
