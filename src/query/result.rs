@@ -1981,6 +1981,36 @@ mod tests {
     }
 
     #[test]
+    fn effective_properties_include_uses_last_local_base_plus_all_appends() {
+        let connection = seeded_connection();
+        let response = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Loose Note" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::EffectiveProperties],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("query should shape");
+
+        let heading = heading_node(&response.results[0]);
+        assert_eq!(
+            heading.effective_properties.as_ref(),
+            Some(&vec![
+                EffectivePropertyFact {
+                    key: "APPEND_REPLACED".to_string(),
+                    value: Some("second appended".to_string()),
+                },
+                EffectivePropertyFact {
+                    key: "CATEGORY".to_string(),
+                    value: Some("work".to_string()),
+                },
+            ])
+        );
+    }
+
+    #[test]
     fn file_properties_and_keywords_includes_use_root_stored_facts_and_omit_by_default() {
         let connection = seeded_connection();
         let plain = execute_and_shape_query(
@@ -2698,6 +2728,30 @@ mod tests {
                         source: "property_drawer".to_string(),
                         append: false,
                         line_number: Some(4),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "APPEND_REPLACED".to_string(),
+                        value: Some("first".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(9),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "APPEND_REPLACED".to_string(),
+                        value: Some("appended".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(10),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "APPEND_REPLACED".to_string(),
+                        value: Some("second".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(11),
                     },
                 ],
             )?;

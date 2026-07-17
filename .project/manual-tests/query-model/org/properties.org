@@ -372,6 +372,18 @@ Expected:
 - ~:inherit t~ gives ~KEYWORD_APPEND = local=1 local=2~
   src_elisp{(org-entry-get nil "KEYWORD_APPEND" t)} {{{results(=local=1 local=2=)}}} 
 
+* Append before
+:PROPERTIES:
+:VALUE+: appending before
+:VALUE: definition
+:END:
+
+Expected:
+
+- ~VALUE = second appended~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=definition appending before=)}}} 
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=definition appending before=)}}} 
+
 * Duplicate property definitions in one drawer
 :PROPERTIES:
 :DEFINED_TWICE: works
@@ -428,7 +440,7 @@ Expected:
 
 Expected:
 
-- ~VALUE = second~
+- ~VALUE = second appended~
   src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second appended=)}}} 
   src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second appended=)}}} 
 
@@ -443,7 +455,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ finds no direct ~VALUE~
+  src_elisp{(org-entry-get nil "VALUE" nil)}   
 - ~:inherit t~ gives ~VALUE = second~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second=)}}} 
 
 ** Child appending to duplicate parent value
 :PROPERTIES:
@@ -453,7 +467,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}}   
 - ~:inherit t~ gives ~VALUE = second child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second child=)}}}   
 
 * Parent definition overridden by child duplicate definitions
 :PROPERTIES:
@@ -469,7 +485,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~VALUE = second child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second child=)}}}   
 - ~:inherit t~ gives ~VALUE = second child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second child=)}}}   
 - the parent value does not participate
 
 * Independent property keys
@@ -483,7 +501,9 @@ Expected:
 Expected:
 
 - ~VALUE_A = one two~
+  src_elisp{(org-entry-get nil "VALUE_A" nil)} {{{results(=one two=)}}}   
 - ~VALUE_B = second~
+  src_elisp{(org-entry-get nil "VALUE_B" nil)} {{{results(=second=)}}}   
 - resolution is performed independently per normalized key
 
 * Mixed-case property keys
@@ -497,69 +517,7 @@ Expected:
 Expected after key normalization:
 
 - one effective key ~MIXED_KEY~
+  src_elisp{(org-entry-get nil "MIXED_KEY" nil)} {{{results(=replacement second final=)}}}   
+  src_elisp{(org-entry-get nil "mixed_key" nil)} {{{results(=replacement second final=)}}}
 - effective value ~replacement final~
 
-* Query expectations
-
-The following query should match ~Local append on the same heading~:
-
-#+begin_src lisp
-(headings
-  (property "VALUE" "first second" :exact t :inherit nil))
-#+end_src
-
-The following query should match ~Child with append only~:
-
-#+begin_src lisp
-(headings
-  (property "VALUE" "parent child" :exact t :inherit t))
-#+end_src
-
-The same child should also match this direct-only query:
-
-#+begin_src lisp
-(headings
-  (property "VALUE" "child" :exact t :inherit nil))
-#+end_src
-
-The duplicate drawer heading should match:
-
-#+begin_src lisp
-(headings
-  (property
-    "DEFINED_TWICE"
-    "second is effective"
-    :exact t
-    :inherit nil))
-#+end_src
-
-It should not match:
-
-#+begin_src lisp
-(headings
-  (property "DEFINED_TWICE" "works" :exact t :inherit nil))
-#+end_src
-
-The file/root object should match:
-
-#+begin_src lisp
-(headings
-  (property
-    "KEYWORD_APPEND"
-    "foo=1 bar=2 baz=3"
-    :exact t
-    :inherit nil))
-#+end_src
-
-Real headings inheriting the keyword should match:
-
-#+begin_src lisp
-(headings
-  (and
-    (level > 0)
-    (property
-      "KEYWORD_APPEND"
-      "foo=1 bar=2 baz=3"
-      :exact t
-      :inherit t)))
-#+end_src

@@ -1791,38 +1791,16 @@ fn compile_resolved_property_predicate(
                     SELECT
                         lineage.seq,
                         lineage.heading_id,
-                        properties.id AS property_id,
                         properties.value,
                         properties.append,
                         properties.line_number,
                         ROW_NUMBER() OVER (
                             PARTITION BY lineage.heading_id
                             ORDER BY properties.line_number, properties.id
-                        ) AS ord,
-                        SUM(CASE WHEN properties.append = 0 THEN 1 ELSE 0 END) OVER (
-                            PARTITION BY lineage.heading_id
-                            ORDER BY properties.line_number, properties.id
-                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                        ) AS reset_group
+                        ) AS ord
                     FROM lineage
                     INNER JOIN properties ON properties.heading_id = lineage.heading_id
                     WHERE properties.key = ? COLLATE NOCASE
-                ),
-                local_rows_enriched AS (
-                    SELECT
-                        local_rows.seq,
-                        local_rows.heading_id,
-                        local_rows.value,
-                        local_rows.append,
-                        local_rows.ord,
-                        local_rows.reset_group,
-                        MAX(local_rows.reset_group) OVER (
-                            PARTITION BY local_rows.heading_id
-                        ) AS final_group,
-                        MAX(CASE WHEN local_rows.append = 0 THEN 1 ELSE 0 END) OVER (
-                            PARTITION BY local_rows.heading_id
-                        ) AS has_non_append
-                    FROM local_rows
                 ),
                 local_summary AS (
                     SELECT
@@ -1831,33 +1809,106 @@ fn compile_resolved_property_predicate(
                         CASE
                             WHEN EXISTS (
                                 SELECT 1
-                                FROM local_rows_enriched
-                                WHERE local_rows_enriched.heading_id = lineage.heading_id
+                                FROM local_rows
+                                WHERE local_rows.heading_id = lineage.heading_id
                             ) THEN 1
                             ELSE 0
                         END AS has_any,
                         COALESCE((
-                            SELECT MAX(local_rows_enriched.has_non_append)
-                            FROM local_rows_enriched
-                            WHERE local_rows_enriched.heading_id = lineage.heading_id
+                            SELECT 1
+                            FROM local_rows
+                            WHERE local_rows.heading_id = lineage.heading_id
+                              AND local_rows.append = 0
+                            ORDER BY local_rows.ord DESC
+                            LIMIT 1
                         ), 0) AS has_non_append,
+                        COALESCE((
+                            SELECT value
+                            FROM local_rows
+                            WHERE local_rows.heading_id = lineage.heading_id
+                              AND local_rows.append = 0
+                            ORDER BY local_rows.ord DESC
+                            LIMIT 1
+                        ), '') AS base_value,
                         COALESCE((
                             SELECT group_concat(part, ' ')
                             FROM (
                                 SELECT
                                     CASE
-                                        WHEN COALESCE(local_rows_enriched.value, '') = '' THEN NULL
-                                        ELSE local_rows_enriched.value
+                                        WHEN COALESCE(local_rows.value, '') = '' THEN NULL
+                                        ELSE local_rows.value
                                     END AS part
-                                FROM local_rows_enriched
-                                WHERE local_rows_enriched.heading_id = lineage.heading_id
-                                  AND (
-                                      local_rows_enriched.final_group = 0
-                                      OR local_rows_enriched.reset_group = local_rows_enriched.final_group
-                                  )
-                                ORDER BY local_rows_enriched.ord
+                                FROM local_rows
+                                WHERE local_rows.heading_id = lineage.heading_id
+                                  AND local_rows.append = 1
+                                ORDER BY local_rows.ord
                             )
-                        ), '') AS local_value
+                        ), '') AS append_value,
+                        CASE
+                            WHEN COALESCE((
+                                SELECT value
+                                FROM local_rows
+                                WHERE local_rows.heading_id = lineage.heading_id
+                                  AND local_rows.append = 0
+                                ORDER BY local_rows.ord DESC
+                                LIMIT 1
+                            ), '') = '' THEN COALESCE((
+                                SELECT group_concat(part, ' ')
+                                FROM (
+                                    SELECT
+                                        CASE
+                                            WHEN COALESCE(local_rows.value, '') = '' THEN NULL
+                                            ELSE local_rows.value
+                                        END AS part
+                                    FROM local_rows
+                                    WHERE local_rows.heading_id = lineage.heading_id
+                                      AND local_rows.append = 1
+                                    ORDER BY local_rows.ord
+                                )
+                            ), '')
+                            WHEN COALESCE((
+                                SELECT group_concat(part, ' ')
+                                FROM (
+                                    SELECT
+                                        CASE
+                                            WHEN COALESCE(local_rows.value, '') = '' THEN NULL
+                                            ELSE local_rows.value
+                                        END AS part
+                                    FROM local_rows
+                                    WHERE local_rows.heading_id = lineage.heading_id
+                                      AND local_rows.append = 1
+                                    ORDER BY local_rows.ord
+                                )
+                            ), '') = '' THEN COALESCE((
+                                SELECT value
+                                FROM local_rows
+                                WHERE local_rows.heading_id = lineage.heading_id
+                                  AND local_rows.append = 0
+                                ORDER BY local_rows.ord DESC
+                                LIMIT 1
+                            ), '')
+                            ELSE COALESCE((
+                                SELECT value
+                                FROM local_rows
+                                WHERE local_rows.heading_id = lineage.heading_id
+                                  AND local_rows.append = 0
+                                ORDER BY local_rows.ord DESC
+                                LIMIT 1
+                            ), '') || ' ' || COALESCE((
+                                SELECT group_concat(part, ' ')
+                                FROM (
+                                    SELECT
+                                        CASE
+                                            WHEN COALESCE(local_rows.value, '') = '' THEN NULL
+                                            ELSE local_rows.value
+                                        END AS part
+                                    FROM local_rows
+                                    WHERE local_rows.heading_id = lineage.heading_id
+                                      AND local_rows.append = 1
+                                    ORDER BY local_rows.ord
+                                )
+                            ), '')
+                        END AS local_value
                     FROM lineage
                 ),
                 effective(seq, heading_id, has_any, effective_value) AS (
@@ -3475,6 +3526,51 @@ mod tests {
         .expect("append property query should execute");
         assert_eq!(heading_ids(non_resolved_component_rows), Vec::<i64>::new());
 
+        let append_before_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Query Engine" :exact t) (property "APPEND_BEFORE" "definition appending before" :inherit nil)))"#,
+            ),
+        )
+        .expect("append-before property query should execute");
+        assert_eq!(heading_ids(append_before_rows), vec![11]);
+
+        let append_before_inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Query Engine" :exact t) (property "APPEND_BEFORE" "definition appending before")))"#,
+            ),
+        )
+        .expect("append-before inherited property query should execute");
+        assert_eq!(heading_ids(append_before_inherited_rows), vec![11]);
+
+        let append_before_base_only_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Query Engine" :exact t) (property "APPEND_BEFORE" "definition" :inherit nil)))"#,
+            ),
+        )
+        .expect("append-before base-only query should execute");
+        assert_eq!(heading_ids(append_before_base_only_rows), Vec::<i64>::new());
+
+        let append_between_duplicate_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (property "APPEND_REPLACED" "second appended" :inherit nil)))"#,
+            ),
+        )
+        .expect("append-between-duplicates property query should execute");
+        assert_eq!(heading_ids(append_between_duplicate_rows), vec![13]);
+
+        let stale_base_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (property "APPEND_REPLACED" "first appended" :inherit nil)))"#,
+            ),
+        )
+        .expect("stale base query should execute");
+        assert_eq!(heading_ids(stale_base_rows), Vec::<i64>::new());
+
         let overwrite_rows = execute_sqlite_query(
             &connection,
             &validated(
@@ -3511,6 +3607,24 @@ mod tests {
         .expect("add-value fragment property query should execute");
         assert_eq!(heading_ids(add_value_fragment_rows), Vec::<i64>::new());
 
+        let multiple_append_positions_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Statistic Cookies" :exact t) (property "MULTI_APPEND" "second before middle after" :inherit nil)))"#,
+            ),
+        )
+        .expect("multiple-append-positions property query should execute");
+        assert_eq!(heading_ids(multiple_append_positions_rows), vec![14]);
+
+        let partial_multiple_append_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Statistic Cookies" :exact t) (property "MULTI_APPEND" "second after" :inherit nil)))"#,
+            ),
+        )
+        .expect("partial multiple-append query should execute");
+        assert_eq!(heading_ids(partial_multiple_append_rows), Vec::<i64>::new());
+
         let root_append_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(headings (property "KEYWORD_APPEND" "foo=1 bar=2" :inherit nil))"#),
@@ -3541,6 +3655,27 @@ mod tests {
         )
         .expect("append inherited property query should execute");
         assert_eq!(heading_ids(append_inherited_rows), vec![12]);
+
+        let local_base_with_appends_direct_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "LOCAL_BASE_APPEND" "child before after" :inherit nil)))"#,
+            ),
+        )
+        .expect("local-base-with-appends direct query should execute");
+        assert_eq!(heading_ids(local_base_with_appends_direct_rows), vec![12]);
+
+        let local_base_with_appends_inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "LOCAL_BASE_APPEND" "child before after")))"#,
+            ),
+        )
+        .expect("local-base-with-appends inherited query should execute");
+        assert_eq!(
+            heading_ids(local_base_with_appends_inherited_rows),
+            vec![12]
+        );
 
         let override_parent_rows = execute_sqlite_query(
             &connection,
@@ -6079,6 +6214,30 @@ CREATE TABLE timestamps (
                         line_number: Some(8),
                     },
                     PropertyRecord {
+                        heading_id: 11,
+                        key: "APPEND_BEFORE".to_string(),
+                        value: Some("appending before".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(9),
+                    },
+                    PropertyRecord {
+                        heading_id: 11,
+                        key: "APPEND_BEFORE".to_string(),
+                        value: Some("definition".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(10),
+                    },
+                    PropertyRecord {
+                        heading_id: 11,
+                        key: "LOCAL_BASE_APPEND".to_string(),
+                        value: Some("parent".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(11),
+                    },
+                    PropertyRecord {
                         heading_id: 12,
                         key: "OWNER".to_string(),
                         value: Some("Bob".to_string()),
@@ -6093,6 +6252,30 @@ CREATE TABLE timestamps (
                         source: "property_drawer".to_string(),
                         append: true,
                         line_number: Some(10),
+                    },
+                    PropertyRecord {
+                        heading_id: 12,
+                        key: "LOCAL_BASE_APPEND".to_string(),
+                        value: Some("before".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(11),
+                    },
+                    PropertyRecord {
+                        heading_id: 12,
+                        key: "LOCAL_BASE_APPEND".to_string(),
+                        value: Some("child".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(12),
+                    },
+                    PropertyRecord {
+                        heading_id: 12,
+                        key: "LOCAL_BASE_APPEND".to_string(),
+                        value: Some("after".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(13),
                     },
                     PropertyRecord {
                         heading_id: 13,
@@ -6111,6 +6294,30 @@ CREATE TABLE timestamps (
                         line_number: Some(12),
                     },
                     PropertyRecord {
+                        heading_id: 13,
+                        key: "APPEND_REPLACED".to_string(),
+                        value: Some("first".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(13),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "APPEND_REPLACED".to_string(),
+                        value: Some("appended".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(14),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "APPEND_REPLACED".to_string(),
+                        value: Some("second".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(15),
+                    },
+                    PropertyRecord {
                         heading_id: 14,
                         key: "ADD-VALUE".to_string(),
                         value: Some("is".to_string()),
@@ -6125,6 +6332,46 @@ CREATE TABLE timestamps (
                         source: "property_drawer".to_string(),
                         append: true,
                         line_number: Some(14),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "MULTI_APPEND".to_string(),
+                        value: Some("before".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(15),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "MULTI_APPEND".to_string(),
+                        value: Some("first".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(16),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "MULTI_APPEND".to_string(),
+                        value: Some("middle".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(17),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "MULTI_APPEND".to_string(),
+                        value: Some("second".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(18),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "MULTI_APPEND".to_string(),
+                        value: Some("after".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(19),
                     },
                     PropertyRecord {
                         heading_id: 15,

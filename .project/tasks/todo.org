@@ -208,4 +208,8 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--resolve-effective-property-values-for-query-matching.org]]
 
+** DONE [#B] Match Org property append ordering semantics
+
+- Task file: [[file:archive/2026-07-17--match-org-property-append-ordering-semantics.org]]
+
 ** TODO Manual Test the Implementation

@@ -16,6 +16,12 @@ struct LocalResolvedProperty {
     has_non_append: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OrderedPropertyValues {
+    base: Option<String>,
+    appended: Vec<String>,
+}
+
 pub fn resolve_local_properties(rows: &[PropertyRow]) -> BTreeMap<String, String> {
     resolve_local_properties_with_flags(rows)
         .into_iter()
@@ -73,7 +79,10 @@ impl<'a> PropertyResolver<'a> {
                     let inherited = resolved.remove(&key);
                     resolved.insert(
                         key,
-                        concat_property_values(inherited.as_deref(), &local.value),
+                        combine_property_values(
+                            inherited.as_deref(),
+                            std::slice::from_ref(&local.value),
+                        ),
                     );
                 }
             }
@@ -101,43 +110,52 @@ fn resolve_local_properties_with_flags(
                     .then_with(|| left.id.cmp(&right.id))
             });
 
-            let mut current = String::new();
-            let mut initialized = false;
-            let mut has_non_append = false;
-            for row in property_rows {
-                let value = row.value.clone().unwrap_or_default();
-                if row.append {
-                    if initialized {
-                        current = concat_property_values(Some(current.as_str()), &value);
-                    } else {
-                        current = value;
-                        initialized = true;
-                    }
-                } else {
-                    current = value;
-                    initialized = true;
-                    has_non_append = true;
-                }
-            }
+            let ordered = ordered_property_values(&property_rows);
+            let current = combine_property_values(ordered.base.as_deref(), &ordered.appended);
 
             (
                 key,
                 LocalResolvedProperty {
                     value: current,
-                    has_non_append,
+                    has_non_append: ordered.base.is_some(),
                 },
             )
         })
         .collect()
 }
 
-fn concat_property_values(base: Option<&str>, suffix: &str) -> String {
-    match (base.unwrap_or_default(), suffix) {
-        ("", "") => String::new(),
-        ("", suffix) => suffix.to_string(),
-        (base, "") => base.to_string(),
-        (base, suffix) => format!("{base} {suffix}"),
+fn ordered_property_values(rows: &[&PropertyRow]) -> OrderedPropertyValues {
+    let mut base = None;
+    let mut appended = Vec::new();
+
+    for row in rows {
+        let value = row.value.clone().unwrap_or_default();
+        if row.append {
+            appended.push(value);
+        } else {
+            base = Some(value);
+        }
     }
+
+    OrderedPropertyValues { base, appended }
+}
+
+fn combine_property_values(base: Option<&str>, appended: &[String]) -> String {
+    let mut components = Vec::with_capacity(appended.len() + usize::from(base.is_some()));
+
+    if let Some(base) = base {
+        if !base.is_empty() {
+            components.push(base.to_string());
+        }
+    }
+
+    for value in appended {
+        if !value.is_empty() {
+            components.push(value.clone());
+        }
+    }
+
+    components.join(" ")
 }
 
 #[cfg(test)]
@@ -193,6 +211,46 @@ mod tests {
     }
 
     #[test]
+    fn resolves_append_before_base_definition() {
+        let resolved = resolve_local_properties(&[
+            row(1, 10, "VALUE", "before", true, 1),
+            row(2, 10, "VALUE", "definition", false, 2),
+        ]);
+        assert_eq!(
+            resolved.get("VALUE").map(String::as_str),
+            Some("definition before")
+        );
+    }
+
+    #[test]
+    fn resolves_append_between_duplicate_base_definitions() {
+        let resolved = resolve_local_properties(&[
+            row(1, 10, "VALUE", "first", false, 1),
+            row(2, 10, "VALUE", "appended", true, 2),
+            row(3, 10, "VALUE", "second", false, 3),
+        ]);
+        assert_eq!(
+            resolved.get("VALUE").map(String::as_str),
+            Some("second appended")
+        );
+    }
+
+    #[test]
+    fn resolves_multiple_append_positions_around_winning_base() {
+        let resolved = resolve_local_properties(&[
+            row(1, 10, "VALUE", "before", true, 1),
+            row(2, 10, "VALUE", "first", false, 2),
+            row(3, 10, "VALUE", "middle", true, 3),
+            row(4, 10, "VALUE", "second", false, 4),
+            row(5, 10, "VALUE", "after", true, 5),
+        ]);
+        assert_eq!(
+            resolved.get("VALUE").map(String::as_str),
+            Some("second before middle after")
+        );
+    }
+
+    #[test]
     fn resolves_empty_components_without_artificial_spaces() {
         let resolved = resolve_local_properties(&[
             row(1, 10, "VALUE", "", false, 1),
@@ -230,6 +288,31 @@ mod tests {
                 .get("VALUE")
                 .map(String::as_str),
             Some("child")
+        );
+    }
+
+    #[test]
+    fn inherited_local_base_wins_while_preserving_all_local_appends() {
+        let rows_by_heading = HashMap::from([
+            (11, vec![row(1, 11, "VALUE", "parent", false, 1)]),
+            (
+                12,
+                vec![
+                    row(2, 12, "VALUE", "before", true, 2),
+                    row(3, 12, "VALUE", "child", false, 3),
+                    row(4, 12, "VALUE", "after", true, 4),
+                ],
+            ),
+        ]);
+        let parents = HashMap::from([(11, None), (12, Some(11))]);
+
+        let mut resolver = PropertyResolver::new(&parents, &rows_by_heading);
+        assert_eq!(
+            resolver
+                .effective_properties(12, true)
+                .get("VALUE")
+                .map(String::as_str),
+            Some("child before after")
         );
     }
 }

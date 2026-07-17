@@ -1449,7 +1449,13 @@ does not match ~Task~ because the property is not directly set on the heading.
 
 **** Notes
 
-Effective property resolution, overwrite rules, append behavior, and precedence are defined in the effective property semantics task. This predicate depends on that semantics when ~:inherit t~.
+Effective property resolution uses these rules:
+
+- At one file/root or heading location, the last non-append property definition is the effective base value.
+- All append definitions for the same normalized key are appended to that base in source order.
+- Append definitions participate regardless of whether they occur before, between, or after non-append definitions.
+- With ~:inherit nil~, only definitions stored directly on the candidate participate.
+- With ~:inherit t~, an inherited value is used as the base only when the candidate has no local non-append definition.
 
 *** ~(keyword key &optional value &key regexp)~
 

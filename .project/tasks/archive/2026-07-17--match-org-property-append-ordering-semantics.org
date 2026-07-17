@@ -1,0 +1,664 @@
+#+TITLE: Match Org property append ordering semantics
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 14:06]
+#+TASK_COMPLETED: [2026-07-17 Fri 14:06]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the plan for matching Org property append ordering semantics.
+** DONE [#B] Match Org property append ordering semantics
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-17--match-org-property-append-ordering-semantics.org]]
+
+Goal:
+
+- Make effective property resolution match Org when append rows occur before, between, or after ordinary property definitions at the same location.
+- Use the last non-append definition as the base value.
+- Append all append definitions for the same normalized key in source order.
+- Preserve every raw property row unchanged.
+- Apply the same semantics to:
+  - file/root properties
+  - heading property drawers
+  - direct property queries
+  - inherited property queries
+  - effective property hydration
+
+Problem:
+
+- A sequential reset algorithm is not Org-compatible.
+- A later non-append definition replaces earlier base definitions, but it does not discard append rows that appeared earlier.
+- Append rows are collected independently of their position relative to the winning base definition.
+
+Org reference behavior:
+
+*** Append before the base definition
+
+#+begin_src org
+,* Append before
+:PROPERTIES:
+:VALUE+: appending before
+:VALUE: definition
+:END:
+#+end_src
+
+Org returns:
+
+#+begin_src emacs-lisp
+(org-entry-get nil "VALUE" nil)
+#+end_src
+
+#+begin_src text
+definition appending before
+#+end_src
+
+and:
+
+#+begin_src emacs-lisp
+(org-entry-get nil "VALUE" t)
+#+end_src
+
+also returns:
+
+#+begin_src text
+definition appending before
+#+end_src
+
+Expected query semantics:
+
+- ~:inherit nil~ gives ~VALUE = definition appending before~.
+- ~:inherit t~ gives ~VALUE = definition appending before~.
+- The append row remains effective although it appears before the base row.
+
+*** Append between duplicate base definitions
+
+#+begin_src org
+,* Append followed by duplicate replacement
+:PROPERTIES:
+:VALUE: first
+:VALUE+: appended
+:VALUE: second
+:END:
+#+end_src
+
+Org returns:
+
+#+begin_src emacs-lisp
+(org-entry-get nil "VALUE" nil)
+#+end_src
+
+#+begin_src text
+second appended
+#+end_src
+
+and:
+
+#+begin_src emacs-lisp
+(org-entry-get nil "VALUE" t)
+#+end_src
+
+also returns:
+
+#+begin_src text
+second appended
+#+end_src
+
+Expected query semantics:
+
+- The last non-append definition ~second~ wins as the base.
+- The append row remains effective although it appears before the winning base.
+- ~:inherit nil~ gives ~VALUE = second appended~.
+- ~:inherit t~ gives ~VALUE = second appended~.
+
+*** Appends before, between, and after duplicate definitions
+
+#+begin_src org
+,* Multiple append positions
+:PROPERTIES:
+:VALUE+: before
+:VALUE: first
+:VALUE+: middle
+:VALUE: second
+:VALUE+: after
+:END:
+#+end_src
+
+Expected:
+
+#+begin_src text
+VALUE = second before middle after
+#+end_src
+
+Required local resolution rule:
+
+For one normalized property key at one file/root or heading location:
+
+1. Collect all rows for the key.
+2. Sort them deterministically by:
+   - ~line_number~
+   - property row ~id~ as a stable tie-breaker
+3. Select the last row with ~append = 0~ as the base value.
+4. Collect every row with ~append = 1~ in source order.
+5. Combine:
+   - the winning base value, when present
+   - followed by all append values
+6. Separate non-empty components with one space.
+7. If no non-append row exists, combine only the append values.
+8. Do not discard append rows because they occur before the winning base row.
+
+Core rule:
+
+#+begin_src text
+effective local value =
+last non-append value
++ all append values in source order
+#+end_src
+
+Examples:
+
+#+begin_src text
+VALUE+ = before
+VALUE  = definition
+
+effective VALUE = definition before
+#+end_src
+
+#+begin_src text
+VALUE  = first
+VALUE+ = appended
+VALUE  = second
+
+effective VALUE = second appended
+#+end_src
+
+#+begin_src text
+VALUE  = first
+VALUE+ = one
+VALUE+ = two
+VALUE  = second
+VALUE+ = three
+
+effective VALUE = second one two three
+#+end_src
+
+#+begin_src text
+VALUE+ = one
+VALUE+ = two
+
+effective VALUE = one two
+#+end_src
+
+#+begin_src text
+VALUE  = first
+VALUE  = second
+
+effective VALUE = second
+#+end_src
+
+Empty values:
+
+- Ignore empty components when adding separator spaces.
+- Do not create leading, trailing, or duplicate spaces solely because a stored component is empty.
+
+Example:
+
+#+begin_src text
+VALUE+ = ""
+VALUE  = definition
+VALUE+ = appended
+
+effective VALUE = definition appended
+#+end_src
+
+Direct query semantics:
+
+With ~:inherit nil~:
+
+- Use only rows stored directly on the candidate.
+- Select the last local non-append row as the base.
+- Append all local append rows in source order.
+- Do not inspect ancestor or root values.
+
+This query must match ~Append before~:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Append before" :exact t)
+    (property
+      "VALUE"
+      "definition appending before"
+      :exact t
+      :inherit nil)))
+#+end_src
+
+This query must match ~Append followed by duplicate replacement~:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Append followed by duplicate replacement" :exact t)
+    (property
+      "VALUE"
+      "second appended"
+      :exact t
+      :inherit nil)))
+#+end_src
+
+Inheritance semantics:
+
+With ~:inherit t~:
+
+- Resolve all local rows according to the same last-base-plus-all-appends rule.
+- If a local non-append base exists:
+  - use it instead of an inherited base
+  - append all local append rows
+- If no local non-append base exists:
+  - use the nearest inherited effective value as the base when available
+  - append all local append rows
+- If no inherited value exists:
+  - append-only local rows form the complete value
+
+Example:
+
+#+begin_src org
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+,** Child
+:PROPERTIES:
+:VALUE+: before
+:VALUE+: after
+:END:
+#+end_src
+
+Expected for the child:
+
+#+begin_src text
+:inherit nil => before after
+:inherit t   => parent before after
+#+end_src
+
+Example with a local base:
+
+#+begin_src org
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+,** Child
+:PROPERTIES:
+:VALUE+: before
+:VALUE: child
+:VALUE+: after
+:END:
+#+end_src
+
+Expected for the child:
+
+#+begin_src text
+:inherit nil => child before after
+:inherit t   => child before after
+#+end_src
+
+The parent value must not participate because the child has a local non-append base.
+
+Raw storage:
+
+- Keep all rows unchanged.
+- Preserve:
+  - normalized key
+  - original value
+  - source
+  - append flag
+  - line number
+- Do not add a schema migration.
+- Do not replace raw rows with a synthetic combined row.
+
+Implementation requirements:
+
+- Inspect the existing in-memory and SQLite property resolvers.
+- Replace any sequential reset logic that discards append rows before the winning base.
+- Use one shared semantic model for:
+  - direct resolution
+  - inherited resolution
+  - SQLite predicate matching
+  - effective property hydration
+- Ensure ordering is deterministic.
+- Do not rely on incidental SQLite row order.
+- Avoid unordered ~group_concat~ behavior.
+- Keep user values bound as SQL parameters.
+- Keep validation separate from SQL compilation.
+
+Required regression fixture:
+
+#+begin_src org
+,* Append before
+:PROPERTIES:
+:VALUE+: appending before
+:VALUE: definition
+:END:
+
+,* Append followed by duplicate replacement
+:PROPERTIES:
+:VALUE: first
+:VALUE+: appended
+:VALUE: second
+:END:
+
+,* Multiple append positions
+:PROPERTIES:
+:VALUE+: before
+:VALUE: first
+:VALUE+: middle
+:VALUE: second
+:VALUE+: after
+:END:
+#+end_src
+
+Required positive queries:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Append before" :exact t)
+    (property
+      "VALUE"
+      "definition appending before"
+      :exact t
+      :inherit nil)))
+
+(headings
+  (and
+    (title "Append before" :exact t)
+    (property
+      "VALUE"
+      "definition appending before"
+      :exact t
+      :inherit t)))
+
+(headings
+  (and
+    (title "Append followed by duplicate replacement" :exact t)
+    (property
+      "VALUE"
+      "second appended"
+      :exact t
+      :inherit nil)))
+
+(headings
+  (and
+    (title "Append followed by duplicate replacement" :exact t)
+    (property
+      "VALUE"
+      "second appended"
+      :exact t
+      :inherit t)))
+
+(headings
+  (and
+    (title "Multiple append positions" :exact t)
+    (property
+      "VALUE"
+      "second before middle after"
+      :exact t
+      :inherit nil)))
+#+end_src
+
+Required negative queries:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Append before" :exact t)
+    (property
+      "VALUE"
+      "definition"
+      :exact t
+      :inherit nil)))
+
+(headings
+  (and
+    (title "Append followed by duplicate replacement" :exact t)
+    (property
+      "VALUE"
+      "second"
+      :exact t
+      :inherit nil)))
+
+(headings
+  (and
+    (title "Append followed by duplicate replacement" :exact t)
+    (property
+      "VALUE"
+      "first appended"
+      :exact t
+      :inherit nil)))
+
+(headings
+  (and
+    (title "Multiple append positions" :exact t)
+    (property
+      "VALUE"
+      "second after"
+      :exact t
+      :inherit nil)))
+#+end_src
+
+Raw row assertions:
+
+For ~Append before~:
+
+#+begin_src text
+VALUE | appending before | append = 1
+VALUE | definition       | append = 0
+#+end_src
+
+For ~Append followed by duplicate replacement~:
+
+#+begin_src text
+VALUE | first    | append = 0
+VALUE | appended | append = 1
+VALUE | second   | append = 0
+#+end_src
+
+For ~Multiple append positions~:
+
+#+begin_src text
+VALUE | before | append = 1
+VALUE | first  | append = 0
+VALUE | middle | append = 1
+VALUE | second | append = 0
+VALUE | after  | append = 1
+#+end_src
+
+Required unit tests:
+
+- Append before the only base definition.
+- Append between duplicate base definitions.
+- Append values before and after the winning base.
+- Multiple append rows preserve their relative source order.
+- Append-only local properties.
+- Duplicate base definitions without append rows.
+- Empty append components.
+- Direct and inherited resolution produce Org-compatible values.
+- In-memory and SQLite resolution return identical results.
+
+Manual check for append before:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (and
+       (title "Append before" :exact t)
+       (property
+         "VALUE"
+         "definition appending before"
+         :exact t
+         :inherit nil)))' \
+  | jq -e '
+      [.results[]
+       | select(
+           .kind == "heading"
+           and .title_raw == "Append before"
+         )]
+      | length == 1
+    '
+#+end_src
+
+Manual check for append between duplicate definitions:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (and
+       (title "Append followed by duplicate replacement" :exact t)
+       (property
+         "VALUE"
+         "second appended"
+         :exact t
+         :inherit nil)))' \
+  | jq -e '
+      [.results[]
+       | select(
+           .kind == "heading"
+           and .title_raw == "Append followed by duplicate replacement"
+         )]
+      | length == 1
+    '
+#+end_src
+
+Documentation:
+
+- Update ~docs/reference/query-model-v0.org~.
+- Update ~docs/cli.org~.
+- Remove any wording that describes append processing as a sequential reset accumulator.
+
+Suggested contract text:
+
+#+begin_src org
+- At one file/root or heading location, the last non-append property definition is the effective base value.
+- All append definitions for the same normalized key are appended to that base in source order.
+- Append definitions participate regardless of whether they occur before, between, or after non-append definitions.
+- With ~:inherit nil~, only definitions stored directly on the candidate participate.
+- With ~:inherit t~, an inherited value is used as the base only when the candidate has no local non-append definition.
+- Raw property rows remain stored and exposed unchanged.
+#+end_src
+
+Acceptance criteria:
+
+- ~VALUE+: appending before~ followed by ~VALUE: definition~ resolves to ~definition appending before~.
+- ~VALUE: first~, ~VALUE+: appended~, ~VALUE: second~ resolves to ~second appended~.
+- Append rows before the winning base are preserved.
+- Append rows between duplicate bases are preserved.
+- Append rows after the winning base are preserved.
+- The last non-append definition wins.
+- Append values retain source order.
+- ~:inherit nil~ uses only local rows.
+- ~:inherit t~ applies the documented inherited-base behavior.
+- Raw property storage remains unchanged.
+- In-memory and SQLite resolution agree.
+- Existing property inheritance and duplicate-definition tests continue to pass.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+Effective property resolution still drops append rows when a later non-append row appears at the same location, which does not match Org ~org-entry-get~ behavior.
+
+** Goals
+
+- Make local property resolution use the last non-append value as the base and keep all append rows in source order.
+- Apply the same semantics to in-memory resolution, SQLite query matching, and ~effective_properties~ output.
+- Keep raw property storage and raw ~properties~ output unchanged.
+
+** Non-goals
+
+- No schema changes.
+- No parser/storage changes for property rows.
+- No change to unsupported ~:regexp t~ behavior for ~property~.
+
+** Architecture
+
+- Replace sequential-reset local property resolution with a shared last-base-plus-all-appends model.
+- Mirror that model in the SQLite property predicate local-summary CTE.
+- Cover the behavior with focused resolver, query, and result-shaping regressions.
+
+** Execution plan
+
+- Update ~src/query/property.rs~ local resolution logic and unit tests.
+- Update SQLite property matching in ~src/query/sqlite.rs~ and extend the seeded query fixture.
+- Add a result-shaping regression for ~effective_properties~ append ordering.
+- Update query documentation and run ~make ci~.
+
+** Risks & assumptions
+
+- Deterministic ordering remains ~line_number~, then property row ~id~.
+- Empty components should not create extra spaces in resolved values.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test query::property::tests -- --nocapture~
+- ~cargo test query::sqlite::tests::execution_matches_effective_heading_property_queries -- --nocapture~
+- ~cargo test query::result::tests::effective_properties_include_uses_last_local_base_plus_all_appends -- --nocapture~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Updated local property resolution to select the last non-append base while preserving every append row in source order.
+- Matched the SQLite property predicate implementation to the same semantics.
+- Added regressions for append-before-base, append-between-replacements, multiple append positions, and effective property hydration.
+
+** Changed files
+
+- ~src/query/property.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-17--match-org-property-append-ordering-semantics.org~
+
+** Checks performed
+
+- ~cargo test query::property::tests -- --nocapture~
+- ~cargo test query::sqlite::tests::execution_matches_effective_heading_property_queries -- --nocapture~
+- ~cargo test query::result::tests::effective_properties_include_uses_last_local_base_plus_all_appends -- --nocapture~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- All targeted property resolver, SQLite property matching, and effective-property shaping checks passed.
+- ~make ci~ passed.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+- None.

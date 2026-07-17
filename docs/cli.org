@@ -591,7 +591,10 @@ Includes enrich output only. They never change which rows match.
   File roots appear as the first path entry.
 - ~properties~ :: Valid on ~headings~ and ~files~.
   Added field: ~properties~.
-  Direct/effective property facts already persisted in the DB.
+-  Raw stored property rows, preserving duplicates and the ~append~ flag.
+- ~effective_properties~ :: Valid on ~headings~ and ~files~.
+  Added field: ~effective_properties~.
+  Resolved effective property values used by property matching.
 - ~keywords~ :: Valid on ~headings~ and ~files~.
   Added field: ~keywords~.
   Root/file keyword facts. Heading queries read them through root context where applicable.
