@@ -1,5 +1,0 @@
-* NEXT [#A] Priority Test
-
-* TODO [#B] Priority Test
-
-* DONE [#B] Priority Test

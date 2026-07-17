@@ -8,13 +8,8 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/00-index.org',1783801546374100331,1253,NULL,1784233408);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/archive/2025.org',1783796759000000000,229,NULL,1784233408);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/duplicate-ids.org',1783796759000000000,176,NULL,1784233408);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/notes.org',1783796759000000000,903,NULL,1784233408);
-INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/people.org',1783796759000000000,345,NULL,1784233408);
-INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/prio.org',1783802108961568962,80,NULL,1784233408);
-INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',1783796759000000000,944,NULL,1784233408);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org',1783029353235070183,2783,NULL,1784245955);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org',1784242830730251043,0,NULL,1784245955);
 CREATE TABLE todo_keywords (
     file_id         INTEGER NOT NULL,
     keyword         TEXT NOT NULL,
@@ -50,28 +45,6 @@ INSERT INTO todo_keywords VALUES(2,'TODO','open',NULL,0,'config_default',NULL,NU
 INSERT INTO todo_keywords VALUES(2,'NEXT','open',NULL,1,'config_default',NULL,NULL);
 INSERT INTO todo_keywords VALUES(2,'DONE','closed',NULL,2,'config_default',NULL,NULL);
 INSERT INTO todo_keywords VALUES(2,'CANCEL','closed',NULL,3,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(3,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(3,'NEXT','open',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(3,'DONE','closed',NULL,2,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(3,'CANCEL','closed',NULL,3,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'NEXT','open',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'DONE','closed',NULL,2,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(4,'CANCEL','closed',NULL,3,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(5,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(5,'NEXT','open',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(5,'DONE','closed',NULL,2,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(5,'CANCEL','closed',NULL,3,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(6,'TODO','open',NULL,0,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(6,'NEXT','open',NULL,1,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(6,'DONE','closed',NULL,2,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(6,'CANCEL','closed',NULL,3,'config_default',NULL,NULL);
-INSERT INTO todo_keywords VALUES(7,'TODO','open','t',0,'org_keyword','TODO',5);
-INSERT INTO todo_keywords VALUES(7,'NEXT','open','n',1,'org_keyword','TODO',5);
-INSERT INTO todo_keywords VALUES(7,'WAIT','open','w',2,'org_keyword','TODO',5);
-INSERT INTO todo_keywords VALUES(7,'REVIEW','open','r',3,'org_keyword','TODO',5);
-INSERT INTO todo_keywords VALUES(7,'DONE','closed','d',4,'org_keyword','TODO',5);
-INSERT INTO todo_keywords VALUES(7,'CANCEL','closed','c',5,'org_keyword','TODO',5);
 CREATE TABLE db_metadata (
     key             TEXT PRIMARY KEY,
     value           TEXT NOT NULL
@@ -118,44 +91,17 @@ CREATE TABLE headings (
         ON DELETE CASCADE,
     UNIQUE (file_id, byte_start)
 );
-INSERT INTO headings VALUES(1,1,NULL,0,1,-1,1253,'Org Files Test Index','Org Files Test Index',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index"]');
-INSERT INTO headings VALUES(2,1,1,1,13,340,386,'Statistic Cookies','[#B] Statistic Cookies [0/1]',NULL,NULL,'B',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index"]');
-INSERT INTO headings VALUES(3,1,2,2,15,372,386,'test','TODO test','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index"]');
-INSERT INTO headings VALUES(4,1,1,1,17,386,413,'Statistic Cookies','Statistic Cookies [0/0]',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index"]');
-INSERT INTO headings VALUES(5,1,1,1,19,413,443,'Review query CLI','NEXT [#A] Review query CLI','NEXT','open','A',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index"]');
-INSERT INTO headings VALUES(6,1,1,1,21,443,893,'Review query CLI','NEXT [#A] Review query CLI','NEXT','open','A',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index","project"]');
-INSERT INTO headings VALUES(7,1,6,2,31,749,827,'Add documentation examples','TODO Add documentation examples','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index","project","docs"]');
-INSERT INTO headings VALUES(8,1,6,2,36,827,893,'Verify JSON output','DONE Verify JSON output','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[2026-07-10 Fri 17:30]',1783704600,1,0,0,'["dashboard","index","project","test"]');
-INSERT INTO headings VALUES(9,1,1,1,39,893,1005,'Inbox item','TODO Inbox item','TODO','open',NULL,NULL,NULL,NULL,'<2026-12-31 Thu 23:59>',1798761540,1,NULL,NULL,NULL,0,0,'["dashboard","index","inbox"]');
-INSERT INTO headings VALUES(10,1,1,1,42,1005,1253,'Reference links','Reference links',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["dashboard","index","links"]');
-INSERT INTO headings VALUES(11,2,NULL,0,1,-1,229,'Archive 2025','Archive 2025',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["archive"]');
-INSERT INTO headings VALUES(12,2,11,1,5,65,162,'Legacy migration','DONE Legacy migration','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[2025-12-20 Sat 12:00]',1766232000,1,0,0,'["archive","legacy"]');
-INSERT INTO headings VALUES(13,2,11,1,11,162,229,'Obsolete experiment','CANCEL Obsolete experiment','CANCEL','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[2025-11-01 Sat]',1761955200,0,0,0,'["archive","experiment"]');
-INSERT INTO headings VALUES(14,3,NULL,0,1,-1,176,'Duplicate IDs','Duplicate IDs',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["test","duplicates"]');
-INSERT INTO headings VALUES(15,3,14,1,4,54,115,'First duplicate','First duplicate',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["test","duplicates"]');
-INSERT INTO headings VALUES(16,3,14,1,9,115,176,'Second duplicate','Second duplicate',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["test","duplicates"]');
-INSERT INTO headings VALUES(17,4,NULL,0,1,-1,903,'Technical Notes','Technical Notes',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["notes","reference"]');
-INSERT INTO headings VALUES(18,4,17,1,6,103,741,'Query Model','Query Model',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["notes","reference","query","spec"]');
-INSERT INTO headings VALUES(19,4,18,2,15,277,438,'Timestamp semantics','Timestamp semantics',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["notes","reference","query","spec","time"]');
-INSERT INTO headings VALUES(20,4,18,2,20,438,741,'Link semantics','Link semantics',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["notes","reference","query","spec","links"]');
-INSERT INTO headings VALUES(21,4,17,1,27,741,856,'SQLite Notes','SQLite Notes',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["notes","reference","sqlite","database"]');
-INSERT INTO headings VALUES(22,4,17,1,34,856,903,'Empty Description Link','Empty Description Link',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["notes","reference"]');
-INSERT INTO headings VALUES(23,5,NULL,0,1,-1,345,'People','People',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["people"]');
-INSERT INTO headings VALUES(24,5,23,1,5,59,160,'Hubi','Hubi',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["people","person","maintainer"]');
-INSERT INTO headings VALUES(25,5,23,1,12,160,251,'Alex','Alex',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["people","person","docs"]');
-INSERT INTO headings VALUES(26,5,23,1,19,251,345,'Sam','Sam',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["people","person","security"]');
-INSERT INTO headings VALUES(27,6,NULL,0,1,-1,80,'prio',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(28,6,27,1,1,0,27,'Priority Test','NEXT [#A] Priority Test','NEXT','open','A',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(29,6,27,1,3,27,54,'Priority Test','TODO [#B] Priority Test','TODO','open','B',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(30,6,27,1,5,54,80,'Priority Test','DONE [#B] Priority Test','DONE','closed','B',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
-INSERT INTO headings VALUES(31,7,NULL,0,1,-1,944,'Projects','Projects',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["work","project"]');
-INSERT INTO headings VALUES(32,7,31,1,7,158,818,'Query Engine','NEXT [#A] Query Engine','NEXT','open','A',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["work","project","rust","sqlite"]');
-INSERT INTO headings VALUES(33,7,32,2,24,559,658,'Safe SQL translation','TODO Safe SQL translation','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["work","project","rust","sqlite","security"]');
-INSERT INTO headings VALUES(34,7,32,2,30,658,758,'Result shaping','REVIEW Result shaping','REVIEW','open',NULL,'<2026-07-15 Wed>',1784073600,0,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["work","project","rust","sqlite","json"]');
-INSERT INTO headings VALUES(35,7,34,3,33,719,758,'Outline context nodes','TODO Outline context nodes','TODO','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["work","project","rust","sqlite","json","tree"]');
-INSERT INTO headings VALUES(36,7,32,2,35,758,818,'AST parser','DONE AST parser','DONE','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[2026-07-07 Tue 18:15]',1783448100,1,0,0,'["work","project","rust","sqlite","parser"]');
-INSERT INTO headings VALUES(37,7,31,1,38,818,886,'Mobile integration','WAIT Mobile integration','WAIT','open',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["work","project","mobile"]');
-INSERT INTO headings VALUES(38,7,31,1,43,886,944,'Old prototype','CANCEL Old prototype','CANCEL','closed',NULL,NULL,NULL,NULL,NULL,NULL,NULL,'[2026-06-01 Mon]',1780272000,0,0,0,'["work","project","archive"]');
+INSERT INTO headings VALUES(1,1,NULL,0,1,-1,2783,'Org Property and Keyword Test','Org Property and Keyword Test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(2,1,1,1,16,465,638,'Task with multiple drawer properties','Task with multiple drawer properties',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(3,1,1,1,26,638,858,'Task with duplicate drawer properties','Task with duplicate drawer properties',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(4,1,1,1,35,858,1094,'Task with append operator in drawer','Task with append operator in drawer',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(5,1,1,1,45,1094,1304,'Task with mixed-case keys','Task with mixed-case keys',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(6,1,1,1,58,1304,1437,'Task with empty property accepted by Orgize','Task with empty property accepted by Orgize',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(7,1,1,1,67,1437,1718,'Task with Orgize empty-property limitation','Task with Orgize empty-property limitation',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(8,1,1,1,76,1718,1984,'Task after file-level property keywords','Task after file-level property keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(9,1,1,1,83,1984,2264,'Task after later file-level keywords','Task after later file-level keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(10,1,1,1,89,2264,2783,'Boundary: property-like but not properties','Boundary: property-like but not properties',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
+INSERT INTO headings VALUES(11,2,NULL,0,1,-1,0,'todo-keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 CREATE TABLE timestamps (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -182,21 +128,6 @@ CREATE TABLE timestamps (
         REFERENCES headings(id)
         ON DELETE CASCADE
 );
-INSERT INTO timestamps VALUES(1,6,'body',1,1783760400,NULL,'active','none','<2026-07-11 Sat 09:00>',596,618,26);
-INSERT INTO timestamps VALUES(2,6,'body',0,1784332800,NULL,'active','none','<2026-07-18 Sat>',629,645,27);
-INSERT INTO timestamps VALUES(3,8,'closed',1,1783704600,NULL,'inactive','none','[2026-07-10 Fri 17:30]',869,891,37);
-INSERT INTO timestamps VALUES(4,9,'deadline',1,1798761540,NULL,'active','none','<2026-12-31 Thu 23:59>',981,1003,40);
-INSERT INTO timestamps VALUES(5,12,'closed',1,1766232000,NULL,'inactive','none','[2025-12-20 Sat 12:00]',106,128,6);
-INSERT INTO timestamps VALUES(6,13,'closed',0,1761955200,NULL,'inactive','none','[2025-11-01 Sat]',212,228,12);
-INSERT INTO timestamps VALUES(7,19,'body',1,1783764900,NULL,'active','none','<2026-07-11 Sat 10:15>',328,350,16);
-INSERT INTO timestamps VALUES(8,19,'body',1,1783716300,NULL,'inactive','none','[2026-07-10 Fri 20:45]',374,396,17);
-INSERT INTO timestamps VALUES(9,19,'body',0,1783900800,NULL,'active','none','<2026-07-13 Mon>',420,436,18);
-INSERT INTO timestamps VALUES(10,32,'body',1,1783845000,NULL,'active','none','<2026-07-12 Sun 08:30>',306,328,14);
-INSERT INTO timestamps VALUES(11,32,'body',1,1784563200,NULL,'active','none','<2026-07-20 Mon 16:00>',339,361,15);
-INSERT INTO timestamps VALUES(12,33,'body',0,1783987200,NULL,'active','none','<2026-07-14 Tue>',640,656,28);
-INSERT INTO timestamps VALUES(13,34,'scheduled',0,1784073600,NULL,'active','none','<2026-07-15 Wed>',701,717,31);
-INSERT INTO timestamps VALUES(14,36,'closed',1,1783448100,NULL,'inactive','none','[2026-07-07 Tue 18:15]',794,816,36);
-INSERT INTO timestamps VALUES(15,38,'closed',0,1780272000,NULL,'inactive','none','[2026-06-01 Mon]',927,943,44);
 CREATE TABLE timestamp_repeaters (
     id                          INTEGER PRIMARY KEY,
     timestamp_id                INTEGER NOT NULL UNIQUE,
@@ -271,27 +202,23 @@ CREATE TABLE keywords (
         ON DELETE CASCADE,
     UNIQUE (heading_id, keyword, line_number)
 );
-INSERT INTO keywords VALUES(1,1,'TITLE','Org Files Test Index',1);
-INSERT INTO keywords VALUES(2,1,'FILETAGS',':dashboard:index:',2);
-INSERT INTO keywords VALUES(3,1,'CATEGORY','dashboard',3);
-INSERT INTO keywords VALUES(4,1,'PROPERTY','OWNER Hubi',4);
-INSERT INTO keywords VALUES(5,11,'TITLE','Archive 2025',1);
-INSERT INTO keywords VALUES(6,11,'FILETAGS',':archive:',2);
-INSERT INTO keywords VALUES(7,11,'CATEGORY','archive',3);
-INSERT INTO keywords VALUES(8,14,'TITLE','Duplicate IDs',1);
-INSERT INTO keywords VALUES(9,14,'FILETAGS',':test:duplicates:',2);
-INSERT INTO keywords VALUES(10,17,'TITLE','Technical Notes',1);
-INSERT INTO keywords VALUES(11,17,'FILETAGS',':notes:reference:',2);
-INSERT INTO keywords VALUES(12,17,'CATEGORY','notes',3);
-INSERT INTO keywords VALUES(13,17,'PROPERTY','LANGUAGE English',4);
-INSERT INTO keywords VALUES(14,23,'TITLE','People',1);
-INSERT INTO keywords VALUES(15,23,'FILETAGS',':people:',2);
-INSERT INTO keywords VALUES(16,23,'CATEGORY','contacts',3);
-INSERT INTO keywords VALUES(17,31,'TITLE','Projects',1);
-INSERT INTO keywords VALUES(18,31,'FILETAGS',':work:project:',2);
-INSERT INTO keywords VALUES(19,31,'CATEGORY','projects',3);
-INSERT INTO keywords VALUES(20,31,'PROPERTY','AREA Engineering',4);
-INSERT INTO keywords VALUES(21,31,'TODO','TODO(t) NEXT(n) WAIT(w) REVIEW(r) | DONE(d) CANCEL(c)',5);
+INSERT INTO keywords VALUES(1,1,'TITLE','Org Property and Keyword Test',6);
+INSERT INTO keywords VALUES(2,1,'STARTUP','showall',7);
+INSERT INTO keywords VALUES(3,1,'CATEGORY','category_keyword_value',8);
+INSERT INTO keywords VALUES(4,1,'PROPERTY','Effort_ALL 0:10 0:30 1:00',9);
+INSERT INTO keywords VALUES(5,1,'PROPERTY','keyword_property valid',10);
+INSERT INTO keywords VALUES(6,1,'PROPERTY','keyword_overwritten_by_second invalid',11);
+INSERT INTO keywords VALUES(7,1,'PROPERTY','keyword_overwritten_by_second valid',12);
+INSERT INTO keywords VALUES(8,1,'PROPERTY','keyword_append foo=1',13);
+INSERT INTO keywords VALUES(9,1,'PROPERTY','keyword_append+ bar=2',14);
+INSERT INTO keywords VALUES(10,1,'PROPERTY','later_keyword_property works_everywhere',80);
+INSERT INTO keywords VALUES(11,1,'CATEGORY','later_category_keyword',81);
+INSERT INTO keywords VALUES(12,1,'FILETAGS',':project:work:',90);
+INSERT INTO keywords VALUES(13,1,'TAGS','work(w) home(h)',91);
+INSERT INTO keywords VALUES(14,1,'COLUMNS','%TODO %50ITEM %Effort{:} %CLOCKSUM',92);
+INSERT INTO keywords VALUES(15,1,'CONSTANTS','c=299792458',93);
+INSERT INTO keywords VALUES(16,1,'AUTHOR','Jane Doe',94);
+INSERT INTO keywords VALUES(17,1,'OPTIONS','toc:nil num:t',95);
 CREATE TABLE properties (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -306,39 +233,32 @@ CREATE TABLE properties (
         REFERENCES headings(id)
         ON DELETE CASCADE
 );
-INSERT INTO properties VALUES(1,1,'CATEGORY','dashboard','category_keyword',0,3);
-INSERT INTO properties VALUES(2,1,'OWNER','Hubi','property_keyword',0,4);
-INSERT INTO properties VALUES(3,6,'CUSTOM_ID','review-query-cli','property_drawer',0,23);
-INSERT INTO properties VALUES(4,6,'OWNER','   Hubi','property_drawer',0,24);
-INSERT INTO properties VALUES(5,7,'OWNER','   Alex','property_drawer',0,33);
-INSERT INTO properties VALUES(6,11,'CATEGORY','archive','category_keyword',0,3);
-INSERT INTO properties VALUES(7,12,'OWNER','Hubi','property_drawer',0,8);
-INSERT INTO properties VALUES(8,15,'ID','duplicate-test-id','property_drawer',0,6);
-INSERT INTO properties VALUES(9,16,'ID','duplicate-test-id','property_drawer',0,11);
-INSERT INTO properties VALUES(10,17,'CATEGORY','notes','category_keyword',0,3);
-INSERT INTO properties VALUES(11,17,'LANGUAGE','English','property_keyword',0,4);
-INSERT INTO properties VALUES(12,18,'CUSTOM_ID','query-model','property_drawer',0,8);
-INSERT INTO properties VALUES(13,18,'ID','query-model-note','property_drawer',0,9);
-INSERT INTO properties VALUES(14,18,'OWNER','Hubi','property_drawer',0,10);
-INSERT INTO properties VALUES(15,21,'OWNER','Sam','property_drawer',0,29);
-INSERT INTO properties VALUES(16,23,'CATEGORY','contacts','category_keyword',0,3);
-INSERT INTO properties VALUES(17,24,'CUSTOM_ID','person-hubi','property_drawer',0,7);
-INSERT INTO properties VALUES(18,24,'ROLE','Maintainer','property_drawer',0,8);
-INSERT INTO properties VALUES(19,24,'TEAM','Core','property_drawer',0,9);
-INSERT INTO properties VALUES(20,25,'CUSTOM_ID','person-alex','property_drawer',0,14);
-INSERT INTO properties VALUES(21,25,'ROLE','Writer','property_drawer',0,15);
-INSERT INTO properties VALUES(22,25,'TEAM','Docs','property_drawer',0,16);
-INSERT INTO properties VALUES(23,26,'CUSTOM_ID','person-sam','property_drawer',0,21);
-INSERT INTO properties VALUES(24,26,'ROLE','Reviewer','property_drawer',0,22);
-INSERT INTO properties VALUES(25,26,'TEAM','Core','property_drawer',0,23);
-INSERT INTO properties VALUES(26,31,'CATEGORY','projects','category_keyword',0,3);
-INSERT INTO properties VALUES(27,31,'AREA','Engineering','property_keyword',0,4);
-INSERT INTO properties VALUES(28,32,'ID','project-query-engine','property_drawer',0,9);
-INSERT INTO properties VALUES(29,32,'CUSTOM_ID','query-engine','property_drawer',0,10);
-INSERT INTO properties VALUES(30,32,'OWNER','Hubi','property_drawer',0,11);
-INSERT INTO properties VALUES(31,32,'EFFORT','12:00','property_drawer',0,12);
-INSERT INTO properties VALUES(32,33,'OWNER','Sam','property_drawer',0,26);
-INSERT INTO properties VALUES(33,37,'OWNER','Alex','property_drawer',0,40);
+INSERT INTO properties VALUES(1,1,'CATEGORY','Level 0 Category Property','property_drawer',0,2);
+INSERT INTO properties VALUES(2,1,'WHATEVER','level 0 drawer property','property_drawer',0,3);
+INSERT INTO properties VALUES(3,1,'ID','7dad9b62-a3cc-43ec-a60f-e650bdaeae6d','property_drawer',0,4);
+INSERT INTO properties VALUES(4,1,'CATEGORY','category_keyword_value','category_keyword',0,8);
+INSERT INTO properties VALUES(5,1,'EFFORT_ALL','0:10 0:30 1:00','property_keyword',0,9);
+INSERT INTO properties VALUES(6,1,'KEYWORD_PROPERTY','valid','property_keyword',0,10);
+INSERT INTO properties VALUES(7,1,'KEYWORD_OVERWRITTEN_BY_SECOND','invalid','property_keyword',0,11);
+INSERT INTO properties VALUES(8,1,'KEYWORD_OVERWRITTEN_BY_SECOND','valid','property_keyword',0,12);
+INSERT INTO properties VALUES(9,1,'KEYWORD_APPEND','foo=1','property_keyword',0,13);
+INSERT INTO properties VALUES(10,1,'KEYWORD_APPEND','bar=2','property_keyword',1,14);
+INSERT INTO properties VALUES(11,1,'LATER_KEYWORD_PROPERTY','works_everywhere','property_keyword',0,80);
+INSERT INTO properties VALUES(12,1,'CATEGORY','later_category_keyword','category_keyword',0,81);
+INSERT INTO properties VALUES(13,2,'ID','abc','property_drawer',0,18);
+INSERT INTO properties VALUES(14,2,'CUSTOM_ID','task-custom-id','property_drawer',0,19);
+INSERT INTO properties VALUES(15,2,'EFFORT','0:30','property_drawer',0,20);
+INSERT INTO properties VALUES(16,2,'OWNER','Alice','property_drawer',0,21);
+INSERT INTO properties VALUES(17,2,'DRAWER_PROP','valid','property_drawer',0,22);
+INSERT INTO properties VALUES(18,3,'DEFINED_TWICE','invalid','property_drawer',0,28);
+INSERT INTO properties VALUES(19,3,'DEFINED_TWICE','valid','property_drawer',0,29);
+INSERT INTO properties VALUES(20,4,'ADD-VALUE','is','property_drawer',0,37);
+INSERT INTO properties VALUES(21,4,'ADD-VALUE','valid','property_drawer',1,38);
+INSERT INTO properties VALUES(22,5,'ID','lowercase-id','property_drawer',0,47);
+INSERT INTO properties VALUES(23,5,'CUSTOM_ID','mixed-case-custom-id','property_drawer',0,48);
+INSERT INTO properties VALUES(24,5,'DRAWER_PROP','valid','property_drawer',0,49);
+INSERT INTO properties VALUES(25,5,'ADD-VALUE','appended','property_drawer',1,50);
+INSERT INTO properties VALUES(26,6,'EMPTY','','property_drawer',0,60);
 CREATE TABLE tags (
     heading_id      INTEGER NOT NULL,
     tag             TEXT NOT NULL,
@@ -347,44 +267,8 @@ CREATE TABLE tags (
         ON DELETE CASCADE,
     PRIMARY KEY (heading_id, tag)
 );
-INSERT INTO tags VALUES(1,'dashboard');
-INSERT INTO tags VALUES(1,'index');
-INSERT INTO tags VALUES(6,'project');
-INSERT INTO tags VALUES(6,'dashboard');
-INSERT INTO tags VALUES(7,'docs');
-INSERT INTO tags VALUES(8,'test');
-INSERT INTO tags VALUES(9,'inbox');
-INSERT INTO tags VALUES(10,'links');
-INSERT INTO tags VALUES(11,'archive');
-INSERT INTO tags VALUES(12,'legacy');
-INSERT INTO tags VALUES(13,'experiment');
-INSERT INTO tags VALUES(14,'test');
-INSERT INTO tags VALUES(14,'duplicates');
-INSERT INTO tags VALUES(17,'notes');
-INSERT INTO tags VALUES(17,'reference');
-INSERT INTO tags VALUES(18,'query');
-INSERT INTO tags VALUES(18,'spec');
-INSERT INTO tags VALUES(19,'time');
-INSERT INTO tags VALUES(20,'links');
-INSERT INTO tags VALUES(21,'sqlite');
-INSERT INTO tags VALUES(21,'database');
-INSERT INTO tags VALUES(23,'people');
-INSERT INTO tags VALUES(24,'person');
-INSERT INTO tags VALUES(24,'maintainer');
-INSERT INTO tags VALUES(25,'person');
-INSERT INTO tags VALUES(25,'docs');
-INSERT INTO tags VALUES(26,'person');
-INSERT INTO tags VALUES(26,'security');
-INSERT INTO tags VALUES(31,'work');
-INSERT INTO tags VALUES(31,'project');
-INSERT INTO tags VALUES(32,'rust');
-INSERT INTO tags VALUES(32,'sqlite');
-INSERT INTO tags VALUES(33,'security');
-INSERT INTO tags VALUES(34,'json');
-INSERT INTO tags VALUES(35,'tree');
-INSERT INTO tags VALUES(36,'parser');
-INSERT INTO tags VALUES(37,'mobile');
-INSERT INTO tags VALUES(38,'archive');
+INSERT INTO tags VALUES(1,'project');
+INSERT INTO tags VALUES(1,'work');
 CREATE TABLE links (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -441,26 +325,6 @@ CREATE TABLE links (
         ON DELETE SET NULL,
     UNIQUE (file_id, byte_start)
 );
-INSERT INTO links VALUES(1,1,1,124,155,7,'normal','bracket','[[file:projects.org][Projects]]','file:projects.org','Projects','file','projects.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,31,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(2,1,1,158,211,8,'normal','bracket','[[file:notes.org::*Query Model][Query model heading]]','file:notes.org::*Query Model','Query model heading','file','notes.org','*Query Model','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/notes.org',4,18,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(3,1,1,214,272,9,'normal','bracket','[[file:notes.org::*Does Not Exist][Broken heading target]]','file:notes.org::*Does Not Exist','Broken heading target','file','notes.org','*Does Not Exist','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/notes.org',4,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(4,1,1,275,314,10,'normal','bracket','[[file:not-indexed.org][Outside index]]','file:not-indexed.org','Outside index','file','not-indexed.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/not-indexed.org',NULL,NULL,NULL,NULL,'broken','missing in indexed universe');
-INSERT INTO links VALUES(5,1,1,317,336,11,'normal','plain','https://example.com','https://example.com',NULL,'https','//example.com',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','unsupported link type');
-INSERT INTO links VALUES(6,1,6,652,706,29,'normal','bracket','[[file:projects.org::*Query Engine][the query engine]]','file:projects.org::*Query Engine','the query engine','file','projects.org','*Query Engine','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,32,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(7,1,6,711,746,29,'normal','bracket','[[id:project-query-engine][its ID]]','id:project-query-engine','its ID','id','project-query-engine',NULL,NULL,7,32,NULL,'project-query-engine','resolved',NULL);
-INSERT INTO links VALUES(8,1,10,1085,1123,43,'normal','bracket','[[#review-query-cli][Local custom ID]]','#review-query-cli','Local custom ID','custom-id','review-query-cli',NULL,NULL,1,6,'review-query-cli',NULL,'resolved',NULL);
-INSERT INTO links VALUES(9,1,10,1126,1164,44,'normal','bracket','[[id:duplicate-test-id][Ambiguous ID]]','id:duplicate-test-id','Ambiguous ID','id','duplicate-test-id',NULL,NULL,NULL,NULL,NULL,'duplicate-test-id','ambiguous','duplicate id');
-INSERT INTO links VALUES(10,1,10,1167,1221,45,'normal','bracket','[[file:notes.org::42][Unsupported file search option]]','file:notes.org::42','Unsupported file search option','file','notes.org','42','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/notes.org',4,NULL,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(11,1,10,1224,1252,46,'normal','bracket','[[jira:ORG-42][Jira ticket]]','jira:ORG-42','Jira ticket','jira','ORG-42',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','unsupported link type');
-INSERT INTO links VALUES(12,4,20,466,502,21,'normal','bracket','[[file:projects.org][Projects file]]','file:projects.org','Projects file','file','projects.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,31,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(13,4,20,505,563,22,'normal','bracket','[[file:projects.org::*Query Engine][Query Engine heading]]','file:projects.org::*Query Engine','Query Engine heading','file','projects.org','*Query Engine','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,32,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(14,4,20,566,626,23,'normal','bracket','[[file:projects.org::#query-engine][Query Engine custom ID]]','file:projects.org::#query-engine','Query Engine custom ID','file','projects.org','#query-engine','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,32,'query-engine',NULL,'resolved',NULL);
-INSERT INTO links VALUES(15,4,20,629,673,24,'normal','bracket','[[id:project-query-engine][Query Engine ID]]','id:project-query-engine','Query Engine ID','id','project-query-engine',NULL,NULL,7,32,NULL,'project-query-engine','resolved',NULL);
-INSERT INTO links VALUES(16,4,20,676,739,25,'normal','bracket','[[file:projects.org::*Missing Project][Broken project heading]]','file:projects.org::*Missing Project','Broken project heading','file','projects.org','*Missing Project','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,NULL,NULL,NULL,'broken','heading not found');
-INSERT INTO links VALUES(17,4,22,881,902,35,'normal','bracket','[[file:projects.org]]','file:projects.org',NULL,'file','projects.org',NULL,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/projects.org',7,31,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(18,7,32,411,464,20,'normal','bracket','[[file:notes.org::*Query Model][Specification notes]]','file:notes.org::*Query Model','Specification notes','file','notes.org','*Query Model','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/notes.org',4,18,NULL,NULL,'resolved',NULL);
-INSERT INTO links VALUES(19,7,32,467,524,21,'normal','bracket','[[file:notes.org::#query-model][Specification custom ID]]','file:notes.org::#query-model','Specification custom ID','file','notes.org','#query-model','/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/notes.org',4,18,'query-model',NULL,'resolved',NULL);
-INSERT INTO links VALUES(20,7,32,527,557,22,'normal','bracket','[[https://sqlite.org][SQLite]]','https://sqlite.org','SQLite','https','//sqlite.org',NULL,NULL,NULL,NULL,NULL,NULL,'unsupported','unsupported link type');
 CREATE TABLE heading_bodies (
     heading_id          INTEGER PRIMARY KEY,
     body_text           TEXT NOT NULL,
@@ -487,44 +351,17 @@ CREATE TABLE outline_path (
         REFERENCES headings(id)
         ON DELETE SET NULL
 );
-INSERT INTO outline_path VALUES(1,1,NULL,0,'0000','["Org Files Test Index"]');
-INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Org Files Test Index","Statistic Cookies"]');
-INSERT INTO outline_path VALUES(3,1,2,2,'0000.0001.0001','["Org Files Test Index","Statistic Cookies","test"]');
-INSERT INTO outline_path VALUES(4,1,1,1,'0000.0002','["Org Files Test Index","Statistic Cookies"]');
-INSERT INTO outline_path VALUES(5,1,1,1,'0000.0003','["Org Files Test Index","Review query CLI"]');
-INSERT INTO outline_path VALUES(6,1,1,1,'0000.0004','["Org Files Test Index","Review query CLI"]');
-INSERT INTO outline_path VALUES(7,1,6,2,'0000.0004.0001','["Org Files Test Index","Review query CLI","Add documentation examples"]');
-INSERT INTO outline_path VALUES(8,1,6,2,'0000.0004.0002','["Org Files Test Index","Review query CLI","Verify JSON output"]');
-INSERT INTO outline_path VALUES(9,1,1,1,'0000.0005','["Org Files Test Index","Inbox item"]');
-INSERT INTO outline_path VALUES(10,1,1,1,'0000.0006','["Org Files Test Index","Reference links"]');
-INSERT INTO outline_path VALUES(11,2,NULL,0,'0000','["Archive 2025"]');
-INSERT INTO outline_path VALUES(12,2,11,1,'0000.0001','["Archive 2025","Legacy migration"]');
-INSERT INTO outline_path VALUES(13,2,11,1,'0000.0002','["Archive 2025","Obsolete experiment"]');
-INSERT INTO outline_path VALUES(14,3,NULL,0,'0000','["Duplicate IDs"]');
-INSERT INTO outline_path VALUES(15,3,14,1,'0000.0001','["Duplicate IDs","First duplicate"]');
-INSERT INTO outline_path VALUES(16,3,14,1,'0000.0002','["Duplicate IDs","Second duplicate"]');
-INSERT INTO outline_path VALUES(17,4,NULL,0,'0000','["Technical Notes"]');
-INSERT INTO outline_path VALUES(18,4,17,1,'0000.0001','["Technical Notes","Query Model"]');
-INSERT INTO outline_path VALUES(19,4,18,2,'0000.0001.0001','["Technical Notes","Query Model","Timestamp semantics"]');
-INSERT INTO outline_path VALUES(20,4,18,2,'0000.0001.0002','["Technical Notes","Query Model","Link semantics"]');
-INSERT INTO outline_path VALUES(21,4,17,1,'0000.0002','["Technical Notes","SQLite Notes"]');
-INSERT INTO outline_path VALUES(22,4,17,1,'0000.0003','["Technical Notes","Empty Description Link"]');
-INSERT INTO outline_path VALUES(23,5,NULL,0,'0000','["People"]');
-INSERT INTO outline_path VALUES(24,5,23,1,'0000.0001','["People","Hubi"]');
-INSERT INTO outline_path VALUES(25,5,23,1,'0000.0002','["People","Alex"]');
-INSERT INTO outline_path VALUES(26,5,23,1,'0000.0003','["People","Sam"]');
-INSERT INTO outline_path VALUES(27,6,NULL,0,'0000','["prio"]');
-INSERT INTO outline_path VALUES(28,6,27,1,'0000.0001','["prio","Priority Test"]');
-INSERT INTO outline_path VALUES(29,6,27,1,'0000.0002','["prio","Priority Test"]');
-INSERT INTO outline_path VALUES(30,6,27,1,'0000.0003','["prio","Priority Test"]');
-INSERT INTO outline_path VALUES(31,7,NULL,0,'0000','["Projects"]');
-INSERT INTO outline_path VALUES(32,7,31,1,'0000.0001','["Projects","Query Engine"]');
-INSERT INTO outline_path VALUES(33,7,32,2,'0000.0001.0001','["Projects","Query Engine","Safe SQL translation"]');
-INSERT INTO outline_path VALUES(34,7,32,2,'0000.0001.0002','["Projects","Query Engine","Result shaping"]');
-INSERT INTO outline_path VALUES(35,7,34,3,'0000.0001.0002.0001','["Projects","Query Engine","Result shaping","Outline context nodes"]');
-INSERT INTO outline_path VALUES(36,7,32,2,'0000.0001.0003','["Projects","Query Engine","AST parser"]');
-INSERT INTO outline_path VALUES(37,7,31,1,'0000.0002','["Projects","Mobile integration"]');
-INSERT INTO outline_path VALUES(38,7,31,1,'0000.0003','["Projects","Old prototype"]');
+INSERT INTO outline_path VALUES(1,1,NULL,0,'0000','["Org Property and Keyword Test"]');
+INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Org Property and Keyword Test","Task with multiple drawer properties"]');
+INSERT INTO outline_path VALUES(3,1,1,1,'0000.0002','["Org Property and Keyword Test","Task with duplicate drawer properties"]');
+INSERT INTO outline_path VALUES(4,1,1,1,'0000.0003','["Org Property and Keyword Test","Task with append operator in drawer"]');
+INSERT INTO outline_path VALUES(5,1,1,1,'0000.0004','["Org Property and Keyword Test","Task with mixed-case keys"]');
+INSERT INTO outline_path VALUES(6,1,1,1,'0000.0005','["Org Property and Keyword Test","Task with empty property accepted by Orgize"]');
+INSERT INTO outline_path VALUES(7,1,1,1,'0000.0006','["Org Property and Keyword Test","Task with Orgize empty-property limitation"]');
+INSERT INTO outline_path VALUES(8,1,1,1,'0000.0007','["Org Property and Keyword Test","Task after file-level property keywords"]');
+INSERT INTO outline_path VALUES(9,1,1,1,'0000.0008','["Org Property and Keyword Test","Task after later file-level keywords"]');
+INSERT INTO outline_path VALUES(10,1,1,1,'0000.0009','["Org Property and Keyword Test","Boundary: property-like but not properties"]');
+INSERT INTO outline_path VALUES(11,2,NULL,0,'0000','["todo-keywords"]');
 CREATE INDEX idx_files_mtime_size
     ON files(mtime_ns, size);
 CREATE INDEX idx_files_hash
