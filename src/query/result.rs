@@ -1971,6 +1971,59 @@ mod tests {
     }
 
     #[test]
+    fn heading_file_predicates_shape_matching_file_roots_and_preserve_includes() {
+        let connection = seeded_connection();
+
+        let flat = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (file-title "Alpha Index" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::Properties],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("flat file-title heading query should shape");
+        let file = file_node(&flat.results[0]);
+        assert!(file.matched);
+        assert_eq!(file.path, "/tmp/query-alpha.org");
+        let properties = file
+            .properties
+            .as_ref()
+            .expect("properties include should exist");
+        assert_eq!(properties.len(), 1);
+        assert_eq!(properties[0].key, "CATEGORY");
+        assert_eq!(properties[0].value.as_deref(), Some("work"));
+        let heading = heading_node(&flat.results[1]);
+        assert!(heading.matched);
+        assert!(heading.level > 0);
+
+        let outline = execute_and_shape_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (file-title "Alpha Index" :exact t)
+                      (todo "NEXT")))"#,
+            ),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Outline,
+                includes: vec![],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("outline file-title heading query should shape");
+        let outline_file = file_node(&outline.results[0]);
+        assert!(!outline_file.matched);
+        let outline_children = outline_file
+            .children
+            .as_ref()
+            .expect("outline file children should exist");
+        let outline_heading = heading_node(&outline_children[0]);
+        assert!(outline_heading.matched);
+    }
+
+    #[test]
     fn bare_headings_query_shapes_file_roots_and_real_headings_in_flat_and_outline_output() {
         let connection = seeded_connection();
 

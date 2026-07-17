@@ -260,6 +260,7 @@ Legend:
 | ~file-title~ | yes | via relation | yes |
 
 Note: ~file-title~ is marked as directly usable for heading queries because it filters headings by their containing file, like ~file-name~, ~file-path~, and ~file-dir~. Internally it uses the effective root/file title, including the fallback file stem when no source ~#+TITLE~ is present.
+For heading queries, file predicates are evaluated over the complete heading-target domain: real headings inspect their containing file, and matching file/root objects are returned as file results rather than exposing the internal level-0 row as a heading.
 | ~file-modified~ | yes | via relation | yes |
 | ~outline-contains~ | yes | via relation | no |
 | ~outline-sequence~ | yes | via relation | no |
@@ -3145,6 +3146,8 @@ Heading query example:
     (file-name "projects.org" :exact t)))
 #+end_src
 
+When used on ~headings~, this predicate also matches file/root objects directly by file name.
+
 *** ~(file-path &rest strings &key regexp exact)~
 
 Match the full normalized file path.
@@ -3185,6 +3188,7 @@ Notes:
 
 - Exact path matching should use the normalized path format used by the indexer.
 - The specification does not require absolute or relative paths; the project must define normalization elsewhere.
+- When used on ~headings~, this predicate also matches file/root objects directly by file path.
 
 *** ~(file-dir &rest strings &key regexp exact)~
 
@@ -3233,6 +3237,8 @@ Heading query example:
     (tags "project")
     (file-dir "projects")))
 #+end_src
+
+When used on ~headings~, this predicate also matches file/root objects directly by directory path.
 
 *** ~(file-title &rest strings &key regexp exact)~
 
@@ -3283,6 +3289,7 @@ Notes:
 - Files without a source ~#+TITLE~ still match through the effective fallback file stem.
 - The fallback is derived from the final file-name component and excludes the extension.
 - The same effective title is used for file queries, containing-file filters, and root title matching in heading queries.
+- When used on ~headings~, this predicate also matches file/root objects directly by effective file title.
 
 *** ~(file-modified &key from to on with-time)~
 
@@ -3293,6 +3300,8 @@ This predicate can be used on:
 - files
 - headings, where the heading inherits the file modification time
 - links through source or target relation predicates
+
+When used on ~headings~, this predicate also matches file/root objects directly by file modification time.
 
 Keyword arguments:
 

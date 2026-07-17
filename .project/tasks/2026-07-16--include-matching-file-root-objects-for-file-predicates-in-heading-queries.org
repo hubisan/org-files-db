@@ -1,0 +1,105 @@
+#+TITLE: Include matching file/root objects for file predicates in heading queries
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-16 Thu 02:31]
+#+TASK_COMPLETED: [2026-07-16 Thu 02:43]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Include matching file/root objects for file predicates in heading queries.
+
+* Planning
+
+** Problem summary
+- Bare ~(headings)~ already returns the full heading-target domain, including one file/root object per indexed file.
+- Filtered heading queries using file predicates currently narrow that domain by omitting matching file/root objects.
+- The SQLite backend also still rejects ~file-name~ and ~file-dir~ at execution time even though validation and docs already treat them as valid file predicates.
+
+** Goals
+- Make file predicates in heading queries evaluate over both real headings and file/root objects.
+- Return matching file/root objects as ~kind = "file"~ without exposing internal level-0 rows as heading results.
+- Keep bare ~(headings)~, deterministic ordering, and include behavior intact.
+- Close the backend gap for ~file-name~ and ~file-dir~ where needed for this task.
+
+** Non-goals
+- No parser or query-model syntax changes.
+- No schema change.
+- No broader rewrite of root/file participation for unrelated predicate families.
+
+** Architecture
+- Reuse the existing root-file hydration path by broadening the gate that decides when heading queries need the extra root/file query.
+- Treat ~title~ and heading-valid file predicates as root-capable for that gate.
+- Add SQLite SQL-expression helpers for file-name and file-dir matching so heading queries can evaluate the full affected file-predicate set.
+- Cover both raw execution and shaped flat/outline output with focused regression tests.
+
+** Execution plan
+- Add this task file and link it from ~todo.org~.
+- Broaden the heading root/file inclusion gate.
+- Implement the missing SQLite support needed for ~file-name~ and ~file-dir~.
+- Add focused regression tests for file predicates, boolean combinations, includes, and result shaping.
+- Update ~docs/cli.org~ and ~docs/reference/query-model-v0.org~.
+- Run ~cargo fmt --all~, focused tests, and ~make ci~.
+
+** Risks & assumptions
+- The SQL helpers for file-name and file-dir should stay side-effect free and operate only on persisted file paths.
+- This task stays focused on file predicates rather than generalizing root/file participation for every possible boolean form.
+
+** Open questions
+- None.
+
+** Proposed checks
+- ~cargo fmt --all~
+- focused heading/file predicate query tests
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+
+* Results
+
+** Approach
+- Reused the existing extra file/root hydration query for heading execution and widened only the gate that decides when that query is needed.
+- Treated heading-valid file predicates as root-capable so filtered heading queries now evaluate them over the same visible domain as bare ~(headings)~.
+- Closed the remaining SQLite execution gap for ~file-name~ and ~file-dir~ by compiling them against SQL expressions derived from persisted file paths.
+- Added regression coverage at both the raw SQLite execution layer and the shaped result layer.
+
+** Changed files
+- ~src/query/sqlite.rs~
+  - Expanded heading predicate compilation to support ~file-name~ and ~file-dir~.
+  - Added SQL helpers that derive basename and directory portions from persisted file paths.
+  - Broadened the file/root inclusion gate from ~title~-only to the full affected file-predicate set.
+  - Added focused execution tests for file predicates, boolean composition, and file-query support for ~file-name~/~file-dir~.
+- ~src/query/result.rs~
+  - Added shaping coverage for heading file-predicate matches, including matched file nodes and file-root property includes.
+- ~docs/cli.org~
+  - Documented that file predicates on ~headings~ apply to both real headings and file/root objects.
+- ~docs/reference/query-model-v0.org~
+  - Documented the same domain rule in the normative reference and in the file-predicate sections.
+- ~.project/tasks/todo.org~
+  - Linked this task file and moved the task to ~REVIEW~.
+
+** Checks performed
+- Exploratory inspection:
+  - Reviewed the active task text, current heading root/file gating, and predicate compiler coverage before editing.
+- Formatting:
+  - ~cargo fmt --all~
+- Focused tests:
+  - ~cargo test execution_file_predicates_return_matching_roots_in_heading_queries~
+  - ~cargo test execution_file_predicate_roots_respect_boolean_composition~
+  - ~cargo test heading_file_predicates_shape_matching_file_roots_and_preserve_includes~
+  - ~cargo test execution_file_queries_support_file_name_and_file_dir~
+- Full checks:
+  - ~cargo test --all-targets --all-features~
+  - ~make ci~
+
+** Test results
+- All focused regression tests passed.
+- ~cargo test --all-targets --all-features~ passed with 316 unit tests plus all integration targets green.
+- ~make ci~ passed, including ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test --all-targets --all-features~, and ~cargo build --all-targets --all-features~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- Ready for review.

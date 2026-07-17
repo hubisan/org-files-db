@@ -196,4 +196,310 @@ General rules:
 
 - Task file: [[file:archive/2026-07-16--make-bare-headings-include-file-root-results.org]]
 
+** REVIEW [#B] Include matching file/root objects for file predicates in heading queries
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-16--include-matching-file-root-objects-for-file-predicates-in-heading-queries.org]]
+
+Goal:
+
+- Make file predicates used inside ~(headings ...)~ evaluate against both:
+  - real headings through their containing file
+  - file/root objects directly
+- Return matching file/root objects as ~kind = "file"~.
+- Keep the already implemented bare ~(headings)~ behavior unchanged.
+
+Current behavior:
+
+- Bare:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+already returns:
+
+- all real headings
+- all file/root objects
+
+- A filtered query such as:
+
+#+begin_src lisp
+(headings
+  (file-path "properties.org"))
+#+end_src
+
+currently returns real headings from the matching file but omits the matching file/root object.
+
+Problem:
+
+- The ~headings~ target already has a domain consisting of real headings and file/root objects.
+- Adding a predicate should filter that existing domain.
+- A file predicate must not implicitly remove file/root objects that satisfy the same predicate.
+- Current behavior makes filtered heading queries use a narrower domain than bare ~(headings)~.
+
+Required semantics:
+
+- File predicates valid in heading queries are evaluated for real headings and file/root objects.
+- For a real heading, the predicate uses metadata from its containing file.
+- For a file/root object, the predicate uses metadata from the file itself.
+- Matching file/root objects are returned as:
+
+#+begin_src json
+{
+  "kind": "file",
+  "matched": true
+}
+#+end_src
+
+- Matching real headings are returned as:
+
+#+begin_src json
+{
+  "kind": "heading",
+  "matched": true
+}
+#+end_src
+
+Affected predicates:
+
+- ~file-name~
+- ~file-path~
+- ~file-dir~
+- ~file-title~
+- ~file-modified~
+
+Verify whether any additional file-level predicates valid in heading queries require the same treatment.
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (file-path "properties.org"))
+#+end_src
+
+Expected:
+
+- the file/root object for ~properties.org~
+- every real heading contained in ~properties.org~
+
+#+begin_src lisp
+(headings
+  (file-name "properties.org" :exact t))
+#+end_src
+
+Expected:
+
+- the matching file/root object
+- every real heading in the file
+
+#+begin_src lisp
+(headings
+  (file-title "Properties" :exact t))
+#+end_src
+
+Expected:
+
+- the matching file/root object
+- every real heading in the file
+
+The effective file title uses:
+
+- source ~#+TITLE~ when present
+- otherwise the file name without its extension
+
+For example:
+
+#+begin_src text
+properties.org -> properties
+#+end_src
+
+Boolean behavior:
+
+- File/root objects must satisfy the complete boolean expression.
+
+Example:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-path "properties.org")
+    (todo)))
+#+end_src
+
+Expected:
+
+- matching TODO headings in ~properties.org~
+- no file/root result, because ~todo~ is false for file/root objects
+
+Example:
+
+#+begin_src lisp
+(headings
+  (or
+    (file-path "properties.org")
+    (title "Query Model")))
+#+end_src
+
+Expected:
+
+- all real headings and the file/root object matching ~file-path~
+- all real headings and file/root objects matching ~title~
+- no duplicate results
+
+Implementation requirements:
+
+- Do not special-case only ~title~ for file/root result generation.
+- Evaluate supported heading predicates over the complete heading-target domain.
+- Preserve one canonical result identity per file/root object.
+- Do not emit the internal level-0 storage row as a normal heading.
+- Reuse the existing file/root hydration path.
+- Keep result ordering deterministic.
+- Avoid duplicate file/root results when several predicate branches match the same file.
+- Preserve the current behavior of bare ~(headings)~.
+- Preserve current real-heading matching for file predicates.
+
+Flat output:
+
+- Return matching file/root objects as ~kind = "file"~.
+- Return matching real headings as ~kind = "heading"~.
+- Prefer the file/root object before headings from the same file.
+- Do not expose any ~kind = "heading"~ result with ~level = 0~.
+
+Outline output:
+
+- Use the matching or contextual file/root object as the tree root.
+- Mark it ~matched = true~ when the file/root object itself satisfies the expression.
+- Mark it ~matched = false~ when included only as context for matching real headings.
+- Do not emit a duplicate synthetic level-0 heading node.
+
+Includes:
+
+- Verify that valid includes continue to work for matching file/root results.
+- For:
+
+#+begin_src shell
+--include properties
+#+end_src
+
+the matching file/root result should contain its root/file properties according to the existing output contract.
+- Includes must not affect matching.
+
+Documentation:
+
+- Update ~docs/reference/query-model-v0.org~.
+- Update ~docs/cli.org~.
+- Document that file predicates inside heading queries apply to:
+  - the containing file of real headings
+  - file/root objects themselves
+
+Suggested contract text:
+
+#+begin_src org
+- File predicates used with the ~headings~ target are evaluated over the complete heading-target domain.
+- For real headings, they inspect the containing file.
+- For file/root objects, they inspect the file itself.
+- A matching file/root object is returned as ~kind = "file"~.
+- File predicates do not expose internal level-0 rows as normal headings.
+#+end_src
+
+Acceptance criteria:
+
+- ~(headings)~ continues to return all real headings and all file/root objects.
+- ~(headings (file-path "properties.org"))~ returns:
+  - the matching file/root object
+  - every real heading in the matching file
+
+- The same behavior works for:
+  - ~file-name~
+  - ~file-dir~
+  - ~file-title~
+  - ~file-modified~
+
+- Boolean expressions evaluate file/root objects correctly.
+- ~(and (file-path ...) (todo))~ does not return the root.
+- ~(or ...)~ does not produce duplicate roots.
+- No result has both:
+  - ~kind = "heading"~
+  - ~level = 0~
+
+- Flat and outline output remain deterministic.
+- Valid includes work for returned file/root objects.
+- Existing bare ~(headings)~ tests continue to pass.
+- Existing real-heading file-predicate tests continue to pass.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~ describe the same behavior.
+- ~make ci~ passes.
+
+Regression tests:
+
+- Create at least two indexed files.
+- Use one file named ~properties.org~ with:
+  - no ~#+TITLE~, to verify the fallback title ~properties~
+  - root properties
+  - at least two real headings
+  - at least one TODO heading
+
+- Run:
+
+#+begin_src lisp
+(headings
+  (file-path "properties.org"))
+#+end_src
+
+Assert:
+
+- exactly one matching ~kind = "file~ result for ~properties.org~
+- all real headings from that file are returned
+- no headings from other files are returned
+- no level-0 heading is exposed
+
+- Run:
+
+#+begin_src lisp
+(headings
+  (file-title "properties" :exact t))
+#+end_src
+
+Assert:
+
+- the file-stem fallback title matches the file/root object
+- all real headings from that file match through their containing file
+
+- Run:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-path "properties.org")
+    (todo)))
+#+end_src
+
+Assert:
+
+- only TODO headings are returned
+- no file/root object is returned
+
+Manual check:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  --include properties \
+  '(headings (file-path "properties.org"))' \
+  | jq -e '
+      any(.results[]; .kind == "file")
+      and any(.results[]; .kind == "heading")
+      and all(
+        .results[];
+        (.kind != "heading") or (.level > 0)
+      )
+    '
+#+end_src
+
 ** TODO Manual Test the Implementation

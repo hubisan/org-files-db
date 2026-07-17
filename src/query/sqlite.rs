@@ -1040,9 +1040,21 @@ fn compile_heading_predicate(
         ),
         "title" => compile_heading_title_predicate(scope, predicate),
         "level" => compile_level_predicate(scope, predicate),
+        "file-name" => compile_text_predicate(
+            QueryTarget::Headings,
+            &sqlite_file_name_expr(&scope.file_col("path")),
+            predicate,
+            false,
+        ),
         "file-path" => compile_text_predicate(
             QueryTarget::Headings,
             &scope.file_col("path"),
+            predicate,
+            false,
+        ),
+        "file-dir" => compile_text_predicate(
+            QueryTarget::Headings,
+            &sqlite_file_dir_expr(&scope.file_col("path")),
             predicate,
             false,
         ),
@@ -1125,16 +1137,14 @@ fn compile_heading_predicate(
         "links-to" => compile_links_to_predicate(scope, aliases, predicate),
         "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
         "has-text" => compile_has_text_predicate(scope, predicate),
-        "outline-contains" | "outline-sequence" | "file-name" | "file-dir" => {
-            Err(QueryExecutionError::unsupported_predicate(
-                QueryTarget::Headings,
-                predicate.name.as_str(),
-                format!(
-                    "predicate {} is not supported by the SQLite metadata backend",
-                    predicate.name
-                ),
-            ))
-        }
+        "outline-contains" | "outline-sequence" => Err(QueryExecutionError::unsupported_predicate(
+            QueryTarget::Headings,
+            predicate.name.as_str(),
+            format!(
+                "predicate {} is not supported by the SQLite metadata backend",
+                predicate.name
+            ),
+        )),
         "link-type" | "link-target" | "link-description" | "has-description" | "status"
         | "source" | "target" => Err(QueryExecutionError::unsupported_predicate(
             QueryTarget::Headings,
@@ -1302,9 +1312,21 @@ fn compile_file_predicate(
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     match predicate.name.as_str() {
+        "file-name" => compile_text_predicate(
+            QueryTarget::Files,
+            &sqlite_file_name_expr(&scope.file_col("path")),
+            predicate,
+            false,
+        ),
         "file-path" => compile_text_predicate(
             QueryTarget::Files,
             &scope.file_col("path"),
+            predicate,
+            false,
+        ),
+        "file-dir" => compile_text_predicate(
+            QueryTarget::Files,
+            &sqlite_file_dir_expr(&scope.file_col("path")),
             predicate,
             false,
         ),
@@ -1331,17 +1353,15 @@ fn compile_file_predicate(
         "has-link" => compile_has_link_predicate(scope, aliases, predicate),
         "links-to" => compile_links_to_predicate(scope, aliases, predicate),
         "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
-        "has-text" | "outline-contains" | "outline-sequence" | "file-name" | "file-dir"
-        | "parent" | "ancestors" | "children" | "descendants" => {
-            Err(QueryExecutionError::unsupported_predicate(
-                QueryTarget::Files,
-                predicate.name.as_str(),
-                format!(
-                    "predicate {} is not supported by the SQLite metadata backend",
-                    predicate.name
-                ),
-            ))
-        }
+        "has-text" | "outline-contains" | "outline-sequence" | "parent" | "ancestors"
+        | "children" | "descendants" => Err(QueryExecutionError::unsupported_predicate(
+            QueryTarget::Files,
+            predicate.name.as_str(),
+            format!(
+                "predicate {} is not supported by the SQLite metadata backend",
+                predicate.name
+            ),
+        )),
         "todo" | "done" | "priority" | "title" | "level" | "scheduled" | "deadline" | "closed"
         | "planning" | "ts" | "ts-active" | "ts-inactive" | "link-type" | "link-target"
         | "link-description" | "has-description" | "status" | "source" | "target" => {
@@ -1486,6 +1506,55 @@ fn compile_text_predicate(
         sql: format!("({})", parts.join(" AND ")),
         params,
     })
+}
+
+fn sqlite_file_name_expr(path_sql: &str) -> String {
+    format!(
+        "(
+            WITH RECURSIVE split(rest, segment) AS (
+                SELECT {path_sql}, NULL
+                UNION ALL
+                SELECT
+                    CASE
+                        WHEN INSTR(rest, '/') = 0 THEN ''
+                        ELSE SUBSTR(rest, INSTR(rest, '/') + 1)
+                    END,
+                    CASE
+                        WHEN INSTR(rest, '/') = 0 THEN rest
+                        ELSE SUBSTR(rest, 1, INSTR(rest, '/') - 1)
+                    END
+                FROM split
+                WHERE rest <> ''
+            )
+            SELECT COALESCE(segment, '')
+            FROM split
+            WHERE rest = ''
+            LIMIT 1
+        )"
+    )
+}
+
+fn sqlite_file_dir_expr(path_sql: &str) -> String {
+    format!(
+        "(
+            WITH RECURSIVE slash_scan(rest, offset, last_slash) AS (
+                SELECT {path_sql}, 0, 0
+                UNION ALL
+                SELECT
+                    SUBSTR(rest, INSTR(rest, '/') + 1),
+                    offset + INSTR(rest, '/'),
+                    offset + INSTR(rest, '/')
+                FROM slash_scan
+                WHERE INSTR(rest, '/') > 0
+            )
+            SELECT CASE
+                WHEN MAX(last_slash) = 0 THEN ''
+                WHEN MAX(last_slash) = 1 THEN '/'
+                ELSE SUBSTR({path_sql}, 1, MAX(last_slash) - 1)
+            END
+            FROM slash_scan
+        )"
+    )
 }
 
 fn compile_heading_tags_predicate(
@@ -2472,18 +2541,24 @@ fn compile_heading_root_file_query(
 }
 
 fn query_includes_file_root_results(predicate: Option<&ValidatedExpr>) -> bool {
-    predicate.is_none() || predicate.is_some_and(expr_supports_root_title_matches)
+    predicate.is_none() || predicate.is_some_and(expr_can_match_file_root_results)
 }
 
-fn expr_supports_root_title_matches(expr: &ValidatedExpr) -> bool {
+fn expr_can_match_file_root_results(expr: &ValidatedExpr) -> bool {
     match expr {
         ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
-            children.iter().any(expr_supports_root_title_matches)
+            children.iter().any(expr_can_match_file_root_results)
         }
-        ValidatedExpr::Not(child) => expr_supports_root_title_matches(child),
-        ValidatedExpr::Predicate(predicate) => {
-            predicate.name == "title" && !option_has_true_bool(&predicate.options, "without-root")
-        }
+        ValidatedExpr::Not(child) => expr_can_match_file_root_results(child),
+        ValidatedExpr::Predicate(predicate) => predicate_can_match_file_root_results(predicate),
+    }
+}
+
+fn predicate_can_match_file_root_results(predicate: &ValidatedPredicate) -> bool {
+    match predicate.name.as_str() {
+        "title" => !option_has_true_bool(&predicate.options, "without-root"),
+        "file-name" | "file-path" | "file-dir" | "file-title" | "file-modified" => true,
+        _ => false,
     }
 }
 
@@ -3461,6 +3536,129 @@ mod tests {
     }
 
     #[test]
+    fn execution_file_predicates_return_matching_roots_in_heading_queries() {
+        let connection = seeded_connection();
+
+        let file_path_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-path "/tmp/query-alpha.org" :exact t))"#),
+        )
+        .expect("file-path heading query should execute");
+        assert_eq!(
+            heading_file_paths(file_path_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let file_name_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-name "query-alpha.org" :exact t))"#),
+        )
+        .expect("file-name heading query should execute");
+        assert_eq!(
+            heading_file_paths(file_name_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let file_dir_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-dir "/tmp" :exact t))"#),
+        )
+        .expect("file-dir heading query should execute");
+        assert_eq!(
+            heading_file_paths(file_dir_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+                "/tmp/query-gamma.org".to_string(),
+            ]
+        );
+
+        let file_title_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-title "Alpha Index" :exact t))"#),
+        )
+        .expect("file-title heading query should execute");
+        assert_eq!(
+            heading_file_paths(file_title_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let file_modified_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-modified :to "2026-01-03"))"#),
+        )
+        .expect("file-modified heading query should execute");
+        assert_eq!(
+            heading_file_paths(file_modified_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+    }
+
+    #[test]
+    fn execution_file_predicate_roots_respect_boolean_composition() {
+        let connection = seeded_connection();
+
+        let and_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (file-path "/tmp/query-alpha.org" :exact t)
+                      (todo "NEXT")))"#,
+            ),
+        )
+        .expect("and heading query should execute");
+        assert_eq!(heading_ids(and_rows), vec![11]);
+
+        let or_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (or
+                      (file-path "/tmp/query-alpha.org" :exact t)
+                      (title "Beta Index" :exact t)))"#,
+            ),
+        )
+        .expect("or heading query should execute");
+        assert_eq!(
+            heading_file_paths(or_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn execution_file_queries_support_file_name_and_file_dir() {
+        let connection = seeded_connection();
+
+        let file_name_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-name "query-alpha.org" :exact t))"#),
+        )
+        .expect("file-name files query should execute");
+        assert_eq!(
+            file_paths(file_name_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let file_dir_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-dir "/tmp" :exact t))"#),
+        )
+        .expect("file-dir files query should execute");
+        assert_eq!(
+            file_paths(file_dir_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+                "/tmp/query-gamma.org".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn bare_headings_query_returns_file_roots_and_real_headings() {
         let connection = seeded_connection();
 
@@ -4334,6 +4532,19 @@ mod tests {
         match rows {
             QueryRows::Files(rows) => rows.into_iter().map(|row| row.path).collect(),
             other => panic!("expected file rows, got {other:?}"),
+        }
+    }
+
+    fn heading_file_paths(rows: QueryRows) -> Vec<String> {
+        match rows {
+            QueryRows::Headings(rows) => rows
+                .into_iter()
+                .filter_map(|row| match row {
+                    HeadingQueryMatch::File(row) => Some(row.path),
+                    HeadingQueryMatch::Heading(_) => None,
+                })
+                .collect(),
+            other => panic!("expected heading rows, got {other:?}"),
         }
     }
 

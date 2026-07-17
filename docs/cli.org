@@ -221,6 +221,7 @@ Target notes:
 - In flat output, the file/root result sorts before headings from the same file.
 - In outline output, the file/root result is the tree root for headings in that file.
 - Predicates such as ~title~ may also match the synthetic root/file object when their documented root participation is enabled.
+- File predicates on ~headings~ apply to both real headings and file/root objects: real headings inspect their containing file, and matching file/root objects are returned as ~kind = "file"~.
 - ~links~ always return link objects. Nested source/target/file/headings relations affect matching only; they do not change the returned object kind.
 - ~files~ return file objects and use the file root heading as the storage source for tags, keywords, properties, and file-level links.
 
@@ -334,23 +335,23 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(keyword "AUTHOR" "Alice")'~.
 - ~file-name~ :: Syntax: ~(file-name STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~files~.
-  Matches the containing file name. Heading queries filter by their containing file.
+  Matches the containing file name. On ~headings~, matching file/root objects are also returned as ~kind = "file"~.
   Example: ~'(file-name "notes.org" :exact t)'~.
 - ~file-path~ :: Syntax: ~(file-path STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
-  Matches the containing file path. On links this applies through the source file relation.
+  Matches the containing file path. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. On links this applies through the source file relation.
   Example: ~'(file-path "projects/.*\\.org" :regexp t)'~.
 - ~file-dir~ :: Syntax: ~(file-dir STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
-  Matches the containing directory path.
+  Matches the containing directory path. On ~headings~, matching file/root objects are also returned as ~kind = "file"~.
   Example: ~'(file-dir "/home/me/org/projects" :exact t)'~.
 - ~file-title~ :: Syntax: ~(file-title STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
-  Matches the effective file/root title. On ~headings~, this filters by containing file title; it is different from ~title~, which can match real headings and, by default, the root object itself.
+  Matches the effective file/root title. On ~headings~, this evaluates both real headings by containing file title and file/root objects themselves; it is different from ~title~, which can match real headings and, by default, the root object itself.
   Example: ~'(file-title "Projects" :exact t)'~.
 - ~file-modified~ :: Syntax: ~(file-modified :from DATE :to DATE :on DATE :with-time t|nil)~.
   Targets: ~headings~, ~files~.
-  Matches persisted file modification timestamps. Relative dates such as ~today~ or integer day offsets are resolved before SQL execution.
+  Matches persisted file modification timestamps. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. Relative dates such as ~today~ or integer day offsets are resolved before SQL execution.
   Example: ~'(file-modified :from -7 :to today)'~.
 - ~outline-contains~ :: Syntax: ~(outline-contains STRING... :regexp t|nil)~.
   Targets: ~headings~.
