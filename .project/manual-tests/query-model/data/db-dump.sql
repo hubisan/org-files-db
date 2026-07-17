@@ -8,8 +8,8 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org',1784287134693141785,2944,NULL,1784287408);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org',1784242830730251043,0,NULL,1784287408);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org',1784291848403117915,6566,NULL,1784292329);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org',1784242830730251043,0,NULL,1784292329);
 CREATE TABLE todo_keywords (
     file_id         INTEGER NOT NULL,
     keyword         TEXT NOT NULL,
@@ -91,19 +91,34 @@ CREATE TABLE headings (
         ON DELETE CASCADE,
     UNIQUE (file_id, byte_start)
 );
-INSERT INTO headings VALUES(1,1,NULL,0,1,-1,2944,'Org Property and Keyword Test','Org Property and Keyword Test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(2,1,1,1,17,492,625,'Multiple drawer properties','Multiple drawer properties',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(3,1,1,1,26,625,760,'Overwrite Property','Overwrite Property',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(4,1,3,2,32,733,760,'Overwrite is inherited','Overwrite is inherited',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(5,1,1,1,34,760,1033,'Duplicate drawer properties','Duplicate drawer properties',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(6,1,1,1,44,1033,1255,'Task with append operator in drawer','Task with append operator in drawer',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(7,1,1,1,54,1255,1465,'Task with mixed-case keys','Task with mixed-case keys',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(8,1,1,1,67,1465,1598,'Task with empty property accepted by Orgize','Task with empty property accepted by Orgize',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(9,1,1,1,76,1598,1879,'Task with Orgize empty-property limitation','Task with Orgize empty-property limitation',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(10,1,1,1,85,1879,2145,'Task after file-level property keywords','Task after file-level property keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(11,1,1,1,92,2145,2425,'Task after later file-level keywords','Task after later file-level keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(12,1,1,1,98,2425,2944,'Boundary: property-like but not properties','Boundary: property-like but not properties',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'["project","work"]');
-INSERT INTO headings VALUES(13,2,NULL,0,1,-1,0,'todo-keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(1,1,NULL,0,1,-1,6566,'Org Property and Keyword Test','Org Property and Keyword Test',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(2,1,1,1,30,900,1517,'Expected file/root values','Expected file/root values',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(3,1,1,1,48,1517,2151,'Nearest ancestor wins','Nearest ancestor wins',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(4,1,3,2,53,1581,2151,'Parent override','Parent override',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(5,1,4,3,58,1635,1828,'Child inheriting nearest value','Child inheriting nearest value',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(6,1,4,3,66,1828,1995,'Child appending to nearest value','Child appending to nearest value',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(7,1,4,3,76,1995,2151,'Child replacing nearest value','Child replacing nearest value',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(8,1,1,1,86,2151,2718,'Root drawer inheritance','Root drawer inheritance',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(9,1,8,2,88,2178,2327,'Child inheriting root drawer base','Child inheriting root drawer base',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(10,1,8,2,95,2327,2527,'Child appending to root drawer base','Child appending to root drawer base',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(11,1,8,2,105,2527,2718,'Child replacing root drawer base','Child replacing root drawer base',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(12,1,1,1,115,2718,3543,'File keyword inheritance','File keyword inheritance',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(13,1,12,2,117,2746,2904,'Child inheriting appended keyword','Child inheriting appended keyword',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(14,1,12,2,124,2904,3113,'Child appending to file keyword','Child appending to file keyword',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(15,1,12,2,134,3113,3300,'Child replacing file keyword','Child replacing file keyword',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(16,1,12,2,144,3300,3543,'Child replacing and appending file keyword','Child replacing and appending file keyword',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(17,1,1,1,155,3543,3936,'Duplicate property definitions in one drawer','Duplicate property definitions in one drawer',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(18,1,1,1,169,3936,4085,'Duplicate definition followed by append','Duplicate definition followed by append',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(19,1,1,1,180,4085,4226,'Append followed by duplicate replacement','Append followed by duplicate replacement',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(20,1,1,1,191,4226,4615,'Parent duplicate definition','Parent duplicate definition',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(21,1,20,2,197,4305,4440,'Child inheriting duplicate parent value','Child inheriting duplicate parent value',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(22,1,20,2,204,4440,4615,'Child appending to duplicate parent value','Child appending to duplicate parent value',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(23,1,1,1,214,4615,4951,'Parent definition overridden by child duplicate definitions','Parent definition overridden by child duplicate definitions',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(24,1,23,2,219,4712,4951,'Child with two local definitions','Child with two local definitions',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(25,1,1,1,231,4951,5175,'Independent property keys','Independent property keys',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(26,1,1,1,245,5175,5409,'Mixed-case property keys','Mixed-case property keys',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(27,1,1,1,258,5409,6566,'Query expectations','Query expectations',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
+INSERT INTO headings VALUES(28,2,NULL,0,1,-1,0,'todo-keywords',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0,0,'[]');
 CREATE TABLE timestamps (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -204,23 +219,22 @@ CREATE TABLE keywords (
         ON DELETE CASCADE,
     UNIQUE (heading_id, keyword, line_number)
 );
-INSERT INTO keywords VALUES(1,1,'TITLE','Org Property and Keyword Test',7);
-INSERT INTO keywords VALUES(2,1,'STARTUP','showall',8);
-INSERT INTO keywords VALUES(3,1,'CATEGORY','category_keyword_value',9);
-INSERT INTO keywords VALUES(4,1,'PROPERTY','Effort_ALL 0:10 0:30 1:00',10);
-INSERT INTO keywords VALUES(5,1,'PROPERTY','keyword_property valid',11);
-INSERT INTO keywords VALUES(6,1,'PROPERTY','keyword_overwritten_by_second invalid',12);
-INSERT INTO keywords VALUES(7,1,'PROPERTY','keyword_overwritten_by_second valid',13);
-INSERT INTO keywords VALUES(8,1,'PROPERTY','keyword_append foo=1',14);
-INSERT INTO keywords VALUES(9,1,'PROPERTY','keyword_append+ bar=2',15);
-INSERT INTO keywords VALUES(10,1,'PROPERTY','later_keyword_property works_everywhere',89);
-INSERT INTO keywords VALUES(11,1,'CATEGORY','later_category_keyword',90);
-INSERT INTO keywords VALUES(12,1,'FILETAGS',':project:work:',99);
-INSERT INTO keywords VALUES(13,1,'TAGS','work(w) home(h)',100);
-INSERT INTO keywords VALUES(14,1,'COLUMNS','%TODO %50ITEM %Effort{:} %CLOCKSUM',101);
-INSERT INTO keywords VALUES(15,1,'CONSTANTS','c=299792458',102);
-INSERT INTO keywords VALUES(16,1,'AUTHOR','Jane Doe',103);
-INSERT INTO keywords VALUES(17,1,'OPTIONS','toc:nil num:t',104);
+INSERT INTO keywords VALUES(1,1,'TITLE','Org Property and Keyword Test',13);
+INSERT INTO keywords VALUES(2,1,'STARTUP','showall',14);
+INSERT INTO keywords VALUES(3,1,'CATEGORY','category_keyword_value',15);
+INSERT INTO keywords VALUES(4,1,'PROPERTY','KEYWORD_APPEND foo=1',16);
+INSERT INTO keywords VALUES(5,1,'PROPERTY','KEYWORD_APPEND+ bar=2',17);
+INSERT INTO keywords VALUES(6,1,'PROPERTY','KEYWORD_APPEND+ baz=3',18);
+INSERT INTO keywords VALUES(7,1,'PROPERTY','KEYWORD_DUPLICATE first',19);
+INSERT INTO keywords VALUES(8,1,'PROPERTY','KEYWORD_DUPLICATE second',20);
+INSERT INTO keywords VALUES(9,1,'PROPERTY','KEYWORD_RESET old',21);
+INSERT INTO keywords VALUES(10,1,'PROPERTY','KEYWORD_RESET+ appended-before-reset',22);
+INSERT INTO keywords VALUES(11,1,'PROPERTY','KEYWORD_RESET replacement',23);
+INSERT INTO keywords VALUES(12,1,'PROPERTY','KEYWORD_RESET+ appended-after-reset',24);
+INSERT INTO keywords VALUES(13,1,'PROPERTY','KEYWORD_APPEND_ONLY only',25);
+INSERT INTO keywords VALUES(14,1,'PROPERTY','KEYWORD_APPEND_ONLY+ appended',26);
+INSERT INTO keywords VALUES(15,1,'PROPERTY','KEYWORD_EMPTY',27);
+INSERT INTO keywords VALUES(16,1,'PROPERTY','KEYWORD_EMPTY+ valid',28);
 CREATE TABLE properties (
     id              INTEGER PRIMARY KEY,
     heading_id      INTEGER NOT NULL,
@@ -239,30 +253,58 @@ INSERT INTO properties VALUES(1,1,'CATEGORY','Level 0 Category Property','proper
 INSERT INTO properties VALUES(2,1,'WHATEVER','level 0 drawer property','property_drawer',0,3);
 INSERT INTO properties VALUES(3,1,'OVERWRITE','this one works','property_drawer',0,4);
 INSERT INTO properties VALUES(4,1,'ID','7dad9b62-a3cc-43ec-a60f-e650bdaeae6d','property_drawer',0,5);
-INSERT INTO properties VALUES(5,1,'CATEGORY','category_keyword_value','category_keyword',0,9);
-INSERT INTO properties VALUES(6,1,'EFFORT_ALL','0:10 0:30 1:00','property_keyword',0,10);
-INSERT INTO properties VALUES(7,1,'KEYWORD_PROPERTY','valid','property_keyword',0,11);
-INSERT INTO properties VALUES(8,1,'KEYWORD_OVERWRITTEN_BY_SECOND','invalid','property_keyword',0,12);
-INSERT INTO properties VALUES(9,1,'KEYWORD_OVERWRITTEN_BY_SECOND','valid','property_keyword',0,13);
-INSERT INTO properties VALUES(10,1,'KEYWORD_APPEND','foo=1','property_keyword',0,14);
-INSERT INTO properties VALUES(11,1,'KEYWORD_APPEND','bar=2','property_keyword',1,15);
-INSERT INTO properties VALUES(12,1,'LATER_KEYWORD_PROPERTY','works_everywhere','property_keyword',0,89);
-INSERT INTO properties VALUES(13,1,'CATEGORY','later_category_keyword','category_keyword',0,90);
-INSERT INTO properties VALUES(14,2,'ID','abc','property_drawer',0,19);
-INSERT INTO properties VALUES(15,2,'CUSTOM_ID','task-custom-id','property_drawer',0,20);
-INSERT INTO properties VALUES(16,2,'EFFORT','0:30','property_drawer',0,21);
-INSERT INTO properties VALUES(17,2,'OWNER','Alice','property_drawer',0,22);
-INSERT INTO properties VALUES(18,2,'DRAWER_PROP','valid','property_drawer',0,23);
-INSERT INTO properties VALUES(19,3,'CATEGORY','overwrite','property_drawer',0,28);
-INSERT INTO properties VALUES(20,5,'DEFINED_TWICE','works','property_drawer',0,36);
-INSERT INTO properties VALUES(21,5,'DEFINED_TWICE','second is overwritten','property_drawer',0,37);
-INSERT INTO properties VALUES(22,6,'ADD-VALUE','is','property_drawer',0,46);
-INSERT INTO properties VALUES(23,6,'ADD-VALUE','valid','property_drawer',1,47);
-INSERT INTO properties VALUES(24,7,'ID','lowercase-id','property_drawer',0,56);
-INSERT INTO properties VALUES(25,7,'CUSTOM_ID','mixed-case-custom-id','property_drawer',0,57);
-INSERT INTO properties VALUES(26,7,'DRAWER_PROP','valid','property_drawer',0,58);
-INSERT INTO properties VALUES(27,7,'ADD-VALUE','appended','property_drawer',1,59);
-INSERT INTO properties VALUES(28,8,'EMPTY','','property_drawer',0,69);
+INSERT INTO properties VALUES(5,1,'ROOT_DRAWER_BASE','root','property_drawer',0,6);
+INSERT INTO properties VALUES(6,1,'ROOT_DRAWER_APPEND','root','property_drawer',0,7);
+INSERT INTO properties VALUES(7,1,'ROOT_DRAWER_APPEND','appended','property_drawer',1,8);
+INSERT INTO properties VALUES(8,1,'ROOT_DRAWER_DUPLICATE','first','property_drawer',0,9);
+INSERT INTO properties VALUES(9,1,'ROOT_DRAWER_DUPLICATE','second','property_drawer',0,10);
+INSERT INTO properties VALUES(10,1,'ROOT_OVERRIDE_CHAIN','root','property_drawer',0,11);
+INSERT INTO properties VALUES(11,1,'CATEGORY','category_keyword_value','category_keyword',0,15);
+INSERT INTO properties VALUES(12,1,'KEYWORD_APPEND','foo=1','property_keyword',0,16);
+INSERT INTO properties VALUES(13,1,'KEYWORD_APPEND','bar=2','property_keyword',1,17);
+INSERT INTO properties VALUES(14,1,'KEYWORD_APPEND','baz=3','property_keyword',1,18);
+INSERT INTO properties VALUES(15,1,'KEYWORD_DUPLICATE','first','property_keyword',0,19);
+INSERT INTO properties VALUES(16,1,'KEYWORD_DUPLICATE','second','property_keyword',0,20);
+INSERT INTO properties VALUES(17,1,'KEYWORD_RESET','old','property_keyword',0,21);
+INSERT INTO properties VALUES(18,1,'KEYWORD_RESET','appended-before-reset','property_keyword',1,22);
+INSERT INTO properties VALUES(19,1,'KEYWORD_RESET','replacement','property_keyword',0,23);
+INSERT INTO properties VALUES(20,1,'KEYWORD_RESET','appended-after-reset','property_keyword',1,24);
+INSERT INTO properties VALUES(21,1,'KEYWORD_APPEND_ONLY','only','property_keyword',0,25);
+INSERT INTO properties VALUES(22,1,'KEYWORD_APPEND_ONLY','appended','property_keyword',1,26);
+INSERT INTO properties VALUES(23,1,'KEYWORD_EMPTY',NULL,'property_keyword',0,27);
+INSERT INTO properties VALUES(24,1,'KEYWORD_EMPTY','valid','property_keyword',1,28);
+INSERT INTO properties VALUES(25,3,'VALUE','grandparent','property_drawer',0,50);
+INSERT INTO properties VALUES(26,4,'VALUE','parent','property_drawer',0,55);
+INSERT INTO properties VALUES(27,6,'VALUE','child','property_drawer',1,68);
+INSERT INTO properties VALUES(28,7,'VALUE','child','property_drawer',0,78);
+INSERT INTO properties VALUES(29,10,'ROOT_DRAWER_BASE','child','property_drawer',1,97);
+INSERT INTO properties VALUES(30,11,'ROOT_DRAWER_BASE','child','property_drawer',0,107);
+INSERT INTO properties VALUES(31,14,'KEYWORD_APPEND','child=4','property_drawer',1,126);
+INSERT INTO properties VALUES(32,15,'KEYWORD_APPEND','local=1','property_drawer',0,136);
+INSERT INTO properties VALUES(33,16,'KEYWORD_APPEND','local=1','property_drawer',0,146);
+INSERT INTO properties VALUES(34,16,'KEYWORD_APPEND','local=2','property_drawer',1,147);
+INSERT INTO properties VALUES(35,17,'DEFINED_TWICE','works','property_drawer',0,157);
+INSERT INTO properties VALUES(36,17,'DEFINED_TWICE','second is effective','property_drawer',0,158);
+INSERT INTO properties VALUES(37,18,'VALUE','first','property_drawer',0,171);
+INSERT INTO properties VALUES(38,18,'VALUE','second','property_drawer',0,172);
+INSERT INTO properties VALUES(39,18,'VALUE','appended','property_drawer',1,173);
+INSERT INTO properties VALUES(40,19,'VALUE','first','property_drawer',0,182);
+INSERT INTO properties VALUES(41,19,'VALUE','appended','property_drawer',1,183);
+INSERT INTO properties VALUES(42,19,'VALUE','second','property_drawer',0,184);
+INSERT INTO properties VALUES(43,20,'VALUE','first','property_drawer',0,193);
+INSERT INTO properties VALUES(44,20,'VALUE','second','property_drawer',0,194);
+INSERT INTO properties VALUES(45,22,'VALUE','child','property_drawer',1,206);
+INSERT INTO properties VALUES(46,23,'VALUE','parent','property_drawer',0,216);
+INSERT INTO properties VALUES(47,24,'VALUE','first child','property_drawer',0,221);
+INSERT INTO properties VALUES(48,24,'VALUE','second child','property_drawer',0,222);
+INSERT INTO properties VALUES(49,25,'VALUE_A','one','property_drawer',0,233);
+INSERT INTO properties VALUES(50,25,'VALUE_A','two','property_drawer',1,234);
+INSERT INTO properties VALUES(51,25,'VALUE_B','first','property_drawer',0,235);
+INSERT INTO properties VALUES(52,25,'VALUE_B','second','property_drawer',0,236);
+INSERT INTO properties VALUES(53,26,'MIXED_KEY','first','property_drawer',0,247);
+INSERT INTO properties VALUES(54,26,'MIXED_KEY','second','property_drawer',1,248);
+INSERT INTO properties VALUES(55,26,'MIXED_KEY','replacement','property_drawer',0,249);
+INSERT INTO properties VALUES(56,26,'MIXED_KEY','final','property_drawer',1,250);
 CREATE TABLE tags (
     heading_id      INTEGER NOT NULL,
     tag             TEXT NOT NULL,
@@ -271,8 +313,6 @@ CREATE TABLE tags (
         ON DELETE CASCADE,
     PRIMARY KEY (heading_id, tag)
 );
-INSERT INTO tags VALUES(1,'project');
-INSERT INTO tags VALUES(1,'work');
 CREATE TABLE links (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -356,18 +396,33 @@ CREATE TABLE outline_path (
         ON DELETE SET NULL
 );
 INSERT INTO outline_path VALUES(1,1,NULL,0,'0000','["Org Property and Keyword Test"]');
-INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Org Property and Keyword Test","Multiple drawer properties"]');
-INSERT INTO outline_path VALUES(3,1,1,1,'0000.0002','["Org Property and Keyword Test","Overwrite Property"]');
-INSERT INTO outline_path VALUES(4,1,3,2,'0000.0002.0001','["Org Property and Keyword Test","Overwrite Property","Overwrite is inherited"]');
-INSERT INTO outline_path VALUES(5,1,1,1,'0000.0003','["Org Property and Keyword Test","Duplicate drawer properties"]');
-INSERT INTO outline_path VALUES(6,1,1,1,'0000.0004','["Org Property and Keyword Test","Task with append operator in drawer"]');
-INSERT INTO outline_path VALUES(7,1,1,1,'0000.0005','["Org Property and Keyword Test","Task with mixed-case keys"]');
-INSERT INTO outline_path VALUES(8,1,1,1,'0000.0006','["Org Property and Keyword Test","Task with empty property accepted by Orgize"]');
-INSERT INTO outline_path VALUES(9,1,1,1,'0000.0007','["Org Property and Keyword Test","Task with Orgize empty-property limitation"]');
-INSERT INTO outline_path VALUES(10,1,1,1,'0000.0008','["Org Property and Keyword Test","Task after file-level property keywords"]');
-INSERT INTO outline_path VALUES(11,1,1,1,'0000.0009','["Org Property and Keyword Test","Task after later file-level keywords"]');
-INSERT INTO outline_path VALUES(12,1,1,1,'0000.0010','["Org Property and Keyword Test","Boundary: property-like but not properties"]');
-INSERT INTO outline_path VALUES(13,2,NULL,0,'0000','["todo-keywords"]');
+INSERT INTO outline_path VALUES(2,1,1,1,'0000.0001','["Org Property and Keyword Test","Expected file/root values"]');
+INSERT INTO outline_path VALUES(3,1,1,1,'0000.0002','["Org Property and Keyword Test","Nearest ancestor wins"]');
+INSERT INTO outline_path VALUES(4,1,3,2,'0000.0002.0001','["Org Property and Keyword Test","Nearest ancestor wins","Parent override"]');
+INSERT INTO outline_path VALUES(5,1,4,3,'0000.0002.0001.0001','["Org Property and Keyword Test","Nearest ancestor wins","Parent override","Child inheriting nearest value"]');
+INSERT INTO outline_path VALUES(6,1,4,3,'0000.0002.0001.0002','["Org Property and Keyword Test","Nearest ancestor wins","Parent override","Child appending to nearest value"]');
+INSERT INTO outline_path VALUES(7,1,4,3,'0000.0002.0001.0003','["Org Property and Keyword Test","Nearest ancestor wins","Parent override","Child replacing nearest value"]');
+INSERT INTO outline_path VALUES(8,1,1,1,'0000.0003','["Org Property and Keyword Test","Root drawer inheritance"]');
+INSERT INTO outline_path VALUES(9,1,8,2,'0000.0003.0001','["Org Property and Keyword Test","Root drawer inheritance","Child inheriting root drawer base"]');
+INSERT INTO outline_path VALUES(10,1,8,2,'0000.0003.0002','["Org Property and Keyword Test","Root drawer inheritance","Child appending to root drawer base"]');
+INSERT INTO outline_path VALUES(11,1,8,2,'0000.0003.0003','["Org Property and Keyword Test","Root drawer inheritance","Child replacing root drawer base"]');
+INSERT INTO outline_path VALUES(12,1,1,1,'0000.0004','["Org Property and Keyword Test","File keyword inheritance"]');
+INSERT INTO outline_path VALUES(13,1,12,2,'0000.0004.0001','["Org Property and Keyword Test","File keyword inheritance","Child inheriting appended keyword"]');
+INSERT INTO outline_path VALUES(14,1,12,2,'0000.0004.0002','["Org Property and Keyword Test","File keyword inheritance","Child appending to file keyword"]');
+INSERT INTO outline_path VALUES(15,1,12,2,'0000.0004.0003','["Org Property and Keyword Test","File keyword inheritance","Child replacing file keyword"]');
+INSERT INTO outline_path VALUES(16,1,12,2,'0000.0004.0004','["Org Property and Keyword Test","File keyword inheritance","Child replacing and appending file keyword"]');
+INSERT INTO outline_path VALUES(17,1,1,1,'0000.0005','["Org Property and Keyword Test","Duplicate property definitions in one drawer"]');
+INSERT INTO outline_path VALUES(18,1,1,1,'0000.0006','["Org Property and Keyword Test","Duplicate definition followed by append"]');
+INSERT INTO outline_path VALUES(19,1,1,1,'0000.0007','["Org Property and Keyword Test","Append followed by duplicate replacement"]');
+INSERT INTO outline_path VALUES(20,1,1,1,'0000.0008','["Org Property and Keyword Test","Parent duplicate definition"]');
+INSERT INTO outline_path VALUES(21,1,20,2,'0000.0008.0001','["Org Property and Keyword Test","Parent duplicate definition","Child inheriting duplicate parent value"]');
+INSERT INTO outline_path VALUES(22,1,20,2,'0000.0008.0002','["Org Property and Keyword Test","Parent duplicate definition","Child appending to duplicate parent value"]');
+INSERT INTO outline_path VALUES(23,1,1,1,'0000.0009','["Org Property and Keyword Test","Parent definition overridden by child duplicate definitions"]');
+INSERT INTO outline_path VALUES(24,1,23,2,'0000.0009.0001','["Org Property and Keyword Test","Parent definition overridden by child duplicate definitions","Child with two local definitions"]');
+INSERT INTO outline_path VALUES(25,1,1,1,'0000.0010','["Org Property and Keyword Test","Independent property keys"]');
+INSERT INTO outline_path VALUES(26,1,1,1,'0000.0011','["Org Property and Keyword Test","Mixed-case property keys"]');
+INSERT INTO outline_path VALUES(27,1,1,1,'0000.0012','["Org Property and Keyword Test","Query expectations"]');
+INSERT INTO outline_path VALUES(28,2,NULL,0,'0000','["todo-keywords"]');
 CREATE INDEX idx_files_mtime_size
     ON files(mtime_ns, size);
 CREATE INDEX idx_files_hash

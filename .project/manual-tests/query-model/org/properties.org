@@ -32,18 +32,218 @@
 The synthetic level-0 file/root object should have these direct effective properties:
 
 - ~ROOT_DRAWER_BASE = root~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" t)} {{{results(=root=)}}}
 - ~ROOT_DRAWER_APPEND = root appended~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_APPEND" t)} {{{results(=root appended=)}}}
 - ~ROOT_DRAWER_DUPLICATE = second~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_DUPLICATE" t)} {{{results(=second=)}}}
 - ~ROOT_OVERRIDE_CHAIN = root~
+  src_elisp{(org-entry-get nil "ROOT_OVERRIDE_CHAIN" t)} {{{results(=root=)}}}  
 - ~KEYWORD_APPEND = foo=1 bar=2 baz=3~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" t)} {{{results(=foo=1 bar=2 baz=3=)}}}   
 - ~KEYWORD_DUPLICATE = second~
+  src_elisp{(org-entry-get nil "KEYWORD_DUPLICATE" t)} {{{results(=second=)}}}
 - ~KEYWORD_RESET = replacement appended-after-reset~
+  src_elisp{(org-entry-get nil "KEYWORD_RESET" t)} {{{results(=replacement appended-after-reset=)}}}
 - ~KEYWORD_APPEND_ONLY = only appended~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND_ONLY" t)} {{{results(=only appended=)}}}
 - ~KEYWORD_EMPTY = valid~
+  src_elisp{(org-entry-get nil "KEYWORD_EMPTY" t)} {{{results(=valid=)}}}
 
 With ~:inherit nil~, these values match only the file/root object.
 
 With ~:inherit t~, real headings may inherit these values unless a nearer heading defines the same property.
+
+* Local append on the same heading
+:PROPERTIES:
+:VALUE: first
+:VALUE+: second
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = first second~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=first second=)}}}
+- ~:inherit t~ gives ~VALUE = first second~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=first second=)}}}
+- the local base value and local append value are combined in source order
+
+* Multiple local append rows
+:PROPERTIES:
+:VALUE: base
+:VALUE+: one
+:VALUE+: two
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = base one two~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=base one two=)}}}
+- ~:inherit t~ gives ~VALUE = base one two~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=base one two=)}}}
+
+* Local append without a base value
+:PROPERTIES:
+:VALUE+: only
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = only~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=only=)}}}
+- ~:inherit t~ gives ~VALUE = only~, unless an inherited base value is available
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=only=)}}}
+- this heading has no ancestor definition for ~VALUE~, so the result remains ~only~
+
+* Later local definition replaces the earlier definition
+:PROPERTIES:
+:VALUE: first
+:VALUE: second
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = second~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second=)}}}
+- ~:inherit t~ gives ~VALUE = second~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second=)}}}
+- the lower non-append definition wins
+- both raw property rows remain stored
+
+* Local append followed by replacement
+:PROPERTIES:
+:VALUE: old
+:VALUE+: appended-before-reset
+:VALUE: replacement
+:VALUE+: appended-after-reset
+:END:
+
+Expected:
+
+- ~VALUE = replacement appended-after-reset~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=replacement appended-before-reset appended-after-reset=)}}}
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=replacement appended-before-reset appended-after-reset=)}}}
+- the later non-append row resets the previously accumulated value
+
+* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: valid
+:END:
+
+Expected:
+
+- ~VALUE = valid~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(= valid=)}}}
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(= valid=)}}}
+- no leading separator space is added
+
+* Base followed by empty append
+:PROPERTIES:
+:VALUE: valid
+:VALUE+:
+:END:
+
+Expected:
+
+- ~VALUE = valid~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=valid =)}}}
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=valid =)}}}
+- no trailing separator space is added
+
+* Parent append inheritance
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+** Child with append only
+:PROPERTIES:
+:VALUE+: child
+:END:
+
+Expected for the child:
+
+- ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}}
+- ~:inherit t~ gives ~VALUE = parent child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=parent child=)}}}
+- the inherited parent value becomes the base for the local append value
+
+** Child without local value
+
+Expected:
+
+- ~:inherit nil~ finds no direct ~VALUE~
+  src_elisp{(org-entry-get nil "VALUE" nil)} 
+- ~:inherit t~ gives ~VALUE = parent~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=parent=)}}}
+
+** Child with local replacement
+:PROPERTIES:
+:VALUE: child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}} 
+- ~:inherit t~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=child=)}}} 
+- the local non-append definition replaces the inherited parent value
+
+** Child with local replacement and append
+:PROPERTIES:
+:VALUE: child
+:VALUE+: appended
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = child appended~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child appended=)}}} 
+- ~:inherit t~ gives ~VALUE = child appended~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=child appended=)}}} 
+- the local base prevents the parent value from participating
+
+* Parent with appended effective value
+:PROPERTIES:
+:VALUE: parent
+:VALUE+: appended
+:END:
+
+** Inheriting child
+
+Expected:
+
+- ~:inherit nil~ finds no direct ~VALUE~
+  src_elisp{(org-entry-get nil "VALUE" nil)}  
+- ~:inherit t~ gives ~VALUE = parent appended~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=parent appended=)}}}  
+
+** Child overriding appended parent value
+:PROPERTIES:
+:VALUE: child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}}  
+- ~:inherit t~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=child=)}}}  
+- the child does not receive ~parent appended child~
+
+** Child appending to appended parent value
+:PROPERTIES:
+:VALUE+: child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}}  
+- ~:inherit t~ gives ~VALUE = parent appended child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=parent appended child=)}}}  
 
 * Nearest ancestor wins
 :PROPERTIES:
@@ -60,7 +260,9 @@ With ~:inherit t~, real headings may inherit these values unless a nearer headin
 Expected:
 
 - ~:inherit nil~ finds no direct ~VALUE~
+  src_elisp{(org-entry-get nil "VALUE" nil)}   
 - ~:inherit t~ gives ~VALUE = parent~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=parent=)}}}   
 - the grandparent value is hidden by the nearer parent definition
 
 *** Child appending to nearest value
@@ -71,7 +273,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}}   
 - ~:inherit t~ gives ~VALUE = parent child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=parent child=)}}}   
 
 *** Child replacing nearest value
 :PROPERTIES:
@@ -81,7 +285,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=child=)}}}   
 - ~:inherit t~ gives ~VALUE = child~
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=child=)}}}   
 
 * Root drawer inheritance
 
@@ -90,7 +296,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ finds no direct ~ROOT_DRAWER_BASE~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" nil)}     
 - ~:inherit t~ gives ~ROOT_DRAWER_BASE = root~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" t)} {{{results(=root=)}}}    
 
 ** Child appending to root drawer base
 :PROPERTIES:
@@ -100,7 +308,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~ROOT_DRAWER_BASE = child~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" nil)} {{{results(=child=)}}}     
 - ~:inherit t~ gives ~ROOT_DRAWER_BASE = root child~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" t)} {{{results(=root child=)}}}    
 
 ** Child replacing root drawer base
 :PROPERTIES:
@@ -110,7 +320,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~ROOT_DRAWER_BASE = child~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" nil)} {{{results(=child=)}}}     
 - ~:inherit t~ gives ~ROOT_DRAWER_BASE = child~
+  src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" t)} {{{results(=child=)}}}     
 
 * File keyword inheritance
 
@@ -119,7 +331,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ finds no direct ~KEYWORD_APPEND~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" nil)}      
 - ~:inherit t~ gives ~KEYWORD_APPEND = foo=1 bar=2 baz=3~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" t)} {{{results(=foo=1 bar=2 baz=3=)}}}      
 
 ** Child appending to file keyword
 :PROPERTIES:
@@ -129,7 +343,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~KEYWORD_APPEND = child=4~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" nil)} {{{results(=child=4=)}}} {{{results(=foo=1 bar=2 
 - ~:inherit t~ gives ~KEYWORD_APPEND = foo=1 bar=2 baz=3 child=4~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" t)} {{{results(=foo=1 bar=2 baz=3 child=4=)}}} {{{results(=foo=1 bar=2 baz=3 
 
 ** Child replacing file keyword
 :PROPERTIES:
@@ -139,7 +355,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~KEYWORD_APPEND = local=1~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" nil)} {{{results(=local=1=)}}} 
 - ~:inherit t~ gives ~KEYWORD_APPEND = local=1~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" t)} {{{results(=local=1=)}}} 
 
 ** Child replacing and appending file keyword
 :PROPERTIES:
@@ -150,7 +368,9 @@ Expected:
 Expected:
 
 - ~:inherit nil~ gives ~KEYWORD_APPEND = local=1 local=2~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" nil)} {{{results(=local=1 local=2=)}}} 
 - ~:inherit t~ gives ~KEYWORD_APPEND = local=1 local=2~
+  src_elisp{(org-entry-get nil "KEYWORD_APPEND" t)} {{{results(=local=1 local=2=)}}} 
 
 * Duplicate property definitions in one drawer
 :PROPERTIES:
@@ -162,7 +382,9 @@ Expected:
 
 - both rows are preserved in raw storage
 - ~:inherit nil~ gives ~DEFINED_TWICE = second is effective~
+  src_elisp{(org-entry-get nil "DEFINED_TWICE" nil)} {{{results(=second is effective=)}}} 
 - ~:inherit t~ gives ~DEFINED_TWICE = second is effective~
+  src_elisp{(org-entry-get nil "DEFINED_TWICE" t)} {{{results(=second is effective=)}}} {{{results(=second is 
 - an exact query for ~works~ does not match
 - an exact query for ~second is effective~ matches
 
@@ -176,6 +398,26 @@ Expected:
 Expected:
 
 - ~VALUE = second appended~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second appended=)}}} 
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second appended=)}}} 
+
+* Append followed by duplicate replacement
+:PROPERTIES:
+:VALUE: first
+:VALUE+: appended
+:VALUE+: another
+:VALUE: second
+:VALUE+: value
+:END:
+
+Expected:
+
+- the last non-append definition wins as the base value
+- all append definitions at the same location are added to that winning base value
+- ~:inherit nil~ gives ~VALUE = second appended another value~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second appended another value=)}}} 
+- ~:inherit t~ gives ~VALUE = second appended another value
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second appended another value=)}}} 
 
 * Append followed by duplicate replacement
 :PROPERTIES:
@@ -187,6 +429,8 @@ Expected:
 Expected:
 
 - ~VALUE = second~
+  src_elisp{(org-entry-get nil "VALUE" nil)} {{{results(=second appended=)}}} 
+  src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second appended=)}}} 
 
 * Parent duplicate definition
 :PROPERTIES:
