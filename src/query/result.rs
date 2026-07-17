@@ -72,6 +72,7 @@ pub enum QueryResultNode {
 pub struct FileResultNode {
     pub matched: bool,
     pub id: i64,
+    pub level: i64,
     pub path: String,
     pub name: String,
     pub dir: String,
@@ -652,6 +653,7 @@ impl EnrichmentContext {
         Ok(FileResultNode {
             matched,
             id: file.id,
+            level: 0,
             path: file.path.clone(),
             name: file.name.clone(),
             dir: file.dir.clone(),
@@ -1986,6 +1988,7 @@ mod tests {
         .expect("flat file-title heading query should shape");
         let file = file_node(&flat.results[0]);
         assert!(file.matched);
+        assert_eq!(file.level, 0);
         assert_eq!(file.path, "/tmp/query-alpha.org");
         let properties = file
             .properties
@@ -2040,6 +2043,7 @@ mod tests {
         ));
         let flat_file = file_node(&flat.results[0]);
         assert!(flat_file.matched);
+        assert_eq!(flat_file.level, 0);
         assert_eq!(flat_file.path, "/tmp/query-alpha.org");
         assert_eq!(flat_file.title, "Alpha Index");
         let flat_heading = heading_node(&flat.results[1]);
@@ -2077,6 +2081,8 @@ mod tests {
             .all(
                 |node| node["kind"] != "heading" || node["level"].as_i64().unwrap_or_default() > 0
             ));
+        assert_eq!(flat_json["results"][0]["kind"], "file");
+        assert_eq!(flat_json["results"][0]["level"], 0);
         assert_eq!(matched_heading_ids(&flat), matched_heading_ids(&outline));
     }
 

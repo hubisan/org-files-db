@@ -196,7 +196,15 @@ General rules:
 
 - Task file: [[file:archive/2026-07-16--make-bare-headings-include-file-root-results.org]]
 
-** REVIEW [#B] Include matching file/root objects for file predicates in heading queries
+** DONE [#B] Include matching file/root objects for file predicates in heading queries
+
+- Task file: [[file:archive/2026-07-16--include-matching-file-root-objects-for-file-predicates-in-heading-queries.org]]
+
+** DONE Make file/root participation consistent across all heading predicates
+
+- Task file: [[file:archive/2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
+
+** TODO Resolve appended property values for query matching
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -204,300 +212,482 @@ General rules:
 :API_CONTRACT_CHANGE: Yes
 :END:
 
-- Task file: [[file:2026-07-16--include-matching-file-root-objects-for-file-predicates-in-heading-queries.org]]
-
 Goal:
 
-- Make file predicates used inside ~(headings ...)~ evaluate against both:
-  - real headings through their containing file
-  - file/root objects directly
-- Return matching file/root objects as ~kind = "file"~.
-- Keep the already implemented bare ~(headings)~ behavior unchanged.
+- Preserve property rows exactly as indexed.
+- Resolve rows marked with ~append = 1~ into an effective property value when evaluating property queries.
+- Support append semantics for:
+  - file-level ~#+PROPERTY~ keywords
+  - heading property drawers
+- Use resolved values for property predicate matching and effective property output.
+- Do not replace the existing raw property rows with precomputed combined rows.
 
-Current behavior:
+Current storage:
 
-- Bare:
+File-level property keywords:
 
-#+begin_src lisp
-(headings)
+#+begin_src org
+,#+PROPERTY: keyword_append foo=1
+,#+PROPERTY: keyword_append+ bar=2
 #+end_src
 
-already returns:
+are stored as:
 
-- all real headings
-- all file/root objects
+#+begin_src text
+KEYWORD_APPEND | foo=1 | append = 0
+KEYWORD_APPEND | bar=2 | append = 1
+#+end_src
 
-- A filtered query such as:
+Heading drawer properties:
+
+#+begin_src org
+,* Task with append operator in drawer
+:PROPERTIES:
+:add-value: is
+:add-value+: valid
+:END:
+#+end_src
+
+are stored as:
+
+#+begin_src text
+ADD-VALUE | is    | append = 0
+ADD-VALUE | valid | append = 1
+#+end_src
+
+This raw representation is correct and must remain unchanged.
+
+Required effective values:
+
+#+begin_src text
+KEYWORD_APPEND = foo=1 bar=2
+ADD-VALUE = is valid
+#+end_src
+
+Resolution order:
+
+- Resolve property rows in source order.
+- Use ~line_number~ as the primary source-order field.
+- Use property row ~id~ as a stable secondary ordering field where necessary.
+- Match keys using their normalized property key.
+
+Local resolution algorithm:
+
+- Start without an effective value for the property key.
+- For a row with ~append = 0~:
+  - replace the current effective value with the row value
+- For a row with ~append = 1~:
+  - append the row value to the current effective value
+  - separate non-empty components with one space
+- If an append row has no preceding effective value, initialize the value with the appended row value.
+- Preserve the contents of each stored value.
+- Do not split or reinterpret values such as ~foo=1~.
+
+Examples:
+
+#+begin_src text
+VALUE = first, append = 0
+VALUE = second, append = 1
+VALUE = third, append = 1
+
+effective VALUE = first second third
+#+end_src
+
+#+begin_src text
+VALUE = first, append = 0
+VALUE = replacement, append = 0
+VALUE = final, append = 1
+
+effective VALUE = replacement final
+#+end_src
+
+#+begin_src text
+VALUE = first, append = 1
+
+effective VALUE = first
+#+end_src
+
+Empty values:
+
+- Do not introduce leading, trailing, or duplicate separator spaces solely because a component is empty.
+
+Examples:
+
+#+begin_src text
+VALUE = "", append = 0
+VALUE = valid, append = 1
+
+effective VALUE = valid
+#+end_src
+
+#+begin_src text
+VALUE = valid, append = 0
+VALUE = "", append = 1
+
+effective VALUE = valid
+#+end_src
+
+Duplicate non-append rows:
+
+Given:
+
+#+begin_src org
+,#+PROPERTY: keyword_overwritten_by_second invalid
+,#+PROPERTY: keyword_overwritten_by_second valid
+#+end_src
+
+the raw rows remain preserved, while the effective value is:
+
+#+begin_src text
+KEYWORD_OVERWRITTEN_BY_SECOND = valid
+#+end_src
+
+A later row with ~append = 0~ replaces the previous local effective value.
+
+Direct property queries:
+
+- ~:inherit nil~ means only property rows stored directly on the candidate object participate.
+- Append resolution still applies among those direct rows.
+- A file/root candidate uses property rows stored on its synthetic level-0 heading.
+- A real heading candidate uses rows stored directly on that heading.
+
+Example:
 
 #+begin_src lisp
 (headings
-  (file-path "properties.org"))
+  (property "ADD-VALUE" "is valid" :inherit nil))
 #+end_src
 
-currently returns real headings from the matching file but omits the matching file/root object.
+Expected:
 
-Problem:
+- the heading containing the property drawer matches
+- an exact query for only ~"valid"~ does not match
+- an exact query for ~"is valid"~ matches
 
-- The ~headings~ target already has a domain consisting of real headings and file/root objects.
-- Adding a predicate should filter that existing domain.
-- A file predicate must not implicitly remove file/root objects that satisfy the same predicate.
-- Current behavior makes filtered heading queries use a narrower domain than bare ~(headings)~.
+Root property query:
 
-Required semantics:
-
-- File predicates valid in heading queries are evaluated for real headings and file/root objects.
-- For a real heading, the predicate uses metadata from its containing file.
-- For a file/root object, the predicate uses metadata from the file itself.
-- Matching file/root objects are returned as:
-
-#+begin_src json
-{
-  "kind": "file",
-  "matched": true
-}
+#+begin_src lisp
+(headings
+  (property "KEYWORD_APPEND" "foo=1 bar=2" :inherit nil))
 #+end_src
 
-- Matching real headings are returned as:
+Expected:
 
-#+begin_src json
-{
-  "kind": "heading",
-  "matched": true
-}
+- the file/root object matches
+- real headings do not match through inheritance because ~:inherit nil~ is used
+
+Inherited property queries:
+
+- With ~:inherit t~, resolve local effective values before applying inheritance.
+- Root-level appended properties participate in inheritance like other effective root properties.
+- Real headings inheriting:
+
+#+begin_src text
+KEYWORD_APPEND = foo=1 bar=2
 #+end_src
 
-Affected predicates:
+must match:
 
-- ~file-name~
-- ~file-path~
-- ~file-dir~
-- ~file-title~
-- ~file-modified~
+#+begin_src lisp
+(property "KEYWORD_APPEND" "foo=1 bar=2" :inherit t)
+#+end_src
 
-Verify whether any additional file-level predicates valid in heading queries require the same treatment.
+- To exclude the root result while preserving inheritance from the root, combine the query with ~(level > 0)~:
+
+#+begin_src lisp
+(headings
+  (and
+    (level > 0)
+    (property "KEYWORD_APPEND" "foo=1 bar=2" :inherit t)))
+#+end_src
+
+Inheritance precedence:
+
+- Resolve append operations locally for each file/root object or real heading.
+- Apply normal property inheritance after local resolution.
+- The nearest local effective definition wins.
+- Do not concatenate effective values across unrelated hierarchy levels.
+
+Example:
+
+#+begin_src org
+:PROPERTIES:
+:VALUE: root
+:END:
+
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:VALUE+: appended
+:END:
+
+,** Child
+#+end_src
+
+Local effective values:
+
+#+begin_src text
+root VALUE   = root
+parent VALUE = parent appended
+child VALUE  = undefined
+#+end_src
+
+With ~:inherit t~, the child inherits:
+
+#+begin_src text
+VALUE = parent appended
+#+end_src
+
+It must not inherit:
+
+#+begin_src text
+VALUE = root parent appended
+#+end_src
+
+Property predicate behavior:
+
+- Property existence queries use the resolved presence of the key.
+- Property value queries compare against the resolved value.
+- Exact matching compares against the complete resolved value.
+- Non-exact matching applies the existing string matching mode to the resolved value.
+- Existing case-handling and key-normalization rules remain unchanged.
+- Queries must not match an individual raw component when the effective value is a combined value, unless the selected non-exact matching mode independently permits it.
 
 Examples:
 
 #+begin_src lisp
 (headings
-  (file-path "properties.org"))
+  (property "ADD-VALUE" "is valid" :exact t :inherit nil))
 #+end_src
 
-Expected:
-
-- the file/root object for ~properties.org~
-- every real heading contained in ~properties.org~
+matches the drawer heading.
 
 #+begin_src lisp
 (headings
-  (file-name "properties.org" :exact t))
+  (property "ADD-VALUE" "valid" :exact t :inherit nil))
 #+end_src
 
-Expected:
+does not match because the effective value is ~is valid~.
 
-- the matching file/root object
-- every real heading in the file
+Output behavior:
 
-#+begin_src lisp
-(headings
-  (file-title "Properties" :exact t))
-#+end_src
-
-Expected:
-
-- the matching file/root object
-- every real heading in the file
-
-The effective file title uses:
-
-- source ~#+TITLE~ when present
-- otherwise the file name without its extension
-
-For example:
-
-#+begin_src text
-properties.org -> properties
-#+end_src
-
-Boolean behavior:
-
-- File/root objects must satisfy the complete boolean expression.
-
-Example:
-
-#+begin_src lisp
-(headings
-  (and
-    (file-path "properties.org")
-    (todo)))
-#+end_src
-
-Expected:
-
-- matching TODO headings in ~properties.org~
-- no file/root result, because ~todo~ is false for file/root objects
-
-Example:
-
-#+begin_src lisp
-(headings
-  (or
-    (file-path "properties.org")
-    (title "Query Model")))
-#+end_src
-
-Expected:
-
-- all real headings and the file/root object matching ~file-path~
-- all real headings and file/root objects matching ~title~
-- no duplicate results
+- Raw property output must continue to expose the original rows and their ~append~ flags.
+- Effective property output must expose the resolved value once per effective property key.
+- Do not silently replace raw records with one synthetic record.
+- Clearly distinguish raw property rows from resolved effective properties in result hydration.
+- Includes must not change whether a candidate matches.
 
 Implementation requirements:
 
-- Do not special-case only ~title~ for file/root result generation.
-- Evaluate supported heading predicates over the complete heading-target domain.
-- Preserve one canonical result identity per file/root object.
-- Do not emit the internal level-0 storage row as a normal heading.
-- Reuse the existing file/root hydration path.
-- Keep result ordering deterministic.
-- Avoid duplicate file/root results when several predicate branches match the same file.
-- Preserve the current behavior of bare ~(headings)~.
-- Preserve current real-heading matching for file predicates.
-
-Flat output:
-
-- Return matching file/root objects as ~kind = "file"~.
-- Return matching real headings as ~kind = "heading"~.
-- Prefer the file/root object before headings from the same file.
-- Do not expose any ~kind = "heading"~ result with ~level = 0~.
-
-Outline output:
-
-- Use the matching or contextual file/root object as the tree root.
-- Mark it ~matched = true~ when the file/root object itself satisfies the expression.
-- Mark it ~matched = false~ when included only as context for matching real headings.
-- Do not emit a duplicate synthetic level-0 heading node.
-
-Includes:
-
-- Verify that valid includes continue to work for matching file/root results.
-- For:
-
-#+begin_src shell
---include properties
-#+end_src
-
-the matching file/root result should contain its root/file properties according to the existing output contract.
-- Includes must not affect matching.
+- Implement one shared property resolver used by:
+  - direct property query matching
+  - inherited property query matching
+  - root/file property matching
+  - effective property hydration
+- Do not duplicate concatenation logic across several SQL compiler branches.
+- Resolve values deterministically using source order.
+- Do not rely on incidental SQLite row order.
+- Preserve bound SQL parameters.
+- Keep validation separate from SQL generation.
+- Ensure file/root candidates and real heading candidates use identical local resolution semantics.
+- Preserve all raw database rows and append flags.
+- Do not add a schema migration.
 
 Documentation:
 
 - Update ~docs/reference/query-model-v0.org~.
 - Update ~docs/cli.org~.
-- Document that file predicates inside heading queries apply to:
-  - the containing file of real headings
-  - file/root objects themselves
+- Document that:
+  - raw property rows preserve append operations
+  - property predicates operate on resolved values
+  - a non-append row replaces the current local value
+  - an append row concatenates its value using one separating space
+  - append resolution happens locally before inheritance
+  - ~:inherit nil~ still resolves direct append rows
+  - ~:inherit t~ applies inheritance to locally resolved values
+  - raw and effective property output are distinct
 
 Suggested contract text:
 
 #+begin_src org
-- File predicates used with the ~headings~ target are evaluated over the complete heading-target domain.
-- For real headings, they inspect the containing file.
-- For file/root objects, they inspect the file itself.
-- A matching file/root object is returned as ~kind = "file"~.
-- File predicates do not expose internal level-0 rows as normal headings.
+- Property rows are stored in source order with their append flag preserved.
+- Property predicates operate on resolved property values rather than individual raw rows.
+- A non-append row replaces the current local value.
+- An append row adds its value to the current local value, separated by one space.
+- Append resolution is performed locally for each file/root object or real heading before property inheritance is applied.
+- Raw property output continues to expose the original rows.
 #+end_src
 
 Acceptance criteria:
 
-- ~(headings)~ continues to return all real headings and all file/root objects.
-- ~(headings (file-path "properties.org"))~ returns:
-  - the matching file/root object
-  - every real heading in the matching file
+- The database rows remain unchanged for appended properties.
+- The file-level rows:
 
-- The same behavior works for:
-  - ~file-name~
-  - ~file-dir~
-  - ~file-title~
-  - ~file-modified~
+#+begin_src org
+,#+PROPERTY: keyword_append foo=1
+,#+PROPERTY: keyword_append+ bar=2
+#+end_src
 
-- Boolean expressions evaluate file/root objects correctly.
-- ~(and (file-path ...) (todo))~ does not return the root.
-- ~(or ...)~ does not produce duplicate roots.
-- No result has both:
-  - ~kind = "heading"~
-  - ~level = 0~
+resolve to:
 
-- Flat and outline output remain deterministic.
-- Valid includes work for returned file/root objects.
-- Existing bare ~(headings)~ tests continue to pass.
-- Existing real-heading file-predicate tests continue to pass.
-- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~ describe the same behavior.
+#+begin_src text
+foo=1 bar=2
+#+end_src
+
+- The drawer rows:
+
+#+begin_src org
+:add-value: is
+:add-value+: valid
+#+end_src
+
+resolve to:
+
+#+begin_src text
+is valid
+#+end_src
+
+- A property query for the combined value matches.
+- An exact query for only one component does not match the combined value.
+- ~:inherit nil~ resolves append rows stored directly on the candidate.
+- ~:inherit t~ allows real headings to inherit a resolved root value.
+- A later non-append row replaces earlier rows for the same local key.
+- Multiple append rows are concatenated in source order.
+- An append row without a preceding base row initializes the value.
+- Empty components do not create artificial spaces.
+- Raw output still exposes every stored row and its append flag.
+- Root/file and real-heading candidates use identical local resolution semantics.
+- Effective values are not concatenated across hierarchy levels.
 - ~make ci~ passes.
 
-Regression tests:
-
-- Create at least two indexed files.
-- Use one file named ~properties.org~ with:
-  - no ~#+TITLE~, to verify the fallback title ~properties~
-  - root properties
-  - at least two real headings
-  - at least one TODO heading
-
-- Run:
+Required regression queries:
 
 #+begin_src lisp
 (headings
-  (file-path "properties.org"))
+  (property "KEYWORD_APPEND" "foo=1 bar=2" :exact t :inherit nil))
+
+(headings
+  (property "KEYWORD_APPEND" "foo=1 bar=2" :exact t :inherit t))
+
+(headings
+  (property "ADD-VALUE" "is valid" :exact t :inherit nil))
+
+(headings
+  (property
+    "KEYWORD_OVERWRITTEN_BY_SECOND"
+    "valid"
+    :exact t
+    :inherit nil))
 #+end_src
 
-Assert:
-
-- exactly one matching ~kind = "file~ result for ~properties.org~
-- all real headings from that file are returned
-- no headings from other files are returned
-- no level-0 heading is exposed
-
-- Run:
+Negative regression queries:
 
 #+begin_src lisp
 (headings
-  (file-title "properties" :exact t))
-#+end_src
+  (property "KEYWORD_APPEND" "foo=1" :exact t :inherit nil))
 
-Assert:
-
-- the file-stem fallback title matches the file/root object
-- all real headings from that file match through their containing file
-
-- Run:
-
-#+begin_src lisp
 (headings
-  (and
-    (file-path "properties.org")
-    (todo)))
+  (property "KEYWORD_APPEND" "bar=2" :exact t :inherit nil))
+
+(headings
+  (property "ADD-VALUE" "valid" :exact t :inherit nil))
+
+(headings
+  (property
+    "KEYWORD_OVERWRITTEN_BY_SECOND"
+    "invalid"
+    :exact t
+    :inherit nil))
 #+end_src
 
-Assert:
+Additional resolver tests:
 
-- only TODO headings are returned
-- no file/root object is returned
+#+begin_src text
+base, append = 0
+one, append = 1
+two, append = 1
+=> base one two
+#+end_src
 
-Manual check:
+#+begin_src text
+old, append = 0
+new, append = 0
+extra, append = 1
+=> new extra
+#+end_src
+
+#+begin_src text
+only, append = 1
+=> only
+#+end_src
+
+#+begin_src text
+"", append = 0
+valid, append = 1
+=> valid
+#+end_src
+
+Manual check for root keyword append:
 
 #+begin_src shell
 cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
   query --json \
   --config ../Config.toml \
-  --include properties \
-  '(headings (file-path "properties.org"))' \
+  '(headings
+     (property
+       "KEYWORD_APPEND"
+       "foo=1 bar=2"
+       :exact t
+       :inherit nil))' \
   | jq -e '
-      any(.results[]; .kind == "file")
-      and any(.results[]; .kind == "heading")
+      any(
+        .results[];
+        .kind == "file"
+        and .level == 0
+      )
+    '
+#+end_src
+
+Manual check for inherited root keyword append:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (and
+       (level > 0)
+       (property
+         "KEYWORD_APPEND"
+         "foo=1 bar=2"
+         :exact t
+         :inherit t)))' \
+  | jq -e '
+      (.results | length > 0)
       and all(
         .results[];
-        (.kind != "heading") or (.level > 0)
+        .kind == "heading" and .level > 0
+      )
+    '
+#+end_src
+
+Manual check for drawer append:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (property
+       "ADD-VALUE"
+       "is valid"
+       :exact t
+       :inherit nil))' \
+  | jq -e '
+      any(
+        .results[];
+        .kind == "heading"
+        and .title_raw == "Task with append operator in drawer"
       )
     '
 #+end_src

@@ -145,12 +145,9 @@ fn validate_call(
         "todo" => validate_todo(call, target),
         "done" => validate_done(call, target),
         "title" => match target {
-            QueryTarget::Headings => validate_text_predicate(
-                call,
-                target,
-                &["regexp", "exact", "without-root"],
-                ExactRule::SingleArg,
-            ),
+            QueryTarget::Headings => {
+                validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
+            }
             QueryTarget::Files | QueryTarget::Links => {
                 validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
             }
@@ -338,14 +335,13 @@ fn validate_tags(
         &[QueryTarget::Headings, QueryTarget::Files],
     )?;
     let allowed = match target {
-        QueryTarget::Headings => &["inherit", "without-root", "regexp", "match"][..],
+        QueryTarget::Headings => &["inherit", "regexp", "match"][..],
         QueryTarget::Files => &["regexp", "match"][..],
         QueryTarget::Links => &[][..],
     };
     let options = validate_options(target, &call.name, &call.options, allowed)?;
     let _regexp = bool_option(target, &call.name, &options, "regexp")?;
     let _inherit = optional_bool_option(target, &call.name, &options, "inherit")?;
-    let _without_root = optional_bool_option(target, &call.name, &options, "without-root")?;
     let match_mode = keyword_option(target, &call.name, &options, "match")?;
     if let Some(match_mode) = match_mode.as_deref() {
         if match_mode != "any" && match_mode != "all" {
@@ -372,14 +368,13 @@ fn validate_property(
         &[QueryTarget::Headings, QueryTarget::Files],
     )?;
     let allowed = match target {
-        QueryTarget::Headings => &["inherit", "without-root", "regexp"][..],
+        QueryTarget::Headings => &["inherit", "regexp"][..],
         QueryTarget::Files => &["regexp"][..],
         QueryTarget::Links => &[][..],
     };
     let options = validate_options(target, &call.name, &call.options, allowed)?;
     let _regexp = optional_bool_option(target, &call.name, &options, "regexp")?;
     let _inherit = optional_bool_option(target, &call.name, &options, "inherit")?;
-    let _without_root = optional_bool_option(target, &call.name, &options, "without-root")?;
     let args = validate_scalar_strings(target, &call.name, &call.args, Arity::OneOrTwo)?;
 
     if bool_option(target, &call.name, &options, "regexp")?.unwrap_or(false) && args.len() != 2 {
@@ -810,7 +805,9 @@ fn validate_options(
                 QueryValidationErrorKind::InvalidOption,
                 target,
                 predicate,
-                format!("unknown option for {predicate}: :with-root; use :without-root instead"),
+                format!(
+                    "unknown option for {predicate}: :with-root; heading queries always include file/root participation where the predicate semantics allow it"
+                ),
             ));
         }
         if !allowed.contains(option.name.as_str()) {

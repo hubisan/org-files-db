@@ -17,13 +17,13 @@ fn validates_heading_predicate_families() {
             (and
               (todo "NEXT" "WAITING")
               (done)
-              (title "Query" :exact t :without-root nil)
+              (title "Query" :exact t)
               (has-text "sqlite")
               (level >= 2)
               (priority "A" "B")
-              (tags "project" "urgent" :match :all :inherit t :without-root nil :regexp nil)
+              (tags "project" "urgent" :match :all :inherit t :regexp nil)
               (property "OWNER" "Alice" :inherit nil)
-              (property "CATEGORY" "work" :without-root t)
+              (property "CATEGORY" "work")
               (keyword "TITLE" "Projects")
               (file-name "notes.org" :exact t)
               (file-path "projects" "notes")
@@ -131,16 +131,13 @@ fn validates_source_and_target_any_forms() {
 }
 
 #[test]
-fn validates_heading_title_without_root_option() {
-    let query = parse_query(r#"(headings (title "Projects" :without-root t))"#)
-        .expect("query should parse");
+fn validates_heading_title_without_root_option_removed() {
+    let query = parse_query(r#"(headings (title "Projects"))"#).expect("query should parse");
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
 
     let Some(ValidatedExpr::Predicate(predicate)) = validated.predicate else {
         panic!("expected validated predicate");
     };
     assert_eq!(predicate.name, "title");
-    assert_eq!(predicate.options.len(), 1);
-    assert_eq!(predicate.options[0].name, "without-root");
-    assert_eq!(predicate.options[0].value, QueryValue::Bool(true));
+    assert!(predicate.options.is_empty());
 }

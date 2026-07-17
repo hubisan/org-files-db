@@ -3543,7 +3543,6 @@ index_body_text = false
             ":regexp",
             ":match",
             ":inherit",
-            ":without-root",
             ":from",
             ":to",
             ":on",

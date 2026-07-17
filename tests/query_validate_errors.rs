@@ -146,7 +146,7 @@ fn rejects_target_aware_inheritance_options_in_file_queries() {
     let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
     assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
 
-    let query = org_files_db::query::parse_query(r#"(files (tags "project" :without-root t))"#)
+    let query = org_files_db::query::parse_query(r#"(headings (tags "project" :without-root t))"#)
         .expect("query should parse");
     let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
     assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
@@ -165,15 +165,18 @@ fn rejects_obsolete_with_root_option_with_clear_guidance() {
     let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
     assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
     assert!(error.message.contains(":with-root"));
-    assert!(error.message.contains(":without-root"));
+    assert!(error
+        .message
+        .contains("always include file/root participation"));
 }
 
 #[test]
-fn rejects_title_without_root_on_invalid_targets() {
-    let query = org_files_db::query::parse_query(r#"(files (title "Projects" :without-root t))"#)
-        .expect("query should parse");
+fn rejects_removed_without_root_option() {
+    let query =
+        org_files_db::query::parse_query(r#"(headings (title "Projects" :without-root t))"#)
+            .expect("query should parse");
     let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
-    assert_eq!(error.kind, QueryValidationErrorKind::InvalidTarget);
+    assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
 }
 
 #[test]

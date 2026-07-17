@@ -539,14 +539,12 @@ fn execute_headings_query(
         .map(HeadingQueryMatch::Heading)
         .collect::<Vec<_>>();
 
-    if query_includes_file_root_results(query.predicate.as_ref()) {
-        let root_compiled = compile_heading_root_file_query(query)?;
-        rows.extend(
-            execute_file_rows_query(connection, &root_compiled)?
-                .into_iter()
-                .map(HeadingQueryMatch::File),
-        );
-    }
+    let root_compiled = compile_heading_root_file_query(query)?;
+    rows.extend(
+        execute_file_rows_query(connection, &root_compiled)?
+            .into_iter()
+            .map(HeadingQueryMatch::File),
+    );
 
     rows.sort_by(compare_heading_query_matches);
     Ok(QueryRows::Headings(rows))
@@ -1109,25 +1107,25 @@ fn compile_heading_predicate(
         "ts" => compile_timestamp_exists_predicate(scope, predicate, None),
         "ts-active" => compile_timestamp_exists_predicate(scope, predicate, Some("active")),
         "ts-inactive" => compile_timestamp_exists_predicate(scope, predicate, Some("inactive")),
-        "parent" => compile_heading_hierarchy_or_root_false(
+        "parent" => compile_heading_root_false_predicate(
             scope,
             aliases,
             predicate,
             HeadingHierarchyRelation::Parent,
         ),
-        "ancestors" => compile_heading_hierarchy_or_root_false(
+        "ancestors" => compile_heading_root_false_predicate(
             scope,
             aliases,
             predicate,
             HeadingHierarchyRelation::Ancestor,
         ),
-        "children" => compile_heading_hierarchy_or_root_false(
+        "children" => compile_heading_hierarchy_predicate(
             scope,
             aliases,
             predicate,
             HeadingHierarchyRelation::Child,
         ),
-        "descendants" => compile_heading_hierarchy_or_root_false(
+        "descendants" => compile_heading_hierarchy_predicate(
             scope,
             aliases,
             predicate,
@@ -1166,12 +1164,6 @@ fn compile_heading_title_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if scope.heading_match_kind == HeadingMatchKind::RootFile
-        && option_bool(&predicate.options, "without-root")?
-    {
-        return Ok(sql_literal("(0 = 1)"));
-    }
-
     compile_text_predicate(
         QueryTarget::Headings,
         &scope.heading_col("title"),
@@ -1184,6 +1176,10 @@ fn compile_has_text_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
+    if scope.heading_match_kind == HeadingMatchKind::RootFile {
+        return Ok(sql_literal("(0 = 1)"));
+    }
+
     if option_bool(&predicate.options, "regexp")? {
         return Err(QueryExecutionError::unsupported_backend_feature(
             QueryTarget::Headings,
@@ -1225,19 +1221,6 @@ fn compile_has_text_predicate(
         sql: format!("({})", parts.join(" AND ")),
         params,
     })
-}
-
-fn compile_heading_hierarchy_or_root_false(
-    scope: &QueryScope,
-    aliases: &mut AliasAllocator,
-    predicate: &ValidatedPredicate,
-    relation: HeadingHierarchyRelation,
-) -> Result<SqlFragment, QueryExecutionError> {
-    if scope.heading_match_kind == HeadingMatchKind::RootFile {
-        return Ok(sql_literal("(0 = 1)"));
-    }
-
-    compile_heading_hierarchy_predicate(scope, aliases, predicate, relation)
 }
 
 fn compile_link_predicate(
@@ -1572,8 +1555,7 @@ fn compile_heading_tags_predicate(
         return compile_tags_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
 
-    let include_root = !option_bool(&predicate.options, "without-root")?;
-    compile_heading_effective_tags_exists(scope, predicate, include_root)
+    compile_heading_effective_tags_exists(scope, predicate, true)
 }
 
 fn compile_heading_effective_tags_exists(
@@ -1738,7 +1720,6 @@ fn compile_heading_property_predicate(
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(QueryTarget::Headings, "property", message)
     })?;
-    let include_root = !option_bool(&predicate.options, "without-root")?;
     let mut fact_match_sql = "matched_properties.key = ? COLLATE NOCASE".to_string();
     let mut params = vec![QueryParam::Text(key)];
     if let Some(value) = predicate.args.get(1) {
@@ -1762,7 +1743,7 @@ fn compile_heading_property_predicate(
             "properties",
             "matched_properties",
             &fact_match_sql,
-            include_root,
+            true,
         ),
         params,
     })
@@ -2540,32 +2521,17 @@ fn compile_heading_root_file_query(
     })
 }
 
-fn query_includes_file_root_results(predicate: Option<&ValidatedExpr>) -> bool {
-    predicate.is_none() || predicate.is_some_and(expr_can_match_file_root_results)
-}
-
-fn expr_can_match_file_root_results(expr: &ValidatedExpr) -> bool {
-    match expr {
-        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
-            children.iter().any(expr_can_match_file_root_results)
-        }
-        ValidatedExpr::Not(child) => expr_can_match_file_root_results(child),
-        ValidatedExpr::Predicate(predicate) => predicate_can_match_file_root_results(predicate),
+fn compile_heading_root_false_predicate(
+    scope: &QueryScope,
+    aliases: &mut AliasAllocator,
+    predicate: &ValidatedPredicate,
+    relation: HeadingHierarchyRelation,
+) -> Result<SqlFragment, QueryExecutionError> {
+    if scope.heading_match_kind == HeadingMatchKind::RootFile {
+        return Ok(sql_literal("(0 = 1)"));
     }
-}
 
-fn predicate_can_match_file_root_results(predicate: &ValidatedPredicate) -> bool {
-    match predicate.name.as_str() {
-        "title" => !option_has_true_bool(&predicate.options, "without-root"),
-        "file-name" | "file-path" | "file-dir" | "file-title" | "file-modified" => true,
-        _ => false,
-    }
-}
-
-fn option_has_true_bool(options: &[ValidatedOption], name: &str) -> bool {
-    options
-        .iter()
-        .any(|option| option.name == name && matches!(option.value, QueryValue::Bool(true)))
+    compile_heading_hierarchy_predicate(scope, aliases, predicate, relation)
 }
 
 fn compare_heading_query_matches(
@@ -3303,15 +3269,6 @@ mod tests {
         .expect("root tag query should execute");
         assert_eq!(heading_ids(root_rows), vec![12]);
 
-        let without_root_rows = execute_sqlite_query(
-            &connection,
-            &validated(
-                r#"(headings (and (title "Nested Task" :exact t) (tags "filetag" :without-root t)))"#,
-            ),
-        )
-        .expect("without-root tag query should execute");
-        assert_eq!(heading_ids(without_root_rows), Vec::<i64>::new());
-
         let match_all_rows = execute_sqlite_query(
             &connection,
             &validated(
@@ -3325,6 +3282,13 @@ mod tests {
             execute_sqlite_query(&connection, &validated(r#"(headings (tags "project"))"#))
                 .expect("correlated tag query should execute");
         assert_eq!(heading_ids(correlated_rows), vec![11, 12]);
+        assert_eq!(
+            heading_file_paths(
+                execute_sqlite_query(&connection, &validated(r#"(headings (tags "filetag"))"#))
+                    .expect("root filetag heading query should execute")
+            ),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
 
         let file_tag_rows =
             execute_sqlite_query(&connection, &validated(r#"(files (tags "filetag"))"#))
@@ -3372,15 +3336,6 @@ mod tests {
         .expect("root property query should execute");
         assert_eq!(heading_ids(root_rows), vec![12]);
 
-        let without_root_rows = execute_sqlite_query(
-            &connection,
-            &validated(
-                r#"(headings (and (title "Nested Task" :exact t) (property "CATEGORY" "work" :without-root t)))"#,
-            ),
-        )
-        .expect("without-root property query should execute");
-        assert_eq!(heading_ids(without_root_rows), Vec::<i64>::new());
-
         let file_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(files (property "CATEGORY" "work"))"#),
@@ -3415,6 +3370,16 @@ mod tests {
         )
         .expect("correlated property query should execute");
         assert_eq!(heading_ids(correlated_rows), vec![11, 12]);
+        assert_eq!(
+            heading_file_paths(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (property "CATEGORY" "work"))"#),
+                )
+                .expect("root property heading query should execute")
+            ),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
 
         let after_rows = property_rows(&connection, 11, "LANG");
         assert_eq!(before_rows, after_rows);
@@ -3504,35 +3469,73 @@ mod tests {
             other => panic!("unexpected default title rows: {other:?}"),
         }
 
-        let explicit_rows = execute_sqlite_query(
-            &connection,
-            &validated(r#"(headings (title "Alpha Index" :exact t :without-root nil))"#),
-        )
-        .expect("explicit root title query should execute");
-        match explicit_rows {
-            QueryRows::Headings(rows) => {
-                assert_eq!(rows.len(), 1);
-                assert!(matches!(rows[0], HeadingQueryMatch::File(_)));
-            }
-            other => panic!("unexpected explicit title rows: {other:?}"),
-        }
-
-        let excluded_rows = execute_sqlite_query(
-            &connection,
-            &validated(r#"(headings (title "Alpha Index" :exact t :without-root t))"#),
-        )
-        .expect("without-root title query should execute");
-        match excluded_rows {
-            QueryRows::Headings(rows) => assert!(rows.is_empty()),
-            other => panic!("unexpected excluded title rows: {other:?}"),
-        }
-
         let file_title_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(headings (file-title "Alpha Index" :exact t))"#),
         )
         .expect("file-title query should execute");
         assert_eq!(heading_ids(file_title_rows), vec![11, 12, 13, 14]);
+    }
+
+    #[test]
+    fn execution_heading_queries_return_matching_root_rows_across_predicates() {
+        let connection = seeded_connection();
+
+        assert_eq!(
+            heading_file_paths(
+                execute_sqlite_query(
+                    &connection,
+                    &validated(r#"(headings (keyword "AUTHOR" "Alice"))"#),
+                )
+                .expect("keyword heading query should execute")
+            ),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        assert_eq!(
+            heading_file_paths(
+                execute_sqlite_query(&connection, &validated(r#"(headings (level 0))"#))
+                    .expect("level heading query should execute")
+            ),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+                "/tmp/query-gamma.org".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn execution_children_and_descendants_can_match_root_rows() {
+        let connection = seeded_connection();
+
+        assert_eq!(
+            heading_file_paths(
+                execute_sqlite_query(&connection, &validated(r#"(headings (children))"#))
+                    .expect("children heading query should execute")
+            ),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+                "/tmp/query-gamma.org".to_string(),
+            ]
+        );
+
+        assert_eq!(
+            heading_file_paths(
+                execute_sqlite_query(&connection, &validated(r#"(headings (descendants))"#))
+                    .expect("descendants heading query should execute")
+            ),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+                "/tmp/query-gamma.org".to_string(),
+            ]
+        );
+
+        let parent_rows = execute_sqlite_query(&connection, &validated(r#"(headings (parent))"#))
+            .expect("parent heading query should execute");
+        assert!(heading_file_paths(parent_rows).is_empty());
     }
 
     #[test]
@@ -4491,15 +4494,16 @@ mod tests {
 
         match rows {
             QueryRows::Headings(rows) => {
-                assert_eq!(rows.len(), 2);
-                let HeadingQueryMatch::Heading(first) = &rows[0] else {
-                    panic!("expected first heading row");
-                };
-                let HeadingQueryMatch::Heading(second) = &rows[1] else {
-                    panic!("expected second heading row");
-                };
-                assert_eq!(first.title, "Query Engine");
-                assert_eq!(second.title, "Nested Task");
+                assert_eq!(rows.len(), 3);
+                assert!(matches!(rows[0], HeadingQueryMatch::File(_)));
+                let heading_titles = rows
+                    .iter()
+                    .filter_map(|row| match row {
+                        HeadingQueryMatch::Heading(row) => Some(row.title.as_str()),
+                        HeadingQueryMatch::File(_) => None,
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(heading_titles, vec!["Query Engine", "Nested Task"]);
             }
             other => panic!("unexpected query rows: {other:?}"),
         }

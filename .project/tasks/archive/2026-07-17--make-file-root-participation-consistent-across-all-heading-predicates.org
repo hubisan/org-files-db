@@ -1,0 +1,880 @@
+#+TITLE: Make file/root participation consistent across all heading predicates
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 13:05]
+#+TASK_COMPLETED: [2026-07-17 Fri 13:05]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the plan for making file/root participation consistent across all heading predicates.
+
+** DONE Make file/root participation consistent across all heading predicates
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
+
+Goal:
+
+- Evaluate every predicate used with the ~headings~ target against one consistent domain:
+  - file/root objects at level 0
+  - real Org headings at levels 1 and above
+- Include matching file/root objects by default.
+- Audit every implemented heading predicate instead of fixing root handling only for individual predicates such as ~title~ or ~property~.
+- Expose ~level = 0~ on file/root results so the public result representation agrees with the semantics of the ~level~ predicate.
+- Remove the predicate option ~:without-root~ from Query Model v0.
+
+Current problem:
+
+- Bare:
+
+#+begin_src lisp
+(headings)
+#+end_src
+
+already returns file/root objects and real headings.
+
+- Some filtered heading queries return matching file/root objects, while others evaluate only real headings.
+
+- For example:
+
+#+begin_src lisp
+(headings
+  (property "WHATEVER" "level 0 drawer property"))
+#+end_src
+
+currently returns real headings that inherit the root property, but omits the file/root object on which the property is directly stored.
+
+- With:
+
+#+begin_src lisp
+(headings
+  (property "WHATEVER" "level 0 drawer property" :inherit nil))
+#+end_src
+
+the current implementation may return no result, although the property is directly present on the file/root object.
+
+- Root support is therefore implemented inconsistently and appears to depend on the individual predicate or SQL path.
+
+Core domain rule:
+
+- The ~headings~ target domain consists of:
+  - one file/root object for every indexed file
+  - every real Org heading in those files
+
+- The file/root object represents the internal synthetic level-0 heading.
+- Real headings have levels 1 and above.
+- A predicate filters this existing domain; it must not silently replace it with a real-headings-only domain.
+- Matching file/root objects are returned with ~kind = "file"~.
+- Matching real headings are returned with ~kind = "heading"~.
+- The internal level-0 database row must not additionally be returned as a duplicate ~kind = "heading"~ object.
+
+File/root result representation:
+
+- Add ~level = 0~ to file/root results returned through the ~headings~ target.
+
+Example:
+
+#+begin_src json
+{
+  "kind": "file",
+  "matched": true,
+  "id": 1,
+  "root_heading_id": 1,
+  "level": 0,
+  "title": "Org Property and Keyword Test",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_src
+
+- Real heading results continue to contain:
+
+#+begin_src json
+{
+  "kind": "heading",
+  "level": 1
+}
+#+end_src
+
+or a greater level.
+
+- ~level = 0~ is required on file/root results because the root participates in:
+
+#+begin_src lisp
+(level 0)
+#+end_src
+
+- The result object must expose the level used during predicate evaluation.
+- Consumers must not need to infer level 0 only from ~kind = "file"~.
+- File results returned by the standalone ~files~ target should use the same field where practical.
+- If result shapes intentionally differ between targets, document and test that difference explicitly.
+
+Required default behavior:
+
+- Root participation is always enabled for the ~headings~ target.
+- A file/root object is returned whenever the complete heading predicate expression evaluates to true for that root.
+- A real heading is returned whenever the complete expression evaluates to true for that heading.
+- Root participation must not depend on whether the query uses:
+  - no predicate
+  - an atomic predicate
+  - ~and~
+  - ~or~
+  - ~not~
+  - a nested relation predicate
+
+Remove ~:without-root~:
+
+- Remove ~:without-root~ from:
+  - ~title~
+  - ~tags~
+  - ~property~
+  - parser and AST representations
+  - semantic validation
+  - SQL compilation
+  - tests
+  - ~docs/reference/query-model-v0.org~
+  - ~docs/cli.org~
+  - examples and predicate option summaries
+
+- Queries using ~:without-root~ must fail clearly as an unknown option after its removal.
+
+Example error:
+
+#+begin_src text
+unknown option for property: :without-root
+#+end_src
+
+- Do not retain hidden compatibility behavior unless the project explicitly decides to support a deprecation period.
+
+Replacement semantics:
+
+- To exclude file/root objects from the result set, combine the query with:
+
+#+begin_src lisp
+(level > 0)
+#+end_src
+
+Example:
+
+#+begin_src lisp
+(headings
+  (and
+    (level > 0)
+    (title "Projects")))
+#+end_src
+
+- To use only directly stored properties, use:
+
+#+begin_src lisp
+(property "CATEGORY" "work" :inherit nil)
+#+end_src
+
+- To use effective properties, including values inherited from the file/root level, use:
+
+#+begin_src lisp
+(property "CATEGORY" "work" :inherit t)
+#+end_src
+
+- To use only local tags, use:
+
+#+begin_src lisp
+(tags "project" :inherit nil)
+#+end_src
+
+- To use effective tags, including FILETAGS, use:
+
+#+begin_src lisp
+(tags "project" :inherit t)
+#+end_src
+
+- Query Model v0 does not support the special case:
+  - inherit from real ancestor headings
+  - but exclude inheritance from the file/root level
+
+- Do not add this distinction without a demonstrated use case.
+- A later version may introduce a more precise option such as ~:inherit-root nil~ if required.
+
+Property semantics:
+
+For:
+
+#+begin_src lisp
+(headings
+  (property "WHATEVER" "level 0 drawer property"))
+#+end_src
+
+with default ~:inherit t~, return:
+
+- the file/root object where the property is directly stored
+- real headings whose effective property value is inherited from the root
+
+For:
+
+#+begin_src lisp
+(headings
+  (property "WHATEVER" "level 0 drawer property" :inherit nil))
+#+end_src
+
+return:
+
+- the file/root object because the property is directly stored there
+- only real headings that directly define the same property
+- no real heading that merely inherits it
+
+To exclude the root result while retaining normal effective inheritance:
+
+#+begin_src lisp
+(headings
+  (and
+    (level > 0)
+    (property "WHATEVER" "level 0 drawer property" :inherit t)))
+#+end_src
+
+return:
+
+- no file/root object
+- real headings whose effective property includes the root value
+
+This distinction is intentional:
+
+- ~(level > 0)~ controls which candidate objects are returned.
+- ~:inherit t|nil~ controls how effective heading values are resolved.
+
+Tag semantics:
+
+- A file/root object directly matches its FILETAGS.
+- With ~:inherit t~, real headings may match local tags, ancestor tags, and FILETAGS according to the accepted effective tag semantics.
+- With ~:inherit nil~, only tags directly present on the candidate object match:
+  - FILETAGS for the root object
+  - local heading tags for a real heading
+
+Example:
+
+#+begin_src lisp
+(headings
+  (tags "project" :inherit t))
+#+end_src
+
+returns:
+
+- the file/root object when its FILETAGS contain ~project~
+- real headings whose effective tags contain ~project~
+
+Example excluding root results:
+
+#+begin_src lisp
+(headings
+  (and
+    (level > 0)
+    (tags "project" :inherit t)))
+#+end_src
+
+returns only real headings, while FILETAGS may still participate in their effective tags.
+
+Title semantics:
+
+- The root title always participates in ~title~ matching.
+- The effective root title is:
+  - the source ~#+TITLE~ value when present
+  - otherwise the file name without its extension
+
+Example:
+
+#+begin_src lisp
+(headings
+  (title "Projects" :exact t))
+#+end_src
+
+may return:
+
+- a matching file/root object
+- matching real headings
+
+To return only real heading matches:
+
+#+begin_src lisp
+(headings
+  (and
+    (level > 0)
+    (title "Projects" :exact t)))
+#+end_src
+
+Level semantics:
+
+- File/root objects have semantic level 0.
+- Real headings begin at level 1.
+
+Therefore:
+
+#+begin_src lisp
+(headings
+  (level 0))
+#+end_src
+
+returns every file/root object and no real heading.
+
+#+begin_src lisp
+(headings
+  (level 1))
+#+end_src
+
+returns top-level real headings and no file/root object.
+
+#+begin_src lisp
+(headings
+  (level 0 1))
+#+end_src
+
+returns:
+
+- file/root objects
+- top-level real headings
+
+#+begin_src lisp
+(headings
+  (level <= 1))
+#+end_src
+
+returns:
+
+- file/root objects
+- top-level real headings
+
+Every file/root result matched through ~level~ must expose:
+
+#+begin_src json
+{
+  "kind": "file",
+  "level": 0
+}
+#+end_src
+
+Predicate audit:
+
+- Build an inventory of every predicate currently valid with the ~headings~ target.
+- For every predicate, define and test its behavior on:
+  - a file/root object
+  - a real heading
+  - inherited/effective root context, if applicable
+  - boolean composition
+
+- Fail a table-driven audit test when a new heading predicate is added without an explicit root-behavior case.
+
+Audit at least the following predicate groups.
+
+*** Basic predicates
+
+- ~title~
+  - root matches the effective file title
+  - matching root is returned as ~kind = "file"~
+
+- ~has-text~
+  - decide and document whether root/preamble body text is indexed and queryable
+  - if root text is not supported, root evaluates false
+  - do not silently treat the entire file body as root text
+
+- ~level~
+  - root is level 0
+  - real headings are level 1 and above
+
+- ~todo~
+  - root evaluates false
+
+- ~done~
+  - root evaluates false
+
+- ~priority~
+  - root evaluates false unless root priorities are explicitly introduced later
+
+*** Tags and metadata
+
+- ~tags~
+  - root directly matches FILETAGS
+  - real headings match local or effective tags according to ~:inherit~
+  - effective inheritance includes the file/root level
+
+- ~property~
+  - root directly matches its stored level-0 properties
+  - real headings use direct or effective values according to ~:inherit~
+  - effective inheritance includes the file/root level
+
+- ~keyword~
+  - keywords are root facts
+  - the root itself matches when its keyword matches
+  - define and preserve whether all real headings in the matching file also match through containing-file context
+
+*** File predicates
+
+Audit:
+
+- ~file-name~
+- ~file-path~
+- ~file-dir~
+- ~file-title~
+- ~file-modified~
+
+Required behavior:
+
+- For a real heading, evaluate against its containing file.
+- For a file/root object, evaluate against the file itself.
+- A matching file/root object is returned as ~kind = "file"~.
+- A matching real heading is returned as ~kind = "heading"~.
+
+Example:
+
+#+begin_src lisp
+(headings
+  (file-path "properties.org"))
+#+end_src
+
+returns:
+
+- the file/root object for ~properties.org~
+- every real heading in ~properties.org~
+
+*** Outline predicates
+
+Audit:
+
+- ~outline-contains~
+- ~outline-sequence~
+
+Recommended v0 behavior:
+
+- The heading outline path contains real heading title components only.
+- The file/root title is not an outline component.
+- Root has an empty heading outline path.
+- Root therefore evaluates false for non-empty ~outline-contains~ and ~outline-sequence~ queries.
+- Result paths may still include the file/root node.
+
+*** Timestamp and planning predicates
+
+Audit:
+
+- ~ts~
+- ~ts-active~
+- ~ts-inactive~
+- ~deadline~
+- ~scheduled~
+- ~closed~
+- ~planning~
+
+Rules:
+
+- Planning predicates evaluate false on root unless the indexing contract explicitly permits root planning facts.
+- General timestamp predicates match root only when timestamps from the file preamble are indexed under the synthetic level-0 heading.
+- Align query behavior with actual indexed facts and document it.
+
+*** Hierarchy predicates
+
+Audit:
+
+- ~parent~
+- ~ancestors~
+- ~children~
+- ~descendants~
+
+Required root behavior:
+
+- ~parent~ is false on root.
+- ~ancestors~ is false on root.
+- ~children~ on root evaluates against direct top-level headings.
+- ~descendants~ on root evaluates against all real headings in the file.
+
+For real top-level headings:
+
+- Preserve the public contract that ~parent~ and ~ancestors~ refer to real heading relations unless explicitly changed.
+- Internal ~parent_id = root_heading_id~ must not automatically make root a public heading parent.
+
+*** Link-related predicates
+
+Audit:
+
+- ~has-link~
+- ~links-to~
+- ~linked-from~
+
+Required root behavior:
+
+- ~has-link~ on root matches links located directly in the file preamble.
+- ~links-to~ on root matches outgoing resolved links located in the preamble.
+- ~linked-from~ on root matches incoming links whose resolved target is the file/root.
+- Links inside real headings must not be treated as direct root links merely because they belong to the same file.
+- File-wide link matching remains available through the ~files~ target.
+
+Boolean semantics:
+
+- Evaluate the complete boolean expression independently for every candidate object in the heading domain.
+
+Example:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-path "properties.org")
+    (todo)))
+#+end_src
+
+Expected:
+
+- matching TODO headings from ~properties.org~
+- no file/root object because ~todo~ is false on root
+
+Example:
+
+#+begin_src lisp
+(headings
+  (or
+    (level 0)
+    (todo "NEXT")))
+#+end_src
+
+Expected:
+
+- every file/root object
+- every real NEXT heading
+- no duplicate object
+
+Example:
+
+#+begin_src lisp
+(headings
+  (not
+    (todo)))
+#+end_src
+
+Expected under normal boolean semantics:
+
+- root matches because ~todo~ is false on root
+- non-TODO real headings match
+- open and done TODO headings do not match
+
+Do not add hidden root suppression after boolean evaluation.
+
+Implementation requirements:
+
+- Represent the heading-target candidate domain explicitly rather than adding file results after selected predicates happen to match.
+- Evaluate or compile predicates for both candidate kinds:
+  - file/root
+  - real heading
+
+- Avoid predicate-specific root hydration hacks where a shared model is possible.
+- Remove ~without_root~ fields, parser branches, validator rules, SQL arguments, and tests.
+- Do not expose the internal level-0 row as a duplicate heading result.
+- Preserve stable object identity:
+  - file/root identity uses file identity and ~root_heading_id~
+  - real heading identity uses heading identity
+
+- Deduplicate results when multiple boolean branches match the same object.
+- Preserve deterministic ordering.
+- Prefer each file/root object before real headings from the same file in flat output.
+- Ensure result hydration supports fields required by root-aware predicates.
+- Ensure includes enrich root results without changing matching.
+- Keep SQL parameters bound.
+- Keep validation separate from SQL generation.
+
+Result invariants:
+
+- Every result has exactly one of:
+  - ~kind = "file"~
+  - ~kind = "heading"~
+
+- Every ~kind = "file"~ result returned through heading queries has:
+  - ~level = 0~
+  - ~root_heading_id~
+  - file metadata
+  - effective file/root title
+  - location
+
+- Every ~kind = "heading"~ result has:
+  - ~level >= 1~
+  - ~file_id~
+  - heading metadata
+  - location
+
+- No internal level-0 heading is returned separately as ~kind = "heading"~.
+- No file/root object is returned more than once.
+- Every filtered result belongs to the result domain of bare ~(headings)~.
+
+Flat output:
+
+- Return matching root and real-heading objects directly.
+- Mark each direct match with ~matched = true~.
+- Order deterministically by file and source order.
+- Put the file/root object before its real headings when both match.
+
+Outline output:
+
+- Use the file/root object as the tree root.
+- Set ~matched = true~ when the root itself satisfies the predicate.
+- Set ~matched = false~ when it is present only as context for matching descendants.
+- Preserve real heading hierarchy.
+- Do not create a duplicate level-0 heading child beneath the file node.
+
+Documentation:
+
+- Update ~docs/reference/query-model-v0.org~.
+- Update the complete public query documentation in ~docs/cli.org~.
+- Remove every documented use of ~:without-root~.
+- Replace examples that excluded root with equivalent ~(level > 0)~ expressions where result exclusion was intended.
+- Document that effective tag and property inheritance includes the file/root level.
+- Replace any wording saying that heading predicates return only real headings.
+
+Suggested contract text:
+
+#+begin_src org
+- The ~headings~ target domain contains file/root objects at level 0 and real Org headings at levels 1 and above.
+- File/root objects participate in heading predicate evaluation by default where the predicate defines meaningful root behavior.
+- Matching file/root objects are returned with ~kind = "file"~ and ~level = 0~.
+- Matching real headings are returned with ~kind = "heading"~ and ~level >= 1~.
+- The internal synthetic level-0 heading row is never returned as a duplicate heading object.
+- Use ~(level > 0)~ to restrict a heading query to real headings.
+- With ~:inherit t~, effective tags and properties include values inherited from the file/root level.
+- With ~:inherit nil~, only values directly stored on the candidate object participate.
+- Query Model v0 has no ~:without-root~ option.
+#+end_src
+
+Acceptance criteria:
+
+- Bare ~(headings)~ continues to return:
+  - every file/root object
+  - every real heading
+
+- File/root results expose ~level = 0~.
+- Real heading results expose ~level >= 1~.
+- ~(headings (level 0))~ returns every file/root object and no real headings.
+- ~(headings (level 1))~ returns top-level real headings and no root objects.
+- ~(headings (property "WHATEVER" "level 0 drawer property"))~ returns:
+  - the matching root object
+  - all real headings that effectively inherit the property
+
+- The same property query with ~:inherit nil~ returns:
+  - the matching root object
+  - only real headings that directly define the property
+
+- Combining the effective property query with ~(level > 0)~ excludes the root result but preserves inheritance from the root.
+- File predicates return matching root objects as well as headings from matching files.
+- Boolean expressions evaluate consistently over both candidate kinds.
+- Root behavior is explicitly tested for every implemented heading predicate.
+- ~:without-root~ is absent from the parser, AST, validator, SQL compiler, tests, and documentation.
+- A query containing ~:without-root~ fails with a clear unknown-option error.
+- No internal level-0 row appears as ~kind = "heading"~.
+- Flat and outline output are deterministic.
+- Includes work correctly on root results.
+- Documentation and implementation use the same root-behavior matrix.
+- ~make ci~ passes.
+
+Regression fixture:
+
+Use or extend ~properties.org~ with a level-0 property drawer:
+
+#+begin_src org
+:PROPERTIES:
+:CATEGORY: Level 0 Category Property
+:WHATEVER: level 0 drawer property
+:ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+:END:
+#+TITLE: Org Property and Keyword Test
+#+end_src
+
+Required regression queries:
+
+#+begin_src lisp
+(headings)
+(headings (level 0))
+(headings (level 1))
+(headings (property "WHATEVER" "level 0 drawer property"))
+(headings (property "WHATEVER" "level 0 drawer property" :inherit nil))
+(headings
+  (and
+    (level > 0)
+    (property "WHATEVER" "level 0 drawer property" :inherit t)))
+(headings (file-path "properties.org"))
+(headings (file-title "Org Property and Keyword Test" :exact t))
+(headings (and (file-path "properties.org") (todo)))
+(headings (or (level 0) (todo "NEXT")))
+#+end_src
+
+Invalid regression queries:
+
+#+begin_src lisp
+(title "Projects" :without-root t)
+(tags "project" :without-root t)
+(property "CATEGORY" "work" :without-root t)
+#+end_src
+
+Each must fail with a clear unknown-option error.
+
+Manual check for direct root property:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (property
+       "WHATEVER"
+       "level 0 drawer property"
+       :inherit nil))' \
+  | jq -e '
+      (.results | length >= 1)
+      and any(
+        .results[];
+        .kind == "file"
+        and .level == 0
+        and .title_raw == "Org Property and Keyword Test"
+      )
+      and all(
+        .results[];
+        (.kind != "heading") or (.level >= 1)
+      )
+    '
+#+end_src
+
+Manual check for effective inheritance without root results:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (and
+       (level > 0)
+       (property
+         "WHATEVER"
+         "level 0 drawer property"
+         :inherit t)))' \
+  | jq -e '
+      (.results | length > 0)
+      and all(
+        .results[];
+        .kind == "heading" and .level > 0
+      )
+    '
+#+end_src
+
+Manual check for level 0:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings (level 0))' \
+  | jq -e '
+      (.results | length > 0)
+      and all(
+        .results[];
+        .kind == "file" and .level == 0
+      )
+    '
+#+end_src
+
+Manual predicate audit:
+
+- Add a table-driven test or equivalent fixture test containing one case per heading predicate.
+- Each case must declare the expected root behavior:
+  - matches
+  - does not match
+  - depends on indexed root facts
+- Fail the test when a new heading predicate is added without an explicit root-behavior case.
+
+* Planning
+
+** Problem summary
+
+- Filtered ~headings~ queries used a predicate allowlist to decide whether matching file/root results could be returned.
+- Root participation was inconsistent across implemented heading predicates, and the public query contract still exposed ~:without-root~.
+- File results returned from ~headings~ queries did not expose ~level = 0~, which made output inconsistent with the ~level~ predicate semantics.
+
+** Goals
+
+- Evaluate heading predicates against one consistent domain containing real headings and synthetic file/root rows.
+- Remove public ~:without-root~ support and align validation, execution, tests, and docs with that model.
+- Return ~level = 0~ on file results emitted by ~headings~ queries.
+
+** Non-goals
+
+- No schema changes.
+- No expansion of unsupported outline predicates.
+- No unrelated query-language cleanup outside root/file participation.
+
+** Architecture
+
+- Keep the existing split execution model: one SQL branch for real heading rows and one SQL branch for synthetic file/root rows.
+- Remove the separate root-result allowlist and let the root branch run for every heading query.
+- Preserve predicate-specific root-false behavior only where the contract requires it, such as ~parent~, ~ancestors~, and ~has-text~.
+
+** Execution plan
+
+- Remove ~:without-root~ from validator support and obsolete guidance.
+- Update SQLite heading predicate compilation so root rows participate consistently.
+- Adjust hierarchy/root special cases and result shaping.
+- Update tests and public docs.
+- Run repository-preferred checks.
+
+** Risks & assumptions
+
+- This is an intentional API-contract change within the active Query Model v0 workstream.
+- Existing test fixtures already contain enough root facts and preamble links to validate the behavior without new schema data.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~cargo test --test query_validate -- --nocapture~
+- ~cargo test --test query_validate_errors -- --nocapture~
+- ~cargo test execution_heading_queries_return_matching_root_rows_across_predicates -- --nocapture~
+- ~cargo test execution_children_and_descendants_can_match_root_rows -- --nocapture~
+- ~cargo test bare_headings_query_shapes_file_roots_and_real_headings_in_flat_and_outline_output -- --nocapture~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Removed ~:without-root~ from heading-query validation and obsolete migration guidance from ~:with-root~.
+- Changed SQLite heading execution to always evaluate the synthetic file/root branch for ~headings~ queries.
+- Kept root-false behavior only where intended, while allowing root matches for tags, properties, keywords, level, file predicates, and hierarchy predicates such as ~children~ and ~descendants~.
+- Added ~level = 0~ to file nodes in shaped ~headings~ results.
+- Updated tests and documentation to reflect the new contract.
+
+** Changed files
+
+- ~src/query/validate.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/cli.rs~
+- ~tests/query_validate.rs~
+- ~tests/query_validate_errors.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+
+** Checks performed
+
+- ~cargo test --test query_validate -- --nocapture~
+- ~cargo test --test query_validate_errors -- --nocapture~
+- ~cargo test execution_heading_queries_return_matching_root_rows_across_predicates -- --nocapture~
+- ~cargo test execution_children_and_descendants_can_match_root_rows -- --nocapture~
+- ~cargo test bare_headings_query_shapes_file_roots_and_real_headings_in_flat_and_outline_output -- --nocapture~
+- ~make ci~
+
+** Test results
+
+- All listed checks passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

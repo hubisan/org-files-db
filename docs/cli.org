@@ -249,11 +249,6 @@ The current public predicate options are:
   - Value type: ~t~ or ~nil~.
   - Default: ~t~.
   - Invalid on file queries.
-- ~:without-root~ ::
-  - Valid on: ~title~, ~tags~, ~property~ on ~headings~.
-  - Value type: ~t~ or ~nil~.
-  - Default: ~nil~.
-  - Restricts heading matching to real headings by excluding synthetic file/root participation.
 - ~:from~ ::
   - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
   - Value type: date/time value.
@@ -301,9 +296,9 @@ Options are validated per predicate. A supported option on one predicate does no
   Targets: ~headings~.
   Matches headings whose TODO type is ~closed~.
   Example: ~'(done)'~.
-- ~title~ :: Syntax: ~(title STRING... :regexp t|nil :exact t|nil :without-root t|nil)~.
+- ~title~ :: Syntax: ~(title STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~.
-  Default is case-insensitive substring matching against normalized heading titles. Root/file title matches are enabled by default and return ~kind = "file"~ nodes.
+  Default is case-insensitive substring matching against normalized heading titles. Matching file/root titles return ~kind = "file"~ nodes.
   Example: ~'(title "Query Engine" :exact t)'~.
 - ~has-text~ :: Syntax: ~(has-text STRING... :regexp t|nil)~.
   Targets: ~headings~.
@@ -317,21 +312,21 @@ Options are validated per predicate. A supported option on one predicate does no
   Targets: ~headings~.
   Multi-value form is OR. Comparator form compares stored priorities.
   Example: ~'(priority "A" "B")'~.
-- ~tags~ :: Syntax: ~(tags TAG... :inherit t|nil :without-root t|nil :regexp t|nil :match :any|:all)~.
+- ~tags~ :: Syntax: ~(tags TAG... :inherit t|nil :regexp t|nil :match :any|:all)~.
   Targets: ~headings~, ~files~.
-  Heading queries use effective tags by default, including inherited/root tags unless excluded. File queries match tags stored on the file root heading.
+  Heading queries use effective tags by default, including inherited/root tags when present. File queries match tags stored on the file root heading.
   Example: ~'(tags "project" "urgent" :match :all)'~.
 - ~tags-all~ :: Syntax: ~(tags-all TAG... [same options as tags except :match])~.
   Targets: parser alias.
   Readability alias for ~(tags ... :match :all)~. It is normalized before validation.
   Example: ~'(tags-all "project" "urgent")'~.
-- ~property~ :: Syntax: ~(property KEY [VALUE] :inherit t|nil :without-root t|nil :regexp t|nil)~.
+- ~property~ :: Syntax: ~(property KEY [VALUE] :inherit t|nil :regexp t|nil)~.
   Targets: ~headings~, ~files~.
   With one argument, matches by property key existence. With two, matches key/value. Heading queries use effective properties by default; ~:inherit nil~ restricts to direct rows. File queries are always direct root/file property matches and reject ~:inherit~.
   Example: ~'(property "CATEGORY" "work")'~.
 - ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil)~.
   Targets: ~headings~, ~files~.
-  Matches root/file keyword facts. Heading queries access them via the containing file root context. No ~:inherit~ or ~:without-root~ option exists.
+  Matches root/file keyword facts. Heading queries access them via the containing file root context.
   Example: ~'(keyword "AUTHOR" "Alice")'~.
 - ~file-name~ :: Syntax: ~(file-name STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~files~.
@@ -490,15 +485,16 @@ Options are validated per predicate. A supported option on one predicate does no
 Synthetic root/file behavior matters most for heading queries:
 
 - Every indexed file has a synthetic level-0 heading in storage.
-- Some heading predicates may match that root/file object.
+- Every heading predicate is evaluated against the same heading-query domain: real headings plus the synthetic file/root object.
 - When a heading query matches the root/file object, the JSON result is emitted as ~kind = "file"~, not ~kind = "heading"~.
+- Matching file/root results expose ~level = 0~.
 - This is why a heading query may legitimately return file nodes.
 
 Important distinctions:
 
 - ~title~ on ~headings~:
   - matches real headings
-  - by default may also match the effective file/root title
+  - may also match the effective file/root title
   - returns a file node when the root/file object is the match
 - ~file-title~:
   - filters by the containing file title
@@ -507,17 +503,11 @@ Important distinctions:
   - directly returns file nodes
   - never returns heading nodes
 
-~:without-root t~ is currently meaningful on:
-
-- ~title~
-- ~tags~ / ~tags-all~ on heading queries
-- ~property~ on heading queries
-
 Examples:
 
 #+begin_src shell
 orgfdb query --json '(headings (title "Alpha Index" :exact t))'
-orgfdb query --json '(headings (title "Alpha Index" :exact t :without-root t))'
+orgfdb query --json '(headings (property "CATEGORY" "work"))'
 orgfdb query --json '(headings (file-title "Alpha Index" :exact t))'
 orgfdb query --json '(files (file-title "Alpha Index" :exact t))'
 #+end_src
@@ -772,7 +762,7 @@ Important expected messages:
 orgfdb query --json '(todo)'
 orgfdb query --json '(done)'
 orgfdb query --json '(title "Query Engine" :exact t)'
-orgfdb query --json '(title "Alpha Index" :exact t :without-root t)'
+orgfdb query --json '(title "Alpha Index" :exact t)'
 orgfdb query --json '(has-text "sqlite" "fts")'
 orgfdb query --json '(level 1 2)'
 orgfdb query --json '(priority "A" "B")'
