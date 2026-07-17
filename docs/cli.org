@@ -323,6 +323,11 @@ Options are validated per predicate. A supported option on one predicate does no
 - ~property~ :: Syntax: ~(property KEY [VALUE] :inherit t|nil :regexp t|nil)~.
   Targets: ~headings~, ~files~.
   With one argument, matches by property key existence. With two, matches key/value. Heading queries use effective properties by default; ~:inherit nil~ restricts to direct rows. File queries are always direct root/file property matches and reject ~:inherit~.
+  Local effective values use one source-independent rule for property drawer rows and file-level ~#+PROPERTY~ rows: the last non-append definition is the base value, and all append definitions for the same key are appended in source order even if they appear before or between non-append definitions.
+  Compatibility note: this intentionally differs from Org for some repeated file-level ~#+PROPERTY~ sequences mixed with append rows. For example, orgfdb resolves
+  ~#+PROPERTY: KEYWORD_RESET old~, ~#+PROPERTY: KEYWORD_RESET+ appended-before-reset~, ~#+PROPERTY: KEYWORD_RESET replacement~, ~#+PROPERTY: KEYWORD_RESET+ appended-after-reset~
+  as ~replacement appended-before-reset appended-after-reset~, while Org may resolve the same file-level sequence as ~replacement appended-after-reset~.
+  This incompatibility is deliberate so drawer properties and file-level keyword properties follow one uniform query-resolution rule. Raw ~properties~ output still preserves the original ~source~ and ~append~ metadata for each stored row.
   Example: ~'(property "CATEGORY" "work")'~.
 - ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil)~.
   Targets: ~headings~, ~files~.
@@ -591,7 +596,7 @@ Includes enrich output only. They never change which rows match.
   File roots appear as the first path entry.
 - ~properties~ :: Valid on ~headings~ and ~files~.
   Added field: ~properties~.
--  Raw stored property rows, preserving duplicates and the ~append~ flag.
+  Raw stored property rows, preserving duplicates and the ~append~ flag.
 - ~effective_properties~ :: Valid on ~headings~ and ~files~.
   Added field: ~effective_properties~.
   Resolved effective property values used by property matching.

@@ -1,0 +1,213 @@
+#+TITLE: Document uniform property resolution and Org incompatibility
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 16:33]
+#+TASK_COMPLETED: [2026-07-17 Fri 16:33]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Document uniform property resolution and Org incompatibility.
+
+** DONE [#C] Document uniform property resolution and Org incompatibility
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org]]
+
+Goal:
+
+- Document the property-resolution behavior already implemented by orgfdb.
+- Clearly describe the intentional incompatibility with Org for repeated file-level ~#+PROPERTY~ definitions mixed with append definitions.
+- Do not change query execution, property resolution, indexing, storage, or result hydration.
+
+Current behavior:
+
+- Property drawer rows and file-level ~#+PROPERTY~ rows use the same effective-value resolution.
+- For one normalized key at one location:
+  - the last non-append definition is the base value
+  - all append definitions are appended in source order
+- Append definitions participate regardless of whether they occur before, between, or after non-append definitions.
+- This behavior is already implemented and must remain unchanged in this task.
+
+Uniform orgfdb example:
+
+#+begin_src org
+:TEST: old
+:TEST+: append 1
+:TEST: new
+:TEST+: append 2
+#+end_src
+
+orgfdb resolves this as:
+
+#+begin_src text
+new append 1 append 2
+#+end_src
+
+File-level equivalent:
+
+#+begin_src org
+,#+PROPERTY: KEYWORD_RESET old
+,#+PROPERTY: KEYWORD_RESET+ appended-before-reset
+,#+PROPERTY: KEYWORD_RESET replacement
+,#+PROPERTY: KEYWORD_RESET+ appended-after-reset
+#+end_src
+
+orgfdb resolves this as:
+
+#+begin_src text
+replacement appended-before-reset appended-after-reset
+#+end_src
+
+Intentional Org incompatibility:
+
+- Org may resolve the file-level example as:
+
+#+begin_src text
+replacement appended-after-reset
+#+end_src
+
+- orgfdb intentionally retains ~appended-before-reset~.
+- orgfdb applies one source-independent resolution rule to:
+  - property drawer rows
+  - file-level ~#+PROPERTY~ rows
+
+Rationale:
+
+- Query semantics depend on logical property rows rather than their source representation.
+- Drawer and keyword properties behave consistently.
+- Consumers do not need to know whether a property originated from a drawer or a keyword.
+- Raw property records continue to expose their original ~source~ and ~append~ values.
+- Exact Org compatibility for this edge case would require source-specific resolver behavior and would change existing query results.
+
+Inheritance:
+
+- ~:inherit nil~ resolves only rows stored directly on the candidate.
+- ~:inherit t~ additionally considers inherited property values.
+- The documented local resolution rule remains the same in both cases.
+- A local non-append value is the local base.
+- Append-only local rows may extend an inherited base according to the existing implemented inheritance semantics.
+
+Documentation changes:
+
+- Update ~docs/reference/query-model-v0.org~.
+- Update ~docs/cli.org~.
+- Add a clearly labelled compatibility note.
+- Document the existing uniform rule.
+- Include:
+  - one property-drawer example
+  - one equivalent file-level keyword example
+  - the orgfdb result
+  - the differing Org result
+  - the rationale for the deliberate incompatibility
+
+Suggested contract text:
+
+#+begin_src org
+- orgfdb uses one source-independent resolution rule for property drawer rows and file-level ~#+PROPERTY~ rows.
+- At one location, the last non-append definition is the effective base value.
+- All append definitions for the same normalized key are appended to that base in source order.
+- Append definitions participate regardless of whether they occur before, between, or after non-append definitions.
+- This behavior intentionally differs from Org for some repeated file-level ~#+PROPERTY~ sequences.
+- Raw property rows remain available with their original source and append metadata.
+#+end_src
+
+Non-goals:
+
+- Do not modify the property resolver.
+- Do not modify SQL generation.
+- Do not modify inheritance behavior.
+- Do not modify raw property storage.
+- Do not add or change tests except documentation examples or documentation validation where required.
+- Do not add a schema migration.
+- Do not attempt to reproduce Org's source-specific keyword behavior.
+
+Acceptance criteria:
+
+- The implemented resolver behavior remains unchanged.
+- Both reference documents describe the uniform rule.
+- The intentional Org incompatibility is clearly labelled.
+- Documentation shows both the orgfdb and Org outcomes for the incompatible keyword example.
+- Documentation explains why orgfdb uses a source-independent rule.
+- No production code changes are included.
+- No existing query result changes.
+- Documentation checks and ~make ci~ pass.
+
+* Planning
+
+** Problem summary
+
+orgfdb already uses one uniform effective-property resolution rule for property drawer rows and file-level ~#+PROPERTY~ rows, but the public docs do not clearly describe that rule or the deliberate incompatibility with Org for some repeated file-level keyword sequences mixed with append rows.
+
+** Goals
+
+- Document the implemented uniform property-resolution rule.
+- Clearly label the intentional Org incompatibility for repeated file-level ~#+PROPERTY~ definitions mixed with append rows.
+- Keep behavior, storage, and results unchanged.
+
+** Non-goals
+
+- No resolver, SQL, indexing, or schema changes.
+- No raw property storage changes.
+- No query behavior changes.
+
+** Architecture
+
+- Update the property predicate docs in the CLI reference.
+- Update the query-model reference with the same uniform rule plus an explicit compatibility note and examples.
+
+** Execution plan
+
+- Add the uniform rule and incompatibility note to ~docs/cli.org~.
+- Add the same contract text and explicit example pair to ~docs/reference/query-model-v0.org~.
+- Record the task in the repository task workflow and run the preferred checks.
+
+** Risks & assumptions
+
+- The implementation is already correct; this task is documentation-only.
+- The existing docs test surface and ~make ci~ are sufficient verification for this scope.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Documented the uniform source-independent property resolution rule in both public query references.
+- Added a clearly labeled compatibility note showing the differing orgfdb and Org outcomes for repeated file-level ~#+PROPERTY~ definitions mixed with append rows.
+
+** Changed files
+
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org~
+
+** Checks performed
+
+- ~make ci~
+
+** Test results
+
+- ~make ci~ passed.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+- None.

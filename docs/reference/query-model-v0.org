@@ -1451,11 +1451,55 @@ does not match ~Task~ because the property is not directly set on the heading.
 
 Effective property resolution uses these rules:
 
+- orgfdb uses one source-independent resolution rule for property drawer rows and file-level ~#+PROPERTY~ rows.
 - At one file/root or heading location, the last non-append property definition is the effective base value.
 - All append definitions for the same normalized key are appended to that base in source order.
 - Append definitions participate regardless of whether they occur before, between, or after non-append definitions.
 - With ~:inherit nil~, only definitions stored directly on the candidate participate.
 - With ~:inherit t~, an inherited value is used as the base only when the candidate has no local non-append definition.
+- Raw property rows remain available with their original source and append metadata.
+
+**** Compatibility note: repeated file-level ~#+PROPERTY~ definitions
+
+orgfdb intentionally applies the same local resolution rule to property drawer rows and file-level ~#+PROPERTY~ rows, even where Org may treat repeated file-level keyword definitions differently.
+
+Property drawer example:
+
+#+begin_src org
+:TEST: old
+:TEST+: append 1
+:TEST: new
+:TEST+: append 2
+#+end_src
+
+orgfdb resolves this as:
+
+#+begin_src text
+new append 1 append 2
+#+end_src
+
+Equivalent file-level example:
+
+#+begin_src org
+,#+PROPERTY: KEYWORD_RESET old
+,#+PROPERTY: KEYWORD_RESET+ appended-before-reset
+,#+PROPERTY: KEYWORD_RESET replacement
+,#+PROPERTY: KEYWORD_RESET+ appended-after-reset
+#+end_src
+
+orgfdb resolves this as:
+
+#+begin_src text
+replacement appended-before-reset appended-after-reset
+#+end_src
+
+Org may resolve the file-level example as:
+
+#+begin_src text
+replacement appended-after-reset
+#+end_src
+
+orgfdb intentionally retains ~appended-before-reset~ so query semantics do not depend on whether a property originated from a drawer or a file-level keyword line.
 
 *** ~(keyword key &optional value &key regexp)~
 

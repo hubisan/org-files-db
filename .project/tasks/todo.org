@@ -212,4 +212,8 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--match-org-property-append-ordering-semantics.org]]
 
+** DONE [#C] Document uniform property resolution and Org incompatibility
+
+- Task file: [[file:archive/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org]]
+
 ** TODO Manual Test the Implementation
