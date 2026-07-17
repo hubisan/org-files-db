@@ -12,413 +12,57 @@
 #+name: config-path
 : ../Config.toml
 
-* Include Properties
+* File Level Property Match
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> --include properties '(headings (file-path "properties.org"))'
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "whatever" "level 0 drawer property" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
 #+RESULTS:
 #+begin_SRC js
 {
-  "target": "headings",
-  "output": "flat",
-  "includes": [
-    "properties"
-  ],
-  "results": [
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 2,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task with multiple drawer properties",
-      "title_raw": "Task with multiple drawer properties",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 16,
-        "byte_start": 465,
-        "byte_end": 638
-      },
-      "properties": [
-        {
-          "key": "ID",
-          "value": "abc",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 18
-        },
-        {
-          "key": "CUSTOM_ID",
-          "value": "task-custom-id",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 19
-        },
-        {
-          "key": "EFFORT",
-          "value": "0:30",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 20
-        },
-        {
-          "key": "OWNER",
-          "value": "Alice",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 21
-        },
-        {
-          "key": "DRAWER_PROP",
-          "value": "valid",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 22
-        }
-      ]
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 3,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task with duplicate drawer properties",
-      "title_raw": "Task with duplicate drawer properties",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 26,
-        "byte_start": 638,
-        "byte_end": 858
-      },
-      "properties": [
-        {
-          "key": "DEFINED_TWICE",
-          "value": "invalid",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 28
-        },
-        {
-          "key": "DEFINED_TWICE",
-          "value": "valid",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 29
-        }
-      ]
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 4,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task with append operator in drawer",
-      "title_raw": "Task with append operator in drawer",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 35,
-        "byte_start": 858,
-        "byte_end": 1094
-      },
-      "properties": [
-        {
-          "key": "ADD-VALUE",
-          "value": "is",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 37
-        },
-        {
-          "key": "ADD-VALUE",
-          "value": "valid",
-          "source": "property_drawer",
-          "append": true,
-          "line_number": 38
-        }
-      ]
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 5,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task with mixed-case keys",
-      "title_raw": "Task with mixed-case keys",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 45,
-        "byte_start": 1094,
-        "byte_end": 1304
-      },
-      "properties": [
-        {
-          "key": "ID",
-          "value": "lowercase-id",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 47
-        },
-        {
-          "key": "CUSTOM_ID",
-          "value": "mixed-case-custom-id",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 48
-        },
-        {
-          "key": "DRAWER_PROP",
-          "value": "valid",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 49
-        },
-        {
-          "key": "ADD-VALUE",
-          "value": "appended",
-          "source": "property_drawer",
-          "append": true,
-          "line_number": 50
-        }
-      ]
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 6,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task with empty property accepted by Orgize",
-      "title_raw": "Task with empty property accepted by Orgize",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 58,
-        "byte_start": 1304,
-        "byte_end": 1437
-      },
-      "properties": [
-        {
-          "key": "EMPTY",
-          "value": "",
-          "source": "property_drawer",
-          "append": false,
-          "line_number": 60
-        }
-      ]
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 7,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task with Orgize empty-property limitation",
-      "title_raw": "Task with Orgize empty-property limitation",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 67,
-        "byte_start": 1437,
-        "byte_end": 1718
-      },
-      "properties": []
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 8,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task after file-level property keywords",
-      "title_raw": "Task after file-level property keywords",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 76,
-        "byte_start": 1718,
-        "byte_end": 1984
-      },
-      "properties": []
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 9,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Task after later file-level keywords",
-      "title_raw": "Task after later file-level keywords",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 83,
-        "byte_start": 1984,
-        "byte_end": 2264
-      },
-      "properties": []
-    },
-    {
-      "kind": "heading",
-      "matched": true,
-      "id": 10,
-      "file_id": 1,
-      "parent_id": 1,
-      "level": 1,
-      "title": "Boundary: property-like but not properties",
-      "title_raw": "Boundary: property-like but not properties",
-      "todo_keyword": null,
-      "todo_type": null,
-      "priority": null,
-      "scheduled_raw": null,
-      "scheduled_ts": null,
-      "deadline_raw": null,
-      "deadline_ts": null,
-      "closed_raw": null,
-      "closed_ts": null,
-      "archivedp": false,
-      "footnote_section_p": false,
-      "all_tags": [
-        "project",
-        "work"
-      ],
-      "location": {
-        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
-        "line": 89,
-        "byte_start": 2264,
-        "byte_end": 2783
-      },
-      "properties": []
-    }
-  ]
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
 }
+#+end_SRC
+
+* File Level Property Match - with Keyword
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "whatever" "level 0 drawer property" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+* Property Appedn
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "add-value" "is valid"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
 #+end_SRC
 

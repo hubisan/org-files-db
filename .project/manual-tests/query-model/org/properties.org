@@ -1,102 +1,321 @@
 :PROPERTIES:
 :CATEGORY: Level 0 Category Property
 :WHATEVER: level 0 drawer property
+:OVERWRITE: this one works
 :ID: 7dad9b62-a3cc-43ec-a60f-e650bdaeae6d
+:ROOT_DRAWER_BASE: root
+:ROOT_DRAWER_APPEND: root
+:ROOT_DRAWER_APPEND+: appended
+:ROOT_DRAWER_DUPLICATE: first
+:ROOT_DRAWER_DUPLICATE: second
+:ROOT_OVERRIDE_CHAIN: root
 :END:
 #+TITLE: Org Property and Keyword Test
 #+STARTUP: showall
 #+CATEGORY: category_keyword_value
-#+PROPERTY: Effort_ALL 0:10 0:30 1:00
-#+PROPERTY: keyword_property valid
-#+PROPERTY: keyword_overwritten_by_second invalid
-#+PROPERTY: keyword_overwritten_by_second valid
-#+PROPERTY: keyword_append foo=1
-#+PROPERTY: keyword_append+ bar=2
+#+PROPERTY: KEYWORD_APPEND foo=1
+#+PROPERTY: KEYWORD_APPEND+ bar=2
+#+PROPERTY: KEYWORD_APPEND+ baz=3
+#+PROPERTY: KEYWORD_DUPLICATE first
+#+PROPERTY: KEYWORD_DUPLICATE second
+#+PROPERTY: KEYWORD_RESET old
+#+PROPERTY: KEYWORD_RESET+ appended-before-reset
+#+PROPERTY: KEYWORD_RESET replacement
+#+PROPERTY: KEYWORD_RESET+ appended-after-reset
+#+PROPERTY: KEYWORD_APPEND_ONLY only
+#+PROPERTY: KEYWORD_APPEND_ONLY+ appended
+#+PROPERTY: KEYWORD_EMPTY
+#+PROPERTY: KEYWORD_EMPTY+ valid
 
-* Task with multiple drawer properties
-:PROPERTIES:
-:ID: abc
-:CUSTOM_ID: task-custom-id
-:Effort: 0:30
-:Owner: Alice
-:drawer_prop: valid
-:END:
-Body text for the first task.
+* Expected file/root values
 
-* Task with duplicate drawer properties
-:PROPERTIES:
-:defined_twice: invalid
-:defined_twice: valid
-:END:
-Expected raw/direct storage:
-- both DEFINED_TWICE rows should be preserved
-- no overwrite should be computed here
+The synthetic level-0 file/root object should have these direct effective properties:
 
-* Task with append operator in drawer
-:PROPERTIES:
-:add-value: is
-:add-value+: valid
-:END:
-Expected raw/direct storage:
-- ADD-VALUE = is, append = 0
-- ADD-VALUE = valid, append = 1
-- final value "is valid" is not computed in this task
+- ~ROOT_DRAWER_BASE = root~
+- ~ROOT_DRAWER_APPEND = root appended~
+- ~ROOT_DRAWER_DUPLICATE = second~
+- ~ROOT_OVERRIDE_CHAIN = root~
+- ~KEYWORD_APPEND = foo=1 bar=2 baz=3~
+- ~KEYWORD_DUPLICATE = second~
+- ~KEYWORD_RESET = replacement appended-after-reset~
+- ~KEYWORD_APPEND_ONLY = only appended~
+- ~KEYWORD_EMPTY = valid~
 
-* Task with mixed-case keys
-:PROPERTIES:
-:id: lowercase-id
-:Custom_Id: mixed-case-custom-id
-:drawer_prop: valid
-:add-value+: appended
-:END:
-Expected normalized keys:
-- ID
-- CUSTOM_ID
-- DRAWER_PROP
-- ADD-VALUE
+With ~:inherit nil~, these values match only the file/root object.
 
-* Task with empty property accepted by Orgize
+With ~:inherit t~, real headings may inherit these values unless a nearer heading defines the same property.
+
+* Nearest ancestor wins
 :PROPERTIES:
-:EMPTY: 
+:VALUE: grandparent
 :END:
+
+** Parent override
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+*** Child inheriting nearest value
+
 Expected:
-- key EMPTY
-- value ""
-- source property_drawer
 
-* Task with Orgize empty-property limitation
+- ~:inherit nil~ finds no direct ~VALUE~
+- ~:inherit t~ gives ~VALUE = parent~
+- the grandparent value is hidden by the nearer parent definition
+
+*** Child appending to nearest value
 :PROPERTIES:
-:EMPTY:
+:VALUE+: child
 :END:
-Expected for now:
-- Orgize may expose this as a generic drawer, not PROPERTY_DRAWER
-- parser should not add fallback parsing in this task
-- no property row is expected if Orgize does not expose NODE_PROPERTY
 
-* Task after file-level property keywords
-This heading should not directly receive file-level #+PROPERTY or #+CATEGORY rows.
-Those belong to the synthetic level 0 heading only.
+Expected:
 
-#+PROPERTY: later_keyword_property works_everywhere
-#+CATEGORY: later_category_keyword
+- ~:inherit nil~ gives ~VALUE = child~
+- ~:inherit t~ gives ~VALUE = parent child~
 
-* Task after later file-level keywords
-This heading still should not directly receive those keyword properties.
-They should be stored on level 0 as:
-- LATER_KEYWORD_PROPERTY = works_everywhere, source property_keyword
-- CATEGORY = later_category_keyword, source category_keyword
+*** Child replacing nearest value
+:PROPERTIES:
+:VALUE: child
+:END:
 
-* Boundary: property-like but not properties
-#+FILETAGS: :project:work:
-#+TAGS: work(w) home(h)
-#+COLUMNS: %TODO %50ITEM %Effort{:} %CLOCKSUM
-#+CONSTANTS: c=299792458
-#+AUTHOR: Jane Doe
-#+OPTIONS: toc:nil num:t
+Expected:
 
-These keyword lines should not create property rows in this task.
-FILETAGS belongs to the later tags task.
-TAGS may later become tag-definition metadata.
-COLUMNS references properties but does not define property values.
-CONSTANTS belongs to table/formula semantics.
-AUTHOR and OPTIONS remain raw keywords.
+- ~:inherit nil~ gives ~VALUE = child~
+- ~:inherit t~ gives ~VALUE = child~
+
+* Root drawer inheritance
+
+** Child inheriting root drawer base
+
+Expected:
+
+- ~:inherit nil~ finds no direct ~ROOT_DRAWER_BASE~
+- ~:inherit t~ gives ~ROOT_DRAWER_BASE = root~
+
+** Child appending to root drawer base
+:PROPERTIES:
+:ROOT_DRAWER_BASE+: child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~ROOT_DRAWER_BASE = child~
+- ~:inherit t~ gives ~ROOT_DRAWER_BASE = root child~
+
+** Child replacing root drawer base
+:PROPERTIES:
+:ROOT_DRAWER_BASE: child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~ROOT_DRAWER_BASE = child~
+- ~:inherit t~ gives ~ROOT_DRAWER_BASE = child~
+
+* File keyword inheritance
+
+** Child inheriting appended keyword
+
+Expected:
+
+- ~:inherit nil~ finds no direct ~KEYWORD_APPEND~
+- ~:inherit t~ gives ~KEYWORD_APPEND = foo=1 bar=2 baz=3~
+
+** Child appending to file keyword
+:PROPERTIES:
+:KEYWORD_APPEND+: child=4
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~KEYWORD_APPEND = child=4~
+- ~:inherit t~ gives ~KEYWORD_APPEND = foo=1 bar=2 baz=3 child=4~
+
+** Child replacing file keyword
+:PROPERTIES:
+:KEYWORD_APPEND: local=1
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~KEYWORD_APPEND = local=1~
+- ~:inherit t~ gives ~KEYWORD_APPEND = local=1~
+
+** Child replacing and appending file keyword
+:PROPERTIES:
+:KEYWORD_APPEND: local=1
+:KEYWORD_APPEND+: local=2
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~KEYWORD_APPEND = local=1 local=2~
+- ~:inherit t~ gives ~KEYWORD_APPEND = local=1 local=2~
+
+* Duplicate property definitions in one drawer
+:PROPERTIES:
+:DEFINED_TWICE: works
+:DEFINED_TWICE: second is effective
+:END:
+
+Expected:
+
+- both rows are preserved in raw storage
+- ~:inherit nil~ gives ~DEFINED_TWICE = second is effective~
+- ~:inherit t~ gives ~DEFINED_TWICE = second is effective~
+- an exact query for ~works~ does not match
+- an exact query for ~second is effective~ matches
+
+* Duplicate definition followed by append
+:PROPERTIES:
+:VALUE: first
+:VALUE: second
+:VALUE+: appended
+:END:
+
+Expected:
+
+- ~VALUE = second appended~
+
+* Append followed by duplicate replacement
+:PROPERTIES:
+:VALUE: first
+:VALUE+: appended
+:VALUE: second
+:END:
+
+Expected:
+
+- ~VALUE = second~
+
+* Parent duplicate definition
+:PROPERTIES:
+:VALUE: first
+:VALUE: second
+:END:
+
+** Child inheriting duplicate parent value
+
+Expected:
+
+- ~:inherit nil~ finds no direct ~VALUE~
+- ~:inherit t~ gives ~VALUE = second~
+
+** Child appending to duplicate parent value
+:PROPERTIES:
+:VALUE+: child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = child~
+- ~:inherit t~ gives ~VALUE = second child~
+
+* Parent definition overridden by child duplicate definitions
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+** Child with two local definitions
+:PROPERTIES:
+:VALUE: first child
+:VALUE: second child
+:END:
+
+Expected:
+
+- ~:inherit nil~ gives ~VALUE = second child~
+- ~:inherit t~ gives ~VALUE = second child~
+- the parent value does not participate
+
+* Independent property keys
+:PROPERTIES:
+:VALUE_A: one
+:VALUE_A+: two
+:VALUE_B: first
+:VALUE_B: second
+:END:
+
+Expected:
+
+- ~VALUE_A = one two~
+- ~VALUE_B = second~
+- resolution is performed independently per normalized key
+
+* Mixed-case property keys
+:PROPERTIES:
+:Mixed_Key: first
+:mixed_key+: second
+:MIXED_KEY: replacement
+:MiXeD_KeY+: final
+:END:
+
+Expected after key normalization:
+
+- one effective key ~MIXED_KEY~
+- effective value ~replacement final~
+
+* Query expectations
+
+The following query should match ~Local append on the same heading~:
+
+#+begin_src lisp
+(headings
+  (property "VALUE" "first second" :exact t :inherit nil))
+#+end_src
+
+The following query should match ~Child with append only~:
+
+#+begin_src lisp
+(headings
+  (property "VALUE" "parent child" :exact t :inherit t))
+#+end_src
+
+The same child should also match this direct-only query:
+
+#+begin_src lisp
+(headings
+  (property "VALUE" "child" :exact t :inherit nil))
+#+end_src
+
+The duplicate drawer heading should match:
+
+#+begin_src lisp
+(headings
+  (property
+    "DEFINED_TWICE"
+    "second is effective"
+    :exact t
+    :inherit nil))
+#+end_src
+
+It should not match:
+
+#+begin_src lisp
+(headings
+  (property "DEFINED_TWICE" "works" :exact t :inherit nil))
+#+end_src
+
+The file/root object should match:
+
+#+begin_src lisp
+(headings
+  (property
+    "KEYWORD_APPEND"
+    "foo=1 bar=2 baz=3"
+    :exact t
+    :inherit nil))
+#+end_src
+
+Real headings inheriting the keyword should match:
+
+#+begin_src lisp
+(headings
+  (and
+    (level > 0)
+    (property
+      "KEYWORD_APPEND"
+      "foo=1 bar=2 baz=3"
+      :exact t
+      :inherit t)))
+#+end_src

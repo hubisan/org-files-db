@@ -204,7 +204,11 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
 
+<<<<<<< Updated upstream
 ** REVIEW [#B] Resolve effective property values for query matching
+=======
+** TODO [#B] Resolve effective property values for query matching
+>>>>>>> Stashed changes
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -308,6 +312,7 @@ DEFINED_TWICE = second is effective
 #+end_src
 
 Resolution stages:
+<<<<<<< Updated upstream
 
 1. Resolve all rows stored directly at one location.
 2. Apply hierarchy inheritance to those locally resolved values.
@@ -315,6 +320,15 @@ Resolution stages:
 
 Source order:
 
+=======
+
+1. Resolve all rows stored directly at one location.
+2. Apply hierarchy inheritance to those locally resolved values.
+3. Match property predicates against the resulting direct or inherited value according to ~:inherit~.
+
+Source order:
+
+>>>>>>> Stashed changes
 - Resolve local property rows in source order.
 - Use ~line_number~ as the primary ordering field.
 - Use property row ~id~ as a stable secondary ordering field.
@@ -538,6 +552,7 @@ Example:
 :PROPERTIES:
 :VALUE+: child
 :END:
+<<<<<<< Updated upstream
 #+end_src
 
 - Add a regression test for the accepted result.
@@ -560,6 +575,30 @@ VALUE = valid, append = 1
 effective VALUE = valid
 #+end_src
 
+=======
+#+end_src
+
+- Add a regression test for the accepted result.
+- Prefer matching actual Org behavior.
+- Document whether the child effective value becomes:
+  - ~child~
+  - or ~parent child~
+- Do not leave this case dependent on incidental implementation details.
+
+Empty values:
+
+- Do not introduce leading, trailing, or duplicate separator spaces solely because a component is empty.
+
+Examples:
+
+#+begin_src text
+VALUE = "", append = 0
+VALUE = valid, append = 1
+
+effective VALUE = valid
+#+end_src
+
+>>>>>>> Stashed changes
 #+begin_src text
 VALUE = valid, append = 0
 VALUE = "", append = 1
