@@ -1705,61 +1705,26 @@ fn compile_heading_property_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if !option_bool_with_default(&predicate.options, "inherit", true)? {
-        return compile_property_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
-    }
-
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "property",
-            "property with :regexp t is not supported by the SQLite metadata backend",
-        ));
-    }
-
-    let key = arg_as_string(&predicate.args[0]).map_err(|message| {
-        QueryExecutionError::unsupported_backend_feature(QueryTarget::Headings, "property", message)
-    })?;
-    let mut fact_match_sql = "matched_properties.key = ? COLLATE NOCASE".to_string();
-    let mut params = vec![QueryParam::Text(key)];
-    if let Some(value) = predicate.args.get(1) {
-        fact_match_sql.push_str(" AND matched_properties.value = ?");
-        params.push(QueryParam::Text(arg_as_string(value).map_err(
-            |message| {
-                QueryExecutionError::unsupported_backend_feature(
-                    QueryTarget::Headings,
-                    "property",
-                    message,
-                )
-            },
-        )?));
-    }
-
-    Ok(SqlFragment {
-        sql: heading_lineage_exists_sql(
-            &scope.heading_col("id"),
-            &scope.heading_col("parent_id"),
-            &scope.heading_col("level"),
-            "properties",
-            "matched_properties",
-            &fact_match_sql,
-            true,
-        ),
-        params,
-    })
+    compile_resolved_property_predicate(
+        QueryTarget::Headings,
+        predicate,
+        &scope.heading_col("id"),
+        option_bool_with_default(&predicate.options, "inherit", true)?,
+    )
 }
 
 fn compile_file_property_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    compile_property_exists(QueryTarget::Files, predicate, &scope.root_col("id"))
+    compile_resolved_property_predicate(QueryTarget::Files, predicate, &scope.root_col("id"), false)
 }
 
-fn compile_property_exists(
+fn compile_resolved_property_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
+    inherit: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if option_bool(&predicate.options, "regexp")? {
         return Err(QueryExecutionError::unsupported_backend_feature(
@@ -1772,18 +1737,164 @@ fn compile_property_exists(
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(target, "property", message)
     })?;
-    let mut sql = format!(
-        "(EXISTS (SELECT 1 FROM properties WHERE properties.heading_id = {heading_id_sql} AND properties.key = ? COLLATE NOCASE"
-    );
     let mut params = vec![QueryParam::Text(key)];
+    let final_select = if inherit {
+        if predicate.args.get(1).is_some() {
+            "SELECT 1
+             FROM effective
+             WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
+               AND effective.has_any = 1
+               AND effective.effective_value = ?"
+        } else {
+            "SELECT 1
+             FROM effective
+             WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
+               AND effective.has_any = 1"
+        }
+    } else if predicate.args.get(1).is_some() {
+        "SELECT 1
+         FROM local_summary
+         WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
+           AND local_summary.has_any = 1
+           AND local_summary.local_value = ?"
+    } else {
+        "SELECT 1
+         FROM local_summary
+         WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
+           AND local_summary.has_any = 1"
+    };
+
     if let Some(value) = predicate.args.get(1) {
-        sql.push_str(" AND properties.value = ?");
         params.push(QueryParam::Text(arg_as_string(value).map_err(
             |message| QueryExecutionError::unsupported_backend_feature(target, "property", message),
         )?));
     }
-    sql.push_str("))");
-    Ok(SqlFragment { sql, params })
+    Ok(SqlFragment {
+        sql: format!(
+            "(EXISTS (
+                WITH RECURSIVE lineage_up(heading_id, parent_id, depth) AS (
+                    SELECT candidate.id, candidate.parent_id, 0
+                    FROM headings AS candidate
+                    WHERE candidate.id = {heading_id_sql}
+                    UNION ALL
+                    SELECT ancestor.id, ancestor.parent_id, lineage_up.depth + 1
+                    FROM headings AS ancestor
+                    INNER JOIN lineage_up ON lineage_up.parent_id = ancestor.id
+                ),
+                lineage AS (
+                    SELECT
+                        lineage_up.heading_id,
+                        ROW_NUMBER() OVER (ORDER BY lineage_up.depth DESC) AS seq
+                    FROM lineage_up
+                ),
+                local_rows AS (
+                    SELECT
+                        lineage.seq,
+                        lineage.heading_id,
+                        properties.id AS property_id,
+                        properties.value,
+                        properties.append,
+                        properties.line_number,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY lineage.heading_id
+                            ORDER BY properties.line_number, properties.id
+                        ) AS ord,
+                        SUM(CASE WHEN properties.append = 0 THEN 1 ELSE 0 END) OVER (
+                            PARTITION BY lineage.heading_id
+                            ORDER BY properties.line_number, properties.id
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                        ) AS reset_group
+                    FROM lineage
+                    INNER JOIN properties ON properties.heading_id = lineage.heading_id
+                    WHERE properties.key = ? COLLATE NOCASE
+                ),
+                local_rows_enriched AS (
+                    SELECT
+                        local_rows.seq,
+                        local_rows.heading_id,
+                        local_rows.value,
+                        local_rows.append,
+                        local_rows.ord,
+                        local_rows.reset_group,
+                        MAX(local_rows.reset_group) OVER (
+                            PARTITION BY local_rows.heading_id
+                        ) AS final_group,
+                        MAX(CASE WHEN local_rows.append = 0 THEN 1 ELSE 0 END) OVER (
+                            PARTITION BY local_rows.heading_id
+                        ) AS has_non_append
+                    FROM local_rows
+                ),
+                local_summary AS (
+                    SELECT
+                        lineage.seq,
+                        lineage.heading_id,
+                        CASE
+                            WHEN EXISTS (
+                                SELECT 1
+                                FROM local_rows_enriched
+                                WHERE local_rows_enriched.heading_id = lineage.heading_id
+                            ) THEN 1
+                            ELSE 0
+                        END AS has_any,
+                        COALESCE((
+                            SELECT MAX(local_rows_enriched.has_non_append)
+                            FROM local_rows_enriched
+                            WHERE local_rows_enriched.heading_id = lineage.heading_id
+                        ), 0) AS has_non_append,
+                        COALESCE((
+                            SELECT group_concat(part, ' ')
+                            FROM (
+                                SELECT
+                                    CASE
+                                        WHEN COALESCE(local_rows_enriched.value, '') = '' THEN NULL
+                                        ELSE local_rows_enriched.value
+                                    END AS part
+                                FROM local_rows_enriched
+                                WHERE local_rows_enriched.heading_id = lineage.heading_id
+                                  AND (
+                                      local_rows_enriched.final_group = 0
+                                      OR local_rows_enriched.reset_group = local_rows_enriched.final_group
+                                  )
+                                ORDER BY local_rows_enriched.ord
+                            )
+                        ), '') AS local_value
+                    FROM lineage
+                ),
+                effective(seq, heading_id, has_any, effective_value) AS (
+                    SELECT
+                        local_summary.seq,
+                        local_summary.heading_id,
+                        local_summary.has_any,
+                        CASE
+                            WHEN local_summary.has_any = 1 THEN local_summary.local_value
+                            ELSE ''
+                        END
+                    FROM local_summary
+                    WHERE local_summary.seq = 1
+                    UNION ALL
+                    SELECT
+                        local_summary.seq,
+                        local_summary.heading_id,
+                        CASE
+                            WHEN local_summary.has_any = 1 THEN 1
+                            ELSE effective.has_any
+                        END,
+                        CASE
+                            WHEN local_summary.has_any = 0 THEN effective.effective_value
+                            WHEN local_summary.has_non_append = 1 THEN local_summary.local_value
+                            WHEN effective.has_any = 0 THEN local_summary.local_value
+                            WHEN effective.effective_value = '' THEN local_summary.local_value
+                            WHEN local_summary.local_value = '' THEN effective.effective_value
+                            ELSE effective.effective_value || ' ' || local_summary.local_value
+                        END
+                    FROM effective
+                    INNER JOIN local_summary ON local_summary.seq = effective.seq + 1
+                )
+                {final_select}
+            ))"
+        ),
+        params,
+    })
 }
 
 fn compile_keyword_predicate(
@@ -2975,21 +3086,21 @@ mod tests {
 
         let parent_rows = execute_sqlite_query(&connection, &validated(r#"(headings (parent))"#))
             .expect("parent query should execute");
-        assert_eq!(heading_ids(parent_rows), vec![12]);
+        assert_eq!(heading_ids(parent_rows), vec![12, 14, 15]);
 
         let parent_nested_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(headings (parent (headings (title "Query Engine" :exact t))))"#),
         )
         .expect("nested parent query should execute");
-        assert_eq!(heading_ids(parent_nested_rows), vec![12]);
+        assert_eq!(heading_ids(parent_nested_rows), vec![12, 14, 15]);
 
         let ancestor_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(headings (ancestors (headings (title "Query Engine" :exact t))))"#),
         )
         .expect("ancestor query should execute");
-        assert_eq!(heading_ids(ancestor_rows), vec![12]);
+        assert_eq!(heading_ids(ancestor_rows), vec![12, 14, 15]);
 
         let children_rows =
             execute_sqlite_query(&connection, &validated(r#"(headings (children))"#))
@@ -3281,7 +3392,7 @@ mod tests {
         let correlated_rows =
             execute_sqlite_query(&connection, &validated(r#"(headings (tags "project"))"#))
                 .expect("correlated tag query should execute");
-        assert_eq!(heading_ids(correlated_rows), vec![11, 12]);
+        assert_eq!(heading_ids(correlated_rows), vec![11, 12, 14, 15]);
         assert_eq!(
             heading_file_paths(
                 execute_sqlite_query(&connection, &validated(r#"(headings (tags "filetag"))"#))
@@ -3346,30 +3457,111 @@ mod tests {
             vec!["/tmp/query-alpha.org".to_string()]
         );
 
-        let append_rust_rows = execute_sqlite_query(
+        let appended_rows = execute_sqlite_query(
             &connection,
             &validated(
-                r#"(headings (and (title "Query Engine" :exact t) (property "LANG" "rust" :inherit nil)))"#,
+                r#"(headings (and (title "Query Engine" :exact t) (property "LANG" "rust emacs" :inherit nil)))"#,
             ),
         )
         .expect("append property query should execute");
-        assert_eq!(heading_ids(append_rust_rows), vec![11]);
+        assert_eq!(heading_ids(appended_rows), vec![11]);
 
-        let append_emacs_rows = execute_sqlite_query(
+        let non_resolved_component_rows = execute_sqlite_query(
             &connection,
             &validated(
                 r#"(headings (and (title "Query Engine" :exact t) (property "LANG" "emacs" :inherit nil)))"#,
             ),
         )
         .expect("append property query should execute");
-        assert_eq!(heading_ids(append_emacs_rows), vec![11]);
+        assert_eq!(heading_ids(non_resolved_component_rows), Vec::<i64>::new());
+
+        let overwrite_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "second is effective" :inherit nil)))"#,
+            ),
+        )
+        .expect("overwrite property query should execute");
+        assert_eq!(heading_ids(overwrite_rows), vec![13]);
+
+        let overwritten_value_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "works" :inherit nil)))"#,
+            ),
+        )
+        .expect("overwritten value query should execute");
+        assert_eq!(heading_ids(overwritten_value_rows), Vec::<i64>::new());
+
+        let add_value_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Statistic Cookies" :exact t) (property "ADD-VALUE" "is valid" :inherit nil)))"#,
+            ),
+        )
+        .expect("add-value property query should execute");
+        assert_eq!(heading_ids(add_value_rows), vec![14]);
+
+        let add_value_fragment_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Statistic Cookies" :exact t) (property "ADD-VALUE" "valid" :inherit nil)))"#,
+            ),
+        )
+        .expect("add-value fragment property query should execute");
+        assert_eq!(heading_ids(add_value_fragment_rows), Vec::<i64>::new());
+
+        let root_append_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (property "KEYWORD_APPEND" "foo=1 bar=2" :inherit nil))"#),
+        )
+        .expect("root append property query should execute");
+        assert_eq!(
+            heading_file_paths(root_append_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let root_overwrite_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (property "KEYWORD_OVERWRITTEN_BY_SECOND" "valid" :inherit nil))"#,
+            ),
+        )
+        .expect("root overwrite property query should execute");
+        assert_eq!(
+            heading_file_paths(root_overwrite_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let append_inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "APPEND_INHERITED" "parent child")))"#,
+            ),
+        )
+        .expect("append inherited property query should execute");
+        assert_eq!(heading_ids(append_inherited_rows), vec![12]);
+
+        let override_parent_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (property "OVERRIDE_CHAIN" "parent"))"#),
+        )
+        .expect("override parent property query should execute");
+        assert_eq!(heading_ids(override_parent_rows), vec![11, 12, 14]);
+
+        let override_child_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (property "OVERRIDE_CHAIN" "child"))"#),
+        )
+        .expect("override child property query should execute");
+        assert_eq!(heading_ids(override_child_rows), vec![15]);
 
         let correlated_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(headings (property "AREA" "infra"))"#),
         )
         .expect("correlated property query should execute");
-        assert_eq!(heading_ids(correlated_rows), vec![11, 12]);
+        assert_eq!(heading_ids(correlated_rows), vec![11, 12, 14, 15]);
         assert_eq!(
             heading_file_paths(
                 execute_sqlite_query(
@@ -3386,7 +3578,7 @@ mod tests {
         assert_eq!(
             after_rows,
             vec![
-                (Some("rust".to_string()), true),
+                (Some("rust".to_string()), false),
                 (Some("emacs".to_string()), true),
             ]
         );
@@ -3474,7 +3666,7 @@ mod tests {
             &validated(r#"(headings (file-title "Alpha Index" :exact t))"#),
         )
         .expect("file-title query should execute");
-        assert_eq!(heading_ids(file_title_rows), vec![11, 12, 13, 14]);
+        assert_eq!(heading_ids(file_title_rows), vec![11, 12, 13, 14, 15]);
     }
 
     #[test]
@@ -5638,8 +5830,8 @@ CREATE TABLE timestamps (
                     HeadingRecord {
                         id: Some(14),
                         file_id,
-                        parent_id: Some(root_id),
-                        level: 1,
+                        parent_id: Some(11),
+                        level: 2,
                         line_number: Some(10),
                         byte_start: 96,
                         byte_end: 130,
@@ -5659,7 +5851,33 @@ CREATE TABLE timestamps (
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"filetag\"]".to_string(),
+                        all_tags_json: "[\"filetag\",\"project\"]".to_string(),
+                    },
+                    HeadingRecord {
+                        id: Some(15),
+                        file_id,
+                        parent_id: Some(11),
+                        level: 2,
+                        line_number: Some(12),
+                        byte_start: 131,
+                        byte_end: 160,
+                        title: "Overriding Child".to_string(),
+                        title_raw: Some("Overriding Child".to_string()),
+                        todo_keyword: None,
+                        todo_type: None,
+                        priority: None,
+                        scheduled_raw: None,
+                        scheduled_ts: None,
+                        scheduled_has_time: None,
+                        deadline_raw: None,
+                        deadline_ts: None,
+                        deadline_has_time: None,
+                        closed_raw: None,
+                        closed_ts: None,
+                        closed_has_time: None,
+                        archivedp: false,
+                        footnote_section_p: false,
+                        all_tags_json: "[\"filetag\",\"project\"]".to_string(),
                     },
                 ],
             )?;
@@ -5702,10 +5920,20 @@ CREATE TABLE timestamps (
                     OutlinePathRecord {
                         heading_id: 14,
                         file_id,
-                        parent_id: Some(10),
-                        depth: 1,
-                        materialized_path: "0000.0003".to_string(),
-                        breadcrumbs_json: "[\"Alpha Index\",\"Statistic Cookies\"]".to_string(),
+                        parent_id: Some(11),
+                        depth: 2,
+                        materialized_path: "0000.0001.0002".to_string(),
+                        breadcrumbs_json:
+                            "[\"Alpha Index\",\"Query Engine\",\"Statistic Cookies\"]".to_string(),
+                    },
+                    OutlinePathRecord {
+                        heading_id: 15,
+                        file_id,
+                        parent_id: Some(11),
+                        depth: 2,
+                        materialized_path: "0000.0001.0003".to_string(),
+                        breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\",\"Overriding Child\"]"
+                            .to_string(),
                     },
                 ],
             )?;
@@ -5763,6 +5991,54 @@ CREATE TABLE timestamps (
                         line_number: Some(2),
                     },
                     PropertyRecord {
+                        heading_id: 10,
+                        key: "KEYWORD_APPEND".to_string(),
+                        value: Some("foo=1".to_string()),
+                        source: "property_keyword".to_string(),
+                        append: false,
+                        line_number: Some(2),
+                    },
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "KEYWORD_APPEND".to_string(),
+                        value: Some("bar=2".to_string()),
+                        source: "property_keyword".to_string(),
+                        append: true,
+                        line_number: Some(3),
+                    },
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "KEYWORD_OVERWRITTEN_BY_SECOND".to_string(),
+                        value: Some("invalid".to_string()),
+                        source: "property_keyword".to_string(),
+                        append: false,
+                        line_number: Some(4),
+                    },
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "KEYWORD_OVERWRITTEN_BY_SECOND".to_string(),
+                        value: Some("valid".to_string()),
+                        source: "property_keyword".to_string(),
+                        append: false,
+                        line_number: Some(5),
+                    },
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "ROOT_ONLY".to_string(),
+                        value: Some("root".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(6),
+                    },
+                    PropertyRecord {
+                        heading_id: 10,
+                        key: "OVERRIDE_CHAIN".to_string(),
+                        value: Some("root".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(7),
+                    },
+                    PropertyRecord {
                         heading_id: 11,
                         key: "AREA".to_string(),
                         value: Some("infra".to_string()),
@@ -5775,7 +6051,7 @@ CREATE TABLE timestamps (
                         key: "LANG".to_string(),
                         value: Some("rust".to_string()),
                         source: "property_drawer".to_string(),
-                        append: true,
+                        append: false,
                         line_number: Some(5),
                     },
                     PropertyRecord {
@@ -5787,12 +6063,76 @@ CREATE TABLE timestamps (
                         line_number: Some(6),
                     },
                     PropertyRecord {
+                        heading_id: 11,
+                        key: "OVERRIDE_CHAIN".to_string(),
+                        value: Some("parent".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(7),
+                    },
+                    PropertyRecord {
+                        heading_id: 11,
+                        key: "APPEND_INHERITED".to_string(),
+                        value: Some("parent".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(8),
+                    },
+                    PropertyRecord {
                         heading_id: 12,
                         key: "OWNER".to_string(),
                         value: Some("Bob".to_string()),
                         source: "property_drawer".to_string(),
                         append: false,
-                        line_number: Some(7),
+                        line_number: Some(9),
+                    },
+                    PropertyRecord {
+                        heading_id: 12,
+                        key: "APPEND_INHERITED".to_string(),
+                        value: Some("child".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(10),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "DEFINED_TWICE".to_string(),
+                        value: Some("works".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(11),
+                    },
+                    PropertyRecord {
+                        heading_id: 13,
+                        key: "DEFINED_TWICE".to_string(),
+                        value: Some("second is effective".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(12),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "ADD-VALUE".to_string(),
+                        value: Some("is".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(13),
+                    },
+                    PropertyRecord {
+                        heading_id: 14,
+                        key: "ADD-VALUE".to_string(),
+                        value: Some("valid".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: true,
+                        line_number: Some(14),
+                    },
+                    PropertyRecord {
+                        heading_id: 15,
+                        key: "OVERRIDE_CHAIN".to_string(),
+                        value: Some("child".to_string()),
+                        source: "property_drawer".to_string(),
+                        append: false,
+                        line_number: Some(15),
                     },
                 ],
             )?;

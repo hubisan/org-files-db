@@ -10,8 +10,9 @@ use serde::Serialize;
 
 use super::sqlite::HeadingQueryMatch;
 use super::{
-    execute_sqlite_query_with_options, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
-    ValidatedQuery,
+    execute_sqlite_query_with_options,
+    property::{PropertyResolver, PropertyRow},
+    LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget, ValidatedQuery,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -26,6 +27,7 @@ pub enum QueryOutputMode {
 pub enum QueryInclude {
     Path,
     Properties,
+    EffectiveProperties,
     Keywords,
     Links,
     Backlinks,
@@ -90,6 +92,8 @@ pub struct FileResultNode {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<PropertyFact>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_properties: Option<Vec<EffectivePropertyFact>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub keywords: Option<Vec<KeywordFact>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub links: Option<Vec<IncludedLink>>,
@@ -125,6 +129,8 @@ pub struct HeadingResultNode {
     pub node_path: Option<Vec<PathEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<PropertyFact>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_properties: Option<Vec<EffectivePropertyFact>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keywords: Option<Vec<KeywordFact>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -204,6 +210,12 @@ pub struct PropertyFact {
     pub source: String,
     pub append: bool,
     pub line_number: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EffectivePropertyFact {
+    pub key: String,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -488,6 +500,7 @@ struct StoredLink {
 
 #[derive(Debug, Clone)]
 struct StoredProperty {
+    id: i64,
     heading_id: i64,
     fact: PropertyFact,
 }
@@ -502,6 +515,7 @@ struct EnrichmentContext {
     files: HashMap<i64, StoredFile>,
     headings: HashMap<i64, StoredHeading>,
     properties: HashMap<i64, Vec<PropertyFact>>,
+    effective_properties: HashMap<i64, Vec<EffectivePropertyFact>>,
     keywords: HashMap<i64, Vec<KeywordFact>>,
     links_by_file: HashMap<i64, Vec<StoredLink>>,
     links_by_heading: HashMap<i64, Vec<StoredLink>>,
@@ -606,16 +620,37 @@ impl EnrichmentContext {
         let headings = load_headings_for_files(connection, &relevant_file_ids)?;
 
         let mut properties = HashMap::new();
-        if include_set.contains(&QueryInclude::Properties) {
-            for property in
-                load_properties(connection, &matched_heading_ids, &matched_file_ids, &files)?
-            {
+        let loaded_properties = if include_set.contains(&QueryInclude::Properties)
+            || include_set.contains(&QueryInclude::EffectiveProperties)
+        {
+            Some(load_properties(
+                connection,
+                &matched_heading_ids,
+                &matched_file_ids,
+                &files,
+                include_set.contains(&QueryInclude::EffectiveProperties),
+            )?)
+        } else {
+            None
+        };
+        if let Some(loaded_properties) = loaded_properties.as_ref() {
+            for property in loaded_properties {
                 properties
                     .entry(property.heading_id)
                     .or_insert_with(Vec::new)
-                    .push(property.fact);
+                    .push(property.fact.clone());
             }
         }
+
+        let effective_properties = if include_set.contains(&QueryInclude::EffectiveProperties) {
+            build_effective_properties(
+                &files,
+                &headings,
+                loaded_properties.as_deref().unwrap_or(&[]),
+            )
+        } else {
+            HashMap::new()
+        };
 
         let mut keywords = HashMap::new();
         if include_set.contains(&QueryInclude::Keywords) {
@@ -633,6 +668,7 @@ impl EnrichmentContext {
             files,
             headings,
             properties,
+            effective_properties,
             keywords,
             links_by_file,
             links_by_heading,
@@ -682,6 +718,14 @@ impl EnrichmentContext {
                     .cloned()
                     .unwrap_or_default()
             }),
+            effective_properties: includes.contains(&QueryInclude::EffectiveProperties).then(
+                || {
+                    self.effective_properties
+                        .get(&file.root_heading_id)
+                        .cloned()
+                        .unwrap_or_default()
+                },
+            ),
             keywords: includes.contains(&QueryInclude::Keywords).then(|| {
                 self.keywords
                     .get(&file.root_heading_id)
@@ -742,6 +786,14 @@ impl EnrichmentContext {
                     .cloned()
                     .unwrap_or_default()
             }),
+            effective_properties: includes.contains(&QueryInclude::EffectiveProperties).then(
+                || {
+                    self.effective_properties
+                        .get(&heading.id)
+                        .cloned()
+                        .unwrap_or_default()
+                },
+            ),
             keywords: includes
                 .contains(&QueryInclude::Keywords)
                 .then(|| self.keywords.get(&heading.id).cloned().unwrap_or_default()),
@@ -1417,44 +1469,127 @@ fn load_properties(
     heading_ids: &BTreeSet<i64>,
     file_ids: &BTreeSet<i64>,
     files: &HashMap<i64, StoredFile>,
+    include_all_file_headings: bool,
 ) -> Result<Vec<StoredProperty>, QueryShapeError> {
-    let mut target_ids = heading_ids.clone();
-    for file_id in file_ids {
-        if let Some(file) = files.get(file_id) {
-            target_ids.insert(file.root_heading_id);
+    let (sql, params) = if include_all_file_headings {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
         }
-    }
-    if target_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let sql = format!(
-        "SELECT heading_id, key, value, source, append, line_number
-         FROM properties
-         WHERE heading_id IN ({})
-         ORDER BY heading_id, line_number, id",
-        placeholders(target_ids.len())
-    );
-    let params = target_ids.iter().copied().collect::<Vec<_>>();
+        (
+            format!(
+                "SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                        properties.source, properties.append, properties.line_number
+                 FROM properties
+                 INNER JOIN headings ON headings.id = properties.heading_id
+                 WHERE headings.file_id IN ({})
+                 ORDER BY properties.heading_id, properties.line_number, properties.id",
+                placeholders(file_ids.len())
+            ),
+            file_ids.iter().copied().collect::<Vec<_>>(),
+        )
+    } else {
+        let mut target_ids = heading_ids.clone();
+        for file_id in file_ids {
+            if let Some(file) = files.get(file_id) {
+                target_ids.insert(file.root_heading_id);
+            }
+        }
+        if target_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        (
+            format!(
+                "SELECT properties.id, heading_id, key, value, source, append, line_number
+                 FROM properties
+                 WHERE heading_id IN ({})
+                 ORDER BY heading_id, line_number, id",
+                placeholders(target_ids.len())
+            ),
+            target_ids.iter().copied().collect::<Vec<_>>(),
+        )
+    };
     let mut statement = connection
         .prepare(&sql)
         .map_err(|source| QueryShapeError::database("load_properties.prepare", source))?;
     let rows = statement
         .query_map(params_from_iter(params.iter()), |row| {
             Ok(StoredProperty {
-                heading_id: row.get(0)?,
+                id: row.get(0)?,
+                heading_id: row.get(1)?,
                 fact: PropertyFact {
-                    key: row.get(1)?,
-                    value: row.get(2)?,
-                    source: row.get(3)?,
-                    append: row.get::<_, i64>(4)? != 0,
-                    line_number: row.get(5)?,
+                    key: row.get(2)?,
+                    value: row.get(3)?,
+                    source: row.get(4)?,
+                    append: row.get::<_, i64>(5)? != 0,
+                    line_number: row.get(6)?,
                 },
             })
         })
         .map_err(|source| QueryShapeError::database("load_properties.query", source))?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|source| QueryShapeError::database("load_properties.collect", source))
+}
+
+fn build_effective_properties(
+    files: &HashMap<i64, StoredFile>,
+    headings: &HashMap<i64, StoredHeading>,
+    properties: &[StoredProperty],
+) -> HashMap<i64, Vec<EffectivePropertyFact>> {
+    let mut parent_by_heading = HashMap::new();
+    for heading in headings.values() {
+        parent_by_heading.insert(heading.id, heading.parent_id);
+    }
+
+    let mut rows_by_heading = HashMap::<i64, Vec<PropertyRow>>::new();
+    for property in properties {
+        rows_by_heading
+            .entry(property.heading_id)
+            .or_default()
+            .push(PropertyRow {
+                id: property.id,
+                heading_id: property.heading_id,
+                key: property.fact.key.clone(),
+                value: property.fact.value.clone(),
+                append: property.fact.append,
+                line_number: property.fact.line_number,
+            });
+    }
+
+    let mut resolver = PropertyResolver::new(&parent_by_heading, &rows_by_heading);
+    let mut effective = HashMap::new();
+
+    for file in files.values() {
+        effective.insert(
+            file.root_heading_id,
+            resolver
+                .effective_properties(file.root_heading_id, false)
+                .into_iter()
+                .map(|(key, value)| EffectivePropertyFact {
+                    key,
+                    value: Some(value),
+                })
+                .collect(),
+        );
+    }
+
+    for heading in headings.values() {
+        if heading.level == 0 {
+            continue;
+        }
+        effective.insert(
+            heading.id,
+            resolver
+                .effective_properties(heading.id, true)
+                .into_iter()
+                .map(|(key, value)| EffectivePropertyFact {
+                    key,
+                    value: Some(value),
+                })
+                .collect(),
+        );
+    }
+
+    effective
 }
 
 fn load_keywords(
@@ -1631,8 +1766,8 @@ fn strip_root_breadcrumb(breadcrumbs: &[String], heading_level: i64) -> Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_and_shape_query, shape_query_results, QueryExecutionOptions, QueryInclude,
-        QueryOutputMode, QueryResponse, QueryResultNode,
+        execute_and_shape_query, shape_query_results, EffectivePropertyFact, QueryExecutionOptions,
+        QueryInclude, QueryOutputMode, QueryResponse, QueryResultNode,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, FileRecordInput, HeadingRecord,
@@ -1800,6 +1935,52 @@ mod tests {
     }
 
     #[test]
+    fn effective_properties_include_resolves_inherited_values_and_is_omitted_by_default() {
+        let connection = seeded_connection();
+        let plain = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Nested" :exact t))"#),
+            &QueryExecutionOptions::default(),
+        )
+        .expect("plain query should shape");
+        let plain_json = serde_json::to_value(&plain).expect("plain response should serialize");
+        assert!(plain_json["results"][0]
+            .get("effective_properties")
+            .is_none());
+
+        let included = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Nested" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::EffectiveProperties],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("included query should shape");
+        let heading = heading_node(&included.results[0]);
+        assert!(heading.properties.is_none());
+        let properties = heading
+            .effective_properties
+            .as_ref()
+            .expect("effective properties include should exist");
+        assert_eq!(
+            properties,
+            &vec![
+                EffectivePropertyFact {
+                    key: "AREA".to_string(),
+                    value: Some("infra".to_string()),
+                },
+                EffectivePropertyFact {
+                    key: "CATEGORY".to_string(),
+                    value: Some("work".to_string()),
+                },
+            ]
+        );
+        assert_eq!(matched_heading_ids(&plain), matched_heading_ids(&included));
+    }
+
+    #[test]
     fn file_properties_and_keywords_includes_use_root_stored_facts_and_omit_by_default() {
         let connection = seeded_connection();
         let plain = execute_and_shape_query(
@@ -1839,6 +2020,31 @@ mod tests {
         assert_eq!(keywords[0].keyword, "AUTHOR");
         assert_eq!(keywords[0].value.as_deref(), Some("Alice"));
         assert_eq!(keywords[0].line_number, Some(1));
+    }
+
+    #[test]
+    fn file_effective_properties_include_uses_resolved_root_values() {
+        let connection = seeded_connection();
+        let response = execute_and_shape_query(
+            &connection,
+            &validated(r#"(files (file-title "Alpha Index" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::EffectiveProperties],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("query should shape");
+
+        let file = file_node(&response.results[0]);
+        assert!(file.properties.is_none());
+        assert_eq!(
+            file.effective_properties.as_ref(),
+            Some(&vec![EffectivePropertyFact {
+                key: "CATEGORY".to_string(),
+                value: Some("work".to_string()),
+            }])
+        );
     }
 
     #[test]

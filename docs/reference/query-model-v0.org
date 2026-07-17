@@ -735,7 +735,7 @@ Candidate include options:
 
 #+begin_src text
 --include path
---include properties
+--include effective_properties
 --include keywords
 --include links
 --include backlinks
@@ -746,7 +746,7 @@ Candidate include options:
 Examples:
 
 #+begin_src shell
-orgfdb query --output flat --include path,properties '(headings (todo))'
+orgfdb query --output flat --include path,effective_properties '(headings (todo))'
 orgfdb query --output flat --include path,links '(headings (todo "NEXT"))'
 orgfdb query --output flat --include source,target '(links (status "broken"))'
 #+end_src
@@ -754,6 +754,8 @@ orgfdb query --output flat --include source,target '(links (status "broken"))'
 Rules:
 
 - ~path~ includes the full root-to-object path.
+- ~properties~ includes the raw stored property rows for matched headings or files, preserving duplicates and the ~append~ flag.
+- ~effective_properties~ includes the resolved effective property values used by property matching.
 - ~links~ includes outgoing links for matched headings or files.
 - ~backlinks~ includes incoming links for matched headings or files.
 - ~source~ includes source context for link results.

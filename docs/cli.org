@@ -140,7 +140,7 @@ Accepted options:
   Default: ~flat~.
   Repeatable: no.
   Changes output shape only, never matching semantics.
-- ~--include~ :: Accepted values: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~, ~source~, ~target~.
+- ~--include~ :: Accepted values: ~path~, ~properties~, ~effective_properties~, ~keywords~, ~links~, ~backlinks~, ~source~, ~target~.
   Default: none.
   Repeatable: yes.
   Values may be comma-separated and/or supplied in repeated flags. Duplicates are removed before serialization.
@@ -152,7 +152,7 @@ Accepted options:
 ~--include~ validation:
 
 - ~path~ is valid for all targets.
-- ~properties~, ~keywords~, ~links~, and ~backlinks~ are valid for ~headings~ and ~files~ output only.
+- ~properties~, ~effective_properties~, ~keywords~, ~links~, and ~backlinks~ are valid for ~headings~ and ~files~ output only.
 - ~source~ and ~target~ are valid for ~links~ output only.
 - Unknown include values are rejected by Clap with exit code ~2~.
 
@@ -202,7 +202,7 @@ orgfdb query --json '(files)'
   - Returns matched real headings and, when the heading query domain includes file/root objects, those file/root matches as ~kind = "file"~.
   - Bare top-level shorthand: yes.
   - Valid output modes: ~flat~, ~outline~.
-  - Valid includes: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~.
+  - Valid includes: ~path~, ~properties~, ~effective_properties~, ~keywords~, ~links~, ~backlinks~.
 - ~links~ ::
   - Returns matched links.
   - Bare top-level shorthand: no.
@@ -212,7 +212,7 @@ orgfdb query --json '(files)'
   - Returns matched files.
   - Bare top-level shorthand: no.
   - Valid output modes: ~flat~, ~outline~.
-  - Valid includes: ~path~, ~properties~, ~keywords~, ~links~, ~backlinks~.
+  - Valid includes: ~path~, ~properties~, ~effective_properties~, ~keywords~, ~links~, ~backlinks~.
 
 Target notes:
 

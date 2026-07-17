@@ -106,6 +106,7 @@ impl From<CliQueryOutput> for QueryOutputMode {
 enum CliQueryInclude {
     Path,
     Properties,
+    EffectiveProperties,
     Keywords,
     Links,
     Backlinks,
@@ -118,6 +119,7 @@ impl From<CliQueryInclude> for QueryInclude {
         match value {
             CliQueryInclude::Path => Self::Path,
             CliQueryInclude::Properties => Self::Properties,
+            CliQueryInclude::EffectiveProperties => Self::EffectiveProperties,
             CliQueryInclude::Keywords => Self::Keywords,
             CliQueryInclude::Links => Self::Links,
             CliQueryInclude::Backlinks => Self::Backlinks,
@@ -3526,6 +3528,7 @@ index_body_text = false
         for include in [
             "path",
             "properties",
+            "effective_properties",
             "keywords",
             "links",
             "backlinks",

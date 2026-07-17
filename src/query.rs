@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod error;
 pub mod parser;
+mod property;
 pub mod resolve;
 pub mod result;
 pub mod sqlite;
@@ -14,10 +15,10 @@ pub use resolve::{
     QueryDateResolutionErrorKind, QueryDateResolutionOptions,
 };
 pub use result::{
-    execute_and_shape_query, shape_query_results, FileResultNode, HeadingResultNode, IncludedLink,
-    KeywordFact, LinkResultNode, LinkSource, LinkTarget, Location, PathEntry, PropertyFact,
-    QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse, QueryResultNode,
-    QueryShapeError, QueryShapeErrorKind,
+    execute_and_shape_query, shape_query_results, EffectivePropertyFact, FileResultNode,
+    HeadingResultNode, IncludedLink, KeywordFact, LinkResultNode, LinkSource, LinkTarget, Location,
+    PathEntry, PropertyFact, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse,
+    QueryResultNode, QueryShapeError, QueryShapeErrorKind,
 };
 pub use sqlite::{
     compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,

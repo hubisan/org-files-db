@@ -1,0 +1,99 @@
+#+TITLE: Resolve effective property values for query matching
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 14:06]
+#+TASK_COMPLETED: [2026-07-17 Fri 14:06]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the plan for resolving effective property values for query matching.
+
+* Planning
+
+** Problem summary
+
+Property rows are stored losslessly, but query matching still needs one resolved effective value per key that follows Org overwrite, append, and inheritance behavior.
+
+** Goals
+
+- Keep raw property storage unchanged.
+- Resolve effective property values consistently for heading and file/root property matching.
+- Expose resolved values separately from raw stored property rows.
+- Update the CLI and reference docs for the new output contract.
+
+** Non-goals
+
+- No schema changes.
+- No precomputed effective-property table.
+- No change to the existing raw ~properties~ include.
+
+** Architecture
+
+- Add one shared Rust resolver for local overwrite/append semantics plus optional inheritance.
+- Use the same semantics in SQLite property predicates and result shaping.
+- Add a distinct ~effective_properties~ include so raw and resolved facts stay separate.
+
+** Execution plan
+
+- Implement the shared property resolver and unit tests.
+- Switch SQLite property matching to resolved effective values.
+- Extend shaped query results with ~effective_properties~.
+- Update CLI/docs/tests and run the preferred checks.
+
+** Risks & assumptions
+
+- Inherited append-only local values must extend the inherited base when ~:inherit t~.
+- Descendants inherit resolved parent values unless a later local non-append definition overrides them.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test query::property::tests -- --nocapture~
+- ~cargo test query::sqlite::tests::execution_matches_effective_heading_property_queries -- --nocapture~
+- ~cargo test query::result::tests::effective_properties_include_resolves_inherited_values_and_is_omitted_by_default -- --nocapture~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added a shared resolver in ~src/query/property.rs~ for local overwrite/append ordering and inheritance-aware effective value resolution.
+- Switched SQLite property predicates to match resolved effective values while preserving raw stored rows.
+- Added ~effective_properties~ to shaped file and heading results without changing the existing ~properties~ include.
+- Updated CLI and Query Model docs to document raw versus effective property output.
+
+** Changed files
+
+- ~src/query/property.rs~
+- ~src/query/result.rs~
+- ~src/query/sqlite.rs~
+- ~src/query.rs~
+- ~src/cli.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+
+** Checks performed
+
+- Ran targeted property resolver, result-shaping, and SQLite property query tests.
+- Ran repository formatting and CI checks, including ~make ci~.
+
+** Test results
+
+- ~cargo test query::property::tests -- --nocapture~ passed.
+- ~cargo test query::result::tests::effective_properties_include_resolves_inherited_values_and_is_omitted_by_default -- --nocapture~ passed.
+- ~cargo test query::sqlite::tests::execution_matches_effective_heading_property_queries -- --nocapture~ passed.
+- ~make ci~ passed.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+- None.

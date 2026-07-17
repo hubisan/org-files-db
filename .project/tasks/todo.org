@@ -204,7 +204,7 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
 
-** TODO Resolve appended property values for query matching
+** REVIEW [#B] Resolve effective property values for query matching
 :PROPERTIES:
 :PRIORITY: Medium
 :RISK: Medium
@@ -212,15 +212,30 @@ General rules:
 :API_CONTRACT_CHANGE: Yes
 :END:
 
+- Task file: [[file:2026-07-17--resolve-effective-property-values-for-query-matching.org]]
+
 Goal:
 
-- Preserve property rows exactly as indexed.
-- Resolve rows marked with ~append = 1~ into an effective property value when evaluating property queries.
-- Support append semantics for:
-  - file-level ~#+PROPERTY~ keywords
+- Preserve all property rows exactly as indexed.
+- Compute one effective property value per key for query matching.
+- Support:
+  - append rows
+  - repeated definitions at the same location
+  - overriding inherited definitions at a more specific heading
+- Apply the same resolution semantics to:
+  - file/root properties
   - heading property drawers
-- Use resolved values for property predicate matching and effective property output.
-- Do not replace the existing raw property rows with precomputed combined rows.
+  - direct property queries
+  - inherited property queries
+  - effective property output
+- Do not replace raw database rows with precomputed effective rows.
+
+Core distinction:
+
+- Raw storage preserves every source definition.
+- Query matching operates on resolved effective values.
+- Effective values are computed at query time or through one shared resolver.
+- Raw property includes continue to expose every original row and its ~append~ flag.
 
 Current storage:
 
@@ -236,6 +251,20 @@ are stored as:
 #+begin_src text
 KEYWORD_APPEND | foo=1 | append = 0
 KEYWORD_APPEND | bar=2 | append = 1
+#+end_src
+
+Repeated file-level definitions:
+
+#+begin_src org
+,#+PROPERTY: keyword_overwritten_by_second invalid
+,#+PROPERTY: keyword_overwritten_by_second valid
+#+end_src
+
+are stored as:
+
+#+begin_src text
+KEYWORD_OVERWRITTEN_BY_SECOND | invalid | append = 0
+KEYWORD_OVERWRITTEN_BY_SECOND | valid   | append = 0
 #+end_src
 
 Heading drawer properties:
@@ -255,35 +284,60 @@ ADD-VALUE | is    | append = 0
 ADD-VALUE | valid | append = 1
 #+end_src
 
+Repeated drawer definitions:
+
+#+begin_src org
+,* Duplicate drawer properties
+:PROPERTIES:
+:defined_twice: works
+:defined_twice: second is effective
+:END:
+#+end_src
+
+are stored as two separate rows.
+
 This raw representation is correct and must remain unchanged.
 
 Required effective values:
 
 #+begin_src text
 KEYWORD_APPEND = foo=1 bar=2
+KEYWORD_OVERWRITTEN_BY_SECOND = valid
 ADD-VALUE = is valid
+DEFINED_TWICE = second is effective
 #+end_src
 
-Resolution order:
+Resolution stages:
 
-- Resolve property rows in source order.
-- Use ~line_number~ as the primary source-order field.
-- Use property row ~id~ as a stable secondary ordering field where necessary.
+1. Resolve all rows stored directly at one location.
+2. Apply hierarchy inheritance to those locally resolved values.
+3. Match property predicates against the resulting direct or inherited value according to ~:inherit~.
+
+Source order:
+
+- Resolve local property rows in source order.
+- Use ~line_number~ as the primary ordering field.
+- Use property row ~id~ as a stable secondary ordering field.
+- Do not rely on incidental SQLite row order.
 - Match keys using their normalized property key.
 
 Local resolution algorithm:
 
-- Start without an effective value for the property key.
+- Start without an effective value for the key.
+- Process every local row in source order.
 - For a row with ~append = 0~:
-  - replace the current effective value with the row value
+  - replace the current local effective value with the row value
 - For a row with ~append = 1~:
-  - append the row value to the current effective value
+  - append the row value to the current local effective value
   - separate non-empty components with one space
-- If an append row has no preceding effective value, initialize the value with the appended row value.
-- Preserve the contents of each stored value.
+- If an append row has no preceding local value:
+  - initialize the local effective value with the append row value
+- Preserve the contents of each stored component.
 - Do not split or reinterpret values such as ~foo=1~.
 
-Examples:
+Rule 1: Append rows extend the current local value
+
+Example:
 
 #+begin_src text
 VALUE = first, append = 0
@@ -293,6 +347,36 @@ VALUE = third, append = 1
 effective VALUE = first second third
 #+end_src
 
+Example:
+
+#+begin_src org
+,* Task
+:PROPERTIES:
+:VALUE: first
+:VALUE+: second
+:VALUE+: third
+:END:
+#+end_src
+
+Effective local value:
+
+#+begin_src text
+VALUE = first second third
+#+end_src
+
+Rule 2: A later non-append definition replaces an earlier definition at the same location
+
+Example:
+
+#+begin_src text
+VALUE = first, append = 0
+VALUE = replacement, append = 0
+
+effective VALUE = replacement
+#+end_src
+
+Example with a following append row:
+
 #+begin_src text
 VALUE = first, append = 0
 VALUE = replacement, append = 0
@@ -301,11 +385,167 @@ VALUE = final, append = 1
 effective VALUE = replacement final
 #+end_src
 
-#+begin_src text
-VALUE = first, append = 1
+Example:
 
-effective VALUE = first
+#+begin_src org
+,* Duplicate drawer properties
+:PROPERTIES:
+:DEFINED_TWICE: works
+:DEFINED_TWICE: second is effective
+:END:
 #+end_src
+
+Effective local value:
+
+#+begin_src text
+DEFINED_TWICE = second is effective
+#+end_src
+
+The first raw row remains stored but no longer determines the effective value.
+
+Rule 3: A definition on a more specific heading overrides an inherited definition
+
+Example:
+
+#+begin_src org
+:PROPERTIES:
+:VALUE: root
+:END:
+
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+,** Child
+:PROPERTIES:
+:VALUE: child
+:END:
+#+end_src
+
+Locally resolved values:
+
+#+begin_src text
+root VALUE   = root
+parent VALUE = parent
+child VALUE  = child
+#+end_src
+
+Effective values with ~:inherit t~:
+
+#+begin_src text
+root VALUE   = root
+parent VALUE = parent
+child VALUE  = child
+#+end_src
+
+The child definition overrides the parent definition.
+
+The parent definition overrides the file/root definition.
+
+Rule 4: The nearest resolved definition wins during inheritance
+
+Example:
+
+#+begin_src org
+:PROPERTIES:
+:VALUE: root
+:END:
+
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:VALUE+: appended
+:END:
+
+,** Child
+#+end_src
+
+Locally resolved values:
+
+#+begin_src text
+root VALUE   = root
+parent VALUE = parent appended
+child VALUE  = undefined
+#+end_src
+
+Effective values with ~:inherit t~:
+
+#+begin_src text
+parent VALUE = parent appended
+child VALUE  = parent appended
+#+end_src
+
+The child must not receive:
+
+#+begin_src text
+VALUE = root parent appended
+#+end_src
+
+Append resolution is local. Normal nearest-definition precedence is applied after local resolution.
+
+Rule 5: A child non-append value replaces the complete inherited value
+
+Example:
+
+#+begin_src org
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:VALUE+: appended
+:END:
+
+,** Child
+:PROPERTIES:
+:VALUE: child
+:END:
+#+end_src
+
+Effective values:
+
+#+begin_src text
+parent VALUE = parent appended
+child VALUE  = child
+#+end_src
+
+The child must not receive:
+
+#+begin_src text
+VALUE = parent appended child
+#+end_src
+
+Append rows and inheritance:
+
+- Resolve append rows stored at the same location before inheritance.
+- A locally resolved definition counts as one complete definition.
+- The nearest locally resolved definition wins.
+- Do not concatenate complete effective values from several hierarchy levels.
+- Do not merge root, parent, and child values merely because they share the same key.
+
+Append-only child definitions:
+
+- Verify the intended Org behavior when a child contains only an append row and the base value exists only on an ancestor.
+
+Example:
+
+#+begin_src org
+,* Parent
+:PROPERTIES:
+:VALUE: parent
+:END:
+
+,** Child
+:PROPERTIES:
+:VALUE+: child
+:END:
+#+end_src
+
+- Add a regression test for the accepted result.
+- Prefer matching actual Org behavior.
+- Document whether the child effective value becomes:
+  - ~child~
+  - or ~parent child~
+- Do not leave this case dependent on incidental implementation details.
 
 Empty values:
 
@@ -327,154 +567,163 @@ VALUE = "", append = 1
 effective VALUE = valid
 #+end_src
 
-Duplicate non-append rows:
-
-Given:
-
-#+begin_src org
-,#+PROPERTY: keyword_overwritten_by_second invalid
-,#+PROPERTY: keyword_overwritten_by_second valid
-#+end_src
-
-the raw rows remain preserved, while the effective value is:
-
-#+begin_src text
-KEYWORD_OVERWRITTEN_BY_SECOND = valid
-#+end_src
-
-A later row with ~append = 0~ replaces the previous local effective value.
-
 Direct property queries:
 
-- ~:inherit nil~ means only property rows stored directly on the candidate object participate.
-- Append resolution still applies among those direct rows.
-- A file/root candidate uses property rows stored on its synthetic level-0 heading.
+- ~:inherit nil~ uses only rows stored directly on the candidate object.
+- Local append and replacement resolution still applies.
+- A file/root candidate uses rows stored on its synthetic level-0 heading.
 - A real heading candidate uses rows stored directly on that heading.
 
 Example:
 
 #+begin_src lisp
 (headings
-  (property "ADD-VALUE" "is valid" :inherit nil))
-#+end_src
-
-Expected:
-
-- the heading containing the property drawer matches
-- an exact query for only ~"valid"~ does not match
-- an exact query for ~"is valid"~ matches
-
-Root property query:
-
-#+begin_src lisp
-(headings
-  (property "KEYWORD_APPEND" "foo=1 bar=2" :inherit nil))
-#+end_src
-
-Expected:
-
-- the file/root object matches
-- real headings do not match through inheritance because ~:inherit nil~ is used
-
-Inherited property queries:
-
-- With ~:inherit t~, resolve local effective values before applying inheritance.
-- Root-level appended properties participate in inheritance like other effective root properties.
-- Real headings inheriting:
-
-#+begin_src text
-KEYWORD_APPEND = foo=1 bar=2
-#+end_src
-
-must match:
-
-#+begin_src lisp
-(property "KEYWORD_APPEND" "foo=1 bar=2" :inherit t)
-#+end_src
-
-- To exclude the root result while preserving inheritance from the root, combine the query with ~(level > 0)~:
-
-#+begin_src lisp
-(headings
-  (and
-    (level > 0)
-    (property "KEYWORD_APPEND" "foo=1 bar=2" :inherit t)))
-#+end_src
-
-Inheritance precedence:
-
-- Resolve append operations locally for each file/root object or real heading.
-- Apply normal property inheritance after local resolution.
-- The nearest local effective definition wins.
-- Do not concatenate effective values across unrelated hierarchy levels.
-
-Example:
-
-#+begin_src org
-:PROPERTIES:
-:VALUE: root
-:END:
-
-,* Parent
-:PROPERTIES:
-:VALUE: parent
-:VALUE+: appended
-:END:
-
-,** Child
-#+end_src
-
-Local effective values:
-
-#+begin_src text
-root VALUE   = root
-parent VALUE = parent appended
-child VALUE  = undefined
-#+end_src
-
-With ~:inherit t~, the child inherits:
-
-#+begin_src text
-VALUE = parent appended
-#+end_src
-
-It must not inherit:
-
-#+begin_src text
-VALUE = root parent appended
-#+end_src
-
-Property predicate behavior:
-
-- Property existence queries use the resolved presence of the key.
-- Property value queries compare against the resolved value.
-- Exact matching compares against the complete resolved value.
-- Non-exact matching applies the existing string matching mode to the resolved value.
-- Existing case-handling and key-normalization rules remain unchanged.
-- Queries must not match an individual raw component when the effective value is a combined value, unless the selected non-exact matching mode independently permits it.
-
-Examples:
-
-#+begin_src lisp
-(headings
   (property "ADD-VALUE" "is valid" :exact t :inherit nil))
 #+end_src
 
-matches the drawer heading.
+Expected:
+
+- the heading containing the drawer matches
+
+This does not match:
 
 #+begin_src lisp
 (headings
   (property "ADD-VALUE" "valid" :exact t :inherit nil))
 #+end_src
 
-does not match because the effective value is ~is valid~.
+because the resolved local value is ~is valid~.
+
+Repeated direct definition:
+
+#+begin_src lisp
+(headings
+  (property
+    "DEFINED_TWICE"
+    "second is effective"
+    :exact t
+    :inherit nil))
+#+end_src
+
+Expected:
+
+- the heading containing both definitions matches
+
+This does not match:
+
+#+begin_src lisp
+(headings
+  (property
+    "DEFINED_TWICE"
+    "works"
+    :exact t
+    :inherit nil))
+#+end_src
+
+because the later non-append row replaced the earlier value.
+
+Root property queries:
+
+#+begin_src lisp
+(headings
+  (property "KEYWORD_APPEND" "foo=1 bar=2" :exact t :inherit nil))
+#+end_src
+
+Expected:
+
+- the file/root object matches
+- real headings do not match through inheritance
+
+Repeated root definition:
+
+#+begin_src lisp
+(headings
+  (property
+    "KEYWORD_OVERWRITTEN_BY_SECOND"
+    "valid"
+    :exact t
+    :inherit nil))
+#+end_src
+
+Expected:
+
+- the file/root object matches
+
+The earlier value ~invalid~ must not match as the exact effective value.
+
+Inherited property queries:
+
+- With ~:inherit t~, first resolve every location independently.
+- Then select the nearest resolved definition for the candidate.
+- Root-level properties participate in inheritance.
+- A local heading definition overrides inherited ancestor and root definitions.
+
+Example:
+
+#+begin_src org
+:PROPERTIES:
+:OWNER: root
+:END:
+
+,* Parent
+:PROPERTIES:
+:OWNER: parent
+:END:
+
+,** Child without local owner
+
+,** Child with local owner
+:PROPERTIES:
+:OWNER: child
+:END:
+#+end_src
+
+Effective values:
+
+#+begin_src text
+Parent                   OWNER = parent
+Child without local owner OWNER = parent
+Child with local owner    OWNER = child
+#+end_src
+
+Query:
+
+#+begin_src lisp
+(headings
+  (property "OWNER" "parent" :exact t :inherit t))
+#+end_src
+
+matches:
+
+- the parent
+- the child without a local owner
+
+It does not match:
+
+- the child with ~OWNER = child~
+
+Property predicate behavior:
+
+- Property existence queries use resolved key presence.
+- Property value queries compare against the resolved value.
+- Exact matching compares against the complete resolved value.
+- Non-exact matching applies the existing string matching mode to the resolved value.
+- Existing key normalization and case-handling remain unchanged.
+- Raw rows which have been replaced must not independently produce matches.
+- Individual append components must not independently produce exact matches once combined.
 
 Output behavior:
 
-- Raw property output must continue to expose the original rows and their ~append~ flags.
-- Effective property output must expose the resolved value once per effective property key.
-- Do not silently replace raw records with one synthetic record.
-- Clearly distinguish raw property rows from resolved effective properties in result hydration.
+- Raw property output continues to expose:
+  - every original property row
+  - source
+  - append flag
+  - line number
+- Effective property output exposes:
+  - one resolved value per effective key
+  - the winning local or inherited definition
+- Do not silently replace raw records with synthetic combined rows.
+- Clearly distinguish raw rows from effective properties in result hydration.
 - Includes must not change whether a candidate matches.
 
 Implementation requirements:
@@ -484,93 +733,112 @@ Implementation requirements:
   - inherited property query matching
   - root/file property matching
   - effective property hydration
-- Do not duplicate concatenation logic across several SQL compiler branches.
-- Resolve values deterministically using source order.
-- Do not rely on incidental SQLite row order.
+- Separate:
+  - local row resolution
+  - hierarchy precedence
+- Do not duplicate replacement or append logic across SQL branches.
+- Preserve every raw database row and append flag.
+- Do not add a schema migration.
+- Resolve local rows deterministically in source order.
+- Apply nearest-definition inheritance after local resolution.
+- Ensure root/file and real-heading candidates use the same resolver.
 - Preserve bound SQL parameters.
 - Keep validation separate from SQL generation.
-- Ensure file/root candidates and real heading candidates use identical local resolution semantics.
-- Preserve all raw database rows and append flags.
-- Do not add a schema migration.
 
 Documentation:
 
 - Update ~docs/reference/query-model-v0.org~.
 - Update ~docs/cli.org~.
 - Document that:
-  - raw property rows preserve append operations
+  - raw rows preserve every definition
   - property predicates operate on resolved values
-  - a non-append row replaces the current local value
-  - an append row concatenates its value using one separating space
+  - append rows extend the current local value
+  - a later non-append row replaces an earlier row at the same location
+  - a more specific heading definition overrides ancestor and root definitions
   - append resolution happens locally before inheritance
-  - ~:inherit nil~ still resolves direct append rows
-  - ~:inherit t~ applies inheritance to locally resolved values
+  - the nearest resolved definition wins
+  - ~:inherit nil~ uses locally resolved values
+  - ~:inherit t~ uses nearest-definition inheritance
   - raw and effective property output are distinct
 
 Suggested contract text:
 
 #+begin_src org
-- Property rows are stored in source order with their append flag preserved.
+- Property rows are stored in source order with their append flags preserved.
 - Property predicates operate on resolved property values rather than individual raw rows.
-- A non-append row replaces the current local value.
-- An append row adds its value to the current local value, separated by one space.
-- Append resolution is performed locally for each file/root object or real heading before property inheritance is applied.
-- Raw property output continues to expose the original rows.
+- At one file/root or heading location, a non-append row replaces the current local value.
+- At one location, an append row extends the current local value using one separating space.
+- Local property rows are resolved before inheritance is applied.
+- With inheritance enabled, the nearest locally resolved definition wins.
+- A definition on a child heading overrides definitions on ancestor headings and the file/root level.
+- Raw property output continues to expose every original row.
 #+end_src
 
 Acceptance criteria:
 
-- The database rows remain unchanged for appended properties.
-- The file-level rows:
-
-#+begin_src org
-,#+PROPERTY: keyword_append foo=1
-,#+PROPERTY: keyword_append+ bar=2
-#+end_src
-
-resolve to:
-
-#+begin_src text
-foo=1 bar=2
-#+end_src
-
-- The drawer rows:
-
-#+begin_src org
-:add-value: is
-:add-value+: valid
-#+end_src
-
-resolve to:
-
-#+begin_src text
-is valid
-#+end_src
-
-- A property query for the combined value matches.
-- An exact query for only one component does not match the combined value.
-- ~:inherit nil~ resolves append rows stored directly on the candidate.
-- ~:inherit t~ allows real headings to inherit a resolved root value.
-- A later non-append row replaces earlier rows for the same local key.
+- Raw database rows remain unchanged.
+- Appended file-level rows resolve to ~foo=1 bar=2~.
+- Appended drawer rows resolve to ~is valid~.
+- A later non-append row at the same location replaces the earlier value.
+- Both raw rows remain available in raw output.
+- A child definition overrides a parent definition.
+- A parent definition overrides a root definition.
+- A heading without a local definition inherits the nearest ancestor definition with ~:inherit t~.
+- ~:inherit nil~ never uses ancestor or root definitions.
 - Multiple append rows are concatenated in source order.
-- An append row without a preceding base row initializes the value.
+- A later non-append row resets the local value before later append rows are applied.
 - Empty components do not create artificial spaces.
-- Raw output still exposes every stored row and its append flag.
+- Exact matching operates on the complete resolved value.
+- Replaced raw values do not independently produce exact matches.
+- Append components do not independently produce exact matches.
+- Effective values from several hierarchy levels are not automatically concatenated.
+- Append-only child behavior is explicitly tested and documented.
 - Root/file and real-heading candidates use identical local resolution semantics.
-- Effective values are not concatenated across hierarchy levels.
 - ~make ci~ passes.
 
-Required regression queries:
+Required regression fixture:
+
+#+begin_src org
+:PROPERTIES:
+:ROOT_ONLY: root
+:OVERRIDE_CHAIN: root
+:END:
+
+,#+PROPERTY: keyword_append foo=1
+,#+PROPERTY: keyword_append+ bar=2
+,#+PROPERTY: keyword_overwritten_by_second invalid
+,#+PROPERTY: keyword_overwritten_by_second valid
+
+,* Duplicate drawer properties
+:PROPERTIES:
+:DEFINED_TWICE: works
+:DEFINED_TWICE: second is effective
+:END:
+
+,* Task with append operator
+:PROPERTIES:
+:ADD-VALUE: is
+:ADD-VALUE+: valid
+:END:
+
+,* Parent override
+:PROPERTIES:
+:OVERRIDE_CHAIN: parent
+:END:
+
+,** Inheriting child
+
+,** Overriding child
+:PROPERTIES:
+:OVERRIDE_CHAIN: child
+:END:
+#+end_src
+
+Required positive regression queries:
 
 #+begin_src lisp
 (headings
   (property "KEYWORD_APPEND" "foo=1 bar=2" :exact t :inherit nil))
-
-(headings
-  (property "KEYWORD_APPEND" "foo=1 bar=2" :exact t :inherit t))
-
-(headings
-  (property "ADD-VALUE" "is valid" :exact t :inherit nil))
 
 (headings
   (property
@@ -578,9 +846,25 @@ Required regression queries:
     "valid"
     :exact t
     :inherit nil))
+
+(headings
+  (property
+    "DEFINED_TWICE"
+    "second is effective"
+    :exact t
+    :inherit nil))
+
+(headings
+  (property "ADD-VALUE" "is valid" :exact t :inherit nil))
+
+(headings
+  (property "OVERRIDE_CHAIN" "parent" :exact t :inherit t))
+
+(headings
+  (property "OVERRIDE_CHAIN" "child" :exact t :inherit t))
 #+end_src
 
-Negative regression queries:
+Required negative regression queries:
 
 #+begin_src lisp
 (headings
@@ -590,15 +874,30 @@ Negative regression queries:
   (property "KEYWORD_APPEND" "bar=2" :exact t :inherit nil))
 
 (headings
-  (property "ADD-VALUE" "valid" :exact t :inherit nil))
-
-(headings
   (property
     "KEYWORD_OVERWRITTEN_BY_SECOND"
     "invalid"
     :exact t
     :inherit nil))
+
+(headings
+  (property
+    "DEFINED_TWICE"
+    "works"
+    :exact t
+    :inherit nil))
+
+(headings
+  (property "ADD-VALUE" "valid" :exact t :inherit nil))
 #+end_src
+
+Hierarchy assertions:
+
+- ~Parent override~ matches ~OVERRIDE_CHAIN = parent~.
+- ~Inheriting child~ matches ~OVERRIDE_CHAIN = parent~ with ~:inherit t~.
+- ~Inheriting child~ does not match that value with ~:inherit nil~.
+- ~Overriding child~ matches ~OVERRIDE_CHAIN = child~.
+- ~Overriding child~ does not match ~OVERRIDE_CHAIN = parent~, even with ~:inherit t~.
 
 Additional resolver tests:
 
@@ -627,7 +926,7 @@ valid, append = 1
 => valid
 #+end_src
 
-Manual check for root keyword append:
+Manual check for duplicate local definitions:
 
 #+begin_src shell
 cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
@@ -635,59 +934,36 @@ cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
   --config ../Config.toml \
   '(headings
      (property
-       "KEYWORD_APPEND"
-       "foo=1 bar=2"
-       :exact t
-       :inherit nil))' \
-  | jq -e '
-      any(
-        .results[];
-        .kind == "file"
-        and .level == 0
-      )
-    '
-#+end_src
-
-Manual check for inherited root keyword append:
-
-#+begin_src shell
-cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
-  query --json \
-  --config ../Config.toml \
-  '(headings
-     (and
-       (level > 0)
-       (property
-         "KEYWORD_APPEND"
-         "foo=1 bar=2"
-         :exact t
-         :inherit t)))' \
-  | jq -e '
-      (.results | length > 0)
-      and all(
-        .results[];
-        .kind == "heading" and .level > 0
-      )
-    '
-#+end_src
-
-Manual check for drawer append:
-
-#+begin_src shell
-cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
-  query --json \
-  --config ../Config.toml \
-  '(headings
-     (property
-       "ADD-VALUE"
-       "is valid"
+       "DEFINED_TWICE"
+       "second is effective"
        :exact t
        :inherit nil))' \
   | jq -e '
       any(
         .results[];
         .kind == "heading"
-        and .title_raw == "Task with append operator in drawer"
+        and .title_raw == "Duplicate drawer properties"
+      )
+    '
+#+end_src
+
+Manual check for child override:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --config ../Config.toml \
+  '(headings
+     (property
+       "OVERRIDE_CHAIN"
+       "child"
+       :exact t
+       :inherit t))' \
+  | jq -e '
+      any(
+        .results[];
+        .kind == "heading"
+        and .title_raw == "Overriding child"
       )
     '
 #+end_src
