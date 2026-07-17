@@ -1,0 +1,371 @@
+#+TITLE: Query Model Tests - Properties
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* TODO-Keywords
+
+** Multiple
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (file-name "todo-keywords.org") (todo "TODO" "DONE" "NEXT" "CANCEL")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+  todo_keyword,
+  todo_type
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "TODO Default keyword > TODO",
+  "todo_keyword": "TODO",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "DONE Default keyword > DONE",
+  "todo_keyword": "DONE",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "TODO [#A] Default Keyword with Prio and Cookies [0/0]",
+  "todo_keyword": "TODO",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "NEXT Keyword from Config.toml > NEXT",
+  "todo_keyword": "NEXT",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "CANCEL Keyword from Config.toml > CANCEL",
+  "todo_keyword": "CANCEL",
+  "todo_type": "closed"
+}
+#+end_SRC
+
+** Done
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (file-name "todo-keywords.org") (done)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+  todo_keyword,
+  todo_type
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "DONE Default keyword > DONE",
+  "todo_keyword": "DONE",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "CANCEL Keyword from Config.toml > CANCEL",
+  "todo_keyword": "CANCEL",
+  "todo_type": "closed"
+}
+#+end_SRC
+
+** Not Done
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (file-name "todo-keywords.org") (not (done))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+  todo_keyword,
+  todo_type
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "TODO Default keyword > TODO",
+  "todo_keyword": "TODO",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "TODO [#A] Default Keyword with Prio and Cookies [0/0]",
+  "todo_keyword": "TODO",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords.org",
+  "title_raw": "NEXT Keyword from Config.toml > NEXT",
+  "todo_keyword": "NEXT",
+  "todo_type": "open"
+}
+#+end_SRC
+
+* File-local TODO-keywords
+
+** All
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-name "todo-keywords-file-local"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+  todo_keyword,
+  todo_type
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "File-local TODO keywords",
+  "todo_keyword": null,
+  "todo_type": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "TODO default keyword should stay in title",
+  "todo_keyword": null,
+  "todo_type": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "DONE default done keyword should stay in title",
+  "todo_keyword": null,
+  "todo_type": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "one open keyword with fast key",
+  "todo_keyword": "one",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "two another open keyword with fast key",
+  "todo_keyword": "two",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "three closed keyword with fast key",
+  "todo_keyword": "three",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "four closed keyword with extended fast key",
+  "todo_keyword": "four",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "FIVE open keyword from empty-done-side line",
+  "todo_keyword": "FIVE",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "SIX another open keyword from empty-done-side line",
+  "todo_keyword": "SIX",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "seven open keyword from TYP_TODO",
+  "todo_keyword": "seven",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "eight closed keyword from TYP_TODO",
+  "todo_keyword": "eight",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "nine open keyword from SEQ_TODO",
+  "todo_keyword": "nine",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "ten closed keyword from SEQ_TODO",
+  "todo_keyword": "ten",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "eleven closed keyword from later TODO line",
+  "todo_keyword": "eleven",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "late_open open keyword from line defined later in file",
+  "todo_keyword": "late_open",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "late_done closed keyword from line defined later in file",
+  "todo_keyword": "late_done",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "TODO still not valid after later local lines",
+  "todo_keyword": null,
+  "todo_type": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "DONE still not valid after later local lines",
+  "todo_keyword": null,
+  "todo_type": null
+}
+#+end_SRC
+
+** Closed
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (file-name "todo-keywords-file-local") (done)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+  todo_keyword,
+  todo_type
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "three closed keyword with fast key",
+  "todo_keyword": "three",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "four closed keyword with extended fast key",
+  "todo_keyword": "four",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "eight closed keyword from TYP_TODO",
+  "todo_keyword": "eight",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "ten closed keyword from SEQ_TODO",
+  "todo_keyword": "ten",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "eleven closed keyword from later TODO line",
+  "todo_keyword": "eleven",
+  "todo_type": "closed"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "late_done closed keyword from line defined later in file",
+  "todo_keyword": "late_done",
+  "todo_type": "closed"
+}
+#+end_SRC
+
+** Multiple
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (file-name "todo-keywords-file-local") (todo "nine" "ten")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+  todo_keyword,
+  todo_type
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "nine open keyword from SEQ_TODO",
+  "todo_keyword": "nine",
+  "todo_type": "open"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/todo-keywords-file-local.org",
+  "title_raw": "ten closed keyword from SEQ_TODO",
+  "todo_keyword": "ten",
+  "todo_type": "closed"
+}
+#+end_SRC

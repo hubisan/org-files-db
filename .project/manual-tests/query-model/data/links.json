@@ -1,1 +1,27 @@
-[]
+[
+  {
+    "file_id": 1,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/multipe-title-keywords.org",
+    "heading_id": 1,
+    "heading_path": [],
+    "heading_level": 0,
+    "source_context": "normal",
+    "format": "bracket",
+    "link_type": "file",
+    "raw": "[[file:../../notes/org-semantics/multipe-title-keywords.org]]",
+    "raw_target": "file:../../notes/org-semantics/multipe-title-keywords.org",
+    "raw_description": null,
+    "path": "../../notes/org-semantics/multipe-title-keywords.org",
+    "search_option": null,
+    "path_absolute": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/notes/org-semantics/multipe-title-keywords.org",
+    "target_file_id": null,
+    "target_heading_id": null,
+    "target_custom_id": null,
+    "target_id": null,
+    "resolution_status": "unresolved",
+    "resolution_diagnostic": "outside indexed universe",
+    "byte_start": 73,
+    "byte_end": 134,
+    "line": 5
+  }
+]

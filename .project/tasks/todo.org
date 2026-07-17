@@ -235,3 +235,38 @@ General rules:
 *** DONE Todo Keywords
 
 *** DONE File Local Todo Keywords
+
+*** Heading Predicates
+**** DONE todo
+**** DONE done
+**** DONE title
+**** has-text
+**** level
+**** priority
+**** tags
+**** tags-all
+**** property
+**** keyword
+**** file-name
+**** file-path
+**** file-title
+**** file-modified
+**** outline-contains
+**** outline-sequence
+**** ts
+**** ts-active
+**** ts-inactive
+**** deadline
+**** scheduled
+**** clased
+**** planning
+**** parent
+**** children
+**** ancestors
+**** descendants
+**** has-link
+**** links-to
+**** linked-from
+
+*** Link Predicates
+...

@@ -1,0 +1,12 @@
+#+TITLE: TODO keywords
+#+STARTUP: showall
+
+* TODO Default keyword > TODO
+
+* DONE Default keyword > DONE
+
+* TODO [#A] Default Keyword with Prio and Cookies [0/0]
+
+* NEXT Keyword from Config.toml > NEXT
+
+* CANCEL Keyword from Config.toml > CANCEL

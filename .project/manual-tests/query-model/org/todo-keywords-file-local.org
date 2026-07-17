@@ -1,0 +1,38 @@
+#+TITLE: File-local TODO keywords
+#+STARTUP: showall
+#+TODO: one(t) two(n) | three(d) four(w@)
+#+TODO: FIVE SIX |
+#+TYP_TODO: seven | eight
+#+SEQ_TODO: nine | ten
+
+* TODO default keyword should stay in title
+Default TODO is not valid because file-local TODO lines override defaults.
+
+* DONE default done keyword should stay in title
+Default DONE is not valid because file-local TODO lines override defaults.
+
+* one open keyword with fast key
+* two another open keyword with fast key
+* three closed keyword with fast key
+* four closed keyword with extended fast key
+
+* FIVE open keyword from empty-done-side line
+* SIX another open keyword from empty-done-side line
+
+* seven open keyword from TYP_TODO
+* eight closed keyword from TYP_TODO
+
+* nine open keyword from SEQ_TODO
+* ten closed keyword from SEQ_TODO
+
+#+TODO: | eleven(c)
+
+* eleven closed keyword from later TODO line
+
+#+TODO: late_open | late_done
+
+* late_open open keyword from line defined later in file
+* late_done closed keyword from line defined later in file
+
+* TODO still not valid after later local lines
+* DONE still not valid after later local lines

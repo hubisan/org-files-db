@@ -1,0 +1,9 @@
+#+TITLE: Title
+
+* Title: This Is a Title
+
+* title: This Is another Title
+
+* Title: Same Title
+
+* Title: Same Title
