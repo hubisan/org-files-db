@@ -331,6 +331,71 @@ fn orgize_adapter_preserves_empty_property_values_exposed_by_orgize() {
 }
 
 #[test]
+fn orgize_adapter_falls_back_to_empty_property_drawer_rows_omitted_by_orgize() {
+    let content = "\
+#+TITLE: Empty Drawer Rows
+* Task
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:OTHER: base followed by empty append
+:OTHER+:
+:TRAILING_BASE: 
+:TRAILING_BASE+: valid
+:TRAILING_APPEND: valid
+:TRAILING_APPEND+: 
+:END:
+";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/empty-drawer-rows.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("empty drawer rows should parse");
+
+    let heading = &document.headings[1];
+    let rows: Vec<(String, Option<String>, bool)> = heading
+        .properties
+        .iter()
+        .map(|property| {
+            (
+                property.key.clone(),
+                property.value.clone(),
+                property.append,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            ("VALUE".to_string(), Some("".to_string()), false),
+            (
+                "VALUE".to_string(),
+                Some("empty base followed by append".to_string()),
+                true,
+            ),
+            (
+                "OTHER".to_string(),
+                Some("base followed by empty append".to_string()),
+                false,
+            ),
+            ("OTHER".to_string(), Some("".to_string()), true),
+            ("TRAILING_BASE".to_string(), Some("".to_string()), false),
+            ("TRAILING_BASE".to_string(), Some("valid".to_string()), true),
+            (
+                "TRAILING_APPEND".to_string(),
+                Some("valid".to_string()),
+                false
+            ),
+            ("TRAILING_APPEND".to_string(), Some("".to_string()), true),
+        ]
+    );
+    assert!(document.diagnostics.is_empty());
+}
+
+#[test]
 fn orgize_adapter_preserves_significant_whitespace_in_property_drawer_values() {
     let content = "\
 #+TITLE: Property Whitespace
@@ -714,6 +779,120 @@ fn orgize_adapter_stores_filetags_as_level_zero_direct_tags() {
         vec![
             ("TITLE", Some("Tags Fixture")),
             ("FILETAGS", Some(":file:project:")),
+        ]
+    );
+}
+
+#[test]
+fn orgize_adapter_preserves_empty_and_trailing_space_property_rows_across_multiple_headings() {
+    type PropertyRow = (String, Option<String>, bool);
+    type HeadingPropertyRows = (String, Vec<PropertyRow>);
+
+    let content = "\
+#+TITLE: Empty Property Drawer Fixture
+* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:END:
+
+* Base followed by empty append
+:PROPERTIES:
+:VALUE: base followed by empty append
+:VALUE+:
+:END:
+
+* Empty base with trailing space
+:PROPERTIES:
+:VALUE: 
+:VALUE+: valid
+:END:
+
+* Empty append with trailing space
+:PROPERTIES:
+:VALUE: valid
+:VALUE+: 
+:END:
+
+* Append only
+:PROPERTIES:
+:VALUE+: only
+:END:
+";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/empty-property-drawers.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("multi-heading property drawers should parse");
+
+    let rows: Vec<HeadingPropertyRows> = document
+        .headings
+        .iter()
+        .skip(1)
+        .map(|heading| {
+            (
+                heading.title.clone(),
+                heading
+                    .properties
+                    .iter()
+                    .map(|property| {
+                        (
+                            property.key.clone(),
+                            property.value.clone(),
+                            property.append,
+                        )
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        rows,
+        vec![
+            (
+                "Empty base followed by append".to_string(),
+                vec![
+                    ("VALUE".to_string(), Some("".to_string()), false),
+                    (
+                        "VALUE".to_string(),
+                        Some("empty base followed by append".to_string()),
+                        true,
+                    ),
+                ],
+            ),
+            (
+                "Base followed by empty append".to_string(),
+                vec![
+                    (
+                        "VALUE".to_string(),
+                        Some("base followed by empty append".to_string()),
+                        false,
+                    ),
+                    ("VALUE".to_string(), Some("".to_string()), true),
+                ],
+            ),
+            (
+                "Empty base with trailing space".to_string(),
+                vec![
+                    ("VALUE".to_string(), Some("".to_string()), false),
+                    ("VALUE".to_string(), Some("valid".to_string()), true),
+                ],
+            ),
+            (
+                "Empty append with trailing space".to_string(),
+                vec![
+                    ("VALUE".to_string(), Some("valid".to_string()), false),
+                    ("VALUE".to_string(), Some("".to_string()), true),
+                ],
+            ),
+            (
+                "Append only".to_string(),
+                vec![("VALUE".to_string(), Some("only".to_string()), true)],
+            ),
         ]
     );
 }

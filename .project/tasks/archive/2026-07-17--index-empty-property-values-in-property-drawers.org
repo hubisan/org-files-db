@@ -1,0 +1,494 @@
+#+TITLE: Index empty property values in property drawers
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 17:13]
+#+TASK_COMPLETED: [2026-07-17 Fri 17:13]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the plan.
+
+** DONE [#B] Index empty property values in property drawers
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+- Task file: [[file:archive/2026-07-17--index-empty-property-values-in-property-drawers.org]]
+
+Goal:
+
+- Correctly index property drawer rows whose value is empty.
+- Preserve empty base and empty append definitions as raw property rows.
+- Ensure a valid property drawer is not discarded merely because one of its property values is empty.
+- Keep existing behavior for:
+  - non-empty property values
+  - append-only properties
+  - file-level ~#+PROPERTY~ keywords
+  - duplicate definitions
+  - property query resolution
+
+Current behavior:
+
+These cases are already indexed correctly:
+
+#+begin_src org
+,#+PROPERTY: KEYWORD_EMPTY
+,#+PROPERTY: KEYWORD_EMPTY+ valid
+#+end_src
+
+and:
+
+#+begin_src org
+,* Local append without a base value
+:PROPERTIES:
+:VALUE+: only
+:END:
+#+end_src
+
+The following property drawers are not indexed correctly:
+
+#+begin_src org
+,* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:END:
+#+end_src
+
+and:
+
+#+begin_src org
+,* Base followed by empty append
+:PROPERTIES:
+:VALUE: base followed by empty append
+:VALUE+:
+:END:
+#+end_src
+
+Observed consequence:
+
+- ~--include properties~ returns an empty property list for the affected heading.
+- Property predicates cannot match the affected rows.
+- The problem occurs during parsing or indexing, before query hydration.
+- The CLI include behavior is not the cause.
+
+Required raw storage:
+
+For:
+
+#+begin_src org
+,* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:END:
+#+end_src
+
+store both rows:
+
+#+begin_src text
+VALUE | ""                            | append = 0 | source = property_drawer
+VALUE | empty base followed by append | append = 1 | source = property_drawer
+#+end_src
+
+For:
+
+#+begin_src org
+,* Base followed by empty append
+:PROPERTIES:
+:VALUE: base followed by empty append
+:VALUE+:
+:END:
+#+end_src
+
+store both rows:
+
+#+begin_src text
+VALUE | base followed by empty append | append = 0 | source = property_drawer
+VALUE | ""                            | append = 1 | source = property_drawer
+#+end_src
+
+Expected effective values:
+
+- Empty base followed by append:
+
+#+begin_src text
+VALUE = empty base followed by append
+#+end_src
+
+- Base followed by empty append:
+
+#+begin_src text
+VALUE = base followed by empty append
+#+end_src
+
+- Empty components must not introduce artificial leading, trailing, or duplicate spaces.
+
+Org behavior reference:
+
+For:
+
+#+begin_src org
+,* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:END:
+#+end_src
+
+Org returns a value equivalent to:
+
+#+begin_src text
+ empty base followed by append
+#+end_src
+
+orgfdb may normalize separator whitespace according to its existing effective property contract and return:
+
+#+begin_src text
+empty base followed by append
+#+end_src
+
+The important requirement for this task is that both raw rows are indexed and available to the resolver.
+
+Parser investigation:
+
+- Inspect how Orgize represents property drawers containing:
+  - ~:KEY:~
+  - ~:KEY+:~
+  - ~:KEY: ~
+  - ~:KEY+: ~
+- Determine whether Orgize emits:
+  - a normal property drawer node
+  - a generic drawer node
+  - a node property with an empty value
+  - no node property at all
+- Confirm behavior against the currently pinned Orgize version.
+- Do not assume all four spellings produce the same syntax tree.
+
+Required supported forms:
+
+#+begin_src org
+:VALUE:
+:VALUE: 
+:VALUE+:
+:VALUE+: 
+#+end_src
+
+- All must be investigated.
+- Empty value rows must be indexed when they occur inside a valid ~PROPERTIES~ drawer.
+- Preserve whether the row is append or non-append.
+- Normalize the property key according to the existing rules.
+
+Fallback parsing:
+
+- If Orgize exposes the drawer but omits empty node-property entries, add a narrowly scoped fallback parser for ~PROPERTIES~ drawer contents.
+- The fallback must:
+  - run only for actual ~PROPERTIES~ drawers
+  - parse property syntax line by line
+  - preserve empty values
+  - preserve append markers
+  - preserve source line numbers
+  - avoid duplicating rows already emitted by Orgize
+  - preserve source order
+- Do not parse arbitrary drawers as property drawers.
+- Do not treat property-like text outside a ~PROPERTIES~ drawer as properties.
+
+Valid property line forms:
+
+#+begin_src text
+:KEY: value
+:KEY:
+:KEY: 
+:KEY+: value
+:KEY+:
+:KEY+: 
+#+end_src
+
+Invalid or unrelated lines must continue to follow existing parser behavior.
+
+Raw storage invariants:
+
+- Empty values are stored as the empty string, not ~NULL~.
+- Append markers are stored through the existing ~append~ field.
+- The original source type remains ~property_drawer~.
+- ~line_number~ identifies the actual property line.
+- Each source row creates exactly one raw property row.
+- No schema migration is required.
+
+Query behavior:
+
+After reindexing, this query must match:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Empty base followed by append" :exact t)
+    (property
+      "VALUE"
+      "empty base followed by append"
+      :exact t
+      :inherit nil)))
+#+end_src
+
+This query must also match:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Base followed by empty append" :exact t)
+    (property
+      "VALUE"
+      "base followed by empty append"
+      :exact t
+      :inherit nil)))
+#+end_src
+
+Raw include behavior:
+
+This command:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --include properties \
+  --config ../Config.toml \
+  '(headings
+     (title "Empty base followed by append" :exact t))'
+#+end_src
+
+must return two raw property rows for the matching heading.
+
+The same applies to ~Base followed by empty append~.
+
+Implementation requirements:
+
+- Fix parsing or indexing rather than special-casing query hydration.
+- Reuse the existing property indexing path where possible.
+- Preserve existing behavior for non-empty property drawer rows.
+- Preserve existing behavior for append-only rows such as:
+
+#+begin_src org
+:VALUE+: only
+#+end_src
+
+- Preserve existing behavior for file-level empty ~#+PROPERTY~ rows.
+- Avoid duplicate property rows if both Orgize and fallback parsing expose the same line.
+- Keep source ordering deterministic.
+- Do not change effective property resolution semantics in this task.
+- Do not change ~--include properties~ semantics.
+- Do not add a schema migration.
+
+Regression fixture:
+
+Add or retain:
+
+#+begin_src org
+,* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:END:
+
+,* Base followed by empty append
+:PROPERTIES:
+:VALUE: base followed by empty append
+:VALUE+:
+:END:
+
+,* Empty base with trailing space
+:PROPERTIES:
+:VALUE: 
+:VALUE+: valid
+:END:
+
+,* Empty append with trailing space
+:PROPERTIES:
+:VALUE: valid
+:VALUE+: 
+:END:
+
+,* Append only
+:PROPERTIES:
+:VALUE+: only
+:END:
+#+end_src
+
+Required database assertions:
+
+For ~Empty base followed by append~:
+
+#+begin_src text
+VALUE | ""                            | append = 0
+VALUE | empty base followed by append | append = 1
+#+end_src
+
+For ~Base followed by empty append~:
+
+#+begin_src text
+VALUE | base followed by empty append | append = 0
+VALUE | ""                            | append = 1
+#+end_src
+
+For ~Empty base with trailing space~:
+
+#+begin_src text
+VALUE | ""    | append = 0
+VALUE | valid | append = 1
+#+end_src
+
+For ~Empty append with trailing space~:
+
+#+begin_src text
+VALUE | valid | append = 0
+VALUE | ""    | append = 1
+#+end_src
+
+For ~Append only~:
+
+#+begin_src text
+VALUE | only | append = 1
+#+end_src
+
+Acceptance criteria:
+
+- Empty non-append drawer properties are indexed.
+- Empty append drawer properties are indexed.
+- Both ~:KEY:~ and ~:KEY: ~ forms are covered.
+- Both ~:KEY+:~ and ~:KEY+: ~ forms are covered.
+- A valid drawer is not discarded because one row has an empty value.
+- ~--include properties~ returns the raw empty rows.
+- Property predicates operate on the resolved values after reindexing.
+- Empty components do not create artificial separator spaces.
+- Existing non-empty, duplicate, append-only, inherited, root, and keyword property tests continue to pass.
+- No duplicate rows are produced.
+- No schema migration is added.
+- ~make ci~ passes.
+
+Manual database check:
+
+#+begin_src shell
+sqlite3 ../orgfdb.sqlite '
+SELECT
+  h.title_raw,
+  p.key,
+  quote(p.value) AS value,
+  p.append,
+  p.source,
+  p.line_number
+FROM headings AS h
+JOIN properties AS p
+  ON p.heading_id = h.id
+WHERE h.title_raw IN (
+  "Empty base followed by append",
+  "Base followed by empty append"
+)
+ORDER BY h.id, p.line_number, p.id;
+'
+#+end_src
+
+Manual include check:
+
+#+begin_src shell
+cargo run --manifest-path ../../../../Cargo.toml --bin orgfdb -- \
+  query --json \
+  --include properties \
+  --config ../Config.toml \
+  '(headings
+     (title "Empty base followed by append" :exact t))' \
+  | jq -e '
+      .results[0].properties
+      | length == 2
+    '
+#+end_src
+
+
+* Planning
+
+** Problem summary
+
+Property drawers containing empty-value rows such as ~:KEY:~, ~:KEY+:~, ~:KEY: ~, and ~:KEY+: ~ were not indexed consistently. Some cases were omitted entirely, which meant ~--include properties~ returned no raw rows and property predicates could not match the affected headings after rebuild.
+
+** Goals
+
+- Preserve empty drawer rows as raw property rows with empty-string values.
+- Keep the existing property indexing pipeline and storage schema.
+- Avoid duplicate raw rows when Orgize already exposes a node-property line.
+
+** Non-goals
+
+- No schema migration.
+- No change to effective property resolution semantics.
+- No special-casing in query hydration or result shaping.
+
+** Architecture
+
+- Use Orgize's direct property-drawer node when available for normal drawers.
+- Fall back to parsing raw ~PROPERTIES~ drawer lines only when Orgize omits some empty property rows.
+- Deduplicate fallback rows by source line number so one source row still yields one stored property row.
+
+** Execution plan
+
+- Extend property-drawer discovery to support both normal Orgize property drawers and generic ~PROPERTIES~ drawers.
+- Add narrow raw-line fallback parsing for property drawer content.
+- Cover both parser-only and rebuild/query regressions with tests.
+- Run the repo-preferred checks before moving the task to ~REVIEW~.
+
+** Risks & assumptions
+
+- Orgize can expose different syntax shapes for visually similar empty property rows, so fallback parsing must remain restricted to actual ~PROPERTIES~ drawers.
+- The existing property contract already treats empty stored components as empty strings, so no public API changes are required.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test orgize_adapter_falls_back_to_empty_property_drawer_rows_omitted_by_orgize -- --nocapture~
+- ~cargo test orgize_adapter_preserves_empty_and_trailing_space_property_rows_across_multiple_headings -- --nocapture~
+- ~cargo test rebuild_indexes_empty_property_drawer_rows_and_property_queries_can_match_them -- --nocapture~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Restored the direct Orgize property-drawer path for normal drawers.
+- Added a fallback that scans only actual ~PROPERTIES~ drawer content and preserves empty values for rows Orgize omits.
+- Deduplicated fallback rows against Orgize-emitted node properties by ~line_number~.
+- Added parser and rebuild regressions covering empty base rows, empty append rows, trailing-space variants, and append-only drawers.
+
+** Changed files
+
+- ~src/parser/orgize_adapter.rs~
+- ~src/indexer.rs~
+- ~tests/orgize_adapter.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-17--index-empty-property-values-in-property-drawers.org~
+
+** Checks performed
+
+- ~cargo test orgize_adapter_falls_back_to_empty_property_drawer_rows_omitted_by_orgize -- --nocapture~
+- ~cargo test orgize_adapter_preserves_empty_and_trailing_space_property_rows_across_multiple_headings -- --nocapture~
+- ~cargo test rebuild_indexes_empty_property_drawer_rows_and_property_queries_can_match_them -- --nocapture~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- All focused regression tests passed.
+- ~make ci~ passed, including format, clippy, full test suite, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+- None.

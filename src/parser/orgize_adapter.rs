@@ -59,7 +59,7 @@ impl OrgParserCore for OrgizeAdapter {
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
         populate_heading_body(document.section(), content, &mut level_zero);
-        if let Some(properties) = document.properties() {
+        if let Some(properties) = properties_drawer_node_in_document(&document) {
             level_zero.properties.extend(parsed_properties_from_drawer(
                 &properties,
                 content,
@@ -408,7 +408,7 @@ fn collect_headlines(
         populate_heading_timestamps(&headline, content, &mut parsed);
         populate_heading_body(headline.section(), content, &mut parsed);
 
-        if let Some(properties) = headline.properties() {
+        if let Some(properties) = properties_drawer_node_in_headline(&headline) {
             parsed.properties = parsed_properties_from_drawer(
                 &properties,
                 content,
@@ -1359,15 +1359,63 @@ fn parse_property_keyword_value(value: &str) -> Option<(String, Option<String>, 
     Some((key, raw_value, append))
 }
 
+fn properties_drawer_node_in_document(document: &OrgDocument) -> Option<SyntaxNode> {
+    document
+        .properties()
+        .map(|drawer| drawer.syntax().clone())
+        .or_else(|| {
+            document
+                .section()
+                .and_then(|section| properties_drawer_node_in_section(&section))
+        })
+}
+
+fn properties_drawer_node_in_headline(headline: &Headline) -> Option<SyntaxNode> {
+    headline
+        .properties()
+        .map(|drawer| drawer.syntax().clone())
+        .or_else(|| {
+            headline
+                .section()
+                .and_then(|section| properties_drawer_node_in_section(&section))
+        })
+}
+
+fn properties_drawer_node_in_section(section: &Section) -> Option<SyntaxNode> {
+    section.syntax().descendants().find(|node| {
+        node.kind() == SyntaxKind::PROPERTY_DRAWER
+            || Drawer::cast(node.clone())
+                .is_some_and(|drawer| drawer.name().eq_ignore_ascii_case("PROPERTIES"))
+    })
+}
+
 fn parsed_properties_from_drawer(
-    drawer: &PropertyDrawer,
+    drawer: &SyntaxNode,
     content: &str,
     source: ParsedPropertySource,
 ) -> Vec<ParsedProperty> {
-    drawer
-        .node_properties()
-        .filter_map(|property| parsed_property_from_node(&property, content, source))
-        .collect()
+    let mut properties = PropertyDrawer::cast(drawer.clone())
+        .map(|property_drawer| {
+            property_drawer
+                .node_properties()
+                .filter_map(|property| parsed_property_from_node(&property, content, source))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let seen_lines = properties
+        .iter()
+        .filter_map(|property| property.line_number)
+        .collect::<HashSet<_>>();
+
+    properties.extend(parsed_properties_from_drawer_fallback(
+        drawer,
+        content,
+        source,
+        &seen_lines,
+    ));
+    properties.sort_by_key(|property| property.line_number.unwrap_or(0));
+    properties
 }
 
 fn parsed_property_from_node(
@@ -1378,9 +1426,71 @@ fn parsed_property_from_node(
     let start = usize::from(property.start());
     let end = usize::from(property.end());
     let raw_line = content.get(start..end)?.trim_end_matches(['\n', '\r']);
+    parsed_property_from_raw_line(
+        raw_line,
+        source,
+        line_number_for_offset(content, usize::from(property.start())),
+    )
+}
+
+fn parsed_properties_from_drawer_fallback(
+    drawer: &SyntaxNode,
+    content: &str,
+    source: ParsedPropertySource,
+    seen_lines: &HashSet<u32>,
+) -> Vec<ParsedProperty> {
+    let Some((start, end)) = property_drawer_content_bounds(drawer) else {
+        return Vec::new();
+    };
+    let Some(drawer_content) = content.get(start..end) else {
+        return Vec::new();
+    };
+
+    let mut properties = Vec::new();
+    let mut line_start = start;
+    for segment in drawer_content.split_inclusive('\n') {
+        let raw_line = segment.trim_end_matches(['\n', '\r']);
+        let line_number = line_number_for_offset(content, line_start);
+        if !seen_lines.contains(&line_number) {
+            if let Some(property) = parsed_property_from_raw_line(raw_line, source, line_number) {
+                properties.push(property);
+            }
+        }
+        line_start += segment.len();
+    }
+    properties
+}
+
+fn property_drawer_content_bounds(drawer: &SyntaxNode) -> Option<(usize, usize)> {
+    if let Some(property_drawer) = PropertyDrawer::cast(drawer.clone()) {
+        return Some((
+            usize::from(property_drawer.content_start()),
+            usize::from(property_drawer.content_end()),
+        ));
+    }
+
+    Drawer::cast(drawer.clone()).and_then(|generic_drawer| {
+        generic_drawer
+            .name()
+            .eq_ignore_ascii_case("PROPERTIES")
+            .then_some((
+                usize::from(generic_drawer.content_start()),
+                usize::from(generic_drawer.content_end()),
+            ))
+    })
+}
+
+fn parsed_property_from_raw_line(
+    raw_line: &str,
+    source: ParsedPropertySource,
+    line_number: u32,
+) -> Option<ParsedProperty> {
     let raw_line = raw_line.strip_prefix(':')?;
     let separator_index = raw_line.find(':')?;
     let raw_key = &raw_line[..separator_index];
+    if raw_key.is_empty() {
+        return None;
+    }
     let raw_value = &raw_line[separator_index + 1..];
     let value = Some(raw_value.strip_prefix(' ').unwrap_or(raw_value).to_string());
     let (key, normalized_append) = normalize_property_key(raw_key);
@@ -1390,10 +1500,7 @@ fn parsed_property_from_node(
         value,
         source,
         append: normalized_append,
-        line_number: Some(line_number_for_offset(
-            content,
-            usize::from(property.start()),
-        )),
+        line_number: Some(line_number),
     })
 }
 

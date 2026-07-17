@@ -216,4 +216,8 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org]]
 
+** DONE [#B] Index empty property values in property drawers
+
+- Task file: [[file:archive/2026-07-17--index-empty-property-values-in-property-drawers.org]]
+
 ** TODO Manual Test the Implementation

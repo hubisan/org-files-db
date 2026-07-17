@@ -1227,6 +1227,9 @@ mod tests {
             UNSUPPORTED_DIAGNOSTIC,
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
+        query::{
+            execute_sqlite_query, parse_query, validate_query, QueryRows, QueryValidationOptions,
+        },
     };
     use rusqlite::Connection;
     use std::{
@@ -1794,6 +1797,173 @@ index_body_text = false
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn rebuild_indexes_empty_property_drawer_rows_and_property_queries_can_match_them() {
+        let test_dir = TestDir::new("rebuild-empty-property-drawers");
+        let notes_dir = test_dir.path().join("notes");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config_path = test_dir.path().join("config.toml");
+        let org_path = notes_dir.join("empty-property-drawers.org");
+
+        write_file(
+            &org_path,
+            "\
+#+TITLE: Empty Property Drawer Fixture
+* Empty base followed by append
+:PROPERTIES:
+:VALUE:
+:VALUE+: empty base followed by append
+:END:
+
+* Base followed by empty append
+:PROPERTIES:
+:VALUE: base followed by empty append
+:VALUE+:
+:END:
+
+* Empty base with trailing space
+:PROPERTIES:
+:VALUE: 
+:VALUE+: valid
+:END:
+
+* Empty append with trailing space
+:PROPERTIES:
+:VALUE: valid
+:VALUE+: 
+:END:
+
+* Append only
+:PROPERTIES:
+:VALUE+: only
+:END:
+",
+        );
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+[[dirs]]
+path = "notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+index_body_text = false
+"#,
+        );
+
+        let report = Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+
+        assert_eq!(report.indexed_files.len(), 1);
+        assert!(report.diagnostics.is_empty());
+
+        let connection = Connection::open(&db_path).expect("db should open");
+        let properties: Vec<(String, String, Option<String>, i64)> = query_rows(
+            &connection,
+            "SELECT headings.title, properties.key, properties.value, properties.append
+             FROM properties
+             INNER JOIN headings ON headings.id = properties.heading_id
+             ORDER BY headings.line_number, properties.line_number, properties.id",
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+        assert_eq!(
+            properties,
+            vec![
+                (
+                    "Empty base followed by append".to_string(),
+                    "VALUE".to_string(),
+                    Some("".to_string()),
+                    0,
+                ),
+                (
+                    "Empty base followed by append".to_string(),
+                    "VALUE".to_string(),
+                    Some("empty base followed by append".to_string()),
+                    1,
+                ),
+                (
+                    "Base followed by empty append".to_string(),
+                    "VALUE".to_string(),
+                    Some("base followed by empty append".to_string()),
+                    0,
+                ),
+                (
+                    "Base followed by empty append".to_string(),
+                    "VALUE".to_string(),
+                    Some("".to_string()),
+                    1,
+                ),
+                (
+                    "Empty base with trailing space".to_string(),
+                    "VALUE".to_string(),
+                    Some("".to_string()),
+                    0,
+                ),
+                (
+                    "Empty base with trailing space".to_string(),
+                    "VALUE".to_string(),
+                    Some("valid".to_string()),
+                    1,
+                ),
+                (
+                    "Empty append with trailing space".to_string(),
+                    "VALUE".to_string(),
+                    Some("valid".to_string()),
+                    0,
+                ),
+                (
+                    "Empty append with trailing space".to_string(),
+                    "VALUE".to_string(),
+                    Some("".to_string()),
+                    1,
+                ),
+                (
+                    "Append only".to_string(),
+                    "VALUE".to_string(),
+                    Some("only".to_string()),
+                    1,
+                ),
+            ]
+        );
+
+        let query = validate_query(
+            parse_query(
+                r#"(headings
+                     (and
+                       (title "Empty base followed by append" :exact t)
+                       (property "VALUE" "empty base followed by append" :inherit nil)))"#,
+            )
+            .expect("query should parse"),
+            &QueryValidationOptions::default(),
+        )
+        .expect("query should validate");
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let QueryRows::Headings(rows) = rows else {
+            panic!("expected heading rows");
+        };
+        assert_eq!(rows.len(), 1);
+
+        let query = validate_query(
+            parse_query(
+                r#"(headings
+                     (and
+                       (title "Base followed by empty append" :exact t)
+                       (property "VALUE" "base followed by empty append" :inherit nil)))"#,
+            )
+            .expect("query should parse"),
+            &QueryValidationOptions::default(),
+        )
+        .expect("query should validate");
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let QueryRows::Headings(rows) = rows else {
+            panic!("expected heading rows");
+        };
+        assert_eq!(rows.len(), 1);
     }
 
     #[test]
