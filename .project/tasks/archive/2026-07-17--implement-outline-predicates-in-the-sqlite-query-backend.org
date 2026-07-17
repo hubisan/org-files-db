@@ -1,0 +1,354 @@
+#+TITLE: Implement outline predicates in the SQLite query backend
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 20:36]
+#+TASK_COMPLETED: [2026-07-17 Fri 20:36]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the plan.
+
+** DONE [#B] Implement outline predicates in the SQLite query backend
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+- Task file: [[file:2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org]]
+
+Goal:
+
+- Implement the already documented and validated heading predicates:
+  - ~outline-contains~
+  - ~outline-sequence~
+- Make their SQLite execution behavior match ~docs/cli.org~ and Query Model v0.
+- Preserve the existing parser and validation contract.
+- Do not change hierarchy predicates such as ~parent~, ~children~, ~ancestors~, or ~descendants~, which are already supported by the SQLite backend.
+
+Current behavior:
+
+- The parser accepts both predicates.
+- Validation accepts both predicates for the ~headings~ target.
+- ~docs/cli.org~ documents both predicates as public.
+- The SQLite metadata backend rejects both during execution.
+
+Current execution errors:
+
+#+begin_src text
+predicate outline-contains is not supported by the SQLite metadata backend
+predicate outline-sequence is not supported by the SQLite metadata backend
+#+end_src
+
+Existing indexed data:
+
+- The database already stores outline metadata in ~outline_path~.
+- Relevant columns include:
+  - ~heading_id~
+  - ~file_id~
+  - ~parent_id~
+  - ~depth~
+  - ~materialized_path~
+  - ~breadcrumbs_json~
+
+- Reuse this indexed metadata.
+- Do not reconstruct the outline hierarchy from source files during query execution.
+- Do not add a schema migration.
+
+Required semantics for ~outline-contains~:
+
+Syntax:
+
+#+begin_src lisp
+(outline-contains STRING... :regexp t|nil)
+#+end_src
+
+- Valid only for ~headings~.
+- Match when every supplied string matches at least one component somewhere in the heading's outline path.
+- Components do not need to be contiguous.
+- Supplied strings do not need to appear in the same order unless the documented contract explicitly requires it.
+- One outline component may satisfy more than one supplied string only if normal predicate semantics permit that.
+- Default matching uses the existing case-insensitive text semantics.
+- No ~:exact~ option is supported.
+- Root/file behavior must follow the current heading-domain contract:
+  - root has an empty real-heading breadcrumb path
+  - a non-empty ~outline-contains~ query therefore evaluates false on root
+
+Example outline:
+
+#+begin_src text
+Projects
+Org database
+Property resolver
+#+end_src
+
+This matches:
+
+#+begin_src lisp
+(outline-contains "Projects" "Property")
+#+end_src
+
+This does not match:
+
+#+begin_src lisp
+(outline-contains "Missing")
+#+end_src
+
+Required semantics for ~outline-sequence~:
+
+Syntax:
+
+#+begin_src lisp
+(outline-sequence STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+- Valid only for ~headings~.
+- Match contiguous breadcrumb components in the supplied order.
+- The matching sequence may begin at any position in the outline path.
+- With ~:exact nil~, apply the existing non-exact text matching rule to each component.
+- With ~:exact t~, every supplied value must exactly match the corresponding complete breadcrumb component.
+- Root/file objects have an empty real-heading breadcrumb path and therefore evaluate false for a non-empty sequence.
+
+Example outline:
+
+#+begin_src text
+Projects
+Org database
+Property resolver
+#+end_src
+
+This matches:
+
+#+begin_src lisp
+(outline-sequence "Projects" "Org database" :exact t)
+#+end_src
+
+This also matches:
+
+#+begin_src lisp
+(outline-sequence "Org" "Property")
+#+end_src
+
+This does not match:
+
+#+begin_src lisp
+(outline-sequence "Projects" "Property resolver" :exact t)
+#+end_src
+
+because those components are not contiguous.
+
+Breadcrumb representation:
+
+- Determine whether ~breadcrumbs_json~ contains:
+  - only real heading components
+  - or the synthetic file/root title as its first component
+- Align execution with the documented Query Model v0 contract.
+- Do not silently include the file title in outline predicate matching if the public contract defines outline paths only through real headings.
+- Add explicit tests for:
+  - level-1 headings
+  - nested headings
+  - root/file candidates
+
+Implementation requirements:
+
+- Implement both predicates in ~src/query/sqlite.rs~.
+- Replace the current explicit unsupported branch for:
+  - ~outline-contains~
+  - ~outline-sequence~
+- Use bound SQL parameters.
+- Do not interpolate user strings into SQL.
+- Preserve deterministic behavior.
+- Avoid relying on undocumented SQLite JSON row order.
+- Prefer SQLite JSON functions when available through the supported runtime.
+- If matching is easier and safer after loading breadcrumbs, use a shared post-query matcher only if it preserves boolean composition correctly.
+- Ensure predicates work inside:
+  - ~and~
+  - ~or~
+  - ~not~
+  - nested hierarchy queries
+
+- Do not implement only top-level filtering after SQL execution if that would break boolean or relation semantics.
+
+Regexp handling:
+
+- Check the documented and validator-supported behavior of ~:regexp t~.
+- If the SQLite backend still has no regexp capability:
+  - either implement the required regexp support consistently
+  - or make validation reject ~:regexp t~ before execution and correct the documentation
+- Do not leave a mode documented and validated only to fail during backend compilation.
+- Treat regexp support as a separate subtask if it would expand the scope substantially.
+
+Backend support audit:
+
+- Add a test ensuring every predicate documented as executable for ~headings~ is either:
+  - compiled by the SQLite backend
+  - or explicitly documented as unsupported by that backend
+
+- Include at least:
+  - ~outline-contains~
+  - ~outline-sequence~
+  - ~parent~
+  - ~children~
+  - ~ancestors~
+  - ~descendants~
+
+- Prevent future drift where a predicate is added to parser, validation, and docs but omitted from execution.
+
+Regression fixture:
+
+#+begin_src org
+,* Projects
+,** Org database
+,*** Property resolver
+,*** Query model
+,** Other project
+#+end_src
+
+Required positive queries:
+
+#+begin_src lisp
+(headings
+  (outline-contains "Projects" "Org database"))
+
+(headings
+  (outline-contains "Projects" "Property"))
+
+(headings
+  (outline-sequence "Projects" "Org database" :exact t))
+
+(headings
+  (outline-sequence "Org database" "Property resolver" :exact t))
+#+end_src
+
+Required negative queries:
+
+#+begin_src lisp
+(headings
+  (outline-contains "Projects" "Missing"))
+
+(headings
+  (outline-sequence "Projects" "Property resolver" :exact t))
+
+(headings
+  (outline-sequence "Org database" "Other project" :exact t))
+#+end_src
+
+Boolean regression:
+
+#+begin_src lisp
+(headings
+  (and
+    (outline-sequence "Projects" "Org database" :exact t)
+    (property "VALUE" "parent appended" :inherit t)))
+#+end_src
+
+Hierarchy regression:
+
+#+begin_src lisp
+(headings
+  (descendants
+    (outline-sequence "Projects" "Org database" :exact t)))
+#+end_src
+
+Acceptance criteria:
+
+- ~outline-contains~ executes through the SQLite backend.
+- ~outline-sequence~ executes through the SQLite backend.
+- Both predicates work in boolean expressions.
+- Both predicates work inside hierarchy relation predicates.
+- Existing ~parent~, ~children~, ~ancestors~, and ~descendants~ queries continue to work.
+- Root/file behavior is explicitly tested.
+- Exact and non-exact sequence matching follow the documented contract.
+- Parser, validator, documentation, and backend support agree.
+- No schema migration is added.
+- ~make ci~ passes.
+
+
+* Planning
+
+** Problem summary
+
+The parser, validator, and public docs already exposed ~outline-contains~ and ~outline-sequence~, but the SQLite heading compiler still rejected both as unsupported predicates.
+
+** Goals
+
+- Compile both outline predicates into executable SQLite filters for ~headings~ queries.
+- Keep matching limited to real heading path components rather than the synthetic file/root title stored in ~breadcrumbs_json~.
+- Add regression coverage for direct use, boolean composition, and hierarchy nesting.
+
+** Non-goals
+
+- No schema migration.
+- No change to parser syntax or core validator shape.
+- No generic SQLite regexp support for text predicates.
+
+** Architecture
+
+- Use correlated ~EXISTS~ subqueries against ~outline_path~ and ~json_each(outline_path.breadcrumbs_json)~.
+- Skip breadcrumb index ~0~ so outline matching uses only real heading components.
+- Keep ~:regexp t~ unsupported in the SQLite backend and document that backend-specific limitation explicitly.
+
+** Execution plan
+
+- Replace the unsupported branches in ~src/query/sqlite.rs~ with dedicated outline predicate compilers.
+- Add compile- and execution-level regressions for outline matching, root exclusion, hierarchy integration, and placeholder safety.
+- Update the CLI and Query Model docs to reflect real-heading path semantics and SQLite regexp limitations.
+
+** Risks & assumptions
+
+- ~breadcrumbs_json~ currently stores the synthetic file/root title as its first element for headings, so SQL must ignore that element deliberately.
+- SQLite JSON row order is not relied on implicitly; sequence matching uses explicit key offsets.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test execution_matches_outline_predicates -- --nocapture~
+- ~cargo test execution_matches_outline_predicates_in_boolean_and_hierarchy_queries -- --nocapture~
+- ~cargo test compile_supports_documented_outline_and_hierarchy_heading_predicates -- --nocapture~
+- ~cargo test compile_rejects_regex_and_deferred_relation_predicates -- --nocapture~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Implemented ~outline-contains~ and ~outline-sequence~ as correlated SQLite ~EXISTS~ predicates over persisted outline breadcrumbs.
+- Ensured matching ignores the synthetic root/file breadcrumb entry and therefore only uses real heading path components.
+- Kept ~:regexp t~ explicitly unsupported in SQLite for these predicates and aligned the docs with that backend contract.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org~
+
+** Checks performed
+
+- ~cargo test execution_matches_outline_predicates -- --nocapture~
+- ~cargo test execution_matches_outline_predicates_in_boolean_and_hierarchy_queries -- --nocapture~
+- ~cargo test compile_supports_documented_outline_and_hierarchy_heading_predicates -- --nocapture~
+- ~cargo test compile_rejects_regex_and_deferred_relation_predicates -- --nocapture~
+- ~cargo fmt --all~
+- ~make ci~
+
+** Test results
+
+- Focused outline predicate regressions passed.
+- ~make ci~ passed.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+- If regexp matching is needed for outline predicates in SQLite, implement it as a separate backend capability task instead of extending this change ad hoc.

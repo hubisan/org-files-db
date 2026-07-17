@@ -1682,6 +1682,8 @@ The outline path is the sequence of heading titles from the top-level heading to
 
 The file/root node is always present in result paths, but it is not part of the heading outline path unless a predicate explicitly documents root inclusion.
 
+In the SQLite metadata backend, ~:regexp t~ is currently unsupported for both outline predicates even though the query language reserves the option.
+
 *** ~(outline-contains &rest strings &key regexp)~
 
 **** Purpose
@@ -1695,7 +1697,7 @@ Match headings whose outline path contains all given strings somewhere.
 - Strings do not need to match adjacent components.
 - Order does not matter.
 - Matching is substring-based and case-insensitive by default.
-- With ~:regexp t~, strings are interpreted as regexps.
+- With ~:regexp t~, strings are interpreted as regexps in the abstract query model, but the SQLite metadata backend currently rejects that mode.
 
 **** Example path
 
@@ -1709,7 +1711,6 @@ Matches:
 (outline-contains "Projects" "Query")
 (outline-contains "Org" "engine")
 (outline-contains "Query" "Projects")
-(outline-contains "Org.*" "Query.*" :regexp t)
 #+end_src
 
 Does not match:
@@ -1729,7 +1730,7 @@ Match a contiguous ordered sequence of outline path components.
 - Multiple strings form an ordered sequence.
 - The sequence must match adjacent outline path components.
 - By default, each string is matched as a substring of the corresponding path component.
-- With ~:regexp t~, each string is interpreted as a regexp for the corresponding component.
+- With ~:regexp t~, each string is interpreted as a regexp for the corresponding component in the abstract query model, but the SQLite metadata backend currently rejects that mode.
 - With ~:exact t~, each string must exactly equal the corresponding component.
 - ~:exact t~ is allowed with multiple arguments for this predicate because it applies per path segment.
 - ~:regexp t~ and ~:exact t~ must not be combined.
@@ -1746,7 +1747,6 @@ Matches:
 (outline-sequence "Projects" "Org")
 (outline-sequence "Org" "Query")
 (outline-sequence "Projects" "Org" "Query")
-(outline-sequence "Proj.*" "Org.*" :regexp t)
 (outline-sequence "Projects" "Org database" :exact t)
 #+end_src
 
@@ -4389,6 +4389,11 @@ Order is not significant for ~outline-contains~.
 (outline-contains "Proj.*" "Query.*" :regexp t)
 #+end_src
 
+Meaning:
+
+- valid query syntax
+- currently rejected by the SQLite metadata backend because regexp matching is not implemented there
+
 *** 7.3 Outline sequence
 
 #+begin_src lisp
@@ -4424,16 +4429,16 @@ because ~Org database~ is between ~Projects~ and ~Query engine~.
 *** 7.5 Exact outline sequence
 
 #+begin_src lisp
-(outline-sequence "Projects/Org database/Query engine" :exact t)
+(outline-sequence "Projects" "Org database" :exact t)
 #+end_src
 
 Meaning:
 
-- match the complete normalized outline path exactly
+- match contiguous outline path components exactly, one segment per argument
 
 Rule:
 
-- ~:exact t~ requires exactly one string argument
+- ~:exact t~ applies to each supplied segment
 
 *** 7.6 Regexp outline sequence
 
@@ -4443,7 +4448,8 @@ Rule:
 
 Meaning:
 
-- match three contiguous path components by regexp
+- valid query syntax
+- currently rejected by the SQLite metadata backend because regexp matching is not implemented there
 
 ** 8. Date and planning examples
 

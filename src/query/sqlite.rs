@@ -1135,14 +1135,8 @@ fn compile_heading_predicate(
         "links-to" => compile_links_to_predicate(scope, aliases, predicate),
         "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
         "has-text" => compile_has_text_predicate(scope, predicate),
-        "outline-contains" | "outline-sequence" => Err(QueryExecutionError::unsupported_predicate(
-            QueryTarget::Headings,
-            predicate.name.as_str(),
-            format!(
-                "predicate {} is not supported by the SQLite metadata backend",
-                predicate.name
-            ),
-        )),
+        "outline-contains" => compile_outline_contains_predicate(scope, predicate),
+        "outline-sequence" => compile_outline_sequence_predicate(scope, predicate),
         "link-type" | "link-target" | "link-description" | "has-description" | "status"
         | "source" | "target" => Err(QueryExecutionError::unsupported_predicate(
             QueryTarget::Headings,
@@ -1219,6 +1213,127 @@ fn compile_has_text_predicate(
 
     Ok(SqlFragment {
         sql: format!("({})", parts.join(" AND ")),
+        params,
+    })
+}
+
+fn compile_outline_contains_predicate(
+    scope: &QueryScope,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    if option_bool(&predicate.options, "regexp")? {
+        return Err(QueryExecutionError::unsupported_backend_feature(
+            QueryTarget::Headings,
+            "outline-contains",
+            "predicate outline-contains with :regexp t is not supported by the SQLite metadata backend",
+        ));
+    }
+
+    let values = predicate
+        .args
+        .iter()
+        .map(arg_as_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(
+                QueryTarget::Headings,
+                "outline-contains",
+                message,
+            )
+        })?;
+
+    let mut parts = Vec::with_capacity(values.len());
+    let mut params = Vec::with_capacity(values.len());
+    for value in values {
+        parts.push(format!(
+            "EXISTS (
+                SELECT 1
+                FROM outline_path AS outline_match
+                INNER JOIN json_each(outline_match.breadcrumbs_json) AS breadcrumb
+                WHERE outline_match.heading_id = {}
+                  AND breadcrumb.key > 0
+                  AND INSTR(LOWER(CAST(breadcrumb.value AS TEXT)), LOWER(?)) > 0
+            )",
+            scope.heading_col("id")
+        ));
+        params.push(QueryParam::Text(value));
+    }
+
+    Ok(SqlFragment {
+        sql: format!("({})", parts.join(" AND ")),
+        params,
+    })
+}
+
+fn compile_outline_sequence_predicate(
+    scope: &QueryScope,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    if option_bool(&predicate.options, "regexp")? {
+        return Err(QueryExecutionError::unsupported_backend_feature(
+            QueryTarget::Headings,
+            "outline-sequence",
+            "predicate outline-sequence with :regexp t is not supported by the SQLite metadata backend",
+        ));
+    }
+
+    let exact = option_bool(&predicate.options, "exact")?;
+    let values = predicate
+        .args
+        .iter()
+        .map(arg_as_string)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(
+                QueryTarget::Headings,
+                "outline-sequence",
+                message,
+            )
+        })?;
+
+    let mut joins = Vec::new();
+    let mut predicates = vec![
+        format!("outline_match.heading_id = {}", scope.heading_col("id")),
+        "start_breadcrumb.key > 0".to_string(),
+    ];
+    let mut params = Vec::with_capacity(values.len());
+
+    for (index, value) in values.into_iter().enumerate() {
+        let alias = if index == 0 {
+            "start_breadcrumb".to_string()
+        } else {
+            let alias = format!("breadcrumb_{index}");
+            joins.push(format!(
+                "INNER JOIN json_each(outline_match.breadcrumbs_json) AS {alias}
+                    ON {alias}.key = start_breadcrumb.key + {index}"
+            ));
+            alias
+        };
+        let expression = format!("CAST({alias}.value AS TEXT)");
+        if exact {
+            predicates.push(format!("LOWER({expression}) = LOWER(?)"));
+        } else {
+            predicates.push(format!("INSTR(LOWER({expression}), LOWER(?)) > 0"));
+        }
+        params.push(QueryParam::Text(value));
+    }
+
+    Ok(SqlFragment {
+        sql: format!(
+            "(EXISTS (
+                SELECT 1
+                FROM outline_path AS outline_match
+                INNER JOIN json_each(outline_match.breadcrumbs_json) AS start_breadcrumb
+                {}
+                WHERE {}
+            ))",
+            if joins.is_empty() {
+                String::new()
+            } else {
+                format!("\n                {}", joins.join("\n                "))
+            },
+            predicates.join("\n                  AND ")
+        ),
         params,
     })
 }
@@ -2934,6 +3049,10 @@ mod tests {
         for query in [
             validated(&format!(r#"(headings (title "{user_value}"))"#)),
             validated(&format!(r#"(headings (has-text "{user_value}"))"#)),
+            validated(&format!(r#"(headings (outline-contains "{user_value}"))"#)),
+            validated(&format!(
+                r#"(headings (outline-sequence "{user_value}" "nested"))"#
+            )),
             validated(&format!(r#"(headings (tags "{user_value}" :inherit nil))"#)),
             validated(&format!(r#"(headings (property "OWNER" "{user_value}"))"#)),
             validated(&format!(r#"(files (keyword "AUTHOR" "{user_value}"))"#)),
@@ -2982,12 +3101,30 @@ mod tests {
             "predicate has-text with :regexp t is not supported by the SQLite metadata backend"
         );
 
-        let relation_query = validated(r#"(headings (outline-sequence "todo" "done"))"#);
+        let outline_contains_regexp =
+            validated(r#"(headings (outline-contains "todo.*" :regexp t))"#);
         let relation_error =
-            compile_sqlite_query(&relation_query).expect_err("relation should fail");
+            compile_sqlite_query(&outline_contains_regexp).expect_err("regexp should fail");
         assert_eq!(
             relation_error.kind,
-            QueryExecutionErrorKind::UnsupportedPredicate
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert_eq!(
+            relation_error.message,
+            "predicate outline-contains with :regexp t is not supported by the SQLite metadata backend"
+        );
+
+        let outline_sequence_regexp =
+            validated(r#"(headings (outline-sequence "todo.*" "done.*" :regexp t))"#);
+        let relation_error =
+            compile_sqlite_query(&outline_sequence_regexp).expect_err("regexp should fail");
+        assert_eq!(
+            relation_error.kind,
+            QueryExecutionErrorKind::UnsupportedBackendFeature
+        );
+        assert_eq!(
+            relation_error.message,
+            "predicate outline-sequence with :regexp t is not supported by the SQLite metadata backend"
         );
     }
 
@@ -3170,6 +3307,117 @@ mod tests {
             &validated(r#"(headings (descendants (headings (title "Nested Task" :exact t))))"#),
         )
         .expect("descendant query should execute");
+        assert_eq!(heading_ids(descendant_rows), vec![11]);
+    }
+
+    #[test]
+    fn compile_supports_documented_outline_and_hierarchy_heading_predicates() {
+        for query in [
+            r#"(headings (outline-contains "Query"))"#,
+            r#"(headings (outline-sequence "Query" "Nested"))"#,
+            r#"(headings (parent))"#,
+            r#"(headings (children))"#,
+            r#"(headings (ancestors))"#,
+            r#"(headings (descendants))"#,
+        ] {
+            compile_sqlite_query(&validated(query)).expect("query should compile");
+        }
+    }
+
+    #[test]
+    fn execution_matches_outline_predicates() {
+        let connection = seeded_connection();
+
+        let contains_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "Query" "Nested"))"#),
+        )
+        .expect("outline contains query should execute");
+        assert_eq!(heading_ids(contains_rows), vec![12]);
+
+        let contains_order_insensitive_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "Nested" "Query"))"#),
+        )
+        .expect("outline contains query should execute");
+        assert_eq!(heading_ids(contains_order_insensitive_rows), vec![12]);
+
+        let sequence_top_level_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (outline-sequence "Query Engine" :exact t)
+                      (level 1)))"#,
+            ),
+        )
+        .expect("outline sequence top-level query should execute");
+        assert_eq!(heading_ids(sequence_top_level_rows), vec![11]);
+
+        let contains_root_name_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "Alpha Index"))"#),
+        )
+        .expect("outline contains should execute");
+        assert_eq!(heading_ids(contains_root_name_rows), Vec::<i64>::new());
+
+        let sequence_exact_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-sequence "Query Engine" "Nested Task" :exact t))"#),
+        )
+        .expect("outline sequence exact query should execute");
+        assert_eq!(heading_ids(sequence_exact_rows), vec![12]);
+
+        let sequence_substring_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-sequence "Query" "Nested"))"#),
+        )
+        .expect("outline sequence query should execute");
+        assert_eq!(heading_ids(sequence_substring_rows), vec![12]);
+
+        let sequence_non_contiguous_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (outline-sequence "Query Engine" "Statistic Cookies" :exact t))"#,
+            ),
+        )
+        .expect("outline sequence query should execute");
+        assert_eq!(heading_ids(sequence_non_contiguous_rows), vec![14]);
+
+        let sequence_missing_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-sequence "Query Engine" "Loose Note" :exact t))"#),
+        )
+        .expect("outline sequence should execute");
+        assert_eq!(heading_ids(sequence_missing_rows), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn execution_matches_outline_predicates_in_boolean_and_hierarchy_queries() {
+        let connection = seeded_connection();
+
+        let boolean_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (outline-sequence "Query Engine" "Statistic Cookies" :exact t)
+                      (property "ADD-VALUE" "is valid" :inherit t)))"#,
+            ),
+        )
+        .expect("boolean outline query should execute");
+        assert_eq!(heading_ids(boolean_rows), vec![14]);
+
+        let descendant_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (descendants
+                      (headings
+                        (outline-sequence "Query Engine" "Nested Task" :exact t))))"#,
+            ),
+        )
+        .expect("hierarchy outline query should execute");
         assert_eq!(heading_ids(descendant_rows), vec![11]);
     }
 

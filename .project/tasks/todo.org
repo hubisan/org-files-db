@@ -220,4 +220,8 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--index-empty-property-values-in-property-drawers.org]]
 
+** DONE [#B] Implement outline predicates in the SQLite query backend
+
+- Task file: [[file:archive/2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org]]
+
 ** TODO Manual Test the Implementation
