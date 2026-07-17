@@ -8,7 +8,14 @@
 :ROOT_DRAWER_APPEND+: appended
 :ROOT_DRAWER_DUPLICATE: first
 :ROOT_DRAWER_DUPLICATE: second
+:ROOT_OVERRIDE_CHAIN: this
+:ROOT_OVERRIDE_CHAIN: is
+:ROOT_OVERRIDE_CHAIN: the
 :ROOT_OVERRIDE_CHAIN: root
+:TEST: old
+:TEST+: append 1
+:TEST: new
+:TEST+: append 2
 :END:
 #+TITLE: Org Property and Keyword Test
 #+STARTUP: showall
@@ -26,10 +33,19 @@
 #+PROPERTY: KEYWORD_APPEND_ONLY+ appended
 #+PROPERTY: KEYWORD_EMPTY
 #+PROPERTY: KEYWORD_EMPTY+ valid
+#+PROPERTY: KEYWORD_VERY_EMPTY
+
+* Empty Property
+:PROPERTIES:
+:EMPTY_PROP:
+:END:
 
 * Expected file/root values
 
 The synthetic level-0 file/root object should have these direct effective properties:
+
+  src_elisp{(org-entry-get nil "TEST" t)} {{{results(=new append 1 append 2=)}}}
+  src_elisp{(org-entry-get nil "KEYWORD_RESET" t)} {{{results(=replacement appended-after-reset=)}}}
 
 - ~ROOT_DRAWER_BASE = root~
   src_elisp{(org-entry-get nil "ROOT_DRAWER_BASE" t)} {{{results(=root=)}}}
@@ -128,7 +144,7 @@ Expected:
 * Empty base followed by append
 :PROPERTIES:
 :VALUE:
-:VALUE+: valid
+:VALUE+: empty base followed by append
 :END:
 
 Expected:
@@ -140,7 +156,7 @@ Expected:
 
 * Base followed by empty append
 :PROPERTIES:
-:VALUE: valid
+:VALUE: base followed by empty append
 :VALUE+:
 :END:
 
@@ -489,22 +505,6 @@ Expected:
 - ~:inherit t~ gives ~VALUE = second child~
   src_elisp{(org-entry-get nil "VALUE" t)} {{{results(=second child=)}}}   
 - the parent value does not participate
-
-* Independent property keys
-:PROPERTIES:
-:VALUE_A: one
-:VALUE_A+: two
-:VALUE_B: first
-:VALUE_B: second
-:END:
-
-Expected:
-
-- ~VALUE_A = one two~
-  src_elisp{(org-entry-get nil "VALUE_A" nil)} {{{results(=one two=)}}}   
-- ~VALUE_B = second~
-  src_elisp{(org-entry-get nil "VALUE_B" nil)} {{{results(=second=)}}}   
-- resolution is performed independently per normalized key
 
 * Mixed-case property keys
 :PROPERTIES:

@@ -12,10 +12,12 @@
 #+name: config-path
 : ../Config.toml
 
-* File Level Property Match
+* Root
+
+** Plain
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "whatever" "level 0 drawer property" :inherit nil))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "ROOT_DRAWER_BASE" "root" :inherit nil))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,
@@ -32,10 +34,10 @@
 }
 #+end_SRC
 
-* File Level Property Match - with Keyword
+** Empty
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "whatever" "level 0 drawer property" :inherit nil))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "KEYWORD_VERY_EMPTY" "" :inherit nil))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,
@@ -51,10 +53,31 @@
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
-* Property Appedn
+
+** Appended
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (property "add-value" "is valid"))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "ROOT_DRAWER_APPEND" "root appended" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Duplicate
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "ROOT_DRAWER_DUPLICATE" "first" :inherit nil))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,
@@ -66,3 +89,851 @@
 #+begin_SRC js
 #+end_SRC
 
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "ROOT_DRAWER_DUPLICATE" "second" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Override Chain
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "ROOT_OVERRIDE_CHAIN" "root" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Keyword Append
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_APPEND" "foo=1 bar=2 baz=3" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Keyword Duplicate
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_DUPLICATE" "first" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_DUPLICATE" "second" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Keyword Reset
+
+This is a deliberate difference to org itself as if using properties a duplicate property does only remove the value, appends are added later on. Whereas keyword properties override definitions and appends. This applies the normal properties to keyword properties as well.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_RESET" "first" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_RESET" "replacement appended-before-reset appended-after-reset" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Keyword Append Normal
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_APPEND_ONLY" "only appended" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+** Keyword Empty
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "KEYWORD_EMPTY" "valid" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Org Property and Keyword Test"
+}
+#+end_SRC
+
+* Empty Property
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "EMPTY_PROP" "" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Empty Property"
+}
+#+end_SRC
+
+* Local append on the same heading
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "VALUE" "first second" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Local append on the same heading"
+}
+#+end_SRC
+
+* Multiple local append rows
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "VALUE" "base one two" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Multiple local append rows"
+}
+#+end_SRC
+
+* Local append without a base value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "VALUE" "only" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Local append without a base value"
+}
+#+end_SRC
+
+* Later local definition replaces the earlier definition
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (and (title "later") (property "VALUE" "second" :inherit nil)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Later local definition replaces the earlier definition"
+}
+#+end_SRC
+
+* Local append followed by replacement
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include effective-properties --config <<config-path()>> '(headings (property "VALUE" "replacement appended-before-reset appended-after-reset" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Local append followed by replacement"
+}
+#+end_SRC
+
+* Empty base followed by append
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (property "VALUE" "empty base followed by append"))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Empty base followed by append"
+}
+#+end_SRC
+
+* Base followed by empty append
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (property "VALUE" "base followed by empty append"))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Base followed by empty append"
+}
+#+end_SRC
+
+
+* Parent append inheritance
+
+** Child with append only
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "child with append only") (property "VALUE" "parent child")))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child with append only"
+}
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "child with append only") (property "VALUE" "child" :inherit nil)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child with append only"
+}
+#+end_SRC
+
+** Child without local value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "child without local value") (property "VALUE" "parent" :inherit nil)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "child without local value") (property "VALUE" "parent" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child without local value"
+}
+#+end_SRC
+
+** Child with local replacement
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child with local replacement") (property "VALUE" "child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child with local replacement"
+}
+#+end_SRC
+
+** Child with local replacement and append
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child with local replacement and append") (property "VALUE" "child appended" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child with local replacement and append"
+}
+#+end_SRC
+
+* Parent with appended effective value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Parent with appended effective value") (property "VALUE" "parent appended" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Parent with appended effective value"
+}
+#+end_SRC
+
+** Inheriting child
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (outline-sequence "parent" "inheriting") (property "VALUE" "parent appended" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Inheriting child"
+}
+#+end_SRC
+
+** Child overriding appended parent value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child overriding appended parent value") (property "VALUE" "child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child overriding appended parent value"
+}
+#+end_SRC
+
+** Child appending to appended parent value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child appending to appended parent value") (property "VALUE" "parent appended child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child appending to appended parent value"
+}
+#+end_SRC
+
+* Root drawer inheritance
+
+** Child inheriting root drawer base
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child inheriting root drawer base") (property "Root_Drawer_Base" "root" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child inheriting root drawer base"
+}
+#+end_SRC
+
+** Child appending to root drawer base
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child appending to root drawer base") (property "Root_Drawer_Base" "root child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child appending to root drawer base"
+}
+#+end_SRC
+
+** Child replacing root drawer base
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child replacing root drawer base") (property "Root_Drawer_Base" "child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child replacing root drawer base"
+}
+#+end_SRC
+
+* File keyword inheritance
+
+** Child inheriting appended keyword
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child inheriting appended keyword") (property "KEYWORD_APPEND" "foo=1 bar=2 baz=3" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child inheriting appended keyword"
+}
+#+end_SRC
+
+** Child appending to file keyword
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child appending to file keyword") (property "KEYWORD_APPEND" "foo=1 bar=2 baz=3 child=4" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child appending to file keyword"
+}
+#+end_SRC
+
+** Child replacing file keyword
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child replacing file keyword") (property "KEYWORD_APPEND" "local=1" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child replacing file keyword"
+}
+#+end_SRC
+#+begin_SRC js
+
+** Child replacing and appending file keyword
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child replacing and appending file keyword") (property "KEYWORD_APPEND" "local=1 local=2" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child replacing and appending file keyword"
+}
+#+end_SRC
+
+* Append before
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Append before") (property "value" "definition appending before" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Append before"
+}
+#+end_SRC
+
+* Duplicate property definitions in one drawer
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Duplicate property definitions in one drawer") (property "defined_twice" "second is effective" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Duplicate property definitions in one drawer"
+}
+#+end_SRC
+
+* Duplicate definition followed by append
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Duplicate definition followed by append") (property "value" "second appended" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Duplicate definition followed by append"
+}
+#+end_SRC
+
+* Append followed by duplicate replacement
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Append followed by duplicate replacement") (property "value" "second appended another value" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Append followed by duplicate replacement"
+}
+#+end_SRC
+
+* Append followed by duplicate replacement
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Append followed by duplicate replacement") (property "value" "second appended" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Append followed by duplicate replacement"
+}
+#+end_SRC
+
+* Parent duplicate definition
+
+** Child inheriting duplicate parent value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child inheriting duplicate parent value") (property "value" "second" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child inheriting duplicate parent value"
+}
+#+end_SRC
+
+** Child appending to duplicate parent value
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child appending to duplicate parent value") (property "value" "second child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child appending to duplicate parent value"
+}
+#+end_SRC
+
+* Parent definition overridden by child duplicate definitions
+
+** Child with two local definitions
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Child with two local definitions") (property "value" "second child" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Child with two local definitions"
+}
+#+end_SRC
+
+* Mixed-case property keys
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include properties --config <<config-path()>> '(headings (and (title "Mixed-case property keys") (property "mixed_key" "replacement second final" :inherit t)))' \
+    | jq '.results[] | {
+    kind,
+    file_path: .location.file_path,
+    title_raw
+  }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "title_raw": "Mixed-case property keys"
+}
+#+end_SRC
