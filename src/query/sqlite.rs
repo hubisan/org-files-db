@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use regex::Regex;
 use rusqlite::{
     params_from_iter,
     types::{ToSqlOutput, Value},
@@ -525,7 +526,7 @@ pub fn sqlite_query_validation_options(
 ) -> Result<QueryValidationOptions, QueryExecutionError> {
     Ok(QueryValidationOptions {
         body_text_available: sqlite_body_text_available(connection)?,
-        regexp_body_matching_supported: false,
+        regexp_matching_supported: true,
     })
 }
 
@@ -1174,13 +1175,7 @@ fn compile_has_text_predicate(
         return Ok(sql_literal("(0 = 1)"));
     }
 
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "has-text",
-            "predicate has-text with :regexp t is not supported by the SQLite metadata backend",
-        ));
-    }
+    let regexp = option_bool(&predicate.options, "regexp")?;
 
     let values = predicate
         .args
@@ -1204,9 +1199,15 @@ fn compile_has_text_predicate(
                 SELECT 1
                 FROM heading_bodies
                 WHERE heading_bodies.heading_id = {}
-                  AND INSTR(LOWER(heading_bodies.body_text), LOWER(?)) > 0
+                  AND {}
             )",
-            scope.heading_col("id")
+            scope.heading_col("id"),
+            if regexp {
+                validate_regexp_pattern(QueryTarget::Headings, "has-text", &value)?;
+                "orgfdb_regexp(?, heading_bodies.body_text) = 1".to_string()
+            } else {
+                "INSTR(LOWER(heading_bodies.body_text), LOWER(?)) > 0".to_string()
+            }
         ));
         params.push(QueryParam::Text(value));
     }
@@ -1221,13 +1222,7 @@ fn compile_outline_contains_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "outline-contains",
-            "predicate outline-contains with :regexp t is not supported by the SQLite metadata backend",
-        ));
-    }
+    let regexp = option_bool(&predicate.options, "regexp")?;
 
     let values = predicate
         .args
@@ -1245,6 +1240,12 @@ fn compile_outline_contains_predicate(
     let mut parts = Vec::with_capacity(values.len());
     let mut params = Vec::with_capacity(values.len());
     for value in values {
+        let match_sql = if regexp {
+            validate_regexp_pattern(QueryTarget::Headings, "outline-contains", &value)?;
+            "orgfdb_regexp(?, CAST(breadcrumb.value AS TEXT)) = 1".to_string()
+        } else {
+            "INSTR(LOWER(CAST(breadcrumb.value AS TEXT)), LOWER(?)) > 0".to_string()
+        };
         parts.push(format!(
             "EXISTS (
                 SELECT 1
@@ -1252,9 +1253,10 @@ fn compile_outline_contains_predicate(
                 INNER JOIN json_each(outline_match.breadcrumbs_json) AS breadcrumb
                 WHERE outline_match.heading_id = {}
                   AND breadcrumb.key > 0
-                  AND INSTR(LOWER(CAST(breadcrumb.value AS TEXT)), LOWER(?)) > 0
+                  AND {}
             )",
-            scope.heading_col("id")
+            scope.heading_col("id"),
+            match_sql
         ));
         params.push(QueryParam::Text(value));
     }
@@ -1269,14 +1271,7 @@ fn compile_outline_sequence_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "outline-sequence",
-            "predicate outline-sequence with :regexp t is not supported by the SQLite metadata backend",
-        ));
-    }
-
+    let regexp = option_bool(&predicate.options, "regexp")?;
     let exact = option_bool(&predicate.options, "exact")?;
     let values = predicate
         .args
@@ -1310,7 +1305,10 @@ fn compile_outline_sequence_predicate(
             alias
         };
         let expression = format!("CAST({alias}.value AS TEXT)");
-        if exact {
+        if regexp {
+            validate_regexp_pattern(QueryTarget::Headings, "outline-sequence", &value)?;
+            predicates.push(format!("orgfdb_regexp(?, {expression}) = 1"));
+        } else if exact {
             predicates.push(format!("LOWER({expression}) = LOWER(?)"));
         } else {
             predicates.push(format!("INSTR(LOWER({expression}), LOWER(?)) > 0"));
@@ -1558,17 +1556,7 @@ fn compile_text_predicate(
     predicate: &ValidatedPredicate,
     allow_nulls: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            target,
-            predicate.name.as_str(),
-            format!(
-                "predicate {} with :regexp t is not supported by the SQLite metadata backend",
-                predicate.name
-            ),
-        ));
-    }
-
+    let regexp = option_bool(&predicate.options, "regexp")?;
     let exact = option_bool(&predicate.options, "exact")?;
     let values = predicate
         .args
@@ -1592,7 +1580,10 @@ fn compile_text_predicate(
     let mut parts = Vec::with_capacity(values.len());
     let mut params = Vec::with_capacity(values.len());
     for value in values {
-        if exact {
+        if regexp {
+            validate_regexp_pattern(target, predicate.name.as_str(), &value)?;
+            parts.push(format!("orgfdb_regexp(?, {sql_column}) = 1"));
+        } else if exact {
             parts.push(format!("LOWER({sql_column}) = LOWER(?)"));
         } else {
             parts.push(format!("INSTR(LOWER({sql_column}), LOWER(?)) > 0"));
@@ -1659,13 +1650,6 @@ fn compile_heading_tags_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Headings,
-            "tags",
-            "heading tags with :regexp t are not supported by the SQLite metadata backend",
-        ));
-    }
     if !option_bool_with_default(&predicate.options, "inherit", true)? {
         return compile_tags_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
@@ -1678,6 +1662,7 @@ fn compile_heading_effective_tags_exists(
     predicate: &ValidatedPredicate,
     include_root: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
+    let regexp = option_bool(&predicate.options, "regexp")?;
     let match_all = matches!(
         keyword_option(&predicate.options, "match")?.as_deref(),
         Some("all")
@@ -1690,6 +1675,11 @@ fn compile_heading_effective_tags_exists(
         .map_err(|message| {
             QueryExecutionError::unsupported_backend_feature(QueryTarget::Headings, "tags", message)
         })?;
+    if regexp {
+        for tag in &tags {
+            validate_regexp_pattern(QueryTarget::Headings, "tags", tag)?;
+        }
+    }
 
     if match_all {
         let mut parts = Vec::with_capacity(tags.len());
@@ -1701,7 +1691,11 @@ fn compile_heading_effective_tags_exists(
                 &scope.heading_col("level"),
                 "tags",
                 "matched_tags",
-                "matched_tags.tag = ?",
+                if regexp {
+                    "orgfdb_regexp(?, matched_tags.tag) = 1"
+                } else {
+                    "matched_tags.tag = ?"
+                },
                 include_root,
             ));
             params.push(QueryParam::Text(tag));
@@ -1712,7 +1706,13 @@ fn compile_heading_effective_tags_exists(
         });
     }
 
-    let placeholders = vec!["?"; tags.len()].join(", ");
+    let fact_match_sql = if regexp {
+        let parts = vec!["orgfdb_regexp(?, matched_tags.tag) = 1"; tags.len()];
+        format!("({})", parts.join(" OR "))
+    } else {
+        let placeholders = vec!["?"; tags.len()].join(", ");
+        format!("matched_tags.tag IN ({placeholders})")
+    };
     Ok(SqlFragment {
         sql: heading_lineage_exists_sql(
             &scope.heading_col("id"),
@@ -1720,7 +1720,7 @@ fn compile_heading_effective_tags_exists(
             &scope.heading_col("level"),
             "tags",
             "matched_tags",
-            &format!("matched_tags.tag IN ({placeholders})"),
+            &fact_match_sql,
             include_root,
         ),
         params: tags.into_iter().map(QueryParam::Text).collect(),
@@ -1731,13 +1731,6 @@ fn compile_file_tags_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            QueryTarget::Files,
-            "tags",
-            "file tags with :regexp t are not supported by the SQLite metadata backend",
-        ));
-    }
     compile_tags_exists(QueryTarget::Files, predicate, &scope.root_col("id"))
 }
 
@@ -1746,6 +1739,7 @@ fn compile_tags_exists(
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
 ) -> Result<SqlFragment, QueryExecutionError> {
+    let regexp = option_bool(&predicate.options, "regexp")?;
     let match_all = matches!(
         keyword_option(&predicate.options, "match")?.as_deref(),
         Some("all")
@@ -1763,8 +1757,14 @@ fn compile_tags_exists(
     let mut params = Vec::new();
     if match_all {
         for tag in tags {
+            let match_sql = if regexp {
+                validate_regexp_pattern(target, "tags", &tag)?;
+                "orgfdb_regexp(?, tags.tag) = 1".to_string()
+            } else {
+                "tags.tag = ?".to_string()
+            };
             parts.push(format!(
-                "EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND tags.tag = ?)"
+                "EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND {match_sql})"
             ));
             params.push(QueryParam::Text(tag));
         }
@@ -1774,14 +1774,30 @@ fn compile_tags_exists(
         });
     }
 
-    let placeholders = vec!["?"; tags.len()].join(", ");
-    params.extend(tags.into_iter().map(QueryParam::Text));
-    Ok(SqlFragment {
-        sql: format!(
-            "(EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND tags.tag IN ({placeholders})))"
-        ),
-        params,
-    })
+    if regexp {
+        let mut predicate_parts = Vec::with_capacity(tags.len());
+        for tag in tags {
+            validate_regexp_pattern(target, "tags", &tag)?;
+            predicate_parts.push("orgfdb_regexp(?, tags.tag) = 1".to_string());
+            params.push(QueryParam::Text(tag));
+        }
+        Ok(SqlFragment {
+            sql: format!(
+                "(EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND ({})))",
+                predicate_parts.join(" OR ")
+            ),
+            params,
+        })
+    } else {
+        let placeholders = vec!["?"; tags.len()].join(", ");
+        params.extend(tags.into_iter().map(QueryParam::Text));
+        Ok(SqlFragment {
+            sql: format!(
+                "(EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND tags.tag IN ({placeholders})))"
+            ),
+            params,
+        })
+    }
 }
 
 fn heading_lineage_exists_sql(
@@ -1841,25 +1857,26 @@ fn compile_resolved_property_predicate(
     heading_id_sql: &str,
     inherit: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            target,
-            "property",
-            "property with :regexp t is not supported by the SQLite metadata backend",
-        ));
-    }
-
+    let regexp = option_bool(&predicate.options, "regexp")?;
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(target, "property", message)
     })?;
     let mut params = vec![QueryParam::Text(key)];
     let final_select = if inherit {
         if predicate.args.get(1).is_some() {
-            "SELECT 1
+            if regexp {
+                "SELECT 1
+                 FROM effective
+                 WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
+                   AND effective.has_any = 1
+                   AND orgfdb_regexp(?, effective.effective_value) = 1"
+            } else {
+                "SELECT 1
              FROM effective
              WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
                AND effective.has_any = 1
                AND effective.effective_value = ?"
+            }
         } else {
             "SELECT 1
              FROM effective
@@ -1867,11 +1884,19 @@ fn compile_resolved_property_predicate(
                AND effective.has_any = 1"
         }
     } else if predicate.args.get(1).is_some() {
-        "SELECT 1
+        if regexp {
+            "SELECT 1
+         FROM local_summary
+         WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
+           AND local_summary.has_any = 1
+           AND orgfdb_regexp(?, local_summary.local_value) = 1"
+        } else {
+            "SELECT 1
          FROM local_summary
          WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
            AND local_summary.has_any = 1
            AND local_summary.local_value = ?"
+        }
     } else {
         "SELECT 1
          FROM local_summary
@@ -1880,9 +1905,13 @@ fn compile_resolved_property_predicate(
     };
 
     if let Some(value) = predicate.args.get(1) {
-        params.push(QueryParam::Text(arg_as_string(value).map_err(
-            |message| QueryExecutionError::unsupported_backend_feature(target, "property", message),
-        )?));
+        let value = arg_as_string(value).map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(target, "property", message)
+        })?;
+        if regexp {
+            validate_regexp_pattern(target, "property", &value)?;
+        }
+        params.push(QueryParam::Text(value));
     }
     Ok(SqlFragment {
         sql: format!(
@@ -2068,14 +2097,7 @@ fn compile_keyword_predicate(
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    if option_bool(&predicate.options, "regexp")? {
-        return Err(QueryExecutionError::unsupported_backend_feature(
-            target,
-            "keyword",
-            "keyword with :regexp t is not supported by the SQLite metadata backend",
-        ));
-    }
-
+    let regexp = option_bool(&predicate.options, "regexp")?;
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(target, "keyword", message)
     })?;
@@ -2084,13 +2106,36 @@ fn compile_keyword_predicate(
     );
     let mut params = vec![QueryParam::Text(key)];
     if let Some(value) = predicate.args.get(1) {
-        sql.push_str(" AND keywords.value = ?");
-        params.push(QueryParam::Text(arg_as_string(value).map_err(
-            |message| QueryExecutionError::unsupported_backend_feature(target, "keyword", message),
-        )?));
+        let value = arg_as_string(value).map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(target, "keyword", message)
+        })?;
+        if regexp {
+            validate_regexp_pattern(target, "keyword", &value)?;
+            sql.push_str(" AND orgfdb_regexp(?, COALESCE(keywords.value, '')) = 1");
+        } else {
+            sql.push_str(" AND keywords.value = ?");
+        }
+        params.push(QueryParam::Text(value));
     }
     sql.push_str("))");
     Ok(SqlFragment { sql, params })
+}
+
+fn validate_regexp_pattern(
+    target: QueryTarget,
+    predicate: &str,
+    pattern: &str,
+) -> Result<(), QueryExecutionError> {
+    Regex::new(pattern).map(|_| ()).map_err(|error| {
+        QueryExecutionError::unsupported_backend_feature(
+            target,
+            predicate,
+            format!(
+                "invalid regular expression for {} ({:?}): {}",
+                predicate, pattern, error
+            ),
+        )
+    })
 }
 
 fn compile_date_predicate(
@@ -2908,14 +2953,7 @@ mod tests {
     fn validation_options() -> QueryValidationOptions {
         QueryValidationOptions {
             body_text_available: true,
-            regexp_body_matching_supported: false,
-        }
-    }
-
-    fn validation_options_with_regexp() -> QueryValidationOptions {
-        QueryValidationOptions {
-            body_text_available: true,
-            regexp_body_matching_supported: true,
+            regexp_matching_supported: true,
         }
     }
 
@@ -2935,7 +2973,7 @@ mod tests {
         let unavailable =
             sqlite_query_validation_options(&connection).expect("validation options should load");
         assert!(!unavailable.body_text_available);
-        assert!(!unavailable.regexp_body_matching_supported);
+        assert!(unavailable.regexp_matching_supported);
 
         DbWriter::set_metadata_flag(
             &connection,
@@ -2947,7 +2985,7 @@ mod tests {
         let available =
             sqlite_query_validation_options(&connection).expect("validation options should reload");
         assert!(available.body_text_available);
-        assert!(!available.regexp_body_matching_supported);
+        assert!(available.regexp_matching_supported);
     }
 
     #[test]
@@ -2957,7 +2995,7 @@ mod tests {
         let options =
             sqlite_query_validation_options(&connection).expect("validation options should load");
         assert!(!options.body_text_available);
-        assert!(!options.regexp_body_matching_supported);
+        assert!(options.regexp_matching_supported);
     }
 
     #[test]
@@ -2967,7 +3005,7 @@ mod tests {
         let options =
             sqlite_query_validation_options(&connection).expect("validation options should load");
         assert!(!options.body_text_available);
-        assert!(!options.regexp_body_matching_supported);
+        assert!(options.regexp_matching_supported);
     }
 
     #[test]
@@ -2977,7 +3015,7 @@ mod tests {
         let options =
             sqlite_query_validation_options(&connection).expect("validation options should load");
         assert!(!options.body_text_available);
-        assert!(!options.regexp_body_matching_supported);
+        assert!(options.regexp_matching_supported);
     }
 
     #[test]
@@ -2987,7 +3025,7 @@ mod tests {
         let options =
             sqlite_query_validation_options(&connection).expect("validation options should load");
         assert!(!options.body_text_available);
-        assert!(!options.regexp_body_matching_supported);
+        assert!(options.regexp_matching_supported);
     }
 
     #[test]
@@ -3002,7 +3040,7 @@ mod tests {
             parsed,
             &QueryValidationOptions {
                 body_text_available: true,
-                regexp_body_matching_supported: false,
+                regexp_matching_supported: true,
             },
         )
         .expect("query should validate with permissive options");
@@ -3026,7 +3064,7 @@ mod tests {
             parsed,
             &QueryValidationOptions {
                 body_text_available: true,
-                regexp_body_matching_supported: false,
+                regexp_matching_supported: true,
             },
         )
         .expect("query should validate with permissive options");
@@ -3049,13 +3087,36 @@ mod tests {
         for query in [
             validated(&format!(r#"(headings (title "{user_value}"))"#)),
             validated(&format!(r#"(headings (has-text "{user_value}"))"#)),
+            validated(&format!(r#"(headings (title "{user_value}" :regexp t))"#)),
+            validated(&format!(
+                r#"(headings (has-text "{user_value}" :regexp t))"#
+            )),
             validated(&format!(r#"(headings (outline-contains "{user_value}"))"#)),
+            validated(&format!(
+                r#"(headings (outline-contains "{user_value}" :regexp t))"#
+            )),
             validated(&format!(
                 r#"(headings (outline-sequence "{user_value}" "nested"))"#
             )),
+            validated(&format!(
+                r#"(headings (outline-sequence "{user_value}" "nested" :regexp t))"#
+            )),
             validated(&format!(r#"(headings (tags "{user_value}" :inherit nil))"#)),
+            validated(&format!(
+                r#"(headings (tags "{user_value}" :inherit nil :regexp t))"#
+            )),
             validated(&format!(r#"(headings (property "OWNER" "{user_value}"))"#)),
+            validated(&format!(
+                r#"(headings (property "OWNER" "{user_value}" :regexp t))"#
+            )),
             validated(&format!(r#"(files (keyword "AUTHOR" "{user_value}"))"#)),
+            validated(&format!(
+                r#"(files (keyword "AUTHOR" "{user_value}" :regexp t))"#
+            )),
+            validated(&format!(r#"(files (file-path "{user_value}" :regexp t))"#)),
+            validated(&format!(
+                r#"(links (link-target "{user_value}" :regexp t))"#
+            )),
             validated(&format!(
                 r#"(headings (links-to (headings (title "{user_value}"))))"#
             )),
@@ -3072,60 +3133,45 @@ mod tests {
     }
 
     #[test]
-    fn compile_rejects_regex_and_deferred_relation_predicates() {
+    fn compile_supports_regex_predicates_and_rejects_invalid_patterns() {
         for query in [
             validated(r#"(headings (tags "proj-.*" :regexp t))"#),
             validated(r#"(headings (property "OWNER" "A.*" :regexp t))"#),
             validated(r#"(files (keyword "AUTHOR" "A.*" :regexp t))"#),
             validated(r#"(links (link-target "notes.*" :regexp t))"#),
+            validated(r#"(headings (title "Query.*" :regexp t))"#),
+            validated(r#"(files (file-path ".*/query-alpha\\.org" :regexp t))"#),
+            validated(r#"(headings (outline-contains "Query.*" :regexp t))"#),
+            validated(r#"(headings (outline-sequence "Query.*" "Nested.*" :regexp t))"#),
         ] {
-            let error = compile_sqlite_query(&query).expect_err("regexp should fail");
+            compile_sqlite_query(&query).expect("regexp query should compile");
+        }
+
+        for (query, predicate) in [
+            (r#"(headings (has-text "(" :regexp t))"#, "has-text"),
+            (r#"(headings (title "(" :regexp t))"#, "title"),
+            (r#"(headings (tags "(" :regexp t))"#, "tags"),
+            (r#"(headings (property "OWNER" "(" :regexp t))"#, "property"),
+            (r#"(files (keyword "AUTHOR" "(" :regexp t))"#, "keyword"),
+            (
+                r#"(headings (outline-contains "(" :regexp t))"#,
+                "outline-contains",
+            ),
+            (
+                r#"(headings (outline-sequence "(" "Nested.*" :regexp t))"#,
+                "outline-sequence",
+            ),
+            (r#"(links (link-target "(" :regexp t))"#, "link-target"),
+        ] {
+            let error = compile_sqlite_query(&validated(query)).expect_err("regexp should fail");
             assert_eq!(
                 error.kind,
                 QueryExecutionErrorKind::UnsupportedBackendFeature
             );
+            assert!(error
+                .message
+                .contains(&format!("invalid regular expression for {predicate}")));
         }
-
-        let parsed = parse_query(r#"(headings (has-text "sqlite.*fts" :regexp t))"#)
-            .expect("query should parse");
-        let validated_query = validate_query(parsed, &validation_options_with_regexp())
-            .expect("query should validate for compile coverage");
-        let has_text_error =
-            compile_sqlite_query(&validated_query).expect_err("regexp should fail");
-        assert_eq!(
-            has_text_error.kind,
-            QueryExecutionErrorKind::UnsupportedBackendFeature
-        );
-        assert_eq!(
-            has_text_error.message,
-            "predicate has-text with :regexp t is not supported by the SQLite metadata backend"
-        );
-
-        let outline_contains_regexp =
-            validated(r#"(headings (outline-contains "todo.*" :regexp t))"#);
-        let relation_error =
-            compile_sqlite_query(&outline_contains_regexp).expect_err("regexp should fail");
-        assert_eq!(
-            relation_error.kind,
-            QueryExecutionErrorKind::UnsupportedBackendFeature
-        );
-        assert_eq!(
-            relation_error.message,
-            "predicate outline-contains with :regexp t is not supported by the SQLite metadata backend"
-        );
-
-        let outline_sequence_regexp =
-            validated(r#"(headings (outline-sequence "todo.*" "done.*" :regexp t))"#);
-        let relation_error =
-            compile_sqlite_query(&outline_sequence_regexp).expect_err("regexp should fail");
-        assert_eq!(
-            relation_error.kind,
-            QueryExecutionErrorKind::UnsupportedBackendFeature
-        );
-        assert_eq!(
-            relation_error.message,
-            "predicate outline-sequence with :regexp t is not supported by the SQLite metadata backend"
-        );
     }
 
     #[test]
@@ -3390,6 +3436,27 @@ mod tests {
         )
         .expect("outline sequence should execute");
         assert_eq!(heading_ids(sequence_missing_rows), Vec::<i64>::new());
+
+        let regexp_contains_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "Query.*" "Nested.*" :regexp t))"#),
+        )
+        .expect("outline regexp contains query should execute");
+        assert_eq!(heading_ids(regexp_contains_rows), vec![12]);
+
+        let regexp_sequence_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-sequence "Query.*" "Nested.*" :regexp t))"#),
+        )
+        .expect("outline regexp sequence query should execute");
+        assert_eq!(heading_ids(regexp_sequence_rows), vec![12]);
+
+        let regexp_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "Alpha.*" :regexp t))"#),
+        )
+        .expect("outline regexp root query should execute");
+        assert_eq!(heading_ids(regexp_root_rows), Vec::<i64>::new());
     }
 
     #[test]
@@ -3712,6 +3779,42 @@ mod tests {
             execute_sqlite_query(&connection, &validated(r#"(files (tags "project"))"#))
                 .expect("file direct tag query should execute");
         assert_eq!(file_paths(file_heading_tag_rows), Vec::<String>::new());
+
+        let regexp_local_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "urg.*" :inherit nil :regexp t)))"#,
+            ),
+        )
+        .expect("regexp local tag query should execute");
+        assert_eq!(heading_ids(regexp_local_rows), vec![12]);
+
+        let regexp_inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "proj.*" :regexp t)))"#,
+            ),
+        )
+        .expect("regexp inherited tag query should execute");
+        assert_eq!(heading_ids(regexp_inherited_rows), vec![12]);
+
+        let regexp_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "file.*" :regexp t)))"#,
+            ),
+        )
+        .expect("regexp root tag query should execute");
+        assert_eq!(heading_ids(regexp_root_rows), vec![12]);
+
+        let regexp_match_all_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "proj.*" "urg.*" :regexp t :match :all)))"#,
+            ),
+        )
+        .expect("regexp match-all tag query should execute");
+        assert_eq!(heading_ids(regexp_match_all_rows), vec![12]);
     }
 
     #[test]
@@ -3965,6 +4068,42 @@ mod tests {
                 (Some("emacs".to_string()), true),
             ]
         );
+
+        let regexp_local_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Query Engine" :exact t) (property "LANG" "rust em.*" :inherit nil :regexp t)))"#,
+            ),
+        )
+        .expect("regexp local property query should execute");
+        assert_eq!(heading_ids(regexp_local_rows), vec![11]);
+
+        let regexp_inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (property "APPEND_INHERITED" "parent child" :regexp t)))"#,
+            ),
+        )
+        .expect("regexp inherited property query should execute");
+        assert_eq!(heading_ids(regexp_inherited_rows), vec![12]);
+
+        let regexp_overwrite_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "second.*effective" :inherit nil :regexp t)))"#,
+            ),
+        )
+        .expect("regexp overwrite property query should execute");
+        assert_eq!(heading_ids(regexp_overwrite_rows), vec![13]);
+
+        let regexp_stale_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (property "DEFINED_TWICE" "works" :inherit nil :regexp t)))"#,
+            ),
+        )
+        .expect("regexp stale property query should execute");
+        assert_eq!(heading_ids(regexp_stale_rows), Vec::<i64>::new());
     }
 
     #[test]
@@ -3987,6 +4126,25 @@ mod tests {
         .expect("file keyword query should execute");
         assert_eq!(
             file_paths(file_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let regexp_heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Loose Note" :exact t) (keyword "AUTHOR" "A.*" :regexp t)))"#,
+            ),
+        )
+        .expect("regexp heading keyword query should execute");
+        assert_eq!(heading_ids(regexp_heading_rows), vec![13]);
+
+        let regexp_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (keyword "AUTHOR" "A.*" :regexp t))"#),
+        )
+        .expect("regexp file keyword query should execute");
+        assert_eq!(
+            file_paths(regexp_file_rows),
             vec!["/tmp/query-alpha.org".to_string()]
         );
     }
@@ -4025,6 +4183,13 @@ mod tests {
             QueryRows::Headings(rows) => assert!(rows.is_empty()),
             other => panic!("unexpected rows for raw title query: {other:?}"),
         }
+
+        let regexp_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (title "Query.*" :regexp t))"#),
+        )
+        .expect("regexp title query should execute");
+        assert_eq!(heading_ids(regexp_rows), vec![11]);
     }
 
     #[test]
@@ -4170,6 +4335,39 @@ mod tests {
             heading_file_paths(file_modified_rows),
             vec!["/tmp/query-alpha.org".to_string()]
         );
+
+        let regexp_file_path_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-path ".*/query-alpha\\.org" :regexp t))"#),
+        )
+        .expect("regexp file-path heading query should execute");
+        assert_eq!(
+            heading_file_paths(regexp_file_path_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
+
+        let regexp_file_name_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-name "query-(alpha|beta)\\.org" :regexp t))"#),
+        )
+        .expect("regexp file-name heading query should execute");
+        assert_eq!(
+            heading_file_paths(regexp_file_name_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
+            ]
+        );
+
+        let regexp_file_title_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-title "Alpha.*" :regexp t))"#),
+        )
+        .expect("regexp file-title heading query should execute");
+        assert_eq!(
+            heading_file_paths(regexp_file_title_rows),
+            vec!["/tmp/query-alpha.org".to_string()]
+        );
     }
 
     #[test]
@@ -4232,6 +4430,19 @@ mod tests {
                 "/tmp/query-alpha.org".to_string(),
                 "/tmp/query-beta.org".to_string(),
                 "/tmp/query-gamma.org".to_string(),
+            ]
+        );
+
+        let regexp_file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-path ".*/query-(alpha|beta)\\.org" :regexp t))"#),
+        )
+        .expect("regexp file query should execute");
+        assert_eq!(
+            file_paths(regexp_file_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string(),
             ]
         );
     }
@@ -4349,6 +4560,20 @@ mod tests {
         )
         .expect("no-match has-text query should execute");
         assert_eq!(heading_ids(no_match_rows), Vec::<i64>::new());
+
+        let regexp_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (has-text "(?i)sqlite.*fts" :regexp t))"#),
+        )
+        .expect("regexp has-text query should execute");
+        assert_eq!(heading_ids(regexp_rows), vec![11, 21]);
+
+        let regexp_no_match_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (has-text "(?i)fts.*sqlite" :regexp t))"#),
+        )
+        .expect("regexp no-match has-text query should execute");
+        assert_eq!(heading_ids(regexp_no_match_rows), Vec::<i64>::new());
     }
 
     #[test]
@@ -4389,9 +4614,15 @@ mod tests {
         for query in [
             validated(r#"(headings (title "x' OR 1=1 --"))"#),
             validated(r#"(headings (has-text "x' OR 1=1 --"))"#),
+            validated(r#"(headings (title "x' OR 1=1 --" :regexp t))"#),
+            validated(r#"(headings (has-text "x' OR 1=1 --" :regexp t))"#),
             validated(r#"(headings (tags "x' OR 1=1 --" :inherit nil))"#),
+            validated(r#"(headings (tags "x' OR 1=1 --" :inherit nil :regexp t))"#),
             validated(r#"(headings (property "OWNER" "x' OR 1=1 --"))"#),
+            validated(r#"(headings (property "OWNER" "x' OR 1=1 --" :regexp t))"#),
             validated(r#"(files (keyword "AUTHOR" "x' OR 1=1 --"))"#),
+            validated(r#"(files (keyword "AUTHOR" "x' OR 1=1 --" :regexp t))"#),
+            validated(r#"(links (link-target "x' OR 1=1 --" :regexp t))"#),
             validated(r#"(headings (links-to (headings (title "x' OR 1=1 --"))))"#),
         ] {
             let compiled = compile_sqlite_query(&query).expect("query should compile");
@@ -4401,9 +4632,28 @@ mod tests {
             match execute_sqlite_query(&connection, &query).expect("query should execute") {
                 QueryRows::Headings(rows) => assert!(rows.is_empty()),
                 QueryRows::Files(rows) => assert!(rows.is_empty()),
-                other => panic!("unexpected rows for injection query: {other:?}"),
+                QueryRows::Links(rows) => assert!(rows.is_empty()),
             }
         }
+    }
+
+    #[test]
+    fn execution_matches_link_and_file_regex_metadata_predicates() {
+        let connection = seeded_connection();
+
+        let link_target_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (link-target "file:beta\\.org.*" :regexp t))"#),
+        )
+        .expect("regexp link-target query should execute");
+        assert_eq!(link_ids(link_target_rows), vec![102, 100, 101]);
+
+        let link_description_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (link-description "Beta.*" :regexp t))"#),
+        )
+        .expect("regexp link-description query should execute");
+        assert_eq!(link_ids(link_description_rows), vec![100, 101]);
     }
 
     #[test]

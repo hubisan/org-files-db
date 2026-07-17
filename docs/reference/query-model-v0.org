@@ -870,7 +870,7 @@ Example:
 (has-text "sqlite" :regexp t)
 #+end_src
 
-when regexp body matching is unavailable.
+when regexp matching is unavailable.
 
 Error:
 
@@ -1055,6 +1055,8 @@ Example:
 
 If regexp matching is not supported by the active backend, the query must fail clearly.
 
+The SQLite metadata backend uses Rust regular expressions for supported ~:regexp t~ predicates. Matching is case-sensitive unless the pattern itself requests case-insensitive behavior.
+
 *** 2.6 Exact matching
 
 Text predicates may support:
@@ -1161,7 +1163,7 @@ Match stored body text for the heading.
 **** Arguments
 
 - ~strings~ :: One or more strings or patterns.
-- ~:regexp t~ :: Interpret strings as regexps if supported.
+- ~:regexp t~ :: Interpret strings as regexps.
 
 **** Rules
 
@@ -1173,8 +1175,7 @@ Match stored body text for the heading.
 - A simple backend may use stored body text with SQL matching.
 - An optimized backend may use SQLite FTS5 or another full-text index.
 - If body text is unavailable, this must fail clearly.
-- With ~:regexp t~, strings are interpreted as regexps if supported by the backend.
-- If regexp matching is not supported by the backend, this must fail clearly.
+- With ~:regexp t~, strings are interpreted as regexps.
 
 **** Examples
 
@@ -1682,8 +1683,6 @@ The outline path is the sequence of heading titles from the top-level heading to
 
 The file/root node is always present in result paths, but it is not part of the heading outline path unless a predicate explicitly documents root inclusion.
 
-In the SQLite metadata backend, ~:regexp t~ is currently unsupported for both outline predicates even though the query language reserves the option.
-
 *** ~(outline-contains &rest strings &key regexp)~
 
 **** Purpose
@@ -1697,7 +1696,7 @@ Match headings whose outline path contains all given strings somewhere.
 - Strings do not need to match adjacent components.
 - Order does not matter.
 - Matching is substring-based and case-insensitive by default.
-- With ~:regexp t~, strings are interpreted as regexps in the abstract query model, but the SQLite metadata backend currently rejects that mode.
+- With ~:regexp t~, strings are interpreted as regexps and matched against individual outline path components.
 
 **** Example path
 
@@ -1730,7 +1729,7 @@ Match a contiguous ordered sequence of outline path components.
 - Multiple strings form an ordered sequence.
 - The sequence must match adjacent outline path components.
 - By default, each string is matched as a substring of the corresponding path component.
-- With ~:regexp t~, each string is interpreted as a regexp for the corresponding component in the abstract query model, but the SQLite metadata backend currently rejects that mode.
+- With ~:regexp t~, each string is interpreted as a regexp for the corresponding component.
 - With ~:exact t~, each string must exactly equal the corresponding component.
 - ~:exact t~ is allowed with multiple arguments for this predicate because it applies per path segment.
 - ~:regexp t~ and ~:exact t~ must not be combined.
@@ -4392,7 +4391,7 @@ Order is not significant for ~outline-contains~.
 Meaning:
 
 - valid query syntax
-- currently rejected by the SQLite metadata backend because regexp matching is not implemented there
+- each pattern is matched against an outline path component using the active backend regexp engine
 
 *** 7.3 Outline sequence
 
@@ -4449,7 +4448,7 @@ Rule:
 Meaning:
 
 - valid query syntax
-- currently rejected by the SQLite metadata backend because regexp matching is not implemented there
+- each pattern is matched against the corresponding contiguous outline path component using the active backend regexp engine
 
 ** 8. Date and planning examples
 
@@ -5526,7 +5525,7 @@ has-text requires body text to be available in the database
 (has-text "sqlite.*fts" :regexp t)
 #+end_src
 
-Error when the backend does not support regexp body matching:
+Error when the backend does not support regexp matching:
 
 #+begin_src text
 has-text with :regexp t is not supported by the current backend
@@ -5626,7 +5625,7 @@ Some predicates depend on available indexed data or backend support.
 Examples:
 
 - ~has-text~ requires body text to be available in the database
-- ~has-text :regexp t~ requires regexp-capable body matching
+- ~:regexp t~ predicates require regexp-capable backend matching
 - optimized text search may use FTS5, but the query model does not require FTS5
 - backends should persist capability metadata so they can distinguish unavailable body-text indexing from an empty body on a particular heading
 

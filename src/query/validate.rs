@@ -43,7 +43,7 @@ pub struct ValidatedOption {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QueryValidationOptions {
     pub body_text_available: bool,
-    pub regexp_body_matching_supported: bool,
+    pub regexp_matching_supported: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,29 +145,42 @@ fn validate_call(
         "todo" => validate_todo(call, target),
         "done" => validate_done(call, target),
         "title" => match target {
-            QueryTarget::Headings => {
-                validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
-            }
-            QueryTarget::Files | QueryTarget::Links => {
-                validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
-            }
+            QueryTarget::Headings => validate_text_predicate(
+                call,
+                target,
+                options,
+                &["regexp", "exact"],
+                ExactRule::SingleArg,
+            ),
+            QueryTarget::Files | QueryTarget::Links => validate_text_predicate(
+                call,
+                target,
+                options,
+                &["regexp", "exact"],
+                ExactRule::SingleArg,
+            ),
         },
         "has-text" => validate_has_text(call, target, options),
         "level" => validate_level(call, target),
         "priority" => validate_priority(call, target),
-        "tags" => validate_tags(call, target),
-        "property" => validate_property(call, target),
-        "keyword" => validate_keyword(call, target),
-        "file-name" | "file-path" | "file-dir" | "file-title" => {
-            validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
-        }
+        "tags" => validate_tags(call, target, options),
+        "property" => validate_property(call, target, options),
+        "keyword" => validate_keyword(call, target, options),
+        "file-name" | "file-path" | "file-dir" | "file-title" => validate_text_predicate(
+            call,
+            target,
+            options,
+            &["regexp", "exact"],
+            ExactRule::SingleArg,
+        ),
         "file-modified" => validate_keyword_only_date_predicate(call, target, false),
         "outline-contains" => {
-            validate_text_predicate(call, target, &["regexp"], ExactRule::NotSupported)
+            validate_text_predicate(call, target, options, &["regexp"], ExactRule::NotSupported)
         }
         "outline-sequence" => validate_text_predicate(
             call,
             target,
+            options,
             &["regexp", "exact"],
             ExactRule::PerSegmentAllowed,
         ),
@@ -181,9 +194,13 @@ fn validate_call(
         "links-to" => validate_links_to(call, target, options),
         "linked-from" => validate_linked_from(call, target, options),
         "link-type" => validate_link_type(call, target),
-        "link-target" | "link-description" => {
-            validate_text_predicate(call, target, &["regexp", "exact"], ExactRule::SingleArg)
-        }
+        "link-target" | "link-description" => validate_text_predicate(
+            call,
+            target,
+            options,
+            &["regexp", "exact"],
+            ExactRule::SingleArg,
+        ),
         "has-description" => validate_has_description(call, target),
         "status" => validate_status(call, target),
         "source" | "target" => validate_source_or_target(call, target, options),
@@ -249,7 +266,7 @@ fn validate_has_text(
             "has-text requires body text to be available in the database",
         ));
     }
-    if regexp && !validation.regexp_body_matching_supported {
+    if regexp && !validation.regexp_matching_supported {
         return Err(QueryValidationError::new(
             QueryValidationErrorKind::UnsupportedBackendFeature,
             target,
@@ -328,6 +345,7 @@ fn validate_priority(
 fn validate_tags(
     call: PredicateCall,
     target: QueryTarget,
+    validation: &QueryValidationOptions,
 ) -> Result<ValidatedPredicate, QueryValidationError> {
     ensure_target(
         target,
@@ -340,7 +358,7 @@ fn validate_tags(
         QueryTarget::Links => &[][..],
     };
     let options = validate_options(target, &call.name, &call.options, allowed)?;
-    let _regexp = bool_option(target, &call.name, &options, "regexp")?;
+    let regexp = bool_option(target, &call.name, &options, "regexp")?.unwrap_or(false);
     let _inherit = optional_bool_option(target, &call.name, &options, "inherit")?;
     let match_mode = keyword_option(target, &call.name, &options, "match")?;
     if let Some(match_mode) = match_mode.as_deref() {
@@ -355,12 +373,21 @@ fn validate_tags(
     }
 
     let args = validate_scalar_strings(target, &call.name, &call.args, Arity::OneOrMore)?;
+    if regexp && !validation.regexp_matching_supported {
+        return Err(QueryValidationError::new(
+            QueryValidationErrorKind::UnsupportedBackendFeature,
+            target,
+            "tags",
+            "tags with :regexp t are not supported by the current backend",
+        ));
+    }
     Ok(validated_predicate(target, call.name, args, options))
 }
 
 fn validate_property(
     call: PredicateCall,
     target: QueryTarget,
+    validation: &QueryValidationOptions,
 ) -> Result<ValidatedPredicate, QueryValidationError> {
     ensure_target(
         target,
@@ -385,6 +412,16 @@ fn validate_property(
             "property :regexp t requires a property value argument",
         ));
     }
+    if bool_option(target, &call.name, &options, "regexp")?.unwrap_or(false)
+        && !validation.regexp_matching_supported
+    {
+        return Err(QueryValidationError::new(
+            QueryValidationErrorKind::UnsupportedBackendFeature,
+            target,
+            "property",
+            "property with :regexp t is not supported by the current backend",
+        ));
+    }
 
     Ok(validated_predicate(target, call.name, args, options))
 }
@@ -392,6 +429,7 @@ fn validate_property(
 fn validate_keyword(
     call: PredicateCall,
     target: QueryTarget,
+    validation: &QueryValidationOptions,
 ) -> Result<ValidatedPredicate, QueryValidationError> {
     ensure_target(
         target,
@@ -409,6 +447,16 @@ fn validate_keyword(
             "keyword :regexp t requires a keyword value argument",
         ));
     }
+    if bool_option(target, &call.name, &options, "regexp")?.unwrap_or(false)
+        && !validation.regexp_matching_supported
+    {
+        return Err(QueryValidationError::new(
+            QueryValidationErrorKind::UnsupportedBackendFeature,
+            target,
+            "keyword",
+            "keyword with :regexp t is not supported by the current backend",
+        ));
+    }
 
     Ok(validated_predicate(target, call.name, args, options))
 }
@@ -416,6 +464,7 @@ fn validate_keyword(
 fn validate_text_predicate(
     call: PredicateCall,
     target: QueryTarget,
+    validation: &QueryValidationOptions,
     allowed_options: &[&str],
     exact_rule: ExactRule,
 ) -> Result<ValidatedPredicate, QueryValidationError> {
@@ -432,6 +481,17 @@ fn validate_text_predicate(
             &call.name,
             format!(
                 "{} does not allow :regexp t together with :exact t",
+                call.name
+            ),
+        ));
+    }
+    if regexp && !validation.regexp_matching_supported {
+        return Err(QueryValidationError::new(
+            QueryValidationErrorKind::UnsupportedBackendFeature,
+            target,
+            &call.name,
+            format!(
+                "{} with :regexp t is not supported by the current backend",
                 call.name
             ),
         ));

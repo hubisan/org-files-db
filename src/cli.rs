@@ -2133,16 +2133,15 @@ index_body_text = false
             .to_string()
             .contains("predicate todo is not valid for target links"));
 
-        let backend_error = super::query_json_response(
+        let backend_response = super::query_json_response(
             true,
             "(links (link-target \"notes.*\" :regexp t))",
             super::CliQueryOutput::Flat,
             &[],
             Some(&config_path),
         )
-        .expect_err("unsupported backend requirement should fail");
-        assert!(matches!(backend_error, CliError::QueryShape(_)));
-        assert!(backend_error.to_string().contains("regexp"));
+        .expect("regexp metadata query should succeed");
+        assert!(!backend_response.results.is_empty());
     }
 
     #[test]

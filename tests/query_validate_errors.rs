@@ -6,21 +6,21 @@ use org_files_db::query::{
 fn no_body_capabilities() -> QueryValidationOptions {
     QueryValidationOptions {
         body_text_available: false,
-        regexp_body_matching_supported: false,
+        regexp_matching_supported: false,
     }
 }
 
 fn body_no_regexp_capabilities() -> QueryValidationOptions {
     QueryValidationOptions {
         body_text_available: true,
-        regexp_body_matching_supported: false,
+        regexp_matching_supported: false,
     }
 }
 
 fn full_capabilities() -> QueryValidationOptions {
     QueryValidationOptions {
         body_text_available: true,
-        regexp_body_matching_supported: true,
+        regexp_matching_supported: true,
     }
 }
 
@@ -196,10 +196,22 @@ fn rejects_has_text_when_body_text_is_unavailable() {
 }
 
 #[test]
-fn rejects_has_text_regexp_when_backend_lacks_regexp_body_matching() {
+fn rejects_has_text_regexp_when_backend_lacks_regexp_matching() {
     let query =
         org_files_db::query::parse_query(r#"(headings (has-text "sqlite.*fts" :regexp t))"#)
             .expect("query should parse");
+    let error =
+        validate_query(query, &body_no_regexp_capabilities()).expect_err("query should fail");
+    assert_eq!(
+        error.kind,
+        QueryValidationErrorKind::UnsupportedBackendFeature
+    );
+}
+
+#[test]
+fn rejects_title_regexp_when_backend_lacks_regexp_matching() {
+    let query = org_files_db::query::parse_query(r#"(headings (title "Query.*" :regexp t))"#)
+        .expect("query should parse");
     let error =
         validate_query(query, &body_no_regexp_capabilities()).expect_err("query should fail");
     assert_eq!(

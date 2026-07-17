@@ -6,7 +6,7 @@ use org_files_db::query::{
 fn full_capabilities() -> QueryValidationOptions {
     QueryValidationOptions {
         body_text_available: true,
-        regexp_body_matching_supported: true,
+        regexp_matching_supported: true,
     }
 }
 

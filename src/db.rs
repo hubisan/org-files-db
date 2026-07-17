@@ -1,10 +1,13 @@
 use std::{
+    cell::RefCell,
+    collections::HashMap,
     error::Error,
     fmt,
     path::{Path, PathBuf},
 };
 
-use rusqlite::{Connection, OpenFlags};
+use regex::Regex;
+use rusqlite::{functions::FunctionFlags, Connection, OpenFlags};
 
 pub(crate) mod reader;
 pub mod schema;
@@ -65,6 +68,7 @@ pub(crate) fn open_existing_database_read_only_with_schema(
                 source,
             }
         })?;
+    register_connection_functions(&connection, &target)?;
     let on_disk_version = read_schema_version(&connection).map_err(|source| DbError::Inspect {
         target: target.clone(),
         source,
@@ -93,6 +97,7 @@ fn initialize_database(
     target: &str,
     schema: &SchemaDefinition,
 ) -> Result<(), DbError> {
+    register_connection_functions(connection, target)?;
     connection
         .execute_batch(
             r#"
@@ -154,6 +159,60 @@ PRAGMA synchronous = NORMAL;
 
     Ok(())
 }
+
+fn register_connection_functions(connection: &Connection, target: &str) -> Result<(), DbError> {
+    let cache = RefCell::new(HashMap::<String, Regex>::new());
+    connection
+        .create_scalar_function(
+            "orgfdb_regexp",
+            2,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            move |ctx| {
+                let pattern: String = ctx.get(0)?;
+                let value: Option<String> = ctx.get(1)?;
+                let Some(value) = value else {
+                    return Ok(false);
+                };
+
+                let regex = {
+                    let mut cache = cache.borrow_mut();
+                    if let Some(regex) = cache.get(&pattern) {
+                        regex.clone()
+                    } else {
+                        let regex = Regex::new(&pattern).map_err(|error| {
+                            rusqlite::Error::UserFunctionError(Box::new(SqliteRegexpError(
+                                error.to_string(),
+                            )))
+                        })?;
+                        if cache.len() >= 128 {
+                            cache.clear();
+                        }
+                        cache.insert(pattern.clone(), regex.clone());
+                        regex
+                    }
+                };
+
+                Ok(regex.is_match(&value))
+            },
+        )
+        .map_err(|source| DbError::Initialize {
+            target: target.to_string(),
+            source,
+        })?;
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct SqliteRegexpError(String);
+
+impl fmt::Display for SqliteRegexpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for SqliteRegexpError {}
 
 fn read_schema_version(connection: &Connection) -> rusqlite::Result<u32> {
     connection.pragma_query_value(None, "user_version", |row| row.get(0))

@@ -1,0 +1,713 @@
+#+TITLE: Implement regexp matching for remaining SQLite metadata predicates
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-17 Fri 20:36]
+#+TASK_COMPLETED: [2026-07-17 Fri]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- ** PLAN [#B] Implement regexp matching for remaining SQLite metadata predicates
+- Implement the plan.
+- for appending:
+- org-entry-get actually returns "parent child" if inheritance is used, (org-entry-get "VALUE" t)
+- so this is important:
+- without inheritance the value is only appended if it is on the same heading else the value at the current heading is used
+- * Child
+- :PROPERTIES:
+- :VALUE: first
+- :VALUE+: second
+- :END:
+- this gives first second
+- with inheritance the value is append if on parent heading
+- for overwritting:
+- second definition wins
+- inheritance is defined with :inherit t or :inherit nil
+- continue the plan
+- Implement the plan.
+- ** PLAN [#B] Match Org property append ordering semantics
+- Implement the plan.
+- ** BUILD [#C] Document uniform property resolution and Org incompatibility
+- commit message (vergisst du immer) mit body
+- ** PLAN [#B] Index empty property values in property drawers
+- Implement the plan.
+- ** PLAN [#B] Implement outline predicates in the SQLite query backend
+- Die sind aus irgend einem Grund nicht implementiert
+- Implement the plan.
+- ** PLAN [#B] Implement regexp matching for remaining SQLite metadata predicates
+- Implement the plan.
+** DONE [#B] Implement regexp matching for remaining SQLite metadata predicates
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+- Task file: [[file:archive/2026-07-17--implement-regexp-matching-for-remaining-sqlite-metadata-predicates.org]]
+
+Goal:
+
+- Implement the already accepted and documented ~:regexp t~ mode for the remaining SQLite metadata predicates:
+  - ~has-text~
+  - ~tags~
+  - ~property~
+  - ~keyword~
+- Make parser, validation, documentation, and SQLite execution agree.
+- Preserve existing non-regexp behavior.
+- Reuse one consistent regexp implementation instead of adding predicate-specific matching engines.
+
+Current behavior:
+
+- The query parser accepts ~:regexp t~ for these predicates.
+- Validation accepts the option.
+- Public documentation describes the regexp mode.
+- The SQLite metadata backend rejects the query during execution.
+
+Affected forms:
+
+#+begin_src lisp
+(has-text "PATTERN" :regexp t)
+
+(tags "PATTERN" :regexp t)
+
+(property "KEY" "PATTERN" :regexp t)
+
+(keyword "KEY" "PATTERN" :regexp t)
+#+end_src
+
+Typical current error:
+
+#+begin_src text
+predicate property with :regexp t is not supported by the SQLite metadata backend
+#+end_src
+
+Scope:
+
+- Implement regexp matching for:
+  - heading body text through ~has-text~
+  - tag values through ~tags~
+  - property values through ~property~
+  - keyword values through ~keyword~
+- Preserve existing key matching semantics for ~property~ and ~keyword~.
+- Do not silently apply regexp matching to property or keyword keys unless the public contract explicitly says so.
+- Do not change inheritance semantics.
+- Do not change root/file participation.
+- Do not change raw indexing or database schema.
+
+Shared regexp semantics:
+
+- Use the same regexp engine and options for all affected predicates.
+- Define one public regexp dialect.
+- Document unsupported syntax and flags.
+- Matching must be deterministic.
+- Invalid patterns must fail with a clear query error.
+- Invalid patterns must not produce a SQLite error or panic.
+- User patterns must remain bound data and must not be interpolated unsafely into SQL.
+
+Case sensitivity:
+
+- Preserve the existing Query Model v0 regexp case-sensitivity contract.
+- If it is not yet explicitly defined, decide and document it before implementation.
+- Do not inherit SQLite ~LIKE~ case behavior accidentally.
+- Add tests using both uppercase and lowercase input.
+
+Recommended contract unless existing documentation differs:
+
+- Non-regexp matching retains the existing case-insensitive text semantics.
+- Regexp matching follows the selected regexp engine's documented case behavior.
+- If regexp matching is intended to remain case-insensitive, apply that explicitly rather than depending on backend defaults.
+
+Backend design:
+
+- Investigate whether the current SQLite connection already registers a regexp function.
+- If no regexp function exists, add one shared SQLite scalar function, for example:
+
+#+begin_src text
+regexp(pattern, value) -> boolean
+#+end_src
+
+- Compile and validate patterns safely.
+- Consider caching compiled patterns if the SQLite callback would otherwise compile the same expression for every row.
+- Avoid unbounded cache growth.
+- Convert invalid regexp patterns into a clear application-level error.
+- Ensure ~NULL~ values evaluate as non-matches rather than errors.
+
+Alternative implementation:
+
+- A post-query in-memory matcher is acceptable only if it preserves:
+  - boolean composition
+  - negation
+  - hierarchy relation predicates
+  - root/file matching
+  - pagination
+  - result limits
+  - deterministic ordering
+
+- Do not fetch a broad result set and filter after applying ~limit~, because that changes query semantics.
+- Prefer execution inside the SQLite predicate compiler unless a shared two-phase execution model already exists.
+
+Predicate semantics:
+
+*** ~has-text~
+
+Syntax:
+
+#+begin_src lisp
+(has-text "PATTERN" :regexp t)
+#+end_src
+
+Required behavior:
+
+- Apply the regexp to the indexed body text belonging directly to the candidate heading or root according to the existing ~has-text~ contract.
+- Do not search title, properties, keywords, child text, or the complete file unless those are already part of the documented body-text field.
+- A candidate matches when its indexed text contains a regexp match.
+- Missing body text evaluates false.
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (has-text "database.*resolver" :regexp t))
+
+(headings
+  (and
+    (level > 0)
+    (has-text "\\bTODO\\b" :regexp t)))
+#+end_src
+
+*** ~tags~
+
+Syntax:
+
+#+begin_src lisp
+(tags "PATTERN"... :match :any|:all :inherit t|nil :regexp t)
+#+end_src
+
+Required behavior:
+
+- Apply the regexp independently to complete tag values.
+- Do not join all tags into one string and run the regexp across delimiters.
+- Preserve ~:match :any~ and ~:match :all~ semantics.
+- Preserve ~:inherit t|nil~ semantics.
+- Root FILETAGS participation follows the existing heading-domain contract.
+
+For ~:match :any~:
+
+- At least one requested pattern must match at least one effective tag.
+
+For ~:match :all~:
+
+- Every requested pattern must match at least one effective tag.
+- Different patterns may match different tags.
+
+Example effective tags:
+
+#+begin_src text
+project
+database
+property-test
+#+end_src
+
+This matches:
+
+#+begin_src lisp
+(tags "^proj" "test$" :match :all :regexp t)
+#+end_src
+
+This does not match:
+
+#+begin_src lisp
+(tags "^missing" :regexp t)
+#+end_src
+
+*** ~property~
+
+Syntax:
+
+#+begin_src lisp
+(property "KEY" "PATTERN" :inherit t|nil :regexp t)
+#+end_src
+
+Required behavior:
+
+- Match the property key according to the existing normalized key semantics.
+- Apply the regexp to the resolved effective property value.
+- Do not apply the regexp independently to raw duplicate or append components.
+- Preserve:
+  - duplicate-definition resolution
+  - append resolution
+  - ~:inherit t|nil~
+  - root/file property behavior
+- A replaced raw value must not independently match.
+- An individual append component must not independently match unless the complete resolved value also matches the regexp.
+
+Example effective value:
+
+#+begin_src text
+VALUE = second appended another value
+#+end_src
+
+This matches:
+
+#+begin_src lisp
+(property "VALUE" "^second.*another value$" :regexp t :inherit nil)
+#+end_src
+
+This also matches:
+
+#+begin_src lisp
+(property "VALUE" "appended" :regexp t :inherit nil)
+#+end_src
+
+because the pattern occurs in the complete resolved value.
+
+This does not match:
+
+#+begin_src lisp
+(property "VALUE" "^first" :regexp t :inherit nil)
+#+end_src
+
+if ~first~ was replaced by a later non-append definition.
+
+Property existence form:
+
+- If the predicate supports querying only for key existence without a value, keep that form unchanged.
+- ~:regexp t~ must require a value pattern unless the public grammar explicitly defines regexp key matching.
+
+*** ~keyword~
+
+Syntax:
+
+#+begin_src lisp
+(keyword "KEY" "PATTERN" :regexp t)
+#+end_src
+
+Required behavior:
+
+- Match the keyword key according to existing normalized key semantics.
+- Apply the regexp to the effective or documented keyword value.
+- Preserve duplicate-keyword and root/file behavior.
+- Do not unexpectedly search keyword names with the value regexp.
+- Missing keyword values evaluate false unless empty-value matching is explicitly supported.
+
+Example:
+
+#+begin_src lisp
+(keyword "TITLE" "^Org Property.*Test$" :regexp t)
+#+end_src
+
+Example for an empty value:
+
+#+begin_src lisp
+(keyword "KEYWORD_EMPTY" "^$" :regexp t)
+#+end_src
+
+- Verify and document whether empty indexed keyword values match ~^$~.
+
+Boolean composition:
+
+All new regexp forms must work inside:
+
+#+begin_src lisp
+(and ...)
+(or ...)
+(not ...)
+#+end_src
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (and
+    (tags "^proj" :regexp t)
+    (property "OWNER" "^(Alice|Bob)$" :regexp t :inherit t)))
+
+(headings
+  (or
+    (has-text "SQLite|Postgres" :regexp t)
+    (keyword "TITLE" "database" :regexp t)))
+
+(headings
+  (not
+    (property "STATUS" "blocked|waiting" :regexp t :inherit t)))
+#+end_src
+
+Relation predicates:
+
+- Ensure regexp predicates work when nested inside:
+  - ~parent~
+  - ~children~
+  - ~ancestors~
+  - ~descendants~
+
+Examples:
+
+#+begin_src lisp
+(headings
+  (ancestors
+    (property "OWNER" "^Alice$" :regexp t :inherit nil)))
+
+(headings
+  (descendants
+    (tags "^(project|area)$" :regexp t :inherit t)))
+#+end_src
+
+Root/file behavior:
+
+- Preserve the established level-0 candidate semantics.
+- ~tags~ may match root FILETAGS.
+- ~property~ may match root properties.
+- ~keyword~ normally matches root/file keyword facts.
+- ~has-text~ matches root only if preamble/root text is indexed according to the accepted contract.
+- Regexp support must not add or remove root participation.
+
+Error handling:
+
+Invalid pattern example:
+
+#+begin_src lisp
+(property "VALUE" "(" :regexp t)
+#+end_src
+
+Expected:
+
+- query exits with a non-zero status
+- error identifies:
+  - the predicate
+  - the invalid regexp
+  - the regexp parser error where practical
+- no panic
+- no raw SQLite callback error
+- no partial result output
+
+Example message:
+
+#+begin_src text
+invalid regular expression for property: unclosed group
+#+end_src
+
+Resource safety:
+
+- Use a regexp engine with predictable resource behavior.
+- Avoid engines or options that permit catastrophic backtracking if an alternative is available.
+- Apply any existing query timeout or resource limits.
+- Do not allow a malformed pattern to crash the process.
+
+Implementation requirements:
+
+- Add one shared regexp compilation and matching layer.
+- Reuse it across all four predicates.
+- Update ~src/query/sqlite.rs~ and any shared query modules required.
+- Do not duplicate regexp validation in every predicate compiler.
+- Validate patterns before executing the SQL query where possible.
+- Preserve bound SQL parameters.
+- Keep validation separate from SQL generation.
+- Ensure parameter numbering and nested boolean compilation remain correct.
+- Do not add a schema migration.
+- Do not alter stored metadata.
+
+Support audit:
+
+- Search for all predicates accepting ~:regexp~.
+- Confirm that every documented regexp-capable predicate is either:
+  - supported by the SQLite backend
+  - or explicitly excluded from this task with a documented reason
+- Add a backend capability test preventing parser/validator/backend drift.
+
+Regression fixture:
+
+#+begin_src org
+,#+TITLE: Org Property and Keyword Test
+,#+FILETAGS: :project:database:
+
+,* Regex candidate
+:PROPERTIES:
+:OWNER: Alice
+:VALUE: second
+:VALUE+: appended
+:END:
+This body mentions SQLite and a property resolver.
+
+,* Other candidate
+:PROPERTIES:
+:OWNER: Carol
+:VALUE: unrelated
+:END:
+This body mentions a spreadsheet.
+#+end_src
+
+Required positive queries:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Regex candidate" :exact t)
+    (has-text "SQLite.*property resolver" :regexp t)))
+
+(headings
+  (and
+    (title "Regex candidate" :exact t)
+    (tags "^proj" :regexp t :inherit t)))
+
+(headings
+  (and
+    (title "Regex candidate" :exact t)
+    (property "OWNER" "^(Alice|Bob)$" :regexp t :inherit nil)))
+
+(headings
+  (and
+    (title "Regex candidate" :exact t)
+    (property
+      "VALUE"
+      "^second appended$"
+      :regexp t
+      :inherit nil)))
+
+(headings
+  (keyword "TITLE" "^Org Property.*Test$" :regexp t))
+#+end_src
+
+Required negative queries:
+
+#+begin_src lisp
+(headings
+  (and
+    (title "Other candidate" :exact t)
+    (has-text "SQLite" :regexp t)))
+
+(headings
+  (and
+    (title "Other candidate" :exact t)
+    (tags "^proj" :regexp t :inherit nil)))
+
+(headings
+  (and
+    (title "Other candidate" :exact t)
+    (property "OWNER" "^(Alice|Bob)$" :regexp t :inherit nil)))
+
+(headings
+  (and
+    (title "Regex candidate" :exact t)
+    (property "VALUE" "^appended$" :regexp t :inherit nil)))
+
+(headings
+  (keyword "TITLE" "^Unrelated$" :regexp t))
+#+end_src
+
+Tag matching tests:
+
+For effective tags:
+
+#+begin_src text
+project
+database
+property-test
+#+end_src
+
+Assert:
+
+#+begin_src lisp
+(tags "^proj" :regexp t)
+#+end_src
+
+matches.
+
+Assert:
+
+#+begin_src lisp
+(tags "^proj" "test$" :match :all :regexp t)
+#+end_src
+
+matches.
+
+Assert:
+
+#+begin_src lisp
+(tags "^proj" "^missing" :match :all :regexp t)
+#+end_src
+
+does not match.
+
+Property resolution tests:
+
+Given raw rows resolving to:
+
+#+begin_src text
+VALUE = second appended another value
+#+end_src
+
+Assert:
+
+#+begin_src lisp
+(property "VALUE" "^second.*value$" :regexp t :inherit nil)
+#+end_src
+
+matches.
+
+Assert:
+
+#+begin_src lisp
+(property "VALUE" "^first" :regexp t :inherit nil)
+#+end_src
+
+does not match.
+
+Assert inheritance behavior independently with ~:inherit t~ and ~:inherit nil~.
+
+Invalid-pattern tests:
+
+Test invalid regexp input for each predicate:
+
+#+begin_src lisp
+(has-text "(" :regexp t)
+
+(tags "(" :regexp t)
+
+(property "VALUE" "(" :regexp t)
+
+(keyword "TITLE" "(" :regexp t)
+#+end_src
+
+Assert:
+
+- each query fails before returning results
+- each exits non-zero
+- each returns a clear error
+- no panic occurs
+
+Documentation:
+
+- Update ~docs/reference/query-model-v0.org~.
+- Update ~docs/cli.org~.
+- Remove any backend limitation note stating these four regexp modes are unsupported.
+- Document:
+  - regexp dialect
+  - case sensitivity
+  - matching unit for tags
+  - resolved-value matching for properties
+  - invalid-pattern errors
+  - root/file behavior
+
+Suggested contract text:
+
+#+begin_src org
+- With ~:regexp t~, the supplied value is interpreted using orgfdb's documented regular-expression dialect.
+- Tag patterns are applied to individual complete tag values.
+- Property patterns are applied to the resolved effective property value after local resolution and inheritance.
+- Keyword patterns are applied to keyword values, not keyword names.
+- Body-text patterns are applied to the indexed text owned directly by the candidate.
+- Invalid regular expressions are rejected before query execution with a non-zero exit status.
+#+end_src
+
+Acceptance criteria:
+
+- ~has-text :regexp t~ executes through the SQLite backend.
+- ~tags :regexp t~ executes through the SQLite backend.
+- ~property :regexp t~ executes through the SQLite backend.
+- ~keyword :regexp t~ executes through the SQLite backend.
+- All four work inside boolean expressions.
+- All four work inside supported hierarchy relation predicates.
+- Property regexp matching uses resolved effective values.
+- Tag regexp matching evaluates individual tags.
+- Existing inheritance and root/file behavior remain unchanged.
+- Invalid patterns fail clearly and safely.
+- Parser, validator, documentation, and SQLite backend agree.
+- A backend capability regression test prevents future support drift.
+- No schema migration is added.
+- Existing non-regexp queries continue to pass.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+- The query language and docs already accepted ~:regexp t~ for several metadata predicates, but the SQLite backend still rejected many of them during compilation or execution.
+- The remaining gap covered not only ~has-text~, ~tags~, ~property~, and ~keyword~, but also other open SQLite regexp cases the user explicitly asked to finish in one pass.
+
+** Goals
+
+- Implement SQLite regexp matching for the remaining metadata predicates with one shared backend mechanism.
+- Preserve existing non-regexp semantics, root/file participation rules, inheritance behavior, and SQL parameter binding.
+- Keep validation, compiler behavior, execution tests, and documentation aligned.
+
+** Non-goals
+
+- No query-language syntax changes.
+- No schema migration.
+- No changes to FTS-specific behavior.
+
+** Architecture
+
+- Register one SQLite scalar function backed by Rust ~regex~ compilation and a small per-connection cache.
+- Reuse existing text predicate compilation paths where possible instead of adding predicate-specific regexp engines.
+- Validate regexp patterns before SQL execution so invalid patterns fail clearly and deterministically.
+
+** Execution plan
+
+- Finish SQLite regexp support for inherited tag matching and remaining metadata/text predicate compilers.
+- Rename the validation capability flag to backend-wide regexp support and update tests.
+- Add compile and execution coverage for heading, file, link, outline, tag, property, keyword, and body-text regexp queries.
+- Update public docs for the supported regexp behavior and SQLite regexp semantics.
+- Run ~make ci~ and move the task to ~REVIEW~.
+
+** Risks & assumptions
+
+- SQLite regexp support must stay parameterized so injection-like patterns cannot affect SQL structure.
+- Regexp matching should stay case-sensitive, matching Rust regex defaults, while non-regexp matching remains case-insensitive where previously documented.
+- Existing manual-test worktree changes under ~.project/manual-tests~ are unrelated and are left untouched.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~cargo test~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added a shared SQLite regexp function and wired the remaining compiler paths to use it for supported ~:regexp t~ predicates.
+- Extended compile-time validation to reject invalid regexp patterns with predicate-specific errors before query execution.
+- Expanded automated coverage to exercise regexp matching across headings, files, links, outline predicates, tags, properties, keywords, and persisted body text.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~Cargo.lock~
+- ~src/db.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/validate.rs~
+- ~src/query/resolve.rs~
+- ~src/cli.rs~
+- ~tests/query_validate.rs~
+- ~tests/query_validate_errors.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+
+- ~cargo test -q compile_supports_regex_predicates_and_rejects_invalid_patterns~
+- ~cargo test -q execution_matches_link_and_file_regex_metadata_predicates~
+- ~cargo test -q execution_matches_effective_heading_tag_queries~
+- ~cargo test -q execution_matches_effective_heading_property_queries~
+- ~cargo test -q execution_matches_has_text_against_persisted_heading_bodies~
+- ~make ci~
+
+** Test results
+
+- All checks passed.
+
+** Blockers
+
+- None so far.
+
+** Follow-ups
+
+- None.

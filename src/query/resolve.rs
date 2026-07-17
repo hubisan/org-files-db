@@ -257,7 +257,7 @@ mod tests {
             parsed,
             &QueryValidationOptions {
                 body_text_available: true,
-                regexp_body_matching_supported: false,
+                regexp_matching_supported: true,
             },
         )
         .expect("query should validate")

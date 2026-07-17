@@ -224,6 +224,14 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org]]
 
+** DONE [#B] Implement regexp matching for remaining SQLite metadata predicates
+
+- Task file: [[file:archive/2026-07-17--implement-regexp-matching-for-remaining-sqlite-metadata-predicates.org]]
+
 ** TODO Manual Test the Implementation
 
 *** DONE Properties
+
+*** DONE Todo Keywords
+
+*** DONE File Local Todo Keywords

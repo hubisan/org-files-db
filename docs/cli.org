@@ -238,7 +238,7 @@ The current public predicate options are:
   - Valid on: ~title~, ~has-text~, ~tags~, ~property~, ~keyword~, ~file-name~, ~file-path~, ~file-dir~, ~file-title~, ~outline-contains~, ~outline-sequence~, ~link-target~, ~link-description~.
   - Value type: ~t~ or ~nil~.
   - Default: ~nil~.
-  - Meaning is predicate-specific. ~has-text :regexp t~ is currently unsupported by the backend.
+  - Meaning is predicate-specific. SQLite uses Rust regular expressions and matching is case-sensitive unless the pattern says otherwise.
 - ~:match~ ::
   - Valid on: ~tags~.
   - Value type: ~:any~ or ~:all~.
@@ -302,7 +302,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(title "Query Engine" :exact t)'~.
 - ~has-text~ :: Syntax: ~(has-text STRING... :regexp t|nil)~.
   Targets: ~headings~.
-  Matches persisted heading body text. Default is case-insensitive substring matching for all supplied terms. Requires persisted body text capability. ~:regexp t~ is currently rejected by the backend.
+  Matches persisted heading body text. Default is case-insensitive substring matching for all supplied terms. Requires persisted body text capability. With ~:regexp t~, each pattern is matched against the persisted body text using Rust regex syntax.
   Example: ~'(has-text "sqlite" "fts")'~.
 - ~level~ :: Syntax: ~(level NUMBER)~, ~(level MIN MAX)~, ~(level COMPARATOR NUMBER)~.
   Targets: ~headings~.
@@ -314,7 +314,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(priority "A" "B")'~.
 - ~tags~ :: Syntax: ~(tags TAG... :inherit t|nil :regexp t|nil :match :any|:all)~.
   Targets: ~headings~, ~files~.
-  Heading queries use effective tags by default, including inherited/root tags when present. File queries match tags stored on the file root heading.
+  Heading queries use effective tags by default, including inherited/root tags when present. File queries match tags stored on the file root heading. With ~:regexp t~, each pattern is matched against one effective tag value.
   Example: ~'(tags "project" "urgent" :match :all)'~.
 - ~tags-all~ :: Syntax: ~(tags-all TAG... [same options as tags except :match])~.
   Targets: parser alias.
@@ -322,7 +322,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(tags-all "project" "urgent")'~.
 - ~property~ :: Syntax: ~(property KEY [VALUE] :inherit t|nil :regexp t|nil)~.
   Targets: ~headings~, ~files~.
-  With one argument, matches by property key existence. With two, matches key/value. Heading queries use effective properties by default; ~:inherit nil~ restricts to direct rows. File queries are always direct root/file property matches and reject ~:inherit~.
+  With one argument, matches by property key existence. With two, matches key/value. Heading queries use effective properties by default; ~:inherit nil~ restricts to direct rows. File queries are always direct root/file property matches and reject ~:inherit~. With ~:regexp t~, the pattern is matched against the resolved effective property value.
   Local effective values use one source-independent rule for property drawer rows and file-level ~#+PROPERTY~ rows: the last non-append definition is the base value, and all append definitions for the same key are appended in source order even if they appear before or between non-append definitions.
   Compatibility note: this intentionally differs from Org for some repeated file-level ~#+PROPERTY~ sequences mixed with append rows. For example, orgfdb resolves
   ~#+PROPERTY: KEYWORD_RESET old~, ~#+PROPERTY: KEYWORD_RESET+ appended-before-reset~, ~#+PROPERTY: KEYWORD_RESET replacement~, ~#+PROPERTY: KEYWORD_RESET+ appended-after-reset~
@@ -331,7 +331,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(property "CATEGORY" "work")'~.
 - ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil)~.
   Targets: ~headings~, ~files~.
-  Matches root/file keyword facts. Heading queries access them via the containing file root context.
+  Matches root/file keyword facts. Heading queries access them via the containing file root context. With ~:regexp t~, the pattern applies to the keyword value, not the keyword name.
   Example: ~'(keyword "AUTHOR" "Alice")'~.
 - ~file-name~ :: Syntax: ~(file-name STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~files~.
@@ -355,11 +355,11 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(file-modified :from -7 :to today)'~.
 - ~outline-contains~ :: Syntax: ~(outline-contains STRING... :regexp t|nil)~.
   Targets: ~headings~.
-  Matches headings whose outline path contains all supplied components somewhere in the path. The synthetic file/root title is not part of this match path. In the SQLite metadata backend, ~:regexp t~ is currently unsupported. No ~:exact~ option.
+  Matches headings whose outline path contains all supplied components somewhere in the path. The synthetic file/root title is not part of this match path. With ~:regexp t~, each pattern is matched against individual outline components. No ~:exact~ option.
   Example: ~'(outline-contains "Project" "Query")'~.
 - ~outline-sequence~ :: Syntax: ~(outline-sequence STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~.
-  Matches contiguous outline path segments in order. With ~:exact t~, each supplied segment must exactly match the corresponding path component. The synthetic file/root title is not part of this match path. In the SQLite metadata backend, ~:regexp t~ is currently unsupported.
+  Matches contiguous outline path segments in order. With ~:exact t~, each supplied segment must exactly match the corresponding path component. The synthetic file/root title is not part of this match path. With ~:regexp t~, each pattern is matched against the corresponding outline component.
   Example: ~'(outline-sequence "Projects" "Org database" :exact t)'~.
 - ~ts~ :: Syntax: ~(ts :from DATE :to DATE :on DATE :with-time t|nil)~.
   Targets: ~headings~.
@@ -762,7 +762,6 @@ Important expected messages:
 - ~query currently only supports --json~
 - ~unsupported operator: tags-regexp; use (tags ... :regexp t) instead~
 - ~has-text requires body text to be available in the database~
-- ~has-text with :regexp t is not supported by the current backend~
 
 ** Executable Query Examples
 
