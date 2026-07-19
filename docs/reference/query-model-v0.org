@@ -3177,6 +3177,13 @@ Options:
 - ~:regexp t~ :: interpret strings as regular expressions
 - ~:exact t~ :: require exact file path match; requires exactly one string
 
+Home-directory expansion:
+
+- A value of ~~ or beginning with ~~/~ expands its leading ~~ from the process ~HOME~ environment variable before substring, exact, or regexp matching.
+- This expansion is limited to the leading path component. Values such as ~projects/~/notes.org~, ~file~backup.org~, and named-user forms such as ~~alice/notes.org~ remain unchanged.
+- Expansion does not invoke a shell, resolve symlinks, canonicalize paths, or require the path to exist. Stored and returned file paths remain unchanged.
+- A query that requires expansion fails clearly if ~HOME~ is unavailable.
+
 Examples:
 
 #+begin_src lisp
@@ -3185,6 +3192,9 @@ Examples:
 
 (files
   (file-path "/home/me/org/projects.org" :exact t))
+
+(files
+  (file-path "~/org/projects.org" :exact t))
 
 (files
   (file-path ".*/projects/.*\.org" :regexp t))

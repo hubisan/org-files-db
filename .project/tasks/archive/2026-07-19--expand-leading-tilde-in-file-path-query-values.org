@@ -1,0 +1,240 @@
+#+TITLE: Expand leading tilde in file-path query values
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-19 Sun 17:53]
+#+TASK_COMPLETED: [2026-07-19 Sun 17:58]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE [#B] Expand leading ~~ in ~file-path~ query values
+
+- Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-path-query-values.org]]
+
+Goal:
+
+- Allow ~file-path~ query values beginning with ~~ to refer to the current user's home directory.
+- Expand ~~ from the process environment before compiling the predicate for the SQLite backend.
+- Keep stored file paths unchanged.
+
+Current behaviour:
+
+- ~file-path~ is validated and compiled as a generic text predicate.
+- Query values are passed to SQLite without path-specific processing.
+- The compiler currently performs only:
+  - substring matching
+  - exact text matching
+  - regular-expression matching
+- Consequently, the following value remains literal:
+
+#+begin_src text
+~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org
+#+end_src
+
+- It therefore does not match a stored absolute path such as:
+
+#+begin_src text
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org
+#+end_src
+
+Required semantics:
+
+- Expand a query value consisting only of ~~ to the value of the process environment variable ~HOME~.
+- Expand a query value beginning with ~~/~ by replacing the leading ~~ with ~HOME~.
+
+Example:
+
+#+begin_src text
+HOME=/home/hubisan
+~/projects/example.org
+-> /home/hubisan/projects/example.org
+#+end_src
+
+- Perform the expansion only on a leading path component.
+- Do not replace ~~ occurring elsewhere in a string.
+
+Examples that must remain unchanged:
+
+#+begin_src text
+projects/~/notes.org
+file~backup.org
+#+end_src
+
+- Do not implement named-user expansion such as:
+
+#+begin_src text
+~alice/notes.org
+#+end_src
+
+- Named-user expansion is outside Query Model v0.
+- Do not invoke a shell to perform expansion.
+- Do not modify the path stored in the database.
+- Do not canonicalise the expanded path, resolve symlinks, or require the referenced file to exist.
+
+Supported targets:
+
+- Apply the same expansion whenever ~file-path~ is used for:
+  - ~headings~
+  - ~files~
+  - nested file relations from ~links~
+- The result must not depend on which query target owns the predicate.
+
+Matching modes:
+
+- Apply home-directory expansion before evaluating the selected matching mode.
+- Support expansion consistently for:
+  - default substring matching
+  - ~:exact t~
+  - ~:regexp t~
+- Expand each supplied ~file-path~ argument independently.
+
+Example exact query:
+
+#+begin_src lisp
+(headings
+  (file-path
+    "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org"
+    :exact t))
+#+end_src
+
+With:
+
+#+begin_src text
+HOME=/home/hubisan
+#+end_src
+
+this must behave like:
+
+#+begin_src lisp
+(headings
+  (file-path
+    "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org"
+    :exact t))
+#+end_src
+
+Implementation tasks:
+
+- Add a shared helper for expanding leading home-directory syntax in ~file-path~ query arguments.
+- Read the home directory from the process environment variable ~HOME~.
+- Handle:
+  - ~~
+  - ~~/...~
+- Leave all other strings unchanged.
+- Apply the helper before values are converted to SQLite query parameters.
+- Keep generic text predicate compilation free of global path expansion.
+- Ensure expansion is specific to ~file-path~ rather than all text predicates.
+- Reuse the same implementation for heading, file, and nested relation queries.
+- Do not use shell execution or shell-word expansion.
+- Do not alter indexed paths or query result paths.
+
+Missing ~HOME~:
+
+- When a query contains ~~ or ~~/...~ and ~HOME~ is unavailable, return a clear query execution error.
+- The error should identify:
+  - the ~file-path~ predicate
+  - the unavailable ~HOME~ environment variable
+- Queries without a leading ~~ must continue to work when ~HOME~ is unavailable.
+
+Tests:
+
+- Add unit tests for the expansion helper:
+  - ~~ expands to ~HOME~
+  - ~~/notes.org~ expands below ~HOME~
+  - ~projects/~/notes.org~ remains unchanged
+  - ~file~backup.org~ remains unchanged
+  - ~~alice/notes.org~ remains unchanged or is rejected according to the documented Query Model v0 decision
+- Add execution tests with a controlled ~HOME~ value.
+- Verify exact matching:
+
+#+begin_src lisp
+(file-path "~/projects/ancestors.org" :exact t)
+#+end_src
+
+- Verify default substring matching:
+
+#+begin_src lisp
+(file-path "~/projects")
+#+end_src
+
+- Verify regular-expression matching:
+
+#+begin_src lisp
+(file-path "~/projects/.*\\.org" :regexp t)
+#+end_src
+
+- Verify multiple arguments are expanded independently.
+- Verify behaviour for:
+  - heading queries
+  - file queries
+  - nested file relation queries
+- Verify that the returned ~file_path~ remains the stored absolute path.
+- Verify that a missing ~HOME~ produces an error only when expansion is requested.
+- Add a regression test showing that a literal ~~ is no longer sent unchanged to SQLite for a leading ~~/~ value.
+
+Documentation:
+
+- Update the ~file-path~ entry in ~docs/cli.org~.
+- State that a leading ~~ or ~~/~ is expanded from the process ~HOME~ environment variable.
+- State that expansion occurs before substring, exact, or regular-expression matching.
+- State that stored and returned paths remain unchanged.
+- State that named-user forms such as ~~alice/~ are not supported.
+- State that expansion does not:
+  - invoke a shell
+  - resolve symlinks
+  - canonicalise paths
+  - test whether a path exists
+- Add the same contract to ~docs/reference/query-model-v0.org~.
+- Add an exact-match example using ~~/...~.
+
+Acceptance criteria:
+
+- A ~file-path~ value beginning with ~~/~ matches the equivalent stored absolute path below ~HOME~.
+- With ~HOME=/home/hubisan~, this query:
+
+#+begin_src lisp
+(headings
+  (file-path
+    "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org"
+    :exact t))
+#+end_src
+
+matches headings from:
+
+#+begin_src text
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org
+#+end_src
+
+- Absolute-path queries retain their existing behaviour.
+- Expansion works consistently for all targets supporting ~file-path~.
+- Values without a leading ~~ remain unchanged.
+- Named-user expansion is not introduced.
+- Stored and returned paths remain absolute source paths.
+- No database schema or index migration is required.
+
+
+* Build
+
+** Approach
+- Expand only leading ~~~ or ~~/~ file-path query values from ~HOME~ at SQLite compilation time.
+- Keep generic text predicates and indexed paths unchanged.
+
+** Changed files
+- ~src/query/sqlite.rs~: expand leading home-directory syntax only for ~file-path~ predicates before SQLite compilation.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~: document scope, matching semantics, and failure behaviour.
+- SQLite query tests: cover target contexts, matching modes, unchanged stored paths, and unsupported tilde forms.
+
+** Checks performed
+- ~cargo fmt --all~
+- Targeted SQLite query tests
+- ~make ci~
+
+** Test results
+- 342 unit tests, 38 adapter tests, and 105 parser/query integration tests passed through ~make ci~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

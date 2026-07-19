@@ -240,6 +240,10 @@ General rules:
 
 - Task file: [[file:archive/2026-07-19--add-inherit-control-to-heading-keyword-queries.org]]
 
+** DONE [#B] Expand leading ~~ in ~file-path~ query values
+
+- Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-path-query-values.org]]
+
 ** TODO Manual Test the Implementation
 
 *** Query

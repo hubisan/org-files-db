@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::env;
 use std::fmt;
 
 use regex::Regex;
@@ -1047,12 +1048,9 @@ fn compile_heading_predicate(
             predicate,
             false,
         ),
-        "file-path" => compile_text_predicate(
-            QueryTarget::Headings,
-            &scope.file_col("path"),
-            predicate,
-            false,
-        ),
+        "file-path" => {
+            compile_file_path_predicate(QueryTarget::Headings, &scope.file_col("path"), predicate)
+        }
         "file-dir" => compile_text_predicate(
             QueryTarget::Headings,
             &sqlite_file_dir_expr(&scope.file_col("path")),
@@ -1414,12 +1412,9 @@ fn compile_file_predicate(
             predicate,
             false,
         ),
-        "file-path" => compile_text_predicate(
-            QueryTarget::Files,
-            &scope.file_col("path"),
-            predicate,
-            false,
-        ),
+        "file-path" => {
+            compile_file_path_predicate(QueryTarget::Files, &scope.file_col("path"), predicate)
+        }
         "file-dir" => compile_text_predicate(
             QueryTarget::Files,
             &sqlite_file_dir_expr(&scope.file_col("path")),
@@ -1625,6 +1620,38 @@ fn compile_text_predicate(
         sql: format!("({})", parts.join(" AND ")),
         params,
     })
+}
+
+fn compile_file_path_predicate(
+    target: QueryTarget,
+    column: &str,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let mut predicate = predicate.clone();
+    for argument in &mut predicate.args {
+        let ValidatedArg::Scalar(QueryValue::String(value)) = argument else {
+            unreachable!("validator should guarantee string file-path arguments");
+        };
+        *value = expand_leading_home_path(value).map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(target, "file-path", message)
+        })?;
+    }
+    compile_text_predicate(target, column, &predicate, false)
+}
+
+fn expand_leading_home_path(value: &str) -> Result<String, String> {
+    expand_leading_home_path_with_home(value, env::var("HOME").ok().as_deref())
+}
+
+fn expand_leading_home_path_with_home(value: &str, home: Option<&str>) -> Result<String, String> {
+    if value != "~" && !value.starts_with("~/") {
+        return Ok(value.to_string());
+    }
+    let home = home.ok_or_else(|| {
+        "file-path with a leading ~ requires the HOME environment variable to be available"
+            .to_string()
+    })?;
+    Ok(format!("{home}{}", &value[1..]))
 }
 
 fn sqlite_file_name_expr(path_sql: &str) -> String {
@@ -2934,8 +2961,9 @@ fn target_name(target: QueryTarget) -> &'static str {
 mod tests {
     use super::{
         compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
-        sqlite_query_validation_options, FileQueryRow, HeadingQueryMatch, HeadingQueryRow,
-        LinkQueryRow, QueryExecutionErrorKind, QueryRows,
+        expand_leading_home_path_with_home, sqlite_query_validation_options, FileQueryRow,
+        HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind, QueryParam,
+        QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
@@ -3172,6 +3200,100 @@ mod tests {
                 super::QueryParam::Text(value) if value == user_value
             )));
         }
+    }
+
+    #[test]
+    fn expands_only_leading_file_path_home_syntax() {
+        assert_eq!(
+            expand_leading_home_path_with_home("~", Some("/home/tester")),
+            Ok("/home/tester".to_string())
+        );
+        assert_eq!(
+            expand_leading_home_path_with_home("~/notes.org", Some("/home/tester")),
+            Ok("/home/tester/notes.org".to_string())
+        );
+        assert_eq!(
+            expand_leading_home_path_with_home("projects/~/notes.org", Some("/home/tester")),
+            Ok("projects/~/notes.org".to_string())
+        );
+        assert_eq!(
+            expand_leading_home_path_with_home("file~backup.org", Some("/home/tester")),
+            Ok("file~backup.org".to_string())
+        );
+        assert_eq!(
+            expand_leading_home_path_with_home("~alice/notes.org", Some("/home/tester")),
+            Ok("~alice/notes.org".to_string())
+        );
+        assert!(expand_leading_home_path_with_home("~/notes.org", None)
+            .expect_err("missing HOME should fail")
+            .contains("HOME"));
+        assert_eq!(
+            expand_leading_home_path_with_home("notes.org", None),
+            Ok("notes.org".to_string())
+        );
+    }
+
+    #[test]
+    fn compiles_expanded_file_paths_for_all_file_path_contexts() {
+        let home = std::env::var("HOME").expect("test environment should provide HOME");
+        let expected = format!("{home}/projects/ancestors.org");
+
+        for query in [
+            r#"(headings (file-path "~/projects/ancestors.org" :exact t))"#,
+            r#"(files (file-path "~/projects/ancestors.org" :exact t))"#,
+            r#"(headings (links-to (files (file-path "~/projects/ancestors.org" :exact t))))"#,
+            r#"(links (target (files (file-path "~/projects/ancestors.org" :exact t))))"#,
+        ] {
+            let compiled = compile_sqlite_query(&validated(query)).expect("query should compile");
+            assert_eq!(compiled.params, vec![QueryParam::Text(expected.clone())]);
+        }
+    }
+
+    #[test]
+    fn execution_expands_file_path_home_without_changing_returned_paths() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            crate::db::CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let home = std::env::var("HOME").expect("test environment should provide HOME");
+        let path = format!("{home}/projects/ancestors.org");
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (1, ?1, 0, 0)",
+                rusqlite::params![path],
+            )
+            .expect("file should insert");
+        connection
+            .execute_batch(
+                "INSERT INTO headings
+                 (id, file_id, parent_id, level, byte_start, byte_end, title)
+                 VALUES
+                 (1, 1, NULL, 0, -1, 0, 'Index'),
+                 (2, 1, 1, 1, 0, 0, 'Child');",
+            )
+            .expect("headings should insert");
+
+        let file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-path "~/projects/ancestors.org" :exact t))"#),
+        )
+        .expect("exact file query should execute");
+        assert_eq!(file_paths(file_rows), vec![path.clone()]);
+
+        let heading_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (file-path "~/projects" "ancestors"))"#),
+        )
+        .expect("substring heading query should execute");
+        assert_eq!(heading_ids(heading_rows), vec![2]);
+
+        let regexp_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-path "~/projects/.*\\.org" :regexp t))"#),
+        )
+        .expect("regexp file query should execute");
+        assert_eq!(file_paths(regexp_rows), vec![path]);
     }
 
     #[test]

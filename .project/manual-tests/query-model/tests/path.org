@@ -1,0 +1,277 @@
+#+TITLE: Query Model Tests - Path Predicates
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* file-name
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-name "file-path" :exact nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-name "file-path" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-name "file-path.org" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-name "[abcdef]?-(path|dir).org" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir-fixture-fdr5"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Match fdr5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Second Match fdr5-b"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-name "[abcdef]?-(path|dir).org" :regexp t :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* file-path
+
+** Using Absolute Path
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-path "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+** Using ~ for HOME
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-path "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+** Using partial Path
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-path "coding/org-files-db/.project/manual-tests/query-model/org/headings/file"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org",
+  "title_raw": "file-modified-fixture-fmd8"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org",
+  "title_raw": "file-modified: Modified Time Match fmd8-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org",
+  "title_raw": "file-modified: Modified Time Second Match fmd8-b"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org",
+  "title_raw": "file-name-fixture-fnm3"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org",
+  "title_raw": "file-name: Filename Match fnm3-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org",
+  "title_raw": "file-name: Filename Second Match fnm3-b"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org",
+  "title_raw": "Effective File Title FTL6 Unique"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org",
+  "title_raw": "file-title: Effective Title Match ftl6-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org",
+  "title_raw": "file-title: Effective Title Second Match ftl6-b"
+}
+#+end_SRC
+
+* file-dir
+
+
+
+* Template
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (predicate ""))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
