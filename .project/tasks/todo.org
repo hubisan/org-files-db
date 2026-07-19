@@ -244,6 +244,10 @@ General rules:
 
 - Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-path-query-values.org]]
 
+** DONE [#B] Expand leading ~~ in ~file-dir~ query values
+
+- Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-dir-query-values.org]]
+
 ** TODO Manual Test the Implementation
 
 *** Query

@@ -25,6 +25,14 @@ tmp/
 temp/
 coverage/
 
-
 # User stuff
 .project/local/
+
+# User Test Artifacts
+db-dump.sql
+db-top10.md
+headings-with-root.json
+links.json
+org-files-db.sqlite
+org-files-db.sqlite-shm
+org-files-db.sqlite-wal

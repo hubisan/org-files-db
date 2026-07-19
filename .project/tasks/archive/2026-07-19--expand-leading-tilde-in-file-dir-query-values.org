@@ -1,0 +1,213 @@
+#+TITLE: Expand leading tilde in file-dir query values
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-19 Sun 18:00]
+#+TASK_COMPLETED: [2026-07-19 Sun 18:16]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE [#B] Expand leading ~~ in ~file-dir~ query values
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-19--expand-leading-tilde-in-file-dir-query-values.org]]
+
+Goal:
+
+- Allow ~file-dir~ query values beginning with ~~ to refer to the current user's home directory.
+- Expand the leading ~~ from the process ~HOME~ environment variable before evaluating the predicate.
+- Reuse the same path-expansion semantics as ~file-path~.
+- Keep stored file paths and directories unchanged.
+
+Current behaviour:
+
+- ~file-dir~ query arguments are treated as literal text.
+- No home-directory expansion is applied.
+- Therefore, a query such as:
+
+#+begin_src lisp
+(headings
+  (file-dir
+    "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))
+#+end_src
+
+does not match files stored below:
+
+#+begin_src text
+/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone
+#+end_src
+
+Required semantics:
+
+- Expand a query value consisting only of ~~ to the value of ~HOME~.
+- Expand a query value beginning with ~~/~ by replacing the leading ~~ with ~HOME~.
+
+Example:
+
+#+begin_src text
+HOME=/home/hubisan
+~/projects/example
+-> /home/hubisan/projects/example
+#+end_src
+
+- Perform expansion only when ~~ is the first path component.
+- Leave ~~ occurring elsewhere unchanged.
+- Do not support named-user expansion such as ~~alice/projects~.
+- Do not invoke a shell.
+- Do not canonicalise paths, resolve symbolic links, or require the directory to exist.
+- Do not modify values stored in the database or returned in query results.
+
+Matching semantics:
+
+- Apply home-directory expansion before evaluating the normal ~file-dir~ matching behaviour.
+- Preserve all existing ~file-dir~ semantics after expansion.
+- Apply expansion consistently to:
+  - default matching
+  - exact matching, if supported
+  - regular-expression matching, if supported
+  - multiple supplied values, if supported
+- Expand every supplied directory argument independently.
+
+Expected example:
+
+With:
+
+#+begin_src text
+HOME=/home/hubisan
+#+end_src
+
+this query:
+
+#+begin_src lisp
+(headings
+  (file-dir
+    "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))
+#+end_src
+
+must behave like:
+
+#+begin_src lisp
+(headings
+  (file-dir
+    "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))
+#+end_src
+
+Shared implementation:
+
+- Use the same leading-home expansion helper as ~file-path~.
+- Keep expansion specific to path predicates.
+- Do not add ~~ expansion to generic text predicates.
+- Ensure ~file-path~ and ~file-dir~ cannot develop different expansion rules.
+
+Implementation tasks:
+
+- Locate the compilation path for ~file-dir~.
+- Apply the shared home-directory expansion helper to every ~file-dir~ query argument.
+- Perform expansion before binding values as SQLite parameters.
+- Support:
+  - ~~
+  - ~~/...~
+- Leave these values unchanged:
+
+#+begin_src text
+projects/~/deep-zone
+deep~zone
+~alice/projects
+#+end_src
+
+- Return a clear query error when:
+  - the value requires ~~ expansion
+  - ~HOME~ is not available
+- Queries without a leading ~~ must continue to work when ~HOME~ is unavailable.
+- Keep absolute and relative directory queries otherwise unchanged.
+- Apply the behaviour to every query target supporting ~file-dir~.
+
+Tests:
+
+- Add unit tests for the shared expansion helper as used by ~file-dir~:
+  - ~~ expands to ~HOME~
+  - ~~/projects~ expands below ~HOME~
+  - ~projects/~/deep-zone~ remains unchanged
+  - ~deep~zone~ remains unchanged
+  - ~~alice/projects~ is not expanded
+- Add execution tests using a controlled ~HOME~ value.
+- Verify that the expanded query matches files directly in the requested directory.
+- Verify the existing recursive or non-recursive ~file-dir~ semantics independently of home expansion.
+- Verify absolute-path queries remain unchanged.
+- Verify relative-path queries remain unchanged.
+- Verify returned ~file_path~ values remain the stored absolute paths.
+- Verify missing ~HOME~ fails only when leading-home expansion is requested.
+- Add a regression test for:
+
+#+begin_src lisp
+(headings
+  (file-dir
+    "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))
+#+end_src
+
+Documentation:
+
+- Update the ~file-dir~ entry in ~docs/cli.org~.
+- State that a leading ~~ or ~~/~ is expanded from the process ~HOME~ environment variable.
+- State that expansion occurs before normal ~file-dir~ matching.
+- State that stored and returned paths remain unchanged.
+- State that named-user forms such as ~~alice/~ are not supported.
+- State that expansion does not:
+  - invoke a shell
+  - canonicalise the path
+  - resolve symbolic links
+  - verify that the directory exists
+- Add the same contract to ~docs/reference/query-model-v0.org~.
+- Keep the wording aligned with the ~file-path~ documentation.
+
+Acceptance criteria:
+
+- With ~HOME=/home/hubisan~, this query:
+
+#+begin_src lisp
+(headings
+  (file-dir
+    "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))
+#+end_src
+
+matches the same headings as the equivalent absolute-directory query.
+
+- Absolute ~file-dir~ queries retain their existing behaviour.
+- Values without a leading ~~ remain unchanged.
+- Named-user expansion is not introduced.
+- ~file-dir~ and ~file-path~ use one shared expansion implementation.
+- Stored and returned paths remain unchanged.
+- No database schema or index migration is required.
+
+
+* Results
+
+** Approach
+- Reuse a shared leading-home expansion compiler for ~file-path~ and ~file-dir~ predicates.
+- Keep generic text predicates and stored paths unchanged.
+
+** Changed files
+- ~src/query/sqlite.rs~: apply shared leading-home expansion to ~file-dir~ before SQLite parameter binding.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~: document matching and expansion semantics.
+- SQLite query tests: cover supported contexts, matching modes, unchanged absolute and relative arguments, and stored result paths.
+
+** Checks performed
+- ~cargo fmt --all~
+- Targeted SQLite query tests
+- ~make ci~
+
+** Test results
+- 344 unit tests, 38 adapter tests, and 105 parser/query integration tests passed through ~make ci~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

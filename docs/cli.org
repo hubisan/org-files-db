@@ -343,8 +343,8 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(file-path "~/projects/notes.org" :exact t)'~.
 - ~file-dir~ :: Syntax: ~(file-dir STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
-  Matches the containing directory path. On ~headings~, matching file/root objects are also returned as ~kind = "file"~.
-  Example: ~'(file-dir "/home/me/org/projects" :exact t)'~.
+  Matches the containing directory path. A value of ~~ or beginning with ~~/~ expands its leading ~~ from the process ~HOME~ environment variable before substring, exact, or regexp matching. Named-user forms such as ~~alice/~ are not supported. Expansion does not invoke a shell, resolve symlinks, canonicalize paths, or require them to exist; stored and returned paths remain unchanged. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. On links this applies through the source file relation.
+  Example: ~'(file-dir "~/projects" :exact t)'~.
 - ~file-title~ :: Syntax: ~(file-title STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
   Matches the effective file/root title. On ~headings~, this evaluates both real headings by containing file title and file/root objects themselves; it is different from ~title~, which can match real headings and, by default, the root object itself.

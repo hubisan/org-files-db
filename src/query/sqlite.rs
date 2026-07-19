@@ -1048,14 +1048,17 @@ fn compile_heading_predicate(
             predicate,
             false,
         ),
-        "file-path" => {
-            compile_file_path_predicate(QueryTarget::Headings, &scope.file_col("path"), predicate)
-        }
-        "file-dir" => compile_text_predicate(
+        "file-path" => compile_home_path_predicate(
             QueryTarget::Headings,
+            "file-path",
+            &scope.file_col("path"),
+            predicate,
+        ),
+        "file-dir" => compile_home_path_predicate(
+            QueryTarget::Headings,
+            "file-dir",
             &sqlite_file_dir_expr(&scope.file_col("path")),
             predicate,
-            false,
         ),
         "file-title" => compile_text_predicate(
             QueryTarget::Headings,
@@ -1412,14 +1415,17 @@ fn compile_file_predicate(
             predicate,
             false,
         ),
-        "file-path" => {
-            compile_file_path_predicate(QueryTarget::Files, &scope.file_col("path"), predicate)
-        }
-        "file-dir" => compile_text_predicate(
+        "file-path" => compile_home_path_predicate(
             QueryTarget::Files,
+            "file-path",
+            &scope.file_col("path"),
+            predicate,
+        ),
+        "file-dir" => compile_home_path_predicate(
+            QueryTarget::Files,
+            "file-dir",
             &sqlite_file_dir_expr(&scope.file_col("path")),
             predicate,
-            false,
         ),
         "file-title" => compile_text_predicate(
             QueryTarget::Files,
@@ -1622,18 +1628,19 @@ fn compile_text_predicate(
     })
 }
 
-fn compile_file_path_predicate(
+fn compile_home_path_predicate(
     target: QueryTarget,
+    predicate_name: &str,
     column: &str,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let mut predicate = predicate.clone();
     for argument in &mut predicate.args {
         let ValidatedArg::Scalar(QueryValue::String(value)) = argument else {
-            unreachable!("validator should guarantee string file-path arguments");
+            unreachable!("validator should guarantee string path predicate arguments");
         };
         *value = expand_leading_home_path(value).map_err(|message| {
-            QueryExecutionError::unsupported_backend_feature(target, "file-path", message)
+            QueryExecutionError::unsupported_backend_feature(target, predicate_name, message)
         })?;
     }
     compile_text_predicate(target, column, &predicate, false)
@@ -1648,8 +1655,7 @@ fn expand_leading_home_path_with_home(value: &str, home: Option<&str>) -> Result
         return Ok(value.to_string());
     }
     let home = home.ok_or_else(|| {
-        "file-path with a leading ~ requires the HOME environment variable to be available"
-            .to_string()
+        "a leading ~ requires the HOME environment variable to be available".to_string()
     })?;
     Ok(format!("{home}{}", &value[1..]))
 }
@@ -3250,6 +3256,36 @@ mod tests {
     }
 
     #[test]
+    fn compiles_expanded_file_dirs_for_all_file_dir_contexts() {
+        let home = std::env::var("HOME").expect("test environment should provide HOME");
+        let expected = format!("{home}/projects");
+
+        for query in [
+            r#"(headings (file-dir "~/projects" :exact t))"#,
+            r#"(files (file-dir "~/projects" :exact t))"#,
+            r#"(headings (links-to (files (file-dir "~/projects" :exact t))))"#,
+            r#"(links (target (files (file-dir "~/projects" :exact t))))"#,
+        ] {
+            let compiled = compile_sqlite_query(&validated(query)).expect("query should compile");
+            assert_eq!(compiled.params, vec![QueryParam::Text(expected.clone())]);
+        }
+
+        for (query, expected) in [
+            (
+                r#"(files (file-dir "/var/projects" :exact t))"#,
+                "/var/projects",
+            ),
+            (r#"(files (file-dir "projects" :exact t))"#, "projects"),
+        ] {
+            let compiled = compile_sqlite_query(&validated(query)).expect("query should compile");
+            assert_eq!(
+                compiled.params,
+                vec![QueryParam::Text(expected.to_string())]
+            );
+        }
+    }
+
+    #[test]
     fn execution_expands_file_path_home_without_changing_returned_paths() {
         let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
             crate::db::CURRENT_SCHEMA_VERSION,
@@ -3293,6 +3329,51 @@ mod tests {
             &validated(r#"(files (file-path "~/projects/.*\\.org" :regexp t))"#),
         )
         .expect("regexp file query should execute");
+        assert_eq!(file_paths(regexp_rows), vec![path]);
+    }
+
+    #[test]
+    fn execution_expands_file_dir_home_without_changing_returned_paths() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            crate::db::CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let home = std::env::var("HOME").expect("test environment should provide HOME");
+        let path = format!("{home}/projects/ancestors.org");
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (1, ?1, 0, 0)",
+                rusqlite::params![path],
+            )
+            .expect("file should insert");
+        connection
+            .execute_batch(
+                "INSERT INTO headings
+                 (id, file_id, parent_id, level, byte_start, byte_end, title)
+                 VALUES
+                 (1, 1, NULL, 0, -1, 0, 'Index'),
+                 (2, 1, 1, 1, 0, 0, 'Child');",
+            )
+            .expect("headings should insert");
+
+        let file_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-dir "~/projects" :exact t))"#),
+        )
+        .expect("exact file directory query should execute");
+        assert_eq!(file_paths(file_rows), vec![path.clone()]);
+
+        let heading_rows =
+            execute_sqlite_query(&connection, &validated(r#"(headings (file-dir "~/proj"))"#))
+                .expect("substring heading directory query should execute");
+        assert_eq!(heading_ids(heading_rows), vec![2]);
+
+        let regexp_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (file-dir "~/proj.*" :regexp t))"#),
+        )
+        .expect("regexp file directory query should execute");
         assert_eq!(file_paths(regexp_rows), vec![path]);
     }
 
