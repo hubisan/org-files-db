@@ -264,11 +264,6 @@ The current public predicate options are:
   - Value type: date/time value.
   - Default: none.
   - Matches the given day or the given datetime, depending on the value form.
-- ~:with-time~ ::
-  - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
-  - Value type: ~t~ or ~nil~.
-  - Default: none.
-  - Filters on persisted explicit-time metadata when that predicate supports it.
 
 Options are validated per predicate. A supported option on one predicate does not imply support elsewhere.
 
@@ -349,7 +344,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Targets: ~headings~, ~links~, ~files~.
   Matches the effective file/root title. On ~headings~, this evaluates both real headings by containing file title and file/root objects themselves; it is different from ~title~, which can match real headings and, by default, the root object itself.
   Example: ~'(file-title "Projects" :exact t)'~.
-- ~file-modified~ :: Syntax: ~(file-modified :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~file-modified~ :: Syntax: ~(file-modified :from DATE :to DATE :on DATE)~.
   Targets: ~headings~, ~files~.
   Matches persisted file modification timestamps. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. Relative dates such as ~today~ or integer day offsets are resolved before SQL execution.
   Example: ~'(file-modified :from -7 :to today)'~.
@@ -361,31 +356,31 @@ Options are validated per predicate. A supported option on one predicate does no
   Targets: ~headings~.
   Matches contiguous outline path segments in order. With ~:exact t~, each supplied segment must exactly match the corresponding path component. The synthetic file/root title is not part of this match path. With ~:regexp t~, each pattern is matched against the corresponding outline component.
   Example: ~'(outline-sequence "Projects" "Org database" :exact t)'~.
-- ~ts~ :: Syntax: ~(ts :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~ts~ :: Syntax: ~(ts :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Matches any stored timestamp row associated with the heading.
   Example: ~'(ts :on today)'~.
-- ~ts-active~ :: Syntax: ~(ts-active :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~ts-active~ :: Syntax: ~(ts-active :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Like ~ts~, but only active timestamps.
   Example: ~'(ts-active :from "2026-01-01" :to "2026-12-31")'~.
-- ~ts-inactive~ :: Syntax: ~(ts-inactive :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~ts-inactive~ :: Syntax: ~(ts-inactive :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Like ~ts~, but only inactive timestamps.
   Example: ~'(ts-inactive :from -30 :to today)'~.
-- ~deadline~ :: Syntax: ~(deadline :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~deadline~ :: Syntax: ~(deadline :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Matches persisted heading deadline metadata.
   Example: ~'(deadline :to 7)'~.
-- ~scheduled~ :: Syntax: ~(scheduled :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~scheduled~ :: Syntax: ~(scheduled :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Matches persisted heading scheduled metadata.
   Example: ~'(scheduled :on today)'~.
-- ~closed~ :: Syntax: ~(closed :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~closed~ :: Syntax: ~(closed :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Matches persisted heading closed metadata.
   Example: ~'(closed :from -7)'~.
-- ~planning~ :: Syntax: ~(planning :from DATE :to DATE :on DATE :with-time t|nil)~.
+- ~planning~ :: Syntax: ~(planning :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.
   Matches any of ~scheduled~, ~deadline~, or ~closed~.
   Example: ~'(planning :from today :to 7)'~.
@@ -540,21 +535,13 @@ Resolution and boundary rules:
 - Datetime ~:to~ uses the query model's inclusive upper-bound form.
 - Datetime ~:on~ matches the stored timestamp at that stated datetime.
 
-~:with-time~ behavior:
-
-- ~:with-time t~ matches rows whose persisted explicit-time flag is ~1~.
-- ~:with-time nil~ matches rows whose persisted explicit-time flag is ~0~.
-- Omitting ~:with-time~ applies no explicit-time filter.
-- For planning predicates, explicit-time filtering uses the persisted ~scheduled_has_time~, ~deadline_has_time~, or ~closed_has_time~ columns.
-- For generic timestamp predicates, explicit-time filtering uses persisted timestamp-row metadata.
-
 Examples:
 
 #+begin_src shell
 orgfdb query --json '(scheduled :on today)'
 orgfdb query --json '(deadline :to 7)'
 orgfdb query --json '(ts-active :from "2026-01-01" :to "2026-12-31")'
-orgfdb query --json '(scheduled :from "2026-01-03" :to "2026-01-03" :with-time t)'
+orgfdb query --json '(scheduled :from "2026-01-03 14:00" :to "2026-01-03 15:00")'
 orgfdb query --json '(planning :from -30 :to today)'
 #+end_src
 
@@ -789,7 +776,7 @@ orgfdb query --json '(outline-sequence "Projects" "Org database" :exact t)'
 orgfdb query --json '(ts :on today)'
 orgfdb query --json '(ts-active :from "2026-01-01" :to "2026-12-31")'
 orgfdb query --json '(deadline :to 7)'
-orgfdb query --json '(scheduled :from "2026-01-03" :to "2026-01-03" :with-time t)'
+orgfdb query --json '(scheduled :from "2026-01-03 14:00" :to "2026-01-03 15:00")'
 orgfdb query --json '(closed :from -7)'
 orgfdb query --json '(planning :from today :to 7)'
 orgfdb query --json '(parent (headings (tags "project")))'

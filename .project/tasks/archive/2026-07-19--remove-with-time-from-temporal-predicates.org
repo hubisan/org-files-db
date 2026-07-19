@@ -1,0 +1,154 @@
+#+TITLE: Remove with-time from temporal predicates
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-19 Sun 23:40]
+#+TASK_COMPLETED: [2026-07-19 Sun 23:48]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Remove ~:with-time~ from temporal predicates
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-19--remove-with-time-from-temporal-predicates.org]]
+
+Goal:
+
+- Remove the ~:with-time~ option from Query Model v0.
+- Keep temporal searches focused on actual date and datetime boundaries.
+- Avoid exposing a low-value filter that only distinguishes date-only timestamps from timestamps containing an explicit time.
+
+Rationale:
+
+- Concrete times can already be queried through ~:on~, ~:from~, and ~:to~.
+
+For example:
+
+#+begin_src lisp
+(scheduled :on "2026-07-20 14:30")
+#+end_src
+
+or:
+
+#+begin_src lisp
+(scheduled
+  :from "2026-07-20 14:00"
+  :to "2026-07-20 15:00")
+#+end_src
+
+- ~:with-time~ does not enable datetime searching.
+- It only filters according to whether the source timestamp contained an explicit time component.
+- This distinction has no sufficiently useful Query Model v0 use case.
+- Renaming the option to ~:has-time~ would make its meaning clearer but would not make the feature more useful.
+- Removing the option keeps the temporal predicate API smaller and less confusing.
+
+Affected predicates:
+
+- ~file-modified~
+- ~ts~
+- ~ts-active~
+- ~ts-inactive~
+- ~deadline~
+- ~scheduled~
+- ~closed~
+- ~planning~
+
+Required changes:
+
+- Remove ~:with-time~ from the allowed options of all affected predicates.
+- Remove validation and parsing logic specific to ~:with-time~.
+- Remove SQLite compiler branches that filter on explicit-time metadata.
+- Reject queries containing ~:with-time~ with a clear unsupported-option validation error.
+- Do not introduce a replacement option such as ~:has-time~.
+- Keep searches with date-only and datetime values through ~:on~, ~:from~, and ~:to~ unchanged.
+- Keep explicit midnight valid as a normal datetime boundary.
+
+Persistence:
+
+- Do not require a database migration as part of this task.
+- Existing persisted explicit-time metadata may remain in the schema and index data if removing it would require a migration or unrelated parser changes.
+- Stop treating that metadata as part of the public query contract.
+- A later schema-cleanup task may remove unused explicit-time fields once compatibility and migration concerns have been evaluated.
+
+Tests:
+
+- Remove tests whose only purpose is validating ~:with-time t~ or ~:with-time nil~.
+- Add validation tests proving that ~:with-time~ is rejected on every formerly supported predicate.
+- Preserve tests for:
+  - date-only ~:on~
+  - datetime ~:on~
+  - datetime ~:from~
+  - datetime ~:to~
+  - datetime ranges
+  - explicit midnight
+  - timezone handling for ~file-modified~
+  - timezone-naive handling for Org timestamps
+- Verify that timestamps with and without an explicit source time can both match the same date-only query.
+
+Documentation:
+
+- Remove ~:with-time~ from ~docs/cli.org~.
+- Remove ~:with-time~ from ~docs/reference/query-model-v0.org~.
+- Remove all examples and option tables mentioning it.
+- Clarify that concrete datetime matching uses ~:on~, ~:from~, and ~:to~ directly.
+- Add examples such as:
+
+#+begin_src lisp
+(scheduled :on "2026-07-20 14:30")
+#+end_src
+
+#+begin_src lisp
+(scheduled
+  :from "2026-07-20 14:00"
+  :to "2026-07-20 15:00")
+#+end_src
+
+Acceptance criteria:
+
+- ~:with-time~ is no longer part of Query Model v0.
+- No ~:has-time~ replacement is introduced.
+- All affected predicates reject ~:with-time~.
+- Date-only and datetime searches continue to work through temporal boundaries.
+- The timezone-boundary implementation does not depend on ~:with-time~.
+- No database migration is required.
+- Documentation and tests contain no remaining supported examples of ~:with-time~.
+
+* Results
+
+** Approach
+- Removed ~:with-time~ from temporal option validation, SQLite compilation, and the
+  obsolete backend-capability inspection path.
+- Kept persisted explicit-time metadata untouched; date-only and datetime boundaries
+  continue to use the existing temporal resolver and comparison logic.
+
+** Changed files
+- ~src/query/validate.rs~
+- ~src/query/sqlite.rs~
+- ~src/cli.rs~
+- ~tests/query_validate_errors.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+
+** Checks performed
+- ~cargo fmt --all~
+- Focused validation and temporal SQLite execution tests.
+- ~make ci~.
+
+** Test results
+- ~make ci~ passed: formatting check, Clippy with warnings denied, 344 unit tests,
+  105 integration tests, and the all-target build.
+- Added coverage that every formerly supported temporal predicate rejects
+  ~:with-time~ as an unknown option.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

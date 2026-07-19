@@ -252,6 +252,10 @@ General rules:
 
 - Task file: [[file:archive/2026-07-19--apply-query-timezone-to-temporal-query-boundaries.org]]
 
+** DONE [#B] Remove ~:with-time~ from temporal predicates
+
+- Task file: [[file:archive/2026-07-19--remove-with-time-from-temporal-predicates.org]]
+
 ** TODO Manual Test the Implementation
 
 *** Query

@@ -550,12 +550,7 @@ fn validate_keyword_only_date_predicate(
     allow_zero_options: bool,
 ) -> Result<ValidatedPredicate, QueryValidationError> {
     ensure_date_predicate_target(target, &call.name)?;
-    let options = validate_options(
-        target,
-        &call.name,
-        &call.options,
-        &["from", "to", "on", "with-time"],
-    )?;
+    let options = validate_options(target, &call.name, &call.options, &["from", "to", "on"])?;
     ensure_arg_count(target, &call.name, &call.args, 0, 0)?;
     validate_date_options(target, &call.name, &options)?;
 
@@ -1084,17 +1079,6 @@ fn validate_date_options(
             "from" | "to" | "on" => {
                 validate_date_value(target, predicate, &option.name, &option.value)?
             }
-            "with-time" => match option.value {
-                QueryValue::Bool(_) => {}
-                _ => {
-                    return Err(QueryValidationError::new(
-                        QueryValidationErrorKind::InvalidValue,
-                        target,
-                        predicate,
-                        format!(":{} for {} must be t or nil", option.name, predicate),
-                    ))
-                }
-            },
             _ => {}
         }
     }

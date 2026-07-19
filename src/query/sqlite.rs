@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::env;
 use std::fmt;
 
@@ -309,14 +308,6 @@ impl AliasAllocator {
     }
 }
 
-#[derive(Debug, Clone)]
-struct WithTimeRequirement {
-    target: QueryTarget,
-    predicate: String,
-    table: &'static str,
-    columns: &'static [&'static str],
-}
-
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
@@ -517,8 +508,6 @@ pub fn execute_sqlite_query_with_options(
     })?;
 
     ensure_body_text_backend_capabilities(connection, &resolved)?;
-    ensure_with_time_backend_capabilities(connection, &resolved)?;
-
     match resolved.target {
         QueryTarget::Headings => execute_headings_query(connection, &resolved),
         QueryTarget::Links => {
@@ -677,80 +666,6 @@ fn execute_file_rows_query(
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
 }
 
-fn ensure_with_time_backend_capabilities(
-    connection: &Connection,
-    query: &ValidatedQuery,
-) -> Result<(), QueryExecutionError> {
-    let requirements = collect_with_time_requirements(query);
-    if requirements.is_empty() {
-        return Ok(());
-    }
-
-    let mut headings_columns = None;
-    let mut timestamps_columns = None;
-
-    for requirement in requirements {
-        let available_columns = match requirement.table {
-            "headings" => {
-                if headings_columns.is_none() {
-                    headings_columns = Some(load_table_columns(connection, "headings").map_err(
-                        |source| {
-                            QueryExecutionError::database(
-                                requirement.target,
-                                "inspect schema",
-                                source,
-                            )
-                        },
-                    )?);
-                }
-                headings_columns
-                    .as_ref()
-                    .expect("headings columns should be loaded")
-            }
-            "timestamps" => {
-                if timestamps_columns.is_none() {
-                    timestamps_columns = Some(
-                        load_table_columns(connection, "timestamps").map_err(|source| {
-                            QueryExecutionError::database(
-                                requirement.target,
-                                "inspect schema",
-                                source,
-                            )
-                        })?,
-                    );
-                }
-                timestamps_columns
-                    .as_ref()
-                    .expect("timestamps columns should be loaded")
-            }
-            _ => unreachable!("unexpected with-time requirement table"),
-        };
-
-        let missing = requirement
-            .columns
-            .iter()
-            .copied()
-            .filter(|column| !available_columns.contains(*column))
-            .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            let missing_columns = missing
-                .iter()
-                .map(|column| format!("{}.{}", requirement.table, column))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(QueryExecutionError::unsupported_backend_feature(
-                requirement.target,
-                requirement.predicate,
-                format!(
-                    ":with-time requires backend column(s) {missing_columns}, but the SQLite metadata backend schema does not provide them"
-                ),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
 fn ensure_body_text_backend_capabilities(
     connection: &Connection,
     query: &ValidatedQuery,
@@ -791,97 +706,6 @@ fn expr_requires_body_text(expr: &ValidatedExpr) -> bool {
                     .any(|arg| matches!(arg, ValidatedArg::NestedQuery(query) if query_requires_body_text(query)))
         }
     }
-}
-
-fn collect_with_time_requirements(query: &ValidatedQuery) -> Vec<WithTimeRequirement> {
-    let mut requirements = Vec::new();
-    if let Some(predicate) = &query.predicate {
-        collect_with_time_requirements_from_expr(predicate, query.target, &mut requirements);
-    }
-    requirements
-}
-
-fn collect_with_time_requirements_from_expr(
-    expr: &ValidatedExpr,
-    target: QueryTarget,
-    requirements: &mut Vec<WithTimeRequirement>,
-) {
-    match expr {
-        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
-            for child in children {
-                collect_with_time_requirements_from_expr(child, target, requirements);
-            }
-        }
-        ValidatedExpr::Not(child) => {
-            collect_with_time_requirements_from_expr(child, target, requirements);
-        }
-        ValidatedExpr::Predicate(predicate) => {
-            collect_with_time_requirements_from_predicate(predicate, target, requirements);
-        }
-    }
-}
-
-fn collect_with_time_requirements_from_predicate(
-    predicate: &ValidatedPredicate,
-    target: QueryTarget,
-    requirements: &mut Vec<WithTimeRequirement>,
-) {
-    if option_present(&predicate.options, "with-time") {
-        let requirement = match predicate.name.as_str() {
-            "scheduled" => Some(WithTimeRequirement {
-                target,
-                predicate: predicate.name.clone(),
-                table: "headings",
-                columns: &["scheduled_has_time"],
-            }),
-            "deadline" => Some(WithTimeRequirement {
-                target,
-                predicate: predicate.name.clone(),
-                table: "headings",
-                columns: &["deadline_has_time"],
-            }),
-            "closed" => Some(WithTimeRequirement {
-                target,
-                predicate: predicate.name.clone(),
-                table: "headings",
-                columns: &["closed_has_time"],
-            }),
-            "planning" => Some(WithTimeRequirement {
-                target,
-                predicate: predicate.name.clone(),
-                table: "headings",
-                columns: &["scheduled_has_time", "deadline_has_time", "closed_has_time"],
-            }),
-            "ts" | "ts-active" | "ts-inactive" => Some(WithTimeRequirement {
-                target,
-                predicate: predicate.name.clone(),
-                table: "timestamps",
-                columns: &["has_time"],
-            }),
-            _ => None,
-        };
-        if let Some(requirement) = requirement {
-            requirements.push(requirement);
-        }
-    }
-
-    for arg in &predicate.args {
-        if let ValidatedArg::NestedQuery(query) = arg {
-            if let Some(predicate) = &query.predicate {
-                collect_with_time_requirements_from_expr(predicate, query.target, requirements);
-            }
-        }
-    }
-}
-
-fn load_table_columns(
-    connection: &Connection,
-    table: &str,
-) -> Result<HashSet<String>, rusqlite::Error> {
-    let pragma = format!("PRAGMA table_info({table})");
-    let mut statement = connection.prepare(&pragma)?;
-    let rows = statement.query_map([], |row| row.get::<_, String>(1))?;
-    rows.collect::<Result<HashSet<_>, _>>()
 }
 
 fn sqlite_body_text_available(connection: &Connection) -> Result<bool, QueryExecutionError> {
@@ -1078,7 +902,6 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "file-modified",
             &scope.file_col("mtime_ns"),
-            None,
             &predicate.options,
             true,
         ),
@@ -1089,7 +912,6 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "scheduled",
             &scope.heading_col("scheduled_ts"),
-            Some(&scope.heading_col("scheduled_has_time")),
             &predicate.options,
             true,
         ),
@@ -1097,7 +919,6 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "deadline",
             &scope.heading_col("deadline_ts"),
-            Some(&scope.heading_col("deadline_has_time")),
             &predicate.options,
             true,
         ),
@@ -1105,7 +926,6 @@ fn compile_heading_predicate(
             QueryTarget::Headings,
             "closed",
             &scope.heading_col("closed_ts"),
-            Some(&scope.heading_col("closed_has_time")),
             &predicate.options,
             true,
         ),
@@ -1441,7 +1261,6 @@ fn compile_file_predicate(
             QueryTarget::Files,
             "file-modified",
             &scope.file_col("mtime_ns"),
-            None,
             &predicate.options,
             true,
         ),
@@ -2220,14 +2039,12 @@ fn compile_date_predicate(
     target: QueryTarget,
     predicate_name: &str,
     column: &str,
-    with_time_column: Option<&str>,
     options: &[ValidatedOption],
     require_not_null_when_unbounded: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let on = option_value(options, "on");
     let from = option_value(options, "from");
     let to = option_value(options, "to");
-    let with_time = option_value(options, "with-time");
 
     let mut parts = Vec::new();
     let mut params = Vec::new();
@@ -2257,17 +2074,6 @@ fn compile_date_predicate(
         }
     }
 
-    if let Some(with_time) = with_time {
-        let with_time_column = with_time_column
-            .expect("validator should constrain :with-time to timestamp predicates");
-        let explicit_time_value = match with_time {
-            QueryValue::Bool(true) => "1",
-            QueryValue::Bool(false) => "0",
-            _ => unreachable!("validator should constrain boolean options"),
-        };
-        parts.push(format!("{with_time_column} = {explicit_time_value}"));
-    }
-
     if parts.is_empty() && require_not_null_when_unbounded {
         parts.push(format!("{column} IS NOT NULL"));
     }
@@ -2286,7 +2092,6 @@ fn compile_planning_predicate(
         QueryTarget::Headings,
         "scheduled",
         &scope.heading_col("scheduled_ts"),
-        Some(&scope.heading_col("scheduled_has_time")),
         &predicate.options,
         true,
     )?;
@@ -2294,7 +2099,6 @@ fn compile_planning_predicate(
         QueryTarget::Headings,
         "deadline",
         &scope.heading_col("deadline_ts"),
-        Some(&scope.heading_col("deadline_has_time")),
         &predicate.options,
         true,
     )?;
@@ -2302,7 +2106,6 @@ fn compile_planning_predicate(
         QueryTarget::Headings,
         "closed",
         &scope.heading_col("closed_ts"),
-        Some(&scope.heading_col("closed_has_time")),
         &predicate.options,
         true,
     )?;
@@ -2325,7 +2128,6 @@ fn compile_timestamp_exists_predicate(
         QueryTarget::Headings,
         predicate.name.as_str(),
         "timestamps.start_ts",
-        Some("timestamps.has_time"),
         &predicate.options,
         true,
     )?;
@@ -2738,10 +2540,6 @@ fn exclusive_end_bound(
         sql: "?".to_string(),
         params: vec![QueryParam::Integer(bounds.exclusive_end)],
     })
-}
-
-fn option_present(options: &[ValidatedOption], name: &str) -> bool {
-    options.iter().any(|option| option.name == name)
 }
 
 fn option_value<'a>(options: &'a [ValidatedOption], name: &str) -> Option<&'a QueryValue> {
@@ -5099,58 +4897,18 @@ mod tests {
     }
 
     #[test]
-    fn compile_with_time_uses_persisted_columns_and_bound_date_params() {
-        let scheduled = compile_sqlite_query(&temporal_resolved(
-            r#"(headings (scheduled :from "2026-01-03" :to "2026-01-03" :with-time t))"#,
-        ))
-        .expect("scheduled query should compile");
-        assert!(scheduled.sql.contains("h0.scheduled_has_time = 1"));
-        assert_eq!(
-            scheduled.params,
-            vec![
-                super::QueryParam::Integer(1_767_398_400),
-                super::QueryParam::Integer(1_767_484_800),
-            ]
-        );
-
-        let ts_active = compile_sqlite_query(&temporal_resolved(
-            r#"(headings (ts-active :on "2026-01-03" :with-time nil))"#,
-        ))
-        .expect("ts-active query should compile");
-        assert!(ts_active.sql.contains("timestamps.has_time = 0"));
-        assert_eq!(
-            ts_active.params,
-            vec![
-                super::QueryParam::Integer(1_767_398_400),
-                super::QueryParam::Integer(1_767_484_800),
-                super::QueryParam::Text("active".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn execution_supports_with_time_for_planning_predicates() {
-        let connection = with_time_test_connection();
+    fn execution_temporal_predicates_match_date_only_and_timed_rows() {
+        let connection = temporal_test_connection();
 
         assert_eq!(
             heading_ids(
                 execute_sqlite_query(
                     &connection,
-                    &validated(r#"(headings (scheduled :with-time nil))"#),
+                    &validated(r#"(headings (scheduled :on "2026-01-03"))"#),
                 )
-                .expect("scheduled nil query should execute")
+                .expect("scheduled date query should execute")
             ),
-            vec![201]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (scheduled :with-time t))"#),
-                )
-                .expect("scheduled timed query should execute")
-            ),
-            vec![202, 203]
+            vec![201, 202, 203, 204]
         );
         assert_eq!(
             heading_ids(
@@ -5162,52 +4920,12 @@ mod tests {
 
         assert_eq!(
             heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (deadline :with-time nil))"#),
-                )
-                .expect("deadline nil query should execute")
-            ),
-            vec![205]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (deadline :with-time t))"#),
-                )
-                .expect("deadline timed query should execute")
-            ),
-            vec![206, 207]
-        );
-        assert_eq!(
-            heading_ids(
                 execute_sqlite_query(&connection, &validated(r#"(headings (deadline))"#),)
                     .expect("deadline query should execute")
             ),
             vec![205, 206, 207, 208]
         );
 
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (closed :with-time nil))"#),
-                )
-                .expect("closed nil query should execute")
-            ),
-            vec![209]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (closed :with-time t))"#),
-                )
-                .expect("closed timed query should execute")
-            ),
-            vec![210, 211]
-        );
         assert_eq!(
             heading_ids(
                 execute_sqlite_query(&connection, &validated(r#"(headings (closed))"#),)
@@ -5218,26 +4936,6 @@ mod tests {
 
         assert_eq!(
             heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (planning :with-time nil))"#),
-                )
-                .expect("planning nil query should execute")
-            ),
-            vec![201, 205, 209]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (planning :with-time t))"#),
-                )
-                .expect("planning timed query should execute")
-            ),
-            vec![202, 203, 206, 207, 210, 211]
-        );
-        assert_eq!(
-            heading_ids(
                 execute_sqlite_query(&connection, &validated(r#"(headings (planning))"#),)
                     .expect("planning query should execute")
             ),
@@ -5246,8 +4944,8 @@ mod tests {
     }
 
     #[test]
-    fn execution_supports_with_time_for_generic_timestamp_predicates() {
-        let connection = with_time_test_connection();
+    fn execution_generic_timestamp_predicates_match_date_only_and_timed_rows() {
+        let connection = temporal_test_connection();
 
         assert_eq!(
             heading_ids(
@@ -5258,21 +4956,6 @@ mod tests {
         );
         assert_eq!(
             heading_ids(
-                execute_sqlite_query(&connection, &validated(r#"(headings (ts :with-time nil))"#),)
-                    .expect("ts nil query should execute")
-            ),
-            vec![213, 217]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(&connection, &validated(r#"(headings (ts :with-time t))"#),)
-                    .expect("ts timed query should execute")
-            ),
-            vec![214, 215, 218, 219]
-        );
-
-        assert_eq!(
-            heading_ids(
                 execute_sqlite_query(&connection, &validated(r#"(headings (ts-active))"#),)
                     .expect("ts-active query should execute")
             ),
@@ -5280,110 +4963,11 @@ mod tests {
         );
         assert_eq!(
             heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (ts-active :with-time nil))"#),
-                )
-                .expect("ts-active nil query should execute")
-            ),
-            vec![213]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (ts-active :with-time t))"#),
-                )
-                .expect("ts-active timed query should execute")
-            ),
-            vec![214, 215]
-        );
-
-        assert_eq!(
-            heading_ids(
                 execute_sqlite_query(&connection, &validated(r#"(headings (ts-inactive))"#),)
                     .expect("ts-inactive query should execute")
             ),
             vec![217, 218, 219, 220]
         );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (ts-inactive :with-time nil))"#),
-                )
-                .expect("ts-inactive nil query should execute")
-            ),
-            vec![217]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (ts-inactive :with-time t))"#),
-                )
-                .expect("ts-inactive timed query should execute")
-            ),
-            vec![218, 219]
-        );
-    }
-
-    #[test]
-    fn execution_composes_with_time_with_date_bounds() {
-        let connection = with_time_test_connection();
-
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (scheduled :with-time t :on "2026-01-03"))"#),
-                )
-                .expect("scheduled composition query should execute")
-            ),
-            vec![202, 203]
-        );
-        assert_eq!(
-            heading_ids(
-                execute_sqlite_query(
-                    &connection,
-                    &validated(r#"(headings (ts-active :with-time t :to "2026-01-03 09:15"))"#),
-                )
-                .expect("ts-active composition query should execute")
-            ),
-            vec![214, 215]
-        );
-    }
-
-    #[test]
-    fn execution_returns_clear_error_when_planning_with_time_columns_are_missing() {
-        let connection = reduced_planning_with_time_schema_connection();
-        let error = execute_sqlite_query(
-            &connection,
-            &validated(r#"(headings (planning :with-time t))"#),
-        )
-        .expect_err("planning with-time query should fail on reduced schema");
-
-        assert_eq!(
-            error.kind,
-            QueryExecutionErrorKind::UnsupportedBackendFeature
-        );
-        assert!(error.to_string().contains("headings.scheduled_has_time"));
-        assert!(!error.to_string().contains("no such column"));
-    }
-
-    #[test]
-    fn execution_returns_clear_error_when_generic_with_time_column_is_missing() {
-        let connection = reduced_generic_with_time_schema_connection();
-        let error =
-            execute_sqlite_query(&connection, &validated(r#"(headings (ts :with-time t))"#))
-                .expect_err("generic with-time query should fail on reduced schema");
-
-        assert_eq!(
-            error.kind,
-            QueryExecutionErrorKind::UnsupportedBackendFeature
-        );
-        assert!(error.to_string().contains("timestamps.has_time"));
-        assert!(!error.to_string().contains("no such column"));
     }
 
     #[test]
@@ -6035,11 +5619,11 @@ mod tests {
         connection
     }
 
-    fn with_time_test_connection() -> Connection {
+    fn temporal_test_connection() -> Connection {
         let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::default())
             .expect("database should open");
         let file = FileRecordInput {
-            path: Path::new("/tmp/with-time.org").to_path_buf(),
+            path: Path::new("/tmp/temporal-predicates.org").to_path_buf(),
             mtime_ns: naive_date_time_seconds(2026, 1, 3, 0, 0) * 1_000_000_000,
             size: 100,
             content_hash: None,
@@ -6308,66 +5892,8 @@ mod tests {
 
             Ok(())
         })
-        .expect("with-time fixture should seed");
+        .expect("temporal predicate fixture should seed");
 
-        connection
-    }
-
-    fn reduced_planning_with_time_schema_connection() -> Connection {
-        let connection = Connection::open_in_memory().expect("reduced schema should open");
-        connection
-            .execute_batch(
-                r#"
-CREATE TABLE files (
-    id              INTEGER PRIMARY KEY,
-    path            TEXT NOT NULL,
-    mtime_ns        INTEGER NOT NULL,
-    size            INTEGER NOT NULL,
-    content_hash    TEXT,
-    indexed_at      INTEGER
-);
-
-CREATE TABLE headings (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    level               INTEGER NOT NULL,
-    line_number         INTEGER,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL,
-    title               TEXT NOT NULL,
-    title_raw           TEXT,
-    todo_keyword        TEXT,
-    todo_type           TEXT,
-    priority            TEXT,
-    scheduled_raw       TEXT,
-    scheduled_ts        INTEGER,
-    deadline_raw        TEXT,
-    deadline_ts         INTEGER,
-    closed_raw          TEXT,
-    closed_ts           INTEGER,
-    archivedp           INTEGER NOT NULL DEFAULT 0,
-    footnote_section_p  INTEGER NOT NULL DEFAULT 0,
-    all_tags_json       TEXT NOT NULL DEFAULT '[]'
-);
-
-CREATE TABLE timestamps (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    role            TEXT,
-    has_time        INTEGER,
-    start_ts        INTEGER,
-    end_ts          INTEGER,
-    type            TEXT,
-    range_type      TEXT,
-    raw_value       TEXT NOT NULL,
-    byte_start      INTEGER NOT NULL,
-    byte_end        INTEGER NOT NULL,
-    line_number     INTEGER
-);
-"#,
-            )
-            .expect("reduced planning schema should initialize");
         connection
     }
 
@@ -6399,66 +5925,6 @@ CREATE TABLE db_metadata (
                 .expect("body-text metadata should insert");
         }
 
-        connection
-    }
-
-    fn reduced_generic_with_time_schema_connection() -> Connection {
-        let connection = Connection::open_in_memory().expect("reduced schema should open");
-        connection
-            .execute_batch(
-                r#"
-CREATE TABLE files (
-    id              INTEGER PRIMARY KEY,
-    path            TEXT NOT NULL,
-    mtime_ns        INTEGER NOT NULL,
-    size            INTEGER NOT NULL,
-    content_hash    TEXT,
-    indexed_at      INTEGER
-);
-
-CREATE TABLE headings (
-    id                  INTEGER PRIMARY KEY,
-    file_id             INTEGER NOT NULL,
-    parent_id           INTEGER,
-    level               INTEGER NOT NULL,
-    line_number         INTEGER,
-    byte_start          INTEGER NOT NULL,
-    byte_end            INTEGER NOT NULL,
-    title               TEXT NOT NULL,
-    title_raw           TEXT,
-    todo_keyword        TEXT,
-    todo_type           TEXT,
-    priority            TEXT,
-    scheduled_raw       TEXT,
-    scheduled_ts        INTEGER,
-    scheduled_has_time  INTEGER,
-    deadline_raw        TEXT,
-    deadline_ts         INTEGER,
-    deadline_has_time   INTEGER,
-    closed_raw          TEXT,
-    closed_ts           INTEGER,
-    closed_has_time     INTEGER,
-    archivedp           INTEGER NOT NULL DEFAULT 0,
-    footnote_section_p  INTEGER NOT NULL DEFAULT 0,
-    all_tags_json       TEXT NOT NULL DEFAULT '[]'
-);
-
-CREATE TABLE timestamps (
-    id              INTEGER PRIMARY KEY,
-    heading_id      INTEGER NOT NULL,
-    role            TEXT,
-    start_ts        INTEGER,
-    end_ts          INTEGER,
-    type            TEXT,
-    range_type      TEXT,
-    raw_value       TEXT NOT NULL,
-    byte_start      INTEGER NOT NULL,
-    byte_end        INTEGER NOT NULL,
-    line_number     INTEGER
-);
-"#,
-            )
-            .expect("reduced generic schema should initialize");
         connection
     }
 
@@ -6583,7 +6049,7 @@ CREATE TABLE timestamps (
             218 => "Inactive Timed",
             219 => "Inactive Midnight",
             220 => "Inactive Unknown",
-            _ => unreachable!("unexpected with-time fixture heading"),
+            _ => unreachable!("unexpected temporal predicate fixture heading"),
         }
     }
 

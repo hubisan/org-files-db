@@ -119,6 +119,28 @@ fn rejects_unknown_options() {
 }
 
 #[test]
+fn rejects_removed_with_time_option_for_temporal_predicates() {
+    for predicate in [
+        "file-modified",
+        "ts",
+        "ts-active",
+        "ts-inactive",
+        "deadline",
+        "scheduled",
+        "closed",
+        "planning",
+    ] {
+        let query =
+            org_files_db::query::parse_query(&format!(r#"(headings ({predicate} :with-time t))"#))
+                .expect("query should parse");
+        let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
+        assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
+        assert!(error.message.contains(":with-time"));
+        assert!(error.message.contains("unknown option"));
+    }
+}
+
+#[test]
 fn rejects_invalid_option_combinations() {
     let query =
         org_files_db::query::parse_query(r#"(headings (title "Query" :regexp t :exact t))"#)

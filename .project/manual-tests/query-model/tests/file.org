@@ -865,7 +865,7 @@
 ** with-time
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :from "2026-07-18 00:33" :to "2026-07-18 00:35")))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :from "2026-07-18 00:33" :to "2026-07-18 01:35")))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,

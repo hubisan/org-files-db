@@ -3541,14 +3541,7 @@ index_body_text = false
         }
 
         for option in [
-            ":exact",
-            ":regexp",
-            ":match",
-            ":inherit",
-            ":from",
-            ":to",
-            ":on",
-            ":with-time",
+            ":exact", ":regexp", ":match", ":inherit", ":from", ":to", ":on",
         ] {
             assert!(
                 CLI_DOCS.contains(&format!("~{option}~")),
