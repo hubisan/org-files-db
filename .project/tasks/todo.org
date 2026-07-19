@@ -236,6 +236,434 @@ General rules:
 
 - Task file: [[file:archive/2026-07-19--implement-semantic-priority-comparison-with-query-time-normalisation.org]]
 
+** BUILD [#B] Add ~:inherit~ control to heading ~keyword~ queries
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Add ~:inherit t|nil~ to the ~keyword~ predicate for heading queries.
+- Keep inherited keyword matching enabled by default.
+- Allow callers to restrict matching to keywords local to the candidate heading.
+
+Current behaviour:
+
+- Document keywords are indexed exclusively on the synthetic level-0 heading of a file.
+- Heading ~keyword~ predicates always query the synthetic file root:
+
+#+begin_src rust
+"keyword" => {
+    compile_keyword_predicate(
+        QueryTarget::Headings,
+        predicate,
+        &scope.root_col("id"),
+    )
+}
+#+end_src
+
+- Consequently, every heading in a matching file currently matches the document keyword.
+- The query validator permits only ~:regexp~ for ~keyword~ and rejects ~:inherit~.
+- There is currently no way to disable inherited keyword matching.
+
+Required semantics:
+
+- Heading ~keyword~ queries accept ~:inherit t|nil~.
+- Omitted ~:inherit~ is equivalent to ~:inherit t~.
+- With ~:inherit t~, match keywords stored on the synthetic file root.
+- With ~:inherit nil~, match only keywords stored directly on the candidate heading.
+- File queries continue to operate directly on the synthetic file root and do not accept an ~:inherit~ option.
+
+The resulting behaviour is:
+
+#+begin_src text
+Heading target, :inherit t or omitted:
+- synthetic file heading: match file keywords
+- ordinary heading: match file keywords
+- nested heading: match file keywords
+
+Heading target, :inherit nil:
+- synthetic file heading: match its local file keywords
+- ordinary heading: no match unless local heading keywords are introduced in the future
+- nested heading: no match unless local heading keywords are introduced in the future
+
+File target:
+- match file keywords
+- :inherit is not accepted
+#+end_src
+
+Rationale:
+
+- Keywords are currently document-level facts and are stored only on the synthetic level-0 heading.
+- Treating them as inherited for ordinary headings is useful and remains the default.
+- ~:inherit nil~ must nevertheless provide a consistent local-only mode, as already supported by heading ~tags~ and ~property~ predicates.
+- Local-only matching must refer to the candidate heading rather than the containing file root.
+- No parser, index, or schema change is required.
+
+Implementation tasks:
+
+- Update ~validate_keyword~ so that allowed options depend on the query target:
+  - headings: ~inherit~, ~regexp~
+  - files: ~regexp~
+- Validate ~:inherit~ as an optional boolean for heading queries.
+- Keep the default value of ~:inherit~ equal to ~t~.
+- Add a heading-specific keyword compiler or select the keyword owner ID before calling ~compile_keyword_predicate~.
+- For heading queries:
+  - use ~scope.root_col("id")~ when ~:inherit~ is omitted or ~t~
+  - use ~scope.heading_col("id")~ when ~:inherit nil~
+- Keep file keyword compilation unchanged.
+- Apply the same inheritance selection to:
+  - key-only queries
+  - key-and-value queries
+  - exact value matching
+  - regular-expression value matching
+- Do not copy document keywords onto every heading.
+- Do not change keyword persistence or the database schema.
+
+Expected examples:
+
+Given:
+
+#+begin_src org
+#+TITLE: keyword-fixture-kwd7
+#+AUTHOR: Author-kwd7-unique
+
+,* keyword: First Heading kwd7-a
+
+,* keyword: Second Heading kwd7-b
+
+,** keyword: Nested Heading kwd7-c
+#+end_src
+
+The default query:
+
+#+begin_src lisp
+(headings
+  (keyword "AUTHOR" "Author-kwd7-unique"))
+#+end_src
+
+is equivalent to:
+
+#+begin_src lisp
+(headings
+  (keyword "AUTHOR" "Author-kwd7-unique" :inherit t))
+#+end_src
+
+Both match:
+
+#+begin_src text
+keyword-fixture-kwd7
+keyword: First Heading kwd7-a
+keyword: Second Heading kwd7-b
+keyword: Nested Heading kwd7-c
+#+end_src
+
+The local-only query:
+
+#+begin_src lisp
+(headings
+  (keyword "AUTHOR" "Author-kwd7-unique" :inherit nil))
+#+end_src
+
+matches only:
+
+#+begin_src text
+keyword-fixture-kwd7
+#+end_src
+
+The file query remains:
+
+#+begin_src lisp
+(files
+  (keyword "AUTHOR" "Author-kwd7-unique"))
+#+end_src
+
+and matches the containing file.
+
+The following remains invalid:
+
+#+begin_src lisp
+(files
+  (keyword "AUTHOR" "Author-kwd7-unique" :inherit nil))
+#+end_src
+
+Tests:
+
+- Add validator tests proving that heading ~keyword~ accepts:
+  - omitted ~:inherit~
+  - ~:inherit t~
+  - ~:inherit nil~
+  - combinations with ~:regexp t~
+- Add validator tests proving that file ~keyword~ rejects ~:inherit~.
+- Add SQLite execution tests for a file keyword and multiple heading levels.
+- Verify that omitted ~:inherit~ and explicit ~:inherit t~ return identical results.
+- Verify that ~:inherit nil~ returns only the synthetic level-0 heading.
+- Verify key-only matching:
+
+#+begin_src lisp
+(keyword "AUTHOR" :inherit nil)
+#+end_src
+
+- Verify exact key-and-value matching:
+
+#+begin_src lisp
+(keyword "AUTHOR" "Author-kwd7-unique" :inherit nil)
+#+end_src
+
+- Verify regular-expression matching:
+
+#+begin_src lisp
+(keyword "AUTHOR" "Author-kwd7-.*" :inherit nil :regexp t)
+#+end_src
+
+- Verify that a non-matching value returns no results in either inheritance mode.
+- Verify that the query result still reports the file result as ~kind = "file"~ for the synthetic root.
+
+Documentation:
+
+- Update ~docs/cli.org~ to document the heading forms:
+
+#+begin_src text
+(keyword KEY)
+(keyword KEY VALUE)
+(keyword KEY VALUE :regexp t|nil :inherit t|nil)
+#+end_src
+
+- State that ~:inherit t~ is the default for heading queries.
+- Explain that inherited mode uses document keywords from the containing file.
+- Explain that ~:inherit nil~ checks only the candidate heading.
+- Explain that document keywords are currently stored on the synthetic file heading, so ordinary headings normally do not match in local-only mode.
+- State that ~:inherit~ is unavailable for the ~files~ target because file queries already operate at document scope.
+- Update ~docs/reference/query-model-v0.org~ with the same contract.
+- Add one example contrasting inherited and local-only keyword matching.
+
+Acceptance criteria:
+
+- Heading ~keyword~ predicates accept ~:inherit t~ and ~:inherit nil~.
+- Omitted ~:inherit~ behaves exactly like ~:inherit t~.
+- Existing keyword queries retain their current inherited results.
+- ~:inherit nil~ prevents document keywords from matching ordinary and nested headings.
+- The synthetic file heading can still match its locally stored keywords with ~:inherit nil~.
+- File keyword queries remain unchanged and reject ~:inherit~.
+- Exact and regular-expression value matching support both inheritance modes.
+- No database schema or persistence changes are introduced.** TODO [#B] Add ~:inherit~ control to heading ~keyword~ queries
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Add ~:inherit t|nil~ to the ~keyword~ predicate for heading queries.
+- Keep inherited keyword matching enabled by default.
+- Allow callers to restrict matching to keywords local to the candidate heading.
+
+Current behaviour:
+
+- Document keywords are indexed exclusively on the synthetic level-0 heading of a file.
+- Heading ~keyword~ predicates always query the synthetic file root:
+
+#+begin_src rust
+"keyword" => {
+    compile_keyword_predicate(
+        QueryTarget::Headings,
+        predicate,
+        &scope.root_col("id"),
+    )
+}
+#+end_src
+
+- Consequently, every heading in a matching file currently matches the document keyword.
+- The query validator permits only ~:regexp~ for ~keyword~ and rejects ~:inherit~.
+- There is currently no way to disable inherited keyword matching.
+
+Required semantics:
+
+- Heading ~keyword~ queries accept ~:inherit t|nil~.
+- Omitted ~:inherit~ is equivalent to ~:inherit t~.
+- With ~:inherit t~, match keywords stored on the synthetic file root.
+- With ~:inherit nil~, match only keywords stored directly on the candidate heading.
+- File queries continue to operate directly on the synthetic file root and do not accept an ~:inherit~ option.
+
+The resulting behaviour is:
+
+#+begin_src text
+Heading target, :inherit t or omitted:
+- synthetic file heading: match file keywords
+- ordinary heading: match file keywords
+- nested heading: match file keywords
+
+Heading target, :inherit nil:
+- synthetic file heading: match its local file keywords
+- ordinary heading: no match unless local heading keywords are introduced in the future
+- nested heading: no match unless local heading keywords are introduced in the future
+
+File target:
+- match file keywords
+- :inherit is not accepted
+#+end_src
+
+Rationale:
+
+- Keywords are currently document-level facts and are stored only on the synthetic level-0 heading.
+- Treating them as inherited for ordinary headings is useful and remains the default.
+- ~:inherit nil~ must nevertheless provide a consistent local-only mode, as already supported by heading ~tags~ and ~property~ predicates.
+- Local-only matching must refer to the candidate heading rather than the containing file root.
+- No parser, index, or schema change is required.
+
+Implementation tasks:
+
+- Update ~validate_keyword~ so that allowed options depend on the query target:
+  - headings: ~inherit~, ~regexp~
+  - files: ~regexp~
+- Validate ~:inherit~ as an optional boolean for heading queries.
+- Keep the default value of ~:inherit~ equal to ~t~.
+- Add a heading-specific keyword compiler or select the keyword owner ID before calling ~compile_keyword_predicate~.
+- For heading queries:
+  - use ~scope.root_col("id")~ when ~:inherit~ is omitted or ~t~
+  - use ~scope.heading_col("id")~ when ~:inherit nil~
+- Keep file keyword compilation unchanged.
+- Apply the same inheritance selection to:
+  - key-only queries
+  - key-and-value queries
+  - exact value matching
+  - regular-expression value matching
+- Do not copy document keywords onto every heading.
+- Do not change keyword persistence or the database schema.
+
+Expected examples:
+
+Given:
+
+#+begin_src org
+#+TITLE: keyword-fixture-kwd7
+#+AUTHOR: Author-kwd7-unique
+
+,* keyword: First Heading kwd7-a
+
+,* keyword: Second Heading kwd7-b
+
+,** keyword: Nested Heading kwd7-c
+#+end_src
+
+The default query:
+
+#+begin_src lisp
+(headings
+  (keyword "AUTHOR" "Author-kwd7-unique"))
+#+end_src
+
+is equivalent to:
+
+#+begin_src lisp
+(headings
+  (keyword "AUTHOR" "Author-kwd7-unique" :inherit t))
+#+end_src
+
+Both match:
+
+#+begin_src text
+keyword-fixture-kwd7
+keyword: First Heading kwd7-a
+keyword: Second Heading kwd7-b
+keyword: Nested Heading kwd7-c
+#+end_src
+
+The local-only query:
+
+#+begin_src lisp
+(headings
+  (keyword "AUTHOR" "Author-kwd7-unique" :inherit nil))
+#+end_src
+
+matches only:
+
+#+begin_src text
+keyword-fixture-kwd7
+#+end_src
+
+The file query remains:
+
+#+begin_src lisp
+(files
+  (keyword "AUTHOR" "Author-kwd7-unique"))
+#+end_src
+
+and matches the containing file.
+
+The following remains invalid:
+
+#+begin_src lisp
+(files
+  (keyword "AUTHOR" "Author-kwd7-unique" :inherit nil))
+#+end_src
+
+Tests:
+
+- Add validator tests proving that heading ~keyword~ accepts:
+  - omitted ~:inherit~
+  - ~:inherit t~
+  - ~:inherit nil~
+  - combinations with ~:regexp t~
+- Add validator tests proving that file ~keyword~ rejects ~:inherit~.
+- Add SQLite execution tests for a file keyword and multiple heading levels.
+- Verify that omitted ~:inherit~ and explicit ~:inherit t~ return identical results.
+- Verify that ~:inherit nil~ returns only the synthetic level-0 heading.
+- Verify key-only matching:
+
+#+begin_src lisp
+(keyword "AUTHOR" :inherit nil)
+#+end_src
+
+- Verify exact key-and-value matching:
+
+#+begin_src lisp
+(keyword "AUTHOR" "Author-kwd7-unique" :inherit nil)
+#+end_src
+
+- Verify regular-expression matching:
+
+#+begin_src lisp
+(keyword "AUTHOR" "Author-kwd7-.*" :inherit nil :regexp t)
+#+end_src
+
+- Verify that a non-matching value returns no results in either inheritance mode.
+- Verify that the query result still reports the file result as ~kind = "file"~ for the synthetic root.
+
+Documentation:
+
+- Update ~docs/cli.org~ to document the heading forms:
+
+#+begin_src text
+(keyword KEY)
+(keyword KEY VALUE)
+(keyword KEY VALUE :regexp t|nil :inherit t|nil)
+#+end_src
+
+- State that ~:inherit t~ is the default for heading queries.
+- Explain that inherited mode uses document keywords from the containing file.
+- Explain that ~:inherit nil~ checks only the candidate heading.
+- Explain that document keywords are currently stored on the synthetic file heading, so ordinary headings normally do not match in local-only mode.
+- State that ~:inherit~ is unavailable for the ~files~ target because file queries already operate at document scope.
+- Update ~docs/reference/query-model-v0.org~ with the same contract.
+- Add one example contrasting inherited and local-only keyword matching.
+
+Acceptance criteria:
+
+- Heading ~keyword~ predicates accept ~:inherit t~ and ~:inherit nil~.
+- Omitted ~:inherit~ behaves exactly like ~:inherit t~.
+- Existing keyword queries retain their current inherited results.
+- ~:inherit nil~ prevents document keywords from matching ordinary and nested headings.
+- The synthetic file heading can still match its locally stored keywords with ~:inherit nil~.
+- File keyword queries remain unchanged and reject ~:inherit~.
+- Exact and regular-expression value matching support both inheritance modes.
+- No database schema or persistence changes are introduced.
+
 ** TODO Manual Test the Implementation
 
 *** Query

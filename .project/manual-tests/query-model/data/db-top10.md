@@ -13,16 +13,16 @@
 
 | id |                                                    path                                                     |      mtime_ns       | size | content_hash | indexed_at |
 |----|-------------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org     | 1782986400000000000 | 363  |              | 1784460398 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org      | 1782986400000000000 | 399  |              | 1784460398 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org        | 1782986400000000000 | 396  |              | 1784460398 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org      | 1782986400000000000 | 416  |              | 1784460398 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org   | 1782986400000000000 | 474  |              | 1784460398 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org          | 1782986400000000000 | 243  |              | 1784460398 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org | 1782900000000000000 | 151  |              | 1784460398 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org     | 1782986400000000000 | 129  |              | 1784460398 |
-| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org    | 1782986400000000000 | 155  |              | 1784460398 |
-| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org      | 1782986400000000000 | 465  |              | 1784460398 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org     | 1782986400000000000 | 363  |              | 1784464307 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org      | 1782986400000000000 | 399  |              | 1784464307 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org        | 1782986400000000000 | 396  |              | 1784464307 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org      | 1782986400000000000 | 416  |              | 1784464307 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org   | 1782986400000000000 | 474  |              | 1784464307 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org          | 1782986400000000000 | 243  |              | 1784464307 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org | 1782900000000000000 | 151  |              | 1784464307 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org     | 1782986400000000000 | 129  |              | 1784464307 |
+| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org    | 1782986400000000000 | 155  |              | 1784464307 |
+| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org      | 1782986400000000000 | 465  |              | 1784464307 |
 
 ## heading_bodies
 
@@ -65,7 +65,8 @@
 
 |      id      | block |
 |--------------|-------|
-| 1            | ÅWâ6è    |
+| 1            | ÅRâ     |
+|              | è      |
 | 10           |       |
 | 137438953473 |       |
 | 137438953474 |       |
@@ -91,7 +92,7 @@
 | segid | term  | pgno |
 |-------|-------|------|
 | 1     |       | 2    |
-| 1     | 0expo | 4    |
+| 1     | 0ext  | 4    |
 | 1     | 0part | 6    |
 
 ## headings
@@ -172,16 +173,16 @@
 
 | heading_id |         tag         |
 |------------|---------------------|
-| 185        | tga2_alpha          |
-| 185        | tga2_beta           |
-| 186        | tga2_alpha          |
-| 187        | tga2_beta           |
-| 188        | tga2_alpha          |
-| 188        | tga2_beta           |
-| 188        | tga2_extra          |
-| 189        | tga2_rx_117         |
-| 189        | tga2_rx_882         |
-| 190        | tag3_file_inherited |
+| 184        | tag3_file_inherited |
+| 185        | tag3_local_blue     |
+| 186        | tag3_any_red        |
+| 187        | tag3_any_green      |
+| 188        | tag3_all_gold       |
+| 188        | tag3_all_silver     |
+| 189        | tag3_parent_violet  |
+| 191        | tag3_parent_violet  |
+| 192        | tag3_regexp_482     |
+| 194        | tag3_control_black  |
 
 ## timestamp_repeaters
 
