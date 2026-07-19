@@ -256,6 +256,10 @@ General rules:
 
 - Task file: [[file:archive/2026-07-19--remove-with-time-from-temporal-predicates.org]]
 
+** DONE [#B] Extend inclusive temporal ranges to minute and second precision
+
+- Task file: [[file:archive/2026-07-20--extend-inclusive-temporal-ranges-to-minute-and-second-precision.org]]
+
 ** TODO Manual Test the Implementation
 
 *** Query
@@ -279,8 +283,8 @@ General rules:
 ***** DONE keyword
 ***** DONE file-name
 ***** DONE file-path
-***** file-title
-***** file-modified
+***** DONE file-title
+***** DONE file-modified
 ***** outline-contains
 ***** outline-sequence
 ***** ts

@@ -258,7 +258,7 @@ The current public predicate options are:
   - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
   - Value type: date/time value.
   - Default: none.
-  - Inclusive query-model upper bound. Date-only ~:to~ covers the full day.
+  - Inclusive query-model upper bound. The complete interval implied by the value is included.
 - ~:on~ ::
   - Valid on: ~file-modified~, ~ts~, ~ts-active~, ~ts-inactive~, ~deadline~, ~scheduled~, ~closed~, ~planning~.
   - Value type: date/time value.
@@ -531,9 +531,9 @@ Resolution and boundary rules:
 - Date-only ~:from~ is inclusive from the start of that day.
 - Date-only ~:to~ includes the entire stated day.
 - Date-only ~:on~ matches the entire stated day.
-- Datetime ~:from~ is inclusive at the stated minute.
-- Datetime ~:to~ uses the query model's inclusive upper-bound form.
-- Datetime ~:on~ matches the stored timestamp at that stated datetime.
+- Temporal values define intervals according to their written precision: a date is a complete day, a minute-precision datetime is a complete minute, and a second-precision datetime is a complete second.
+- ~:from~ uses the inclusive beginning of its own value's interval. ~:to~ includes its own complete interval, implemented as an exclusive boundary at the next day, minute, or second. ~:on~ matches its value's complete interval.
+- RFC 3339 datetimes with explicit offsets preserve the same minute or second precision as written.
 
 Examples:
 

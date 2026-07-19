@@ -5027,7 +5027,7 @@ mod tests {
             datetime.params,
             vec![
                 super::QueryParam::Integer(1_767_431_700),
-                super::QueryParam::Integer(1_767_431_701),
+                super::QueryParam::Integer(1_767_431_760),
             ]
         );
         assert!(!datetime.sql.contains("unixepoch"));
@@ -5061,6 +5061,110 @@ mod tests {
         )
         .expect("datetime :to query should execute");
         assert_eq!(heading_ids(to_rows), vec![100, 101]);
+    }
+
+    #[test]
+    fn execution_datetime_bounds_cover_complete_minutes_and_seconds() {
+        let connection = date_bound_test_connection();
+        connection
+            .execute(
+                "UPDATE headings SET scheduled_ts = ?1 WHERE id = 101",
+                [naive_date_time_seconds(2026, 1, 3, 9, 15) + 45],
+            )
+            .expect("scheduled timestamp should update");
+
+        let minute_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-01-03 09:15"))"#),
+        )
+        .expect("minute query should execute");
+        assert_eq!(heading_ids(minute_rows), vec![101]);
+
+        let second_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-01-03 09:15:45"))"#),
+        )
+        .expect("second query should execute");
+        assert_eq!(heading_ids(second_rows), vec![101]);
+
+        let next_second_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (scheduled :on "2026-01-03 09:15:46"))"#),
+        )
+        .expect("next-second query should execute");
+        assert!(heading_ids(next_second_rows).is_empty());
+
+        for value in ["2026-01-03 09:15", "2026-01-03 09:15:45"] {
+            let from_rows = execute_sqlite_query(
+                &connection,
+                &validated(&format!(r#"(headings (scheduled :from "{value}"))"#)),
+            )
+            .expect("from query should execute");
+            assert!(heading_ids(from_rows).contains(&101));
+
+            let to_rows = execute_sqlite_query(
+                &connection,
+                &validated(&format!(r#"(headings (scheduled :to "{value}"))"#)),
+            )
+            .expect("to query should execute");
+            assert_eq!(heading_ids(to_rows), vec![100, 101]);
+
+            let equal_range_rows = execute_sqlite_query(
+                &connection,
+                &validated(&format!(
+                    r#"(headings (scheduled :from "{value}" :to "{value}"))"#
+                )),
+            )
+            .expect("equal range query should execute");
+            assert_eq!(heading_ids(equal_range_rows), vec![101]);
+        }
+    }
+
+    #[test]
+    fn execution_file_modified_datetime_bounds_include_nanoseconds_before_the_next_interval() {
+        let connection = date_bound_test_connection();
+        let minute_start = naive_date_time_seconds(2026, 1, 3, 9, 15) * 1_000_000_000;
+        connection
+            .execute(
+                "UPDATE files SET mtime_ns = ?1",
+                [minute_start + 59_999_999_999],
+            )
+            .expect("file mtime should update");
+
+        let execution_options = QueryExecutionOptions {
+            query_timezone: Some("UTC".to_string()),
+            ..QueryExecutionOptions::default()
+        };
+
+        let minute_rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated(r#"(files (file-modified :on "2026-01-03 09:15"))"#),
+            &execution_options,
+        )
+        .expect("minute query should execute");
+        assert_eq!(
+            file_paths(minute_rows),
+            vec!["/tmp/date-bounds.org".to_string()]
+        );
+
+        let second_rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated(r#"(files (file-modified :on "2026-01-03 09:15:59"))"#),
+            &execution_options,
+        )
+        .expect("second query should execute");
+        assert_eq!(
+            file_paths(second_rows),
+            vec!["/tmp/date-bounds.org".to_string()]
+        );
+
+        let next_second_rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated(r#"(files (file-modified :on "2026-01-03 09:16:00"))"#),
+            &execution_options,
+        )
+        .expect("next-second query should execute");
+        assert!(file_paths(next_second_rows).is_empty());
     }
 
     #[test]

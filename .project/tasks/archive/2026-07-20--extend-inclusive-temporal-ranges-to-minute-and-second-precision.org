@@ -1,0 +1,244 @@
+#+TITLE: Extend inclusive temporal ranges to minute and second precision
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-20 Mon 00:06]
+#+TASK_COMPLETED: [2026-07-20 Mon 00:07]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** DONE [#B] Extend inclusive temporal ranges to minute and second precision
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:archive/2026-07-20--extend-inclusive-temporal-ranges-to-minute-and-second-precision.org]]
+
+Goal:
+
+- Extend the existing inclusive date semantics of ~:on~, ~:from~, and ~:to~ to datetime values.
+- Interpret datetime values according to their written precision.
+- Support at least minute and second precision without requiring nanosecond input.
+
+Existing behaviour:
+
+- Date-only values already represent complete calendar days.
+- ~:from~ includes the beginning of the supplied date.
+- ~:to~ includes the complete supplied date.
+- ~:on~ matches the complete supplied date.
+
+For example:
+
+#+begin_src lisp
+(file-modified
+  :from "2026-01-01"
+  :to "2026-01-01")
+#+end_src
+
+already represents the complete day internally as:
+
+#+begin_src text
+>= 2026-01-01 00:00:00
+<  2026-01-02 00:00:00
+#+end_src
+
+Required extension:
+
+- A datetime written to minute precision represents the complete minute.
+- A datetime written to second precision represents the complete second.
+- Preserve the existing date-only behaviour unchanged.
+
+Precision intervals:
+
+#+begin_src text
+"2026-07-18"
+-> [2026-07-18 00:00:00, 2026-07-19 00:00:00)
+
+"2026-07-18 00:33"
+-> [2026-07-18 00:33:00, 2026-07-18 00:34:00)
+
+"2026-07-18 00:33:45"
+-> [2026-07-18 00:33:45, 2026-07-18 00:33:46)
+#+end_src
+
+Option semantics:
+
+- ~:from VALUE~ uses the inclusive beginning of the interval implied by ~VALUE~.
+- ~:to VALUE~ includes the complete interval implied by ~VALUE~.
+- ~:on VALUE~ matches exactly the complete interval implied by ~VALUE~.
+- Internally, upper bounds are represented as the exclusive beginning of the next precision interval.
+
+Expected examples:
+
+#+begin_src lisp
+(file-modified :on "2026-07-18 00:33")
+#+end_src
+
+matches every modification time in:
+
+#+begin_src text
+>= 2026-07-18 00:33:00.000000000
+<  2026-07-18 00:34:00.000000000
+#+end_src
+
+#+begin_src lisp
+(file-modified
+  :from "2026-07-18 00:33"
+  :to "2026-07-18 00:35")
+#+end_src
+
+matches:
+
+#+begin_src text
+>= 2026-07-18 00:33:00.000000000
+<  2026-07-18 00:36:00.000000000
+#+end_src
+
+#+begin_src lisp
+(file-modified
+  :from "2026-07-18 00:33"
+  :to "2026-07-18 00:33")
+#+end_src
+
+matches the complete minute ~00:33~ and must not produce an empty range.
+
+#+begin_src lisp
+(file-modified :on "2026-07-18 00:33:45")
+#+end_src
+
+matches the complete second:
+
+#+begin_src text
+>= 2026-07-18 00:33:45.000000000
+<  2026-07-18 00:33:46.000000000
+#+end_src
+
+Implementation tasks:
+
+- Preserve the precision detected while parsing temporal query values.
+- Distinguish at least:
+  - date
+  - minute
+  - second
+- Resolve each value to:
+  - an inclusive lower bound
+  - the exclusive beginning of the next precision interval
+- Use the lower bound for ~:from~.
+- Use the next-interval boundary for ~:to~.
+- Use both bounds for ~:on~.
+- Do not implement inclusive upper bounds by subtracting one nanosecond.
+- Do not require callers to supply nanoseconds.
+- Reuse the same precision-aware interval resolver for all temporal predicates where datetime values are supported.
+- Preserve timezone-aware handling for ~file-modified~.
+- Preserve timezone-naive handling for Org timestamps.
+
+DST handling for ~file-modified~:
+
+- For date precision, compute the next local calendar day rather than adding ~86 400~ seconds.
+- For minute and second precision, resolve the local start and the next local minute or second independently in the effective query timezone.
+- Continue to reject nonexistent or ambiguous offset-free local datetimes according to the existing decision.
+- Explicit RFC 3339 offsets remain absolute and unambiguous.
+
+Tests:
+
+- Preserve all existing date-only tests.
+- Add minute-precision tests for:
+  - ~:on~
+  - ~:from~
+  - ~:to~
+  - equal ~:from~ and ~:to~
+- Add second-precision tests for the same cases.
+- Verify boundary exclusion:
+  - exactly at the next minute does not match the previous minute
+  - exactly at the next second does not match the previous second
+- Verify nanosecond mtimes inside the selected minute or second match correctly.
+- Verify no filesystem precision assumptions are required.
+- Add equivalent tests for Org timestamp predicates that accept datetimes.
+- Add DST-adjacent minute and second tests for ~file-modified~.
+
+Documentation:
+
+- Update ~docs/cli.org~ to state that temporal values define intervals according to their written precision.
+- Document:
+  - date = complete day
+  - minute datetime = complete minute
+  - second datetime = complete second
+- Clarify that ~:to~ is inclusive from the user's perspective.
+- Clarify that implementation uses an exclusive next-interval upper boundary.
+- Update ~docs/reference/query-model-v0.org~ with the same contract.
+
+Acceptance criteria:
+
+- Existing date-only behaviour remains unchanged.
+- ~:on "2026-07-18 00:33"~ matches the complete minute.
+- Equal minute-precision ~:from~ and ~:to~ values match that minute.
+- Equal second-precision ~:from~ and ~:to~ values match that second.
+- Users never need to enter nanoseconds.
+- Upper bounds remain precise across filesystems with different timestamp resolutions.
+
+
+* Planning
+
+** Problem summary
+
+- Datetime temporal bounds currently cover one second regardless of whether the input was written to minute or second precision.
+
+** Goals
+
+- Resolve date, minute, and second values to inclusive starts and exclusive next-interval boundaries.
+- Keep ~file-modified~ timezone-aware and Org timestamps timezone-naive.
+
+** Non-goals
+
+- Do not add fractional-second query precision or a database migration.
+
+** Architecture
+
+- Preserve precision in the shared Rust temporal resolver and continue binding resolved integer boundaries in SQLite.
+
+** Execution plan
+
+- Update resolver, execution tests, and public query documentation.
+
+** Risks & assumptions
+
+- Each supplied temporal option determines its own precision interval independently.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~make ci~.
+
+* Results
+
+** Approach
+
+- Added precision-aware minute and second interval resolution before SQL compilation.
+- Resolved every temporal option independently, including offset RFC 3339 values.
+** Changed files
+
+- ~src/query/resolve.rs~
+- ~src/query/sqlite.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+** Checks performed
+
+- ~cargo fmt --all~
+- ~make ci~
+** Test results
+
+- ~make ci~ passed: format check, Clippy with warnings denied, 347 unit tests, 106 integration tests, and the all-target build.
+** Blockers
+
+- None.
+** Follow-ups
+
+- None.

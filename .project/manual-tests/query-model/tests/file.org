@@ -568,6 +568,26 @@
 }
 #+end_SRC
 
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :on "2026-07-18 00:34")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      mtime_ns
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
+  "title_raw": "Org Property and Keyword Test",
+  "mtime_ns": 1784327696000000000
+}
+#+end_SRC
+
 ** from
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
@@ -859,28 +879,6 @@
   "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
   "title_raw": "TODO keywords",
   "mtime_ns": 1784331431167729400
-}
-#+end_SRC
-
-** with-time
-
-#+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :from "2026-07-18 00:33" :to "2026-07-18 01:35")))' \
-  | jq '.results[] | {
-      kind,
-      file_path: .location.file_path,
-      title_raw,
-      mtime_ns
-    }'
-#+end_src
-
-#+RESULTS:
-#+begin_SRC js
-{
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-  "title_raw": "Org Property and Keyword Test",
-  "mtime_ns": 1784327696000000000
 }
 #+end_SRC
 

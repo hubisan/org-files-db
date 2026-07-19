@@ -1,6 +1,9 @@
 use std::{fmt, str::FromStr};
 
-use chrono::{DateTime, Days, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{
+    DateTime, Days, Duration, FixedOffset, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone,
+    Utc,
+};
 use chrono_tz::Tz;
 
 use super::{
@@ -60,6 +63,56 @@ pub fn resolve_relative_dates(
 enum TemporalStorageMode {
     AbsoluteUnix,
     NaiveWallTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TemporalPrecision {
+    Minute,
+    Second,
+}
+
+impl TemporalPrecision {
+    fn next_datetime(
+        self,
+        datetime: NaiveDateTime,
+        value: &str,
+        predicate: &str,
+        option_name: &str,
+    ) -> Result<NaiveDateTime, QueryDateResolutionError> {
+        let duration = match self {
+            Self::Minute => Duration::minutes(1),
+            Self::Second => Duration::seconds(1),
+        };
+        datetime
+            .checked_add_signed(duration)
+            .ok_or_else(|| QueryDateResolutionError {
+                kind: QueryDateResolutionErrorKind::DateOutOfRange,
+                message: format!(
+                    "datetime {value:?} for {predicate}:{option_name} is out of range"
+                ),
+            })
+    }
+
+    fn next_offset_datetime(
+        self,
+        datetime: DateTime<FixedOffset>,
+        value: &str,
+        predicate: &str,
+        option_name: &str,
+    ) -> Result<DateTime<FixedOffset>, QueryDateResolutionError> {
+        let duration = match self {
+            Self::Minute => Duration::minutes(1),
+            Self::Second => Duration::seconds(1),
+        };
+        datetime
+            .checked_add_signed(duration)
+            .ok_or_else(|| QueryDateResolutionError {
+                kind: QueryDateResolutionErrorKind::DateOutOfRange,
+                message: format!(
+                    "datetime {value:?} for {predicate}:{option_name} is out of range"
+                ),
+            })
+    }
 }
 
 enum EffectiveTimezone {
@@ -283,21 +336,21 @@ fn resolve_absolute_datetime_bounds(
     predicate: &str,
     option_name: &str,
 ) -> Result<TemporalBounds, QueryDateResolutionError> {
-    let seconds = if let Ok(datetime) = DateTime::parse_from_rfc3339(value) {
-        datetime.timestamp()
-    } else {
-        let datetime = parse_naive_datetime(value, predicate, option_name)?;
-        local_datetime_to_utc(timezone, datetime, predicate, option_name)?.timestamp()
-    };
-    let exclusive_end = seconds
-        .checked_add(1)
-        .ok_or_else(|| QueryDateResolutionError {
-            kind: QueryDateResolutionErrorKind::DateOutOfRange,
-            message: format!("datetime {value:?} for {predicate}:{option_name} is out of range"),
-        })?;
+    let (start_seconds, end_seconds) =
+        if let Some((datetime, precision)) = parse_offset_datetime(value) {
+            let end = precision.next_offset_datetime(datetime, value, predicate, option_name)?;
+            (datetime.timestamp(), end.timestamp())
+        } else {
+            let (datetime, precision) = parse_naive_datetime(value, predicate, option_name)?;
+            let end = precision.next_datetime(datetime, value, predicate, option_name)?;
+            (
+                local_datetime_to_utc(timezone, datetime, predicate, option_name)?.timestamp(),
+                local_datetime_to_utc(timezone, end, predicate, option_name)?.timestamp(),
+            )
+        };
     Ok(TemporalBounds {
-        start: scale_nanoseconds(seconds, predicate, option_name)?,
-        exclusive_end: scale_nanoseconds(exclusive_end, predicate, option_name)?,
+        start: scale_nanoseconds(start_seconds, predicate, option_name)?,
+        exclusive_end: scale_nanoseconds(end_seconds, predicate, option_name)?,
     })
 }
 
@@ -306,7 +359,7 @@ fn resolve_naive_datetime_bounds(
     predicate: &str,
     option_name: &str,
 ) -> Result<TemporalBounds, QueryDateResolutionError> {
-    if DateTime::parse_from_rfc3339(value).is_ok() {
+    if parse_offset_datetime(value).is_some() {
         return Err(QueryDateResolutionError {
             kind: QueryDateResolutionErrorKind::UnsupportedDateTimeForm,
             message: format!(
@@ -314,14 +367,12 @@ fn resolve_naive_datetime_bounds(
             ),
         });
     }
-    let datetime = parse_naive_datetime(value, predicate, option_name)?;
+    let (datetime, precision) = parse_naive_datetime(value, predicate, option_name)?;
     let start = datetime.and_utc().timestamp();
-    let exclusive_end = start
-        .checked_add(1)
-        .ok_or_else(|| QueryDateResolutionError {
-            kind: QueryDateResolutionErrorKind::DateOutOfRange,
-            message: format!("datetime {value:?} for {predicate}:{option_name} is out of range"),
-        })?;
+    let exclusive_end = precision
+        .next_datetime(datetime, value, predicate, option_name)?
+        .and_utc()
+        .timestamp();
     Ok(TemporalBounds {
         start,
         exclusive_end,
@@ -332,16 +383,55 @@ fn parse_naive_datetime(
     value: &str,
     predicate: &str,
     option_name: &str,
-) -> Result<NaiveDateTime, QueryDateResolutionError> {
-    ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"]
+) -> Result<(NaiveDateTime, TemporalPrecision), QueryDateResolutionError> {
+    [
+        ("%Y-%m-%d %H:%M", TemporalPrecision::Minute),
+        ("%Y-%m-%dT%H:%M", TemporalPrecision::Minute),
+        ("%Y-%m-%d %H:%M:%S", TemporalPrecision::Second),
+        ("%Y-%m-%dT%H:%M:%S", TemporalPrecision::Second),
+    ]
         .iter()
-        .find_map(|format| NaiveDateTime::parse_from_str(value, format).ok())
+        .find_map(|(format, precision)| {
+            NaiveDateTime::parse_from_str(value, format)
+                .ok()
+                .map(|datetime| (datetime, *precision))
+        })
         .ok_or_else(|| QueryDateResolutionError {
             kind: QueryDateResolutionErrorKind::InvalidDateTime,
             message: format!(
-                "invalid datetime {value:?} for {predicate}:{option_name}; expected YYYY-MM-DD HH:MM, YYYY-MM-DDTHH:MM, or RFC 3339 with an offset for file-modified"
+                "invalid datetime {value:?} for {predicate}:{option_name}; expected YYYY-MM-DD HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS], or RFC 3339 with an offset for file-modified"
             ),
         })
+}
+
+fn parse_offset_datetime(value: &str) -> Option<(DateTime<FixedOffset>, TemporalPrecision)> {
+    if let Ok(datetime) = DateTime::parse_from_rfc3339(value) {
+        return Some((datetime, offset_datetime_precision(value)?));
+    }
+    [
+        ("%Y-%m-%d %H:%M%:z", TemporalPrecision::Minute),
+        ("%Y-%m-%dT%H:%M%:z", TemporalPrecision::Minute),
+        ("%Y-%m-%d %H:%M:%S%:z", TemporalPrecision::Second),
+        ("%Y-%m-%dT%H:%M:%S%:z", TemporalPrecision::Second),
+    ]
+    .iter()
+    .find_map(|(format, precision)| {
+        DateTime::parse_from_str(value, format)
+            .ok()
+            .map(|datetime| (datetime, *precision))
+    })
+}
+
+fn offset_datetime_precision(value: &str) -> Option<TemporalPrecision> {
+    let time = value.get(11..)?;
+    let offset_start = time
+        .char_indices()
+        .find_map(|(index, character)| matches!(character, '+' | '-' | 'Z' | 'z').then_some(index))
+        .unwrap_or(time.len());
+    match time[..offset_start].matches(':').count() {
+        1 => Some(TemporalPrecision::Minute),
+        _ => Some(TemporalPrecision::Second),
+    }
 }
 
 fn local_datetime_to_utc(
@@ -683,7 +773,15 @@ mod tests {
                 QueryDateResolutionErrorKind::NonexistentLocalDateTime,
             ),
             (
+                "2026-03-29 02:30:30",
+                QueryDateResolutionErrorKind::NonexistentLocalDateTime,
+            ),
+            (
                 "2026-10-25 02:30",
+                QueryDateResolutionErrorKind::AmbiguousLocalDateTime,
+            ),
+            (
+                "2026-10-25 02:30:30",
                 QueryDateResolutionErrorKind::AmbiguousLocalDateTime,
             ),
         ] {
@@ -709,7 +807,7 @@ mod tests {
             ),
             QueryValue::TemporalBounds(crate::query::TemporalBounds {
                 start: 1_784_334_840,
-                exclusive_end: 1_784_334_841,
+                exclusive_end: 1_784_334_900,
             })
         );
         let error = resolve_temporal_bounds(
@@ -721,6 +819,38 @@ mod tests {
         )
         .expect_err("nanosecond overflow should fail");
         assert_eq!(error.kind, QueryDateResolutionErrorKind::NanosecondOverflow);
+    }
+
+    #[test]
+    fn resolves_each_datetime_option_using_its_own_precision() {
+        let resolved = resolve_temporal_bounds(
+            &validated(
+                r#"(files (file-modified :from "2026-07-18T00:33:20+02:00" :to "2026-07-18T00:35+02:00"))"#,
+            ),
+            &QueryDateResolutionOptions {
+                timezone: Some("UTC".to_string()),
+                now_utc: None,
+            },
+        )
+        .expect("temporal bounds should resolve");
+        let Some(ValidatedExpr::Predicate(predicate)) = resolved.predicate else {
+            panic!("expected predicate");
+        };
+
+        assert_eq!(
+            predicate.options[0].value,
+            QueryValue::TemporalBounds(crate::query::TemporalBounds {
+                start: 1_784_327_600_000_000_000,
+                exclusive_end: 1_784_327_601_000_000_000,
+            })
+        );
+        assert_eq!(
+            predicate.options[1].value,
+            QueryValue::TemporalBounds(crate::query::TemporalBounds {
+                start: 1_784_327_700_000_000_000,
+                exclusive_end: 1_784_327_760_000_000_000,
+            })
+        );
     }
 
     #[test]
