@@ -4,25 +4,25 @@
 
 |         key         | value |
 |---------------------|-------|
+| body_text_available | 1     |
 | fts_available       | 1     |
 | fts_body_indexed    | 1     |
 | fts_schema_version  | 1     |
-| body_text_available | 1     |
 
 ## files
 
 | id |                                                    path                                                     |      mtime_ns       | size | content_hash | indexed_at |
 |----|-------------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org     | 1782986400000000000 | 363  |              | 1784455903 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org      | 1782986400000000000 | 399  |              | 1784455903 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org        | 1782986400000000000 | 396  |              | 1784455903 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org      | 1782986400000000000 | 416  |              | 1784455903 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org   | 1782986400000000000 | 474  |              | 1784455903 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org          | 1782986400000000000 | 243  |              | 1784455903 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org | 1782900000000000000 | 151  |              | 1784455903 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org     | 1782986400000000000 | 129  |              | 1784455903 |
-| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org    | 1782986400000000000 | 155  |              | 1784455903 |
-| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org      | 1782986400000000000 | 465  |              | 1784455903 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org     | 1782986400000000000 | 363  |              | 1784458949 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org      | 1782986400000000000 | 399  |              | 1784458949 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org        | 1782986400000000000 | 396  |              | 1784458949 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org      | 1782986400000000000 | 416  |              | 1784458949 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org   | 1782986400000000000 | 474  |              | 1784458949 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org          | 1782986400000000000 | 243  |              | 1784458949 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org | 1782900000000000000 | 151  |              | 1784458949 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org     | 1782986400000000000 | 129  |              | 1784458949 |
+| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org    | 1782986400000000000 | 155  |              | 1784458949 |
+| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org      | 1782986400000000000 | 465  |              | 1784458949 |
 
 ## heading_bodies
 

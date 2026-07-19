@@ -8,40 +8,40 @@ CREATE TABLE files (
     content_hash    TEXT,
     indexed_at      INTEGER
 );
-INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org',1782986400000000000,363,NULL,1784455903);
-INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org',1782986400000000000,399,NULL,1784455903);
-INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org',1782986400000000000,396,NULL,1784455903);
-INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org',1782986400000000000,416,NULL,1784455903);
-INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org',1782986400000000000,474,NULL,1784455903);
-INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org',1782986400000000000,243,NULL,1784455903);
-INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org',1782900000000000000,151,NULL,1784455903);
-INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org',1782986400000000000,129,NULL,1784455903);
-INSERT INTO files VALUES(9,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org',1782986400000000000,155,NULL,1784455903);
-INSERT INTO files VALUES(10,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org',1782986400000000000,465,NULL,1784455903);
-INSERT INTO files VALUES(11,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-text.org',1784363795131232051,226,NULL,1784455903);
-INSERT INTO files VALUES(12,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/keyword.org',1782986400000000000,215,NULL,1784455903);
-INSERT INTO files VALUES(13,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org',1782986400000000000,213,NULL,1784455903);
-INSERT INTO files VALUES(14,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org',1782986400000000000,576,NULL,1784455903);
-INSERT INTO files VALUES(15,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org',1782986400000000000,574,NULL,1784455903);
-INSERT INTO files VALUES(16,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/multipe-title-keywords.org',1781826194942471483,321,NULL,1784455903);
-INSERT INTO files VALUES(17,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/no-title-set.org',1783850095870831478,44,NULL,1784455903);
-INSERT INTO files VALUES(18,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org',1782986400000000000,403,NULL,1784455903);
-INSERT INTO files VALUES(19,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org',1782986400000000000,427,NULL,1784455903);
-INSERT INTO files VALUES(20,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org',1782986400000000000,374,NULL,1784455903);
-INSERT INTO files VALUES(21,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org',1782986400000000000,128,NULL,1784455903);
-INSERT INTO files VALUES(22,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org',1782986400000000000,121,NULL,1784455903);
-INSERT INTO files VALUES(23,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org',1782986400000000000,510,NULL,1784455903);
-INSERT INTO files VALUES(24,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org',1784455889916262025,340,NULL,1784455903);
-INSERT INTO files VALUES(25,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org',1784317456755088878,15145,NULL,1784455903);
-INSERT INTO files VALUES(26,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org',1782986400000000000,424,NULL,1784455903);
-INSERT INTO files VALUES(27,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org',1782986400000000000,489,NULL,1784455903);
-INSERT INTO files VALUES(28,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org',1782986400000000000,846,NULL,1784455903);
-INSERT INTO files VALUES(29,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org',1784332287046809796,115,NULL,1784455903);
-INSERT INTO files VALUES(30,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org',1784331445500650156,1118,NULL,1784455903);
-INSERT INTO files VALUES(31,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org',1784331431167729427,245,NULL,1784455903);
-INSERT INTO files VALUES(32,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org',1782986400000000000,321,NULL,1784455903);
-INSERT INTO files VALUES(33,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org',1782986400000000000,331,NULL,1784455903);
-INSERT INTO files VALUES(34,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org',1782986400000000000,402,NULL,1784455903);
+INSERT INTO files VALUES(1,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org',1782986400000000000,363,NULL,1784458949);
+INSERT INTO files VALUES(2,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org',1782986400000000000,399,NULL,1784458949);
+INSERT INTO files VALUES(3,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org',1782986400000000000,396,NULL,1784458949);
+INSERT INTO files VALUES(4,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org',1782986400000000000,416,NULL,1784458949);
+INSERT INTO files VALUES(5,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org',1782986400000000000,474,NULL,1784458949);
+INSERT INTO files VALUES(6,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org',1782986400000000000,243,NULL,1784458949);
+INSERT INTO files VALUES(7,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org',1782900000000000000,151,NULL,1784458949);
+INSERT INTO files VALUES(8,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org',1782986400000000000,129,NULL,1784458949);
+INSERT INTO files VALUES(9,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org',1782986400000000000,155,NULL,1784458949);
+INSERT INTO files VALUES(10,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org',1782986400000000000,465,NULL,1784458949);
+INSERT INTO files VALUES(11,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-text.org',1784363795131232051,226,NULL,1784458949);
+INSERT INTO files VALUES(12,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/keyword.org',1782986400000000000,215,NULL,1784458949);
+INSERT INTO files VALUES(13,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org',1782986400000000000,213,NULL,1784458949);
+INSERT INTO files VALUES(14,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org',1782986400000000000,576,NULL,1784458949);
+INSERT INTO files VALUES(15,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org',1782986400000000000,574,NULL,1784458949);
+INSERT INTO files VALUES(16,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/multipe-title-keywords.org',1781826194942471483,321,NULL,1784458949);
+INSERT INTO files VALUES(17,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/no-title-set.org',1783850095870831478,44,NULL,1784458949);
+INSERT INTO files VALUES(18,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org',1782986400000000000,403,NULL,1784458949);
+INSERT INTO files VALUES(19,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org',1782986400000000000,427,NULL,1784458949);
+INSERT INTO files VALUES(20,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org',1782986400000000000,374,NULL,1784458949);
+INSERT INTO files VALUES(21,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org',1782986400000000000,128,NULL,1784458949);
+INSERT INTO files VALUES(22,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org',1782986400000000000,121,NULL,1784458949);
+INSERT INTO files VALUES(23,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org',1782986400000000000,510,NULL,1784458949);
+INSERT INTO files VALUES(24,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org',1784455889916262025,340,NULL,1784458949);
+INSERT INTO files VALUES(25,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org',1784317456755088878,15145,NULL,1784458949);
+INSERT INTO files VALUES(26,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org',1782986400000000000,424,NULL,1784458949);
+INSERT INTO files VALUES(27,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org',1782986400000000000,489,NULL,1784458949);
+INSERT INTO files VALUES(28,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org',1782986400000000000,846,NULL,1784458949);
+INSERT INTO files VALUES(29,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org',1784332287046809796,115,NULL,1784458949);
+INSERT INTO files VALUES(30,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org',1784331445500650156,1118,NULL,1784458949);
+INSERT INTO files VALUES(31,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org',1784331431167729427,245,NULL,1784458949);
+INSERT INTO files VALUES(32,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org',1782986400000000000,321,NULL,1784458949);
+INSERT INTO files VALUES(33,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org',1782986400000000000,331,NULL,1784458949);
+INSERT INTO files VALUES(34,'/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org',1782986400000000000,402,NULL,1784458949);
 CREATE TABLE todo_keywords (
     file_id         INTEGER NOT NULL,
     keyword         TEXT NOT NULL,
@@ -207,10 +207,10 @@ CREATE TABLE db_metadata (
     key             TEXT PRIMARY KEY,
     value           TEXT NOT NULL
 );
+INSERT INTO db_metadata VALUES('body_text_available','1');
 INSERT INTO db_metadata VALUES('fts_available','1');
 INSERT INTO db_metadata VALUES('fts_body_indexed','1');
 INSERT INTO db_metadata VALUES('fts_schema_version','1');
-INSERT INTO db_metadata VALUES('body_text_available','1');
 CREATE TABLE headings (
     id                  INTEGER PRIMARY KEY,
     file_id             INTEGER NOT NULL,
@@ -223,7 +223,7 @@ CREATE TABLE headings (
     title_raw           TEXT,
     todo_keyword        TEXT,
     todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
-    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
+    priority            TEXT,
     scheduled_raw       TEXT,
     scheduled_ts        INTEGER,
     scheduled_has_time  INTEGER CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),

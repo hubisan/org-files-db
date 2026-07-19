@@ -253,7 +253,7 @@ General rules:
 ***** DONE has-text
 ***** DONE property
 ***** DONE level
-***** priority
+***** DONE priority
 ***** tags
 ***** tags-all
 ***** keyword
