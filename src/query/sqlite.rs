@@ -13,9 +13,9 @@ use serde::Serialize;
 use super::priority::normalize_priority;
 use super::result::QueryExecutionOptions;
 use super::{
-    ensure_relative_dates_resolved, resolve_relative_dates, QueryDateResolutionOptions,
-    QueryTarget, QueryValidationOptions, QueryValue, ValidatedArg, ValidatedExpr, ValidatedOption,
-    ValidatedPredicate, ValidatedQuery,
+    ensure_relative_dates_resolved, resolve_relative_dates, resolve_temporal_bounds,
+    QueryDateResolutionOptions, QueryTarget, QueryValidationOptions, QueryValue, ValidatedArg,
+    ValidatedExpr, ValidatedOption, ValidatedPredicate, ValidatedQuery,
 };
 use crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY;
 
@@ -224,12 +224,6 @@ impl std::error::Error for QueryExecutionError {
 struct SqlFragment {
     sql: String,
     params: Vec<QueryParam>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TemporalUnit {
-    Seconds,
-    Nanoseconds,
 }
 
 #[derive(Debug, Clone)]
@@ -493,7 +487,7 @@ pub fn execute_sqlite_query_with_options(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryRows, QueryExecutionError> {
-    let resolved = resolve_relative_dates(
+    let resolved_relative_dates = resolve_relative_dates(
         query,
         &QueryDateResolutionOptions {
             timezone: options.query_timezone.clone(),
@@ -504,6 +498,20 @@ pub fn execute_sqlite_query_with_options(
         QueryExecutionError::date_resolution(
             query.target,
             "relative-date-resolution",
+            error.to_string(),
+        )
+    })?;
+    let resolved = resolve_temporal_bounds(
+        &resolved_relative_dates,
+        &QueryDateResolutionOptions {
+            timezone: options.query_timezone.clone(),
+            now_utc: options.now_utc,
+        },
+    )
+    .map_err(|error| {
+        QueryExecutionError::date_resolution(
+            query.target,
+            "temporal-bound-resolution",
             error.to_string(),
         )
     })?;
@@ -1072,7 +1080,6 @@ fn compile_heading_predicate(
             &scope.file_col("mtime_ns"),
             None,
             &predicate.options,
-            TemporalUnit::Nanoseconds,
             true,
         ),
         "tags" => compile_heading_tags_predicate(scope, predicate),
@@ -1084,7 +1091,6 @@ fn compile_heading_predicate(
             &scope.heading_col("scheduled_ts"),
             Some(&scope.heading_col("scheduled_has_time")),
             &predicate.options,
-            TemporalUnit::Seconds,
             true,
         ),
         "deadline" => compile_date_predicate(
@@ -1093,7 +1099,6 @@ fn compile_heading_predicate(
             &scope.heading_col("deadline_ts"),
             Some(&scope.heading_col("deadline_has_time")),
             &predicate.options,
-            TemporalUnit::Seconds,
             true,
         ),
         "closed" => compile_date_predicate(
@@ -1102,7 +1107,6 @@ fn compile_heading_predicate(
             &scope.heading_col("closed_ts"),
             Some(&scope.heading_col("closed_has_time")),
             &predicate.options,
-            TemporalUnit::Seconds,
             true,
         ),
         "planning" => compile_planning_predicate(scope, predicate),
@@ -1439,7 +1443,6 @@ fn compile_file_predicate(
             &scope.file_col("mtime_ns"),
             None,
             &predicate.options,
-            TemporalUnit::Nanoseconds,
             true,
         ),
         "tags" => compile_file_tags_predicate(scope, predicate),
@@ -2214,12 +2217,11 @@ fn validate_regexp_pattern(
 }
 
 fn compile_date_predicate(
-    _target: QueryTarget,
-    _predicate_name: &str,
+    target: QueryTarget,
+    predicate_name: &str,
     column: &str,
     with_time_column: Option<&str>,
     options: &[ValidatedOption],
-    unit: TemporalUnit,
     require_not_null_when_unbounded: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let on = option_value(options, "on");
@@ -2231,8 +2233,8 @@ fn compile_date_predicate(
     let mut params = Vec::new();
 
     if let Some(value) = on {
-        let start = start_bound(value, unit);
-        let end = exclusive_end_bound(value, unit);
+        let start = start_bound(target, predicate_name, value)?;
+        let end = exclusive_end_bound(target, predicate_name, value)?;
         parts.push(format!("{column} IS NOT NULL"));
         parts.push(format!("{column} >= {}", start.sql));
         parts.push(format!("{column} < {}", end.sql));
@@ -2240,13 +2242,13 @@ fn compile_date_predicate(
         params.extend(end.params);
     } else {
         if let Some(value) = from {
-            let bound = start_bound(value, unit);
+            let bound = start_bound(target, predicate_name, value)?;
             parts.push(format!("{column} IS NOT NULL"));
             parts.push(format!("{column} >= {}", bound.sql));
             params.extend(bound.params);
         }
         if let Some(value) = to {
-            let bound = exclusive_end_bound(value, unit);
+            let bound = exclusive_end_bound(target, predicate_name, value)?;
             if from.is_none() {
                 parts.push(format!("{column} IS NOT NULL"));
             }
@@ -2286,7 +2288,6 @@ fn compile_planning_predicate(
         &scope.heading_col("scheduled_ts"),
         Some(&scope.heading_col("scheduled_has_time")),
         &predicate.options,
-        TemporalUnit::Seconds,
         true,
     )?;
     let deadline = compile_date_predicate(
@@ -2295,7 +2296,6 @@ fn compile_planning_predicate(
         &scope.heading_col("deadline_ts"),
         Some(&scope.heading_col("deadline_has_time")),
         &predicate.options,
-        TemporalUnit::Seconds,
         true,
     )?;
     let closed = compile_date_predicate(
@@ -2304,7 +2304,6 @@ fn compile_planning_predicate(
         &scope.heading_col("closed_ts"),
         Some(&scope.heading_col("closed_has_time")),
         &predicate.options,
-        TemporalUnit::Seconds,
         true,
     )?;
 
@@ -2328,7 +2327,6 @@ fn compile_timestamp_exists_predicate(
         "timestamps.start_ts",
         Some("timestamps.has_time"),
         &predicate.options,
-        TemporalUnit::Seconds,
         true,
     )?;
 
@@ -2702,71 +2700,44 @@ fn compile_in_list(
     })
 }
 
-fn start_bound(value: &QueryValue, unit: TemporalUnit) -> SqlFragment {
-    let (seconds_sql, params) = start_seconds_sql(value);
-    scale_temporal_sql(seconds_sql, params, unit)
+fn start_bound(
+    target: QueryTarget,
+    predicate_name: &str,
+    value: &QueryValue,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let QueryValue::TemporalBounds(bounds) = value else {
+        return Err(QueryExecutionError::date_resolution(
+            target,
+            predicate_name,
+            format!(
+                "cannot compile unresolved temporal bound for {predicate_name}; resolve temporal bounds before SQL compilation"
+            ),
+        ));
+    };
+    Ok(SqlFragment {
+        sql: "?".to_string(),
+        params: vec![QueryParam::Integer(bounds.start)],
+    })
 }
 
-fn exclusive_end_bound(value: &QueryValue, unit: TemporalUnit) -> SqlFragment {
-    let (seconds_sql, params) = exclusive_end_seconds_sql(value);
-    scale_temporal_sql(seconds_sql, params, unit)
-}
-
-fn scale_temporal_sql(sql: String, params: Vec<QueryParam>, unit: TemporalUnit) -> SqlFragment {
-    match unit {
-        TemporalUnit::Seconds => SqlFragment { sql, params },
-        TemporalUnit::Nanoseconds => SqlFragment {
-            sql: format!("(({sql}) * 1000000000)"),
-            params,
-        },
-    }
-}
-
-fn start_seconds_sql(value: &QueryValue) -> (String, Vec<QueryParam>) {
-    match value {
-        QueryValue::Integer(days) => (
-            "CAST(unixepoch('now', 'localtime', 'start of day', printf('%+d days', ?)) AS INTEGER)"
-                .to_string(),
-            vec![QueryParam::Integer(*days)],
-        ),
-        QueryValue::Symbol(symbol) if symbol == "today" => (
-            "CAST(unixepoch('now', 'localtime', 'start of day') AS INTEGER)".to_string(),
-            Vec::new(),
-        ),
-        QueryValue::String(value) if looks_like_datetime(value) => (
-            "CAST(unixepoch(?) AS INTEGER)".to_string(),
-            vec![QueryParam::Text(value.clone())],
-        ),
-        QueryValue::String(value) => (
-            "CAST(unixepoch(? || ' 00:00:00') AS INTEGER)".to_string(),
-            vec![QueryParam::Text(value.clone())],
-        ),
-        _ => unreachable!("validator should constrain date option values"),
-    }
-}
-
-fn exclusive_end_seconds_sql(value: &QueryValue) -> (String, Vec<QueryParam>) {
-    match value {
-        QueryValue::Integer(days) => (
-            "CAST(unixepoch('now', 'localtime', 'start of day', printf('%+d days', ?), '+1 day') AS INTEGER)"
-                .to_string(),
-            vec![QueryParam::Integer(*days)],
-        ),
-        QueryValue::Symbol(symbol) if symbol == "today" => (
-            "CAST(unixepoch('now', 'localtime', 'start of day', '+1 day') AS INTEGER)"
-                .to_string(),
-            Vec::new(),
-        ),
-        QueryValue::String(value) if looks_like_datetime(value) => (
-            "(CAST(unixepoch(?) AS INTEGER) + 1)".to_string(),
-            vec![QueryParam::Text(value.clone())],
-        ),
-        QueryValue::String(value) => (
-            "CAST(unixepoch(? || ' 00:00:00', '+1 day') AS INTEGER)".to_string(),
-            vec![QueryParam::Text(value.clone())],
-        ),
-        _ => unreachable!("validator should constrain date option values"),
-    }
+fn exclusive_end_bound(
+    target: QueryTarget,
+    predicate_name: &str,
+    value: &QueryValue,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let QueryValue::TemporalBounds(bounds) = value else {
+        return Err(QueryExecutionError::date_resolution(
+            target,
+            predicate_name,
+            format!(
+                "cannot compile unresolved temporal bound for {predicate_name}; resolve temporal bounds before SQL compilation"
+            ),
+        ));
+    };
+    Ok(SqlFragment {
+        sql: "?".to_string(),
+        params: vec![QueryParam::Integer(bounds.exclusive_end)],
+    })
 }
 
 fn option_present(options: &[ValidatedOption], name: &str) -> bool {
@@ -2816,10 +2787,6 @@ fn arg_as_string(arg: &ValidatedArg) -> Result<String, &'static str> {
         ValidatedArg::Scalar(QueryValue::String(value)) => Ok(value.clone()),
         _ => Err("expected string scalar argument"),
     }
-}
-
-fn looks_like_datetime(value: &str) -> bool {
-    value.contains(':') || value.contains('T')
 }
 
 fn sql_literal(sql: &str) -> SqlFragment {
@@ -2977,8 +2944,8 @@ mod tests {
         PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
     };
     use crate::query::{
-        parse_query, resolve_relative_dates, validate_query, QueryDateResolutionOptions,
-        QueryExecutionOptions, QueryTarget, QueryValidationOptions,
+        parse_query, resolve_relative_dates, resolve_temporal_bounds, validate_query,
+        QueryDateResolutionOptions, QueryExecutionOptions, QueryTarget, QueryValidationOptions,
     };
     use chrono::NaiveDate;
     use rusqlite::Connection;
@@ -3036,6 +3003,17 @@ mod tests {
     fn validated(query: &str) -> crate::query::ValidatedQuery {
         let parsed = parse_query(query).expect("query should parse");
         validate_query(parsed, &validation_options()).expect("query should validate")
+    }
+
+    fn temporal_resolved(query: &str) -> crate::query::ValidatedQuery {
+        resolve_temporal_bounds(
+            &validated(query),
+            &QueryDateResolutionOptions {
+                timezone: Some("UTC".to_string()),
+                now_utc: None,
+            },
+        )
+        .expect("temporal bounds should resolve")
     }
 
     #[test]
@@ -3375,6 +3353,51 @@ mod tests {
         )
         .expect("regexp file directory query should execute");
         assert_eq!(file_paths(regexp_rows), vec![path]);
+    }
+
+    #[test]
+    fn execution_file_modified_uses_configured_timezone_for_calendar_boundaries() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            crate::db::CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        connection
+            .execute(
+                "INSERT INTO files (id, path, mtime_ns, size) VALUES (1, '/tmp/late.org', ?1, 0)",
+                rusqlite::params![1_784_327_696_000_000_000_i64],
+            )
+            .expect("file should insert");
+        connection
+            .execute(
+                "INSERT INTO headings (id, file_id, parent_id, level, byte_start, byte_end, title) VALUES (1, 1, NULL, 0, -1, 0, 'Late')",
+                [],
+            )
+            .expect("root heading should insert");
+        let options = QueryExecutionOptions {
+            query_timezone: Some("Europe/Zurich".to_string()),
+            ..QueryExecutionOptions::default()
+        };
+
+        for (query, expected) in [
+            (r#"(files (file-modified :on "2026-07-17"))"#, Vec::new()),
+            (
+                r#"(files (file-modified :on "2026-07-18"))"#,
+                vec!["/tmp/late.org"],
+            ),
+            (
+                r#"(files (file-modified :from "2026-07-18"))"#,
+                vec!["/tmp/late.org"],
+            ),
+            (r#"(files (file-modified :to "2026-07-17"))"#, Vec::new()),
+        ] {
+            let rows = execute_sqlite_query_with_options(&connection, &validated(query), &options)
+                .expect("file modification query should execute");
+            assert_eq!(
+                file_paths(rows),
+                expected.into_iter().map(str::to_string).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]
@@ -5077,7 +5100,7 @@ mod tests {
 
     #[test]
     fn compile_with_time_uses_persisted_columns_and_bound_date_params() {
-        let scheduled = compile_sqlite_query(&validated(
+        let scheduled = compile_sqlite_query(&temporal_resolved(
             r#"(headings (scheduled :from "2026-01-03" :to "2026-01-03" :with-time t))"#,
         ))
         .expect("scheduled query should compile");
@@ -5085,12 +5108,12 @@ mod tests {
         assert_eq!(
             scheduled.params,
             vec![
-                super::QueryParam::Text("2026-01-03".to_string()),
-                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Integer(1_767_398_400),
+                super::QueryParam::Integer(1_767_484_800),
             ]
         );
 
-        let ts_active = compile_sqlite_query(&validated(
+        let ts_active = compile_sqlite_query(&temporal_resolved(
             r#"(headings (ts-active :on "2026-01-03" :with-time nil))"#,
         ))
         .expect("ts-active query should compile");
@@ -5098,8 +5121,8 @@ mod tests {
         assert_eq!(
             ts_active.params,
             vec![
-                super::QueryParam::Text("2026-01-03".to_string()),
-                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Integer(1_767_398_400),
+                super::QueryParam::Integer(1_767_484_800),
                 super::QueryParam::Text("active".to_string()),
             ]
         );
@@ -5397,11 +5420,11 @@ mod tests {
 
     #[test]
     fn compile_distinguishes_date_only_and_datetime_bounds() {
-        let date_only = compile_sqlite_query(&validated(
+        let date_only = compile_sqlite_query(&temporal_resolved(
             r#"(headings (scheduled :from "2026-01-03" :to "2026-01-03"))"#,
         ))
         .expect("date-only query should compile");
-        let datetime = compile_sqlite_query(&validated(
+        let datetime = compile_sqlite_query(&temporal_resolved(
             r#"(headings (scheduled :from "2026-01-03 09:15" :to "2026-01-03 09:15"))"#,
         ))
         .expect("datetime query should compile");
@@ -5409,23 +5432,22 @@ mod tests {
         assert_eq!(
             date_only.params,
             vec![
-                super::QueryParam::Text("2026-01-03".to_string()),
-                super::QueryParam::Text("2026-01-03".to_string()),
+                super::QueryParam::Integer(1_767_398_400),
+                super::QueryParam::Integer(1_767_484_800),
             ]
         );
-        assert!(date_only.sql.contains("? || ' 00:00:00'"));
-        assert!(date_only.sql.contains("? || ' 00:00:00', '+1 day'"));
+        assert!(!date_only.sql.contains("unixepoch"));
+        assert!(!date_only.sql.contains("localtime"));
 
         assert_eq!(
             datetime.params,
             vec![
-                super::QueryParam::Text("2026-01-03 09:15".to_string()),
-                super::QueryParam::Text("2026-01-03 09:15".to_string()),
+                super::QueryParam::Integer(1_767_431_700),
+                super::QueryParam::Integer(1_767_431_701),
             ]
         );
-        assert!(!datetime.sql.contains("? || ' 00:00:00'"));
-        assert!(datetime.sql.contains("CAST(unixepoch(?) AS INTEGER)"));
-        assert!(datetime.sql.contains("(CAST(unixepoch(?) AS INTEGER) + 1)"));
+        assert!(!datetime.sql.contains("unixepoch"));
+        assert!(!datetime.sql.contains("localtime"));
     }
 
     #[test]
@@ -5544,14 +5566,22 @@ mod tests {
             },
         )
         .expect("query should resolve");
+        let resolved = resolve_temporal_bounds(
+            &resolved,
+            &QueryDateResolutionOptions {
+                timezone: Some("UTC".to_string()),
+                now_utc: None,
+            },
+        )
+        .expect("temporal bounds should resolve");
         let compiled = compile_sqlite_query(&resolved).expect("query should compile");
 
         assert!(!compiled.sql.contains("localtime"));
         assert_eq!(
             compiled.params,
             vec![
-                super::QueryParam::Text("2026-01-03".to_string()),
-                super::QueryParam::Text("2026-01-04".to_string()),
+                super::QueryParam::Integer(1_767_398_400),
+                super::QueryParam::Integer(1_767_571_200),
             ]
         );
 

@@ -8,12 +8,15 @@ pub mod result;
 pub mod sqlite;
 pub mod validate;
 
-pub use ast::{Expr, PredicateArg, PredicateCall, QueryAst, QueryOption, QueryTarget, QueryValue};
+pub use ast::{
+    Expr, PredicateArg, PredicateCall, QueryAst, QueryOption, QueryTarget, QueryValue,
+    TemporalBounds,
+};
 pub use error::{QueryParseError, QueryParseErrorKind};
 pub use parser::parse_query;
 pub use resolve::{
-    ensure_relative_dates_resolved, resolve_relative_dates, QueryDateResolutionError,
-    QueryDateResolutionErrorKind, QueryDateResolutionOptions,
+    ensure_relative_dates_resolved, resolve_relative_dates, resolve_temporal_bounds,
+    QueryDateResolutionError, QueryDateResolutionErrorKind, QueryDateResolutionOptions,
 };
 pub use result::{
     execute_and_shape_query, shape_query_results, EffectivePropertyFact, FileResultNode,

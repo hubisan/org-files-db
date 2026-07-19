@@ -1,0 +1,305 @@
+#+TITLE: Apply query timezone to temporal query boundaries
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-19 Sun 22:43]
+#+TASK_COMPLETED: [2026-07-19 Sun 22:52]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#A] Apply ~query.timezone~ to temporal query boundaries
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-19--apply-query-timezone-to-temporal-query-boundaries.org]]
+
+Goal:
+
+- Apply the configured query timezone when converting calendar dates into temporal query boundaries.
+- Fix date-only matching for all predicates using the shared date compiler.
+- Preserve the intentional timezone-naive semantics of indexed Org timestamps.
+- Treat file modification times as absolute Unix instants.
+
+Affected predicates:
+
+- ~file-modified~
+- ~ts~
+- ~ts-active~
+- ~ts-inactive~
+- ~deadline~
+- ~scheduled~
+- ~closed~
+- ~planning~
+
+Current behaviour:
+
+- ~query.timezone~ is passed from the CLI configuration into ~QueryExecutionOptions~.
+- ~resolve_relative_dates~ uses the effective timezone only to determine the calendar date represented by:
+  - ~today~
+  - integer day offsets
+- Resolved values are then converted back into date strings.
+- The SQLite compiler creates temporal boundaries with ~unixepoch(...)~ without applying the configured timezone.
+- SQLite therefore interprets date-only values as UTC boundaries.
+
+Current date-only compilation is equivalent to:
+
+#+begin_src sql
+unixepoch('2026-07-17 00:00:00')
+unixepoch('2026-07-17 00:00:00', '+1 day')
+#+end_src
+
+This produces:
+
+#+begin_src text
+2026-07-17 00:00:00 UTC
+2026-07-18 00:00:00 UTC
+#+end_src
+
+For ~query.timezone = "Europe/Zurich"~, the local calendar day ~2026-07-17~ in summer instead requires:
+
+#+begin_src text
+2026-07-16 22:00:00 UTC
+2026-07-17 22:00:00 UTC
+#+end_src
+
+Observed regression:
+
+Given a file modification time of:
+
+#+begin_src text
+2026-07-17 22:34:56 UTC
+2026-07-18 00:34:56 Europe/Zurich
+#+end_src
+
+this query currently matches incorrectly:
+
+#+begin_src lisp
+(headings
+  (and
+    (level 0)
+    (file-modified :on "2026-07-17")))
+#+end_src
+
+With ~query.timezone = "Europe/Zurich"~, it must not match.
+
+This query must match:
+
+#+begin_src lisp
+(headings
+  (and
+    (level 0)
+    (file-modified :on "2026-07-18")))
+#+end_src
+
+Temporal storage domains:
+
+- ~files.mtime_ns~ stores an absolute Unix timestamp in nanoseconds.
+- Planning and generic Org timestamps are currently stored as timezone-naive Unix seconds.
+- The parser explicitly does not model a timezone for Org timestamps.
+- The implementation must not treat these two storage domains as identical.
+
+Required date-only semantics:
+
+- Interpret a date-only query argument as a calendar day in the effective query timezone.
+- Effective timezone:
+  - configured ~query.timezone~, when present
+  - local system timezone otherwise
+- Compute the start and end boundaries in Rust before SQL compilation.
+- Use timezone-aware start-of-day conversion.
+- Compute the end as the start of the next local calendar day.
+- Do not derive the end by adding exactly ~86 400~ seconds.
+- This is required because DST transition days may contain 23 or 25 hours.
+
+For example, with ~Europe/Zurich~:
+
+#+begin_src text
+2026-03-29 local day:
+start = 2026-03-28 23:00:00 UTC
+end   = 2026-03-29 22:00:00 UTC
+duration = 23 hours
+
+2026-10-25 local day:
+start = 2026-10-24 22:00:00 UTC
+end   = 2026-10-25 23:00:00 UTC
+duration = 25 hours
+#+end_src
+
+Required ~file-modified~ semantics:
+
+- Treat ~mtime_ns~ as an absolute instant.
+- Convert date-only boundaries from the effective timezone into UTC epoch values.
+- Scale the resolved epoch seconds to nanoseconds before comparison.
+- Interpret datetime query values as local wall times in the effective timezone and convert them to absolute UTC instants.
+- Reject nonexistent local datetimes during a DST spring transition with a clear query error.
+- Define deterministic handling for ambiguous local datetimes during a DST autumn transition:
+  - preferably reject them with a clear error unless an explicit offset is supplied
+- Preserve exact absolute comparisons after timezone conversion.
+
+Required Org timestamp semantics:
+
+- Keep indexed Org timestamp values timezone-naive in Query Model v0.
+- Do not shift stored ~scheduled_ts~, ~deadline_ts~, ~closed_ts~, or generic ~timestamps.start_ts~ according to ~query.timezone~.
+- For date-only arguments, compare against timezone-naive calendar boundaries:
+
+#+begin_src text
+2026-07-17 00:00:00
+to
+2026-07-18 00:00:00
+#+end_src
+
+- The effective timezone still determines which date ~today~ and integer offsets resolve to.
+- Explicit date strings such as ~"2026-07-17"~ retain that written calendar date.
+- Explicit datetime strings retain their written wall time without timezone conversion.
+- Document this distinction clearly.
+
+Shared resolver design:
+
+- Replace SQL-side date parsing with Rust-side temporal-bound resolution.
+- Introduce an explicit temporal storage mode, for example:
+
+#+begin_src rust
+enum TemporalStorageMode {
+    AbsoluteUnix,
+    NaiveWallTime,
+}
+#+end_src
+
+- Use ~AbsoluteUnix~ for:
+  - ~file-modified~
+- Use ~NaiveWallTime~ for:
+  - ~scheduled~
+  - ~deadline~
+  - ~closed~
+  - ~planning~
+  - ~ts~
+  - ~ts-active~
+  - ~ts-inactive~
+- Resolve each supplied option into concrete integer boundaries before SQL compilation.
+- Bind only integer epoch values in SQL.
+- Keep nanosecond scaling explicit for ~file-modified~.
+
+Implementation tasks:
+
+- Extend date resolution beyond ~today~ and integer offsets.
+- Pass the effective timezone into temporal-bound resolution.
+- Parse date-only and datetime strings in Rust.
+- Resolve date-only bounds according to the predicate's temporal storage mode.
+- Resolve ~file-modified~ datetime values in the effective timezone.
+- Preserve naive datetime handling for Org timestamps.
+- Change ~compile_date_predicate~ so it no longer invokes SQLite ~unixepoch(...)~.
+- Replace:
+  - ~start_seconds_sql~
+  - ~exclusive_end_seconds_sql~
+  - SQL-side ~localtime~
+- Bind resolved integer boundaries directly.
+- Ensure ~planning~ uses identical resolved bounds for scheduled, deadline, and closed branches.
+- Ensure generic timestamp predicates reuse the same resolution implementation.
+- Return clear date-resolution errors for:
+  - invalid timezone
+  - invalid date
+  - invalid datetime
+  - nonexistent local datetime
+  - ambiguous local datetime, according to the selected policy
+  - integer overflow while scaling seconds to nanoseconds
+
+Required regression tests:
+
+- Configure ~Europe/Zurich~.
+- Store an mtime corresponding to:
+
+#+begin_src text
+2026-07-17 22:34:56 UTC
+2026-07-18 00:34:56 Europe/Zurich
+#+end_src
+
+- Verify:
+
+#+begin_src lisp
+(file-modified :on "2026-07-17")
+#+end_src
+
+does not match.
+
+- Verify:
+
+#+begin_src lisp
+(file-modified :on "2026-07-18")
+#+end_src
+
+matches.
+
+- Verify equivalent behaviour for:
+  - ~:from~
+  - ~:to~
+  - ~:on~
+- Verify UTC configuration produces UTC calendar-day boundaries.
+- Verify local-system fallback when ~query.timezone~ is omitted.
+- Verify summer and winter UTC offsets for ~Europe/Zurich~.
+- Verify 23-hour and 25-hour DST calendar days.
+- Verify a date-only Org timestamp query still matches the written Org calendar date without shifting it.
+- Verify explicit Org datetimes remain timezone-naive.
+- Verify ~today~ near midnight resolves to different date labels in UTC and ~Europe/Zurich~, while each predicate then applies its correct storage-domain semantics.
+- Add equivalent date-bound tests for:
+  - ~ts~
+  - ~ts-active~
+  - ~ts-inactive~
+  - ~scheduled~
+  - ~deadline~
+  - ~closed~
+  - ~planning~
+
+Documentation tasks:
+
+- Update ~docs/cli.org~ to clarify that ~query.timezone~ has two roles:
+  - resolving ~today~ and numeric day offsets
+  - converting absolute file modification date boundaries into UTC instants
+- Document that Org timestamps remain timezone-naive in Query Model v0.
+- Explain that ~file-modified~ uses absolute Unix time.
+- Explain that a date-only ~file-modified~ query represents a local calendar day in the effective timezone.
+- Explain that date-only Org timestamp queries represent the written Org calendar day without timezone conversion.
+- Update ~docs/reference/query-model-v0.org~ with the same distinction.
+- Remove or amend wording that suggests one identical timezone conversion model applies to every temporal predicate.
+
+Acceptance criteria:
+
+- ~file-modified :on~ uses the configured timezone for calendar-day boundaries.
+- The reported Europe/Zurich midnight regression is fixed.
+- All date-only boundary calculations are DST-safe.
+- ~today~ and integer offsets continue to use the effective timezone.
+- Org planning and generic timestamp comparisons retain their documented timezone-naive representation.
+- SQL no longer determines calendar boundaries through UTC-only ~unixepoch(...)~ calls.
+- All affected predicates share one explicit and tested temporal-bound resolver.
+- No database migration is required.
+  
+
+* Results
+
+** Approach
+- Resolve relative dates and concrete temporal bounds in Rust before SQLite compilation.
+- Use absolute nanosecond bounds for file modification time and timezone-naive second bounds for Org timestamps.
+
+** Changed files
+- ~src/query/ast.rs~ and ~src/query.rs~: add internal resolved temporal-bound values.
+- ~src/query/resolve.rs~: resolve date-only, local, and RFC 3339 temporal values with explicit storage modes and DST errors.
+- ~src/query/sqlite.rs~: bind resolved integer bounds without SQLite date functions.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~: distinguish file mtime and Org timestamp timezone semantics.
+
+** Checks performed
+- ~cargo fmt --all~
+- Focused temporal resolver and SQLite regression tests
+- ~make ci~
+
+** Test results
+- 348 unit tests, 38 adapter tests, and 105 parser/query integration tests passed through ~make ci~.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

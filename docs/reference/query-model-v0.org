@@ -1801,8 +1801,8 @@ Shared bound semantics:
 - Date-only ~:from~ uses an inclusive start-of-day boundary for the specified day.
 - Date-only ~:to~ includes the complete specified day by using an exclusive start-of-next-day boundary.
 - Date-only ~:on~ matches the complete specified calendar day.
-- Datetime arguments such as ~"2026-01-03 09:15"~ preserve their explicit hour and minute as written.
-- Datetime arguments are matched against the stored timezone-naive timestamp representation and are not converted between timezones.
+- Org datetime arguments such as ~"2026-01-03 09:15"~ preserve their explicit hour and minute as written.
+- Org datetime arguments are matched against the stored timezone-naive timestamp representation and are not converted between timezones. The effective query timezone only resolves ~today~ and integer day offsets to a calendar date.
 - Datetime ~:from~ is inclusive at the stated datetime.
 - Datetime ~:to~ uses the query model's upper-bound form: values at the stated datetime are included and later values are excluded.
 - Datetime ~:on~ matches the stored timestamp value at the stated datetime.
@@ -3380,7 +3380,10 @@ Rules:
 
 - For v0, heading modification time is inherited from the file.
 - Per-heading modification history is out of scope.
-- Date parsing follows the common date/time rules defined for planning predicates.
+- File modification time is an absolute Unix instant. A date-only value denotes the complete local calendar day in the effective query timezone: configured ~query.timezone~, or the local system timezone when omitted.
+- Offset-free ~file-modified~ datetimes use that effective timezone. RFC 3339 datetimes with an explicit offset denote an absolute instant directly.
+- Nonexistent and ambiguous offset-free local datetimes fail clearly; an explicit RFC 3339 offset disambiguates the latter.
+- Unlike Org planning and generic timestamps, file modification values are converted to UTC instants for comparison.
 
 *** ~(keyword KEY &optional VALUE &key regexp)~
 

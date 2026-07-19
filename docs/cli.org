@@ -529,8 +529,10 @@ Implemented date/time value forms:
 Resolution and boundary rules:
 
 - Relative values are resolved before SQL execution.
-- If ~query.timezone~ is configured, that timezone is used.
-- Otherwise the current local system timezone is used.
+- The effective timezone is configured ~query.timezone~, or the current local system timezone when it is omitted.
+- ~file-modified~ stores absolute Unix instants. Its date-only values describe a calendar day in the effective timezone, and offset-free datetimes are interpreted in that timezone before matching.
+- ~file-modified~ accepts RFC 3339 datetimes with an explicit offset as absolute instants. Nonexistent or ambiguous offset-free local datetimes fail clearly; use an explicit offset for an ambiguous time.
+- Org planning and generic timestamp values remain timezone-naive in Query Model v0. Explicit dates and datetimes are compared as written and are not shifted through ~query.timezone~; the timezone only chooses the calendar date for ~today~ and integer day offsets.
 - Date-only ~:from~ is inclusive from the start of that day.
 - Date-only ~:to~ includes the entire stated day.
 - Date-only ~:on~ matches the entire stated day.

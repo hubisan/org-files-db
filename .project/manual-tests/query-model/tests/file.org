@@ -398,7 +398,6 @@
 
 ** Regexp
 
-
 #+begin_src shell :noweb yes :results raw :wrap SRC js
   cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "~/projects/(coding|nothing)/[abcdefo]?rg-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zo.*" :regexp t))' \
   | jq '.results[] | {
@@ -532,7 +531,47 @@
 ** on
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :on "2026-07-19")))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :on "2026-07-18")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      mtime_ns
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-text.org",
+  "title_raw": "has-text",
+  "mtime_ns": 1784363795131232000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
+  "title_raw": "Org Property and Keyword Test",
+  "mtime_ns": 1784327696000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
+  "title_raw": "File-local TODO keywords",
+  "mtime_ns": 1784331445500650200
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
+  "title_raw": "TODO keywords",
+  "mtime_ns": 1784331431167729400
+}
+#+end_SRC
+
+** from
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :from "2026-07-18")))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,
@@ -551,15 +590,297 @@
 }
 {
   "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-text.org",
+  "title_raw": "has-text",
+  "mtime_ns": 1784363795131232000
+}
+{
+  "kind": "file",
   "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
   "title_raw": "priority-fixture-pri4",
   "mtime_ns": 1784455889916262100
 }
 {
   "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
+  "title_raw": "Org Property and Keyword Test",
+  "mtime_ns": 1784327696000000000
+}
+{
+  "kind": "file",
   "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
   "title_raw": "tags_fixture_tag3",
   "mtime_ns": 1784460355904105200
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
+  "title_raw": "Title",
+  "mtime_ns": 1784489791995040500
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
+  "title_raw": "File-local TODO keywords",
+  "mtime_ns": 1784331445500650200
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
+  "title_raw": "TODO keywords",
+  "mtime_ns": 1784331431167729400
+}
+#+end_SRC
+
+** to
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :to "2026-07-13")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      mtime_ns
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors-fixture-anc3",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org",
+  "title_raw": "children-fixture-chd2",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "closed-fixture-cls8",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "deadline-fixture-dln6",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org",
+  "title_raw": "done-fixture-dne4",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org",
+  "title_raw": "file-modified-fixture-fmd8",
+  "mtime_ns": 1782900000000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org",
+  "title_raw": "file-name-fixture-fnm3",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org",
+  "title_raw": "Effective File Title FTL6 Unique",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/keyword.org",
+  "title_raw": "keyword-fixture-kwd7",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level-fixture-lvl8",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from-fixture-lfr7",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org",
+  "title_raw": "links-to-fixture-lto6",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/multipe-title-keywords.org",
+  "title_raw": "Title can span multiple lines, even here",
+  "mtime_ns": 1781826194942471400
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/no-title-set.org",
+  "title_raw": null,
+  "mtime_ns": 1783850095870831400
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains-fixture-olc1",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence-fixture-ols2",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent-fixture-par1",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir-fixture-fdr5",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "planning-fixture-pln9",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "scheduled-fixture-sch7",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active-fixture-tsa4",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive-fixture-tsi5",
+  "mtime_ns": 1782986400000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts-fixture-tsp3",
+  "mtime_ns": 1782986400000000000
+}
+#+end_SRC
+
+** from to
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :from "2026-07-18" :to "2026-07-19")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      mtime_ns
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link-fixture-hln5",
+  "mtime_ns": 1784489535447186400
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-text.org",
+  "title_raw": "has-text",
+  "mtime_ns": 1784363795131232000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "priority-fixture-pri4",
+  "mtime_ns": 1784455889916262100
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
+  "title_raw": "Org Property and Keyword Test",
+  "mtime_ns": 1784327696000000000
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags_fixture_tag3",
+  "mtime_ns": 1784460355904105200
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
+  "title_raw": "Title",
+  "mtime_ns": 1784489791995040500
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
+  "title_raw": "File-local TODO keywords",
+  "mtime_ns": 1784331445500650200
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
+  "title_raw": "TODO keywords",
+  "mtime_ns": 1784331431167729400
+}
+#+end_SRC
+
+** with-time
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :from "2026-07-18 00:33" :to "2026-07-18 00:35")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      mtime_ns
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
+  "title_raw": "Org Property and Keyword Test",
+  "mtime_ns": 1784327696000000000
 }
 #+end_SRC
 

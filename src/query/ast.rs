@@ -42,6 +42,13 @@ pub enum QueryValue {
     Symbol(String),
     Keyword(String),
     Bool(bool),
+    TemporalBounds(TemporalBounds),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TemporalBounds {
+    pub start: i64,
+    pub exclusive_end: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
