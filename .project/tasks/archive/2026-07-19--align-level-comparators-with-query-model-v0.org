@@ -1,0 +1,35 @@
+#+TITLE: Align documented level comparators with Query Model v0
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-19 Sun 11:53]
+#+TASK_COMPLETED: [2026-07-19 Sun 11:55]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#C] Align documented ~level~ comparators with Query Model v0
+
+* Results
+
+** Approach
+- Update the public CLI reference so its ~level~ comparator list matches Query Model v0 and the existing validator/backend contract.
+- Leave query behavior, fixtures, and the reference specification unchanged.
+
+** Changed files
+- ~docs/cli.org~
+
+** Checks performed
+- Verify all documentation and examples for ~level~ comparator claims.
+- Run the relevant query validation tests and the repository CI check.
+
+** Test results
+- ~make ci~ passed: formatting, Clippy, 335 unit tests, all integration tests, and the all-target build.
+- Documentation scan confirmed that no other documentation or examples advertise ~=~ or ~!=~ as ~level~ comparators.
+
+** Blockers
+- None.
+
+** Follow-ups
+- None.

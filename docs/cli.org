@@ -306,7 +306,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(has-text "sqlite" "fts")'~.
 - ~level~ :: Syntax: ~(level NUMBER)~, ~(level MIN MAX)~, ~(level COMPARATOR NUMBER)~.
   Targets: ~headings~.
-  Matches heading levels. Comparator form uses scalar comparators such as ~<~, ~<=~, ~>~, ~>=~, ~=~, and ~!=~.
+  Matches heading levels. Comparator form uses ~<~, ~<=~, ~>~, or ~>=~.
   Example: ~'(level 1 2)'~.
 - ~priority~ :: Syntax: ~(priority VALUE...)~ or ~(priority COMPARATOR VALUE)~.
   Targets: ~headings~.
