@@ -1286,6 +1286,7 @@ Match headings with explicit priority cookies.
 #+begin_src lisp
 (priority "A")
 (priority "A" "B")
+(priority < "B")
 (priority >= "B")
 #+end_src
 
@@ -1295,6 +1296,11 @@ Match headings with explicit priority cookies.
 - With comparator, the first argument is one of ~<~, ~<=~, ~>~, or ~>=~.
 - Items without an explicit priority cookie do not match.
 - The default Org priority must not be assumed for items without a priority cookie.
+- Priority values are either one uppercase letter from ~A~ through ~Z~ or an integer from ~0~ through ~64~.
+- Query evaluation maps ~A~ through ~Z~ to ranks ~1~ through ~26~ and numeric values to their integer rank. Therefore ~A~ equals ~1~, ~B~ equals ~2~, and ~C~ equals ~3~ for matching.
+- Comparator direction expresses semantic priority: ~A > B > C~, even though its comparison rank is smaller. For example, ~(priority > "B")~ matches priorities with ranks below ~2~.
+- The original cookie value remains source-oriented stored data and is returned unchanged; ranks exist only while evaluating the query.
+- Query Model v0 uses this fixed mapping. It does not evaluate ~org-priority-highest~, ~org-priority-lowest~, ~org-priority-default~, or file-local ~#+PRIORITIES~ declarations.
 
 **** Examples
 
@@ -1306,7 +1312,7 @@ Match headings with explicit priority cookies.
 
 **** Notes
 
-The ordering of priority letters follows Org priority ordering. Usually ~A~ is higher priority than ~B~, but the effective ordering should follow indexed configuration if supported.
+Numeric priorities conventionally begin with ~1~ for equivalence with ~A~, but ~0~ is accepted when present in an Org priority cookie.
 
 ** 4. Tags predicate
 

@@ -310,8 +310,8 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(level 1 2)'~.
 - ~priority~ :: Syntax: ~(priority VALUE...)~ or ~(priority COMPARATOR VALUE)~.
   Targets: ~headings~.
-  Multi-value form is OR. Comparator form compares stored priorities.
-  Example: ~'(priority "A" "B")'~.
+  Multi-value form is OR. Comparator form supports ~<~, ~<=~, ~>~, and ~>=~ using semantic priority order: ~A > B > C~. Query-time ranks are ~A = 1~, ~B = 2~, and so on through ~Z = 26~; numeric values from ~0~ through ~64~ use their integer rank, so ~A~ and ~1~ match equivalently. The original source value remains stored and returned. Query Model v0 uses this fixed mapping and does not evaluate Emacs priority variables or file-local ~#+PRIORITIES~ declarations.
+  Example: ~'(priority > "B")'~ matches ~A~ and ~1~.
 - ~tags~ :: Syntax: ~(tags TAG... :inherit t|nil :regexp t|nil :match :any|:all)~.
   Targets: ~headings~, ~files~.
   Heading queries use effective tags by default, including inherited/root tags when present. File queries match tags stored on the file root heading. With ~:regexp t~, each pattern is matched against one effective tag value.

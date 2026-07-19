@@ -2454,6 +2454,16 @@ PRAGMA user_version = 4;
 
         let connection = open_database(&database_path).expect("database should upgrade");
 
+        connection
+            .execute("UPDATE headings SET priority = '10' WHERE id = 2", [])
+            .expect("migrated headings schema should preserve multi-digit priorities");
+        let priority: Option<String> = connection
+            .query_row("SELECT priority FROM headings WHERE id = 2", [], |row| {
+                row.get(0)
+            })
+            .expect("migrated priority should load");
+        assert_eq!(priority.as_deref(), Some("10"));
+
         for table_name in [
             "keywords",
             "properties",

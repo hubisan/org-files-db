@@ -1017,7 +1017,7 @@ fn heading_record(
         title_raw: heading.title_raw.clone(),
         todo_keyword: heading.todo_keyword.clone(),
         todo_type,
-        priority: heading.priority,
+        priority: heading.priority.clone(),
         scheduled_raw: heading.planning.scheduled_raw().map(str::to_string),
         scheduled_ts: heading.planning.scheduled_ts(),
         scheduled_has_time: heading.planning.scheduled_has_time(),

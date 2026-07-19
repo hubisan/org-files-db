@@ -257,7 +257,7 @@ fn assert_heading_expectation(
         ),
         "priority" => assert_eq!(
             heading.priority,
-            value.chars().next(),
+            Some(value.to_string()),
             "unexpected priority for {}",
             path.display()
         ),

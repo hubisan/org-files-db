@@ -188,6 +188,20 @@ fn rejects_invalid_match_values() {
 }
 
 #[test]
+fn rejects_invalid_priority_values() {
+    for query in [
+        r#"(headings (priority "a"))"#,
+        r#"(headings (priority "65"))"#,
+        r#"(headings (priority > "A1"))"#,
+    ] {
+        let query = org_files_db::query::parse_query(query).expect("query should parse");
+        let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
+        assert_eq!(error.kind, QueryValidationErrorKind::InvalidValue);
+        assert!(error.message.contains("priority must be"));
+    }
+}
+
+#[test]
 fn rejects_has_text_when_body_text_is_unavailable() {
     let query = org_files_db::query::parse_query(r#"(headings (has-text "sqlite"))"#)
         .expect("query should parse");

@@ -605,6 +605,15 @@ fn headings_table_matches_current_contract(
         return Ok(false);
     }
 
+    let table_sql: String = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'headings'",
+        [],
+        |row| row.get(0),
+    )?;
+    if table_sql.contains("length(priority) = 1") {
+        return Ok(false);
+    }
+
     let mut statement = connection.prepare("PRAGMA table_info(headings)")?;
     let rows = statement.query_map([], |row| {
         Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))

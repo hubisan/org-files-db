@@ -734,7 +734,7 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
     assert_eq!(first.title, "Inbox");
     assert_eq!(first.todo_keyword.as_deref(), Some("TODO"));
     assert_eq!(first.todo_type, Some(TodoType::Open));
-    assert_eq!(first.priority, Some('A'));
+    assert_eq!(first.priority.as_deref(), Some("A"));
     assert_eq!(first.tags, vec!["rust".to_string(), "parser".to_string()]);
     assert!(!first.is_root);
     assert_eq!(first.parent_index, Some(0));
@@ -744,7 +744,7 @@ fn orgize_adapter_extracts_todo_priority_and_tags() {
     assert_eq!(second.parent_index, Some(1));
     assert_eq!(second.todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(second.todo_type, Some(TodoType::Closed));
-    assert_eq!(second.priority, Some('B'));
+    assert_eq!(second.priority.as_deref(), Some("B"));
     assert_eq!(second.tags, vec!["child".to_string()]);
 
     assert!(document.diagnostics.is_empty());
@@ -951,7 +951,7 @@ fn orgize_adapter_uses_configured_project_todo_keywords_with_priority() {
     assert_eq!(document.headings.len(), 3);
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("PLAN"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
-    assert_eq!(document.headings[1].priority, Some('A'));
+    assert_eq!(document.headings[1].priority.as_deref(), Some("A"));
     assert_eq!(document.headings[1].title, "Parser fixture");
     assert_eq!(
         document.headings[1].title_raw.as_deref(),
@@ -959,12 +959,26 @@ fn orgize_adapter_uses_configured_project_todo_keywords_with_priority() {
     );
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Closed));
-    assert_eq!(document.headings[2].priority, Some('B'));
+    assert_eq!(document.headings[2].priority.as_deref(), Some("B"));
     assert_eq!(document.headings[2].title, "Implemented");
     assert_eq!(
         document.headings[2].title_raw.as_deref(),
         Some("DONE [#B] Implemented")
     );
+}
+
+#[test]
+fn orgize_adapter_preserves_multi_digit_numeric_priority() {
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/numeric-priority.org"),
+            "* [#10] Numeric priority\n",
+            &ParseOptions::default(),
+        )
+        .expect("numeric priority fixture should parse");
+
+    assert_eq!(document.headings[1].priority.as_deref(), Some("10"));
+    assert_eq!(document.headings[1].title, "Numeric priority");
 }
 
 #[test]
@@ -1029,7 +1043,7 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priorit
     assert_eq!(document.headings.len(), 5);
     assert_eq!(document.headings[1].todo_keyword.as_deref(), Some("NEXT"));
     assert_eq!(document.headings[1].todo_type, Some(TodoType::Open));
-    assert_eq!(document.headings[1].priority, Some('A'));
+    assert_eq!(document.headings[1].priority.as_deref(), Some("A"));
     assert_eq!(document.headings[1].title, "Priority Test");
     assert_eq!(
         document.headings[1].title_raw.as_deref(),
@@ -1037,7 +1051,7 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priorit
     );
     assert_eq!(document.headings[2].todo_keyword.as_deref(), Some("REVIEW"));
     assert_eq!(document.headings[2].todo_type, Some(TodoType::Open));
-    assert_eq!(document.headings[2].priority, Some('B'));
+    assert_eq!(document.headings[2].priority.as_deref(), Some("B"));
     assert_eq!(document.headings[2].title, "Review query CLI");
     assert_eq!(
         document.headings[2].title_raw.as_deref(),
@@ -1045,7 +1059,7 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priorit
     );
     assert_eq!(document.headings[3].todo_keyword.as_deref(), Some("BUILD"));
     assert_eq!(document.headings[3].todo_type, Some(TodoType::Open));
-    assert_eq!(document.headings[3].priority, Some('C'));
+    assert_eq!(document.headings[3].priority.as_deref(), Some("C"));
     assert_eq!(document.headings[3].title, "Build query backend");
     assert_eq!(
         document.headings[3].title_raw.as_deref(),
@@ -1053,7 +1067,7 @@ fn orgize_adapter_prefers_org_todo_keywords_over_configured_defaults_for_priorit
     );
     assert_eq!(document.headings[4].todo_keyword.as_deref(), Some("DONE"));
     assert_eq!(document.headings[4].todo_type, Some(TodoType::Closed));
-    assert_eq!(document.headings[4].priority, Some('B'));
+    assert_eq!(document.headings[4].priority.as_deref(), Some("B"));
     assert_eq!(document.headings[4].title, "Completed task");
     assert_eq!(
         document.headings[4].title_raw.as_deref(),
@@ -1562,14 +1576,14 @@ fn orgize_adapter_removes_priority_and_statistics_cookies_from_titles() {
 
     assert_eq!(document.headings.len(), 5);
 
-    assert_eq!(document.headings[1].priority, Some('A'));
+    assert_eq!(document.headings[1].priority.as_deref(), Some("A"));
     assert_eq!(document.headings[1].title, "Prepare release");
     assert_eq!(
         document.headings[1].title_raw.as_deref(),
         Some("TODO [#A] Prepare release")
     );
 
-    assert_eq!(document.headings[2].priority, Some('B'));
+    assert_eq!(document.headings[2].priority.as_deref(), Some("B"));
     assert_eq!(document.headings[2].title, "Statistic Cookies");
     assert_eq!(
         document.headings[2].title_raw.as_deref(),

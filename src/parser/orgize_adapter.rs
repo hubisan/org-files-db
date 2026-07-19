@@ -364,8 +364,15 @@ fn collect_headlines(
 
         let original_title_raw = headline.title_raw().trim_end().to_string();
         let source_title_raw = source_title_raw_from_content_line(content, start);
-        let parsed_priority = headline.priority().and_then(|token| token.chars().next());
-        let normalized_title = normalize_title_elements(headline.title());
+        let headline_priority = headline.priority().map(|token| token.to_string());
+        let parsed_priority = headline_priority
+            .clone()
+            .or_else(|| priority_from_source_title(&source_title_raw));
+        let normalized_title = if headline_priority.is_none() && parsed_priority.is_some() {
+            normalize_title_from_raw(&source_title_raw, parsed_priority.as_deref())
+        } else {
+            normalize_title_elements(headline.title())
+        };
         let mut parsed =
             ParsedHeading::new(path, headline.level() as u8, normalized_title, start, end);
         parsed.title_raw = Some(source_title_raw.clone());
@@ -379,20 +386,25 @@ fn collect_headlines(
         {
             parsed.todo_keyword = None;
             parsed.title_raw = Some(source_title_raw.clone());
-            parsed.title =
-                normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
+            parsed.title = normalize_title_preserving_leading_keyword(
+                &source_title_raw,
+                parsed.priority.as_deref(),
+            );
         }
         if parsed.todo_keyword.is_none() {
             if source_title_raw != original_title_raw.trim() {
                 parsed.title_raw = Some(source_title_raw.clone());
-                parsed.title =
-                    normalize_title_preserving_leading_keyword(&source_title_raw, parsed.priority);
+                parsed.title = normalize_title_preserving_leading_keyword(
+                    &source_title_raw,
+                    parsed.priority.as_deref(),
+                );
             }
             if let Some((keyword, stripped_title_raw)) =
                 infer_todo_keyword(&source_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
-                parsed.title = normalize_title_from_raw(&stripped_title_raw, parsed.priority);
+                parsed.title =
+                    normalize_title_from_raw(&stripped_title_raw, parsed.priority.as_deref());
             }
         }
         parsed.todo_type = parsed
@@ -526,7 +538,7 @@ fn body_metadata_kind(kind: SyntaxKind) -> bool {
     )
 }
 
-fn normalize_title_from_raw(title_raw: &str, priority: Option<char>) -> String {
+fn normalize_title_from_raw(title_raw: &str, priority: Option<&str>) -> String {
     let stripped = strip_leading_priority_cookie(title_raw, priority);
     let parsed = Org::parse(format!("* {stripped}\n"));
     parsed
@@ -537,7 +549,7 @@ fn normalize_title_from_raw(title_raw: &str, priority: Option<char>) -> String {
         .unwrap_or_else(|| stripped.trim().to_string())
 }
 
-fn normalize_title_preserving_leading_keyword(title_raw: &str, priority: Option<char>) -> String {
+fn normalize_title_preserving_leading_keyword(title_raw: &str, priority: Option<&str>) -> String {
     const SENTINEL: &str = "ORG_FILES_DB_SENTINEL ";
     let stripped = strip_leading_priority_cookie(title_raw, priority);
     let parsed = Org::parse(format!("* {SENTINEL}{stripped}\n"));
@@ -1544,7 +1556,7 @@ fn infer_todo_keyword(
     None
 }
 
-fn strip_leading_priority_cookie(title_raw: &str, priority: Option<char>) -> &str {
+fn strip_leading_priority_cookie<'a>(title_raw: &'a str, priority: Option<&str>) -> &'a str {
     let Some(priority) = priority else {
         return title_raw;
     };
@@ -1561,6 +1573,33 @@ fn strip_leading_priority_cookie(title_raw: &str, priority: Option<char>) -> &st
     } else {
         title_raw
     }
+}
+
+fn priority_from_source_title(title_raw: &str) -> Option<String> {
+    let trimmed = title_raw.trim_start();
+    let candidate = priority_cookie_value(trimmed).or_else(|| {
+        trimmed
+            .split_once(char::is_whitespace)
+            .and_then(|(_, remainder)| priority_cookie_value(remainder.trim_start()))
+    })?;
+    if candidate.bytes().all(|byte| byte.is_ascii_uppercase())
+        || candidate.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        Some(candidate.to_string())
+    } else {
+        None
+    }
+}
+
+fn priority_cookie_value(value: &str) -> Option<&str> {
+    let value = value.strip_prefix("[#")?;
+    let (candidate, remainder) = value.split_once(']')?;
+    if candidate.is_empty()
+        || (!remainder.is_empty() && !remainder.starts_with(char::is_whitespace))
+    {
+        return None;
+    }
+    Some(candidate)
 }
 
 fn todo_type_for_keyword(keyword: &str, todo_keywords: &TodoKeywordConfig) -> Option<TodoType> {

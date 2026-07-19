@@ -9,6 +9,7 @@ use rusqlite::{
 };
 use serde::Serialize;
 
+use super::priority::normalize_priority;
 use super::result::QueryExecutionOptions;
 use super::{
     ensure_relative_dates_resolved, resolve_relative_dates, QueryDateResolutionOptions,
@@ -48,6 +49,7 @@ pub enum QueryRows {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)] // Source-preserving heading fields intentionally remain inline.
 pub enum HeadingQueryMatch {
     File(FileQueryRow),
     Heading(HeadingQueryRow),
@@ -67,7 +69,7 @@ pub struct HeadingQueryRow {
     pub title_raw: Option<String>,
     pub todo_keyword: Option<String>,
     pub todo_type: Option<String>,
-    pub priority: Option<char>,
+    pub priority: Option<String>,
     pub scheduled_raw: Option<String>,
     pub scheduled_ts: Option<i64>,
     pub deadline_raw: Option<String>,
@@ -574,7 +576,7 @@ fn execute_heading_rows_query(
                 title_raw: row.get(9)?,
                 todo_keyword: row.get(10)?,
                 todo_type: row.get(11)?,
-                priority: priority.and_then(|value| value.chars().next()),
+                priority,
                 scheduled_raw: row.get(13)?,
                 scheduled_ts: row.get(14)?,
                 deadline_raw: row.get(15)?,
@@ -1524,30 +1526,60 @@ fn compile_priority_predicate(
     column: &str,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
+    let rank = priority_rank_sql(column);
     match predicate.args.as_slice() {
         [ValidatedArg::Scalar(QueryValue::Symbol(comparator)), ValidatedArg::Scalar(QueryValue::String(value))]
             if matches!(comparator.as_str(), "<" | "<=" | ">" | ">=") =>
         {
+            let value_rank = normalize_priority(value)
+                .expect("validator should guarantee valid priority values");
+            let comparison = match comparator.as_str() {
+                ">" => "<",
+                ">=" => "<=",
+                "<" => ">",
+                "<=" => ">=",
+                _ => unreachable!("comparator was checked above"),
+            };
             Ok(SqlFragment {
-                sql: format!("({column} IS NOT NULL AND {column} {} ?)", comparator),
-                params: vec![QueryParam::Text(value.clone())],
+                sql: format!("({rank} {comparison} ?)"),
+                params: vec![QueryParam::Integer(value_rank)],
             })
         }
         args => {
-            let strings = args
+            let ranks = args
                 .iter()
-                .map(arg_as_string)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|message| {
-                    QueryExecutionError::unsupported_backend_feature(target, "priority", message)
-                })?;
-            let placeholders = vec!["?"; strings.len()].join(", ");
+                .map(|arg| {
+                    let value = arg_as_string(arg).map_err(|message| {
+                        QueryExecutionError::unsupported_backend_feature(
+                            target, "priority", message,
+                        )
+                    })?;
+                    normalize_priority(&value).map_err(|message| {
+                        QueryExecutionError::unsupported_backend_feature(
+                            target, "priority", message,
+                        )
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let placeholders = vec!["?"; ranks.len()].join(", ");
             Ok(SqlFragment {
-                sql: format!("({column} IN ({placeholders}))"),
-                params: strings.into_iter().map(QueryParam::Text).collect(),
+                sql: format!("({rank} IN ({placeholders}))"),
+                params: ranks.into_iter().map(QueryParam::Integer).collect(),
             })
         }
     }
+}
+
+fn priority_rank_sql(column: &str) -> String {
+    format!(
+        "(CASE \
+         WHEN length({column}) = 1 AND {column} GLOB '[A-Z]' \
+             THEN unicode({column}) - unicode('A') + 1 \
+         WHEN {column} NOT GLOB '*[^0-9]*' AND {column} <> '' \
+              AND CAST({column} AS INTEGER) BETWEEN 0 AND 64 \
+             THEN CAST({column} AS INTEGER) \
+         ELSE NULL END)"
+    )
 }
 
 fn compile_text_predicate(
@@ -3219,7 +3251,7 @@ mod tests {
                 title_raw: Some("Query Engine".to_string()),
                 todo_keyword: Some("NEXT".to_string()),
                 todo_type: Some("open".to_string()),
-                priority: Some('A'),
+                priority: Some("A".to_string()),
                 scheduled_raw: Some("<2026-01-03 Fri>".to_string()),
                 scheduled_ts: Some(1_767_398_400),
                 deadline_raw: None,
@@ -3311,6 +3343,86 @@ mod tests {
                     root_title_raw: Some("Beta Index".to_string()),
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn execution_compares_priorities_by_semantic_rank_and_preserves_source_values() {
+        let connection = seeded_connection();
+        for (id, priority) in [(101, "1"), (102, "2"), (103, "C"), (104, "3"), (105, "10")] {
+            connection
+                .execute(
+                    "INSERT INTO headings
+                     (id, file_id, parent_id, level, byte_start, byte_end, title, priority)
+                     VALUES (?1, 2, 10, 1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        id,
+                        id * 10,
+                        id * 10 + 5,
+                        format!("Priority {priority}"),
+                        priority
+                    ],
+                )
+                .expect("priority heading should insert");
+        }
+
+        let matching_priorities = |query: &str| {
+            let QueryRows::Headings(rows) = execute_sqlite_query(&connection, &validated(query))
+                .expect("priority query should execute")
+            else {
+                panic!("headings query should return heading rows");
+            };
+            rows.into_iter()
+                .filter_map(|row| match row {
+                    HeadingQueryMatch::Heading(row) => row.priority,
+                    HeadingQueryMatch::File(_) => None,
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            matching_priorities(r#"(headings (priority "A"))"#),
+            ["A", "1"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority "1"))"#),
+            ["A", "1"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority "B"))"#),
+            ["B", "2"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority > "B"))"#),
+            ["A", "1"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority >= "B"))"#),
+            ["A", "B", "1", "2"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority < "B"))"#),
+            ["C", "3", "10"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority <= "B"))"#),
+            ["B", "2", "C", "3", "10"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority > "2"))"#),
+            ["A", "1"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority >= "2"))"#),
+            ["A", "B", "1", "2"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority < "2"))"#),
+            ["C", "3", "10"]
+        );
+        assert_eq!(
+            matching_priorities(r#"(headings (priority <= "2"))"#),
+            ["B", "2", "C", "3", "10"]
         );
     }
 
@@ -6394,7 +6506,7 @@ CREATE TABLE timestamps (
                         title_raw: Some("Query Engine".to_string()),
                         todo_keyword: Some("NEXT".to_string()),
                         todo_type: Some("open".to_string()),
-                        priority: Some('A'),
+                        priority: Some("A".to_string()),
                         scheduled_raw: Some("<2026-01-03 Fri>".to_string()),
                         scheduled_ts: Some(1_767_398_400),
                         scheduled_has_time: None,
@@ -6472,7 +6584,7 @@ CREATE TABLE timestamps (
                         title_raw: Some("REVIEW [#B] Statistic Cookies [0/1]".to_string()),
                         todo_keyword: Some("REVIEW".to_string()),
                         todo_type: Some("open".to_string()),
-                        priority: Some('B'),
+                        priority: Some("B".to_string()),
                         scheduled_raw: None,
                         scheduled_ts: None,
                         scheduled_has_time: None,

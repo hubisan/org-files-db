@@ -167,7 +167,8 @@ CREATE TABLE IF NOT EXISTS db_metadata (
     open or closed, resolved from the active TODO keyword configuration.
 
   priority:
-    Org priority marker without brackets, for example A, B, or C.
+    Org priority marker without brackets, preserved as its complete source value,
+    for example A, B, C, 1, or 10.
 
   scheduled_raw / deadline_raw / closed_raw:
     Original Org planning timestamp strings when present.
@@ -204,7 +205,7 @@ CREATE TABLE IF NOT EXISTS headings (
     title_raw           TEXT,
     todo_keyword        TEXT,
     todo_type           TEXT CHECK (todo_type IN ('open', 'closed') OR todo_type IS NULL),
-    priority            TEXT CHECK (priority IS NULL OR length(priority) = 1),
+    priority            TEXT,
     scheduled_raw       TEXT,
     scheduled_ts        INTEGER,
     scheduled_has_time  INTEGER CHECK (scheduled_has_time IN (0, 1) OR scheduled_has_time IS NULL),

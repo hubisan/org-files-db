@@ -5,6 +5,7 @@ use serde::Serialize;
 use super::ast::{
     Expr, PredicateArg, PredicateCall, QueryAst, QueryOption, QueryTarget, QueryValue,
 };
+use super::priority::normalize_priority_value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ValidatedQuery {
@@ -322,24 +323,36 @@ fn validate_priority(
                 "priority expects one or more priority values, or (priority COMPARATOR PRIORITY)",
             ))
         }
-        [ValidatedArg::Scalar(QueryValue::Symbol(symbol)), ValidatedArg::Scalar(QueryValue::String(_))]
-            if is_comparator(symbol) => {}
+        [ValidatedArg::Scalar(QueryValue::Symbol(symbol)), value] if is_comparator(symbol) => {
+            normalize_priority_arg(target, value)?;
+        }
         values => {
-            if !values
-                .iter()
-                .all(|value| matches!(value, ValidatedArg::Scalar(QueryValue::String(_))))
-            {
-                return Err(QueryValidationError::new(
-                    QueryValidationErrorKind::InvalidValue,
-                    target,
-                    "priority",
-                    "priority values must be strings, except for comparator form",
-                ));
+            for value in values {
+                normalize_priority_arg(target, value)?;
             }
         }
     }
 
     Ok(validated_predicate(target, call.name, args, options))
+}
+
+fn normalize_priority_arg(
+    target: QueryTarget,
+    value: &ValidatedArg,
+) -> Result<(), QueryValidationError> {
+    let ValidatedArg::Scalar(value) = value else {
+        unreachable!("priority arguments are scalar after validation");
+    };
+    normalize_priority_value(value)
+        .map(|_| ())
+        .map_err(|message| {
+            QueryValidationError::new(
+                QueryValidationErrorKind::InvalidValue,
+                target,
+                "priority",
+                message,
+            )
+        })
 }
 
 fn validate_tags(

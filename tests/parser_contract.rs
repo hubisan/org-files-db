@@ -13,7 +13,7 @@ struct ParserFixture {
     content: &'static str,
     expected_title: Option<&'static str>,
     expected_heading_titles: Vec<&'static str>,
-    expected_priorities: Vec<Option<char>>,
+    expected_priorities: Vec<Option<&'static str>>,
     expected_tags: Vec<Vec<&'static str>>,
     expected_diagnostics: usize,
 }
@@ -48,7 +48,8 @@ where
             "unexpected heading title at index {index}"
         );
         assert_eq!(
-            heading.priority, fixture.expected_priorities[index],
+            heading.priority.as_deref(),
+            fixture.expected_priorities[index],
             "unexpected priority at index {index}"
         );
 
@@ -86,7 +87,7 @@ impl OrgParserCore for StubFixtureParser {
         heading.title_raw = Some("TODO [#A] Inbox :rust:parser:".to_string());
         heading.todo_keyword = Some("TODO".to_string());
         heading.todo_type = Some(TodoType::Open);
-        heading.priority = Some('A');
+        heading.priority = Some("A".to_string());
         heading.tags = vec!["rust".to_string(), "parser".to_string()];
         heading.properties = vec![ParsedProperty {
             key: "CUSTOM_ID".to_string(),
@@ -160,7 +161,7 @@ fn parsed_org_document_supports_schema_near_metadata() {
     heading.title_raw = Some("TODO [#B] Parser model".to_string());
     heading.todo_keyword = Some("TODO".to_string());
     heading.todo_type = Some(TodoType::Open);
-    heading.priority = Some('B');
+    heading.priority = Some("B".to_string());
     heading.tags = vec!["project".to_string(), "rust".to_string()];
     heading.properties = vec![ParsedProperty {
         key: "OWNER".to_string(),
@@ -212,7 +213,7 @@ fn diagnostics_can_be_collected_on_successful_parse() {
         content: include_str!("data/parser/headings/basic-heading/fixture.org"),
         expected_title: Some("Basic Heading Fixture"),
         expected_heading_titles: vec!["Inbox"],
-        expected_priorities: vec![Some('A')],
+        expected_priorities: vec![Some("A")],
         expected_tags: vec![vec!["rust", "parser"]],
         expected_diagnostics: 1,
     };
@@ -280,7 +281,7 @@ fn parsed_heading_serializes_with_expected_field_names() {
     heading.body_byte_end = Some(17);
     heading.todo_keyword = Some("TODO".to_string());
     heading.todo_type = Some(TodoType::Open);
-    heading.priority = Some('A');
+    heading.priority = Some("A".to_string());
     heading.tags = vec!["project".to_string(), "root".to_string()];
     heading.line_number = Some(1);
     heading.is_root = true;

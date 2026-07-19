@@ -17,7 +17,7 @@ pub(crate) struct HeadingListRow {
     pub title_raw: Option<String>,
     pub todo_keyword: Option<String>,
     pub todo_type: Option<String>,
-    pub priority: Option<char>,
+    pub priority: Option<String>,
     pub scheduled_raw: Option<String>,
     pub scheduled_ts: Option<i64>,
     pub deadline_raw: Option<String>,
@@ -125,7 +125,7 @@ impl DbReader {
                     title_raw: row.get(9)?,
                     todo_keyword: row.get(10)?,
                     todo_type: row.get(11)?,
-                    priority: priority.and_then(|value| value.chars().next()),
+                    priority,
                     scheduled_raw: row.get(13)?,
                     scheduled_ts: row.get(14)?,
                     deadline_raw: row.get(15)?,
@@ -372,7 +372,7 @@ mod tests {
                     title_raw: Some("Inbox".to_string()),
                     todo_keyword: Some("TODO".to_string()),
                     todo_type: Some("open".to_string()),
-                    priority: Some('A'),
+                    priority: Some("A".to_string()),
                     scheduled_raw: None,
                     scheduled_ts: None,
                     scheduled_has_time: None,
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(rows[0].level, 0);
         assert_eq!(rows[1].title, "Inbox");
         assert_eq!(rows[1].todo_keyword.as_deref(), Some("TODO"));
-        assert_eq!(rows[1].priority, Some('A'));
+        assert_eq!(rows[1].priority.as_deref(), Some("A"));
         assert_eq!(rows[1].scheduled_raw, None);
         assert_eq!(rows[1].scheduled_ts, None);
         assert_eq!(rows[1].all_tags_json, "[\"rust\"]");
@@ -470,7 +470,7 @@ mod tests {
                 title_raw: Some("Inbox".to_string()),
                 todo_keyword: Some("TODO".to_string()),
                 todo_type: Some("open".to_string()),
-                priority: Some('A'),
+                priority: Some("A".to_string()),
                 scheduled_raw: None,
                 scheduled_ts: None,
                 scheduled_has_time: None,

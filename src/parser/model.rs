@@ -200,7 +200,7 @@ pub struct ParsedHeading {
     pub body_byte_end: Option<usize>,
     pub todo_keyword: Option<String>,
     pub todo_type: Option<TodoType>,
-    pub priority: Option<char>,
+    pub priority: Option<String>,
     pub tags: Vec<String>,
     pub properties: Vec<ParsedProperty>,
     pub planning: ParsedPlanning,
