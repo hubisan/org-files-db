@@ -1,0 +1,216 @@
+#+TITLE: Query Model Tests - priority
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Single
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (priority "A") (file-name "priority.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      priority
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#A] priority: Exact A pri4-a",
+  "priority": "A"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "DONE [#A] priority: Done With Priority A pri4-e",
+  "priority": "A"
+}
+#+end_SRC
+
+* Multiple
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (priority "A" "C") (file-name "priority.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      priority
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#A] priority: Exact A pri4-a",
+  "priority": "A"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "NEXT [#C] priority: Exact C pri4-c",
+  "priority": "C"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "DONE [#A] priority: Done With Priority A pri4-e",
+  "priority": "A"
+}
+#+end_SRC
+
+* >
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (priority > "A") (file-name "priority.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      priority
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#B] priority: Exact B pri4-b",
+  "priority": "B"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "NEXT [#C] priority: Exact C pri4-c",
+  "priority": "C"
+}
+#+end_SRC
+
+* <
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (priority < "B") (file-name "priority.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      priority
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#A] priority: Exact A pri4-a",
+  "priority": "A"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "DONE [#A] priority: Done With Priority A pri4-e",
+  "priority": "A"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "DONE [#1] priority: Done With Priority A pri4-e",
+  "priority": "1"
+}
+#+end_SRC
+
+* <=
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (priority <= "B") (file-name "priority.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      priority
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#A] priority: Exact A pri4-a",
+  "priority": "A"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#B] priority: Exact B pri4-b",
+  "priority": "B"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "DONE [#A] priority: Done With Priority A pri4-e",
+  "priority": "A"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "DONE [#1] priority: Done With Priority A pri4-e",
+  "priority": "1"
+}
+#+end_SRC
+
+* >=
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (priority >= "B") (file-name "priority.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      priority
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "TODO [#B] priority: Exact B pri4-b",
+  "priority": "B"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "NEXT [#C] priority: Exact C pri4-c",
+  "priority": "C"
+}
+#+end_SRC
+
+* Template
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (priority ""))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src

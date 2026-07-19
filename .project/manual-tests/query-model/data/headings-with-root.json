@@ -3031,7 +3031,7 @@
     "level": 0,
     "line_number": 1,
     "byte_start": -1,
-    "byte_end": 290,
+    "byte_end": 340,
     "title": "priority-fixture-pri4",
     "title_raw": "priority-fixture-pri4",
     "todo_keyword": null,
@@ -3169,6 +3169,30 @@
   },
   {
     "id": 133,
+    "file_id": 24,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+    "parent_id": 127,
+    "level": 1,
+    "line_number": 10,
+    "byte_start": 290,
+    "byte_end": 340,
+    "title": "priority: Done With Priority A pri4-e",
+    "title_raw": "DONE [#1] priority: Done With Priority A pri4-e",
+    "todo_keyword": "DONE",
+    "todo_type": "closed",
+    "priority": "1",
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": []
+  },
+  {
+    "id": 134,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
     "parent_id": null,
@@ -3192,10 +3216,10 @@
     "all_tags": []
   },
   {
-    "id": 134,
+    "id": 135,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 38,
     "byte_start": 1065,
@@ -3216,10 +3240,10 @@
     "all_tags": []
   },
   {
-    "id": 135,
+    "id": 136,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 43,
     "byte_start": 1115,
@@ -3240,10 +3264,10 @@
     "all_tags": []
   },
   {
-    "id": 136,
+    "id": 137,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 73,
     "byte_start": 2674,
@@ -3264,10 +3288,10 @@
     "all_tags": []
   },
   {
-    "id": 137,
+    "id": 138,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 87,
     "byte_start": 3084,
@@ -3288,10 +3312,10 @@
     "all_tags": []
   },
   {
-    "id": 138,
+    "id": 139,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 101,
     "byte_start": 3422,
@@ -3312,10 +3336,10 @@
     "all_tags": []
   },
   {
-    "id": 139,
+    "id": 140,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 114,
     "byte_start": 3839,
@@ -3336,10 +3360,10 @@
     "all_tags": []
   },
   {
-    "id": 140,
+    "id": 141,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 129,
     "byte_start": 4251,
@@ -3360,10 +3384,10 @@
     "all_tags": []
   },
   {
-    "id": 141,
+    "id": 142,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 144,
     "byte_start": 4759,
@@ -3384,10 +3408,10 @@
     "all_tags": []
   },
   {
-    "id": 142,
+    "id": 143,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 157,
     "byte_start": 5062,
@@ -3408,10 +3432,10 @@
     "all_tags": []
   },
   {
-    "id": 143,
+    "id": 144,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 170,
     "byte_start": 5366,
@@ -3432,10 +3456,10 @@
     "all_tags": []
   },
   {
-    "id": 144,
+    "id": 145,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 143,
+    "parent_id": 144,
     "level": 2,
     "line_number": 175,
     "byte_start": 5429,
@@ -3456,10 +3480,10 @@
     "all_tags": []
   },
   {
-    "id": 145,
+    "id": 146,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 143,
+    "parent_id": 144,
     "level": 2,
     "line_number": 188,
     "byte_start": 5813,
@@ -3480,10 +3504,10 @@
     "all_tags": []
   },
   {
-    "id": 146,
+    "id": 147,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 143,
+    "parent_id": 144,
     "level": 2,
     "line_number": 197,
     "byte_start": 6047,
@@ -3504,10 +3528,10 @@
     "all_tags": []
   },
   {
-    "id": 147,
+    "id": 148,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 143,
+    "parent_id": 144,
     "level": 2,
     "line_number": 210,
     "byte_start": 6407,
@@ -3528,10 +3552,10 @@
     "all_tags": []
   },
   {
-    "id": 148,
+    "id": 149,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 224,
     "byte_start": 6824,
@@ -3552,10 +3576,10 @@
     "all_tags": []
   },
   {
-    "id": 149,
+    "id": 150,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 148,
+    "parent_id": 149,
     "level": 2,
     "line_number": 230,
     "byte_start": 6916,
@@ -3576,10 +3600,10 @@
     "all_tags": []
   },
   {
-    "id": 150,
+    "id": 151,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 148,
+    "parent_id": 149,
     "level": 2,
     "line_number": 239,
     "byte_start": 7162,
@@ -3600,10 +3624,10 @@
     "all_tags": []
   },
   {
-    "id": 151,
+    "id": 152,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 148,
+    "parent_id": 149,
     "level": 2,
     "line_number": 252,
     "byte_start": 7517,
@@ -3624,10 +3648,10 @@
     "all_tags": []
   },
   {
-    "id": 152,
+    "id": 153,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 264,
     "byte_start": 7854,
@@ -3648,10 +3672,10 @@
     "all_tags": []
   },
   {
-    "id": 153,
+    "id": 154,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 152,
+    "parent_id": 153,
     "level": 2,
     "line_number": 269,
     "byte_start": 7918,
@@ -3672,10 +3696,10 @@
     "all_tags": []
   },
   {
-    "id": 154,
+    "id": 155,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 153,
+    "parent_id": 154,
     "level": 3,
     "line_number": 274,
     "byte_start": 7972,
@@ -3696,10 +3720,10 @@
     "all_tags": []
   },
   {
-    "id": 155,
+    "id": 156,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 153,
+    "parent_id": 154,
     "level": 3,
     "line_number": 284,
     "byte_start": 8283,
@@ -3720,10 +3744,10 @@
     "all_tags": []
   },
   {
-    "id": 156,
+    "id": 157,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 153,
+    "parent_id": 154,
     "level": 3,
     "line_number": 296,
     "byte_start": 8597,
@@ -3744,10 +3768,10 @@
     "all_tags": []
   },
   {
-    "id": 157,
+    "id": 158,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 308,
     "byte_start": 8893,
@@ -3768,10 +3792,10 @@
     "all_tags": []
   },
   {
-    "id": 158,
+    "id": 159,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 157,
+    "parent_id": 158,
     "level": 2,
     "line_number": 310,
     "byte_start": 8920,
@@ -3792,10 +3816,10 @@
     "all_tags": []
   },
   {
-    "id": 159,
+    "id": 160,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 157,
+    "parent_id": 158,
     "level": 2,
     "line_number": 319,
     "byte_start": 9210,
@@ -3816,10 +3840,10 @@
     "all_tags": []
   },
   {
-    "id": 160,
+    "id": 161,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 157,
+    "parent_id": 158,
     "level": 2,
     "line_number": 331,
     "byte_start": 9580,
@@ -3840,10 +3864,10 @@
     "all_tags": []
   },
   {
-    "id": 161,
+    "id": 162,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 343,
     "byte_start": 9937,
@@ -3864,10 +3888,10 @@
     "all_tags": []
   },
   {
-    "id": 162,
+    "id": 163,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 161,
+    "parent_id": 162,
     "level": 2,
     "line_number": 345,
     "byte_start": 9965,
@@ -3888,10 +3912,10 @@
     "all_tags": []
   },
   {
-    "id": 163,
+    "id": 164,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 161,
+    "parent_id": 162,
     "level": 2,
     "line_number": 354,
     "byte_start": 10276,
@@ -3912,10 +3936,10 @@
     "all_tags": []
   },
   {
-    "id": 164,
+    "id": 165,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 161,
+    "parent_id": 162,
     "level": 2,
     "line_number": 366,
     "byte_start": 10715,
@@ -3936,10 +3960,10 @@
     "all_tags": []
   },
   {
-    "id": 165,
+    "id": 166,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 161,
+    "parent_id": 162,
     "level": 2,
     "line_number": 378,
     "byte_start": 11060,
@@ -3960,10 +3984,10 @@
     "all_tags": []
   },
   {
-    "id": 166,
+    "id": 167,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 391,
     "byte_start": 11477,
@@ -3984,10 +4008,10 @@
     "all_tags": []
   },
   {
-    "id": 167,
+    "id": 168,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 403,
     "byte_start": 11778,
@@ -4008,10 +4032,10 @@
     "all_tags": []
   },
   {
-    "id": 168,
+    "id": 169,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 419,
     "byte_start": 12373,
@@ -4032,10 +4056,10 @@
     "all_tags": []
   },
   {
-    "id": 169,
+    "id": 170,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 432,
     "byte_start": 12678,
@@ -4056,10 +4080,10 @@
     "all_tags": []
   },
   {
-    "id": 170,
+    "id": 171,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 450,
     "byte_start": 13278,
@@ -4080,10 +4104,10 @@
     "all_tags": []
   },
   {
-    "id": 171,
+    "id": 172,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 463,
     "byte_start": 13584,
@@ -4104,10 +4128,10 @@
     "all_tags": []
   },
   {
-    "id": 172,
+    "id": 173,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 171,
+    "parent_id": 172,
     "level": 2,
     "line_number": 469,
     "byte_start": 13663,
@@ -4128,10 +4152,10 @@
     "all_tags": []
   },
   {
-    "id": 173,
+    "id": 174,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 171,
+    "parent_id": 172,
     "level": 2,
     "line_number": 478,
     "byte_start": 13914,
@@ -4152,10 +4176,10 @@
     "all_tags": []
   },
   {
-    "id": 174,
+    "id": 175,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 490,
     "byte_start": 14236,
@@ -4176,10 +4200,10 @@
     "all_tags": []
   },
   {
-    "id": 175,
+    "id": 176,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 174,
+    "parent_id": 175,
     "level": 2,
     "line_number": 495,
     "byte_start": 14333,
@@ -4200,10 +4224,10 @@
     "all_tags": []
   },
   {
-    "id": 176,
+    "id": 177,
     "file_id": 25,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
-    "parent_id": 133,
+    "parent_id": 134,
     "level": 1,
     "line_number": 509,
     "byte_start": 14726,
@@ -4224,7 +4248,7 @@
     "all_tags": []
   },
   {
-    "id": 177,
+    "id": 178,
     "file_id": 26,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
     "parent_id": null,
@@ -4248,10 +4272,10 @@
     "all_tags": []
   },
   {
-    "id": 178,
+    "id": 179,
     "file_id": 26,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
-    "parent_id": 177,
+    "parent_id": 178,
     "level": 1,
     "line_number": 5,
     "byte_start": 72,
@@ -4272,10 +4296,10 @@
     "all_tags": []
   },
   {
-    "id": 179,
+    "id": 180,
     "file_id": 26,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
-    "parent_id": 177,
+    "parent_id": 178,
     "level": 1,
     "line_number": 8,
     "byte_start": 136,
@@ -4296,10 +4320,10 @@
     "all_tags": []
   },
   {
-    "id": 180,
+    "id": 181,
     "file_id": 26,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
-    "parent_id": 177,
+    "parent_id": 178,
     "level": 1,
     "line_number": 11,
     "byte_start": 206,
@@ -4320,10 +4344,10 @@
     "all_tags": []
   },
   {
-    "id": 181,
+    "id": 182,
     "file_id": 26,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
-    "parent_id": 177,
+    "parent_id": 178,
     "level": 1,
     "line_number": 14,
     "byte_start": 274,
@@ -4344,10 +4368,10 @@
     "all_tags": []
   },
   {
-    "id": 182,
+    "id": 183,
     "file_id": 26,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
-    "parent_id": 177,
+    "parent_id": 178,
     "level": 1,
     "line_number": 17,
     "byte_start": 346,
@@ -4368,7 +4392,7 @@
     "all_tags": []
   },
   {
-    "id": 183,
+    "id": 184,
     "file_id": 27,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org",
     "parent_id": null,
@@ -4392,10 +4416,10 @@
     "all_tags": []
   },
   {
-    "id": 184,
+    "id": 185,
     "file_id": 27,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org",
-    "parent_id": 183,
+    "parent_id": 184,
     "level": 1,
     "line_number": 4,
     "byte_start": 51,
@@ -4416,10 +4440,10 @@
     "all_tags": []
   },
   {
-    "id": 185,
+    "id": 186,
     "file_id": 27,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org",
-    "parent_id": 183,
+    "parent_id": 184,
     "level": 1,
     "line_number": 5,
     "byte_start": 140,
@@ -4440,10 +4464,10 @@
     "all_tags": []
   },
   {
-    "id": 186,
+    "id": 187,
     "file_id": 27,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org",
-    "parent_id": 183,
+    "parent_id": 184,
     "level": 1,
     "line_number": 6,
     "byte_start": 219,
@@ -4464,10 +4488,10 @@
     "all_tags": []
   },
   {
-    "id": 187,
+    "id": 188,
     "file_id": 27,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org",
-    "parent_id": 183,
+    "parent_id": 184,
     "level": 1,
     "line_number": 7,
     "byte_start": 297,
@@ -4488,10 +4512,10 @@
     "all_tags": []
   },
   {
-    "id": 188,
+    "id": 189,
     "file_id": 27,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags-all.org",
-    "parent_id": 183,
+    "parent_id": 184,
     "level": 1,
     "line_number": 8,
     "byte_start": 397,
@@ -4512,7 +4536,7 @@
     "all_tags": []
   },
   {
-    "id": 189,
+    "id": 190,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": null,
@@ -4538,10 +4562,10 @@
     ]
   },
   {
-    "id": 190,
+    "id": 191,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 5,
     "byte_start": 81,
@@ -4564,10 +4588,10 @@
     ]
   },
   {
-    "id": 191,
+    "id": 192,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 6,
     "byte_start": 167,
@@ -4590,10 +4614,10 @@
     ]
   },
   {
-    "id": 192,
+    "id": 193,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 7,
     "byte_start": 249,
@@ -4616,10 +4640,10 @@
     ]
   },
   {
-    "id": 193,
+    "id": 194,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 8,
     "byte_start": 333,
@@ -4642,10 +4666,10 @@
     ]
   },
   {
-    "id": 194,
+    "id": 195,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 9,
     "byte_start": 432,
@@ -4668,10 +4692,10 @@
     ]
   },
   {
-    "id": 195,
+    "id": 196,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 194,
+    "parent_id": 195,
     "level": 2,
     "line_number": 10,
     "byte_start": 520,
@@ -4694,10 +4718,10 @@
     ]
   },
   {
-    "id": 196,
+    "id": 197,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 194,
+    "parent_id": 195,
     "level": 2,
     "line_number": 11,
     "byte_start": 552,
@@ -4720,10 +4744,10 @@
     ]
   },
   {
-    "id": 197,
+    "id": 198,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 12,
     "byte_start": 640,
@@ -4746,10 +4770,10 @@
     ]
   },
   {
-    "id": 198,
+    "id": 199,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 13,
     "byte_start": 725,
@@ -4772,10 +4796,10 @@
     ]
   },
   {
-    "id": 199,
+    "id": 200,
     "file_id": 28,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": 189,
+    "parent_id": 190,
     "level": 1,
     "line_number": 14,
     "byte_start": 758,
@@ -4798,7 +4822,7 @@
     ]
   },
   {
-    "id": 200,
+    "id": 201,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
     "parent_id": null,
@@ -4822,10 +4846,10 @@
     "all_tags": []
   },
   {
-    "id": 201,
+    "id": 202,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 200,
+    "parent_id": 201,
     "level": 1,
     "line_number": 3,
     "byte_start": 16,
@@ -4846,10 +4870,10 @@
     "all_tags": []
   },
   {
-    "id": 202,
+    "id": 203,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 200,
+    "parent_id": 201,
     "level": 1,
     "line_number": 5,
     "byte_start": 42,
@@ -4870,10 +4894,10 @@
     "all_tags": []
   },
   {
-    "id": 203,
+    "id": 204,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 200,
+    "parent_id": 201,
     "level": 1,
     "line_number": 7,
     "byte_start": 74,
@@ -4894,10 +4918,10 @@
     "all_tags": []
   },
   {
-    "id": 204,
+    "id": 205,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 200,
+    "parent_id": 201,
     "level": 1,
     "line_number": 9,
     "byte_start": 95,
@@ -4918,7 +4942,7 @@
     "all_tags": []
   },
   {
-    "id": 205,
+    "id": 206,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
     "parent_id": null,
@@ -4942,10 +4966,10 @@
     "all_tags": []
   },
   {
-    "id": 206,
+    "id": 207,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 8,
     "byte_start": 164,
@@ -4966,10 +4990,10 @@
     "all_tags": []
   },
   {
-    "id": 207,
+    "id": 208,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 11,
     "byte_start": 284,
@@ -4990,10 +5014,10 @@
     "all_tags": []
   },
   {
-    "id": 208,
+    "id": 209,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 14,
     "byte_start": 409,
@@ -5014,10 +5038,10 @@
     "all_tags": []
   },
   {
-    "id": 209,
+    "id": 210,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 15,
     "byte_start": 442,
@@ -5038,10 +5062,10 @@
     "all_tags": []
   },
   {
-    "id": 210,
+    "id": 211,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 16,
     "byte_start": 483,
@@ -5062,10 +5086,10 @@
     "all_tags": []
   },
   {
-    "id": 211,
+    "id": 212,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 17,
     "byte_start": 520,
@@ -5086,10 +5110,10 @@
     "all_tags": []
   },
   {
-    "id": 212,
+    "id": 213,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 19,
     "byte_start": 566,
@@ -5110,10 +5134,10 @@
     "all_tags": []
   },
   {
-    "id": 213,
+    "id": 214,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 20,
     "byte_start": 612,
@@ -5134,10 +5158,10 @@
     "all_tags": []
   },
   {
-    "id": 214,
+    "id": 215,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 22,
     "byte_start": 666,
@@ -5158,10 +5182,10 @@
     "all_tags": []
   },
   {
-    "id": 215,
+    "id": 216,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 23,
     "byte_start": 701,
@@ -5182,10 +5206,10 @@
     "all_tags": []
   },
   {
-    "id": 216,
+    "id": 217,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 25,
     "byte_start": 739,
@@ -5206,10 +5230,10 @@
     "all_tags": []
   },
   {
-    "id": 217,
+    "id": 218,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 26,
     "byte_start": 773,
@@ -5230,10 +5254,10 @@
     "all_tags": []
   },
   {
-    "id": 218,
+    "id": 219,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 30,
     "byte_start": 830,
@@ -5254,10 +5278,10 @@
     "all_tags": []
   },
   {
-    "id": 219,
+    "id": 220,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 34,
     "byte_start": 907,
@@ -5278,10 +5302,10 @@
     "all_tags": []
   },
   {
-    "id": 220,
+    "id": 221,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 35,
     "byte_start": 964,
@@ -5302,10 +5326,10 @@
     "all_tags": []
   },
   {
-    "id": 221,
+    "id": 222,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 37,
     "byte_start": 1024,
@@ -5326,10 +5350,10 @@
     "all_tags": []
   },
   {
-    "id": 222,
+    "id": 223,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 205,
+    "parent_id": 206,
     "level": 1,
     "line_number": 38,
     "byte_start": 1071,
@@ -5350,7 +5374,7 @@
     "all_tags": []
   },
   {
-    "id": 223,
+    "id": 224,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
     "parent_id": null,
@@ -5374,10 +5398,10 @@
     "all_tags": []
   },
   {
-    "id": 224,
+    "id": 225,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 223,
+    "parent_id": 224,
     "level": 1,
     "line_number": 4,
     "byte_start": 43,
@@ -5398,10 +5422,10 @@
     "all_tags": []
   },
   {
-    "id": 225,
+    "id": 226,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 223,
+    "parent_id": 224,
     "level": 1,
     "line_number": 6,
     "byte_start": 74,
@@ -5422,10 +5446,10 @@
     "all_tags": []
   },
   {
-    "id": 226,
+    "id": 227,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 223,
+    "parent_id": 224,
     "level": 1,
     "line_number": 8,
     "byte_start": 105,
@@ -5446,10 +5470,10 @@
     "all_tags": []
   },
   {
-    "id": 227,
+    "id": 228,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 223,
+    "parent_id": 224,
     "level": 1,
     "line_number": 10,
     "byte_start": 162,
@@ -5470,10 +5494,10 @@
     "all_tags": []
   },
   {
-    "id": 228,
+    "id": 229,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 223,
+    "parent_id": 224,
     "level": 1,
     "line_number": 12,
     "byte_start": 202,
@@ -5494,7 +5518,7 @@
     "all_tags": []
   },
   {
-    "id": 229,
+    "id": 230,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
     "parent_id": null,
@@ -5518,10 +5542,10 @@
     "all_tags": []
   },
   {
-    "id": 230,
+    "id": 231,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 229,
+    "parent_id": 230,
     "level": 1,
     "line_number": 4,
     "byte_start": 52,
@@ -5542,10 +5566,10 @@
     "all_tags": []
   },
   {
-    "id": 231,
+    "id": 232,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 229,
+    "parent_id": 230,
     "level": 1,
     "line_number": 7,
     "byte_start": 100,
@@ -5566,10 +5590,10 @@
     "all_tags": []
   },
   {
-    "id": 232,
+    "id": 233,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 229,
+    "parent_id": 230,
     "level": 1,
     "line_number": 10,
     "byte_start": 154,
@@ -5590,10 +5614,10 @@
     "all_tags": []
   },
   {
-    "id": 233,
+    "id": 234,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 229,
+    "parent_id": 230,
     "level": 1,
     "line_number": 13,
     "byte_start": 204,
@@ -5614,10 +5638,10 @@
     "all_tags": []
   },
   {
-    "id": 234,
+    "id": 235,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 229,
+    "parent_id": 230,
     "level": 1,
     "line_number": 16,
     "byte_start": 258,
@@ -5638,7 +5662,7 @@
     "all_tags": []
   },
   {
-    "id": 235,
+    "id": 236,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
     "parent_id": null,
@@ -5662,10 +5686,10 @@
     "all_tags": []
   },
   {
-    "id": 236,
+    "id": 237,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 235,
+    "parent_id": 236,
     "level": 1,
     "line_number": 4,
     "byte_start": 54,
@@ -5686,10 +5710,10 @@
     "all_tags": []
   },
   {
-    "id": 237,
+    "id": 238,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 235,
+    "parent_id": 236,
     "level": 1,
     "line_number": 7,
     "byte_start": 104,
@@ -5710,10 +5734,10 @@
     "all_tags": []
   },
   {
-    "id": 238,
+    "id": 239,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 235,
+    "parent_id": 236,
     "level": 1,
     "line_number": 10,
     "byte_start": 160,
@@ -5734,10 +5758,10 @@
     "all_tags": []
   },
   {
-    "id": 239,
+    "id": 240,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 235,
+    "parent_id": 236,
     "level": 1,
     "line_number": 13,
     "byte_start": 212,
@@ -5758,10 +5782,10 @@
     "all_tags": []
   },
   {
-    "id": 240,
+    "id": 241,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 235,
+    "parent_id": 236,
     "level": 1,
     "line_number": 16,
     "byte_start": 268,
@@ -5782,7 +5806,7 @@
     "all_tags": []
   },
   {
-    "id": 241,
+    "id": 242,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
     "parent_id": null,
@@ -5806,10 +5830,10 @@
     "all_tags": []
   },
   {
-    "id": 242,
+    "id": 243,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 241,
+    "parent_id": 242,
     "level": 1,
     "line_number": 4,
     "byte_start": 45,
@@ -5830,10 +5854,10 @@
     "all_tags": []
   },
   {
-    "id": 243,
+    "id": 244,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 241,
+    "parent_id": 242,
     "level": 1,
     "line_number": 7,
     "byte_start": 93,
@@ -5854,10 +5878,10 @@
     "all_tags": []
   },
   {
-    "id": 244,
+    "id": 245,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 241,
+    "parent_id": 242,
     "level": 1,
     "line_number": 10,
     "byte_start": 147,
@@ -5878,10 +5902,10 @@
     "all_tags": []
   },
   {
-    "id": 245,
+    "id": 246,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 241,
+    "parent_id": 242,
     "level": 1,
     "line_number": 13,
     "byte_start": 197,
@@ -5902,10 +5926,10 @@
     "all_tags": []
   },
   {
-    "id": 246,
+    "id": 247,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 241,
+    "parent_id": 242,
     "level": 1,
     "line_number": 16,
     "byte_start": 253,
@@ -5926,10 +5950,10 @@
     "all_tags": []
   },
   {
-    "id": 247,
+    "id": 248,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 241,
+    "parent_id": 242,
     "level": 1,
     "line_number": 19,
     "byte_start": 336,

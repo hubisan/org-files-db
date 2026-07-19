@@ -232,6 +232,306 @@ General rules:
 
 - Task file: [[file:archive/2026-07-19--align-level-comparators-with-query-model-v0.org]]
 
+** BUILD [#B] Implement semantic ~priority~ comparison with query-time normalisation
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Make ~priority~ comparisons follow semantic priority ordering instead of SQLite text ordering.
+- Preserve the original priority value from the Org source in the database.
+- Normalise alphabetic and numeric priorities only while evaluating queries.
+- Document the supported comparator semantics and numeric-priority behaviour.
+
+Current behaviour:
+
+- Priorities are compared directly as text in SQLite.
+- This produces character-order results rather than semantic priority results.
+
+For example:
+
+#+begin_src text
+"1" < "A" < "B" < "C"
+#+end_src
+
+- This explains why ~(priority < "B")~ currently matches ~A~ and ~1~.
+- It does not mean that Org-style priority ordering is implemented.
+- ~(priority >= "B")~ currently matches ~B~ and ~C~, although semantically it should match ~A~ and ~B~.
+- Numeric and alphabetic values are currently distinct.
+- The current single-character representation also cannot preserve multi-digit numeric priorities such as ~10~ correctly.
+
+Storage semantics:
+
+- Keep the source-oriented priority value in the database.
+- Do not replace stored priority values with canonical numeric ranks.
+
+Examples:
+
+#+begin_src text
+[#A]  -> stored as "A"
+[#1]  -> stored as "1"
+[#10] -> stored as "10"
+#+end_src
+
+- JSON and other query output must continue to expose the original source value.
+- Change the internal priority representation from a single character to a string or equivalent representation that preserves multi-digit numeric values.
+- No database schema change is required if the existing column is already textual and can store multiple characters.
+
+Query-time normalisation:
+
+- Convert both the stored priority value and the query argument to a temporary comparison rank while evaluating a query.
+- Use the following fixed Query Model v0 mapping:
+
+#+begin_src text
+A  -> 1
+B  -> 2
+C  -> 3
+...
+Z  -> 26
+
+0  -> 0
+1  -> 1
+2  -> 2
+...
+64 -> 64
+#+end_src
+
+- Alphabetic and equivalent numeric values therefore compare as the same priority:
+
+#+begin_src text
+A = 1
+B = 2
+C = 3
+#+end_src
+
+- This equivalence applies to query matching only.
+- It does not change the stored source value.
+- Query Model v0 must not derive priority ranges from Emacs variables or file-local ~#+PRIORITIES~ declarations because that effective configuration is not indexed.
+- The fixed mapping assumes the usual numeric convention beginning with ~1~, while still accepting ~0~ if a valid Org priority cookie contains it.
+
+Semantic ordering:
+
+- Comparator direction expresses semantic priority.
+- A higher priority compares as greater than a lower priority:
+
+#+begin_src text
+A > B > C
+1 > 2 > 3
+A = 1
+B = 2
+C = 3
+#+end_src
+
+- Since a smaller normalised rank represents a higher semantic priority, ordered comparators must invert the underlying numeric comparison:
+
+#+begin_src text
+(priority > VALUE)  -> stored_rank < normalised_value
+(priority >= VALUE) -> stored_rank <= normalised_value
+(priority < VALUE)  -> stored_rank > normalised_value
+(priority <= VALUE) -> stored_rank >= normalised_value
+#+end_src
+
+Expected results:
+
+#+begin_src lisp
+(priority > "B")
+#+end_src
+
+matches stored priorities ~A~ and ~1~.
+
+#+begin_src lisp
+(priority >= "B")
+#+end_src
+
+matches stored priorities ~A~, ~1~, ~B~, and ~2~.
+
+#+begin_src lisp
+(priority < "B")
+#+end_src
+
+matches stored priorities ~C~, ~3~, and lower semantic priorities.
+
+#+begin_src lisp
+(priority <= "B")
+#+end_src
+
+matches stored priorities ~B~, ~2~, ~C~, ~3~, and lower semantic priorities.
+
+Exact matching:
+
+- Apply the same query-time normalisation to exact priority matching.
+- Equivalent alphabetic and numeric priorities must match each other.
+
+For example:
+
+#+begin_src lisp
+(priority "A")
+#+end_src
+
+matches headings whose stored source priority is either ~A~ or ~1~.
+
+Likewise, the following queries are equivalent:
+
+#+begin_src lisp
+(priority "B")
+(priority "2")
+#+end_src
+
+- Query results must still return the actual stored value, such as ~B~ or ~2~.
+
+Implementation tasks:
+
+- Replace the in-memory single-character priority representation with a representation that preserves the complete cookie value.
+- Preserve alphabetic priority values ~A~ through ~Z~.
+- Preserve complete numeric values such as ~1~, ~9~, ~10~, and ~64~.
+- Remove any parsing logic that retains only the first character of a priority token.
+- Add one shared priority-normalisation function for query evaluation.
+- Normalise alphabetic values case-sensitively from ~A~ through ~Z~.
+- Normalise numeric strings as integers from ~0~ through ~64~.
+- Reject invalid query arguments with a clear validation error.
+- Apply the normalisation consistently to:
+  - exact priority matching
+  - multi-value priority matching
+  - ~<~
+  - ~<=~
+  - ~>~
+  - ~>=~
+- Ensure ordered comparisons invert the underlying rank comparison.
+- Ensure headings without an explicit priority never match a ~priority~ predicate.
+- Avoid persisting normalised ranks in the database.
+- Avoid duplicating priority-ordering logic between validators and backends.
+
+SQLite implementation:
+
+- Do not rely on SQLite text collation for priority comparisons.
+- Convert stored textual priority values to normalised ranks during query evaluation.
+- Prefer one explicit and testable implementation, such as:
+  - a generated SQL ~CASE~ expression, or
+  - a deterministic SQLite scalar function registered by the backend.
+- Use the same normalisation semantics for stored values and query arguments.
+- Keep the original textual database column unchanged.
+
+Documentation tasks:
+
+- Update the ~priority~ predicate in ~docs/cli.org~ to list all supported forms:
+
+#+begin_src text
+(priority VALUE...)
+(priority COMPARATOR VALUE)
+#+end_src
+
+- List the supported ordered comparators explicitly:
+  - ~<~
+  - ~<=~
+  - ~>~
+  - ~>=~
+- Explain that comparator direction refers to semantic priority, as in Org-style and ~org-ql~ comparisons:
+
+#+begin_src text
+A > B > C
+#+end_src
+
+- Explain that comparison ranks run in the opposite direction:
+
+#+begin_src text
+A -> 1
+B -> 2
+C -> 3
+#+end_src
+
+- Document the query-time equivalence:
+
+#+begin_src text
+A = 1
+B = 2
+C = 3
+#+end_src
+
+- State clearly that the original value remains stored and returned.
+- Document that Query Model v0 uses a fixed mapping and does not evaluate:
+  - ~org-priority-highest~
+  - ~org-priority-lowest~
+  - ~org-priority-default~
+  - file-local ~#+PRIORITIES~
+- Mention that Org numeric priority values range from ~0~ through ~64~, but that numeric priorities conventionally begin with ~1~ for equivalence with ~A~.
+- Add the same semantics to ~docs/reference/query-model-v0.org~.
+
+Tests:
+
+- Verify source-value preservation for:
+  - ~[#A]~
+  - ~[#B]~
+  - ~[#C]~
+  - ~[#1]~
+  - ~[#2]~
+  - ~[#9]~
+  - ~[#10]~
+  - ~[#64]~
+- Verify that multi-digit priorities are not truncated.
+- Verify query-time equivalence:
+  - ~A~ equals ~1~
+  - ~B~ equals ~2~
+  - ~C~ equals ~3~
+- Verify that exact matches return the original stored value.
+- Verify all four comparators with alphabetic query arguments.
+- Verify all four comparators with numeric query arguments.
+- Verify mixed stored values and query values.
+- Verify that headings without a priority do not match.
+- Add a regression test proving that raw character ordering is no longer used.
+
+Required comparison cases:
+
+#+begin_src lisp
+(priority > "B")
+#+end_src
+
+matches ~A~ and ~1~, but not ~B~, ~2~, ~C~, or ~3~.
+
+#+begin_src lisp
+(priority >= "B")
+#+end_src
+
+matches ~A~, ~1~, ~B~, and ~2~, but not ~C~ or ~3~.
+
+#+begin_src lisp
+(priority < "B")
+#+end_src
+
+matches ~C~, ~3~, and lower priorities, but not ~A~, ~1~, ~B~, or ~2~.
+
+#+begin_src lisp
+(priority <= "B")
+#+end_src
+
+matches ~B~, ~2~, ~C~, ~3~, and lower priorities, but not ~A~ or ~1~.
+
+#+begin_src lisp
+(priority "A")
+(priority "1")
+#+end_src
+
+produce the same set of matches while preserving the original priority value in each result.
+
+Acceptance criteria:
+
+- Priority comparisons no longer depend on SQLite character ordering.
+- Stored priority values remain source-oriented text.
+- ~A~ remains stored and returned as ~A~.
+- ~1~ remains stored and returned as ~1~.
+- ~10~ remains stored and returned as ~10~.
+- Normalised ranks exist only during query evaluation.
+- ~(priority >= "B")~ matches ~A~, ~1~, ~B~, and ~2~.
+- ~(priority < "B")~ matches ~C~, ~3~, and lower priorities.
+- ~(priority "A")~ and ~(priority "1")~ produce equivalent matches.
+- Multi-digit numeric priorities are parsed and compared correctly.
+- ~docs/cli.org~ documents every supported comparator and its semantic direction.
+- ~docs/reference/query-model-v0.org~ defines the same behaviour.
+- The implementation does not depend on unindexed Emacs variables or file-local priority configuration.
+
 ** TODO Manual Test the Implementation
 
 *** Query
