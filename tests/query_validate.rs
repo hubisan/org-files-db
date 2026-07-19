@@ -24,7 +24,7 @@ fn validates_heading_predicate_families() {
               (tags "project" "urgent" :match :all :inherit t :regexp nil)
               (property "OWNER" "Alice" :inherit nil)
               (property "CATEGORY" "work")
-              (keyword "TITLE" "Projects")
+              (keyword "TITLE" "Projects" :inherit t)
               (file-name "notes.org" :exact t)
               (file-path "projects" "notes")
               (file-dir "projects")
@@ -52,6 +52,19 @@ fn validates_heading_predicate_families() {
     let validated = validate_query(query, &full_capabilities()).expect("query should validate");
     assert_eq!(validated.target, QueryTarget::Headings);
     assert!(matches!(validated.predicate, Some(ValidatedExpr::And(_))));
+}
+
+#[test]
+fn validates_heading_keyword_inherit_options() {
+    for query in [
+        r#"(headings (keyword "AUTHOR"))"#,
+        r#"(headings (keyword "AUTHOR" :inherit t))"#,
+        r#"(headings (keyword "AUTHOR" :inherit nil))"#,
+        r#"(headings (keyword "AUTHOR" "A.*" :inherit nil :regexp t))"#,
+    ] {
+        let query = parse_query(query).expect("query should parse");
+        validate_query(query, &full_capabilities()).expect("query should validate");
+    }
 }
 
 #[test]

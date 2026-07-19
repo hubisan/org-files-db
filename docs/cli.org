@@ -245,7 +245,7 @@ The current public predicate options are:
   - Default: ~:any~.
   - ~(tags-all ...)~ is a parser alias for ~(tags ... :match :all)~.
 - ~:inherit~ ::
-  - Valid on: ~tags~, ~property~ on ~headings~.
+  - Valid on: ~tags~, ~property~, ~keyword~ on ~headings~.
   - Value type: ~t~ or ~nil~.
   - Default: ~t~.
   - Invalid on file queries.
@@ -329,9 +329,9 @@ Options are validated per predicate. A supported option on one predicate does no
   as ~replacement appended-before-reset appended-after-reset~, while Org may resolve the same file-level sequence as ~replacement appended-after-reset~.
   This incompatibility is deliberate so drawer properties and file-level keyword properties follow one uniform query-resolution rule. Raw ~properties~ output still preserves the original ~source~ and ~append~ metadata for each stored row.
   Example: ~'(property "CATEGORY" "work")'~.
-- ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil)~.
+- ~keyword~ :: Syntax: ~(keyword KEY [VALUE] :regexp t|nil :inherit t|nil)~.
   Targets: ~headings~, ~files~.
-  Matches root/file keyword facts. Heading queries access them via the containing file root context. With ~:regexp t~, the pattern applies to the keyword value, not the keyword name.
+  Matches root/file keyword facts. Heading queries inherit keywords from the containing file by default; ~:inherit nil~ checks only the candidate heading. Because document keywords are currently stored on the synthetic file heading, local-only matching normally returns only the file result. File queries always match their root/file keywords and reject ~:inherit~. With ~:regexp t~, the pattern applies to the keyword value, not the keyword name.
   Example: ~'(keyword "AUTHOR" "Alice")'~.
 - ~file-name~ :: Syntax: ~(file-name STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~files~.

@@ -1076,9 +1076,7 @@ fn compile_heading_predicate(
         ),
         "tags" => compile_heading_tags_predicate(scope, predicate),
         "property" => compile_heading_property_predicate(scope, predicate),
-        "keyword" => {
-            compile_keyword_predicate(QueryTarget::Headings, predicate, &scope.root_col("id"))
-        }
+        "keyword" => compile_heading_keyword_predicate(scope, predicate),
         "scheduled" => compile_date_predicate(
             QueryTarget::Headings,
             "scheduled",
@@ -2151,6 +2149,18 @@ fn compile_keyword_predicate(
     }
     sql.push_str("))");
     Ok(SqlFragment { sql, params })
+}
+
+fn compile_heading_keyword_predicate(
+    scope: &QueryScope,
+    predicate: &ValidatedPredicate,
+) -> Result<SqlFragment, QueryExecutionError> {
+    let heading_id = if option_bool_with_default(&predicate.options, "inherit", true)? {
+        scope.root_col("id")
+    } else {
+        scope.heading_col("id")
+    };
+    compile_keyword_predicate(QueryTarget::Headings, predicate, &heading_id)
 }
 
 fn validate_regexp_pattern(
@@ -4259,6 +4269,61 @@ mod tests {
             file_paths(regexp_file_rows),
             vec!["/tmp/query-alpha.org".to_string()]
         );
+    }
+
+    #[test]
+    fn execution_keyword_inherit_controls_root_and_local_heading_matching() {
+        let connection = seeded_connection();
+
+        let inherited = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (keyword "AUTHOR" "Alice"))"#),
+        )
+        .expect("inherited keyword query should execute");
+        let explicit_inherited = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (keyword "AUTHOR" "Alice" :inherit t))"#),
+        )
+        .expect("explicit inherited keyword query should execute");
+        assert_eq!(inherited, explicit_inherited);
+        assert_eq!(heading_ids(inherited), vec![11, 12, 13, 14, 15]);
+
+        for (query, expected_file_ids) in [
+            (r#"(headings (keyword "AUTHOR" :inherit nil))"#, vec![2, 1]),
+            (
+                r#"(headings (keyword "AUTHOR" "Alice" :inherit nil))"#,
+                vec![2],
+            ),
+            (
+                r#"(headings (keyword "AUTHOR" "A.*" :inherit nil :regexp t))"#,
+                vec![2],
+            ),
+        ] {
+            let rows = execute_sqlite_query(&connection, &validated(query))
+                .expect("local keyword query should execute");
+            let QueryRows::Headings(rows) = rows else {
+                panic!("heading query should return heading rows");
+            };
+            let file_ids = rows
+                .into_iter()
+                .map(|row| match row {
+                    HeadingQueryMatch::File(file) => file.id,
+                    HeadingQueryMatch::Heading(_) => {
+                        panic!("local-only query must not match headings")
+                    }
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(file_ids, expected_file_ids);
+        }
+
+        for query in [
+            r#"(headings (keyword "AUTHOR" "missing"))"#,
+            r#"(headings (keyword "AUTHOR" "missing" :inherit nil))"#,
+        ] {
+            let rows = execute_sqlite_query(&connection, &validated(query))
+                .expect("non-matching keyword query should execute");
+            assert!(matches!(rows, QueryRows::Headings(rows) if rows.is_empty()));
+        }
     }
 
     #[test]

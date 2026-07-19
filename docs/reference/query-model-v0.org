@@ -1508,24 +1508,25 @@ replacement appended-after-reset
 
 orgfdb intentionally retains ~appended-before-reset~ so query semantics do not depend on whether a property originated from a drawer or a file-level keyword line.
 
-*** ~(keyword key &optional value &key regexp)~
+*** ~(keyword key &optional value &key regexp inherit)~
 
 **** Purpose
 
-Filter headings by file/root-level keywords.
+Filter headings by local or inherited file/root-level keywords.
 
 **** Arguments
 
 - ~key~ :: Keyword key such as ~TITLE~, ~AUTHOR~, or a custom keyword.
 - ~value~ :: Optional keyword value.
 - ~:regexp t|nil~ :: Interpret ~value~ as regexp.
+- ~:inherit t|nil~ :: For heading queries, use keywords from the containing file root when ~t~ (the default), or only the candidate heading when ~nil~.
 
 **** Rules
 
 - Keywords are always root/file-level facts.
-- Heading queries using ~keyword~ match headings located in files whose root keyword matches.
-- There is no ~:inherit~ option because keywords live at the root.
-- Root is implicit for keywords in heading queries.
+- Heading queries using ~keyword~ inherit matching root keywords by default, so all headings in a matching file match.
+- With ~:inherit nil~, heading queries inspect only the candidate heading. Document keywords are currently stored on the synthetic file heading, so local-only matching normally returns only the file/root result.
+- File queries always inspect their root/file keywords and reject ~:inherit~.
 - Without ~value~, matches existence of the keyword.
 - With ~value~, matches keyword value exactly by default.
 - With ~:regexp t~, value is interpreted as regexp.
@@ -1537,6 +1538,7 @@ Filter headings by file/root-level keywords.
 (keyword "TITLE" "Projects")
 (keyword "AUTHOR" "Alice")
 (keyword "TITLE" "Proj.*" :regexp t)
+(keyword "AUTHOR" "Alice" :inherit nil)
 #+end_src
 
 **** Notes

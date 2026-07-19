@@ -47,6 +47,46 @@
 }
 #+end_SRC
 
+* Inheritance nil
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include keywords --config <<config-path()>> '(headings (keyword "AUTHOR" "Author-kwd7-unique" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/keyword.org",
+  "title_raw": "keyword-fixture-kwd7"
+}
+#+end_SRC
+
+* Regepx
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --include keywords --config <<config-path()>> '(headings (keyword "AUTHOR" "[bcdefA]?uthor-kwd7-u(nique|noque)" :regexp t :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/keyword.org",
+  "title_raw": "keyword-fixture-kwd7"
+}
+#+end_SRC
+
 * Template
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js

@@ -449,7 +449,15 @@ fn validate_keyword(
         &call.name,
         &[QueryTarget::Headings, QueryTarget::Files],
     )?;
-    let options = validate_options(target, &call.name, &call.options, &["regexp"])?;
+    let allowed_options = match target {
+        QueryTarget::Headings => &["regexp", "inherit"][..],
+        QueryTarget::Files => &["regexp"][..],
+        QueryTarget::Links => unreachable!("keyword target was validated above"),
+    };
+    let options = validate_options(target, &call.name, &call.options, allowed_options)?;
+    if target == QueryTarget::Headings {
+        bool_option(target, &call.name, &options, "inherit")?;
+    }
     let args = validate_scalar_strings(target, &call.name, &call.args, Arity::OneOrTwo)?;
 
     if bool_option(target, &call.name, &options, "regexp")?.unwrap_or(false) && args.len() != 2 {

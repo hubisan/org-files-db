@@ -13,16 +13,16 @@
 
 | id |                                                    path                                                     |      mtime_ns       | size | content_hash | indexed_at |
 |----|-------------------------------------------------------------------------------------------------------------|---------------------|------|--------------|------------|
-| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org     | 1782986400000000000 | 363  |              | 1784464307 |
-| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org      | 1782986400000000000 | 399  |              | 1784464307 |
-| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org        | 1782986400000000000 | 396  |              | 1784464307 |
-| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org      | 1782986400000000000 | 416  |              | 1784464307 |
-| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org   | 1782986400000000000 | 474  |              | 1784464307 |
-| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org          | 1782986400000000000 | 243  |              | 1784464307 |
-| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org | 1782900000000000000 | 151  |              | 1784464307 |
-| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org     | 1782986400000000000 | 129  |              | 1784464307 |
-| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org    | 1782986400000000000 | 155  |              | 1784464307 |
-| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org      | 1782986400000000000 | 465  |              | 1784464307 |
+| 1  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org     | 1782986400000000000 | 363  |              | 1784465619 |
+| 2  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org      | 1782986400000000000 | 399  |              | 1784465619 |
+| 3  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org        | 1782986400000000000 | 396  |              | 1784465619 |
+| 4  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org      | 1782986400000000000 | 416  |              | 1784465619 |
+| 5  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org   | 1782986400000000000 | 474  |              | 1784465619 |
+| 6  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/done.org          | 1782986400000000000 | 243  |              | 1784465619 |
+| 7  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-modified.org | 1782900000000000000 | 151  |              | 1784465619 |
+| 8  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-name.org     | 1782986400000000000 | 129  |              | 1784465619 |
+| 9  | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/file-title.org    | 1782986400000000000 | 155  |              | 1784465619 |
+| 10 | /home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org      | 1782986400000000000 | 465  |              | 1784465619 |
 
 ## heading_bodies
 

@@ -152,7 +152,7 @@ fn rejects_target_aware_inheritance_options_in_file_queries() {
     assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
 
     let query =
-        org_files_db::query::parse_query(r#"(headings (keyword "TITLE" "Projects" :inherit t))"#)
+        org_files_db::query::parse_query(r#"(files (keyword "TITLE" "Projects" :inherit t))"#)
             .expect("query should parse");
     let error = validate_query(query, &full_capabilities()).expect_err("query should fail");
     assert_eq!(error.kind, QueryValidationErrorKind::InvalidOption);
