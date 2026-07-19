@@ -4400,8 +4400,8 @@
     "line_number": 1,
     "byte_start": -1,
     "byte_end": 489,
-    "title": "tags-all-fixture-tga2",
-    "title_raw": "tags-all-fixture-tga2",
+    "title": "tags_all_fixture_tga2",
+    "title_raw": "tags_all_fixture_tga2",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4424,8 +4424,8 @@
     "line_number": 4,
     "byte_start": 51,
     "byte_end": 140,
-    "title": "tags-all: Both Tags tga2-a",
-    "title_raw": "tags-all: Both Tags tga2-a",
+    "title": "tags_all: Both Tags tga2_a",
+    "title_raw": "tags_all: Both Tags tga2_a",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4437,7 +4437,10 @@
     "closed_ts": null,
     "archivedp": false,
     "footnote_section_p": false,
-    "all_tags": []
+    "all_tags": [
+      "tga2_alpha",
+      "tga2_beta"
+    ]
   },
   {
     "id": 186,
@@ -4448,8 +4451,8 @@
     "line_number": 5,
     "byte_start": 140,
     "byte_end": 219,
-    "title": "tags-all: Alpha Only tga2-b",
-    "title_raw": "tags-all: Alpha Only tga2-b",
+    "title": "tags_all: Alpha Only tga2_b",
+    "title_raw": "tags_all: Alpha Only tga2_b",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4461,7 +4464,9 @@
     "closed_ts": null,
     "archivedp": false,
     "footnote_section_p": false,
-    "all_tags": []
+    "all_tags": [
+      "tga2_alpha"
+    ]
   },
   {
     "id": 187,
@@ -4472,8 +4477,8 @@
     "line_number": 6,
     "byte_start": 219,
     "byte_end": 297,
-    "title": "tags-all: Beta Only tga2-c",
-    "title_raw": "tags-all: Beta Only tga2-c",
+    "title": "tags_all: Beta Only tga2_c",
+    "title_raw": "tags_all: Beta Only tga2_c",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4485,7 +4490,9 @@
     "closed_ts": null,
     "archivedp": false,
     "footnote_section_p": false,
-    "all_tags": []
+    "all_tags": [
+      "tga2_beta"
+    ]
   },
   {
     "id": 188,
@@ -4496,8 +4503,8 @@
     "line_number": 7,
     "byte_start": 297,
     "byte_end": 397,
-    "title": "tags-all: Both Plus Extra tga2-d",
-    "title_raw": "tags-all: Both Plus Extra tga2-d",
+    "title": "tags_all: Both Plus Extra tga2_d",
+    "title_raw": "tags_all: Both Plus Extra tga2_d",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4509,7 +4516,11 @@
     "closed_ts": null,
     "archivedp": false,
     "footnote_section_p": false,
-    "all_tags": []
+    "all_tags": [
+      "tga2_alpha",
+      "tga2_beta",
+      "tga2_extra"
+    ]
   },
   {
     "id": 189,
@@ -4520,32 +4531,8 @@
     "line_number": 8,
     "byte_start": 397,
     "byte_end": 489,
-    "title": "tags-all: Regexp Pair tga2-e",
-    "title_raw": "tags-all: Regexp Pair tga2-e",
-    "todo_keyword": null,
-    "todo_type": null,
-    "priority": null,
-    "scheduled_raw": null,
-    "scheduled_ts": null,
-    "deadline_raw": null,
-    "deadline_ts": null,
-    "closed_raw": null,
-    "closed_ts": null,
-    "archivedp": false,
-    "footnote_section_p": false,
-    "all_tags": []
-  },
-  {
-    "id": 190,
-    "file_id": 28,
-    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
-    "parent_id": null,
-    "level": 0,
-    "line_number": 1,
-    "byte_start": -1,
-    "byte_end": 846,
-    "title": "tags-fixture-tag3",
-    "title_raw": "tags-fixture-tag3",
+    "title": "tags_all: Regexp Pair tga2_e",
+    "title_raw": "tags_all: Regexp Pair tga2_e",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4558,7 +4545,34 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tga2_rx_117",
+      "tga2_rx_882"
+    ]
+  },
+  {
+    "id": 190,
+    "file_id": 28,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+    "parent_id": null,
+    "level": 0,
+    "line_number": 1,
+    "byte_start": -1,
+    "byte_end": 1896,
+    "title": "tags_fixture_tag3",
+    "title_raw": "tags_fixture_tag3",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "tag3_file_inherited"
     ]
   },
   {
@@ -4569,9 +4583,9 @@
     "level": 1,
     "line_number": 5,
     "byte_start": 81,
-    "byte_end": 167,
-    "title": "tags: Local Single tag3-a",
-    "title_raw": "tags: Local Single tag3-a",
+    "byte_end": 266,
+    "title": "tags: Local Single tag3_a",
+    "title_raw": "tags: Local Single tag3_a",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4584,7 +4598,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_local_blue"
     ]
   },
   {
@@ -4593,11 +4608,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 6,
-    "byte_start": 167,
-    "byte_end": 249,
-    "title": "tags: Local Any First tag3-b",
-    "title_raw": "tags: Local Any First tag3-b",
+    "line_number": 8,
+    "byte_start": 266,
+    "byte_end": 444,
+    "title": "tags: Local Any First tag3_b",
+    "title_raw": "tags: Local Any First tag3_b",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4610,7 +4625,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_any_red"
     ]
   },
   {
@@ -4619,11 +4635,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 7,
-    "byte_start": 249,
-    "byte_end": 333,
-    "title": "tags: Local Any Second tag3-c",
-    "title_raw": "tags: Local Any Second tag3-c",
+    "line_number": 11,
+    "byte_start": 444,
+    "byte_end": 626,
+    "title": "tags: Local Any Second tag3_c",
+    "title_raw": "tags: Local Any Second tag3_c",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4636,7 +4652,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_any_green"
     ]
   },
   {
@@ -4645,11 +4662,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 8,
-    "byte_start": 333,
-    "byte_end": 432,
-    "title": "tags: All Match tag3-d",
-    "title_raw": "tags: All Match tag3-d",
+    "line_number": 14,
+    "byte_start": 626,
+    "byte_end": 836,
+    "title": "tags: All Match tag3_d",
+    "title_raw": "tags: All Match tag3_d",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4662,7 +4679,9 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_all_gold",
+      "tag3_all_silver"
     ]
   },
   {
@@ -4671,11 +4690,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 9,
-    "byte_start": 432,
-    "byte_end": 640,
-    "title": "tags: Parent Inheritance tag3-e",
-    "title_raw": "tags: Parent Inheritance tag3-e",
+    "line_number": 17,
+    "byte_start": 836,
+    "byte_end": 1351,
+    "title": "tags: Parent Inheritance tag3_e",
+    "title_raw": "tags: Parent Inheritance tag3_e",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4688,7 +4707,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_parent_violet"
     ]
   },
   {
@@ -4697,11 +4717,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 195,
     "level": 2,
-    "line_number": 10,
-    "byte_start": 520,
-    "byte_end": 552,
-    "title": "tags: Inherited Child tag3-f",
-    "title_raw": "tags: Inherited Child tag3-f",
+    "line_number": 20,
+    "byte_start": 1026,
+    "byte_end": 1160,
+    "title": "tags: Inherited Child tag3_f",
+    "title_raw": "tags: Inherited Child tag3_f",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4714,7 +4734,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_parent_violet"
     ]
   },
   {
@@ -4723,11 +4744,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 195,
     "level": 2,
-    "line_number": 11,
-    "byte_start": 552,
-    "byte_end": 640,
-    "title": "tags: Local Child Override Test tag3-g",
-    "title_raw": "tags: Local Child Override Test tag3-g",
+    "line_number": 23,
+    "byte_start": 1160,
+    "byte_end": 1351,
+    "title": "tags: Local Child Override Test tag3_g",
+    "title_raw": "tags: Local Child Override Test tag3_g",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4740,7 +4761,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_parent_violet"
     ]
   },
   {
@@ -4749,11 +4771,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 12,
-    "byte_start": 640,
-    "byte_end": 725,
-    "title": "tags: Regexp Match tag3-h",
-    "title_raw": "tags: Regexp Match tag3-h",
+    "line_number": 26,
+    "byte_start": 1351,
+    "byte_end": 1535,
+    "title": "tags: Regexp Match tag3_h",
+    "title_raw": "tags: Regexp Match tag3_h",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4766,7 +4788,8 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_regexp_482"
     ]
   },
   {
@@ -4775,11 +4798,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 13,
-    "byte_start": 725,
-    "byte_end": 758,
-    "title": "tags: Filetag Inherited tag3-i",
-    "title_raw": "tags: Filetag Inherited tag3-i",
+    "line_number": 29,
+    "byte_start": 1535,
+    "byte_end": 1651,
+    "title": "tags: Filetag Inherited tag3_i",
+    "title_raw": "tags: Filetag Inherited tag3_i",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4792,7 +4815,7 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited"
     ]
   },
   {
@@ -4801,11 +4824,11 @@
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
     "parent_id": 190,
     "level": 1,
-    "line_number": 14,
-    "byte_start": 758,
-    "byte_end": 846,
-    "title": "tags: No Match Control tag3-j",
-    "title_raw": "tags: No Match Control tag3-j",
+    "line_number": 32,
+    "byte_start": 1651,
+    "byte_end": 1841,
+    "title": "tags: No Match Control tag3_j",
+    "title_raw": "tags: No Match Control tag3_j",
     "todo_keyword": null,
     "todo_type": null,
     "priority": null,
@@ -4818,11 +4841,38 @@
     "archivedp": false,
     "footnote_section_p": false,
     "all_tags": [
-      "tag3-file-inherited"
+      "tag3_file_inherited",
+      "tag3_control_black"
     ]
   },
   {
     "id": 201,
+    "file_id": 28,
+    "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+    "parent_id": 190,
+    "level": 1,
+    "line_number": 35,
+    "byte_start": 1841,
+    "byte_end": 1896,
+    "title": "tags: Override Parent File Tag",
+    "title_raw": "tags: Override Parent File Tag",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "tag3_file_inherited"
+    ]
+  },
+  {
+    "id": 202,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
     "parent_id": null,
@@ -4846,10 +4896,10 @@
     "all_tags": []
   },
   {
-    "id": 202,
+    "id": 203,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 201,
+    "parent_id": 202,
     "level": 1,
     "line_number": 3,
     "byte_start": 16,
@@ -4870,10 +4920,10 @@
     "all_tags": []
   },
   {
-    "id": 203,
+    "id": 204,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 201,
+    "parent_id": 202,
     "level": 1,
     "line_number": 5,
     "byte_start": 42,
@@ -4894,10 +4944,10 @@
     "all_tags": []
   },
   {
-    "id": 204,
+    "id": 205,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 201,
+    "parent_id": 202,
     "level": 1,
     "line_number": 7,
     "byte_start": 74,
@@ -4918,10 +4968,10 @@
     "all_tags": []
   },
   {
-    "id": 205,
+    "id": 206,
     "file_id": 29,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/title.org",
-    "parent_id": 201,
+    "parent_id": 202,
     "level": 1,
     "line_number": 9,
     "byte_start": 95,
@@ -4942,7 +4992,7 @@
     "all_tags": []
   },
   {
-    "id": 206,
+    "id": 207,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
     "parent_id": null,
@@ -4966,10 +5016,10 @@
     "all_tags": []
   },
   {
-    "id": 207,
+    "id": 208,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 8,
     "byte_start": 164,
@@ -4990,10 +5040,10 @@
     "all_tags": []
   },
   {
-    "id": 208,
+    "id": 209,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 11,
     "byte_start": 284,
@@ -5014,10 +5064,10 @@
     "all_tags": []
   },
   {
-    "id": 209,
+    "id": 210,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 14,
     "byte_start": 409,
@@ -5038,10 +5088,10 @@
     "all_tags": []
   },
   {
-    "id": 210,
+    "id": 211,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 15,
     "byte_start": 442,
@@ -5062,10 +5112,10 @@
     "all_tags": []
   },
   {
-    "id": 211,
+    "id": 212,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 16,
     "byte_start": 483,
@@ -5086,10 +5136,10 @@
     "all_tags": []
   },
   {
-    "id": 212,
+    "id": 213,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 17,
     "byte_start": 520,
@@ -5110,10 +5160,10 @@
     "all_tags": []
   },
   {
-    "id": 213,
+    "id": 214,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 19,
     "byte_start": 566,
@@ -5134,10 +5184,10 @@
     "all_tags": []
   },
   {
-    "id": 214,
+    "id": 215,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 20,
     "byte_start": 612,
@@ -5158,10 +5208,10 @@
     "all_tags": []
   },
   {
-    "id": 215,
+    "id": 216,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 22,
     "byte_start": 666,
@@ -5182,10 +5232,10 @@
     "all_tags": []
   },
   {
-    "id": 216,
+    "id": 217,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 23,
     "byte_start": 701,
@@ -5206,10 +5256,10 @@
     "all_tags": []
   },
   {
-    "id": 217,
+    "id": 218,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 25,
     "byte_start": 739,
@@ -5230,10 +5280,10 @@
     "all_tags": []
   },
   {
-    "id": 218,
+    "id": 219,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 26,
     "byte_start": 773,
@@ -5254,10 +5304,10 @@
     "all_tags": []
   },
   {
-    "id": 219,
+    "id": 220,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 30,
     "byte_start": 830,
@@ -5278,10 +5328,10 @@
     "all_tags": []
   },
   {
-    "id": 220,
+    "id": 221,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 34,
     "byte_start": 907,
@@ -5302,10 +5352,10 @@
     "all_tags": []
   },
   {
-    "id": 221,
+    "id": 222,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 35,
     "byte_start": 964,
@@ -5326,10 +5376,10 @@
     "all_tags": []
   },
   {
-    "id": 222,
+    "id": 223,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 37,
     "byte_start": 1024,
@@ -5350,10 +5400,10 @@
     "all_tags": []
   },
   {
-    "id": 223,
+    "id": 224,
     "file_id": 30,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords-file-local.org",
-    "parent_id": 206,
+    "parent_id": 207,
     "level": 1,
     "line_number": 38,
     "byte_start": 1071,
@@ -5374,7 +5424,7 @@
     "all_tags": []
   },
   {
-    "id": 224,
+    "id": 225,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
     "parent_id": null,
@@ -5398,10 +5448,10 @@
     "all_tags": []
   },
   {
-    "id": 225,
+    "id": 226,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 224,
+    "parent_id": 225,
     "level": 1,
     "line_number": 4,
     "byte_start": 43,
@@ -5422,10 +5472,10 @@
     "all_tags": []
   },
   {
-    "id": 226,
+    "id": 227,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 224,
+    "parent_id": 225,
     "level": 1,
     "line_number": 6,
     "byte_start": 74,
@@ -5446,10 +5496,10 @@
     "all_tags": []
   },
   {
-    "id": 227,
+    "id": 228,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 224,
+    "parent_id": 225,
     "level": 1,
     "line_number": 8,
     "byte_start": 105,
@@ -5470,10 +5520,10 @@
     "all_tags": []
   },
   {
-    "id": 228,
+    "id": 229,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 224,
+    "parent_id": 225,
     "level": 1,
     "line_number": 10,
     "byte_start": 162,
@@ -5494,10 +5544,10 @@
     "all_tags": []
   },
   {
-    "id": 229,
+    "id": 230,
     "file_id": 31,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/todo-keywords.org",
-    "parent_id": 224,
+    "parent_id": 225,
     "level": 1,
     "line_number": 12,
     "byte_start": 202,
@@ -5518,7 +5568,7 @@
     "all_tags": []
   },
   {
-    "id": 230,
+    "id": 231,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
     "parent_id": null,
@@ -5542,10 +5592,10 @@
     "all_tags": []
   },
   {
-    "id": 231,
+    "id": 232,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 230,
+    "parent_id": 231,
     "level": 1,
     "line_number": 4,
     "byte_start": 52,
@@ -5566,10 +5616,10 @@
     "all_tags": []
   },
   {
-    "id": 232,
+    "id": 233,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 230,
+    "parent_id": 231,
     "level": 1,
     "line_number": 7,
     "byte_start": 100,
@@ -5590,10 +5640,10 @@
     "all_tags": []
   },
   {
-    "id": 233,
+    "id": 234,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 230,
+    "parent_id": 231,
     "level": 1,
     "line_number": 10,
     "byte_start": 154,
@@ -5614,10 +5664,10 @@
     "all_tags": []
   },
   {
-    "id": 234,
+    "id": 235,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 230,
+    "parent_id": 231,
     "level": 1,
     "line_number": 13,
     "byte_start": 204,
@@ -5638,10 +5688,10 @@
     "all_tags": []
   },
   {
-    "id": 235,
+    "id": 236,
     "file_id": 32,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
-    "parent_id": 230,
+    "parent_id": 231,
     "level": 1,
     "line_number": 16,
     "byte_start": 258,
@@ -5662,7 +5712,7 @@
     "all_tags": []
   },
   {
-    "id": 236,
+    "id": 237,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
     "parent_id": null,
@@ -5686,10 +5736,10 @@
     "all_tags": []
   },
   {
-    "id": 237,
+    "id": 238,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 236,
+    "parent_id": 237,
     "level": 1,
     "line_number": 4,
     "byte_start": 54,
@@ -5710,10 +5760,10 @@
     "all_tags": []
   },
   {
-    "id": 238,
+    "id": 239,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 236,
+    "parent_id": 237,
     "level": 1,
     "line_number": 7,
     "byte_start": 104,
@@ -5734,10 +5784,10 @@
     "all_tags": []
   },
   {
-    "id": 239,
+    "id": 240,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 236,
+    "parent_id": 237,
     "level": 1,
     "line_number": 10,
     "byte_start": 160,
@@ -5758,10 +5808,10 @@
     "all_tags": []
   },
   {
-    "id": 240,
+    "id": 241,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 236,
+    "parent_id": 237,
     "level": 1,
     "line_number": 13,
     "byte_start": 212,
@@ -5782,10 +5832,10 @@
     "all_tags": []
   },
   {
-    "id": 241,
+    "id": 242,
     "file_id": 33,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
-    "parent_id": 236,
+    "parent_id": 237,
     "level": 1,
     "line_number": 16,
     "byte_start": 268,
@@ -5806,7 +5856,7 @@
     "all_tags": []
   },
   {
-    "id": 242,
+    "id": 243,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
     "parent_id": null,
@@ -5830,10 +5880,10 @@
     "all_tags": []
   },
   {
-    "id": 243,
+    "id": 244,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 242,
+    "parent_id": 243,
     "level": 1,
     "line_number": 4,
     "byte_start": 45,
@@ -5854,10 +5904,10 @@
     "all_tags": []
   },
   {
-    "id": 244,
+    "id": 245,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 242,
+    "parent_id": 243,
     "level": 1,
     "line_number": 7,
     "byte_start": 93,
@@ -5878,10 +5928,10 @@
     "all_tags": []
   },
   {
-    "id": 245,
+    "id": 246,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 242,
+    "parent_id": 243,
     "level": 1,
     "line_number": 10,
     "byte_start": 147,
@@ -5902,10 +5952,10 @@
     "all_tags": []
   },
   {
-    "id": 246,
+    "id": 247,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 242,
+    "parent_id": 243,
     "level": 1,
     "line_number": 13,
     "byte_start": 197,
@@ -5926,10 +5976,10 @@
     "all_tags": []
   },
   {
-    "id": 247,
+    "id": 248,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 242,
+    "parent_id": 243,
     "level": 1,
     "line_number": 16,
     "byte_start": 253,
@@ -5950,10 +6000,10 @@
     "all_tags": []
   },
   {
-    "id": 248,
+    "id": 249,
     "file_id": 34,
     "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
-    "parent_id": 242,
+    "parent_id": 243,
     "level": 1,
     "line_number": 19,
     "byte_start": 336,

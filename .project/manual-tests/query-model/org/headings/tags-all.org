@@ -1,8 +1,0 @@
-#+TITLE: tags-all-fixture-tga2
-#+STARTUP: showall
-
-* tags-all: Both Tags tga2-a                                      :tga2-alpha:tga2-beta:
-* tags-all: Alpha Only tga2-b                                     :tga2-alpha:
-* tags-all: Beta Only tga2-c                                      :tga2-beta:
-* tags-all: Both Plus Extra tga2-d                                :tga2-alpha:tga2-beta:tga2-extra:
-* tags-all: Regexp Pair tga2-e                                    :tga2-rx-117:tga2-rx-882:

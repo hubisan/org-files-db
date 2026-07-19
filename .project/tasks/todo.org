@@ -254,8 +254,8 @@ General rules:
 ***** DONE property
 ***** DONE level
 ***** DONE priority
-***** tags
-***** tags-all
+***** DONE tags
+***** DONE tags-all
 ***** keyword
 ***** file-name
 ***** file-path

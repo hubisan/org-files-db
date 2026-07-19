@@ -1,14 +1,35 @@
-#+TITLE: tags-fixture-tag3
+#+TITLE: tags_fixture_tag3
 #+STARTUP: showall
-#+FILETAGS: :tag3-file-inherited:
+#+FILETAGS: :tag3_file_inherited:
 
-* tags: Local Single tag3-a                                         :tag3-local-blue:
-* tags: Local Any First tag3-b                                     :tag3-any-red:
-* tags: Local Any Second tag3-c                                    :tag3-any-green:
-* tags: All Match tag3-d                                           :tag3-all-gold:tag3-all-silver:
-* tags: Parent Inheritance tag3-e                                  :tag3-parent-violet:
-** tags: Inherited Child tag3-f
-** tags: Local Child Override Test tag3-g                           :tag3-child-copper:
-* tags: Regexp Match tag3-h                                        :tag3-regexp-482:
-* tags: Filetag Inherited tag3-i
-* tags: No Match Control tag3-j                                    :tag3-control-black:
+* tags: Local Single tag3_a                                         :tag3_local_blue:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_local_blue)=)}}}  
+
+* tags: Local Any First tag3_b                                     :tag3_any_red:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_any_red)=)}}}  
+
+* tags: Local Any Second tag3_c                                    :tag3_any_green:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_any_green)=)}}}  
+
+* tags: All Match tag3_d                                         :tag3_all_gold:tag3_all_silver:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_all_gold tag3_all_silver)=)}}}  
+
+* tags: Parent Inheritance tag3_e                                  :tag3_parent_violet:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_parent_violet)=)}}}  
+
+** tags: Inherited Child tag3_f
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_parent_violet)=)}}}  
+
+** tags: Local Child Override Test tag3_g                           :tag3_parent_violet:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_parent_violet)=)}}}  
+
+* tags: Regexp Match tag3_h                                        :tag3_regexp_482:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_regexp_482)=)}}}  
+
+* tags: Filetag Inherited tag3_i
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited)=)}}}  
+
+* tags: No Match Control tag3_j                                    :tag3_control_black:
+src_elisp{(message "%s" (org-get-tags))} {{{results(=(tag3-file-inherited tag3_control_black)=)}}}  
+
+* tags: Override Parent File Tag :tag3_file_inherited:

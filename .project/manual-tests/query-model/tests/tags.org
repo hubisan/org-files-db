@@ -1,0 +1,426 @@
+#+TITLE: Query Model Tests - tags and tags-all
+#+STARTUP: Content
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Single
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_local_blue"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Single tag3_a",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_local_blue"
+  ]
+}
+#+end_SRC
+
+* Multiple
+
+** Any
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_local_blue" "tag3_parent_violet"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Single tag3_a",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_local_blue"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Parent Inheritance tag3_e",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Inherited Child tag3_f",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Child Override Test tag3_g",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet",
+    "tag3_child_copper"
+  ]
+}
+#+end_SRC
+
+Without Inheritance:
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_local_blue" "tag3_parent_violet" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Single tag3_a",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_local_blue"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Parent Inheritance tag3_e",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Child Override Test tag3_g",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet"
+  ]
+}
+#+end_SRC
+
+** All
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_file_inherited" "tag3_all_silver" :inherit t :match :all))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: All Match tag3_d",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_all_gold",
+    "tag3_all_silver"
+  ]
+}
+#+end_SRC
+
+No Inheritance:
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_all_gold" "tag3_all_silver" :inherit nil :match :all))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: All Match tag3_d",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_all_gold",
+    "tag3_all_silver"
+  ]
+}
+#+end_SRC
+
+** using tags all
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags-all "tag3_file_inherited" "tag3_all_silver" :inherit t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: All Match tag3_d",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_all_gold",
+    "tag3_all_silver"
+  ]
+}
+#+end_SRC
+
+No Inheritance:
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags-all "tag3_all_gold" "tag3_all_silver" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: All Match tag3_d",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_all_gold",
+    "tag3_all_silver"
+  ]
+}
+#+end_SRC
+
+* Inheritance
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_file_inherited" :inherit nil))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags_fixture_tag3",
+  "all_tags": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Override Parent File Tag",
+  "all_tags": [
+    "tag3_file_inherited"
+  ]
+}
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "tag3_file_inherited" :inherit t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags_fixture_tag3",
+  "all_tags": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Single tag3_a",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_local_blue"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Any First tag3_b",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_any_red"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Any Second tag3_c",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_any_green"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: All Match tag3_d",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_all_gold",
+    "tag3_all_silver"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Parent Inheritance tag3_e",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Inherited Child tag3_f",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Child Override Test tag3_g",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_parent_violet",
+    "tag3_child_copper"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Regexp Match tag3_h",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_regexp_482"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Filetag Inherited tag3_i",
+  "all_tags": [
+    "tag3_file_inherited"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: No Match Control tag3_j",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_control_black"
+  ]
+}
+#+end_SRC
+
+* Regexp
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags "[abct]?ag3_any_(red|green)" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      all_tags
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Any First tag3_b",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_any_red"
+  ]
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags: Local Any Second tag3_c",
+  "all_tags": [
+    "tag3_file_inherited",
+    "tag3_any_green"
+  ]
+}
+#+end_SRC
+
+* Template
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (tags ""))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
