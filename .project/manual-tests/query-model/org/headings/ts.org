@@ -1,0 +1,20 @@
+#+TITLE: ts-fixture-tsp3
+#+STARTUP: showall
+
+* ts: Active Date Only tsp3-a
+<2031-01-10 Fri>
+
+* ts: Active With Time tsp3-b
+<2031-01-10 Fri 09:15>
+
+* ts: Inactive Date Only tsp3-c
+[2031-01-11 Sat]
+
+* ts: Inactive With Time tsp3-d
+[2031-01-11 Sat 14:45]
+
+* ts: Multiple Timestamp Range tsp3-e
+<2031-02-01 Sat> and [2031-02-20 Thu 18:30]
+
+* ts: No Timestamp Control tsp3-f
+Plain unique text tsp3-control.

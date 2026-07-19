@@ -1,0 +1,35 @@
+#+TITLE: Query Model Tests - predicate
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* predicate
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (predicate ""))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+* Template
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (predicate ""))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src

@@ -1,0 +1,18 @@
+#+TITLE: closed-fixture-cls8
+#+STARTUP: showall
+#+TODO: TODO | DONE
+
+* DONE closed: Date Only cls8-a
+CLOSED: [2036-07-16 Wed]
+
+* DONE closed: With Time cls8-b
+CLOSED: [2036-07-16 Wed 12:40]
+
+* DONE closed: Range Earlier cls8-c
+CLOSED: [2036-07-01 Tue]
+
+* DONE closed: Range Later cls8-d
+CLOSED: [2036-07-31 Thu 20:15]
+
+* TODO closed: No Closed Negative Control cls8-e
+SCHEDULED: <2036-07-16 Wed>

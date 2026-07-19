@@ -1,0 +1,23 @@
+#+TITLE: linked-from-fixture-lfr7
+#+STARTUP: showall
+
+* linked-from: Tagged Source lfr7-source-a                           :lfr7-source-tag:
+[[#lfr7-target-a][lfr7 backlink A description]]
+
+* linked-from: Plain Source lfr7-source-b
+[[id:lfr7-target-id-b][lfr7 backlink B description]]
+
+* linked-from: Target With Backlink A lfr7-target-a
+:PROPERTIES:
+:CUSTOM_ID: lfr7-target-a
+:END:
+
+* linked-from: Target With Backlink B lfr7-target-b
+:PROPERTIES:
+:ID: lfr7-target-id-b
+:END:
+
+* linked-from: Target Without Backlink lfr7-target-c
+:PROPERTIES:
+:CUSTOM_ID: lfr7-target-c
+:END:

@@ -1,0 +1,22 @@
+#+TITLE: links-to-fixture-lto6
+#+STARTUP: showall
+
+* links-to: Source To Custom ID lto6-a
+[[#lto6-target-custom][lto6 custom target description]]
+
+* links-to: Source To ID lto6-b
+[[id:lto6-target-id][lto6 id target description]]
+
+* links-to: Source To Other Target lto6-c
+[[#lto6-other-custom][lto6 other target description]]
+
+* links-to: Target Heading lto6-target                              :lto6-project:
+:PROPERTIES:
+:ID: lto6-target-id
+:CUSTOM_ID: lto6-target-custom
+:END:
+
+* links-to: Other Target Heading lto6-other
+:PROPERTIES:
+:CUSTOM_ID: lto6-other-custom
+:END:

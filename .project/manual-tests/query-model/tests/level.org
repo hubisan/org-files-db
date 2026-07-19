@@ -1,0 +1,333 @@
+#+TITLE: Query Model Tests - level
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* level
+
+** exact
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level-fixture-lvl8",
+  "level": 0
+}
+#+end_SRC
+
+** from - to
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0 1) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level-fixture-lvl8",
+  "level": 0
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 1 lvl8-a",
+  "level": 1
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 1 lvl8-e",
+  "level": 1
+}
+#+end_SRC
+
+** >
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level > 1) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 2 lvl8-b",
+  "level": 2
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 3 lvl8-c",
+  "level": 3
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 4 lvl8-d",
+  "level": 4
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 2 lvl8-f",
+  "level": 2
+}
+#+end_SRC
+
+** <
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level < 1) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level-fixture-lvl8",
+  "level": 0
+}
+#+end_SRC
+
+** <=
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level <= 1) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level-fixture-lvl8",
+  "level": 0
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 1 lvl8-a",
+  "level": 1
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 1 lvl8-e",
+  "level": 1
+}
+#+end_SRC
+
+** >=
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level >= 1) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 1 lvl8-a",
+  "level": 1
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 2 lvl8-b",
+  "level": 2
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 3 lvl8-c",
+  "level": 3
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 4 lvl8-d",
+  "level": 4
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 1 lvl8-e",
+  "level": 1
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 2 lvl8-f",
+  "level": 2
+}
+#+end_SRC
+
+** mit not
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (not (level 1)) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level-fixture-lvl8",
+  "level": 0
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 2 lvl8-b",
+  "level": 2
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 3 lvl8-c",
+  "level": 3
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 4 lvl8-d",
+  "level": 4
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 2 lvl8-f",
+  "level": 2
+}
+#+end_SRC
+
+** Mit and (sollte keine Ergebnisse liefern)
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (and (level 1) (level 2)) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Mit or 
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (or (level 1) (level 2)) (file-name "level.org")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 1 lvl8-a",
+  "level": 1
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Level 2 lvl8-b",
+  "level": 2
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 1 lvl8-e",
+  "level": 1
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
+  "title_raw": "level: Second Level 2 lvl8-f",
+  "level": 2
+}
+#+end_SRC
+
+* Template
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (level ""))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      level
+    }'
+#+end_src

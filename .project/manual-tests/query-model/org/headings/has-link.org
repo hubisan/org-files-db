@@ -1,0 +1,19 @@
+#+TITLE: has-link-fixture-hln5
+#+STARTUP: showall
+
+* has-link: File Link hln5-a
+[[file:hln5-target-file.org][hln5 unique file description]]
+
+* has-link: HTTPS Link hln5-b
+[[https://example.invalid/hln5-unique][hln5 unique web description]]
+
+* has-link: ID Link hln5-c
+[[id:hln5-target-id][hln5 unique id description]]
+
+* has-link: No Link Control hln5-d
+Plain unique text hln5-control.
+
+* has-link: Target Heading hln5-target
+:PROPERTIES:
+:ID: hln5-target-id
+:END:

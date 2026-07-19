@@ -1,0 +1,5 @@
+#+TITLE: file-dir-fixture-fdr5
+#+STARTUP: showall
+
+* file-dir: Directory Match fdr5-a
+* file-dir: Directory Second Match fdr5-b

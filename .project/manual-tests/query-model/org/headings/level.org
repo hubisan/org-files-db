@@ -1,0 +1,9 @@
+#+TITLE: level-fixture-lvl8
+#+STARTUP: showall
+
+* level: Level 1 lvl8-a
+** level: Level 2 lvl8-b
+*** level: Level 3 lvl8-c
+**** level: Level 4 lvl8-d
+* level: Second Level 1 lvl8-e
+** level: Second Level 2 lvl8-f

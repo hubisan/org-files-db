@@ -1,0 +1,8 @@
+#+TITLE: done-fixture-dne4
+#+STARTUP: showall
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* DONE done: Done Keyword dne4-a
+* CANCELLED done: Cancelled Keyword dne4-b
+* TODO done: Open Negative Control dne4-c
+* done: No Keyword Negative Control dne4-d

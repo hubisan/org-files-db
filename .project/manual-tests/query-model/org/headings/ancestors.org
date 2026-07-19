@@ -1,0 +1,12 @@
+#+TITLE: ancestors-fixture-anc3
+#+STARTUP: showall
+
+* ancestors: Tagged Ancestor anc3-root                         :anc3-project:
+** ancestors: Middle anc3-mid
+*** ancestors: Deep Descendant anc3-a
+* ancestors: Property Ancestor anc3-prop
+:PROPERTIES:
+:ANC3_AREA: work-anc3
+:END:
+** ancestors: Property Descendant anc3-b
+* ancestors: Top Level No Ancestor anc3-c

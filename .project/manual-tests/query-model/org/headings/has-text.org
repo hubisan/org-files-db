@@ -1,0 +1,17 @@
+#+TITLE: has-text
+#+STARTUP: showall
+
+* has-text: Single Has Text
+
+single match
+some text and some more
+
+* Multiple Machtes
+
+** has-text: Multiple Matches 1
+
+multiple matches
+
+** has-text: Multiple Matches 2
+
+multiple matches

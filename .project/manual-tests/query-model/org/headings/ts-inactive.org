@@ -1,0 +1,17 @@
+#+TITLE: ts-inactive-fixture-tsi5
+#+STARTUP: showall
+
+* ts-inactive: Date Only tsi5-a
+[2033-04-13 Wed]
+
+* ts-inactive: With Time tsi5-b
+[2033-04-13 Wed 16:40]
+
+* ts-inactive: Range Start tsi5-c
+[2033-04-01 Fri]
+
+* ts-inactive: Range End tsi5-d
+[2033-04-30 Sat 21:55]
+
+* ts-inactive: Active Negative Control tsi5-e
+<2033-04-13 Wed>

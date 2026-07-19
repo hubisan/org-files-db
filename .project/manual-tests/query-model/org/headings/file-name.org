@@ -1,0 +1,5 @@
+#+TITLE: file-name-fixture-fnm3
+#+STARTUP: showall
+
+* file-name: Filename Match fnm3-a
+* file-name: Filename Second Match fnm3-b

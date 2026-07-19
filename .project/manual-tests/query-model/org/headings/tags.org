@@ -1,0 +1,14 @@
+#+TITLE: tags-fixture-tag3
+#+STARTUP: showall
+#+FILETAGS: :tag3-file-inherited:
+
+* tags: Local Single tag3-a                                         :tag3-local-blue:
+* tags: Local Any First tag3-b                                     :tag3-any-red:
+* tags: Local Any Second tag3-c                                    :tag3-any-green:
+* tags: All Match tag3-d                                           :tag3-all-gold:tag3-all-silver:
+* tags: Parent Inheritance tag3-e                                  :tag3-parent-violet:
+** tags: Inherited Child tag3-f
+** tags: Local Child Override Test tag3-g                           :tag3-child-copper:
+* tags: Regexp Match tag3-h                                        :tag3-regexp-482:
+* tags: Filetag Inherited tag3-i
+* tags: No Match Control tag3-j                                    :tag3-control-black:

@@ -1,0 +1,9 @@
+#+TITLE: parent-fixture-par1
+#+STARTUP: showall
+
+* parent: Matching Parent par1-target                            :par1-parent-tag:
+** parent: Direct Child Match par1-a
+*** parent: Grandchild Parent Is Child par1-b
+* parent: Nonmatching Parent par1-other                          :par1-other-tag:
+** parent: Direct Child Negative par1-c
+* parent: Top Level No Parent par1-d

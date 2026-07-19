@@ -1,0 +1,5 @@
+#+TITLE: Effective File Title FTL6 Unique
+#+STARTUP: showall
+
+* file-title: Effective Title Match ftl6-a
+* file-title: Effective Title Second Match ftl6-b

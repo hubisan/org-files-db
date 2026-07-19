@@ -1,0 +1,12 @@
+#+TITLE: descendants-fixture-des4
+#+STARTUP: showall
+#+TODO: TODO NEXT | DONE
+
+* descendants: Direct NEXT Descendant des4-a
+** NEXT descendants: Direct NEXT Child des4-child-a
+* descendants: Deep Blocked Descendant des4-b
+** descendants: Intermediate des4-mid
+*** TODO descendants: Deep Blocked TODO des4-deep                         :des4-blocked:
+* descendants: DONE Descendant Only des4-c
+** DONE descendants: Done Child des4-child-c
+* descendants: No Descendants des4-d

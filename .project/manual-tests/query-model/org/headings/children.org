@@ -1,0 +1,12 @@
+#+TITLE: children-fixture-chd2
+#+STARTUP: showall
+#+TODO: TODO NEXT | DONE
+
+* children: Has Direct Child chd2-a
+** TODO children: Direct TODO Child chd2-child-a
+* children: Has Nested NEXT chd2-b
+** children: Intermediate Child chd2-mid
+*** NEXT children: Grandchild NEXT chd2-grand
+* children: No Children chd2-c
+* children: Direct DONE Only chd2-d
+** DONE children: Direct DONE Child chd2-child-d

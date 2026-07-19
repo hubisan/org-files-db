@@ -228,45 +228,92 @@ General rules:
 
 - Task file: [[file:archive/2026-07-17--implement-regexp-matching-for-remaining-sqlite-metadata-predicates.org]]
 
+** BUILD [#C] Align documented ~level~ comparators with Query Model v0
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Remove unsupported ~=~ and ~!=~ comparator forms from the ~level~ predicate documentation in ~docs/cli.org~.
+
+Current state:
+
+- ~docs/cli.org~ states that ~(level COMPARATOR NUMBER)~ supports ~<~, ~<=~, ~>~, ~>=~, ~=~, and ~!=~.
+- The query validator accepts only ~<~, ~<=~, ~>~, and ~>=~.
+- The SQLite backend compiles only ~<~, ~<=~, ~>~, and ~>=~.
+- ~docs/reference/query-model-v0.org~ already documents the supported comparator set correctly.
+
+Decision:
+
+- Do not add ~=~ or ~!=~ to the ~level~ comparator form.
+- Exact matching is already expressed by ~(level NUMBER)~.
+- Inequality is already expressible through boolean negation, for example ~(not (level 1))~.
+- ~!=~ is not part of the intended Emacs-style scalar comparator set for this predicate.
+
+Tasks:
+
+- Update the ~level~ entry in ~docs/cli.org~ to list only ~<~, ~<=~, ~>~, and ~>=~.
+- Verify that no other documentation or examples advertise ~=~ or ~!=~ for ~level~.
+- Keep the validator and SQLite compiler unchanged.
+- Keep the existing heading predicate fixture archive unchanged.
+
+Acceptance criteria:
+
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~ describe the same supported ~level~ comparator forms.
+- ~(level = 2)~ and ~(level != 2)~ remain validation errors.
+- ~(level 2)~ remains the exact-match form.
+- ~(not (level 2))~ remains the supported way to express a non-equal level condition.
+
 ** TODO Manual Test the Implementation
 
-*** DONE Properties
+*** Query
 
-*** DONE Todo Keywords
+**** DONE Properties
 
-*** DONE File Local Todo Keywords
+**** DONE Todo Keywords
 
-*** Heading Predicates
-**** DONE todo
-**** DONE done
-**** DONE title
-**** has-text
-**** level
-**** priority
-**** tags
-**** tags-all
-**** property
-**** keyword
-**** file-name
-**** file-path
-**** file-title
-**** file-modified
-**** outline-contains
-**** outline-sequence
-**** ts
-**** ts-active
-**** ts-inactive
-**** deadline
-**** scheduled
-**** clased
-**** planning
-**** parent
-**** children
-**** ancestors
-**** descendants
-**** has-link
-**** links-to
-**** linked-from
+**** DONE File Local Todo Keywords
 
-*** Link Predicates
+**** Heading Predicates
+***** DONE todo
+***** DONE done
+***** DONE title
+***** DONE has-text
+***** DONE property
+***** DONE level
+***** priority
+***** tags
+***** tags-all
+***** keyword
+***** file-name
+***** file-path
+***** file-title
+***** file-modified
+***** outline-contains
+***** outline-sequence
+***** ts
+***** ts-active
+***** ts-inactive
+***** deadline
+***** scheduled
+***** clased
+***** planning
+***** timezone
+***** parent
+***** children
+***** ancestors
+***** descendants
+***** has-link
+***** links-to
+***** linked-from
+
+**** Link Predicates
 ...
+
+*** Search
+
+*** ...

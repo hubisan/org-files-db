@@ -1,0 +1,8 @@
+#+TITLE: keyword-fixture-kwd7
+#+AUTHOR: Author-kwd7-unique
+#+KWD7_CUSTOM: custom-value-kwd7-593
+#+STARTUP: showall
+
+* keyword: First Heading kwd7-a
+* keyword: Second Heading kwd7-b
+** keyword: Nested Heading kwd7-c

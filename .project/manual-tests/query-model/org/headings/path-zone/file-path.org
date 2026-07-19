@@ -1,0 +1,5 @@
+#+TITLE: file-path-fixture-fpt4
+#+STARTUP: showall
+
+* file-path: Path Match fpt4-a
+* file-path: Path Second Match fpt4-b

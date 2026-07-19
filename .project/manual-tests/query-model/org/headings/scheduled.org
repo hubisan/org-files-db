@@ -1,0 +1,18 @@
+#+TITLE: scheduled-fixture-sch7
+#+STARTUP: showall
+#+TODO: TODO | DONE
+
+* TODO scheduled: Date Only sch7-a
+SCHEDULED: <2035-06-15 Fri>
+
+* TODO scheduled: With Time sch7-b
+SCHEDULED: <2035-06-15 Fri 11:35>
+
+* TODO scheduled: Range Earlier sch7-c
+SCHEDULED: <2035-06-01 Fri>
+
+* TODO scheduled: Range Later sch7-d
+SCHEDULED: <2035-06-30 Sat 19:25>
+
+* TODO scheduled: Deadline Negative Control sch7-e
+DEADLINE: <2035-06-15 Fri>

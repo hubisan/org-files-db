@@ -1,0 +1,18 @@
+#+TITLE: deadline-fixture-dln6
+#+STARTUP: showall
+#+TODO: TODO | DONE
+
+* TODO deadline: Date Only dln6-a
+DEADLINE: <2034-05-14 Sun>
+
+* TODO deadline: With Time dln6-b
+DEADLINE: <2034-05-14 Sun 10:30>
+
+* TODO deadline: Range Earlier dln6-c
+DEADLINE: <2034-05-01 Mon>
+
+* TODO deadline: Range Later dln6-d
+DEADLINE: <2034-05-31 Wed 17:45>
+
+* TODO deadline: Scheduled Negative Control dln6-e
+SCHEDULED: <2034-05-14 Sun>

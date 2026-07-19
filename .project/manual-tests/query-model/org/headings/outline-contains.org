@@ -1,0 +1,10 @@
+#+TITLE: outline-contains-fixture-olc1
+#+STARTUP: showall
+
+* outline-contains: Project Branch olc1-project
+** outline-contains: Database Branch olc1-database
+*** outline-contains: Query Leaf olc1-query
+** outline-contains: Unrelated Leaf olc1-unrelated
+* outline-contains: Other Root olc1-other
+** outline-contains: Query Elsewhere olc1-query-elsewhere
+*** outline-contains: Regexp Leaf olc1-regexp-624

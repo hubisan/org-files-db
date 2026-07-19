@@ -1,0 +1,22 @@
+#+TITLE: planning-fixture-pln9
+#+STARTUP: showall
+#+TODO: TODO | DONE
+
+* TODO planning: Scheduled pln9-a
+SCHEDULED: <2037-08-17 Mon>
+
+* TODO planning: Deadline pln9-b
+DEADLINE: <2037-08-17 Mon 13:20>
+
+* DONE planning: Closed pln9-c
+CLOSED: [2037-08-17 Mon 18:10]
+
+* TODO planning: Multiple Planning pln9-d
+SCHEDULED: <2037-08-01 Sat>
+DEADLINE: <2037-08-31 Mon 16:00>
+
+* planning: Plain Timestamp Negative Control pln9-e
+<2037-08-17 Mon>
+
+* planning: No Timestamp Control pln9-f
+Plain unique text pln9-control.
