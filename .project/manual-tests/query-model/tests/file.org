@@ -1,5 +1,5 @@
 #+TITLE: Query Model Tests - Path Predicates
-#+STARTUP: showall
+#+STARTUP: content
 
 * Paths
 :PROPERTIES:
@@ -293,8 +293,70 @@
 
 * file-dir
 
+** Absolute
+
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir-fixture-fdr5"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Match fdr5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Second Match fdr5-b"
+}
+#+end_SRC
+
+** Home
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zo"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir-fixture-fdr5"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Match fdr5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Second Match fdr5-b"
+}
+#+end_SRC
+
+** Exact
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zo" :exact t))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,
@@ -306,9 +368,203 @@
 #+begin_SRC js
 #+end_SRC
 
-** Absolute
-** Home
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "~/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir-fixture-fdr5"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Match fdr5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Second Match fdr5-b"
+}
+#+end_SRC
+
+** Regexp
+
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-dir "~/projects/(coding|nothing)/[abcdefo]?rg-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zo.*" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir-fixture-fdr5"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Match fdr5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/deep-zone/file-dir.org",
+  "title_raw": "file-dir: Directory Second Match fdr5-b"
+}
+#+end_SRC
+
+* file-title
+
+** Plain
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-title "file-path-fixture-"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+** Exact
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-title "file-path-fixture-" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-title "no-title-set" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/no-title-set.org",
+  "title_raw": null
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/no-title-set.org",
+  "title_raw": "The parent title should be the file name"
+}
+#+end_SRC
+
+** Regexp
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (file-title "(file|nothing)?-path-fixture-.*" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path-fixture-fpt4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Match fpt4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/path-zone/file-path.org",
+  "title_raw": "file-path: Path Second Match fpt4-b"
+}
+#+end_SRC
+
+* file-modified
+
+** on
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (and (level 0) (file-modified :on "2026-07-19")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+      mtime_ns
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link-fixture-hln5",
+  "mtime_ns": 1784489535447186400
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/priority.org",
+  "title_raw": "priority-fixture-pri4",
+  "mtime_ns": 1784455889916262100
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/tags.org",
+  "title_raw": "tags_fixture_tag3",
+  "mtime_ns": 1784460355904105200
+}
+#+end_SRC
+
 * Template
+
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
   cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (predicate ""))' \

@@ -269,8 +269,8 @@ General rules:
 ***** DONE tags
 ***** DONE tags-all
 ***** DONE keyword
-***** file-name
-***** file-path
+***** DONE file-name
+***** DONE file-path
 ***** file-title
 ***** file-modified
 ***** outline-contains
