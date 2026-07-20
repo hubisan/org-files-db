@@ -291,9 +291,9 @@ Task file: [[file:archive/2026-07-20--include-synthetic-file-root-in-outline-pat
 ***** DONE file-modified
 ***** DONE outline-contains
 ***** DONE outline-sequence
-***** ts
-***** ts-active
-***** ts-inactive
+***** DONE ts
+***** DONE ts-active
+***** DONE ts-inactive
 ***** deadline
 ***** scheduled
 ***** clased

@@ -10,27 +10,826 @@
 : ../Config.toml
 
 
-* Deadline today
+* ts
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on today)'
+** Alle aktiven und inaktiven Zeitstempel
+
+Erwartet:
+
+- ~ts: Active Date Only tsp3-a~
+- ~ts: Active With Time tsp3-b~
+- ~ts: Inactive Date Only tsp3-c~
+- ~ts: Inactive With Time tsp3-d~
+- ~ts: Multiple Timestamp Range tsp3-e~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
-* Scheduled yesterday
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Active Date Only tsp3-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Active With Time tsp3-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Inactive Date Only tsp3-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Inactive With Time tsp3-d"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Multiple Timestamp Range tsp3-e"
+}
+#+end_SRC
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(scheduled :on -1)'
+** Aktives Datum
+
+Erwartet:
+
+- ~ts: Active Date Only tsp3-a~
+- ~ts: Active With Time tsp3-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :on "2031-01-10")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
-* Deadline tomorrow
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Active Date Only tsp3-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Active With Time tsp3-b"
+}
+#+end_SRC
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :on 1)'
+** Inaktives Datum
+
+Erwartet:
+
+- ~ts: Inactive Date Only tsp3-c~
+- ~ts: Inactive With Time tsp3-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :on "2031-01-11")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
-* Date range from yesterday through tomorrow
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Inactive Date Only tsp3-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Inactive With Time tsp3-d"
+}
+#+end_SRC
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(deadline :from -1 :to 1)'
+** Minutengenaue aktive Zeit
+
+Erwartet:
+
+- ~ts: Active With Time tsp3-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :on "2031-01-10 09:15")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Active With Time tsp3-b"
+}
+#+end_SRC
+
+** Minutengenaue inaktive Zeit
+
+Erwartet:
+
+- ~ts: Inactive With Time tsp3-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :on "2031-01-11 14:45")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Inactive With Time tsp3-d"
+}
+#+end_SRC
+
+** Bereich über mehrere Zeitstempel
+
+Erwartet:
+
+- ~ts: Multiple Timestamp Range tsp3-e~
+
+Das Heading matcht, weil mindestens einer seiner Zeitstempel im Bereich liegt.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :from "2031-02-01" :to "2031-02-20")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Multiple Timestamp Range tsp3-e"
+}
+#+end_SRC
+
+** Bereich nur am Anfang
+
+Erwartet:
+
+- ~ts: Multiple Timestamp Range tsp3-e~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :on "2031-02-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Multiple Timestamp Range tsp3-e"
+}
+#+end_SRC
+
+** Bereich nur am Ende mit Uhrzeit
+
+Erwartet:
+
+- ~ts: Multiple Timestamp Range tsp3-e~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (ts :on "2031-02-20 18:30")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts.org",
+  "title_raw": "ts: Multiple Timestamp Range tsp3-e"
+}
+#+end_SRC
+
+** Heading ohne Zeitstempel
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts.org")
+         (title "No Timestamp Control tsp3-f")
+         (ts)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* ts-active
+
+** Alle aktiven Zeitstempel
+
+Erwartet:
+
+- ~ts-active: Date Only tsa4-a~
+- ~ts-active: With Time tsa4-b~
+- ~ts-active: Range Start tsa4-c~
+- ~ts-active: Range End tsa4-d~
+
+Der inaktive Kontrollfall darf nicht matchen.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Date Only tsa4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: With Time tsa4-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range Start tsa4-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range End tsa4-d"
+}
+#+end_SRC
+
+** Datum mit und ohne Uhrzeit
+
+Erwartet:
+
+- ~ts-active: Date Only tsa4-a~
+- ~ts-active: With Time tsa4-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active :on "2032-03-12")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Date Only tsa4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: With Time tsa4-b"
+}
+#+end_SRC
+
+** Minutengenaue Zeit
+
+Erwartet:
+
+- ~ts-active: With Time tsa4-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active :on "2032-03-12 08:20")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: With Time tsa4-b"
+}
+#+end_SRC
+
+** Monatsbereich inklusive Start und Ende
+
+Erwartet:
+
+- ~ts-active: Date Only tsa4-a~
+- ~ts-active: With Time tsa4-b~
+- ~ts-active: Range Start tsa4-c~
+- ~ts-active: Range End tsa4-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active :from "2032-03-01" :to "2032-03-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Date Only tsa4-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: With Time tsa4-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range Start tsa4-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range End tsa4-d"
+}
+#+end_SRC
+
+** Startgrenze ist inklusive
+
+Erwartet:
+
+- ~ts-active: Range Start tsa4-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active :from "2032-03-01" :to "2032-03-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range Start tsa4-c"
+}
+#+end_SRC
+
+** Endgrenze ist inklusive
+
+Erwartet:
+
+- ~ts-active: Range End tsa4-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active :from "2032-03-31" :to "2032-03-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range End tsa4-d"
+}
+#+end_SRC
+
+** Minutengenaue Endgrenze ist inklusive
+
+Erwartet:
+
+- ~ts-active: Range End tsa4-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (ts-active
+           :from "2032-03-31 23:10"
+           :to "2032-03-31 23:10")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-active.org",
+  "title_raw": "ts-active: Range End tsa4-d"
+}
+#+end_SRC
+
+** Inaktiver Zeitstempel darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-active.org")
+         (title "Inactive Negative Control tsa4-e")
+         (ts-active :on "2032-03-12")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* ts-inactive
+
+** Alle inaktiven Zeitstempel
+
+Erwartet:
+
+- ~ts-inactive: Date Only tsi5-a~
+- ~ts-inactive: With Time tsi5-b~
+- ~ts-inactive: Range Start tsi5-c~
+- ~ts-inactive: Range End tsi5-d~
+
+Der aktive Kontrollfall darf nicht matchen.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Date Only tsi5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: With Time tsi5-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range Start tsi5-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range End tsi5-d"
+}
+#+end_SRC
+
+** Datum mit und ohne Uhrzeit
+
+Erwartet:
+
+- ~ts-inactive: Date Only tsi5-a~
+- ~ts-inactive: With Time tsi5-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive :on "2033-04-13")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Date Only tsi5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: With Time tsi5-b"
+}
+#+end_SRC
+
+** Minutengenaue Zeit
+
+Erwartet:
+
+- ~ts-inactive: With Time tsi5-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive :on "2033-04-13 16:40")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: With Time tsi5-b"
+}
+#+end_SRC
+
+** Monatsbereich inklusive Start und Ende
+
+Erwartet:
+
+- ~ts-inactive: Date Only tsi5-a~
+- ~ts-inactive: With Time tsi5-b~
+- ~ts-inactive: Range Start tsi5-c~
+- ~ts-inactive: Range End tsi5-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive :from "2033-04-01" :to "2033-04-30")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Date Only tsi5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: With Time tsi5-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range Start tsi5-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range End tsi5-d"
+}
+#+end_SRC
+
+** Startgrenze ist inklusive
+
+Erwartet:
+
+- ~ts-inactive: Range Start tsi5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive :from "2033-04-01" :to "2033-04-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range Start tsi5-c"
+}
+#+end_SRC
+
+** Endgrenze ist inklusive
+
+Erwartet:
+
+- ~ts-inactive: Range End tsi5-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive :from "2033-04-30" :to "2033-04-30")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range End tsi5-d"
+}
+#+end_SRC
+
+** Minutengenaue Endgrenze ist inklusive
+
+Erwartet:
+
+- ~ts-inactive: Range End tsi5-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (ts-inactive
+           :from "2033-04-30 21:55"
+           :to "2033-04-30 21:55")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ts-inactive.org",
+  "title_raw": "ts-inactive: Range End tsi5-d"
+}
+#+end_SRC
+
+** Aktiver Zeitstempel darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ts-inactive.org")
+         (title "Active Negative Control tsi5-e")
+         (ts-inactive :on "2033-04-13")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
