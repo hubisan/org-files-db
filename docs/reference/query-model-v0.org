@@ -1685,11 +1685,7 @@ A future index-history feature may add heading-level modified time. In v0, this 
 
 ** 7. Outline path predicates
 
-Outline predicates operate on the heading's outline path.
-
-The outline path is the sequence of heading titles from the top-level heading to the current heading.
-
-The file/root node is always present in result paths, but it is not part of the heading outline path unless a predicate explicitly documents root inclusion.
+Outline predicates operate on the complete heading outline path: the synthetic file/root title followed by the titles from the top-level heading to the current heading. The synthetic root is the first component, and the root object itself has a one-component path.
 
 *** ~(outline-contains &rest strings &key regexp)~
 
@@ -1709,13 +1705,14 @@ Match headings whose outline path contains all given strings somewhere.
 **** Example path
 
 #+begin_src text
-Projects / Org database / Query engine
+Org file / Projects / Org database / Query engine
 #+end_src
 
 Matches:
 
 #+begin_src lisp
 (outline-contains "Projects" "Query")
+(outline-contains "Org file" "Query")
 (outline-contains "Org" "engine")
 (outline-contains "Query" "Projects")
 #+end_src
@@ -1745,13 +1742,14 @@ Match a contiguous ordered sequence of outline path components.
 **** Example path
 
 #+begin_src text
-Projects / Org database / Query engine
+Org file / Projects / Org database / Query engine
 #+end_src
 
 Matches:
 
 #+begin_src lisp
 (outline-sequence "Projects" "Org")
+(outline-sequence "Org file" "Projects" :exact t)
 (outline-sequence "Org" "Query")
 (outline-sequence "Projects" "Org" "Query")
 (outline-sequence "Projects" "Org database" :exact t)
@@ -1775,7 +1773,7 @@ because ~Org~ is not exactly equal to ~Org database~.
 
 **** Notes
 
-If a later use case requires matching the complete outline path from root to leaf, add an explicit option such as ~:whole t~ or a separate predicate. Do not overload ~:exact t~ to mean both exact segment matching and whole-path matching.
+A one-component root sequence matches the root and every descendant because the root is the first component of every complete path. ~:exact t~ continues to mean exact segment matching, not whole-path matching.
 
 ** 8. Timestamp and planning predicates
 
@@ -4392,7 +4390,7 @@ Meaning:
 Example path:
 
 #+begin_src text
-Projects / Org database / Query engine
+Org file / Projects / Org database / Query engine
 #+end_src
 
 Matches because:
@@ -4423,7 +4421,7 @@ Meaning:
 Example path:
 
 #+begin_src text
-Projects / Org database / Query engine
+Org file / Projects / Org database / Query engine
 #+end_src
 
 Matches because:
@@ -4441,7 +4439,7 @@ Matches because:
 Does not match:
 
 #+begin_src text
-Projects / Org database / Query engine
+Org file / Projects / Org database / Query engine
 #+end_src
 
 because ~Org database~ is between ~Projects~ and ~Query engine~.

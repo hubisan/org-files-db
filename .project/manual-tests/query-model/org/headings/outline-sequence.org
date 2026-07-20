@@ -2,10 +2,17 @@
 #+STARTUP: showall
 
 * outline-sequence: Alpha Parent ols2-alpha
+
 ** outline-sequence: Beta Middle ols2-beta
+
 *** outline-sequence: Gamma Leaf ols2-gamma
+
 **** outline-sequence: Delta Deep ols2-delta
+
 ** outline-sequence: Gamma Noncontiguous ols2-gap
+
 * outline-sequence: Exact Alpha ols2-exact-alpha
+
 ** outline-sequence: Exact Beta ols2-exact-beta
+
 *** outline-sequence: Regexp 517 ols2-regexp

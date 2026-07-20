@@ -260,6 +260,10 @@ General rules:
 
 - Task file: [[file:archive/2026-07-20--extend-inclusive-temporal-ranges-to-minute-and-second-precision.org]]
 
+** DONE [#B] Include the synthetic file root in outline path predicates
+
+Task file: [[file:archive/2026-07-20--include-synthetic-file-root-in-outline-path-predicates.org][Include the synthetic file root in outline path predicates]]
+
 ** TODO Manual Test the Implementation
 
 *** Query
@@ -285,8 +289,8 @@ General rules:
 ***** DONE file-path
 ***** DONE file-title
 ***** DONE file-modified
-***** outline-contains
-***** outline-sequence
+***** DONE outline-contains
+***** DONE outline-sequence
 ***** ts
 ***** ts-active
 ***** ts-inactive

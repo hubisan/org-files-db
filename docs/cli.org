@@ -350,11 +350,11 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(file-modified :from -7 :to today)'~.
 - ~outline-contains~ :: Syntax: ~(outline-contains STRING... :regexp t|nil)~.
   Targets: ~headings~.
-  Matches headings whose outline path contains all supplied components somewhere in the path. The synthetic file/root title is not part of this match path. With ~:regexp t~, each pattern is matched against individual outline components. No ~:exact~ option.
+  Matches headings whose complete outline path contains all supplied components somewhere in the path. The synthetic file/root title is the first component. With ~:regexp t~, each pattern is matched against individual outline components. No ~:exact~ option.
   Example: ~'(outline-contains "Project" "Query")'~.
 - ~outline-sequence~ :: Syntax: ~(outline-sequence STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~.
-  Matches contiguous outline path segments in order. With ~:exact t~, each supplied segment must exactly match the corresponding path component. The synthetic file/root title is not part of this match path. With ~:regexp t~, each pattern is matched against the corresponding outline component.
+  Matches contiguous components of the complete outline path in order. The synthetic file/root title is the first component. With ~:exact t~, each supplied segment must exactly match the corresponding path component. With ~:regexp t~, each pattern is matched against the corresponding outline component.
   Example: ~'(outline-sequence "Projects" "Org database" :exact t)'~.
 - ~ts~ :: Syntax: ~(ts :from DATE :to DATE :on DATE)~.
   Targets: ~headings~.

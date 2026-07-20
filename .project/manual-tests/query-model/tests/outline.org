@@ -1,0 +1,1071 @@
+#+TITLE: Query Model Tests - Outline
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* outline-contains
+
+** Root-Titel ist Bestandteil jedes Outline-Pfads
+
+Erwartet:
+
+- Datei-Root
+- alle sieben echten Headings
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains "outline-contains-fixture-olc1")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains-fixture-olc1"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Project Branch olc1-project"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Database Branch olc1-database"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Leaf olc1-query"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Unrelated Leaf olc1-unrelated"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Other Root olc1-other"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Elsewhere olc1-query-elsewhere"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Regexp Leaf olc1-regexp-624"
+}
+#+end_SRC
+
+** Nur den synthetischen Datei-Root auswählen
+
+Erwartet:
+
+- ~outline-contains-fixture-olc1~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (level 0)
+         (outline-contains "outline-contains-fixture-olc1")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains-fixture-olc1"
+}
+#+end_SRC
+
+** Datei-Root und Project Branch
+
+Erwartet:
+
+- ~outline-contains: Project Branch olc1-project~
+- ~outline-contains: Database Branch olc1-database~
+- ~outline-contains: Query Leaf olc1-query~
+- ~outline-contains: Unrelated Leaf olc1-unrelated~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "outline-contains-fixture-olc1"
+           "Project Branch olc1-project")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Project Branch olc1-project"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Database Branch olc1-database"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Leaf olc1-query"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Unrelated Leaf olc1-unrelated"
+}
+#+end_SRC
+
+** Datei-Root, Project Branch und Database Branch
+
+Erwartet:
+
+- ~outline-contains: Database Branch olc1-database~
+- ~outline-contains: Query Leaf olc1-query~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "outline-contains-fixture-olc1"
+           "Project Branch olc1-project"
+           "Database Branch olc1-database")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Database Branch olc1-database"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Leaf olc1-query"
+}
+#+end_SRC
+
+** Vollständiger Pfad bis zum Query Leaf
+
+Erwartet:
+
+- ~outline-contains: Query Leaf olc1-query~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "outline-contains-fixture-olc1"
+           "Project Branch olc1-project"
+           "Database Branch olc1-database"
+           "Query Leaf olc1-query")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Leaf olc1-query"
+}
+#+end_SRC
+
+** Parent und lokales Heading gemeinsam
+
+Erwartet:
+
+- ~outline-contains: Unrelated Leaf olc1-unrelated~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "fixture"
+           "Unrelated Leaf olc1-unrelated")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Unrelated Leaf olc1-unrelated"
+}
+#+end_SRC
+
+** Query-Komponente an mehreren Stellen
+
+Erwartet:
+
+- ~outline-contains: Query Leaf olc1-query~
+- ~outline-contains: Query Elsewhere olc1-query-elsewhere~
+- ~outline-contains: Regexp Leaf olc1-regexp-624~
+
+Das letzte Heading matcht, weil ~Query Elsewhere~ in seinem übergeordneten Pfad liegt.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains "Query")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Leaf olc1-query"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Elsewhere olc1-query-elsewhere"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Regexp Leaf olc1-regexp-624"
+}
+#+end_SRC
+
+** Komponenten aus verschiedenen Zweigen dürfen nicht kombiniert werden
+
+Erwartet:
+
+- kein Resultat
+
+~Project Branch~ und ~Other Root~ liegen in keinem gemeinsamen Outline-Pfad.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "Project Branch olc1-project"
+           "Other Root olc1-other")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Reihenfolge der Komponenten ist für ~outline-contains~ nicht relevant
+
+Erwartet:
+
+- ~outline-contains: Query Leaf olc1-query~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "Query Leaf olc1-query"
+           "outline-contains-fixture-olc1"
+           "Database Branch olc1-database"
+           "Project Branch olc1-project")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Leaf olc1-query"
+}
+#+end_SRC
+
+** Regulärer Ausdruck auf Root und lokalem Heading
+
+Erwartet:
+
+- ~outline-contains: Regexp Leaf olc1-regexp-624~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "^outline-contains-fixture-olc1$"
+           "Regexp Leaf olc1-regexp-[0-9]+$"
+           :regexp t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Regexp Leaf olc1-regexp-624"
+}
+#+end_SRC
+
+** Regulärer Ausdruck auf geerbter Komponente
+
+Erwartet:
+
+- ~outline-contains: Query Elsewhere olc1-query-elsewhere~
+- ~outline-contains: Regexp Leaf olc1-regexp-624~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "^outline-contains-fixture-olc1$"
+           "^outline-contains: Query Elsewhere olc1-query-elsewhere$"
+           :regexp t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Query Elsewhere olc1-query-elsewhere"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-contains.org",
+  "title_raw": "outline-contains: Regexp Leaf olc1-regexp-624"
+}
+#+end_SRC
+
+** Nicht alle verlangten Komponenten vorhanden
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-contains.org")
+         (outline-contains
+           "outline-contains-fixture-olc1"
+           "Database Branch olc1-database"
+           "missing-component-olc1")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* outline-sequence
+
+** Root-Titel ist Bestandteil jedes Outline-Pfads
+
+Erwartet:
+
+- Datei-Root
+- alle acht echten Headings
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence "outline-sequence-fixture-ols2" :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence-fixture-ols2"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Alpha Parent ols2-alpha"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Beta Middle ols2-beta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Leaf ols2-gamma"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Noncontiguous ols2-gap"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Exact Alpha ols2-exact-alpha"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Exact Beta ols2-exact-beta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Regexp 517 ols2-regexp"
+}
+#+end_SRC
+
+** Nur den synthetischen Datei-Root auswählen
+
+Erwartet:
+
+- ~outline-sequence-fixture-ols2~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (level 0)
+         (outline-sequence "outline-sequence-fixture-ols2" :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence-fixture-ols2"
+}
+#+end_SRC
+
+** Root gefolgt von Alpha Parent
+
+Erwartet:
+
+- ~outline-sequence: Alpha Parent ols2-alpha~
+- ~outline-sequence: Beta Middle ols2-beta~
+- ~outline-sequence: Gamma Leaf ols2-gamma~
+- ~outline-sequence: Delta Deep ols2-delta~
+- ~outline-sequence: Gamma Noncontiguous ols2-gap~
+
+Die Sequenz liegt am Anfang aller Pfade im Alpha-Zweig.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence-fixture-ols2"
+           "outline-sequence: Alpha Parent ols2-alpha"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Alpha Parent ols2-alpha"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Beta Middle ols2-beta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Leaf ols2-gamma"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Noncontiguous ols2-gap"
+}
+#+end_SRC
+
+** Root, Alpha und Beta als zusammenhängende Sequenz
+
+Erwartet:
+
+- ~outline-sequence: Beta Middle ols2-beta~
+- ~outline-sequence: Gamma Leaf ols2-gamma~
+- ~outline-sequence: Delta Deep ols2-delta~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence-fixture-ols2"
+           "outline-sequence: Alpha Parent ols2-alpha"
+           "outline-sequence: Beta Middle ols2-beta"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Beta Middle ols2-beta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Leaf ols2-gamma"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+#+end_SRC
+
+** Vollständige Sequenz bis zum Gamma Leaf
+
+Erwartet:
+
+- ~outline-sequence: Gamma Leaf ols2-gamma~
+- ~outline-sequence: Delta Deep ols2-delta~
+
+Ein vollständiger Pfadpräfix matcht auch tiefere Nachfahren.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence-fixture-ols2"
+           "outline-sequence: Alpha Parent ols2-alpha"
+           "outline-sequence: Beta Middle ols2-beta"
+           "outline-sequence: Gamma Leaf ols2-gamma"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Leaf ols2-gamma"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+#+end_SRC
+
+** Sequenz darf unterhalb des Roots beginnen
+
+Erwartet:
+
+- ~outline-sequence: Gamma Leaf ols2-gamma~
+- ~outline-sequence: Delta Deep ols2-delta~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence: Beta Middle ols2-beta"
+           "outline-sequence: Gamma Leaf ols2-gamma"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Leaf ols2-gamma"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+#+end_SRC
+
+** Tiefere zusammenhängende Sequenz
+
+Erwartet:
+
+- ~outline-sequence: Delta Deep ols2-delta~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence: Beta Middle ols2-beta"
+           "outline-sequence: Gamma Leaf ols2-gamma"
+           "outline-sequence: Delta Deep ols2-delta"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+#+end_SRC
+
+** Nicht zusammenhängende Komponenten dürfen nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+Zwischen ~Alpha Parent~ und ~Gamma Leaf~ liegt ~Beta Middle~.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence: Alpha Parent ols2-alpha"
+           "outline-sequence: Gamma Leaf ols2-gamma"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Gleichnamige Komponente im falschen Pfad darf Lücke nicht überbrücken
+
+Erwartet:
+
+- kein Resultat
+
+~Gamma Noncontiguous~ ist direkt unter ~Alpha Parent~, aber es ist nicht ~Gamma Leaf~ und liegt nicht hinter ~Beta Middle~.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence: Beta Middle ols2-beta"
+           "outline-sequence: Gamma Noncontiguous ols2-gap"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Reihenfolge ist relevant
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence: Gamma Leaf ols2-gamma"
+           "outline-sequence: Beta Middle ols2-beta"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Exakter zweiter Zweig
+
+Erwartet:
+
+- ~outline-sequence: Exact Beta ols2-exact-beta~
+- ~outline-sequence: Regexp 517 ols2-regexp~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence: Exact Alpha ols2-exact-alpha"
+           "outline-sequence: Exact Beta ols2-exact-beta"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Exact Beta ols2-exact-beta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Regexp 517 ols2-regexp"
+}
+#+end_SRC
+
+** Exakter vollständiger zweiter Pfad
+
+Erwartet:
+
+- ~outline-sequence: Regexp 517 ols2-regexp~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence-fixture-ols2"
+           "outline-sequence: Exact Alpha ols2-exact-alpha"
+           "outline-sequence: Exact Beta ols2-exact-beta"
+           "outline-sequence: Regexp 517 ols2-regexp"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Regexp 517 ols2-regexp"
+}
+#+end_SRC
+
+** Nicht-exakte Komponentenübereinstimmung
+
+Erwartet:
+
+- ~outline-sequence: Beta Middle ols2-beta~
+- ~outline-sequence: Gamma Leaf ols2-gamma~
+- ~outline-sequence: Delta Deep ols2-delta~
+
+Ohne ~:exact t~ genügen Teilstrings der jeweiligen Komponenten.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence "Alpha Parent" "Beta Middle")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Beta Middle ols2-beta"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Gamma Leaf ols2-gamma"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Delta Deep ols2-delta"
+}
+#+end_SRC
+
+** Regulärer Ausdruck über Root und zweiten Zweig
+
+Erwartet:
+
+- ~outline-sequence: Regexp 517 ols2-regexp~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "^outline-sequence-fixture-ols2$"
+           "^outline-sequence: Exact Alpha ols2-exact-alpha$"
+           "^outline-sequence: Exact Beta ols2-exact-beta$"
+           "^outline-sequence: Regexp [0-9]+ ols2-regexp$"
+           :regexp t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Regexp 517 ols2-regexp"
+}
+#+end_SRC
+
+** Regulärer Ausdruck darf unterhalb des Roots beginnen
+
+Erwartet:
+
+- ~outline-sequence: Regexp 517 ols2-regexp~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "^outline-sequence: Exact Beta ols2-exact-beta$"
+           "^outline-sequence: Regexp [0-9]{3} ols2-regexp$"
+           :regexp t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/outline-sequence.org",
+  "title_raw": "outline-sequence: Regexp 517 ols2-regexp"
+}
+#+end_SRC
+
+** Regulärer Ausdruck mit nicht zusammenhängenden Komponenten
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "^outline-sequence: Alpha Parent ols2-alpha$"
+           "^outline-sequence: Gamma Leaf ols2-gamma$"
+           :regexp t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Fehlende Komponente
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "outline-sequence.org")
+         (outline-sequence
+           "outline-sequence-fixture-ols2"
+           "missing-component-ols2"
+           :exact t)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC

@@ -1,0 +1,373 @@
+#+TITLE: Include the synthetic file root in outline path predicates
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-20 Mon 15:50]
+#+TASK_COMPLETED: [2026-07-20 Mon 15:52]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** BUILD [#B] Include the synthetic file root in outline path predicates
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Task file: [[file:archive/2026-07-20--include-synthetic-file-root-in-outline-path-predicates.org][Include the synthetic file root in outline path predicates]]
+
+Goal:
+
+- Make ~outline-contains~ and ~outline-sequence~ operate on the complete outline path.
+- Include the synthetic file/root title as the first path component.
+- Keep root handling consistent with the rest of the heading query model.
+
+Current behaviour:
+
+- ~outline-contains~ and ~outline-sequence~ currently exclude the synthetic file/root title from the match path.
+- Only real Org headings participate in the outline path.
+
+Current documented semantics:
+
+#+begin_src text
+The synthetic file/root title is not part of this match path.
+#+end_src
+
+Required semantics:
+
+- The complete outline path starts with the synthetic file/root title.
+- Every candidate heading is matched against this complete path.
+- The synthetic level-0 heading has a path consisting only of its own title.
+
+Example source:
+
+#+begin_src org
+,#+TITLE: Projects
+
+,* Org database
+
+*,* Query model
+#+end_src
+
+Expected paths:
+
+#+begin_src text
+Level 0:
+Projects
+
+Level 1:
+Projects
+Org database
+
+Level 2:
+Projects
+Org database
+Query model
+#+end_src
+
+Required ~outline-contains~ behaviour:
+
+#+begin_src lisp
+(outline-contains "Projects")
+#+end_src
+
+matches:
+
+- the synthetic file/root heading
+- ~Org database~
+- ~Query model~
+
+#+begin_src lisp
+(outline-contains "Projects" "Query model")
+#+end_src
+
+matches ~Query model~ because both components occur somewhere in its complete outline path.
+
+#+begin_src lisp
+(outline-contains "Projects" "Org database")
+#+end_src
+
+matches both ~Org database~ and ~Query model~.
+
+Required ~outline-sequence~ behaviour:
+
+#+begin_src lisp
+(outline-sequence "Projects" "Org database" :exact t)
+#+end_src
+
+matches:
+
+- ~Org database~
+- ~Query model~
+
+because the sequence occurs contiguously at the beginning of both complete paths.
+
+#+begin_src lisp
+(outline-sequence
+  "Projects"
+  "Org database"
+  "Query model"
+  :exact t)
+#+end_src
+
+matches only ~Query model~.
+
+#+begin_src lisp
+(outline-sequence "Org database" "Query model" :exact t)
+#+end_src
+
+also matches ~Query model~, because the requested sequence may begin at any component of the complete path.
+
+Root-heading behaviour:
+
+- The synthetic file/root heading participates like any other heading result.
+- Its outline path contains exactly one component: the root title.
+
+Therefore:
+
+#+begin_src lisp
+(and
+  (level 0)
+  (outline-contains "Projects"))
+#+end_src
+
+matches the synthetic file/root heading.
+
+And:
+
+#+begin_src lisp
+(and
+  (level 0)
+  (outline-sequence "Projects" :exact t))
+#+end_src
+
+also matches it.
+
+Option semantics:
+
+- Do not add a ~:with-root~ or ~:inherit~ option.
+- Root inclusion is unconditional and part of the predicate definition.
+- Existing options remain unchanged:
+  - ~outline-contains~ supports ~:regexp t|nil~
+  - ~outline-sequence~ supports ~:regexp t|nil~ and ~:exact t|nil~
+- ~outline-contains~ continues to have no ~:exact~ option.
+
+Matching details:
+
+- Without ~:regexp t~, each supplied string is matched using the existing component-matching semantics.
+- With ~:regexp t~, each pattern is matched against individual outline components, including the root component.
+- For ~outline-sequence~, ~:exact t~ applies equally to the synthetic root component and ordinary heading components.
+- Root inclusion must not flatten the path into one string before matching.
+- Component boundaries must remain significant.
+
+Implementation tasks:
+
+- Locate the code that builds or queries heading ancestor paths for:
+  - ~outline-contains~
+  - ~outline-sequence~
+- Extend the path source so that it includes the synthetic level-0 heading.
+- Ensure the root is the first component.
+- Ensure it is included exactly once.
+- Preserve current ordering from root to candidate heading.
+- Ensure the candidate heading itself remains the final path component.
+- Apply the change consistently to:
+  - exact component matching
+  - non-exact component matching
+  - regular-expression matching
+- Ensure the synthetic root heading itself can match.
+- Do not change storage or duplicate path data unless required by the existing implementation.
+- Prefer adapting the recursive query or ancestor traversal rather than adding a second special-case matching path.
+- Keep backend capability checks unchanged.
+
+Regression fixture:
+
+- Add a fixture where the file title and first real heading title are deliberately different.
+
+Example:
+
+#+begin_src org
+  ,#+TITLE: outline-root-fixture-or1
+
+  ,* outline-contains: Parent or1-a
+
+  ,** outline-sequence: Child or1-b
+#+end_src
+
+- Use unique values that cannot match headings in other fixture files.
+
+Required tests for ~outline-contains~:
+
+#+begin_src lisp
+(outline-contains "outline-root-fixture-or1")
+#+end_src
+
+- Matches the root, parent, and child.
+
+#+begin_src lisp
+(outline-contains
+  "outline-root-fixture-or1"
+  "outline-sequence: Child or1-b")
+#+end_src
+
+- Matches only the child.
+
+#+begin_src lisp
+(outline-contains "Parent or1-a")
+#+end_src
+
+- Preserves the existing ancestor-heading behaviour.
+
+#+begin_src lisp
+(outline-contains "outline-root-fixture-.*" :regexp t)
+#+end_src
+
+- Matches paths through the root component.
+
+Required tests for ~outline-sequence~:
+
+#+begin_src lisp
+(outline-sequence
+  "outline-root-fixture-or1"
+  "outline-contains: Parent or1-a"
+  :exact t)
+#+end_src
+
+- Matches the parent and child.
+
+#+begin_src lisp
+(outline-sequence
+  "outline-root-fixture-or1"
+  "outline-contains: Parent or1-a"
+  "outline-sequence: Child or1-b"
+  :exact t)
+#+end_src
+
+- Matches only the child.
+
+#+begin_src lisp
+(outline-sequence
+  "outline-contains: Parent or1-a"
+  "outline-sequence: Child or1-b"
+  :exact t)
+#+end_src
+
+- Still matches the child when the requested sequence starts below the root.
+
+#+begin_src lisp
+(outline-sequence "outline-root-fixture-or1" :exact t)
+#+end_src
+
+- Matches the root, parent, and child because the one-component sequence occurs at the beginning of every complete path.
+
+#+begin_src lisp
+(and
+  (level 0)
+  (outline-sequence "outline-root-fixture-or1" :exact t))
+#+end_src
+
+- Matches only the synthetic file/root heading.
+
+Documentation:
+
+- Update ~docs/cli.org~.
+
+Replace the ~outline-contains~ description with wording equivalent to:
+
+#+begin_src text
+Matches headings whose complete outline path contains all supplied components somewhere in the path. The synthetic file/root title is the first component of the path. With :regexp t, each pattern is matched against individual outline components. No :exact option.
+#+end_src
+
+Replace the ~outline-sequence~ description with wording equivalent to:
+
+#+begin_src text
+Matches contiguous components of the complete outline path in order. The synthetic file/root title is the first component of the path. With :exact t, each supplied string must exactly match the corresponding path component. With :regexp t, each pattern is matched against the corresponding outline component.
+#+end_src
+
+- Update ~docs/reference/query-model-v0.org~ with the same contract.
+- Add at least one example beginning with the synthetic root title.
+- Remove all statements saying that the root title is excluded.
+- Clarify that a one-component root sequence can match descendant headings because the root is part of their complete path.
+
+Acceptance criteria:
+
+- The synthetic file/root title is always the first component used by ~outline-contains~ and ~outline-sequence~.
+- Root-level heading results can match both predicates.
+- Descendant headings can match queries that refer to the file/root title.
+- Existing matching against ordinary ancestor headings continues to work.
+- Regular-expression and exact matching include the root component.
+- The root is neither omitted nor duplicated.
+- No additional root-inclusion option is introduced.
+- Documentation and tests describe the same complete-path semantics.
+- No database migration is required.
+
+- Task file: [[file:2026-07-20--include-synthetic-file-root-in-outline-path-predicates.org]]
+
+* Planning
+
+** Problem summary
+
+The SQLite predicate compiler deliberately skips breadcrumb index zero even though ~outline_path.breadcrumbs_json~ already stores the synthetic root title there.
+
+** Goals
+
+- Include the root component for root and real-heading candidates.
+- Preserve substring, regexp, and per-component exact matching semantics.
+- Document the complete-path contract and cover root, descendant, and ordinary-heading matches.
+
+** Non-goals
+
+- No schema migration, breadcrumb storage change, or root-inclusion option.
+
+** Architecture
+
+Use the persisted JSON breadcrumb path. Removing the index-zero filters includes the root exactly once while preserving the existing JSON component boundaries and root-to-candidate order.
+
+** Execution plan
+
+1. Remove the index-zero exclusions from both SQLite outline predicate compilers.
+2. Extend execution tests for root, parent, child, regexp, exact sequence, and boolean behavior.
+3. Update the CLI and Query Model reference contract.
+4. Run focused tests and ~make ci~.
+
+** Risks & assumptions
+
+The indexed breadcrumb arrays consistently contain the synthetic root at index zero; this is already guaranteed by indexing and schema repair paths.
+
+** Proposed checks
+
+- ~cargo test --all-targets --all-features query::sqlite::tests::execution_matches_outline_predicates~
+- ~make ci~
+
+* Results
+
+** Approach
+
+Removed the JSON breadcrumb index-zero exclusions in the SQLite outline predicate compiler. The existing persisted breadcrumb arrays now supply the complete root-to-candidate path for both predicates.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/tasks/todo.org~
+
+** Checks performed
+
+- ~cargo fmt --all --check~
+- ~cargo test --all-targets --all-features query::sqlite::tests::execution_matches_outline_predicates~
+- ~make ci~
+
+** Test results
+
+All focused and full CI checks passed. The outline tests cover root, parent, and descendant matches; root-leading exact sequences; regexp matching; root-only filtering with ~(level 0)~; and existing ordinary-path behavior.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.

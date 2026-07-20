@@ -1077,7 +1077,6 @@ fn compile_outline_contains_predicate(
                 FROM outline_path AS outline_match
                 INNER JOIN json_each(outline_match.breadcrumbs_json) AS breadcrumb
                 WHERE outline_match.heading_id = {}
-                  AND breadcrumb.key > 0
                   AND {}
             )",
             scope.heading_col("id"),
@@ -1112,10 +1111,10 @@ fn compile_outline_sequence_predicate(
         })?;
 
     let mut joins = Vec::new();
-    let mut predicates = vec![
-        format!("outline_match.heading_id = {}", scope.heading_col("id")),
-        "start_breadcrumb.key > 0".to_string(),
-    ];
+    let mut predicates = vec![format!(
+        "outline_match.heading_id = {}",
+        scope.heading_col("id")
+    )];
     let mut params = Vec::with_capacity(values.len());
 
     for (index, value) in values.into_iter().enumerate() {
@@ -3551,7 +3550,27 @@ mod tests {
             &validated(r#"(headings (outline-contains "Alpha Index"))"#),
         )
         .expect("outline contains should execute");
-        assert_eq!(heading_ids(contains_root_name_rows), Vec::<i64>::new());
+        assert_eq!(
+            heading_ids(contains_root_name_rows),
+            vec![11, 12, 13, 14, 15]
+        );
+
+        let contains_root_and_child_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-contains "Alpha Index" "Nested Task" :regexp nil))"#),
+        )
+        .expect("outline contains should match root and child components");
+        assert_eq!(heading_ids(contains_root_and_child_rows), vec![12]);
+
+        let root_contains_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (and (level 0) (outline-contains "Alpha Index")))"#),
+        )
+        .expect("root outline contains should execute");
+        assert_eq!(
+            heading_file_paths(root_contains_rows),
+            vec!["/tmp/query-alpha.org"]
+        );
 
         let sequence_exact_rows = execute_sqlite_query(
             &connection,
@@ -3566,6 +3585,45 @@ mod tests {
         )
         .expect("outline sequence query should execute");
         assert_eq!(heading_ids(sequence_substring_rows), vec![12]);
+
+        let sequence_root_and_parent_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-sequence "Alpha Index" "Query Engine" :exact t))"#),
+        )
+        .expect("root-leading outline sequence should execute");
+        assert_eq!(
+            heading_ids(sequence_root_and_parent_rows),
+            vec![11, 12, 14, 15]
+        );
+
+        let sequence_root_parent_child_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (outline-sequence "Alpha Index" "Query Engine" "Nested Task" :exact t))"#,
+            ),
+        )
+        .expect("root-leading child outline sequence should execute");
+        assert_eq!(heading_ids(sequence_root_parent_child_rows), vec![12]);
+
+        let sequence_root_only_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (outline-sequence "Alpha Index" :exact t))"#),
+        )
+        .expect("one-component root sequence should execute");
+        assert_eq!(
+            heading_ids(sequence_root_only_rows),
+            vec![11, 12, 13, 14, 15]
+        );
+
+        let root_sequence_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (and (level 0) (outline-sequence "Alpha Index" :exact t)))"#),
+        )
+        .expect("root outline sequence should execute");
+        assert_eq!(
+            heading_file_paths(root_sequence_rows),
+            vec!["/tmp/query-alpha.org"]
+        );
 
         let sequence_non_contiguous_rows = execute_sqlite_query(
             &connection,
@@ -3602,7 +3660,7 @@ mod tests {
             &validated(r#"(headings (outline-contains "Alpha.*" :regexp t))"#),
         )
         .expect("outline regexp root query should execute");
-        assert_eq!(heading_ids(regexp_root_rows), Vec::<i64>::new());
+        assert_eq!(heading_ids(regexp_root_rows), vec![11, 12, 13, 14, 15]);
     }
 
     #[test]
