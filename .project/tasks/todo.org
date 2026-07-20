@@ -294,11 +294,10 @@ Task file: [[file:archive/2026-07-20--include-synthetic-file-root-in-outline-pat
 ***** DONE ts
 ***** DONE ts-active
 ***** DONE ts-inactive
-***** deadline
-***** scheduled
-***** clased
-***** planning
-***** timezone
+***** DONE deadline
+***** DONE scheduled
+***** DONE closed
+***** DONE planning
 ***** parent
 ***** children
 ***** ancestors

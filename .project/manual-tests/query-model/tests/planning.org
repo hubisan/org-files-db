@@ -1,0 +1,1143 @@
+#+TITLE: Query Model Tests - Planning
+#+STARTUP: content
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* deadline
+
+** Alle Deadline-Zeitstempel
+
+Erwartet:
+
+- ~deadline: Date Only dln6-a~
+- ~deadline: With Time dln6-b~
+- ~deadline: Range Earlier dln6-c~
+- ~deadline: Range Later dln6-d~
+
+Der Scheduled-Kontrollfall darf nicht matchen.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Date Only dln6-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: With Time dln6-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Earlier dln6-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Later dln6-d"
+}
+#+end_SRC
+
+** Datum mit und ohne Uhrzeit
+
+Erwartet:
+
+- ~deadline: Date Only dln6-a~
+- ~deadline: With Time dln6-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline :on "2034-05-14")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Date Only dln6-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: With Time dln6-b"
+}
+#+end_SRC
+
+** Minutengenaue Deadline
+
+Erwartet:
+
+- ~deadline: With Time dln6-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline :on "2034-05-14 10:30")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: With Time dln6-b"
+}
+#+end_SRC
+
+** Monatsbereich inklusive Start und Ende
+
+Erwartet:
+
+- ~deadline: Date Only dln6-a~
+- ~deadline: With Time dln6-b~
+- ~deadline: Range Earlier dln6-c~
+- ~deadline: Range Later dln6-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline :from "2034-05-01" :to "2034-05-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Date Only dln6-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: With Time dln6-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Earlier dln6-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Later dln6-d"
+}
+#+end_SRC
+
+** Startgrenze ist inklusive
+
+Erwartet:
+
+- ~deadline: Range Earlier dln6-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline :from "2034-05-01" :to "2034-05-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Earlier dln6-c"
+}
+#+end_SRC
+
+** Endgrenze ist inklusive
+
+Erwartet:
+
+- ~deadline: Range Later dln6-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline :from "2034-05-31" :to "2034-05-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Later dln6-d"
+}
+#+end_SRC
+
+** Minutengenaue Endgrenze ist inklusive
+
+Erwartet:
+
+- ~deadline: Range Later dln6-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (deadline
+           :from "2034-05-31 17:45"
+           :to "2034-05-31 17:45")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/deadline.org",
+  "title_raw": "TODO deadline: Range Later dln6-d"
+}
+#+end_SRC
+
+** Scheduled-Kontrollfall darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "deadline.org")
+         (title "Scheduled Negative Control dln6-e")
+         (deadline :on "2034-05-14")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* scheduled
+
+** Alle Scheduled-Zeitstempel
+
+Erwartet:
+
+- ~scheduled: Date Only sch7-a~
+- ~scheduled: With Time sch7-b~
+- ~scheduled: Range Earlier sch7-c~
+- ~scheduled: Range Later sch7-d~
+
+Der Deadline-Kontrollfall darf nicht matchen.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Date Only sch7-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: With Time sch7-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Earlier sch7-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Later sch7-d"
+}
+#+end_SRC
+
+** Datum mit und ohne Uhrzeit
+
+Erwartet:
+
+- ~scheduled: Date Only sch7-a~
+- ~scheduled: With Time sch7-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled :on "2035-06-15")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Date Only sch7-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: With Time sch7-b"
+}
+#+end_SRC
+
+** Minutengenaue Scheduled-Zeit
+
+Erwartet:
+
+- ~scheduled: With Time sch7-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled :on "2035-06-15 11:35")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: With Time sch7-b"
+}
+#+end_SRC
+
+** Monatsbereich inklusive Start und Ende
+
+Erwartet:
+
+- ~scheduled: Date Only sch7-a~
+- ~scheduled: With Time sch7-b~
+- ~scheduled: Range Earlier sch7-c~
+- ~scheduled: Range Later sch7-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled :from "2035-06-01" :to "2035-06-30")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Date Only sch7-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: With Time sch7-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Earlier sch7-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Later sch7-d"
+}
+#+end_SRC
+
+** Startgrenze ist inklusive
+
+Erwartet:
+
+- ~scheduled: Range Earlier sch7-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled :from "2035-06-01" :to "2035-06-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Earlier sch7-c"
+}
+#+end_SRC
+
+** Endgrenze ist inklusive
+
+Erwartet:
+
+- ~scheduled: Range Later sch7-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled :from "2035-06-30" :to "2035-06-30")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Later sch7-d"
+}
+#+end_SRC
+
+** Minutengenaue Endgrenze ist inklusive
+
+Erwartet:
+
+- ~scheduled: Range Later sch7-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (scheduled
+           :from "2035-06-30 19:25"
+           :to "2035-06-30 19:25")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/scheduled.org",
+  "title_raw": "TODO scheduled: Range Later sch7-d"
+}
+#+end_SRC
+
+** Deadline-Kontrollfall darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "scheduled.org")
+         (title "Deadline Negative Control sch7-e")
+         (scheduled :on "2035-06-15")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* closed
+
+** Alle Closed-Zeitstempel
+
+Erwartet:
+
+- ~closed: Date Only cls8-a~
+- ~closed: With Time cls8-b~
+- ~closed: Range Earlier cls8-c~
+- ~closed: Range Later cls8-d~
+
+Der nicht geschlossene Kontrollfall darf nicht matchen.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Date Only cls8-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: With Time cls8-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Earlier cls8-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Later cls8-d"
+}
+#+end_SRC
+
+** Datum mit und ohne Uhrzeit
+
+Erwartet:
+
+- ~closed: Date Only cls8-a~
+- ~closed: With Time cls8-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed :on "2036-07-16")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Date Only cls8-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: With Time cls8-b"
+}
+#+end_SRC
+
+** Minutengenaue Closed-Zeit
+
+Erwartet:
+
+- ~closed: With Time cls8-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed :on "2036-07-16 12:40")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: With Time cls8-b"
+}
+#+end_SRC
+
+** Monatsbereich inklusive Start und Ende
+
+Erwartet:
+
+- ~closed: Date Only cls8-a~
+- ~closed: With Time cls8-b~
+- ~closed: Range Earlier cls8-c~
+- ~closed: Range Later cls8-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed :from "2036-07-01" :to "2036-07-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Date Only cls8-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: With Time cls8-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Earlier cls8-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Later cls8-d"
+}
+#+end_SRC
+
+** Startgrenze ist inklusive
+
+Erwartet:
+
+- ~closed: Range Earlier cls8-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed :from "2036-07-01" :to "2036-07-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Earlier cls8-c"
+}
+#+end_SRC
+
+** Endgrenze ist inklusive
+
+Erwartet:
+
+- ~closed: Range Later cls8-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed :from "2036-07-31" :to "2036-07-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Later cls8-d"
+}
+#+end_SRC
+
+** Minutengenaue Endgrenze ist inklusive
+
+Erwartet:
+
+- ~closed: Range Later cls8-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (closed
+           :from "2036-07-31 20:15"
+           :to "2036-07-31 20:15")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/closed.org",
+  "title_raw": "DONE closed: Range Later cls8-d"
+}
+#+end_SRC
+
+** Nicht geschlossener Kontrollfall darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "closed.org")
+         (title "No Closed Negative Control cls8-e")
+         (closed :on "2036-07-16")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* planning
+
+** Alle Planning-Zeitstempel
+
+Erwartet:
+
+- ~planning: Scheduled pln9-a~
+- ~planning: Deadline pln9-b~
+- ~planning: Closed pln9-c~
+- ~planning: Multiple Planning pln9-d~
+
+Der normale Timestamp und das Heading ohne Timestamp dürfen nicht matchen.
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Scheduled pln9-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Deadline pln9-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "DONE planning: Closed pln9-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Multiple Planning pln9-d"
+}
+#+end_SRC
+
+** Alle Planning-Typen am gleichen Datum
+
+Erwartet:
+
+- ~planning: Scheduled pln9-a~
+- ~planning: Deadline pln9-b~
+- ~planning: Closed pln9-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning :on "2037-08-17")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Scheduled pln9-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Deadline pln9-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "DONE planning: Closed pln9-c"
+}
+#+end_SRC
+
+** Minutengenaue Deadline über ~planning~
+
+Erwartet:
+
+- ~planning: Deadline pln9-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning :on "2037-08-17 13:20")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Deadline pln9-b"
+}
+#+end_SRC
+
+** Minutengenaue Closed-Zeit über ~planning~
+
+Erwartet:
+
+- ~planning: Closed pln9-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning :on "2037-08-17 18:10")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "DONE planning: Closed pln9-c"
+}
+#+end_SRC
+
+** Bereich über mehrere Planning-Felder
+
+Erwartet:
+
+- ~planning: Scheduled pln9-a~
+- ~planning: Deadline pln9-b~
+- ~planning: Closed pln9-c~
+- ~planning: Multiple Planning pln9-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning :from "2037-08-01" :to "2037-08-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Scheduled pln9-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Deadline pln9-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "DONE planning: Closed pln9-c"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Multiple Planning pln9-d"
+}
+#+end_SRC
+
+** Frühere Planning-Grenze ist inklusive
+
+Erwartet:
+
+- ~planning: Multiple Planning pln9-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning :from "2037-08-01" :to "2037-08-01")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Multiple Planning pln9-d"
+}
+#+end_SRC
+
+** Spätere Planning-Grenze ist inklusive
+
+Erwartet:
+
+- ~planning: Multiple Planning pln9-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning :from "2037-08-31" :to "2037-08-31")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Multiple Planning pln9-d"
+}
+#+end_SRC
+
+** Minutengenaue spätere Planning-Grenze ist inklusive
+
+Erwartet:
+
+- ~planning: Multiple Planning pln9-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (planning
+           :from "2037-08-31 16:00"
+           :to "2037-08-31 16:00")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+  "title_raw": "TODO planning: Multiple Planning pln9-d"
+}
+#+end_SRC
+
+** Normaler aktiver Timestamp darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (title "Plain Timestamp Negative Control pln9-e")
+         (planning :on "2037-08-17")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Heading ohne Zeitstempel darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "planning.org")
+         (title "No Timestamp Control pln9-f")
+         (planning)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
