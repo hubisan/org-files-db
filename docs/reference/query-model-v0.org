@@ -241,7 +241,6 @@ Legend:
 
 - yes :: predicate is directly valid for this target
 - via root :: valid for headings through file/root context
-- via relation :: valid through a relation such as ~source~, ~target~, ~has-link~, ~links-to~, or ~linked-from~
 - no :: not valid for this target
 
 | Predicate family | Headings | Links        | Files |
@@ -254,28 +253,28 @@ Legend:
 | ~tags~             | yes      | no           | yes   |
 | ~property~         | yes      | no           | yes   |
 | ~keyword~          | via root | no           | yes   |
-| ~file-name~        | yes      | via relation | yes   |
-| ~file-path~        | yes      | via relation | yes   |
-| ~file-dir~         | yes      | via relation | yes   |
-| ~file-title~       | yes      | via relation | yes   |
+| ~file-name~        | yes      | no           | yes   |
+| ~file-path~        | yes      | no           | yes   |
+| ~file-dir~         | yes      | no           | yes   |
+| ~file-title~       | yes      | no           | yes   |
 
 Note: ~file-title~ is marked as directly usable for heading queries because it filters headings by their containing file, like ~file-name~, ~file-path~, and ~file-dir~. Internally it uses the effective root/file title, including the fallback file stem when no source ~#+TITLE~ is present.
 For heading queries, file predicates are evaluated over the complete heading-target domain: real headings inspect their containing file, and matching file/root objects are returned as file results rather than exposing the internal level-0 row as a heading.
-| ~file-modified~         | yes          | via relation | yes          |
-| ~outline-contains~      | yes          | via relation | no           |
-| ~outline-sequence~      | yes          | via relation | no           |
-| ~has-link~              | yes          | no           | yes          |
-| ~links-to~              | yes          | yes          | no           |
-| ~linked-from~           | yes          | yes          | no           |
-| ~link-type~             | via ~has-link~ | yes          | no           |
-| ~link-description~      | via ~has-link~ | yes          | no           |
-| ~has-description~       | via ~has-link~ | yes          | via ~has-link~ |
-| ~link-target~         | via ~has-link~ | yes          | no           |
-| ~status~                | via ~has-link~ | yes          | no           |
-| ~source~                | no           | yes          | no           |
-| ~target~                | no           | yes          | no           |
-| timestamps / planning | yes          | no           | no           |
-| hierarchy predicates  | yes          | no           | no           |
+| ~file-modified~         | yes          | no  | yes          |
+| ~outline-contains~      | yes          | no  | no           |
+| ~outline-sequence~      | yes          | no  | no           |
+| ~has-link~              | yes          | no  | yes          |
+| ~links-to~              | yes          | no  | yes          |
+| ~linked-from~           | yes          | no  | yes          |
+| ~link-type~             | via ~has-link~ | yes | no           |
+| ~link-description~      | via ~has-link~ | yes | no           |
+| ~has-description~       | via ~has-link~ | yes | via ~has-link~ |
+| ~link-target~           | via ~has-link~ | yes | no           |
+| ~status~                | via ~has-link~ | yes | no           |
+| ~source~                | no           | yes | no           |
+| ~target~                | no           | yes | no           |
+| timestamps / planning | yes          | no  | no           |
+| hierarchy predicates  | yes          | no  | no           |
 
 Rules:
 
@@ -569,24 +568,24 @@ The root can act as a synthetic heading context for selected heading predicates.
 
 This is a matching concept only. It does not change the output kind.
 
-| Predicate | Root behavior |
-|-----------+---------------|
-| ~title~ | matches file title |
-| ~tags~ | matches FILETAGS |
-| ~property~ | matches root/level-0 properties |
-| ~keyword~ | matches file keywords |
-| ~file-*~ | matches file metadata |
-| ~level~ | matches ~(level 0)~ |
-| ~todo~ | always false |
-| ~done~ | always false |
-| ~priority~ | always false |
-| ~parent~ | always false |
-| ~ancestors~ | always false |
-| ~children~ | matches top-level headings |
-| ~descendants~ | matches headings in the file |
-| ~has-link~ | matches links in the file preamble |
-| ~links-to~ | matches outgoing links in the file preamble |
-| ~linked-from~ | matches backlinks to the file/root |
+| Predicate     | Root behavior                               |
+|---------------+---------------------------------------------|
+| ~title~         | matches file title                          |
+| ~tags~          | matches FILETAGS                            |
+| ~property~      | matches root/level-0 properties             |
+| ~keyword~       | matches file keywords                       |
+| ~file-*~        | matches file metadata                       |
+| ~level~         | matches ~(level 0)~                           |
+| ~todo~          | always false                                |
+| ~done~          | always false                                |
+| ~priority~      | always false                                |
+| ~parent~        | always false                                |
+| ~ancestors~     | always false                                |
+| ~children~      | matches top-level headings                  |
+| ~descendants~ | matches headings in the file                |
+| ~has-link~      | matches links in the file preamble          |
+| ~links-to~      | matches outgoing links in the file preamble |
+| ~linked-from~   | matches backlinks to the file/root          |
 
 Predicates that are not meaningful on the root return false rather than failing, unless explicitly documented otherwise.
 
@@ -2291,38 +2290,38 @@ Headings linked from project headings:
 
 ** 12. Heading predicate reference summary
 
-| Predicate | Multi-value semantics | Notes |
-|-----------+-----------------------+-------|
-| ~title~ | AND text patterns | supports ~:regexp~, ~:exact~ |
-| ~has-text~ | AND text patterns | requires body text in DB |
-| ~level~ | positional | exact/range/comparator forms |
-| ~todo~ | OR values | no args means open TODO |
-| ~done~ | no args | done TODO keywords |
-| ~priority~ | OR values or comparator | explicit priority only |
-| ~tags~ | OR by default, AND with ~:match :all~ | effective tags by default |
-| ~property~ | key/value | effective/inherited by default |
-| ~keyword~ | key/value | root/file-level facts |
-| ~file-name~ | AND text patterns | containing file name |
-| ~file-path~ | AND text patterns | containing file path |
-| ~file-dir~ | AND text patterns | containing file directory |
-| ~file-title~ | AND text patterns | containing file title |
-| ~file-modified~ | keyword date range | containing file mtime |
-| ~outline-contains~ | AND text patterns | anywhere in outline path |
-| ~outline-sequence~ | ordered sequence | contiguous path segment sequence |
-| ~ts~ | keyword date range | any timestamp |
-| ~ts-active~ | keyword date range | active timestamps |
-| ~ts-inactive~ | keyword date range | inactive timestamps |
-| ~deadline~ | keyword date range | deadline planning timestamp |
-| ~scheduled~ | keyword date range | scheduled planning timestamp |
-| ~closed~ | keyword date range | closed planning timestamp |
-| ~planning~ | keyword date range | deadline/scheduled/closed |
-| ~parent~ | optional heading query | direct parent |
-| ~ancestors~ | optional heading query | any ancestor |
-| ~children~ | optional heading query | direct children |
-| ~descendants~ | optional heading query | any descendant |
-| ~has-link~ | optional link query | outgoing links from heading |
-| ~links-to~ | target query | outgoing resolved links |
-| ~linked-from~ | source query or ~:any~ | backlinks |
+| Predicate        | Multi-value semantics               | Notes                            |
+|------------------+-------------------------------------+----------------------------------|
+| ~title~            | AND text patterns                   | supports ~:regexp~, ~:exact~         |
+| ~has-text~         | AND text patterns                   | requires body text in DB         |
+| ~level~            | positional                          | exact/range/comparator forms     |
+| ~todo~             | OR values                           | no args means open TODO          |
+| ~done~             | no args                             | done TODO keywords               |
+| ~priority~         | OR values or comparator             | explicit priority only           |
+| ~tags~             | OR by default, AND with ~:match :all~ | effective tags by default        |
+| ~property~         | key/value                           | effective/inherited by default   |
+| ~keyword~          | key/value                           | root/file-level facts            |
+| ~file-name~        | AND text patterns                   | containing file name             |
+| ~file-path~        | AND text patterns                   | containing file path             |
+| ~file-dir~         | AND text patterns                   | containing file directory        |
+| ~file-title~       | AND text patterns                   | containing file title            |
+| ~file-modified~    | keyword date range                  | containing file mtime            |
+| ~outline-contains~ | AND text patterns                   | anywhere in outline path         |
+| ~outline-sequence~ | ordered sequence                    | contiguous path segment sequence |
+| ~ts~               | keyword date range                  | any timestamp                    |
+| ~ts-active~        | keyword date range                  | active timestamps                |
+| ~ts-inactive~      | keyword date range                  | inactive timestamps              |
+| ~deadline~         | keyword date range                  | deadline planning timestamp      |
+| ~scheduled~        | keyword date range                  | scheduled planning timestamp     |
+| ~closed~           | keyword date range                  | closed planning timestamp        |
+| ~planning~         | keyword date range                  | deadline/scheduled/closed        |
+| ~parent~           | optional heading query              | direct parent                    |
+| ~ancestors~        | optional heading query              | any ancestor                     |
+| ~children~         | optional heading query              | direct children                  |
+| ~descendants~      | optional heading query              | any descendant                   |
+| ~has-link~         | optional link query                 | outgoing links from heading      |
+| ~links-to~         | target query                        | outgoing resolved links          |
+| ~linked-from~      | source query or ~:any~                | backlinks                        |
 
 ** 13. Excluded from heading predicates v0
 
@@ -2696,16 +2695,18 @@ Notes:
 - ~status~ replaces separate ~(broken)~ and ~(resolved)~ predicates.
 - Additional status values may be added later.
 
-*** ~(source TARGET-QUERY)~
+*** ~(source any)~ and ~(source TARGET-QUERY)~
 
 Match links by their source location.
 
-The argument must be an explicit target query.
+The argument is either the special value ~any~ or an explicit target query.
 
 Valid source target queries:
 
 - ~(headings ...)~
 - ~(files ...)~
+
+~(source any)~ matches links with any indexed source.
 
 Examples:
 
@@ -2748,16 +2749,40 @@ Rules:
 - If a link is located in a file preamble, it can match a ~(files ...)~ source query.
 - Preamble links may also participate in synthetic heading context where documented.
 
-*** ~(target TARGET-QUERY)~
+*** Source-file filters for link queries
+
+The file predicates ~file-name~, ~file-path~, ~file-dir~, ~file-title~, and ~file-modified~ are not directly valid inside ~(links ...)~. Filter link results by their containing source file through a nested ~source~ query instead.
+
+#+begin_src lisp
+(links
+  (source
+    (files
+      (file-name "linked-from.org" :exact t))))
+
+(links
+  (and
+    (source
+      (files
+        (file-name "linked-from.org" :exact t)))
+    (target
+      (headings
+        (property "ID" "target-id" :inherit nil)))))
+#+end_src
+
+~links-to~ and ~linked-from~ are likewise not valid for the ~links~ target. They filter source or target objects in ~(headings ...)~ and ~(files ...)~ queries. To return link objects, use ~source~ for origins and ~target~ for resolved destinations.
+
+*** ~(target any)~ and ~(target TARGET-QUERY)~
 
 Match links by their resolved target.
 
-The argument must be an explicit target query.
+The argument is either the special value ~any~ or an explicit target query.
 
 Valid target queries:
 
 - ~(headings ...)~
 - ~(files ...)~
+
+~(target any)~ matches links with any resolved indexed target.
 
 Examples:
 
@@ -2786,27 +2811,22 @@ Rules:
 - Use ~(status "broken")~ to find broken links.
 - Use ~(link-target ...)~ to match raw target text regardless of resolution.
 
-*** ~(source :any)~ and ~(target :any)~
+*** ~(source any)~ and ~(target any)~
 
-Optional convenience forms may be supported.
+These convenience forms are supported.
 
 #+begin_src lisp
 (links
-  (source :any))
+  (source any))
 
 (links
-  (target :any))
+  (target any))
 #+end_src
 
 Meanings:
 
-- ~(source :any)~ matches links with any indexed source.
-- ~(target :any)~ matches links with any resolved indexed target.
-
-Recommendation:
-
-- These forms are optional in v0.
-- They are not required because ~(links)~ and ~(status "resolved")~ cover most cases.
+- ~(source any)~ matches links with any indexed source.
+- ~(target any)~ matches links with any resolved indexed target.
 
 ** 6. Backlinks and outgoing links as link queries
 
@@ -3902,6 +3922,8 @@ Output:
 (linked-from (headings ...))
 (linked-from (files ...))
 #+end_src
+
+These predicates are valid for ~headings~ and ~files~, not ~links~. They return source objects for ~links-to~ and target objects for ~linked-from~; use ~source~ or ~target~ to return matching link objects.
 
 *** Link-related file predicates
 

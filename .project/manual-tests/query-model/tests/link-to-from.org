@@ -1,0 +1,973 @@
+#+TITLE: Query Model Tests - links-to & linked-from
+#+STARTUP: content
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* linked-from
+
+** Heading mit beliebigem Backlink
+
+Erwartet:
+
+- ~linked-from: Target With Backlink A lfr7-target-a~
+- ~linked-from: Target With Backlink B lfr7-target-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from :any)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink A lfr7-target-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink B lfr7-target-b"
+}
+#+end_SRC
+
+** Backlink von lokal getaggtem Source-Heading
+
+Erwartet:
+
+- ~linked-from: Target With Backlink A lfr7-target-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (linked-from
+           (headings
+             (tags "lfr7_source_tag" :inherit nil))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink A lfr7-target-a"
+}
+#+end_SRC
+
+** Backlink von Source-Heading über exakten Titel
+
+Erwartet:
+
+- ~linked-from: Target With Backlink A lfr7-target-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from
+           (headings
+             (title "linked-from: Tagged Source lfr7-source-a" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink A lfr7-target-a"
+}
+#+end_SRC
+
+** ID-Ziel hat Backlink vom Plain Source
+
+Erwartet:
+
+- ~linked-from: Target With Backlink B lfr7-target-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from
+           (headings
+             (title "linked-from: Plain Source lfr7-source-b" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink B lfr7-target-b"
+}
+#+end_SRC
+
+** Source-Query mit mehreren Bedingungen
+
+Erwartet:
+
+- ~linked-from: Target With Backlink A lfr7-target-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from
+           (headings
+             (and
+               (title "Tagged Source")
+               (tags "lfr7_source_tag" :inherit nil))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink A lfr7-target-a"
+}
+#+end_SRC
+
+** Source-Query mit OR
+
+Erwartet:
+
+- ~linked-from: Target With Backlink A lfr7-target-a~
+- ~linked-from: Target With Backlink B lfr7-target-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from
+           (headings
+             (or
+               (title "Tagged Source lfr7-source-a")
+               (title "Plain Source lfr7-source-b"))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink A lfr7-target-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink B lfr7-target-b"
+}
+#+end_SRC
+
+** Ziel A über seine lokale CUSTOM_ID einschränken
+
+Erwartet:
+
+- ~linked-from: Target With Backlink A lfr7-target-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (property "CUSTOM_ID" "lfr7-target-a" :inherit nil)
+         (linked-from :any)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink A lfr7-target-a"
+}
+#+end_SRC
+
+** Ziel B über seine lokale ID einschränken
+
+Erwartet:
+
+- ~linked-from: Target With Backlink B lfr7-target-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (property "ID" "lfr7-target-id-b" :inherit nil)
+         (linked-from :any)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: Target With Backlink B lfr7-target-b"
+}
+#+end_SRC
+
+** Ziel ohne Backlink matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (title "Target Without Backlink lfr7-target-c")
+         (linked-from :any)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Falsches Source-Heading matcht Ziel A nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (title "Target With Backlink A lfr7-target-a")
+         (linked-from
+           (headings
+             (title "Plain Source lfr7-source-b")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Falsches Source-Heading matcht Ziel B nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (title "Target With Backlink B lfr7-target-b")
+         (linked-from
+           (headings
+             (title "Tagged Source lfr7-source-a")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Nicht vorhandenes Source-Heading matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from
+           (headings
+             (title "lfr7 missing source" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Source-Headings sind nicht selbst Ziele ihrer Links
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (title "Tagged Source lfr7-source-a")
+         (linked-from :any)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Backlink-Links direkt abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lfr7 backlink A description~
+- der Link mit Beschreibung ~lfr7 backlink B description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "linked-from.org" :exact t)))
+         (target
+           (headings
+             (or
+               (property "CUSTOM_ID" "lfr7-target-a" :inherit nil)
+               (property "ID" "lfr7-target-id-b" :inherit nil))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "link",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "type": null,
+  "raw_target": null,
+  "description": null,
+  "status": null
+}
+{
+  "kind": "link",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "type": null,
+  "raw_target": null,
+  "description": null,
+  "status": null
+}
+#+end_SRC
+
+** Nur Backlink zu Ziel A als Link abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lfr7 backlink A description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "linked-from.org" :exact t)))
+         (target
+           (headings
+             (property "CUSTOM_ID" "lfr7-target-a" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Nur Backlink zu Ziel B als Link abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lfr7 backlink B description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "linked-from.org" :exact t)))
+         (target
+           (headings
+             (property "ID" "lfr7-target-id-b" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* links-to
+
+** Heading mit beliebigem aufgelöstem Linkziel
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+- ~links-to: Source To ID lto6-b~
+- ~links-to: Source To Other Target lto6-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Link zum Target-Heading über lokale CUSTOM_ID
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-target-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Link zum Target-Heading über lokale ID
+
+Erwartet:
+
+- ~links-to: Source To ID lto6-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (property "ID" "lto6-target-id" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Beide Links zum gleichen Target-Heading über Titel
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+- ~links-to: Source To ID lto6-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (title "links-to: Target Heading lto6-target" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Link zum Target-Heading über lokalen Tag
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+- ~links-to: Source To ID lto6-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (tags "lto6_project" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Link zum anderen Target-Heading
+
+Erwartet:
+
+- ~links-to: Source To Other Target lto6-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-other-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Target-Query mit mehreren Bedingungen
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+- ~links-to: Source To ID lto6-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (and
+               (title "Target Heading lto6-target")
+               (tags "lto6_project" :inherit nil))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Target-Query mit OR
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+- ~links-to: Source To ID lto6-b~
+- ~links-to: Source To Other Target lto6-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (or
+               (property "CUSTOM_ID" "lto6-target-custom" :inherit nil)
+               (property "CUSTOM_ID" "lto6-other-custom" :inherit nil))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Source-Heading über Titel einschränken
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (title "Source To Custom ID lto6-a")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-target-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Source zum anderen Target darf Hauptziel nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (title "Source To Other Target lto6-c")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-target-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Source zum Hauptziel darf anderes Ziel nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (title "Source To Custom ID lto6-a")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-other-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Target-Heading ist nicht automatisch Source eines Links
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (title "Target Heading lto6-target")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-target-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Nicht vorhandenes Ziel matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (property "CUSTOM_ID" "lto6-missing-target" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+** Links zum Hauptziel direkt abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lto6 custom target description~
+- der Link mit Beschreibung ~lto6 id target description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "links-to.org" :exact t)))
+         (target
+           (headings
+             (title "links-to: Target Heading lto6-target" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+** Link zum CUSTOM_ID-Ziel direkt abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lto6 custom target description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "links-to.org" :exact t)))
+         (target
+           (headings
+             (property "CUSTOM_ID" "lto6-target-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+** Link zum ID-Ziel direkt abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lto6 id target description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "links-to.org" :exact t)))
+         (link-type "id")
+         (target
+           (headings
+             (property "ID" "lto6-target-id" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+** Link zum anderen Ziel direkt abfragen
+
+Erwartet:
+
+- der Link mit Beschreibung ~lto6 other target description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source (files (file-name "links-to.org" :exact t)))
+         (target
+           (headings
+             (property "CUSTOM_ID" "lto6-other-custom" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      type: .link.type,
+      raw_target: .link.raw_target,
+      description: .link.description,
+      status: .link.status
+    }'
+#+end_src
+
+** Raw-Target und aufgelöstes Target unterscheiden
+
+Erwartet:
+
+- ~links-to: Source To Custom ID lto6-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (has-link
+           (links
+             (and
+               (link-target "#lto6-target-custom" :exact t)
+               (target
+                 (headings
+                   (property "CUSTOM_ID" "lto6-target-custom" :inherit nil))))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src

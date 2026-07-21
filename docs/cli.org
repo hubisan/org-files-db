@@ -454,22 +454,18 @@ Relations never cross file boundaries. A heading never matches itself through ~a
   Targets: ~links~.
   Matches persisted resolver state such as ~resolved~, ~broken~, ~unresolved~, ~ambiguous~, or ~unsupported~.
   Example: ~'(links (status "broken" "unresolved"))'~.
-- ~source~ :: Syntax: ~(source any)~ or ~(source (headings EXPR))~.
+- ~source~ :: Syntax: ~(source any)~, ~(source (headings EXPR))~, or ~(source (files EXPR))~.
   Targets: ~links~.
-  Matches links by source heading relation. ~any~ means any heading source.
-  Example: ~'(links (source (headings (tags "project"))))'~.
+  Matches links by their indexed source location. Use a nested ~headings~ query for heading sources or a nested ~files~ query for containing source-file filters; ~any~ means any indexed source.
+  Example: ~'(links (source (files (file-name "linked-from.org" :exact t))))'~.
 - ~target~ :: Syntax: ~(target any)~, ~(target (headings EXPR))~, ~(target (files EXPR))~.
   Targets: ~links~.
   Matches links by resolved target relation.
   Example: ~'(links (target (files (file-path "notes.org" :exact t))))'~.
-- ~file-name~, ~file-path~, ~file-dir~, ~file-title~ :: Same syntax as above.
-  Targets: ~links~.
-  These filter links by their containing source file.
-  Example: ~'(links (file-title "Projects" :exact t))'~.
-- ~links-to~, ~linked-from~ :: Same syntax as above.
-  Targets: ~links~.
-  Relation predicates over link targets or incoming links.
-  Example: ~'(links (links-to (headings (title "Beta Target" :exact t))))'~.
+- ~file-name~, ~file-path~, ~file-dir~, ~file-title~, ~file-modified~ :: Not directly valid for ~links~.
+  Filter link results by their containing source file with a nested ~files~ query, for example ~'(links (source (files (file-title "Projects" :exact t))))'~.
+- ~links-to~, ~linked-from~ :: Not valid for ~links~; they target ~headings~ and ~files~ only.
+  Use ~source~ to filter link origins and ~target~ to filter resolved link destinations when returning link objects.
 
 *** File predicates
 
@@ -580,9 +576,9 @@ Implemented relation directions:
 - ~ancestors~ :: Outer target ~headings~, nested target ~headings~, direction transitive upward.
 - ~descendants~ :: Outer target ~headings~, nested target ~headings~, direction transitive downward.
 - ~has-link~ :: Outer target ~headings~ or ~files~, nested target ~links~, direction contained link existence.
-- ~links-to~ :: Outer target ~headings~ or ~links~, nested target ~headings~ or ~files~, direction outgoing target relation.
-- ~linked-from~ :: Outer target ~headings~ or ~links~, nested target ~headings~, ~files~, or ~any~, direction incoming source relation.
-- ~source~ :: Outer target ~links~, nested target ~headings~ or ~any~, direction source heading relation.
+- ~links-to~ :: Outer target ~headings~ or ~files~, nested target ~headings~ or ~files~, direction outgoing target relation.
+- ~linked-from~ :: Outer target ~headings~ or ~files~, nested target ~headings~, ~files~, or ~any~, direction incoming source relation.
+- ~source~ :: Outer target ~links~, nested target ~headings~, ~files~, or ~any~, direction source location relation.
 - ~target~ :: Outer target ~links~, nested target ~headings~, ~files~, or ~any~, direction resolved target relation.
 
 Examples:

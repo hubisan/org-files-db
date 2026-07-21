@@ -272,6 +272,10 @@ Task file: [[file:archive/2026-07-21--allow-synthetic-roots-in-nested-heading-re
 
 Task file: [[file:archive/2026-07-21--improve-hierarchy-predicate-documentation.org][Improve Hierarchy Predicate Documentation]]
 
+** DONE Correct link predicate target documentation
+
+Task file: [[file:2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
+
 ** TODO Manual Test the Implementation
 
 *** Query

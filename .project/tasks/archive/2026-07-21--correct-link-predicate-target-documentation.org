@@ -1,0 +1,45 @@
+#+TITLE: Correct Link Predicate Target Documentation
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-21 Tue 17:17]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Correct link predicate target documentation.
+
+* Build
+
+** Approach
+
+- Aligned the capability matrix and CLI predicate reference with parser and validator target constraints.
+- Documented source-file filtering through ~(source (files ...))~ and corrected link-result manual examples.
+- Clarified that ~source~ and ~target~ return link objects, while ~links-to~ and ~linked-from~ filter heading or file results.
+
+** Changed files
+
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+- ~.project/manual-tests/query-model/tests/link-to-from.org~
+
+** Checks performed
+
+- Searched documentation and manual tests for invalid direct link predicates.
+- ~cargo test --all-targets --all-features docs_cli_query_reference_mentions_public_predicates_includes_and_options~
+- ~make ci~
+
+** Test results
+
+- No invalid direct link-result examples remain.
+- Documentation guard passed.
+- ~make ci~ passed: formatting, clippy, 348 unit tests, integration tests, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.
