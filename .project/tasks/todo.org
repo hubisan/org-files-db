@@ -276,6 +276,10 @@ Task file: [[file:archive/2026-07-21--improve-hierarchy-predicate-documentation.
 
 Task file: [[file:archive/2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
 
+** DONE Document link resolution statuses
+
+Task file: [[file:archive/2026-07-21--document-link-resolution-statuses.org][Document Link Resolution Statuses]]
+
 ** TODO Manual Test the Implementation
 
 *** Query

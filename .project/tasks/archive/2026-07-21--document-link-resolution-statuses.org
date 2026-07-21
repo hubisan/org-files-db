@@ -1,0 +1,41 @@
+#+TITLE: Document Link Resolution Statuses
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-21 Tue 17:25]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Document link resolution statuses.
+
+* Build
+
+** Approach
+
+- Defined the five persisted resolution statuses in both public references.
+- Documented that only resolved links participate in ~target~ relation matching and removed stale ~external~ status wording.
+
+** Changed files
+
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+
+** Checks performed
+
+- ~cargo test --all-targets --all-features docs_cli_query_reference_mentions_public_predicates_includes_and_options~
+- ~make ci~
+
+** Test results
+
+- Documentation guard passed.
+- ~make ci~ passed: formatting, clippy, 348 unit tests, integration tests, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.

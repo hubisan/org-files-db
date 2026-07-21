@@ -452,8 +452,27 @@ Relations never cross file boundaries. A heading never matches itself through ~a
   Example: ~'(links (has-description))'~.
 - ~status~ :: Syntax: ~(status STATUS...)~.
   Targets: ~links~.
-  Matches persisted resolver state such as ~resolved~, ~broken~, ~unresolved~, ~ambiguous~, or ~unsupported~.
+  Matches one or more persisted resolution statuses. Supported values are ~resolved~, ~broken~, ~unresolved~, ~ambiguous~, and ~unsupported~; a ~null~ status means no resolver pass has populated the row yet.
   Example: ~'(links (status "broken" "unresolved"))'~.
+
+*** Link resolution statuses
+
+- ~resolved~ :: Exactly one indexed target was found. Only resolved links can match structured ~(target (headings ...))~ or ~(target (files ...))~ queries.
+- ~broken~ :: The link is expected to resolve to an indexed target, but no valid target exists.
+- ~unresolved~ :: Resolution was not attempted or there was not enough information to resolve the link.
+- ~ambiguous~ :: Multiple possible indexed targets were found and no unique target could be selected.
+- ~unsupported~ :: The link type or target form is not supported by the resolver.
+
+Use ~status~ to inspect each non-resolved outcome; structured ~target~ queries do not match ~broken~, ~unresolved~, ~ambiguous~, or ~unsupported~ links.
+
+#+begin_src lisp
+(links (status "resolved"))
+(links (status "broken"))
+(links (status "unresolved"))
+(links (status "ambiguous"))
+(links (status "unsupported"))
+#+end_src
+
 - ~source~ :: Syntax: ~(source any)~, ~(source (headings EXPR))~, or ~(source (files EXPR))~.
   Targets: ~links~.
   Matches links by their indexed source location. Use a nested ~headings~ query for heading sources or a nested ~files~ query for containing source-file filters; ~any~ means any indexed source.

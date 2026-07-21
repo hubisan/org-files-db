@@ -2452,8 +2452,7 @@ A link target may be:
 
 - a file/root
 - a heading
-- unresolved / broken
-- external or unsupported, depending on link type and resolver support
+- unresolved, broken, ambiguous, or unsupported
 
 Examples:
 
@@ -2659,20 +2658,19 @@ Arguments:
 
 - ~statuses~ :: one or more status strings
 
-Recommended v0 status values:
+Supported resolution status values:
 
 - ~resolved~
 - ~broken~
 - ~unresolved~
-- ~external~
 - ~unsupported~
 
 Definitions:
 
-- ~resolved~ :: the target was resolved to an indexed object
-- ~broken~ :: the link claims to point to an indexed object, but no valid target exists
-- ~unresolved~ :: resolution was not attempted or not enough information was available
-- ~external~ :: the link points outside the indexed graph
+- ~resolved~ :: exactly one indexed target was found
+- ~broken~ :: the link is expected to resolve to an indexed target, but no valid target exists
+- ~unresolved~ :: resolution was not attempted or there was not enough information to resolve the link
+- ~ambiguous~ :: multiple possible indexed targets were found and no unique target could be selected
 - ~unsupported~ :: the link type or target form is not supported by the resolver
 
 Examples:
@@ -2688,12 +2686,17 @@ Examples:
   (and
     (link-type "file")
     (status "resolved")))
+
+(links (status "ambiguous"))
+
+(links (status "unsupported"))
 #+end_src
 
 Notes:
 
 - ~status~ replaces separate ~(broken)~ and ~(resolved)~ predicates.
-- Additional status values may be added later.
+- A ~null~ status means no resolver pass has populated the row yet.
+- Only ~resolved~ links can match structured ~(target (headings ...))~ or ~(target (files ...))~ queries. Use ~status~ or raw-link predicates to inspect ~broken~, ~unresolved~, ~ambiguous~, or ~unsupported~ links.
 
 *** ~(source any)~ and ~(source TARGET-QUERY)~
 
@@ -5805,10 +5808,10 @@ This keeps the public syntax small.
 
 Separate predicates such as ~(broken)~ and ~(resolved)~ do not scale.
 
-~status~ supports future values:
+~status~ keeps resolution outcomes in one predicate:
 
 #+begin_src lisp
-(status "broken" "unresolved" "external")
+(status "broken" "unresolved" "ambiguous" "unsupported")
 #+end_src
 
 *** 20.8 Why is root not a heading?
