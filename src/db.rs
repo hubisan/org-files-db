@@ -26,7 +26,7 @@ pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
 pub const DB_METADATA_FTS_AVAILABLE_KEY: &str = "fts_available";
 pub const DB_METADATA_FTS_BODY_INDEXED_KEY: &str = "fts_body_indexed";
 pub const DB_METADATA_FTS_SCHEMA_VERSION_KEY: &str = "fts_schema_version";
-pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "1";
+pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "2";
 
 #[cfg(test)]
 const IN_MEMORY_DATABASE: &str = ":memory:";

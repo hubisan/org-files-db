@@ -1,0 +1,613 @@
+#+TITLE: Manual tests: orgfdb search command
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Setup
+
+- Index and rebuild the files under ~../org/~.
+- Ensure ~search.fts5_enabled = true~.
+- Body tests require a trusted index rebuilt with body indexing enabled.
+- Inspect the returned JSON manually unless a shell assertion is included.
+
+* Basic invocation
+
+** Missing ~--json~
+
+Expected:
+
+- exit code ~2~
+- an error explaining that stable search output requires ~--json~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --config <<config-path()>> \
+    alphaquartz 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+search currently only supports --json
+#+end_SRC
+
+** Simple term
+
+Expected:
+
+- the heading ~SQLite phrase heading~
+- no unrelated gamma heading
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+    alphaquartz \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 279,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "SQLite phrase heading",
+    "line_number": 6,
+    "byte_start": 138,
+    "byte_end": 402,
+    "rank": -3.8967991019340764
+  }
+]
+#+end_SRC
+
+** No match
+
+Expected:
+
+- an empty JSON array
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+    token_that_does_not_exist_7f31 \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[]
+#+end_SRC
+
+* Column scope options
+
+** Title-only match
+
+Expected:
+
+- ~SQLite phrase heading~
+- the match comes from its title
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --title --config <<config-path()>> \
+    '"SQLite Phrase Laboratory"' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 279,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "SQLite phrase heading",
+    "line_number": 6,
+    "byte_start": 138,
+    "byte_end": 402,
+    "rank": -3.8967991019340764
+  }
+]
+#+end_SRC
+
+** Title option excludes body-only token
+
+Expected:
+
+- an empty JSON array
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --title --config <<config-path()>> \
+    betabodyquartz \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[]
+#+end_SRC
+
+** Body-only match
+
+Expected:
+
+- ~Body-only sqlite marker~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    betabodyquartz \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 285,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Body-only sqlite marker",
+    "line_number": 8,
+    "byte_start": 210,
+    "byte_end": 301,
+    "rank": -5.1325988329476555
+  }
+]
+#+end_SRC
+
+** Body option excludes title-only token
+
+Expected:
+
+- an empty JSON array for the title phrase
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    '"Title-only marker"' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[]
+#+end_SRC
+
+** Title and body are mutually exclusive
+
+Expected:
+
+- Clap error
+- exit code ~2~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --title --body --config <<config-path()>> \
+    sqlite 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+error: the argument '--title' cannot be used with '--body'
+
+Usage: orgfdb search --json --title --config <CONFIG> <EXPRESSION>
+
+For more information, try '--help'.
+
+#+end_SRC
+
+* Raw FTS5 expressions
+
+** Exact phrase
+
+Expected:
+
+- ~SQLite phrase heading~
+- no heading containing the words only separately
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    '"phrase search"' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 279,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "SQLite phrase heading",
+    "line_number": 6,
+    "byte_start": 138,
+    "byte_end": 402,
+    "rank": -3.8967991019340764
+  }
+]
+#+end_SRC
+
+** Prefix
+
+Expected:
+
+- ~Prefix child~ because its body contains words starting with ~prefix~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    'prefix*' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 280,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "Prefix child",
+    "line_number": 10,
+    "byte_start": 309,
+    "byte_end": 402,
+    "rank": -7.32657186913822
+  }
+]
+#+end_SRC
+
+** Boolean AND
+
+Expected:
+
+- headings containing both ~sqlite~ and ~retrieval~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    'sqlite AND retrieval' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 284,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Phrase search handbook",
+    "line_number": 4,
+    "byte_start": 61,
+    "byte_end": 210,
+    "rank": -7.217355717112374
+  }
+]
+#+end_SRC
+
+** Boolean OR
+
+Expected:
+
+- the heading containing ~alphaquartz~
+- the heading containing ~betabodyquartz~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    'alphaquartz OR betabodyquartz' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 285,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Body-only sqlite marker",
+    "line_number": 8,
+    "byte_start": 210,
+    "byte_end": 301,
+    "rank": -5.1325988329476555
+  },
+  {
+    "heading_id": 279,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "SQLite phrase heading",
+    "line_number": 6,
+    "byte_start": 138,
+    "byte_end": 402,
+    "rank": -3.8967991019340764
+  }
+]
+#+end_SRC
+
+** Boolean NOT
+
+Expected:
+
+- sqlite body matches without ~forbiddenword~
+- ~Negation candidate~ is excluded
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    'sqlite NOT forbiddenword' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 281,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "Boolean alternative",
+    "line_number": 13,
+    "byte_start": 402,
+    "byte_end": 483,
+    "rank": -4.673297793376658
+  },
+  {
+    "heading_id": 284,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Phrase search handbook",
+    "line_number": 4,
+    "byte_start": 61,
+    "byte_end": 210,
+    "rank": -3.469005261559465
+  }
+]
+#+end_SRC
+
+** Grouping
+
+Expected:
+
+- results satisfying the grouped boolean expression
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    '(alphaquartz OR betabodyquartz) AND sqlite' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[]
+#+end_SRC
+
+** NEAR
+
+Expected:
+
+- headings where ~apple~ and ~orange~ occur close together
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    'NEAR(apple orange, 3)' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 280,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "Prefix child",
+    "line_number": 10,
+    "byte_start": 309,
+    "byte_end": 402,
+    "rank": -9.790260993444305
+  },
+  {
+    "heading_id": 284,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Phrase search handbook",
+    "line_number": 4,
+    "byte_start": 61,
+    "byte_end": 210,
+    "rank": -7.496700911105819
+  }
+]
+#+end_SRC
+
+** Explicit title column filter
+
+Expected:
+
+- only title matches for ~sqlite~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+    'title:sqlite' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 285,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Body-only sqlite marker",
+    "line_number": 8,
+    "byte_start": 210,
+    "byte_end": 301,
+    "rank": -4.612875483504525
+  },
+  {
+    "heading_id": 279,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "title": "SQLite phrase heading",
+    "line_number": 6,
+    "byte_start": 138,
+    "byte_end": 402,
+    "rank": -3.5022119644466425
+  }
+]
+#+end_SRC
+
+** Explicit body column filter
+
+Expected:
+
+- body matches for ~betabodyquartz~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+    'body:betabodyquartz' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+[
+  {
+    "heading_id": 285,
+    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "title": "Body-only sqlite marker",
+    "line_number": 8,
+    "byte_start": 210,
+    "byte_end": 301,
+    "rank": -5.1325988329476555
+  }
+]
+#+end_SRC
+
+* Scope protection
+
+** Explicit column filter with ~--title~ is rejected
+
+Expected:
+
+- error
+- user expression cannot override or restate the selected column scope
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --title --config <<config-path()>> \
+    'body:betabodyquartz' 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+invalid SQLite FTS5 search expression: explicit column filters are not allowed with --title
+#+end_SRC
+
+** Explicit column filter with ~--body~ is rejected
+
+Expected:
+
+- error
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --body --config <<config-path()>> \
+    'title:sqlite' 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+invalid SQLite FTS5 search expression: explicit column filters are not allowed with --body
+#+end_SRC
+
+* Invalid expressions
+
+** Malformed FTS expression
+
+Expected:
+
+- non-zero exit code
+- clear FTS syntax error
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+    'sqlite AND (' 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+invalid SQLite FTS5 search expression
+#+end_SRC
+
+** Missing expression
+
+Expected:
+
+- Clap error
+- exit code ~2~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+error: the following required arguments were not provided:
+  <EXPRESSION>
+
+Usage: orgfdb search --json --config <CONFIG> <EXPRESSION>
+
+For more information, try '--help'.
+
+#+end_SRC
+
+** Additional positional expression
+
+Expected:
+
+- Clap rejects the extra argument
+- exit code ~2~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+    alphaquartz betabodyquartz 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+error: unexpected argument 'betabodyquartz' found
+
+Usage: orgfdb search [OPTIONS] <EXPRESSION>
+
+For more information, try '--help'.
+
+#+end_SRC

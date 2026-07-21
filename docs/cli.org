@@ -862,6 +862,7 @@ The output is a JSON array ordered deterministically by:
 Each JSON object exposes these public fields:
 
 - ~heading_id~
+- ~kind~ :: ~file~ for a synthetic level-0 file root, or ~heading~ for a real heading.
 - ~path~
 - ~title~
 - ~line_number~
@@ -873,13 +874,10 @@ Notes:
 
 - ~EXPRESSION~ is raw backend-specific SQLite FTS5 syntax. Supported constructs follow the linked SQLite FTS5 implementation and may include terms, quoted phrases, prefixes, boolean operators, grouping, column filters, and ~NEAR~.
 - ~search~ is a convenience command, not Query Model v0. It does not change ~(has-text ...)~ or other query semantics.
-- Search matches only through the derived ~=heading_fts= index, but all returned title/path/location fields come from canonical ~=headings= and ~=files= rows.
+- Search matches only through the derived ~=heading_fts= index, including canonical level-0 file roots. All returned kind/title/path/location fields come from canonical ~=headings= and ~=files= rows.
 - The command never reads ~=heading_fts.title= or ~=heading_fts.body= payload values from the contentless FTS table.
 - The active config must leave ~search.fts5_enabled = true~. This is permission to use search, not proof that the database contains a trusted index.
-- Existing databases built before persisted FTS trust metadata were introduced must be rebuilt once before ~search~ works. The command will instruct the user to run ~orgfdb rebuild~ when the trusted search metadata is missing or stale.
+- Existing databases built before persisted FTS trust metadata, or before level-0 roots were added to the FTS contract, must be rebuilt once before ~search~ works. The command will instruct the user to run ~orgfdb rebuild~ when the trusted search metadata is missing or stale.
 - ~--body~ requires a trusted FTS index that was rebuilt with body indexing enabled. Title-only trusted indexes still support default and ~--title~ searches.
+- Root titles are indexed in ~title~. Root preamble text is indexed only in ~body~ when body indexing is enabled.
 - When ~--title~ or ~--body~ is used, explicit FTS column filters inside ~EXPRESSION~ are rejected so user input cannot broaden the selected scope.
-
-* Link storage contract
-
-Phase 3 stores raw link source facts, and later rebuild-time resolution may populate separate Phase 4 target fields. ~orgfdb links --json~ exposes both sets together without rebuilding, resolving on demand, or mutating the database. Root-attached links are part of the stored data model and remain visible in CLI output, including broken, ambiguous, unresolved, and unsupported rows.

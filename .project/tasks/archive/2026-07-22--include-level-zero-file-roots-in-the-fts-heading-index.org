@@ -1,0 +1,76 @@
+#+TITLE: Include Level-Zero File Roots in the FTS Heading Index
+#+STARTUP: showall
+#+TASK_STARTED: [2026-07-22 Wed 01:52]
+
+* Original Task (User only)
+
+Include level-0 file roots in the FTS heading index and add a public search-result ~kind~ field.
+
+* Planning
+
+** Problem summary
+
+The derived FTS index and FTS reader exclude synthetic level-0 roots. Search therefore cannot find file preambles, and its JSON results do not distinguish file roots from real headings.
+
+** Goals
+
+- Index every canonical heading, including file roots, in ~heading_fts~.
+- Return ~kind = "file"~ for level-0 search matches and ~kind = "heading"~ for real matches.
+- Keep canonical IDs, titles, paths, and locations as the source of search output.
+- Require rebuilding stale pre-root FTS indexes.
+
+** Non-goals
+
+- Do not change the SQLite table schema, FTS columns, or search CLI options.
+- Do not create headings or duplicate preamble body text.
+
+** Architecture
+
+The FTS rebuild already reads canonical ~headings~ and optional ~heading_bodies~ rows. The reader will select the canonical level and derive a result kind before CLI serialization. The FTS trust-contract version will distinguish pre-root indexes from the new content contract.
+
+** Execution plan
+
+1. Include level-0 rows in FTS population and FTS result reads.
+2. Add the derived ~kind~ field through reader and JSON serialization.
+3. Bump the FTS trust-contract version and classify version 1 indexes as stale/rebuild-required.
+4. Add root, title-only, body, ordering, and compatibility regressions.
+5. Update public search documentation and run ~make ci~.
+
+** Risks & assumptions
+
+Root preamble text is already stored only on the canonical root body row. Version 1 is the sole prior known FTS trust-contract version and will be treated as stale; unknown values remain invalid metadata.
+
+** Proposed checks
+
+- Focused writer and CLI search tests.
+- ~make ci~.
+
+* Build
+
+** Approach
+
+The derived FTS index now includes canonical level-0 roots. The FTS reader derives ~kind~ from the canonical heading level, and the CLI serializes it with the existing identity and location fields. The FTS trust contract moved to version 2 so version 1 indexes require rebuilding.
+
+** Changed files
+
+- ~src/db/writer.rs~, ~src/db/reader.rs~, and ~src/db.rs~: root FTS population, result kind derivation, and trust-contract version.
+- ~src/cli.rs~: public search ~kind~ serialization, stale version-1 handling, and search regressions.
+- ~src/indexer.rs~, ~docs/cli.org~, and ~README.org~: updated FTS expectations and public documentation.
+
+** Checks performed
+
+- Focused writer, root search, title-only root search, and stale-contract tests.
+- ~cargo test --all-targets --all-features~.
+- ~make ci~.
+
+** Test results
+
+~make ci~ passed: formatting, clippy, 352 unit tests, integration tests, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+Existing version-1 FTS indexes require ~orgfdb rebuild~ before search is trusted.

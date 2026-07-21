@@ -60,6 +60,7 @@ pub(crate) struct LinkListRow {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct SearchHeadingRow {
     pub heading_id: i64,
+    pub kind: String,
     pub path: String,
     pub title: String,
     pub line_number: Option<i64>,
@@ -237,6 +238,7 @@ impl DbReader {
             .prepare(
                 "SELECT
                     headings.id,
+                    headings.level,
                     files.path,
                     headings.title,
                     headings.line_number,
@@ -246,8 +248,7 @@ impl DbReader {
                  FROM heading_fts
                  INNER JOIN headings ON heading_fts.rowid = headings.id
                  INNER JOIN files ON files.id = headings.file_id
-                 WHERE headings.level > 0
-                   AND heading_fts MATCH ?1
+                 WHERE heading_fts MATCH ?1
                  ORDER BY rank ASC, headings.id ASC",
             )
             .map_err(|source| DbReadError::Query {
@@ -259,12 +260,17 @@ impl DbReader {
             .query_map([expression], |row| {
                 Ok(SearchHeadingRow {
                     heading_id: row.get(0)?,
-                    path: row.get(1)?,
-                    title: row.get(2)?,
-                    line_number: row.get(3)?,
-                    byte_start: row.get(4)?,
-                    byte_end: row.get(5)?,
-                    rank: row.get(6)?,
+                    kind: if row.get::<_, i64>(1)? == 0 {
+                        "file".to_string()
+                    } else {
+                        "heading".to_string()
+                    },
+                    path: row.get(2)?,
+                    title: row.get(3)?,
+                    line_number: row.get(4)?,
+                    byte_start: row.get(5)?,
+                    byte_end: row.get(6)?,
+                    rank: row.get(7)?,
                 })
             })
             .map_err(|source| DbReadError::Query {

@@ -608,7 +608,7 @@ impl DbWriter {
                  FROM headings
                  LEFT JOIN heading_bodies
                    ON heading_bodies.heading_id = headings.id
-                 WHERE headings.level > 0",
+                 ORDER BY headings.id",
                 [i64::from(index_body_text)],
             )
             .map_err(|source| DbWriteError::Write {
@@ -965,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_heading_fts_populates_only_real_headings() {
+    fn rebuild_heading_fts_populates_roots_and_real_headings() {
         let probe = Connection::open_in_memory().expect("probe connection should open");
         if !sqlite_supports_fts5(&probe).expect("fts5 probe should run") {
             return;
@@ -991,18 +991,26 @@ mod tests {
         .expect("child should insert")[0];
         DbWriter::insert_heading_bodies(
             &connection,
-            &[super::HeadingBodyRecord {
-                heading_id: child_id,
-                body_text: "Search phrase".to_string(),
-                body_byte_start: Some(12),
-                body_byte_end: Some(25),
-            }],
+            &[
+                super::HeadingBodyRecord {
+                    heading_id: root_id,
+                    body_text: "Preamble quartz".to_string(),
+                    body_byte_start: Some(0),
+                    body_byte_end: Some(15),
+                },
+                super::HeadingBodyRecord {
+                    heading_id: child_id,
+                    body_text: "Search phrase".to_string(),
+                    body_byte_start: Some(12),
+                    body_byte_end: Some(25),
+                },
+            ],
         )
         .expect("body row should insert");
 
         DbWriter::rebuild_heading_fts(&connection, true).expect("fts rebuild should succeed");
 
-        assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_fts"), 1);
+        assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_fts"), 2);
         assert_eq!(
             count(
                 &connection,
@@ -1015,12 +1023,27 @@ mod tests {
                 &connection,
                 "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'project'"
             ),
-            0
+            1
         );
-        let rowid: i64 = connection
-            .query_row("SELECT rowid FROM heading_fts", [], |row| row.get(0))
-            .expect("fts rowid should load");
-        assert_eq!(rowid, child_id);
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Preamble'"
+            ),
+            1
+        );
+        let rowids: Vec<i64> = connection
+            .prepare("SELECT rowid FROM heading_fts ORDER BY rowid")
+            .expect("fts row query should prepare")
+            .query_map([], |row| row.get(0))
+            .expect("fts rows should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fts rows should collect");
+        assert_eq!(rowids, vec![root_id, child_id]);
+
+        DbWriter::rebuild_heading_fts(&connection, true)
+            .expect("second FTS rebuild should succeed");
+        assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_fts"), 2);
     }
 
     #[test]
@@ -1050,12 +1073,20 @@ mod tests {
         .expect("child should insert")[0];
         DbWriter::insert_heading_bodies(
             &connection,
-            &[super::HeadingBodyRecord {
-                heading_id: child_id,
-                body_text: "Body phrase".to_string(),
-                body_byte_start: Some(12),
-                body_byte_end: Some(23),
-            }],
+            &[
+                super::HeadingBodyRecord {
+                    heading_id: root_id,
+                    body_text: "Root preamble phrase".to_string(),
+                    body_byte_start: Some(0),
+                    body_byte_end: Some(20),
+                },
+                super::HeadingBodyRecord {
+                    heading_id: child_id,
+                    body_text: "Body phrase".to_string(),
+                    body_byte_start: Some(12),
+                    body_byte_end: Some(23),
+                },
+            ],
         )
         .expect("body row should insert");
 
@@ -1065,6 +1096,13 @@ mod tests {
             count(
                 &connection,
                 "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Title'"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'project'"
             ),
             1
         );

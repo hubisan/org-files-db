@@ -12,15 +12,289 @@
 #+name: config-path
 : ../Config.toml
 
-* Outline output
+* Match all
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> --output outline '(headings (title "Query Engine" :exact t))'
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --output outline --config <<config-path()>> '(headings (file-name "planning.org"))'
 #+end_src
 
-* Heading with path, properties, keywords, links, and backlinks
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "headings",
+  "output": "outline",
+  "includes": [],
+  "results": [
+    {
+      "kind": "file",
+      "matched": true,
+      "id": 26,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+      "name": "planning.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings",
+      "title": "planning-fixture-pln9",
+      "title_raw": "planning-fixture-pln9",
+      "root_heading_id": 128,
+      "mtime_ns": 1784585165034268186,
+      "size": 510,
+      "content_hash": null,
+      "indexed_at": 1784673346,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [],
+      "children": [
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 129,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: Scheduled pln9-a",
+          "title_raw": "TODO planning: Scheduled pln9-a",
+          "todo_keyword": "TODO",
+          "todo_type": "open",
+          "priority": null,
+          "scheduled_raw": "<2037-08-17 Mon>",
+          "scheduled_ts": 2134080000,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 5,
+            "byte_start": 71,
+            "byte_end": 134
+          },
+          "children": []
+        },
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 130,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: Deadline pln9-b",
+          "title_raw": "TODO planning: Deadline pln9-b",
+          "todo_keyword": "TODO",
+          "todo_type": "open",
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": "<2037-08-17 Mon 13:20>",
+          "deadline_ts": 2134128000,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 8,
+            "byte_start": 134,
+            "byte_end": 201
+          },
+          "children": []
+        },
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 131,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: Closed pln9-c",
+          "title_raw": "DONE planning: Closed pln9-c",
+          "todo_keyword": "DONE",
+          "todo_type": "closed",
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": "[2037-08-17 Mon 18:10]",
+          "closed_ts": 2134145400,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 11,
+            "byte_start": 201,
+            "byte_end": 264
+          },
+          "children": []
+        },
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 132,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: Multiple Planning pln9-d",
+          "title_raw": "TODO planning: Multiple Planning pln9-d",
+          "todo_keyword": "TODO",
+          "todo_type": "open",
+          "priority": null,
+          "scheduled_raw": "<2037-08-01 Sat>",
+          "scheduled_ts": 2132697600,
+          "deadline_raw": "<2037-08-31 Mon 16:00>",
+          "deadline_ts": 2135347200,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 14,
+            "byte_start": 264,
+            "byte_end": 368
+          },
+          "children": []
+        },
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 133,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: Plain Timestamp Negative Control pln9-e",
+          "title_raw": "planning: Plain Timestamp Negative Control pln9-e",
+          "todo_keyword": null,
+          "todo_type": null,
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 17,
+            "byte_start": 368,
+            "byte_end": 438
+          },
+          "children": []
+        },
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 134,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: No Timestamp Control pln9-f",
+          "title_raw": "planning: No Timestamp Control pln9-f",
+          "todo_keyword": null,
+          "todo_type": null,
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 20,
+            "byte_start": 438,
+            "byte_end": 510
+          },
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+#+end_SRC
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> --include path,properties,keywords,links,backlinks '(headings (title "Query Engine" :exact t))'
+* Match one
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --output outline --config <<config-path()>> '(headings (and (file-name "planning.org") (todo "DONE")))'
 #+end_src
 
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "headings",
+  "output": "outline",
+  "includes": [],
+  "results": [
+    {
+      "kind": "file",
+      "matched": false,
+      "id": 26,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+      "name": "planning.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings",
+      "title": "planning-fixture-pln9",
+      "title_raw": "planning-fixture-pln9",
+      "root_heading_id": 128,
+      "mtime_ns": 1784585165034268186,
+      "size": 510,
+      "content_hash": null,
+      "indexed_at": 1784673346,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [],
+      "children": [
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 131,
+          "file_id": 26,
+          "parent_id": 128,
+          "level": 1,
+          "title": "planning: Closed pln9-c",
+          "title_raw": "DONE planning: Closed pln9-c",
+          "todo_keyword": "DONE",
+          "todo_type": "closed",
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": "[2037-08-17 Mon 18:10]",
+          "closed_ts": 2134145400,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/planning.org",
+            "line": 11,
+            "byte_start": 201,
+            "byte_end": 264
+          },
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+#+end_SRC

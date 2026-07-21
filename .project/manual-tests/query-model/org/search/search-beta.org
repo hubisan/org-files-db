@@ -1,0 +1,12 @@
+#+TITLE: Search Mechanics
+#+FILETAGS: :search_fixture:beta:
+
+* Phrase search handbook
+This body contains sqlite and the exact phrase advanced retrieval.
+It also contains apple pear orange for proximity tests.
+
+* Body-only sqlite marker
+The unique body token betabodyquartz appears only in this body.
+
+* Negation candidate
+This body contains sqlite forbiddenword.

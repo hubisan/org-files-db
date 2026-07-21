@@ -1,0 +1,19 @@
+#+TITLE: Query Model Tests - Includes
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Match all
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --output outline --config <<config-path()>> '(headings (file-name "planning.org"))'
+#+end_src

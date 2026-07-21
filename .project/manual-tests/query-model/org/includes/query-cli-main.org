@@ -1,0 +1,23 @@
+#+TITLE: Query CLI Main
+#+FILETAGS: :qcli_root:project:
+#+CATEGORY: qcli
+#+AUTHOR: Manual Test
+
+[[file:query-cli-target.org][qcli preamble target]]
+
+* NEXT Query CLI heading :qcli_heading:
+:PROPERTIES:
+:ID: qcli-main-id
+:CUSTOM_ID: qcli-main-custom
+:OWNER: Alice
+:END:
+This heading contains a link to [[id:qcli-target-id][qcli resolved target]].
+
+** DONE Child heading
+:PROPERTIES:
+:OWNER: Bob
+:END:
+Child body.
+
+* Broken link heading
+[[#qcli-missing-custom][qcli broken target]]

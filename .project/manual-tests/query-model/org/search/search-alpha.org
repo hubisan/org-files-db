@@ -1,0 +1,17 @@
+#+TITLE: SQLite Phrase Laboratory
+#+FILETAGS: :search_fixture:alpha:
+
+Preamble text contains preamblequartz and database indexing notes.
+
+* SQLite phrase heading
+This body contains the exact phrase phrase search and the unique token alphaquartz.
+It also mentions database engine indexing and fast retrieval.
+
+** Prefix child
+The body contains prefixable prefixation and proximity apple orange banana.
+
+* Boolean alternative
+This body contains rustacean but does not contain sqlite.
+
+* Title-only marker
+The body deliberately avoids the unique title token above.

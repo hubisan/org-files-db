@@ -6268,7 +6268,14 @@ index_body_text = true
             .query_row("SELECT COUNT(*) FROM heading_fts", [], |row| row.get(0))
             .expect("fts rows should load");
         let indexed_rowid: i64 = connection
-            .query_row("SELECT rowid FROM heading_fts", [], |row| row.get(0))
+            .query_row(
+                "SELECT heading_fts.rowid
+                 FROM heading_fts
+                 INNER JOIN headings ON headings.id = heading_fts.rowid
+                 WHERE headings.level > 0",
+                [],
+                |row| row.get(0),
+            )
             .expect("fts rowid should load");
         let match_count: i64 = connection
             .query_row(
@@ -6299,10 +6306,10 @@ index_body_text = true
             )
             .expect("contentless payload should load as null");
 
-        assert_eq!(row_count, 1);
+        assert_eq!(row_count, 2);
         assert_eq!(match_count, 1);
         assert_eq!(body_match_count, 1);
-        assert_eq!(root_match_count, 0);
+        assert_eq!(root_match_count, 1);
         assert_eq!(stored_payload, (None, None));
     }
 
@@ -6424,7 +6431,7 @@ index_body_text = false
             )
             .expect("beta match should load");
 
-        assert_eq!(row_count, 1);
+        assert_eq!(row_count, 2);
         assert_eq!(alpha_match_count, 0);
         assert_eq!(beta_match_count, 1);
     }

@@ -1,0 +1,8 @@
+#+TITLE: Unrelated Notes
+#+FILETAGS: :search_fixture:gamma:
+
+* Quiet heading
+This body contains gammacobalt and no database vocabulary used by the main tests.
+
+* Another quiet heading
+Ordinary notes for negative search cases.

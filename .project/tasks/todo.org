@@ -288,6 +288,10 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 
 - Task file: [[file:archive/2026-07-21--include-level-zero-roots-in-nested-heading-relation-queries.org][Include Level-0 Roots in Nested Heading Relation Queries]]
 
+** DONE [#A] Include level-0 file roots in the FTS heading index
+
+- Task file: [[file:archive/2026-07-22--include-level-zero-file-roots-in-the-fts-heading-index.org][Include Level-Zero File Roots in the FTS Heading Index]]
+
 ** TODO Manual Test the Implementation
 
 *** Query
@@ -337,7 +341,8 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 
 **** DONE File Predicates
 
-**** TODO Output Modes
+**** DONE Output Modes
+
+**** DONE Includes
 
 *** Search
-

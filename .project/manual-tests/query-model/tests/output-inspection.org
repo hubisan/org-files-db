@@ -1,0 +1,1335 @@
+#+TITLE: Manual inspection checklist: query JSON output
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* Flat headings output
+
+Inspect:
+
+- top-level response keys
+- result ordering
+- ~kind~ for real headings and synthetic file roots
+- ~location.file_path~, line, and byte positions
+- stable title fields
+- absence of include payloads by default
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --output flat --config <<config-path()>> \
+    '(headings (file-name "query-cli-main.org" :exact t))' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "headings",
+  "output": "flat",
+  "includes": [],
+  "results": [
+    {
+      "kind": "file",
+      "matched": true,
+      "id": 38,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+      "name": "query-cli-main.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes",
+      "title": "Query CLI Main",
+      "title_raw": "Query CLI Main",
+      "root_heading_id": 254,
+      "mtime_ns": 1784674343000000000,
+      "size": 480,
+      "content_hash": null,
+      "indexed_at": 1784675192,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [
+        "qcli_root",
+        "project"
+      ]
+    },
+    {
+      "kind": "heading",
+      "matched": true,
+      "id": 255,
+      "file_id": 38,
+      "parent_id": 254,
+      "level": 1,
+      "title": "Query CLI heading",
+      "title_raw": "NEXT Query CLI heading",
+      "todo_keyword": "NEXT",
+      "todo_type": "open",
+      "priority": null,
+      "scheduled_raw": null,
+      "scheduled_ts": null,
+      "deadline_raw": null,
+      "deadline_ts": null,
+      "closed_raw": null,
+      "closed_ts": null,
+      "archivedp": false,
+      "footnote_section_p": false,
+      "all_tags": [
+        "qcli_root",
+        "project",
+        "qcli_heading"
+      ],
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 8,
+        "byte_start": 149,
+        "byte_end": 413
+      }
+    },
+    {
+      "kind": "heading",
+      "matched": true,
+      "id": 256,
+      "file_id": 38,
+      "parent_id": 255,
+      "level": 2,
+      "title": "Child heading",
+      "title_raw": "DONE Child heading",
+      "todo_keyword": "DONE",
+      "todo_type": "closed",
+      "priority": null,
+      "scheduled_raw": null,
+      "scheduled_ts": null,
+      "deadline_raw": null,
+      "deadline_ts": null,
+      "closed_raw": null,
+      "closed_ts": null,
+      "archivedp": false,
+      "footnote_section_p": false,
+      "all_tags": [
+        "qcli_root",
+        "project",
+        "qcli_heading"
+      ],
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 16,
+        "byte_start": 347,
+        "byte_end": 413
+      }
+    },
+    {
+      "kind": "heading",
+      "matched": true,
+      "id": 257,
+      "file_id": 38,
+      "parent_id": 254,
+      "level": 1,
+      "title": "Broken link heading",
+      "title_raw": "Broken link heading",
+      "todo_keyword": null,
+      "todo_type": null,
+      "priority": null,
+      "scheduled_raw": null,
+      "scheduled_ts": null,
+      "deadline_raw": null,
+      "deadline_ts": null,
+      "closed_raw": null,
+      "closed_ts": null,
+      "archivedp": false,
+      "footnote_section_p": false,
+      "all_tags": [
+        "qcli_root",
+        "project"
+      ],
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 22,
+        "byte_start": 413,
+        "byte_end": 480
+      }
+    }
+  ]
+}
+#+end_SRC
+
+* Outline headings output
+
+Inspect:
+
+- tree/container keys
+- root node representation
+- parent-child nesting
+- whether unmatched ancestors are inserted for structure
+- whether result counts still describe matched objects consistently
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --output outline --config <<config-path()>> \
+    '(headings (file-name "query-cli-main.org" :exact t))' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "headings",
+  "output": "outline",
+  "includes": [],
+  "results": [
+    {
+      "kind": "file",
+      "matched": true,
+      "id": 38,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+      "name": "query-cli-main.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes",
+      "title": "Query CLI Main",
+      "title_raw": "Query CLI Main",
+      "root_heading_id": 254,
+      "mtime_ns": 1784674343000000000,
+      "size": 480,
+      "content_hash": null,
+      "indexed_at": 1784675192,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [
+        "qcli_root",
+        "project"
+      ],
+      "children": [
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 255,
+          "file_id": 38,
+          "parent_id": 254,
+          "level": 1,
+          "title": "Query CLI heading",
+          "title_raw": "NEXT Query CLI heading",
+          "todo_keyword": "NEXT",
+          "todo_type": "open",
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [
+            "qcli_root",
+            "project",
+            "qcli_heading"
+          ],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 8,
+            "byte_start": 149,
+            "byte_end": 413
+          },
+          "children": [
+            {
+              "kind": "heading",
+              "matched": true,
+              "id": 256,
+              "file_id": 38,
+              "parent_id": 255,
+              "level": 2,
+              "title": "Child heading",
+              "title_raw": "DONE Child heading",
+              "todo_keyword": "DONE",
+              "todo_type": "closed",
+              "priority": null,
+              "scheduled_raw": null,
+              "scheduled_ts": null,
+              "deadline_raw": null,
+              "deadline_ts": null,
+              "closed_raw": null,
+              "closed_ts": null,
+              "archivedp": false,
+              "footnote_section_p": false,
+              "all_tags": [
+                "qcli_root",
+                "project",
+                "qcli_heading"
+              ],
+              "location": {
+                "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "line": 16,
+                "byte_start": 347,
+                "byte_end": 413
+              },
+              "children": []
+            }
+          ]
+        },
+        {
+          "kind": "heading",
+          "matched": true,
+          "id": 257,
+          "file_id": 38,
+          "parent_id": 254,
+          "level": 1,
+          "title": "Broken link heading",
+          "title_raw": "Broken link heading",
+          "todo_keyword": null,
+          "todo_type": null,
+          "priority": null,
+          "scheduled_raw": null,
+          "scheduled_ts": null,
+          "deadline_raw": null,
+          "deadline_ts": null,
+          "closed_raw": null,
+          "closed_ts": null,
+          "archivedp": false,
+          "footnote_section_p": false,
+          "all_tags": [
+            "qcli_root",
+            "project"
+          ],
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 22,
+            "byte_start": 413,
+            "byte_end": 480
+          },
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+#+end_SRC
+
+* Files output
+
+Inspect:
+
+- synthetic-root serialization as ~kind = "file"~
+- title from ~#+TITLE~
+- fallback title for ~query-cli-fallback.org~
+- path metadata with ~--include path~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    --include path,properties,keywords,links,backlinks \
+    '(files (file-name "query-cli-.*\\.org" :regexp t))' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "files",
+  "output": "flat",
+  "includes": [
+    "path",
+    "properties",
+    "keywords",
+    "links",
+    "backlinks"
+  ],
+  "results": [
+    {
+      "kind": "file",
+      "matched": true,
+      "id": 37,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/nested/query-cli-fallback.org",
+      "name": "query-cli-fallback.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/nested",
+      "title": "query-cli-fallback",
+      "title_raw": null,
+      "root_heading_id": 252,
+      "mtime_ns": 1784674343000000000,
+      "size": 144,
+      "content_hash": null,
+      "indexed_at": 1784675192,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/nested/query-cli-fallback.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [
+        "qcli_fallback"
+      ],
+      "node_path": [
+        {
+          "kind": "file",
+          "id": 37,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/nested/query-cli-fallback.org",
+          "title": "query-cli-fallback",
+          "title_raw": null
+        }
+      ],
+      "properties": [
+        {
+          "key": "CATEGORY",
+          "value": "qcli-fallback",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 2
+        }
+      ],
+      "keywords": [
+        {
+          "keyword": "FILETAGS",
+          "value": ":qcli_fallback:",
+          "line_number": 1
+        },
+        {
+          "keyword": "CATEGORY",
+          "value": "qcli-fallback",
+          "line_number": 2
+        }
+      ],
+      "links": [],
+      "backlinks": []
+    },
+    {
+      "kind": "file",
+      "matched": true,
+      "id": 38,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+      "name": "query-cli-main.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes",
+      "title": "Query CLI Main",
+      "title_raw": "Query CLI Main",
+      "root_heading_id": 254,
+      "mtime_ns": 1784674343000000000,
+      "size": 480,
+      "content_hash": null,
+      "indexed_at": 1784675192,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [
+        "qcli_root",
+        "project"
+      ],
+      "node_path": [
+        {
+          "kind": "file",
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        }
+      ],
+      "properties": [
+        {
+          "key": "CATEGORY",
+          "value": "qcli",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 3
+        }
+      ],
+      "keywords": [
+        {
+          "keyword": "TITLE",
+          "value": "Query CLI Main",
+          "line_number": 1
+        },
+        {
+          "keyword": "FILETAGS",
+          "value": ":qcli_root:project:",
+          "line_number": 2
+        },
+        {
+          "keyword": "CATEGORY",
+          "value": "qcli",
+          "line_number": 3
+        },
+        {
+          "keyword": "AUTHOR",
+          "value": "Manual Test",
+          "line_number": 4
+        }
+      ],
+      "links": [
+        {
+          "id": 14,
+          "source_context": "normal",
+          "format": "bracket",
+          "link_type": "file",
+          "raw": "[[file:query-cli-target.org][qcli preamble target]]",
+          "raw_target": "file:query-cli-target.org",
+          "raw_description": "qcli preamble target",
+          "link_path": "query-cli-target.org",
+          "search_option": null,
+          "path_absolute": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+          "target_file_id": 39,
+          "target_heading_id": 258,
+          "target_custom_id": null,
+          "target_id": null,
+          "resolution_status": "resolved",
+          "resolution_diagnostic": null,
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 6,
+            "byte_start": 96,
+            "byte_end": 147
+          },
+          "source_path": [
+            {
+              "kind": "file",
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            }
+          ],
+          "source": {
+            "file": {
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            "heading": null,
+            "source_path": [
+              {
+                "kind": "file",
+                "id": 38,
+                "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "title": "Query CLI Main",
+                "title_raw": "Query CLI Main"
+              }
+            ]
+          },
+          "target": {
+            "resolved_kind": "headings",
+            "file": {
+              "id": 39,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+              "title": "Query CLI Target",
+              "title_raw": "Query CLI Target"
+            },
+            "heading": {
+              "id": 258,
+              "title": "Query CLI Target",
+              "title_raw": "Query CLI Target",
+              "level": 0,
+              "outline_path": []
+            },
+            "raw_target": "file:query-cli-target.org",
+            "resolution_status": "resolved",
+            "resolution_diagnostic": null
+          }
+        },
+        {
+          "id": 15,
+          "source_context": "normal",
+          "format": "bracket",
+          "link_type": "id",
+          "raw": "[[id:qcli-target-id][qcli resolved target]]",
+          "raw_target": "id:qcli-target-id",
+          "raw_description": "qcli resolved target",
+          "link_path": "qcli-target-id",
+          "search_option": null,
+          "path_absolute": null,
+          "target_file_id": 39,
+          "target_heading_id": 259,
+          "target_custom_id": null,
+          "target_id": "qcli-target-id",
+          "resolution_status": "resolved",
+          "resolution_diagnostic": null,
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 14,
+            "byte_start": 301,
+            "byte_end": 344
+          },
+          "source_path": [
+            {
+              "kind": "file",
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            {
+              "kind": "heading",
+              "id": 255,
+              "title": "Query CLI heading",
+              "title_raw": "NEXT Query CLI heading",
+              "level": 1
+            }
+          ],
+          "source": {
+            "file": {
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            "heading": {
+              "id": 255,
+              "title": "Query CLI heading",
+              "title_raw": "NEXT Query CLI heading",
+              "level": 1,
+              "outline_path": [
+                "Query CLI heading"
+              ]
+            },
+            "source_path": [
+              {
+                "kind": "file",
+                "id": 38,
+                "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "title": "Query CLI Main",
+                "title_raw": "Query CLI Main"
+              },
+              {
+                "kind": "heading",
+                "id": 255,
+                "title": "Query CLI heading",
+                "title_raw": "NEXT Query CLI heading",
+                "level": 1
+              }
+            ]
+          },
+          "target": {
+            "resolved_kind": "headings",
+            "file": {
+              "id": 39,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+              "title": "Query CLI Target",
+              "title_raw": "Query CLI Target"
+            },
+            "heading": {
+              "id": 259,
+              "title": "Target heading",
+              "title_raw": "Target heading",
+              "level": 1,
+              "outline_path": [
+                "Target heading"
+              ]
+            },
+            "raw_target": "id:qcli-target-id",
+            "resolution_status": "resolved",
+            "resolution_diagnostic": null
+          }
+        },
+        {
+          "id": 16,
+          "source_context": "normal",
+          "format": "bracket",
+          "link_type": "custom-id",
+          "raw": "[[#qcli-missing-custom][qcli broken target]]",
+          "raw_target": "#qcli-missing-custom",
+          "raw_description": "qcli broken target",
+          "link_path": "qcli-missing-custom",
+          "search_option": null,
+          "path_absolute": null,
+          "target_file_id": 38,
+          "target_heading_id": null,
+          "target_custom_id": "qcli-missing-custom",
+          "target_id": null,
+          "resolution_status": "broken",
+          "resolution_diagnostic": "custom id not found",
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 23,
+            "byte_start": 435,
+            "byte_end": 479
+          },
+          "source_path": [
+            {
+              "kind": "file",
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            {
+              "kind": "heading",
+              "id": 257,
+              "title": "Broken link heading",
+              "title_raw": "Broken link heading",
+              "level": 1
+            }
+          ],
+          "source": {
+            "file": {
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            "heading": {
+              "id": 257,
+              "title": "Broken link heading",
+              "title_raw": "Broken link heading",
+              "level": 1,
+              "outline_path": [
+                "Broken link heading"
+              ]
+            },
+            "source_path": [
+              {
+                "kind": "file",
+                "id": 38,
+                "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "title": "Query CLI Main",
+                "title_raw": "Query CLI Main"
+              },
+              {
+                "kind": "heading",
+                "id": 257,
+                "title": "Broken link heading",
+                "title_raw": "Broken link heading",
+                "level": 1
+              }
+            ]
+          },
+          "target": {
+            "resolved_kind": null,
+            "file": null,
+            "heading": null,
+            "raw_target": "#qcli-missing-custom",
+            "resolution_status": "broken",
+            "resolution_diagnostic": "custom id not found"
+          }
+        }
+      ],
+      "backlinks": [
+        {
+          "id": 16,
+          "source_context": "normal",
+          "format": "bracket",
+          "link_type": "custom-id",
+          "raw": "[[#qcli-missing-custom][qcli broken target]]",
+          "raw_target": "#qcli-missing-custom",
+          "raw_description": "qcli broken target",
+          "link_path": "qcli-missing-custom",
+          "search_option": null,
+          "path_absolute": null,
+          "target_file_id": 38,
+          "target_heading_id": null,
+          "target_custom_id": "qcli-missing-custom",
+          "target_id": null,
+          "resolution_status": "broken",
+          "resolution_diagnostic": "custom id not found",
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 23,
+            "byte_start": 435,
+            "byte_end": 479
+          },
+          "source_path": [
+            {
+              "kind": "file",
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            {
+              "kind": "heading",
+              "id": 257,
+              "title": "Broken link heading",
+              "title_raw": "Broken link heading",
+              "level": 1
+            }
+          ],
+          "source": {
+            "file": {
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            "heading": {
+              "id": 257,
+              "title": "Broken link heading",
+              "title_raw": "Broken link heading",
+              "level": 1,
+              "outline_path": [
+                "Broken link heading"
+              ]
+            },
+            "source_path": [
+              {
+                "kind": "file",
+                "id": 38,
+                "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "title": "Query CLI Main",
+                "title_raw": "Query CLI Main"
+              },
+              {
+                "kind": "heading",
+                "id": 257,
+                "title": "Broken link heading",
+                "title_raw": "Broken link heading",
+                "level": 1
+              }
+            ]
+          },
+          "target": {
+            "resolved_kind": null,
+            "file": null,
+            "heading": null,
+            "raw_target": "#qcli-missing-custom",
+            "resolution_status": "broken",
+            "resolution_diagnostic": "custom id not found"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "file",
+      "matched": true,
+      "id": 39,
+      "level": 0,
+      "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+      "name": "query-cli-target.org",
+      "dir": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes",
+      "title": "Query CLI Target",
+      "title_raw": "Query CLI Target",
+      "root_heading_id": 258,
+      "mtime_ns": 1784674343000000000,
+      "size": 177,
+      "content_hash": null,
+      "indexed_at": 1784675192,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+        "line": 1,
+        "byte_start": null,
+        "byte_end": null
+      },
+      "tags": [
+        "qcli_target"
+      ],
+      "node_path": [
+        {
+          "kind": "file",
+          "id": 39,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+          "title": "Query CLI Target",
+          "title_raw": "Query CLI Target"
+        }
+      ],
+      "properties": [
+        {
+          "key": "CATEGORY",
+          "value": "qcli-target",
+          "source": "category_keyword",
+          "append": false,
+          "line_number": 3
+        }
+      ],
+      "keywords": [
+        {
+          "keyword": "TITLE",
+          "value": "Query CLI Target",
+          "line_number": 1
+        },
+        {
+          "keyword": "FILETAGS",
+          "value": ":qcli_target:",
+          "line_number": 2
+        },
+        {
+          "keyword": "CATEGORY",
+          "value": "qcli-target",
+          "line_number": 3
+        }
+      ],
+      "links": [],
+      "backlinks": [
+        {
+          "id": 14,
+          "source_context": "normal",
+          "format": "bracket",
+          "link_type": "file",
+          "raw": "[[file:query-cli-target.org][qcli preamble target]]",
+          "raw_target": "file:query-cli-target.org",
+          "raw_description": "qcli preamble target",
+          "link_path": "query-cli-target.org",
+          "search_option": null,
+          "path_absolute": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+          "target_file_id": 39,
+          "target_heading_id": 258,
+          "target_custom_id": null,
+          "target_id": null,
+          "resolution_status": "resolved",
+          "resolution_diagnostic": null,
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 6,
+            "byte_start": 96,
+            "byte_end": 147
+          },
+          "source_path": [
+            {
+              "kind": "file",
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            }
+          ],
+          "source": {
+            "file": {
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            "heading": null,
+            "source_path": [
+              {
+                "kind": "file",
+                "id": 38,
+                "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "title": "Query CLI Main",
+                "title_raw": "Query CLI Main"
+              }
+            ]
+          },
+          "target": {
+            "resolved_kind": "headings",
+            "file": {
+              "id": 39,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+              "title": "Query CLI Target",
+              "title_raw": "Query CLI Target"
+            },
+            "heading": {
+              "id": 258,
+              "title": "Query CLI Target",
+              "title_raw": "Query CLI Target",
+              "level": 0,
+              "outline_path": []
+            },
+            "raw_target": "file:query-cli-target.org",
+            "resolution_status": "resolved",
+            "resolution_diagnostic": null
+          }
+        },
+        {
+          "id": 15,
+          "source_context": "normal",
+          "format": "bracket",
+          "link_type": "id",
+          "raw": "[[id:qcli-target-id][qcli resolved target]]",
+          "raw_target": "id:qcli-target-id",
+          "raw_description": "qcli resolved target",
+          "link_path": "qcli-target-id",
+          "search_option": null,
+          "path_absolute": null,
+          "target_file_id": 39,
+          "target_heading_id": 259,
+          "target_custom_id": null,
+          "target_id": "qcli-target-id",
+          "resolution_status": "resolved",
+          "resolution_diagnostic": null,
+          "location": {
+            "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "line": 14,
+            "byte_start": 301,
+            "byte_end": 344
+          },
+          "source_path": [
+            {
+              "kind": "file",
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            {
+              "kind": "heading",
+              "id": 255,
+              "title": "Query CLI heading",
+              "title_raw": "NEXT Query CLI heading",
+              "level": 1
+            }
+          ],
+          "source": {
+            "file": {
+              "id": 38,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+              "title": "Query CLI Main",
+              "title_raw": "Query CLI Main"
+            },
+            "heading": {
+              "id": 255,
+              "title": "Query CLI heading",
+              "title_raw": "NEXT Query CLI heading",
+              "level": 1,
+              "outline_path": [
+                "Query CLI heading"
+              ]
+            },
+            "source_path": [
+              {
+                "kind": "file",
+                "id": 38,
+                "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+                "title": "Query CLI Main",
+                "title_raw": "Query CLI Main"
+              },
+              {
+                "kind": "heading",
+                "id": 255,
+                "title": "Query CLI heading",
+                "title_raw": "NEXT Query CLI heading",
+                "level": 1
+              }
+            ]
+          },
+          "target": {
+            "resolved_kind": "headings",
+            "file": {
+              "id": 39,
+              "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+              "title": "Query CLI Target",
+              "title_raw": "Query CLI Target"
+            },
+            "heading": {
+              "id": 259,
+              "title": "Target heading",
+              "title_raw": "Target heading",
+              "level": 1,
+              "outline_path": [
+                "Target heading"
+              ]
+            },
+            "raw_target": "id:qcli-target-id",
+            "resolution_status": "resolved",
+            "resolution_diagnostic": null
+          }
+        }
+      ]
+    }
+  ]
+}
+#+end_SRC
+
+* Links output
+
+Inspect:
+
+- ~link_type~
+- ~raw_target~
+- ~raw_description~
+- ~resolution_status~
+- source shape for heading and preamble/root links
+- target shape for resolved heading and file links
+- missing target payload for broken links
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    --include path,source,target \
+    '(links
+       (source
+         (files
+           (file-name "query-cli-main.org" :exact t))))' \
+  | jq .
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "target": "links",
+  "output": "flat",
+  "includes": [
+    "path",
+    "source",
+    "target"
+  ],
+  "results": [
+    {
+      "kind": "link",
+      "matched": true,
+      "id": 14,
+      "file_id": 38,
+      "heading_id": 254,
+      "heading_level": 0,
+      "source_context": "normal",
+      "format": "bracket",
+      "link_type": "file",
+      "raw": "[[file:query-cli-target.org][qcli preamble target]]",
+      "raw_target": "file:query-cli-target.org",
+      "raw_description": "qcli preamble target",
+      "link_path": "query-cli-target.org",
+      "search_option": null,
+      "path_absolute": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+      "target_file_id": 39,
+      "target_heading_id": 258,
+      "target_custom_id": null,
+      "target_id": null,
+      "resolution_status": "resolved",
+      "resolution_diagnostic": null,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 6,
+        "byte_start": 96,
+        "byte_end": 147
+      },
+      "node_path": [
+        {
+          "kind": "file",
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        }
+      ],
+      "source": {
+        "file": {
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        },
+        "heading": null,
+        "source_path": [
+          {
+            "kind": "file",
+            "id": 38,
+            "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "title": "Query CLI Main",
+            "title_raw": "Query CLI Main"
+          }
+        ]
+      },
+      "target": {
+        "resolved_kind": "headings",
+        "file": {
+          "id": 39,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+          "title": "Query CLI Target",
+          "title_raw": "Query CLI Target"
+        },
+        "heading": {
+          "id": 258,
+          "title": "Query CLI Target",
+          "title_raw": "Query CLI Target",
+          "level": 0,
+          "outline_path": []
+        },
+        "raw_target": "file:query-cli-target.org",
+        "resolution_status": "resolved",
+        "resolution_diagnostic": null
+      }
+    },
+    {
+      "kind": "link",
+      "matched": true,
+      "id": 15,
+      "file_id": 38,
+      "heading_id": 255,
+      "heading_level": 1,
+      "source_context": "normal",
+      "format": "bracket",
+      "link_type": "id",
+      "raw": "[[id:qcli-target-id][qcli resolved target]]",
+      "raw_target": "id:qcli-target-id",
+      "raw_description": "qcli resolved target",
+      "link_path": "qcli-target-id",
+      "search_option": null,
+      "path_absolute": null,
+      "target_file_id": 39,
+      "target_heading_id": 259,
+      "target_custom_id": null,
+      "target_id": "qcli-target-id",
+      "resolution_status": "resolved",
+      "resolution_diagnostic": null,
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 14,
+        "byte_start": 301,
+        "byte_end": 344
+      },
+      "node_path": [
+        {
+          "kind": "file",
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        },
+        {
+          "kind": "heading",
+          "id": 255,
+          "title": "Query CLI heading",
+          "title_raw": "NEXT Query CLI heading",
+          "level": 1
+        }
+      ],
+      "source": {
+        "file": {
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        },
+        "heading": {
+          "id": 255,
+          "title": "Query CLI heading",
+          "title_raw": "NEXT Query CLI heading",
+          "level": 1,
+          "outline_path": [
+            "Query CLI heading"
+          ]
+        },
+        "source_path": [
+          {
+            "kind": "file",
+            "id": 38,
+            "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "title": "Query CLI Main",
+            "title_raw": "Query CLI Main"
+          },
+          {
+            "kind": "heading",
+            "id": 255,
+            "title": "Query CLI heading",
+            "title_raw": "NEXT Query CLI heading",
+            "level": 1
+          }
+        ]
+      },
+      "target": {
+        "resolved_kind": "headings",
+        "file": {
+          "id": 39,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-target.org",
+          "title": "Query CLI Target",
+          "title_raw": "Query CLI Target"
+        },
+        "heading": {
+          "id": 259,
+          "title": "Target heading",
+          "title_raw": "Target heading",
+          "level": 1,
+          "outline_path": [
+            "Target heading"
+          ]
+        },
+        "raw_target": "id:qcli-target-id",
+        "resolution_status": "resolved",
+        "resolution_diagnostic": null
+      }
+    },
+    {
+      "kind": "link",
+      "matched": true,
+      "id": 16,
+      "file_id": 38,
+      "heading_id": 257,
+      "heading_level": 1,
+      "source_context": "normal",
+      "format": "bracket",
+      "link_type": "custom-id",
+      "raw": "[[#qcli-missing-custom][qcli broken target]]",
+      "raw_target": "#qcli-missing-custom",
+      "raw_description": "qcli broken target",
+      "link_path": "qcli-missing-custom",
+      "search_option": null,
+      "path_absolute": null,
+      "target_file_id": 38,
+      "target_heading_id": null,
+      "target_custom_id": "qcli-missing-custom",
+      "target_id": null,
+      "resolution_status": "broken",
+      "resolution_diagnostic": "custom id not found",
+      "location": {
+        "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+        "line": 23,
+        "byte_start": 435,
+        "byte_end": 479
+      },
+      "node_path": [
+        {
+          "kind": "file",
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        },
+        {
+          "kind": "heading",
+          "id": 257,
+          "title": "Broken link heading",
+          "title_raw": "Broken link heading",
+          "level": 1
+        }
+      ],
+      "source": {
+        "file": {
+          "id": 38,
+          "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+          "title": "Query CLI Main",
+          "title_raw": "Query CLI Main"
+        },
+        "heading": {
+          "id": 257,
+          "title": "Broken link heading",
+          "title_raw": "Broken link heading",
+          "level": 1,
+          "outline_path": [
+            "Broken link heading"
+          ]
+        },
+        "source_path": [
+          {
+            "kind": "file",
+            "id": 38,
+            "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/includes/query-cli-main.org",
+            "title": "Query CLI Main",
+            "title_raw": "Query CLI Main"
+          },
+          {
+            "kind": "heading",
+            "id": 257,
+            "title": "Broken link heading",
+            "title_raw": "Broken link heading",
+            "level": 1
+          }
+        ]
+      },
+      "target": {
+        "resolved_kind": null,
+        "file": null,
+        "heading": null,
+        "raw_target": "#qcli-missing-custom",
+        "resolution_status": "broken",
+        "resolution_diagnostic": "custom id not found"
+      }
+    }
+  ]
+}
+#+end_SRC
+

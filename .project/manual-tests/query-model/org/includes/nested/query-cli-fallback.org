@@ -1,0 +1,5 @@
+#+FILETAGS: :qcli_fallback:
+#+CATEGORY: qcli-fallback
+
+* Plain heading
+No explicit TITLE keyword; file-title should fall back to the file stem.

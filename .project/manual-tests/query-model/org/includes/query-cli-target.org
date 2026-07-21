@@ -1,0 +1,10 @@
+#+TITLE: Query CLI Target
+#+FILETAGS: :qcli_target:
+#+CATEGORY: qcli-target
+
+* Target heading
+:PROPERTIES:
+:ID: qcli-target-id
+:CUSTOM_ID: qcli-target-custom
+:END:
+Target body.

@@ -434,7 +434,10 @@ fn inspect_search_backend_state(connection: &Connection) -> Result<SearchBackend
     if fts_body_indexed != "1" && fts_body_indexed != "0" {
         return Err(CliError::Search(SearchError::InvalidTrustMetadata));
     }
-    if fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION && fts_schema_version != "0" {
+    if fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION
+        && fts_schema_version != "1"
+        && fts_schema_version != "0"
+    {
         return Err(CliError::Search(SearchError::InvalidTrustMetadata));
     }
     if fts_available != "1" || fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION {
@@ -868,6 +871,7 @@ struct LinkJsonRow {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct SearchJsonRow {
     heading_id: i64,
+    kind: String,
     path: String,
     title: String,
     line_number: Option<i64>,
@@ -957,6 +961,7 @@ impl SearchJsonRow {
     fn from_db_row(row: SearchHeadingRow) -> Result<Self, CliError> {
         Ok(Self {
             heading_id: row.heading_id,
+            kind: row.kind,
             path: row.path,
             title: row.title,
             line_number: row.line_number,
@@ -1353,6 +1358,7 @@ mod tests {
         let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
             .expect("search should succeed");
         assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].kind, "heading");
         assert_eq!(rows[0].title, "Canonical Override");
         assert_eq!(
             rows[0].path,
@@ -1366,6 +1372,135 @@ mod tests {
         assert_eq!(rows[0].line_number, Some(1));
         assert_eq!(rows[0].byte_start, 0);
         assert!(rows[0].byte_end >= rows[0].byte_start);
+    }
+
+    #[test]
+    fn search_indexes_file_roots_with_kind_and_preamble_bodies() {
+        let (test_dir, config_path, db_path) = build_search_fixture(
+            "search-file-roots",
+            &[
+                (
+                    "roots.org",
+                    "#+TITLE: Root Title Sapphire\n\npreamblequartz\n\n* Child Heading Amber\nchildbodycopper\n",
+                ),
+                (
+                    "preamble-only.org",
+                    "#+TITLE: Preamble Only\n\nsolopreamblezinc\n",
+                ),
+            ],
+            true,
+        );
+
+        let root_path = test_dir.path().join("roots.org");
+        let connection = open_database(&db_path).expect("database should open");
+        let root_id: i64 = connection
+            .query_row(
+                "SELECT headings.id
+                 FROM headings
+                 INNER JOIN files ON files.id = headings.file_id
+                 WHERE files.path = ?1 AND headings.level = 0",
+                [root_path.display().to_string()],
+                |row| row.get(0),
+            )
+            .expect("root heading should load");
+        let real_heading_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*)
+                 FROM headings
+                 INNER JOIN files ON files.id = headings.file_id
+                 WHERE files.path = ?1 AND headings.level > 0",
+                [test_dir
+                    .path()
+                    .join("preamble-only.org")
+                    .display()
+                    .to_string()],
+                |row| row.get(0),
+            )
+            .expect("preamble-only heading count should load");
+        assert_eq!(real_heading_count, 0);
+        drop(connection);
+
+        let preamble_rows = search_json_rows(
+            true,
+            CliSearchScope::All,
+            "preamblequartz",
+            Some(&config_path),
+        )
+        .expect("default preamble search should succeed");
+        assert_eq!(preamble_rows.len(), 1);
+        assert_eq!(preamble_rows[0].heading_id, root_id);
+        assert_eq!(preamble_rows[0].kind, "file");
+        assert_eq!(
+            serde_json::to_value(&preamble_rows).expect("search rows should serialize")[0]["kind"],
+            "file"
+        );
+
+        let body_rows = search_json_rows(
+            true,
+            CliSearchScope::Body,
+            "preamblequartz",
+            Some(&config_path),
+        )
+        .expect("body preamble search should succeed");
+        assert_eq!(body_rows.len(), 1);
+        assert_eq!(body_rows[0].kind, "file");
+
+        let title_preamble_rows = search_json_rows(
+            true,
+            CliSearchScope::Title,
+            "preamblequartz",
+            Some(&config_path),
+        )
+        .expect("title preamble search should succeed");
+        assert!(title_preamble_rows.is_empty());
+
+        let root_title_rows =
+            search_json_rows(true, CliSearchScope::Title, "Sapphire", Some(&config_path))
+                .expect("root title search should succeed");
+        assert_eq!(root_title_rows.len(), 1);
+        assert_eq!(root_title_rows[0].kind, "file");
+
+        let heading_rows = search_json_rows(true, CliSearchScope::All, "Amber", Some(&config_path))
+            .expect("real heading search should succeed");
+        assert_eq!(heading_rows.len(), 1);
+        assert_eq!(heading_rows[0].kind, "heading");
+
+        let preamble_only_rows = search_json_rows(
+            true,
+            CliSearchScope::Body,
+            "solopreamblezinc",
+            Some(&config_path),
+        )
+        .expect("preamble-only search should succeed");
+        assert_eq!(preamble_only_rows.len(), 1);
+        assert_eq!(preamble_only_rows[0].kind, "file");
+    }
+
+    #[test]
+    fn search_title_only_index_includes_root_titles_without_root_preambles() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-title-only-roots",
+            &[(
+                "title-only.org",
+                "#+TITLE: Root Title Emerald\n\npreambleruby\n",
+            )],
+            false,
+        );
+
+        let title_rows =
+            search_json_rows(true, CliSearchScope::Title, "Emerald", Some(&config_path))
+                .expect("title-only root title search should succeed");
+        assert_eq!(title_rows.len(), 1);
+        assert_eq!(title_rows[0].kind, "file");
+
+        let default_preamble_rows = search_json_rows(
+            true,
+            CliSearchScope::All,
+            "preambleruby",
+            Some(&config_path),
+        )
+        .expect("title-only preamble search should succeed");
+        assert!(default_preamble_rows.is_empty());
     }
 
     #[test]
@@ -1548,6 +1683,31 @@ mod tests {
             CliError::Search(SearchError::MissingTrustMetadata) => {}
             other => panic!("unexpected error: {other}"),
         }
+        assert!(error.to_string().contains("run orgfdb rebuild"));
+    }
+
+    #[test]
+    fn search_rejects_version_one_fts_indexes_as_stale() {
+        let (_test_dir, config_path, db_path) = build_search_fixture(
+            "search-stale-fts-contract",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+        let connection = open_database(&db_path).expect("database should open");
+        connection
+            .execute(
+                "UPDATE db_metadata SET value = '1' WHERE key = ?1",
+                [DB_METADATA_FTS_SCHEMA_VERSION_KEY],
+            )
+            .expect("legacy FTS contract version should store");
+        drop(connection);
+
+        let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect_err("version one FTS index should be stale");
+        assert!(matches!(
+            error,
+            CliError::Search(SearchError::MissingTrustedIndex)
+        ));
         assert!(error.to_string().contains("run orgfdb rebuild"));
     }
 
