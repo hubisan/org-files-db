@@ -2698,18 +2698,18 @@ Notes:
 - A ~null~ status means no resolver pass has populated the row yet.
 - Only ~resolved~ links can match structured ~(target (headings ...))~ or ~(target (files ...))~ queries. Use ~status~ or raw-link predicates to inspect ~broken~, ~unresolved~, ~ambiguous~, or ~unsupported~ links.
 
-*** ~(source any)~ and ~(source TARGET-QUERY)~
+*** ~(source :any)~ and ~(source TARGET-QUERY)~
 
 Match links by their source location.
 
-The argument is either the special value ~any~ or an explicit target query.
+The argument is either the special keyword ~:any~ or an explicit target query.
 
 Valid source target queries:
 
 - ~(headings ...)~
 - ~(files ...)~
 
-~(source any)~ matches links with any indexed source.
+~(source :any)~ matches links with any indexed source.
 
 Examples:
 
@@ -2774,18 +2774,18 @@ The file predicates ~file-name~, ~file-path~, ~file-dir~, ~file-title~, and ~fil
 
 ~links-to~ and ~linked-from~ are likewise not valid for the ~links~ target. They filter source or target objects in ~(headings ...)~ and ~(files ...)~ queries. To return link objects, use ~source~ for origins and ~target~ for resolved destinations.
 
-*** ~(target any)~ and ~(target TARGET-QUERY)~
+*** ~(target :any)~ and ~(target TARGET-QUERY)~
 
 Match links by their resolved target.
 
-The argument is either the special value ~any~ or an explicit target query.
+The argument is either the special keyword ~:any~ or an explicit target query.
 
 Valid target queries:
 
 - ~(headings ...)~
 - ~(files ...)~
 
-~(target any)~ matches links with any resolved indexed target.
+~(target :any)~ matches links with any resolved indexed target.
 
 Examples:
 
@@ -2814,9 +2814,24 @@ Rules:
 - Use ~(status "broken")~ to find broken links.
 - Use ~(link-target ...)~ to match raw target text regardless of resolution.
 
-*** ~(source any)~ and ~(target any)~
+*** ~(source :any)~ and ~(target :any)~
 
 These convenience forms are supported.
+
+#+begin_src lisp
+(links
+  (source :any))
+
+(links
+  (target :any))
+#+end_src
+
+Meanings:
+
+- ~(source :any)~ matches links with any indexed source.
+- ~(target :any)~ matches links with any resolved indexed target.
+
+Bare ~any~ is invalid in these positions because it is not the special keyword and is not an explicit nested target query:
 
 #+begin_src lisp
 (links
@@ -2825,11 +2840,6 @@ These convenience forms are supported.
 (links
   (target any))
 #+end_src
-
-Meanings:
-
-- ~(source any)~ matches links with any indexed source.
-- ~(target any)~ matches links with any resolved indexed target.
 
 ** 6. Backlinks and outgoing links as link queries
 

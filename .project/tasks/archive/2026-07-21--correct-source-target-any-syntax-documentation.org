@@ -1,0 +1,41 @@
+#+TITLE: Correct Source and Target Any Syntax Documentation
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-21 Tue 17:34]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Correct ~source~ and ~target~ any-value syntax in documentation.
+
+* Build
+
+** Approach
+
+- Replaced stale bare ~any~ source and target forms with the parser-supported ~:any~ keyword.
+- Added explicit invalid bare-~any~ examples to the query-model reference.
+
+** Changed files
+
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+
+** Checks performed
+
+- ~cargo test --all-targets --all-features docs_cli_query_reference_mentions_public_predicates_includes_and_options~
+- ~make ci~
+
+** Test results
+
+- Documentation guard passed.
+- ~make ci~ passed: formatting, clippy, 348 unit tests, integration tests, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.

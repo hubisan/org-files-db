@@ -473,13 +473,13 @@ Use ~status~ to inspect each non-resolved outcome; structured ~target~ queries d
 (links (status "unsupported"))
 #+end_src
 
-- ~source~ :: Syntax: ~(source any)~, ~(source (headings EXPR))~, or ~(source (files EXPR))~.
+- ~source~ :: Syntax: ~(source :any)~, ~(source (headings EXPR))~, or ~(source (files EXPR))~.
   Targets: ~links~.
-  Matches links by their indexed source location. Use a nested ~headings~ query for heading sources or a nested ~files~ query for containing source-file filters; ~any~ means any indexed source.
+  Matches links by their indexed source location. Use a nested ~headings~ query for heading sources or a nested ~files~ query for containing source-file filters; ~:any~ means any indexed source.
   Example: ~'(links (source (files (file-name "linked-from.org" :exact t))))'~.
-- ~target~ :: Syntax: ~(target any)~, ~(target (headings EXPR))~, ~(target (files EXPR))~.
+- ~target~ :: Syntax: ~(target :any)~, ~(target (headings EXPR))~, ~(target (files EXPR))~.
   Targets: ~links~.
-  Matches links by resolved target relation.
+  Matches links by resolved target relation; ~:any~ means any resolved indexed target.
   Example: ~'(links (target (files (file-path "notes.org" :exact t))))'~.
 - ~file-name~, ~file-path~, ~file-dir~, ~file-title~, ~file-modified~ :: Not directly valid for ~links~.
   Filter link results by their containing source file with a nested ~files~ query, for example ~'(links (source (files (file-title "Projects" :exact t))))'~.
