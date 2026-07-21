@@ -1936,11 +1936,23 @@ With no nested query, they test existence.
 
 With a nested query, the nested query must be explicitly wrapped in ~(headings ...)~. Nested heading queries include both real headings and the synthetic file/root heading.
 
+*** Shared example
+
+The following outline distinguishes direct from transitive hierarchy relations:
+
+#+begin_src org
+,#+TITLE: hierarchy-example
+
+,* Parent
+,** Child
+,*** Grandchild
+#+end_src
+
 *** ~(parent &optional heading-query)~
 
 **** Purpose
 
-Match headings that have a direct parent heading.
+Match headings whose direct parent is present or matches the nested query. This checks exactly one level upward.
 
 With a nested query, match headings whose direct parent matches the query.
 
@@ -1962,12 +1974,13 @@ With a nested query, match headings whose direct parent matches the query.
 
 - A top-level Org heading has the synthetic root as its direct parent and therefore matches ~(parent (headings (level 0)))~.
 - The synthetic root itself has no parent and never matches this predicate.
+- A grandparent does not match: in the shared example, ~(parent (headings (title "Parent")))~ matches ~Child~ but not ~Grandchild~.
 
 *** ~(ancestors &optional heading-query)~
 
 **** Purpose
 
-Match headings that have ancestor headings.
+Match headings with one or more strict ancestors. This checks upward transitively, including the direct parent.
 
 With a nested query, match headings with at least one ancestor matching the query.
 
@@ -1990,12 +2003,13 @@ With a nested query, match headings with at least one ancestor matching the quer
 - Ancestors are ordered from parent toward root conceptually, but this predicate only tests existence unless output asks for context.
 - The synthetic root is an ancestor of every real heading in the file, so ~(ancestors (headings (level 0)))~ matches every real heading.
 - The synthetic root has no ancestors and never matches this predicate.
+- In the shared example, ~(ancestors (headings (title "Parent")))~ matches both ~Child~ and ~Grandchild~. A heading never matches itself.
 
 *** ~(children &optional heading-query)~
 
 **** Purpose
 
-Match headings that have direct child headings.
+Match headings that have direct children or a direct child matching the nested query. This checks exactly one level downward.
 
 With a nested query, match headings that have at least one direct child matching the query.
 
@@ -2018,12 +2032,13 @@ With a nested query, match headings that have at least one direct child matching
 - Only direct children count.
 - For recursive descendants, use ~(descendants ...)~.
 - The synthetic root may match when one of its top-level headings satisfies the nested query.
+- In the shared example, ~(children (headings (title "Grandchild")))~ matches ~Child~ but not ~Parent~.
 
 *** ~(descendants &optional heading-query)~
 
 **** Purpose
 
-Match headings that have descendant headings at any depth.
+Match headings that have one or more strict descendants. This checks downward transitively, including direct children.
 
 With a nested query, match headings with at least one descendant matching the query.
 
@@ -2048,6 +2063,16 @@ With a nested query, match headings with at least one descendant matching the qu
 - Descendants include children, grandchildren, and deeper headings.
 - Descendants are strict: a heading never matches itself. A matching descendant makes every strict ancestor, including the synthetic root, eligible as an outer result.
 - Nested hierarchy predicates are allowed but should be used carefully.
+- In the shared example, ~(descendants (headings (title "Grandchild")))~ matches both ~Child~ and ~Parent~.
+
+*** Direct and transitive comparison
+
+With the shared example, these pairs differ only in depth:
+
+- ~(children (headings (title "Grandchild")))~ does not match ~Parent~, because ~Grandchild~ is not its direct child; ~(descendants (headings (title "Grandchild")))~ does match ~Parent~.
+- ~(parent (headings (title "Parent")))~ does not match ~Grandchild~, because ~Parent~ is not its direct parent; ~(ancestors (headings (title "Parent")))~ does match ~Grandchild~.
+- Relations are strict and file-local: a heading never matches itself, and no hierarchy relation crosses file boundaries.
+- The synthetic root is the parent of top-level headings and ancestor of every real heading. It can be returned by ~children~ or ~descendants~ when a matching real heading is below it, but has neither parent nor ancestors.
 
 **** Example: nested hierarchy
 

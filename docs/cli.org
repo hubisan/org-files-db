@@ -386,19 +386,19 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(planning :from today :to 7)'~.
 - ~parent~ :: Syntax: ~(parent)~ or ~(parent (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings that have any parent. Nested form matches headings whose direct parent matches the nested heading query, including a synthetic file root. The synthetic root itself has no parent.
+  Checks exactly one level upward: the direct parent only. The direct parent is also an ancestor, but grandparents do not match. The synthetic root is the parent of top-level Org headings and has no parent itself.
   Example: ~'(parent (headings (level 0)))'~ matches top-level Org headings.
 - ~children~ :: Syntax: ~(children)~ or ~(children (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings with at least one child. Nested form matches headings having a direct child that matches the nested heading query; a synthetic root may be the outer match.
+  Checks exactly one level downward: direct children only. Grandchildren do not match. Direct children are also descendants, and the synthetic root has top-level Org headings as children.
   Example: ~'(children (headings (todo "NEXT")))'~.
 - ~ancestors~ :: Syntax: ~(ancestors)~ or ~(ancestors (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings that have any ancestor. Nested form is transitive over all strict ancestors, including the synthetic root for every real heading. The synthetic root itself has no ancestors.
+  Checks one or more strict levels upward. It includes the direct parent and every higher ancestor, including the synthetic root for every real heading; a heading never matches itself.
   Example: ~'(ancestors (headings (level 0)))'~ matches every real heading in a file.
 - ~descendants~ :: Syntax: ~(descendants)~ or ~(descendants (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings that have any descendant. Nested form is transitive over strict descendants; each matching descendant makes every strict ancestor, including the synthetic root, eligible as an outer result.
+  Checks one or more strict levels downward. It includes direct children and deeper descendants; a heading never matches itself. A matching descendant makes every strict ancestor, including the synthetic root, eligible as an outer result.
   Example: ~'(descendants (headings (todo "WAITING")))'~.
 - ~has-link~ :: Syntax: ~(has-link)~ or ~(has-link (links EXPR))~.
   Targets: ~headings~, ~files~.
@@ -412,6 +412,25 @@ Options are validated per predicate. A supported option on one predicate does no
   Targets: ~headings~, ~links~.
   Matches objects that have incoming links from the nested source. ~any~ means any incoming link.
   Example: ~'(linked-from (headings (property "CUSTOM_ID" "query-model" :inherit nil)))'~.
+
+*** Hierarchy depth examples
+
+The following single-file outline distinguishes direct from transitive relations:
+
+#+begin_src org
+,#+TITLE: hierarchy-example
+
+,* Parent
+,** Child
+,*** Grandchild
+#+end_src
+
+- ~(parent (headings (title "Parent")))~ matches ~Child~, not ~Grandchild~; only the direct parent is checked.
+- ~(children (headings (title "Grandchild")))~ matches ~Child~, not ~Parent~; only direct children are checked.
+- ~(ancestors (headings (title "Parent")))~ matches both ~Child~ and ~Grandchild~ because it checks every strict ancestor.
+- ~(descendants (headings (title "Grandchild")))~ matches both ~Child~ and ~Parent~ because it checks every strict descendant.
+
+Relations never cross file boundaries. A heading never matches itself through ~ancestors~ or ~descendants~. ~(parent (headings (level 0)))~ matches all real top-level headings, while ~(ancestors (headings (level 0)))~ matches every real heading; a ~descendants~ query can return the synthetic root when a matching real heading is below it.
 
 *** Link predicates
 
