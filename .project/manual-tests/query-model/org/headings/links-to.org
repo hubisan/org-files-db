@@ -10,7 +10,7 @@
 * links-to: Source To Other Target lto6-c
 [[#lto6-other-custom][lto6 other target description]]
 
-* links-to: Target Heading lto6-target                              :lto6-project:
+* links-to: Target Heading lto6-target                              :lto6_project:
 :PROPERTIES:
 :ID: lto6-target-id
 :CUSTOM_ID: lto6-target-custom

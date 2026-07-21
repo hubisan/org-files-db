@@ -12,15 +12,953 @@
 #+name: config-path
 : ../Config.toml
 
-* Descendants of Query Engine
+* parent
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(descendants (headings (title "Query Engine" :exact t)))'
+** Direkter Parent matcht über Tag
+
+Erwartet:
+
+- ~parent: Direct Child Match par1-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (parent
+           (headings
+             (tags "par1_parent_tag" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
-* Children of Query Engine
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent: Direct Child Match par1-a"
+}
+#+end_SRC
 
-#+begin_src shell
-<<orgfdb-command()>> query --json --config <<generated-config-path()>> '(children (headings (title "Query Engine" :exact t)))'
+** Nur der direkte Parent wird geprüft
+
+Erwartet:
+
+- ~parent: Grandchild Parent Is Child par1-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (parent
+           (headings
+             (title "Direct Child Match par1-a")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
 #+end_src
 
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent: Grandchild Parent Is Child par1-b"
+}
+#+end_SRC
+
+** Grandparent darf nicht als Parent matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (title "Grandchild Parent Is Child par1-b")
+         (parent
+           (headings
+             (title "Matching Parent par1-target")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Parent aus anderem Zweig
+
+Erwartet:
+
+- ~parent: Direct Child Negative par1-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (parent
+           (headings
+             (tags "par1_other_tag" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent: Direct Child Negative par1-c"
+}
+#+end_SRC
+
+** Positiver Parent-Tag darf anderen Zweig nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (title "Direct Child Negative par1-c")
+         (parent
+           (headings
+             (tags "par1_parent_tag" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** REVIEW Top-Level-Heading hat den Datei-Root als Parent
+
+Erwartet:
+
+- ~parent: Matching Parent par1-target~
+- ~parent: Nonmatching Parent par1-other~
+- ~parent: Top Level No Parent par1-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (parent
+           (headings
+             (level 0)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Datei-Root hat keinen Parent
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "parent.org")
+         (level 0)
+         (parent
+           (headings
+             (title "anything-par1")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* children
+
+** Heading mit direktem TODO-Kind
+
+Erwartet:
+
+- ~children: Has Direct Child chd2-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (children
+           (headings
+             (todo "TODO")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org",
+  "title_raw": "children: Has Direct Child chd2-a"
+}
+#+end_SRC
+
+** Direkter Child-Titel
+
+Erwartet:
+
+- ~children: Has Direct Child chd2-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (children
+           (headings
+             (title "Direct TODO Child chd2-child-a")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org",
+  "title_raw": "children: Has Direct Child chd2-a"
+}
+#+end_SRC
+
+** Grandchild darf nicht als direktes Kind gelten
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (title "Has Nested NEXT chd2-b")
+         (children
+           (headings
+             (todo "NEXT")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Zwischen-Heading hat direktes NEXT-Kind
+
+Erwartet:
+
+- ~children: Intermediate Child chd2-mid~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (children
+           (headings
+             (todo "NEXT")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org",
+  "title_raw": "children: Intermediate Child chd2-mid"
+}
+#+end_SRC
+
+** Heading mit direktem DONE-Kind
+
+Erwartet:
+
+- ~children: Direct DONE Only chd2-d~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (children
+           (headings
+             (todo "DONE")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org",
+  "title_raw": "children: Direct DONE Only chd2-d"
+}
+#+end_SRC
+
+** Heading ohne Kinder
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (title "No Children chd2-c")
+         (children
+           (headings
+             (title "children")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Datei-Root hat die Top-Level-Headings als direkte Kinder
+
+Erwartet:
+
+- ~children-fixture-chd2~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "children.org")
+         (level 0)
+         (children
+           (headings
+             (title "Has Direct Child chd2-a")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/children.org",
+  "title_raw": "children-fixture-chd2"
+}
+#+end_SRC
+
+* ancestors
+
+** Ancestor mit lokalem Tag
+
+Erwartet:
+
+- ~ancestors: Middle anc3-mid~
+- ~ancestors: Deep Descendant anc3-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (ancestors
+           (headings
+             (tags "anc3_project" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Middle anc3-mid"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Deep Descendant anc3-a"
+}
+#+end_SRC
+
+** Direkter Ancestor
+
+Erwartet:
+
+- ~ancestors: Deep Descendant anc3-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (ancestors
+           (headings
+             (title "Middle anc3-mid")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Deep Descendant anc3-a"
+}
+#+end_SRC
+
+** Weiter entfernter Ancestor
+
+Erwartet:
+
+- ~ancestors: Middle anc3-mid~
+- ~ancestors: Deep Descendant anc3-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (ancestors
+           (headings
+             (title "Tagged Ancestor anc3-root")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Middle anc3-mid"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Deep Descendant anc3-a"
+}
+#+end_SRC
+
+** Ancestor mit lokaler Property
+
+Erwartet:
+
+- ~ancestors: Property Descendant anc3-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (ancestors
+           (headings
+             (property "ANC3_AREA" "work-anc3" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Property Descendant anc3-b"
+}
+#+end_SRC
+
+** Ancestor aus anderem Zweig darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (title "Property Descendant anc3-b")
+         (ancestors
+           (headings
+             (tags "anc3_project" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** REVIEW Top-Level-Heading hat den Datei-Root als Ancestor
+
+Erwartet:
+
+- ~ancestors: Tagged Ancestor anc3-root~
+- ~ancestors: Property Ancestor anc3-prop~
+- ~ancestors: Top Level No Ancestor anc3-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (ancestors
+           (headings
+             (level 0)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** REVIEW Datei-Root hat keine Ancestors
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "ancestors.org")
+         (level 0)
+         (ancestors
+           (headings
+             (title "Tagged Ancestor anc3-root")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* descendants
+
+** REVIEW Direkter NEXT-Descendant
+
+Erwartet:
+
+- ~descendants: Direct NEXT Descendant des4-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (descendants
+           (headings
+             (todo "NEXT")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Direct NEXT Descendant des4-a"
+}
+#+end_SRC
+
+** REVIEW Tiefer TODO-Descendant
+
+Erwartet:
+
+- ~descendants: Deep Blocked Descendant des4-b~
+- ~descendants: Intermediate des4-mid~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (descendants
+           (headings
+             (todo "TODO")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Deep Blocked Descendant des4-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Intermediate des4-mid"
+}
+#+end_SRC
+
+** REVIEW Tiefer Descendant über lokalen Tag
+
+Erwartet:
+
+- ~descendants: Deep Blocked Descendant des4-b~
+- ~descendants: Intermediate des4-mid~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (descendants
+           (headings
+             (tags "des4_blocked" :inherit nil)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Deep Blocked Descendant des4-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Intermediate des4-mid"
+}
+#+end_SRC
+
+** REVIEW DONE-Descendant
+
+Erwartet:
+
+- ~descendants: DONE Descendant Only des4-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (descendants
+           (headings
+             (todo "DONE")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: DONE Descendant Only des4-c"
+}
+#+end_SRC
+
+** REVIEW Nachfahr über Titel
+
+Erwartet:
+
+- ~descendants: Deep Blocked Descendant des4-b~
+- ~descendants: Intermediate des4-mid~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (descendants
+           (headings
+             (title "Deep Blocked TODO des4-deep")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Deep Blocked Descendant des4-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants: Intermediate des4-mid"
+}
+#+end_SRC
+
+** Nachfahr aus anderem Zweig darf nicht matchen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (title "DONE Descendant Only des4-c")
+         (descendants
+           (headings
+             (todo "NEXT")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Heading ohne Descendants
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (title "No Descendants des4-d")
+         (descendants
+           (headings
+             (title "descendants")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Datei-Root berücksichtigt alle echten Headings als Descendants
+
+Erwartet:
+
+- ~descendants-fixture-des4~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "descendants.org")
+         (level 0)
+         (descendants
+           (headings
+             (todo "NEXT")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
+  "title_raw": "descendants-fixture-des4"
+}
+#+end_SRC

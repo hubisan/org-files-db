@@ -1,7 +1,7 @@
 #+TITLE: ancestors-fixture-anc3
 #+STARTUP: showall
 
-* ancestors: Tagged Ancestor anc3-root                         :anc3-project:
+* ancestors: Tagged Ancestor anc3-root                         :anc3_project:
 ** ancestors: Middle anc3-mid
 *** ancestors: Deep Descendant anc3-a
 * ancestors: Property Ancestor anc3-prop
