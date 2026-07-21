@@ -244,38 +244,38 @@ Legend:
 - via relation :: valid through a relation such as ~source~, ~target~, ~has-link~, ~links-to~, or ~linked-from~
 - no :: not valid for this target
 
-| Predicate family | Headings | Links | Files |
-|------------------+----------+-------+-------|
-| ~todo~ / ~done~ | yes | no | no |
-| ~title~ | yes | no | no |
-| ~has-text~ | yes | no | no |
-| ~level~ | yes | no | no |
-| ~priority~ | yes | no | no |
-| ~tags~ | yes | no | yes |
-| ~property~ | yes | no | yes |
-| ~keyword~ | via root | no | yes |
-| ~file-name~ | yes | via relation | yes |
-| ~file-path~ | yes | via relation | yes |
-| ~file-dir~ | yes | via relation | yes |
-| ~file-title~ | yes | via relation | yes |
+| Predicate family | Headings | Links        | Files |
+|------------------+----------+--------------+-------|
+| ~todo~ / ~done~      | yes      | no           | no    |
+| ~title~            | yes      | no           | no    |
+| ~has-text~         | yes      | no           | no    |
+| ~level~            | yes      | no           | no    |
+| ~priority~         | yes      | no           | no    |
+| ~tags~             | yes      | no           | yes   |
+| ~property~         | yes      | no           | yes   |
+| ~keyword~          | via root | no           | yes   |
+| ~file-name~        | yes      | via relation | yes   |
+| ~file-path~        | yes      | via relation | yes   |
+| ~file-dir~         | yes      | via relation | yes   |
+| ~file-title~       | yes      | via relation | yes   |
 
 Note: ~file-title~ is marked as directly usable for heading queries because it filters headings by their containing file, like ~file-name~, ~file-path~, and ~file-dir~. Internally it uses the effective root/file title, including the fallback file stem when no source ~#+TITLE~ is present.
 For heading queries, file predicates are evaluated over the complete heading-target domain: real headings inspect their containing file, and matching file/root objects are returned as file results rather than exposing the internal level-0 row as a heading.
-| ~file-modified~ | yes | via relation | yes |
-| ~outline-contains~ | yes | via relation | no |
-| ~outline-sequence~ | yes | via relation | no |
-| ~has-link~ | yes | no | yes |
-| ~links-to~ | yes | yes | no |
-| ~linked-from~ | yes | yes | no |
-| ~link-type~ | via ~has-link~ | yes | no |
-| ~link-description~ | via ~has-link~ | yes | no |
-| ~has-description~ | via ~has-link~ | yes | via ~has-link~ |
-| ~link-target~ | via ~has-link~ | yes | no |
-| ~status~ | via ~has-link~ | yes | no |
-| ~source~ | no | yes | no |
-| ~target~ | no | yes | no |
-| timestamps / planning | yes | no | no |
-| hierarchy predicates | yes | no | no |
+| ~file-modified~         | yes          | via relation | yes          |
+| ~outline-contains~      | yes          | via relation | no           |
+| ~outline-sequence~      | yes          | via relation | no           |
+| ~has-link~              | yes          | no           | yes          |
+| ~links-to~              | yes          | yes          | no           |
+| ~linked-from~           | yes          | yes          | no           |
+| ~link-type~             | via ~has-link~ | yes          | no           |
+| ~link-description~      | via ~has-link~ | yes          | no           |
+| ~has-description~       | via ~has-link~ | yes          | via ~has-link~ |
+| ~link-target~         | via ~has-link~ | yes          | no           |
+| ~status~                | via ~has-link~ | yes          | no           |
+| ~source~                | no           | yes          | no           |
+| ~target~                | no           | yes          | no           |
+| timestamps / planning | yes          | no           | no           |
+| hierarchy predicates  | yes          | no           | no           |
 
 Rules:
 

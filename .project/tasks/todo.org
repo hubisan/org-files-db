@@ -310,7 +310,7 @@ Task file: [[file:archive/2026-07-21--improve-hierarchy-predicate-documentation.
 ***** DONE children
 ***** DONE ancestors
 ***** DONE descendants
-***** has-link
+***** DONE has-link
 ***** links-to
 ***** linked-from
 

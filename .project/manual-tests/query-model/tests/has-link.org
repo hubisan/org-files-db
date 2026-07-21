@@ -1,0 +1,883 @@
+#+TITLE: Query Model Tests - has-link
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* has-link
+
+** Heading mit beliebigem Link
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+- ~has-link: HTTPS Link hln5-b~
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Heading mit direktem File-Link
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-type "file")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+#+end_SRC
+
+** Heading mit HTTPS-Link
+
+Erwartet:
+
+- ~has-link: HTTPS Link hln5-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-type "https")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+#+end_SRC
+
+** Heading mit ID-Link
+
+Erwartet:
+
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-type "id")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Mehrere Link-Typen verwenden OR-Semantik
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-type "file" "id")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** File-Link über exaktes Raw-Target
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-target "file:hln5-target-file.org" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+#+end_SRC
+
+** HTTPS-Link über exaktes Raw-Target
+
+Erwartet:
+
+- ~has-link: HTTPS Link hln5-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-target "https://example.invalid/hln5-unique" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+#+end_SRC
+
+** ID-Link über exaktes Raw-Target
+
+Erwartet:
+
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-target "id:hln5-target-id" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Link-Target mit Teiltext
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-target "target-file")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+#+end_SRC
+
+** Link-Target über Regexp
+
+Erwartet:
+
+- ~has-link: HTTPS Link hln5-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-target "example\\.invalid/hln5-.*" :regexp t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+#+end_SRC
+
+** File-Link über exakte Beschreibung
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-description "hln5 unique file description" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+#+end_SRC
+
+** HTTPS-Link über Beschreibung
+
+Erwartet:
+
+- ~has-link: HTTPS Link hln5-b~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-description "unique web")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+#+end_SRC
+
+** ID-Link über Beschreibungs-Regexp
+
+Erwartet:
+
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-description "hln5.*id description" :regexp t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Heading mit Link-Beschreibung
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+- ~has-link: HTTPS Link hln5-b~
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (has-description)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Link-Typ und Target werden kombiniert
+
+Erwartet:
+
+- ~has-link: File Link hln5-a~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (and
+               (link-type "file")
+               (link-target "file:hln5-target-file.org" :exact t))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+#+end_SRC
+
+** Link-Typ und Beschreibung werden kombiniert
+
+Erwartet:
+
+- ~has-link: ID Link hln5-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (and
+               (link-type "id")
+               (link-description "hln5 unique id description" :exact t))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Bedingungen müssen denselben Link betreffen
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (and
+               (link-type "file")
+               (link-description "hln5 unique id description" :exact t))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Heading ohne Link matcht has-link nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (title "No Link Control hln5-d")
+         (has-link)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Target-Heading enthält selbst keinen Link
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (title "Target Heading hln5-target")
+         (has-link)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Falscher Link-Typ matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (title "File Link hln5-a")
+         (has-link
+           (links
+             (link-type "id")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Falsches Raw-Target matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-target "hln5-missing-target" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Falsche Beschreibung matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-description "hln5 missing description" :exact t)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Datei enthält einen Link
+
+Erwartet:
+
+- ~has-link-fixture-hln5~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "has-link.org")
+         (has-link)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link-fixture-hln5"
+}
+#+end_SRC
+
+** Datei enthält einen HTTPS-Link
+
+Erwartet:
+
+- ~has-link-fixture-hln5~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-type "https")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link-fixture-hln5"
+}
+#+end_SRC
+
+** Datei enthält keinen Mailto-Link
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "has-link.org")
+         (has-link
+           (links
+             (link-type "mailto")))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+** Target
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (has-link (links (target (headings (property "ID" "hln5-target-id")))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
+** Source
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "has-link.org")
+         (link-type "has-link.org")
+         (has-link (links (source (headings (title "has-link")))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: File Link hln5-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: HTTPS Link hln5-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link: ID Link hln5-c"
+}
+#+end_SRC
+
