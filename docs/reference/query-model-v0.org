@@ -462,6 +462,7 @@ Reason:
 - The top-level heading shorthand applies only to the outermost query.
 - Subqueries must always declare whether they match headings, links, or files.
 - This avoids ambiguity for predicates such as ~property~, ~keyword~, and ~file-modified~.
+- Nested ~(headings ...)~ relation queries use the complete heading domain: real headings plus the synthetic level-0 file/root heading. A matching root remains a file node when it is returned by an outer heading query.
 
 ** 6. Root / synthetic heading context
 

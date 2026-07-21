@@ -1,0 +1,6 @@
+#+TITLE: link-predicates-duplicate-b
+
+* link predicates: Duplicate target B
+:PROPERTIES:
+:ID: lps1-duplicate-id
+:END:

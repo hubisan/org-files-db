@@ -2246,7 +2246,11 @@ fn compile_nested_target_exists(
     aliases: &mut AliasAllocator,
     outer_id_sql: &str,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    let nested_scope = aliases.next_scope(query.target);
+    let nested_scope = match query.target {
+        QueryTarget::Headings => aliases.next_all_headings_scope(),
+        QueryTarget::Files => aliases.next_scope(QueryTarget::Files),
+        QueryTarget::Links => unreachable!("validator should reject nested links here"),
+    };
     let filter = compile_query_match_filter(query, &nested_scope, aliases)?;
 
     let (id_column, from_clause) = match query.target {
@@ -3355,7 +3359,7 @@ mod tests {
                 search_option: None,
                 path_absolute: Some("/tmp/query-beta.org".to_string()),
                 target_file_id: Some(1),
-                target_heading_id: None,
+                target_heading_id: Some(20),
                 target_custom_id: None,
                 target_id: None,
                 resolution_status: Some("resolved".to_string()),
@@ -3637,6 +3641,15 @@ mod tests {
     }
 
     #[test]
+    fn nested_relation_heading_scopes_do_not_filter_out_synthetic_roots() {
+        let compiled = compile_sqlite_query(&validated(r#"(links (source (headings (level 0))))"#))
+            .expect("nested relation query should compile");
+
+        assert!(!compiled.sql.contains("h1.level > 0"));
+        assert!(compiled.sql.contains("h1.level = ?"));
+    }
+
+    #[test]
     fn compile_supports_documented_outline_and_hierarchy_heading_predicates() {
         for query in [
             r#"(headings (outline-contains "Query"))"#,
@@ -3857,6 +3870,33 @@ mod tests {
         .expect("links-to heading query should execute");
         assert_eq!(heading_ids(links_to_heading_rows), vec![12]);
 
+        let links_to_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (and (level 0) (links-to (headings (level 0)))))"#),
+        )
+        .expect("links-to root heading query should execute");
+        let QueryRows::Headings(links_to_root_rows) = links_to_root_rows else {
+            panic!("expected heading matches");
+        };
+        assert!(matches!(
+            links_to_root_rows.as_slice(),
+            [HeadingQueryMatch::File(alpha), HeadingQueryMatch::File(beta)]
+                if alpha.path == "/tmp/query-alpha.org" && beta.path == "/tmp/query-beta.org"
+        ));
+
+        let file_links_to_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (links-to (headings (level 0))))"#),
+        )
+        .expect("file links-to root heading query should execute");
+        assert_eq!(
+            file_paths(file_links_to_root_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string()
+            ]
+        );
+
         let linked_from_any_rows =
             execute_sqlite_query(&connection, &validated(r#"(headings (linked-from :any))"#))
                 .expect("linked-from any query should execute");
@@ -3868,6 +3908,33 @@ mod tests {
         )
         .expect("linked-from heading query should execute");
         assert_eq!(heading_ids(linked_from_heading_rows), vec![21]);
+
+        let linked_from_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (and (level 0) (linked-from (headings (level 0)))))"#),
+        )
+        .expect("linked-from root heading query should execute");
+        let QueryRows::Headings(linked_from_root_rows) = linked_from_root_rows else {
+            panic!("expected heading matches");
+        };
+        assert!(matches!(
+            linked_from_root_rows.as_slice(),
+            [HeadingQueryMatch::File(alpha), HeadingQueryMatch::File(beta)]
+                if alpha.path == "/tmp/query-alpha.org" && beta.path == "/tmp/query-beta.org"
+        ));
+
+        let file_linked_from_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(files (linked-from (headings (level 0))))"#),
+        )
+        .expect("file linked-from root heading query should execute");
+        assert_eq!(
+            file_paths(file_linked_from_root_rows),
+            vec![
+                "/tmp/query-alpha.org".to_string(),
+                "/tmp/query-beta.org".to_string()
+            ]
+        );
 
         let linked_from_file_rows = execute_sqlite_query(
             &connection,
@@ -3930,6 +3997,22 @@ mod tests {
         .expect("source heading query should execute");
         assert_eq!(link_ids(source_heading_rows), vec![101]);
 
+        let source_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (source (headings (level 0))))"#),
+        )
+        .expect("source root heading query should execute");
+        assert_eq!(link_ids(source_root_rows), vec![102, 104]);
+
+        let source_root_file_name_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(links (source (headings (and (level 0) (file-name "query-alpha.org" :exact t)))))"#,
+            ),
+        )
+        .expect("source root file-name query should execute");
+        assert_eq!(link_ids(source_root_file_name_rows), vec![102]);
+
         let source_file_rows = execute_sqlite_query(
             &connection,
             &validated(r#"(links (source (files (file-title "Beta Index" :exact t))))"#),
@@ -3943,6 +4026,13 @@ mod tests {
         )
         .expect("target heading query should execute");
         assert_eq!(link_ids(target_heading_rows), vec![101]);
+
+        let target_root_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(links (target (headings (level 0))))"#),
+        )
+        .expect("target root heading query should execute");
+        assert_eq!(link_ids(target_root_rows), vec![102, 100, 104]);
 
         let target_file_rows = execute_sqlite_query(
             &connection,
@@ -7093,9 +7183,10 @@ CREATE TABLE db_metadata (
                 "UPDATE links
                  SET path_absolute = ?1,
                      target_file_id = ?2,
+                     target_heading_id = ?3,
                      resolution_status = 'resolved'
                  WHERE id = 100",
-                rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id],
+                rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id, 20],
             )
             .expect("link target should update");
             Ok(())
@@ -7397,9 +7488,10 @@ CREATE TABLE db_metadata (
                 "UPDATE links
                  SET path_absolute = ?1,
                      target_file_id = ?2,
+                     target_heading_id = ?3,
                      resolution_status = 'resolved'
                  WHERE id = 102",
-                rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id],
+                rusqlite::params![beta_path.to_string_lossy().to_string(), beta_file_id, 20],
             )
             .expect("preamble file target should update");
         connection
@@ -7418,9 +7510,10 @@ CREATE TABLE db_metadata (
                 "UPDATE links
                  SET path_absolute = ?1,
                      target_file_id = ?2,
+                     target_heading_id = ?3,
                      resolution_status = 'resolved'
                  WHERE id = 104",
-                rusqlite::params![alpha_path.to_string_lossy().to_string(), alpha_file_id],
+                rusqlite::params![alpha_path.to_string_lossy().to_string(), alpha_file_id, 10],
             )
             .expect("backlink root target should update");
         connection

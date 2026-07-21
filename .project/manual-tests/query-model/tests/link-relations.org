@@ -1,0 +1,823 @@
+#+TITLE: Manual tests - link relation predicates
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* source
+
+** Beliebige indexierte Source
+
+Erwartet:
+
+- alle indexierten Links
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (source :any))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "link_type": "file",
+  "raw_target": "file:hln5-target-file.org",
+  "raw_description": "hln5 unique file description",
+  "resolution_status": "broken"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "link_type": "https",
+  "raw_target": "https://example.invalid/hln5-unique",
+  "raw_description": "hln5 unique web description",
+  "resolution_status": "unsupported"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "link_type": "id",
+  "raw_target": "id:hln5-target-id",
+  "raw_description": "hln5 unique id description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "link_type": "custom-id",
+  "raw_target": "#lfr7-target-a",
+  "raw_description": "lfr7 backlink A description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "link_type": "id",
+  "raw_target": "id:lfr7-target-id-b",
+  "raw_description": "lfr7 backlink B description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org",
+  "link_type": "custom-id",
+  "raw_target": "#lto6-target-custom",
+  "raw_description": "lto6 custom target description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org",
+  "link_type": "id",
+  "raw_target": "id:lto6-target-id",
+  "raw_description": "lto6 id target description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org",
+  "link_type": "custom-id",
+  "raw_target": "#lto6-other-custom",
+  "raw_description": "lto6 other target description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/multipe-title-keywords.org",
+  "link_type": "file",
+  "raw_target": "file:../../notes/org-semantics/multipe-title-keywords.org",
+  "raw_description": null,
+  "resolution_status": "unresolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:../../../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "unresolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC
+
+** Source-Datei
+
+Erwartet:
+
+- alle Links aus ~link-predicates-source.org~, einschliesslich des Preamble-Links
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (source
+         (files
+           (file-name "link-predicates-source.org" :exact t))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:../../../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "unresolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC
+
+** Source-Heading über lokalen Tag
+
+Erwartet:
+
+- der Link mit ~raw_target = #lps1-local-custom~ und Beschreibung
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (source
+         (headings
+           (and
+             (file-name "link-predicates-source.org" :exact t)
+             (tags "lps1_source" :inherit nil)))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Source-Heading über Titel
+
+Erwartet:
+
+- der ID-Link mit ~raw_target = id:lps1-local-id~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (source
+         (headings
+           (and
+             (file-name "link-predicates-source.org" :exact t)
+             (title "link predicates: ID source lps1-b" :exact t)))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Preamble-Link hat den Datei-Root als Heading-Source
+
+Erwartet:
+
+- der Preamble-Link mit ~raw_description = lps1 preamble file target~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (link-description "lps1 preamble file target" :exact t)
+         (source
+           (headings
+             (file-name "link-predicates-source.org" :exact t)))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Preamble-Link hat explizit eine Level-0-Source
+
+Erwartet:
+
+- der Preamble-Link mit ~raw_description = lps1 preamble file target~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (link-description "lps1 preamble file target" :exact t)
+         (source
+           (headings
+             (and
+               (file-name "link-predicates-source.org" :exact t)
+               (level 0))))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Preamble-Link ist keine echte Heading-Source
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (link-description "lps1 preamble file target" :exact t)
+         (source
+           (headings
+             (and
+               (file-name "link-predicates-source.org" :exact t)
+               (level > 0))))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* target
+
+** Beliebiges aufgelöstes Target
+
+Erwartet:
+
+- nur Links mit ~resolution_status = resolved~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (target :any)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Target-Heading über ID
+
+Erwartet:
+
+- beide Links zum lokalen Target-Heading:
+  - ~raw_target = #lps1-local-custom~
+  - ~raw_target = id:lps1-local-id~
+- zusätzlich der zweite Link ohne Beschreibung zum gleichen CUSTOM_ID-Target
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (target
+           (headings
+             (and
+               (file-name "link-predicates-source.org" :exact t)
+               (property "ID" "lps1-local-id" :inherit nil))))))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Target-Heading über CUSTOM_ID
+
+Erwartet:
+
+- dieselben drei Links zum lokalen Target-Heading wie beim ID-Test
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (target
+           (headings
+             (and
+               (file-name "link-predicates-source.org" :exact t)
+               (property "CUSTOM_ID" "lps1-local-custom" :inherit nil))))))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Target-Datei
+
+Erwartet:
+
+- der Preamble-File-Link
+- der File-Link unter ~link predicates: File source lps1-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (target
+           (files
+             (file-name "link-predicates-target.org" :exact t)))))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Target-Datei als Level-0-Heading
+
+Erwartet:
+
+- der Preamble-File-Link
+- der File-Link unter ~link predicates: File source lps1-c~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (target
+           (headings
+             (and
+               (file-name "link-predicates-target.org" :exact t)
+               (level 0))))))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Raw-Target ist nicht dasselbe wie resolved Target
+
+Erwartet:
+
+- die drei Links zum lokalen Target-Heading
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (or
+           (link-target "#lps1-local-custom" :exact t)
+           (link-target "id:lps1-local-id" :exact t))
+         (target
+           (headings
+             (and
+               (file-name "link-predicates-source.org" :exact t)
+               (property "ID" "lps1-local-id" :inherit nil))))))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Broken Link hat kein resolved Target
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (link-target "#lps1-missing-custom" :exact t)
+         (target :any)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* Ungültige direkte Predicates auf links
+
+** file-name ist nicht direkt gültig
+
+Erwartet:
+
+- Fehler: ~predicate file-name is not valid for target links~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (file-name "link-predicates-source.org" :exact t))'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+#+end_SRC
+
+** links-to ist nicht für links gültig
+
+Erwartet:
+
+- Fehler, dass ~links-to~ nicht für das Target ~links~ gültig ist
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (links-to
+         (headings
+           (property "ID" "lps1-local-id" :inherit nil))))'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+#+end_SRC
+
+** linked-from ist nicht für links gültig
+
+Erwartet:
+
+- Fehler, dass ~linked-from~ nicht für das Target ~links~ gültig ist
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (linked-from
+         (headings
+           (tags "lps1_source" :inherit nil))))'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+#+end_SRC

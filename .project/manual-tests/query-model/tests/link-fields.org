@@ -1,0 +1,721 @@
+#+TITLE: Manual tests - link field predicates
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* link-type
+
+** Ein Linktyp
+
+Erwartet:
+
+- zwei Links mit ~link_type = custom-id~ und resolution_status resolved
+- ein Link mit ~link_type = custom-id~ und resolution_status broken
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-type "custom-id")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+#+end_SRC
+
+** Mehrere Linktypen verwenden OR-Semantik
+
+Erwartet:
+
+- alle Links mit ~link_type = id~ oder ~link_type = https~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-type "id" "https")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC
+
+* link-target
+
+** Exaktes Raw-Target
+
+Erwartet:
+
+- der Link mit ~raw_target = id:lps1-local-id~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-target "id:lps1-local-id" :exact t)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Raw-Target als Teiltext
+
+Erwartet:
+
+- beide Links mit ~raw_target = #lps1-local-custom~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-target "local-custom")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Raw-Target als Regexp
+
+Erwartet:
+
+- der HTTPS-Link
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-target "https://example\\.invalid/lps[0-9]+" :regexp t)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+#+end_SRC
+
+* link-description
+
+** Exakte Beschreibung
+
+Erwartet:
+
+- der ID-Link mit ~raw_description = lps1 id description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-description "lps1 id description" :exact t)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Beschreibung als Teiltext
+
+Erwartet:
+
+- alle beschriebenen Links, deren Beschreibung ~lps1~ und ~description~ enthält
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-description "lps1" "description")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "broken"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC
+
+** Beschreibung als Regexp
+
+Erwartet:
+
+- der File-Link mit ~raw_description = lps1 file description~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (link-description "lps1 file.*" :regexp t)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+* has-description
+
+** Links mit Beschreibung
+
+Erwartet:
+
+- alle Links ausser ~link predicates: No description lps1-e~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (has-description)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "broken"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC
+
+** Link ohne Beschreibung matcht nicht
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (headings
+             (and
+               (file-name "link-predicates-source.org" :exact t)
+               (title "No description lps1-e"))))
+         (has-description)))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* status
+
+** Aufgelöste Links
+
+Erwartet:
+
+- lokale CUSTOM_ID- und ID-Links
+- beide Links zur indexierten Zieldatei
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (status "resolved")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": "lps1 custom id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-local-id",
+  "raw_description": "lps1 id description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-local-custom",
+  "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Broken Link
+
+Erwartet:
+
+- der Link mit ~raw_target = #lps1-missing-custom~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (status "broken")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "broken"
+}
+#+end_SRC
+
+** Unresolved Link
+
+Erwartet:
+
+- der Link mit ~raw_target = file:../lps1-outside-index.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (status "unresolved")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:../../../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "unresolved"
+}
+#+end_SRC
+
+** Ambiguous Link
+
+Erwartet:
+
+- der Link mit ~raw_target = id:lps1-duplicate-id~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (status "ambiguous")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC
+
+** Unsupported Link
+
+Erwartet:
+
+- der HTTPS-Link
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (status "unsupported")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+#+end_SRC
+
+** Mehrere Status verwenden OR-Semantik
+
+Erwartet:
+
+- der broken, unresolved, ambiguous und unsupported Link
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (status "broken" "unresolved" "ambiguous" "unsupported")))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "https",
+  "raw_target": "https://example.invalid/lps1",
+  "raw_description": "lps1 https description",
+  "resolution_status": "unsupported"
+}
+{
+  "link_type": "custom-id",
+  "raw_target": "#lps1-missing-custom",
+  "raw_description": "lps1 broken description",
+  "resolution_status": "broken"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:../../../lps1-outside-index.org",
+  "raw_description": "lps1 unresolved description",
+  "resolution_status": "unresolved"
+}
+{
+  "link_type": "id",
+  "raw_target": "id:lps1-duplicate-id",
+  "raw_description": "lps1 ambiguous description",
+  "resolution_status": "ambiguous"
+}
+#+end_SRC

@@ -586,6 +586,7 @@ Public rules for nested relation predicates:
 - The outer target determines the returned result kind.
 - The nested query filters related rows only.
 - Nested queries must use explicit target wrappers.
+- Nested ~(headings ...)~ relation queries use the complete heading domain, including synthetic level-0 file/root objects. When an outer heading query returns one of those matches, it remains ~kind = "file"~.
 - Invalid nested targets are validation errors.
 
 Implemented relation directions:

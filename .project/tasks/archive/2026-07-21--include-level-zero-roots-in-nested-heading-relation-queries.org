@@ -1,0 +1,116 @@
+#+TITLE: Include Level-0 Roots in Nested Heading Relation Queries
+#+STARTUP: showall
+#+TASK_STARTED: [2026-07-21 Tue 20:53]
+
+* Original Task (User only)
+
+Implement the approved plan: include synthetic level-0 roots in nested heading relation queries.
+** DONE Include level-0 roots in nested heading relation queries
+
+- Task file: [[file:2026-07-21--include-level-zero-roots-in-nested-heading-relation-queries.org][Include Level-0 Roots in Nested Heading Relation Queries]]
+
+Goal:
+
+- Make every nested ~(headings ...)~ relation query use the complete heading domain, including the synthetic level-0 root.
+
+Affected predicates:
+
+- ~(links (source (headings ...)))~
+- ~(links (target (headings ...)))~
+- ~(headings ... (links-to (headings ...)))~
+- ~(files ... (links-to (headings ...)))~
+- ~(headings ... (linked-from (headings ...)))~
+- ~(files ... (linked-from (headings ...)))~
+
+Implementation:
+
+- In ~compile_nested_target_exists~, allocate an ~AllHeadings~ scope for ~QueryTarget::Headings~ instead of the default ~RealHeading~ scope.
+- Keep nested ~(files ...)~ relation behaviour unchanged.
+- Do not change hierarchy predicates; they already use ~next_all_headings_scope~.
+- Do not change ~has-link~; it already binds link sources directly to the outer root or real heading.
+- Preserve the rule that matching level-0 objects are returned as ~kind = "file"~, never as normal heading results.
+
+Regression tests:
+
+- A preamble link matches ~(source (headings (level 0)))~.
+- A preamble link matches ~(source (headings (file-name "source.org" :exact t)))~.
+- A link resolved to a file root matches ~(target (headings (level 0)))~.
+- ~links-to~ can select a level-0 target through a nested heading query.
+- ~linked-from~ can select a level-0 source through a nested heading query.
+- Assert file/root matches explicitly instead of checking only helpers that discard ~HeadingQueryMatch::File~.
+- Seed resolved file-root links with both ~target_file_id~ and ~target_heading_id~, matching the current resolver behaviour.
+
+Acceptance criteria:
+
+- No nested heading relation implicitly adds ~level > 0~.
+- Nested heading queries have the same level-0 domain as top-level heading and hierarchy queries.
+- Existing real-heading and nested-file relation behaviour remains unchanged.
+- ~make ci~ passes.
+
+
+* Planning
+
+** Problem summary
+
+Nested ~(headings ...)~ relation queries currently use a real-heading-only SQL scope, so preamble/root nodes cannot match relation predicates.
+
+** Goals
+
+- Use the all-headings scope for nested heading relation queries.
+- Preserve nested file query behaviour and level-0 file-shaped results.
+- Cover link endpoint and heading/file relation predicates with root-focused regressions.
+- Document the level-0 relation-query domain.
+
+** Non-goals
+
+- Do not change hierarchy or ~has-link~ compilation.
+- Do not change the database schema or query syntax.
+
+** Architecture
+
+~compile_nested_target_exists~ is shared by structured ~source~, ~target~, ~links-to~, and ~linked-from~ predicates. Selecting ~AllHeadings~ there updates every nested heading relation consistently.
+
+** Execution plan
+
+1. Select an all-headings scope only for nested heading targets.
+2. Seed file-root link targets with both file and heading IDs.
+3. Add SQL and execution regressions covering root sources and targets.
+4. Update query-model and CLI documentation, then run the full CI check.
+
+** Risks & assumptions
+
+The resolver represents a resolved file root as both ~target_file_id~ and ~target_heading_id~. Fixtures will mirror that invariant so target-heading relations can match roots.
+
+** Proposed checks
+
+- Focused SQLite query execution tests.
+- ~make ci~.
+
+* Build
+
+** Approach
+
+~compile_nested_target_exists~ now creates an ~AllHeadings~ scope for nested heading queries and retains the existing file scope for nested file queries.
+
+** Changed files
+
+- ~src/query/sqlite.rs~: compiler scope selection, root relation regressions, and resolved-root fixture data.
+- ~docs/cli.org~ and ~docs/reference/query-model-v0.org~: documented the nested heading relation domain and file-shaped root results.
+
+** Checks performed
+
+- ~cargo fmt --all~
+- Focused compiler and relation execution tests.
+- ~make ci~
+
+** Test results
+
+~make ci~ passed: formatting, clippy, 349 unit tests, integration tests, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.

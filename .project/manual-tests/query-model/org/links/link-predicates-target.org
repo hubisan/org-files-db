@@ -1,0 +1,8 @@
+#+TITLE: link-predicates-target-lpt2
+#+STARTUP: showall
+
+* link predicates: Remote target lpt2-target                    :lpt2_target:
+:PROPERTIES:
+:ID: lpt2-target-id
+:CUSTOM_ID: lpt2-target-custom
+:END:

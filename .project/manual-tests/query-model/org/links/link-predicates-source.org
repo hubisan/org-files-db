@@ -1,0 +1,34 @@
+#+TITLE: link-predicates-source-lps1
+#+STARTUP: showall
+
+[[file:link-predicates-target.org][lps1 preamble file target]]
+
+* link predicates: Tagged source lps1-a                         :lps1_source:
+[[#lps1-local-custom][lps1 custom id description]]
+
+* link predicates: ID source lps1-b
+[[id:lps1-local-id][lps1 id description]]
+
+* link predicates: File source lps1-c
+[[file:link-predicates-target.org][lps1 file description]]
+
+* link predicates: HTTPS source lps1-d
+[[https://example.invalid/lps1][lps1 https description]]
+
+* link predicates: No description lps1-e
+[[#lps1-local-custom]]
+
+* link predicates: Broken custom id lps1-f
+[[#lps1-missing-custom][lps1 broken description]]
+
+* link predicates: Unresolved file lps1-g
+[[file:../../../lps1-outside-index.org][lps1 unresolved description]]
+
+* link predicates: Ambiguous ID lps1-h
+[[id:lps1-duplicate-id][lps1 ambiguous description]]
+
+* link predicates: Local target lps1-target
+:PROPERTIES:
+:ID: lps1-local-id
+:CUSTOM_ID: lps1-local-custom
+:END:

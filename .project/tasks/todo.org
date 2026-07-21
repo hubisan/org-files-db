@@ -284,6 +284,10 @@ Task file: [[file:archive/2026-07-21--document-link-resolution-statuses.org][Doc
 
 Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documentation.org][Correct Source and Target Any Syntax Documentation]]
 
+** DONE Include level-0 roots in nested heading relation queries
+
+- Task file: [[file:archive/2026-07-21--include-level-zero-roots-in-nested-heading-relation-queries.org][Include Level-0 Roots in Nested Heading Relation Queries]]
+
 ** TODO Manual Test the Implementation
 
 *** Query
