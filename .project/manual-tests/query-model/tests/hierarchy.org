@@ -166,7 +166,7 @@ Erwartet:
 #+begin_SRC js
 #+end_SRC
 
-** REVIEW Top-Level-Heading hat den Datei-Root als Parent
+** Top-Level-Heading hat den Datei-Root als Parent
 
 Erwartet:
 
@@ -193,6 +193,21 @@ Erwartet:
 
 #+RESULTS:
 #+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent: Matching Parent par1-target"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent: Nonmatching Parent par1-other"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/parent.org",
+  "title_raw": "parent: Top Level No Parent par1-d"
+}
 #+end_SRC
 
 ** Datei-Root hat keinen Parent
@@ -612,12 +627,15 @@ Erwartet:
 #+begin_SRC js
 #+end_SRC
 
-** REVIEW Top-Level-Heading hat den Datei-Root als Ancestor
+** Datei-Root ist Ancestor aller echten Headings
 
 Erwartet:
 
 - ~ancestors: Tagged Ancestor anc3-root~
+- ~ancestors: Middle anc3-mid~
+- ~ancestors: Deep Descendant anc3-a~
 - ~ancestors: Property Ancestor anc3-prop~
+- ~ancestors: Property Descendant anc3-b~
 - ~ancestors: Top Level No Ancestor anc3-c~
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
@@ -639,9 +657,39 @@ Erwartet:
 
 #+RESULTS:
 #+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Tagged Ancestor anc3-root"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Middle anc3-mid"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Deep Descendant anc3-a"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Property Ancestor anc3-prop"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Property Descendant anc3-b"
+}
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/ancestors.org",
+  "title_raw": "ancestors: Top Level No Ancestor anc3-c"
+}
 #+end_SRC
 
-** REVIEW Datei-Root hat keine Ancestors
+** Datei-Root hat keine Ancestors
 
 Erwartet:
 
@@ -671,10 +719,11 @@ Erwartet:
 
 * descendants
 
-** REVIEW Direkter NEXT-Descendant
+** Direkter NEXT-Descendant
 
 Erwartet:
 
+- ~descendants-fixture-des4~
 - ~descendants: Direct NEXT Descendant des4-a~
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
@@ -708,10 +757,11 @@ Erwartet:
 }
 #+end_SRC
 
-** REVIEW Tiefer TODO-Descendant
+** Tiefer TODO-Descendant
 
 Erwartet:
 
+- ~descendants-fixture-des4~
 - ~descendants: Deep Blocked Descendant des4-b~
 - ~descendants: Intermediate des4-mid~
 
@@ -751,10 +801,11 @@ Erwartet:
 }
 #+end_SRC
 
-** REVIEW Tiefer Descendant über lokalen Tag
+** Tiefer Descendant über lokalen Tag
 
 Erwartet:
 
+- ~descendants-fixture-des4~
 - ~descendants: Deep Blocked Descendant des4-b~
 - ~descendants: Intermediate des4-mid~
 
@@ -794,10 +845,11 @@ Erwartet:
 }
 #+end_SRC
 
-** REVIEW DONE-Descendant
+** DONE-Descendant
 
 Erwartet:
 
+- ~descendants-fixture-des4~
 - ~descendants: DONE Descendant Only des4-c~
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
@@ -831,10 +883,11 @@ Erwartet:
 }
 #+end_SRC
 
-** REVIEW Nachfahr über Titel
+** Nachfahr über Titel
 
 Erwartet:
 
+- ~descendants-fixture-des4~
 - ~descendants: Deep Blocked Descendant des4-b~
 - ~descendants: Intermediate des4-mid~
 
@@ -898,10 +951,6 @@ Erwartet:
     }'
 #+end_src
 
-#+RESULTS:
-#+begin_SRC js
-#+end_SRC
-
 ** Heading ohne Descendants
 
 Erwartet:
@@ -926,10 +975,6 @@ Erwartet:
     }'
 #+end_src
 
-#+RESULTS:
-#+begin_SRC js
-#+end_SRC
-
 ** Datei-Root berücksichtigt alle echten Headings als Descendants
 
 Erwartet:
@@ -953,12 +998,3 @@ Erwartet:
       title_raw
     }'
 #+end_src
-
-#+RESULTS:
-#+begin_SRC js
-{
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/descendants.org",
-  "title_raw": "descendants-fixture-des4"
-}
-#+end_SRC

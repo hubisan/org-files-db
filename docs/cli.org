@@ -386,19 +386,19 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(planning :from today :to 7)'~.
 - ~parent~ :: Syntax: ~(parent)~ or ~(parent (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings that have any parent. Nested form matches headings whose direct parent matches the nested heading query.
-  Example: ~'(parent (headings (tags "project")))'~.
+  Zero-arg form matches headings that have any parent. Nested form matches headings whose direct parent matches the nested heading query, including a synthetic file root. The synthetic root itself has no parent.
+  Example: ~'(parent (headings (level 0)))'~ matches top-level Org headings.
 - ~children~ :: Syntax: ~(children)~ or ~(children (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings with at least one child. Nested form matches headings having a direct child that matches the nested heading query.
+  Zero-arg form matches headings with at least one child. Nested form matches headings having a direct child that matches the nested heading query; a synthetic root may be the outer match.
   Example: ~'(children (headings (todo "NEXT")))'~.
 - ~ancestors~ :: Syntax: ~(ancestors)~ or ~(ancestors (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings that have any ancestor. Nested form is transitive over all ancestors.
-  Example: ~'(ancestors (headings (priority "A")))'~.
+  Zero-arg form matches headings that have any ancestor. Nested form is transitive over all strict ancestors, including the synthetic root for every real heading. The synthetic root itself has no ancestors.
+  Example: ~'(ancestors (headings (level 0)))'~ matches every real heading in a file.
 - ~descendants~ :: Syntax: ~(descendants)~ or ~(descendants (headings EXPR))~.
   Targets: ~headings~.
-  Zero-arg form matches headings that have any descendant. Nested form is transitive over descendants.
+  Zero-arg form matches headings that have any descendant. Nested form is transitive over strict descendants; each matching descendant makes every strict ancestor, including the synthetic root, eligible as an outer result.
   Example: ~'(descendants (headings (todo "WAITING")))'~.
 - ~has-link~ :: Syntax: ~(has-link)~ or ~(has-link (links EXPR))~.
   Targets: ~headings~, ~files~.

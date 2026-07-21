@@ -1934,7 +1934,7 @@ Hierarchy predicates relate a heading to other headings in the same file.
 
 With no nested query, they test existence.
 
-With a nested query, the nested query must be explicitly wrapped in ~(headings ...)~.
+With a nested query, the nested query must be explicitly wrapped in ~(headings ...)~. Nested heading queries include both real headings and the synthetic file/root heading.
 
 *** ~(parent &optional heading-query)~
 
@@ -1960,8 +1960,8 @@ With a nested query, match headings whose direct parent matches the query.
 
 **** Rules
 
-- Top-level headings do not match ~(parent)~.
-- Root/file is not considered a parent heading for this predicate.
+- A top-level Org heading has the synthetic root as its direct parent and therefore matches ~(parent (headings (level 0)))~.
+- The synthetic root itself has no parent and never matches this predicate.
 
 *** ~(ancestors &optional heading-query)~
 
@@ -1988,7 +1988,8 @@ With a nested query, match headings with at least one ancestor matching the quer
 **** Rules
 
 - Ancestors are ordered from parent toward root conceptually, but this predicate only tests existence unless output asks for context.
-- Root/file is not considered an ancestor heading for this predicate.
+- The synthetic root is an ancestor of every real heading in the file, so ~(ancestors (headings (level 0)))~ matches every real heading.
+- The synthetic root has no ancestors and never matches this predicate.
 
 *** ~(children &optional heading-query)~
 
@@ -2016,6 +2017,7 @@ With a nested query, match headings that have at least one direct child matching
 
 - Only direct children count.
 - For recursive descendants, use ~(descendants ...)~.
+- The synthetic root may match when one of its top-level headings satisfies the nested query.
 
 *** ~(descendants &optional heading-query)~
 
@@ -2044,6 +2046,7 @@ With a nested query, match headings with at least one descendant matching the qu
 **** Rules
 
 - Descendants include children, grandchildren, and deeper headings.
+- Descendants are strict: a heading never matches itself. A matching descendant makes every strict ancestor, including the synthetic root, eligible as an outer result.
 - Nested hierarchy predicates are allowed but should be used carefully.
 
 **** Example: nested hierarchy

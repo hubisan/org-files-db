@@ -126,6 +126,7 @@ pub struct FileQueryRow {
 enum HeadingMatchKind {
     RealHeading,
     RootFile,
+    AllHeadings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +265,19 @@ impl QueryScope {
         }
     }
 
+    fn all_headings(id: usize) -> Self {
+        Self {
+            target: QueryTarget::Headings,
+            heading_match_kind: HeadingMatchKind::AllHeadings,
+            heading_alias: format!("h{id}"),
+            file_alias: format!("f{id}"),
+            root_alias: format!("r{id}"),
+            link_alias: format!("l{id}"),
+            link_heading_alias: format!("lh{id}"),
+            outline_alias: format!("op{id}"),
+        }
+    }
+
     fn heading_col(&self, column: &str) -> String {
         format!("{}.{}", self.heading_alias, column)
     }
@@ -303,6 +317,12 @@ impl AliasAllocator {
 
     fn next_heading_root_scope(&mut self) -> QueryScope {
         let scope = QueryScope::heading_root(self.next_scope_id);
+        self.next_scope_id += 1;
+        scope
+    }
+
+    fn next_all_headings_scope(&mut self) -> QueryScope {
+        let scope = QueryScope::all_headings(self.next_scope_id);
         self.next_scope_id += 1;
         scope
     }
@@ -775,10 +795,17 @@ fn compile_scope_match_filter(
 
 fn scope_base_filter(scope: &QueryScope) -> Option<SqlFragment> {
     match scope.target {
-        QueryTarget::Headings => Some(sql_literal(&match scope.heading_match_kind {
-            HeadingMatchKind::RealHeading => format!("({} > 0)", scope.heading_col("level")),
-            HeadingMatchKind::RootFile => format!("({} = 0)", scope.heading_col("level")),
-        })),
+        QueryTarget::Headings => match scope.heading_match_kind {
+            HeadingMatchKind::RealHeading => Some(sql_literal(&format!(
+                "({} > 0)",
+                scope.heading_col("level")
+            ))),
+            HeadingMatchKind::RootFile => Some(sql_literal(&format!(
+                "({} = 0)",
+                scope.heading_col("level")
+            ))),
+            HeadingMatchKind::AllHeadings => None,
+        },
         QueryTarget::Links | QueryTarget::Files => None,
     }
 }
@@ -2252,7 +2279,7 @@ fn compile_heading_hierarchy_predicate(
         ValidatedArg::NestedQuery(query) => query.as_ref(),
         _ => unreachable!("validator should constrain hierarchy args"),
     });
-    let nested_scope = aliases.next_scope(QueryTarget::Headings);
+    let nested_scope = aliases.next_all_headings_scope();
     let nested_filter = compile_scope_match_filter(
         &nested_scope,
         aliases,
@@ -3465,7 +3492,7 @@ mod tests {
 
         let parent_rows = execute_sqlite_query(&connection, &validated(r#"(headings (parent))"#))
             .expect("parent query should execute");
-        assert_eq!(heading_ids(parent_rows), vec![12, 14, 15]);
+        assert_eq!(heading_ids(parent_rows), vec![11, 12, 13, 14, 15, 21, 31]);
 
         let parent_nested_rows = execute_sqlite_query(
             &connection,
@@ -3499,6 +3526,114 @@ mod tests {
         )
         .expect("descendant query should execute");
         assert_eq!(heading_ids(descendant_rows), vec![11]);
+
+        let root_parent_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (parent (headings (level 0))))"#),
+        )
+        .expect("root parent query should execute");
+        assert_eq!(heading_ids(root_parent_rows), vec![11, 13, 21, 31]);
+
+        let root_parent_boolean_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (parent
+                      (headings
+                        (and
+                          (level 0)
+                          (title "Alpha Index" :exact t)))))"#,
+            ),
+        )
+        .expect("boolean root parent query should execute");
+        assert_eq!(heading_ids(root_parent_boolean_rows), vec![11, 13]);
+
+        let root_ancestor_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (ancestors (headings (level 0))))"#),
+        )
+        .expect("root ancestor query should execute");
+        assert_eq!(
+            heading_ids(root_ancestor_rows),
+            vec![11, 12, 13, 14, 15, 21, 31]
+        );
+
+        let root_tag_ancestor_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (ancestors (headings (tags "filetag" :inherit nil))))"#),
+        )
+        .expect("root tag ancestor query should execute");
+        assert_eq!(
+            heading_ids(root_tag_ancestor_rows),
+            vec![11, 12, 13, 14, 15]
+        );
+
+        let root_children_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (children (headings (title "Query Engine" :exact t))))"#),
+        )
+        .expect("root children query should execute");
+        assert_eq!(
+            heading_file_paths(root_children_rows),
+            vec!["/tmp/query-alpha.org"]
+        );
+
+        let root_descendant_rows = execute_sqlite_query(
+            &connection,
+            &validated(r#"(headings (descendants (headings (title "Nested Task" :exact t))))"#),
+        )
+        .expect("root descendant query should execute");
+        assert_eq!(
+            heading_file_paths(root_descendant_rows),
+            vec!["/tmp/query-alpha.org"]
+        );
+
+        let root_parent_outer_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (level 0)
+                      (parent (headings (title "Query Engine" :exact t)))))"#,
+            ),
+        )
+        .expect("root parent outer query should execute");
+        assert!(heading_file_paths(root_parent_outer_rows).is_empty());
+
+        let root_ancestor_outer_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (level 0)
+                      (ancestors (headings (title "Query Engine" :exact t)))))"#,
+            ),
+        )
+        .expect("root ancestor outer query should execute");
+        assert!(heading_file_paths(root_ancestor_outer_rows).is_empty());
+
+        let self_descendant_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings
+                    (and
+                      (title "Nested Task" :exact t)
+                      (descendants (headings (title "Nested Task" :exact t)))))"#,
+            ),
+        )
+        .expect("self descendant query should execute");
+        assert!(heading_ids(self_descendant_rows).is_empty());
+    }
+
+    #[test]
+    fn nested_hierarchy_heading_scopes_do_not_filter_out_synthetic_roots() {
+        let compiled =
+            compile_sqlite_query(&validated(r#"(headings (parent (headings (level 0))))"#))
+                .expect("nested hierarchy query should compile");
+
+        assert!(compiled.sql.contains("h0.level > 0"));
+        assert!(!compiled.sql.contains("h1.level > 0"));
+        assert!(compiled.sql.contains("h1.level = ?"));
     }
 
     #[test]

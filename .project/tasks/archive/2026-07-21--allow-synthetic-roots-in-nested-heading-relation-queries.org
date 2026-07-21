@@ -1,0 +1,475 @@
+#+TITLE: Allow Synthetic Roots in Nested Heading Relation Queries
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-21 Tue 16:55]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Allow synthetic roots in nested heading relation queries.
+
+** DONE Allow synthetic roots in nested heading relation queries
+
+Task file: [[file:2026-07-21--allow-synthetic-roots-in-nested-heading-relation-queries.org][Allow Synthetic Roots in Nested Heading Relation Queries]]
+
+Goal:
+
+- Make nested ~headings~ queries inside hierarchy predicates use the same root-inclusive heading semantics as top-level heading queries.
+- Allow ~parent~ and ~ancestors~ to match the synthetic file/root heading.
+- Preserve the existing root behaviour of ~children~ and ~descendants~.
+- Add complete regression coverage for all four hierarchy predicates.
+
+Affected predicates:
+
+- ~parent~
+- ~children~
+- ~ancestors~
+- ~descendants~
+
+Current storage model:
+
+- Each indexed file has one synthetic heading with:
+  - ~level = 0~
+  - ~parent_id = NULL~
+- Every real top-level Org heading stores the synthetic root ID as its ~parent_id~.
+- The ~outline_path~ table includes:
+  - the synthetic root at ~depth = 0~
+  - every real heading below it
+- The persisted hierarchy therefore already models the root correctly.
+- No index or schema change is required.
+
+Current compiler problem:
+
+- Top-level ~headings~ queries are executed in two parts:
+  - real headings with ~level > 0~
+  - synthetic root/file results with ~level = 0~
+- A nested ~headings~ query inside a relation is compiled with a normal ~RealHeading~ scope only.
+- The nested scope therefore receives this implicit base filter:
+
+#+begin_src sql
+nested_heading.level > 0
+#+end_src
+
+- A query such as:
+
+#+begin_src lisp
+(parent
+  (headings
+    (level 0)))
+#+end_src
+
+is effectively compiled with contradictory conditions:
+
+#+begin_src sql
+nested_heading.level > 0
+AND nested_heading.level = 0
+#+end_src
+
+- The same problem affects:
+
+#+begin_src lisp
+(ancestors
+  (headings
+    (level 0)))
+#+end_src
+
+- Consequently, the synthetic root cannot currently satisfy any nested ~headings~ query.
+
+Required semantics:
+
+- A nested ~headings~ target must represent the complete heading domain:
+  - synthetic level-0 roots
+  - real headings with level greater than zero
+- It must not silently imply ~level > 0~.
+- Explicit predicates determine whether roots or real headings match.
+
+Examples:
+
+#+begin_src lisp
+(parent
+  (headings
+    (level 0)))
+#+end_src
+
+matches every real top-level heading because its direct parent is the synthetic root.
+
+#+begin_src lisp
+(ancestors
+  (headings
+    (level 0)))
+#+end_src
+
+matches every real heading because the synthetic root is an ancestor of every real heading in that file.
+
+#+begin_src lisp
+(children
+  (headings
+    (todo "TODO")))
+#+end_src
+
+matches every heading, including a synthetic root, that has a direct child satisfying the nested query.
+
+#+begin_src lisp
+(descendants
+  (headings
+    (todo "TODO")))
+#+end_src
+
+matches every heading, including a synthetic root, that has a matching descendant at any depth.
+
+Root relation rules:
+
+- The synthetic root:
+  - has no parent
+  - has no ancestors
+  - may have direct children
+  - may have descendants
+- A real top-level heading:
+  - has the synthetic root as its direct parent
+  - has the synthetic root as an ancestor
+- A nested real heading:
+  - has its direct real parent
+  - has all real ancestors plus the synthetic root as ancestors
+- A heading is never its own:
+  - parent
+  - child
+  - ancestor
+  - descendant
+
+Required implementation direction:
+
+- Do not change persisted ~parent_id~ or ~outline_path~ data.
+- Do not special-case only ~(level 0)~.
+- Fix the nested heading target domain itself.
+- Introduce an explicit heading-scope mode for nested relation queries that includes both root and real heading rows.
+
+For example, distinguish:
+
+#+begin_src rust
+enum HeadingMatchKind {
+    RealHeading,
+    RootFile,
+    AllHeadings,
+}
+#+end_src
+
+or use an equivalent design.
+
+- For an ~AllHeadings~ nested scope:
+  - do not add an implicit level filter
+  - allow the nested Predicate to match either level 0 or level > 0
+- Keep the existing split output handling for top-level heading results if needed.
+- Nested relation matching does not need to produce result rows; it only needs a root-inclusive relational domain.
+- Ensure nested predicates such as ~title~, ~tags~, ~property~, ~keyword~, ~level~, and boolean combinations retain their normal heading semantics.
+- Avoid compiling the nested query twice unless required by the existing architecture.
+
+Review the current helper:
+
+#+begin_src rust
+let nested_scope = aliases.next_scope(QueryTarget::Headings);
+#+end_src
+
+- This currently creates a ~RealHeading~ scope.
+- Replace it with a root-inclusive nested heading scope for hierarchy relations.
+
+~parent~:
+
+- Keep the direct relation:
+
+#+begin_src sql
+nested.id = current.parent_id
+#+end_src
+
+- Allow ~nested.id~ to refer to a level-0 root.
+- Do not reject the outer synthetic root through relation matching alone; it naturally has ~parent_id = NULL~ and therefore cannot match.
+- The existing explicit outer-root false handling may remain, but it should be reviewed for redundancy and consistency.
+
+~ancestors~:
+
+- Continue using strict ancestor ordering.
+- Include depth 0 in the possible nested ancestor rows.
+- The current root entry in ~outline_path~ must be eligible to satisfy the nested query.
+- Do not include the candidate itself.
+
+~children~:
+
+- Preserve current direct-child semantics.
+- The synthetic root may be returned as the outer result when one of its top-level headings matches.
+- A level-0 row cannot be a child of another heading because its ~parent_id~ is ~NULL~.
+
+~descendants~:
+
+- Preserve strict descendant semantics at any depth.
+- The synthetic root may be returned as the outer result.
+- Every matching descendant contributes all strict ancestors up to and including the file root.
+- Do not exclude the root from outer results.
+
+Required fixture expectations:
+
+Given the ~parent~ fixture, this query:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-name "parent.org")
+    (parent
+      (headings
+        (level 0)))))
+#+end_src
+
+matches:
+
+#+begin_src text
+parent: Matching Parent par1-target
+parent: Nonmatching Parent par1-other
+parent: Top Level No Parent par1-d
+#+end_src
+
+Given the ~ancestors~ fixture, this query:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-name "ancestors.org")
+    (ancestors
+      (headings
+        (level 0)))))
+#+end_src
+
+matches every real heading in the file:
+
+#+begin_src text
+ancestors: Tagged Ancestor anc3-root
+ancestors: Middle anc3-mid
+ancestors: Deep Descendant anc3-a
+ancestors: Property Ancestor anc3-prop
+ancestors: Property Descendant anc3-b
+ancestors: Top Level No Ancestor anc3-c
+#+end_src
+
+This is broader than only the three top-level headings because the root is an ancestor of every real heading.
+
+This query:
+
+#+begin_src lisp
+(headings
+  (and
+    (file-name "ancestors.org")
+    (level 0)
+    (ancestors
+      (headings
+        (title "Tagged Ancestor anc3-root")))))
+#+end_src
+
+matches nothing because the synthetic root has no ancestors.
+
+Corrected ~descendants~ expectations:
+
+#+begin_src lisp
+(descendants
+  (headings
+    (todo "NEXT")))
+#+end_src
+
+matches:
+
+#+begin_src text
+descendants-fixture-des4
+descendants: Direct NEXT Descendant des4-a
+#+end_src
+
+#+begin_src lisp
+(descendants
+  (headings
+    (todo "TODO")))
+#+end_src
+
+matches:
+
+#+begin_src text
+descendants-fixture-des4
+descendants: Deep Blocked Descendant des4-b
+descendants: Intermediate des4-mid
+#+end_src
+
+#+begin_src lisp
+(descendants
+  (headings
+    (tags "des4_blocked" :inherit nil)))
+#+end_src
+
+matches:
+
+#+begin_src text
+descendants-fixture-des4
+descendants: Deep Blocked Descendant des4-b
+descendants: Intermediate des4-mid
+#+end_src
+
+#+begin_src lisp
+(descendants
+  (headings
+    (todo "DONE")))
+#+end_src
+
+matches:
+
+#+begin_src text
+descendants-fixture-des4
+descendants: DONE Descendant Only des4-c
+#+end_src
+
+#+begin_src lisp
+(descendants
+  (headings
+    (title "Deep Blocked TODO des4-deep")))
+#+end_src
+
+matches:
+
+#+begin_src text
+descendants-fixture-des4
+descendants: Deep Blocked Descendant des4-b
+descendants: Intermediate des4-mid
+#+end_src
+
+Required automated tests:
+
+- Add a fixture with:
+  - one synthetic root
+  - multiple top-level headings
+  - at least one grandchild
+  - branches with distinct TODO states, tags, and titles
+- Verify ~parent (headings (level 0))~ matches all and only top-level real headings.
+- Verify ~ancestors (headings (level 0))~ matches every real heading.
+- Verify the synthetic root does not match ~parent~.
+- Verify the synthetic root does not match ~ancestors~.
+- Verify ~children~ can return the synthetic root.
+- Verify ~descendants~ can return the synthetic root.
+- Verify ~children~ remains direct-only.
+- Verify ~descendants~ includes every strict ancestor of a matching descendant.
+- Verify a candidate does not count itself as its own descendant.
+- Verify branch isolation.
+- Verify nested boolean queries can match the root:
+
+#+begin_src lisp
+(parent
+  (headings
+    (and
+      (level 0)
+      (title "parent-fixture-par1" :exact t))))
+#+end_src
+
+- Verify a nested query without ~(level 0)~ can still match normal real headings.
+- Add a regression test proving that a nested heading scope no longer injects ~level > 0~ when it is intended to cover all headings.
+
+Documentation:
+
+- Update ~docs/cli.org~ and ~docs/reference/query-model-v0.org~.
+- State explicitly:
+  - nested ~headings~ queries include synthetic roots
+  - top-level Org headings have the synthetic root as their parent
+  - the synthetic root is an ancestor of every real heading in the file
+  - the synthetic root has no parent or ancestors
+  - the synthetic root may have children and descendants
+  - ~descendants~ returns every strict ancestor of a matching nested heading, including the file root
+- Add examples for:
+  - ~(parent (headings (level 0)))~
+  - ~(ancestors (headings (level 0)))~
+  - a root returned by ~descendants~
+
+Acceptance criteria:
+
+- ~(parent (headings (level 0)))~ matches real top-level headings.
+- ~(ancestors (headings (level 0)))~ matches every real heading in the file.
+- The synthetic root never matches ~parent~ or ~ancestors~ as an outer candidate.
+- The synthetic root can match ~children~ and ~descendants~ as an outer candidate.
+- Nested heading queries no longer exclude roots through an implicit ~level > 0~ filter.
+- Existing real-heading relation queries continue to work.
+- Corrected manual-test expectations include the file root for applicable ~descendants~ queries.
+- No database or index migration is required.
+
+* Planning
+
+** Problem summary
+
+Nested ~headings~ queries used by ~parent~, ~ancestors~, ~children~, and ~descendants~ currently receive the ~RealHeading~ scope's implicit ~level > 0~ filter. This prevents the persisted synthetic level-0 root from satisfying a nested relation query even though the stored ~parent_id~ and ~outline_path~ hierarchy already represents it correctly.
+
+** Goals
+
+- Make nested heading relation targets root-inclusive without changing top-level result shaping.
+- Let ~parent (headings (level 0))~ match top-level real headings and ~ancestors (headings (level 0))~ match every real heading in the file.
+- Preserve strict/direct hierarchy semantics and current outer-root behavior: roots cannot match ~parent~ or ~ancestors~, but can match ~children~ and ~descendants~.
+- Document the root-inclusive nested-query contract and add regression coverage.
+
+** Non-goals
+
+- No schema, indexing, migration, parser, or link-resolution changes.
+- No changes to non-hierarchy relation predicates or output kinds/order.
+
+** Architecture
+
+- Extend the SQLite heading match-kind model with an explicit all-headings mode whose base filter is absent; keep the existing real-heading and root-file modes for top-level heading result compilation.
+- Add an alias-allocator helper for an all-headings nested scope and use it only when compiling hierarchy relation nested targets.
+- Continue using the existing direct ~parent_id~ predicates and strict ~outline_path~ depth/materialized-path predicates. Retain the root-false guard for outer ~parent~ and ~ancestors~ candidates.
+
+** Execution plan
+
+1. Update ~src/query/sqlite.rs~ so a nested hierarchy target compiles against all headings in its file, allowing both level-0 roots and real headings to satisfy its predicates without an injected level restriction.
+2. Extend focused SQLite execution tests with a branched hierarchy fixture. Cover root matching through nested ~level~, title, boolean, TODO, and tag predicates; direct-child vs transitive-descendant behavior; root outer candidates for ~children~ and ~descendants~; branch isolation; and self-exclusion.
+3. Add a compiler-level regression assertion that the all-headings nested scope emits no implicit ~level > 0~ condition. Keep existing real-heading nested-relation behavior covered.
+4. Update ~docs/cli.org~ and ~docs/reference/query-model-v0.org~ to state that nested hierarchy ~headings~ queries include roots, clarify root parent/ancestor/child/descendant rules, and add the required parent, ancestors, and root-descendant examples.
+5. Run focused query tests, then ~make ci~. Record results and move the task through the normal BUILD/REVIEW workflow.
+
+** Risks & assumptions
+
+- Assumption: one level-0 root row per file and its existing depth-0 outline entry remain invariant.
+- The all-headings mode is restricted to nested hierarchy matching so it does not alter top-level SQL result splitting or unrelated relation semantics.
+- Root/file rows continue to serialize as ~kind = "file"~ when returned by outer heading queries.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~(parent (headings (level 0)))~ returns all and only real top-level headings.
+- ~(ancestors (headings (level 0)))~ returns every real heading and no root.
+- Root rows can be outer matches for qualifying ~children~ and ~descendants~ queries; descendant results include all strict ancestors up to the root.
+- Existing nested real-heading parent, child, ancestor, and descendant queries remain unchanged.
+- Focused tests and ~make ci~ pass.
+
+* Results
+
+** Approach
+
+- Added an ~AllHeadings~ SQLite match scope with no implicit level predicate and used it for hierarchy relation targets.
+- Kept root-only result shaping and the outer-root false guard for ~parent~ and ~ancestors~.
+- Expanded the existing hierarchy fixture coverage and documented the revised root relation semantics.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~docs/cli.org~
+- ~docs/reference/query-model-v0.org~
+
+** Checks performed
+
+- ~cargo test --all-targets --all-features hierarchy_predicates~
+- ~cargo test --all-targets --all-features nested_hierarchy_heading_scopes_do_not_filter_out_synthetic_roots~
+- ~make ci~
+
+** Test results
+
+- All focused hierarchy checks passed.
+- ~make ci~ passed: formatting, clippy, 348 unit tests, integration tests, and build.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+None.
