@@ -1,0 +1,10 @@
+:PROPERTIES:
+:CATEGORY: fp1-fallback-root
+:OWNER: Carla
+:END:
+#+KIND: fallback
+#+FILETAGS: :fp1_archive:
+#+STARTUP: showall
+
+* file predicates: Fallback heading fp1-c
+This file intentionally has no TITLE keyword.

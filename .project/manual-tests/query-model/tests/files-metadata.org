@@ -1,0 +1,379 @@
+#+TITLE: Manual tests - file metadata predicates
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* file-name
+
+** Exakter Dateiname
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-name "file-predicates-alpha.org" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Mehrere Teiltexte verwenden AND-Semantik
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-name "file-predicates" "alpha"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Dateiname als Regexp
+
+Erwartet:
+
+- alle drei Fixture-Dateien
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-name "^file-predicates-.*\\.org$" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-fallback.org",
+  "title_raw": null
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+* file-path
+
+** Pfad als Teiltext
+
+Erwartet:
+
+- ~nested/file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-path "nested/file-predicates-beta.org"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Pfad als Regexp
+
+Erwartet:
+
+- ~nested/file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-path ".*/nested/file-predicates-beta\\.org$" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+* file-dir
+
+** Verzeichnis als Teiltext
+
+Erwartet:
+
+- ~nested/file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "file-predicates-beta.org" :exact t)
+         (file-dir "nested")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Falsches Verzeichnis
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "file-predicates-alpha.org" :exact t)
+         (file-dir "nested")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC
+
+* file-title
+
+** Exakter Dateititel
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-title "File predicates alpha fp1" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Titel als Teiltext mit AND-Semantik
+
+Erwartet:
+
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-title "predicates" "beta"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Fallback auf Dateistamm ohne TITLE
+
+Erwartet:
+
+- ~file-predicates-fallback.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (file-title "file-predicates-fallback" :exact t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-fallback.org",
+  "title_raw": null
+}
+#+end_SRC
+
+* file-modified
+
+Die Tests verwenden grosse relative Zeiträume, damit sie unabhängig vom konkreten Entpackdatum bleiben.
+
+** Sehr weit zurückliegende Untergrenze
+
+Erwartet:
+
+- alle drei Fixture-Dateien
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "^file-predicates-.*\\.org$" :regexp t)
+         (file-modified :from -36500)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-fallback.org",
+  "title_raw": null
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Sehr weit in der Zukunft liegende Untergrenze
+
+Erwartet:
+
+- kein Resultat
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "^file-predicates-.*\\.org$" :regexp t)
+         (file-modified :from 36500)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+#+end_SRC

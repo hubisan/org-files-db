@@ -1,0 +1,13 @@
+:PROPERTIES:
+:CATEGORY: fp1-alpha-root
+:OWNER: Alice
+:END:
+#+TITLE: File predicates alpha fp1
+#+KIND: primary
+#+FILETAGS: :fp1_project:fp1_archive:fp1_shared:
+#+STARTUP: showall
+
+[[file:nested/file-predicates-beta.org][fp1 alpha preamble link]]
+
+* file predicates: Alpha heading fp1-a
+Alpha body.

@@ -50,6 +50,32 @@ Erwartet:
 }
 #+end_SRC
 
+** Link from Root
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "linked-from.org")
+         (linked-from (headings (level 0)))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/linked-from.org",
+  "title_raw": "linked-from: From Root"
+}
+#+end_SRC
+
 ** Backlink von lokal getaggtem Source-Heading
 
 Erwartet:
@@ -652,6 +678,36 @@ Erwartet:
   "kind": "heading",
   "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org",
   "title_raw": "links-to: Source To ID lto6-b"
+}
+#+end_SRC
+
+** Link zum Root
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(headings
+       (and
+         (file-name "links-to.org")
+         (links-to
+           (headings
+             (and
+               (file-name "links-to.org")
+               (level 0))))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "heading",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/links-to.org",
+  "title_raw": "links-to: Links to root"
 }
 #+end_SRC
 

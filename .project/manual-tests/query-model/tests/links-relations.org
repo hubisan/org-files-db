@@ -255,6 +255,45 @@ Erwartet:
 }
 #+end_SRC
 
+** Source ist Root
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (source
+         (headings
+            (and
+              (file-name "link-predicates-source.org")
+              (level 0)))))' \
+  | jq '.results[] | {
+      source_file: .location.file_path,
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "source_file": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "link_type": "custom-id",
+  "raw_target": "#targetted_by_root",
+  "raw_description": "link predicates: Targetted by Root",
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
 ** Source-Heading über lokalen Tag
 
 Erwartet:
@@ -541,6 +580,50 @@ Erwartet:
   "link_type": "custom-id",
   "raw_target": "#lps1-local-custom",
   "raw_description": null,
+  "resolution_status": "resolved"
+}
+#+end_SRC
+
+** Target
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(links
+       (and
+         (source
+           (files
+             (file-name "link-predicates-source.org" :exact t)))
+         (target
+           (headings
+             (level 0)))))' \
+  | jq '.results[] | {
+      link_type,
+      raw_target,
+      raw_description,
+      resolution_status
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 preamble file target",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-target.org",
+  "raw_description": "lps1 file description",
+  "resolution_status": "resolved"
+}
+{
+  "link_type": "file",
+  "raw_target": "file:link-predicates-source.org",
+  "raw_description": "link-predicates-source-lps1",
   "resolution_status": "resolved"
 }
 #+end_SRC

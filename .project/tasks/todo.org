@@ -333,9 +333,11 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 ***** DONE links-to
 ***** DONE linked-from
 
-**** Link Predicates
-...
+**** DONE Link Predicates
+
+**** DONE File Predicates
+
+**** TODO Output Modes
 
 *** Search
 
-*** ...

@@ -2,6 +2,7 @@
 #+STARTUP: showall
 
 [[file:link-predicates-target.org][lps1 preamble file target]]
+[[#targetted_by_root][link predicates: Targetted by Root]]
 
 * link predicates: Tagged source lps1-a                         :lps1_source:
 [[#lps1-local-custom][lps1 custom id description]]
@@ -31,4 +32,12 @@
 :PROPERTIES:
 :ID: lps1-local-id
 :CUSTOM_ID: lps1-local-custom
+:END:
+
+* link predicates: Targets Root
+[[file:link-predicates-source.org][link-predicates-source-lps1]]
+
+* link predicates: Targetted by Root
+:PROPERTIES:
+:CUSTOM_ID: targetted_by_root
 :END:

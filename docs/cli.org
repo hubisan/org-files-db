@@ -413,7 +413,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Matches objects that have incoming links from the nested source. ~any~ means any incoming link.
   Example: ~'(linked-from (headings (property "CUSTOM_ID" "query-model" :inherit nil)))'~.
 
-*** Hierarchy depth examples
+**** Hierarchy depth examples
 
 The following single-file outline distinguishes direct from transitive relations:
 
@@ -455,7 +455,7 @@ Relations never cross file boundaries. A heading never matches itself through ~a
   Matches one or more persisted resolution statuses. Supported values are ~resolved~, ~broken~, ~unresolved~, ~ambiguous~, and ~unsupported~; a ~null~ status means no resolver pass has populated the row yet.
   Example: ~'(links (status "broken" "unresolved"))'~.
 
-*** Link resolution statuses
+**** Link resolution statuses
 
 - ~resolved~ :: Exactly one indexed target was found. Only resolved links can match structured ~(target (headings ...))~ or ~(target (files ...))~ queries.
 - ~broken~ :: The link is expected to resolve to an indexed target, but no valid target exists.
@@ -508,11 +508,6 @@ Use ~status~ to inspect each non-resolved outcome; structured ~target~ queries d
   Targets: ~files~.
   Matches files by contained links, including preamble/root links.
   Example: ~'(files (has-link (links (status "broken"))))'~.
-
-*** Unsupported or intentionally absent operators
-
-- ~tags-regexp~ is not a supported public predicate. Use ~(tags ... :regexp t)~ instead.
-- Query Model output options stay outside the query language itself. ~--output~ and ~--include~ are CLI options, not query forms.
 
 ** Root and File Matching Semantics
 

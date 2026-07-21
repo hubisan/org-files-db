@@ -1,0 +1,11 @@
+:PROPERTIES:
+:CATEGORY: fp1-beta-root
+:OWNER: Bob
+:END:
+#+TITLE: File predicates beta fp1
+#+KIND: secondary
+#+FILETAGS: :fp1_project:fp1_shared:
+#+STARTUP: showall
+
+* file predicates: Broken-link heading fp1-b
+[[#fp1-missing-target][fp1 beta broken link]]

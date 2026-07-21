@@ -1,0 +1,523 @@
+#+TITLE: Manual tests - file facts and links
+#+STARTUP: showall
+
+* Paths
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+#+name: cargo-manifest
+: ../../../../Cargo.toml
+
+#+name: config-path
+: ../Config.toml
+
+* keyword
+
+** Keyword-Schlüssel ohne Wert
+
+Erwartet:
+
+- alle drei Fixture-Dateien
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "^file-predicates-.*\\.org$" :regexp t)
+         (keyword "KIND")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-fallback.org",
+  "title_raw": null
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Keyword mit exaktem Wert
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (keyword "KIND" "primary"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Keyword-Wert als Regexp
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (keyword "KIND" "^(primary|secondary)$" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+* property
+
+** Direkte Root-Property
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (property "CATEGORY" "fp1-alpha-root"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Property-Schlüssel ohne Wert
+
+Erwartet:
+
+- alle drei Fixture-Dateien
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "^file-predicates-.*\\.org$" :regexp t)
+         (property "OWNER")))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-fallback.org",
+  "title_raw": null
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Property-Wert als Regexp
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (property "OWNER" "^(Alice|Bob)$" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** inherit ist in File-Queries ungültig
+
+Erwartet:
+
+- Fehler: ~:inherit is not valid for property in files queries~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (property "CATEGORY" "fp1-alpha-root" :inherit t))' 2>&1
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+unknown option for property: :inherit (target files, predicate property)
+#+end_SRC
+
+* tags
+
+** Ein Tag mit ANY-Semantik
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (tags "fp1_project"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Mehrere Tags mit ALL-Semantik
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (tags "fp1_project" "fp1_archive" :match :all))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** tags-all Alias
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (tags-all "fp1_project" "fp1_archive"))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Tags als Regexp
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (tags "^fp1_(project|shared)$" :regexp t))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** inherit ist bei File-Tags ungültig
+
+Erwartet:
+
+- Fehler, dass ~:inherit~ für ~tags~ im Target ~files~ nicht gültig ist
+
+#+begin_src shell :noweb yes :results raw :wrap SRC text
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (tags "fp1_project" :inherit t))'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC text
+unknown option for tags: :inherit (target files, predicate tags)
+#+end_SRC
+
+* has-link
+
+** Dateien mit mindestens einem Link
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "^file-predicates-.*\\.org$" :regexp t)
+         (has-link)))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+#+end_SRC
+
+** Datei mit Preamble-/Root-Link
+
+Erwartet:
+
+- ~file-predicates-alpha.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (has-link
+         (links
+           (link-description "fp1 alpha preamble link" :exact t))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-alpha.org",
+  "title_raw": "File predicates alpha fp1"
+}
+#+end_SRC
+
+** Datei mit Broken Link
+
+Erwartet:
+
+- ~file-predicates-beta.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (has-link
+         (links
+           (status "broken"))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw,
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/nested/file-predicates-beta.org",
+  "title_raw": "File predicates beta fp1"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-link.org",
+  "title_raw": "has-link-fixture-hln5"
+}
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/links/link-predicates-source.org",
+  "title_raw": "link-predicates-source-lps1"
+}
+#+end_SRC
+
+** Datei ohne Link
+
+Erwartet:
+
+- ~file-predicates-fallback.org~
+
+#+begin_src shell :noweb yes :results raw :wrap SRC js
+  set -o pipefail
+
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> \
+    '(files
+       (and
+         (file-name "file-predicates-fallback.org" :exact t)
+         (not (has-link))))' \
+  | jq '.results[] | {
+      kind,
+      file_path: .location.file_path,
+      title_raw
+    }'
+#+end_src
+
+#+RESULTS:
+#+begin_SRC js
+{
+  "kind": "file",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/files/file-predicates-fallback.org",
+  "title_raw": null
+}
+#+end_SRC

@@ -1,6 +1,8 @@
 #+TITLE: linked-from-fixture-lfr7
 #+STARTUP: showall
 
+[[#link_from_root][linked-from: From Root]]
+
 * linked-from: Tagged Source lfr7-source-a                  :lfr7_source_tag:
 [[#lfr7-target-a][lfr7 backlink A description]]
 
@@ -20,4 +22,9 @@
 * linked-from: Target Without Backlink lfr7-target-c
 :PROPERTIES:
 :CUSTOM_ID: lfr7-target-c
+:END:
+
+* linked-from: From Root
+:PROPERTIES:
+:CUSTOM_ID: link_from_root
 :END:

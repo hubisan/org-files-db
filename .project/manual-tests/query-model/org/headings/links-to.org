@@ -20,3 +20,6 @@
 :PROPERTIES:
 :CUSTOM_ID: lto6-other-custom
 :END:
+
+* links-to: Links to root 
+[[file:links-to.org][links-to-fixture-lto6]]
