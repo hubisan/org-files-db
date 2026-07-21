@@ -1,7 +1,7 @@
 #+TITLE: linked-from-fixture-lfr7
 #+STARTUP: showall
 
-* linked-from: Tagged Source lfr7-source-a                           :lfr7-source-tag:
+* linked-from: Tagged Source lfr7-source-a                  :lfr7_source_tag:
 [[#lfr7-target-a][lfr7 backlink A description]]
 
 * linked-from: Plain Source lfr7-source-b

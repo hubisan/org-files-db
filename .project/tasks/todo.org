@@ -274,7 +274,7 @@ Task file: [[file:archive/2026-07-21--improve-hierarchy-predicate-documentation.
 
 ** DONE Correct link predicate target documentation
 
-Task file: [[file:2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
+Task file: [[file:archive/2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
 
 ** TODO Manual Test the Implementation
 
@@ -286,7 +286,10 @@ Task file: [[file:2026-07-21--correct-link-predicate-target-documentation.org][C
 
 **** DONE File Local Todo Keywords
 
-**** Heading Predicates
+**** DONE Heading Predicates
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 ***** DONE todo
 ***** DONE done
 ***** DONE title
@@ -315,8 +318,8 @@ Task file: [[file:2026-07-21--correct-link-predicate-target-documentation.org][C
 ***** DONE ancestors
 ***** DONE descendants
 ***** DONE has-link
-***** links-to
-***** linked-from
+***** DONE links-to
+***** DONE linked-from
 
 **** Link Predicates
 ...
