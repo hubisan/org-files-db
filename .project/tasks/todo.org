@@ -292,6 +292,10 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 
 - Task file: [[file:archive/2026-07-22--include-level-zero-file-roots-in-the-fts-heading-index.org][Include Level-Zero File Roots in the FTS Heading Index]]
 
+** DONE [#A] Rename public root result kind from ~file~ to ~root~
+
+- Task file: [[file:archive/2026-07-22--rename-public-root-result-kind.org][Rename Public Root Result Kind]]
+
 ** TODO Manual Test the Implementation
 
 *** Query

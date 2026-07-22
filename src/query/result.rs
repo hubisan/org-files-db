@@ -63,15 +63,59 @@ pub struct QueryResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum QueryResultNode {
     File(FileResultNode),
     Heading(HeadingResultNode),
     Link(Box<LinkResultNode>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryResultKind {
+    File,
+    Root,
+    Heading,
+    Link,
+}
+
+impl QueryResultKind {
+    pub fn from_heading_level(level: i64) -> Self {
+        if level == 0 {
+            Self::Root
+        } else {
+            Self::Heading
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Root => "root",
+            Self::Heading => "heading",
+            Self::Link => "link",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResultDomain {
+    Files,
+    Headings,
+    Links,
+}
+
+fn public_result_kind(domain: ResultDomain, heading_level: i64) -> QueryResultKind {
+    match domain {
+        ResultDomain::Files => QueryResultKind::File,
+        ResultDomain::Headings => QueryResultKind::from_heading_level(heading_level),
+        ResultDomain::Links => QueryResultKind::Link,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FileResultNode {
+    pub kind: QueryResultKind,
     pub matched: bool,
     pub id: i64,
     pub level: i64,
@@ -105,6 +149,7 @@ pub struct FileResultNode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HeadingResultNode {
+    pub kind: QueryResultKind,
     pub matched: bool,
     pub id: i64,
     pub file_id: i64,
@@ -143,6 +188,7 @@ pub struct HeadingResultNode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LinkResultNode {
+    pub kind: QueryResultKind,
     pub matched: bool,
     pub id: i64,
     pub file_id: i64,
@@ -370,7 +416,7 @@ pub fn shape_query_results(
             .iter()
             .map(|row| match row {
                 HeadingQueryMatch::File(row) => context
-                    .shape_file_node(row.id, true, &includes, false)
+                    .shape_file_node(row.id, ResultDomain::Headings, true, &includes, false)
                     .map(QueryResultNode::File),
                 HeadingQueryMatch::Heading(row) => context
                     .shape_heading_node(row.id, true, &includes, false)
@@ -395,7 +441,7 @@ pub fn shape_query_results(
             .iter()
             .map(|row| {
                 context
-                    .shape_file_node(row.id, true, &includes, false)
+                    .shape_file_node(row.id, ResultDomain::Files, true, &includes, false)
                     .map(QueryResultNode::File)
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
@@ -403,7 +449,7 @@ pub fn shape_query_results(
             .iter()
             .map(|row| {
                 context
-                    .shape_file_node(row.id, true, &includes, true)
+                    .shape_file_node(row.id, ResultDomain::Files, true, &includes, true)
                     .map(QueryResultNode::File)
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
@@ -680,6 +726,7 @@ impl EnrichmentContext {
     fn shape_file_node(
         &self,
         file_id: i64,
+        domain: ResultDomain,
         matched: bool,
         includes: &[QueryInclude],
         with_children: bool,
@@ -687,6 +734,7 @@ impl EnrichmentContext {
         let file = self.file(file_id)?;
         let root_heading = self.heading(file.root_heading_id)?;
         Ok(FileResultNode {
+            kind: public_result_kind(domain, root_heading.level),
             matched,
             id: file.id,
             level: 0,
@@ -752,6 +800,7 @@ impl EnrichmentContext {
         let heading = self.heading(heading_id)?;
         let file = self.file(heading.file_id)?;
         Ok(HeadingResultNode {
+            kind: public_result_kind(ResultDomain::Headings, heading.level),
             matched,
             id: heading.id,
             file_id: heading.file_id,
@@ -814,6 +863,7 @@ impl EnrichmentContext {
     ) -> Result<LinkResultNode, QueryShapeError> {
         let file = self.file(row.file_id)?;
         Ok(LinkResultNode {
+            kind: public_result_kind(ResultDomain::Links, row.heading_level),
             matched: true,
             id: row.id,
             file_id: row.file_id,
@@ -866,7 +916,7 @@ impl EnrichmentContext {
                 HeadingQueryMatch::Heading(row) => self.file(row.file_id)?,
             };
             roots.entry(file.path.clone()).or_insert_with(|| {
-                self.shape_file_node(file.id, false, &[], true)
+                self.shape_file_node(file.id, ResultDomain::Headings, false, &[], true)
                     .expect("file root should shape")
             });
         }
@@ -904,7 +954,7 @@ impl EnrichmentContext {
         for row in rows {
             let file = self.file(row.file_id)?;
             roots.entry(file.path.clone()).or_insert_with(|| {
-                self.shape_file_node(file.id, false, &[], true)
+                self.shape_file_node(file.id, ResultDomain::Headings, false, &[], true)
                     .expect("file root should shape")
             });
         }
@@ -1767,7 +1817,7 @@ fn strip_root_breadcrumb(breadcrumbs: &[String], heading_level: i64) -> Vec<Stri
 mod tests {
     use super::{
         execute_and_shape_query, shape_query_results, EffectivePropertyFact, QueryExecutionOptions,
-        QueryInclude, QueryOutputMode, QueryResponse, QueryResultNode,
+        QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, FileRecordInput, HeadingRecord,
@@ -1781,7 +1831,19 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn flat_link_output_uses_link_path_and_node_path_without_collision() {
+    fn query_result_kind_classifies_heading_levels() {
+        assert_eq!(
+            QueryResultKind::from_heading_level(0),
+            QueryResultKind::Root
+        );
+        assert_eq!(
+            QueryResultKind::from_heading_level(1),
+            QueryResultKind::Heading
+        );
+    }
+
+    #[test]
+    fn link_output_preserves_omitted_root_sources_and_uses_root_outline_nodes() {
         let connection = seeded_connection();
         let query = validated(r#"(links (status "resolved"))"#);
         let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
@@ -1806,6 +1868,7 @@ mod tests {
         assert_eq!(first["link_path"], "beta.org");
         assert!(first.get("path").is_none());
         assert!(first["node_path"].is_array());
+        assert_eq!(first["node_path"][0]["kind"], "file");
         assert_eq!(first["source"]["heading"], Value::Null);
         assert_eq!(
             first["source"]["source_path"].as_array().map(Vec::len),
@@ -1826,6 +1889,19 @@ mod tests {
         assert_eq!(third["target"]["file"]["path"], "/tmp/query-beta.org");
         assert_eq!(third["target"]["heading"]["id"], 21);
         assert_eq!(third["target"]["heading"]["title"], "Beta Target");
+
+        let outline_rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let outline = shape_query_results(
+            &connection,
+            outline_rows,
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Outline,
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("outline results should shape");
+        let outline_json = serde_json::to_value(&outline).expect("outline should serialize");
+        assert_eq!(outline_json["results"][0]["kind"], "root");
     }
 
     #[test]
@@ -2317,8 +2393,11 @@ mod tests {
             .all(
                 |node| node["kind"] != "heading" || node["level"].as_i64().unwrap_or_default() > 0
             ));
-        assert_eq!(flat_json["results"][0]["kind"], "file");
+        assert_eq!(flat_json["results"][0]["kind"], "root");
         assert_eq!(flat_json["results"][0]["level"], 0);
+        let outline_json =
+            serde_json::to_value(&outline).expect("outline response should serialize");
+        assert_eq!(outline_json["results"][0]["kind"], "root");
         assert_eq!(matched_heading_ids(&flat), matched_heading_ids(&outline));
     }
 

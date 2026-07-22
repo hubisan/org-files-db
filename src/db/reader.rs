@@ -3,6 +3,8 @@ use std::fmt;
 use rusqlite::Connection;
 use serde::Serialize;
 
+use crate::query::QueryResultKind;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct HeadingListRow {
     pub id: i64,
@@ -260,11 +262,9 @@ impl DbReader {
             .query_map([expression], |row| {
                 Ok(SearchHeadingRow {
                     heading_id: row.get(0)?,
-                    kind: if row.get::<_, i64>(1)? == 0 {
-                        "file".to_string()
-                    } else {
-                        "heading".to_string()
-                    },
+                    kind: QueryResultKind::from_heading_level(row.get(1)?)
+                        .as_str()
+                        .to_string(),
                     path: row.get(2)?,
                     title: row.get(3)?,
                     line_number: row.get(4)?,

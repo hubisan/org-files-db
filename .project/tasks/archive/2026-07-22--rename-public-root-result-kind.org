@@ -1,0 +1,142 @@
+#+TITLE: Rename Public Root Result Kind
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-22 Wed 02:11]
+#+TASK_COMPLETED: [2026-07-22 Wed 02:11]
+
+* Original Task (User only)
+
+- Rename public synthetic level-0 result kind from ~file~ to ~root~ while preserving file-domain results as ~file~.
+** CONTINUE [#A] Rename public root result kind from ~file~ to ~root~
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-22--rename-public-root-result-kind.org][Rename Public Root Result Kind]]
+
+Goal:
+
+- Represent synthetic level-0 roots consistently as ~kind = "root"~ in every public output.
+- Reserve ~kind = "file"~ for actual file result objects.
+- Keep ~kind = "heading"~ for real Org headings with ~level > 0~.
+
+Public semantics:
+
+- ~root~ means the synthetic level-0 heading associated with an indexed file.
+- ~heading~ means a real Org heading with ~level > 0~.
+- ~file~ means an actual file-domain result returned by a ~(files ...)~ query.
+- A root remains internally backed by its canonical heading row and retains its canonical ~heading_id~ where that field is exposed.
+
+Scope:
+
+- Audit every public JSON serializer and result type that can expose a synthetic root.
+- Update Query Model heading results.
+- Update hierarchy relation results.
+- Update link-related heading relation results.
+- Update already serialized synthetic roots in included links, backlinks, source, and target objects where they appear.
+- Update ~orgfdb search --json~ results.
+- Update flat and outline output shapes.
+- Update any diagnostics, snapshots, fixtures, examples, and helper types containing public result kinds.
+- Do not rename internal database tables or foreign keys merely because roots are stored as heading rows.
+
+Compatibility:
+
+- Treat this as an intentional breaking API change.
+- Do not emit both ~file~ and ~root~ aliases.
+- Do not infer ~kind~ from presentation context; derive it from the canonical result domain and heading level.
+- Do not add a root object where the current public shape intentionally omits one.
+- File-query results must remain ~kind = "file"~.
+- Synthetic level-0 results must never be emitted as ~kind = "file"~ or ~kind = "heading"~.
+
+Implementation rules:
+
+- Centralize public kind derivation where possible:
+  - file-domain result -> ~file~
+  - heading row with ~level = 0~ -> ~root~
+  - heading row with ~level > 0~ -> ~heading~
+- Avoid separate serializer-specific mappings that can drift.
+- Preserve all existing IDs, paths, titles, locations, levels, and relation semantics.
+- Do not change matching semantics or database schema.
+
+Regression tests:
+
+- A top-level ~(headings)~ query serializes the synthetic root as ~kind = "root"~.
+- A real heading serializes as ~kind = "heading"~.
+- A ~(files ...)~ result serializes as ~kind = "file"~.
+- Parent, children, ancestors, and descendants serialize matched roots as ~root~.
+- Link ~source~ and ~target~ expansions serialize root objects as ~root~.
+- ~links-to~ and ~linked-from~ results serialize level-0 matches as ~root~.
+- Preamble-related results preserve their existing source shape; no root object is added where one is currently omitted.
+- FTS root-title and preamble matches serialize as ~kind = "root"~.
+- Flat and outline outputs use the same kind semantics.
+- No public snapshot or JSON fixture still expects ~kind = "file"~ for a level-0 heading.
+- Actual file-domain results remain ~kind = "file"~.
+
+Documentation:
+
+- Update ~docs/reference/query-model-v0.org~.
+- Update ~docs/cli.org~.
+- Document the distinction between ~root~, ~heading~, and ~file~.
+- Update all JSON examples containing synthetic roots.
+- Add a breaking-change note for consumers of the JSON API.
+
+Acceptance criteria:
+
+- Every public synthetic level-0 result uses ~kind = "root"~.
+- ~kind = "file"~ appears only for actual file-domain results.
+- ~kind = "heading"~ appears only for real headings.
+- No matching, identity, location, or relation behaviour changes.
+- ~make ci~ passes.
+
+
+* Planning
+
+** Problem summary
+
+- Public query and search outputs used ~kind = "file"~ for both synthetic level-0 roots and actual file-domain results.
+
+** Goals
+
+- Serialize existing synthetic level-0 result objects as ~kind = "root"~.
+- Preserve ~kind = "heading"~ for real headings and ~kind = "file"~ for actual file-domain results.
+
+** Non-goals
+
+- Do not add omitted root references, change matching behavior, or modify the database schema.
+
+** Architecture
+
+- Keep the existing internal ~QueryResultNode::File~ representation and derive its serialized kind from result domain and canonical heading level through one helper.
+
+** Proposed checks
+
+- Run focused result and CLI tests, then ~make ci~.
+
+* Results
+
+** Approach
+
+- Replaced enum-tag serialization with explicit centralized public result kinds while retaining the existing internal result-node variants and JSON fields.
+- Changed existing synthetic roots in heading and outline output to ~root~, including FTS search rows; file-domain results and file path entries remain ~file~.
+
+** Changed files
+
+- ~src/query/result.rs~, ~src/query.rs~, ~src/db/reader.rs~, ~src/cli.rs~
+- ~docs/reference/query-model-v0.org~, ~docs/cli.org~, ~README.org~
+
+** Checks performed
+
+- ~cargo test query::result::tests --lib~
+- ~cargo test cli::tests --lib~
+- ~make ci~
+
+** Test results
+
+- Focused result and CLI suites passed; ~make ci~ passed with 352 unit tests and all integration tests.
+
+** Follow-ups
+
+- Preamble link sources intentionally keep ~heading: null~; this task does not introduce a root object there.

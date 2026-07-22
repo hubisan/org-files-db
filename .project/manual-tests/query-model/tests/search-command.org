@@ -60,12 +60,13 @@ Expected:
 [
   {
     "heading_id": 279,
+    "kind": "heading",
     "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
     "title": "SQLite phrase heading",
     "line_number": 6,
     "byte_start": 138,
     "byte_end": 402,
-    "rank": -3.8967991019340764
+    "rank": -3.7825567357377374
   }
 ]
 #+end_SRC

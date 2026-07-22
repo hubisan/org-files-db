@@ -1429,10 +1429,10 @@ mod tests {
         .expect("default preamble search should succeed");
         assert_eq!(preamble_rows.len(), 1);
         assert_eq!(preamble_rows[0].heading_id, root_id);
-        assert_eq!(preamble_rows[0].kind, "file");
+        assert_eq!(preamble_rows[0].kind, "root");
         assert_eq!(
             serde_json::to_value(&preamble_rows).expect("search rows should serialize")[0]["kind"],
-            "file"
+            "root"
         );
 
         let body_rows = search_json_rows(
@@ -1443,7 +1443,7 @@ mod tests {
         )
         .expect("body preamble search should succeed");
         assert_eq!(body_rows.len(), 1);
-        assert_eq!(body_rows[0].kind, "file");
+        assert_eq!(body_rows[0].kind, "root");
 
         let title_preamble_rows = search_json_rows(
             true,
@@ -1458,7 +1458,7 @@ mod tests {
             search_json_rows(true, CliSearchScope::Title, "Sapphire", Some(&config_path))
                 .expect("root title search should succeed");
         assert_eq!(root_title_rows.len(), 1);
-        assert_eq!(root_title_rows[0].kind, "file");
+        assert_eq!(root_title_rows[0].kind, "root");
 
         let heading_rows = search_json_rows(true, CliSearchScope::All, "Amber", Some(&config_path))
             .expect("real heading search should succeed");
@@ -1473,7 +1473,7 @@ mod tests {
         )
         .expect("preamble-only search should succeed");
         assert_eq!(preamble_only_rows.len(), 1);
-        assert_eq!(preamble_only_rows[0].kind, "file");
+        assert_eq!(preamble_only_rows[0].kind, "root");
     }
 
     #[test]
@@ -1491,7 +1491,7 @@ mod tests {
             search_json_rows(true, CliSearchScope::Title, "Emerald", Some(&config_path))
                 .expect("title-only root title search should succeed");
         assert_eq!(title_rows.len(), 1);
-        assert_eq!(title_rows[0].kind, "file");
+        assert_eq!(title_rows[0].kind, "root");
 
         let default_preamble_rows = search_json_rows(
             true,
@@ -2106,7 +2106,7 @@ index_body_text = false
     }
 
     #[test]
-    fn query_json_heading_title_root_matches_return_file_kind() {
+    fn query_json_heading_title_root_matches_return_root_kind() {
         let test_dir = TestDir::new("query-title-root-match");
         let config_path = test_dir.path().join("config.toml");
         let org_path = test_dir.path().join("projects.org");
@@ -2137,7 +2137,7 @@ index_body_text = false
         assert_eq!(value["target"], "headings");
         assert_eq!(value["results"].as_array().expect("results array").len(), 1);
         let file = &value["results"][0];
-        assert_eq!(file["kind"], "file");
+        assert_eq!(file["kind"], "root");
         assert_eq!(file["title"], "Projects");
     }
 
@@ -2173,7 +2173,7 @@ index_body_text = false
 
         let value = serde_json::to_value(&response).expect("response should serialize");
         let file = &value["results"][0];
-        assert_eq!(file["kind"], "file");
+        assert_eq!(file["kind"], "root");
         assert_eq!(file["title"], "no-title-set");
         assert!(file["title_raw"].is_null());
     }

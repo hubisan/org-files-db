@@ -22,7 +22,7 @@ pub use result::{
     execute_and_shape_query, shape_query_results, EffectivePropertyFact, FileResultNode,
     HeadingResultNode, IncludedLink, KeywordFact, LinkResultNode, LinkSource, LinkTarget, Location,
     PathEntry, PropertyFact, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse,
-    QueryResultNode, QueryShapeError, QueryShapeErrorKind,
+    QueryResultKind, QueryResultNode, QueryShapeError, QueryShapeErrorKind,
 };
 pub use sqlite::{
     compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,

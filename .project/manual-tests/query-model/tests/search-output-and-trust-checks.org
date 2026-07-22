@@ -36,21 +36,23 @@ Expected for every result object:
 [
   {
     "heading_id": 285,
+    "kind": "heading",
     "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
     "title": "Body-only sqlite marker",
     "line_number": 8,
     "byte_start": 210,
     "byte_end": 301,
-    "rank": -5.1325988329476555
+    "rank": -5.0636781416707635
   },
   {
     "heading_id": 279,
+    "kind": "heading",
     "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
     "title": "SQLite phrase heading",
     "line_number": 6,
     "byte_start": 138,
     "byte_end": 402,
-    "rank": -3.8967991019340764
+    "rank": -3.7825567357377374
   }
 ]
 #+end_SRC
@@ -156,7 +158,7 @@ Expected:
 [
   {
     "heading_id": 278,
-    "kind": "file",
+    "kind": "root",
     "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
     "title": "SQLite Phrase Laboratory",
     "line_number": 1,

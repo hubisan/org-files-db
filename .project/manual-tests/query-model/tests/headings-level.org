@@ -29,7 +29,7 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
+  "kind": "root",
   "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
   "title_raw": "level-fixture-lvl8",
   "level": 0
@@ -51,7 +51,7 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
+  "kind": "root",
   "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/level.org",
   "title_raw": "level-fixture-lvl8",
   "level": 0

@@ -199,7 +199,7 @@ orgfdb query --json '(files)'
 ** Targets
 
 - ~headings~ ::
-  - Returns matched real headings and, when the heading query domain includes file/root objects, those file/root matches as ~kind = "file"~.
+  - Returns matched real headings and, when the heading query domain includes file/root objects, those file/root matches as ~kind = "root"~.
   - Bare top-level shorthand: yes.
   - Valid output modes: ~flat~, ~outline~.
   - Valid includes: ~path~, ~properties~, ~effective_properties~, ~keywords~, ~links~, ~backlinks~.
@@ -217,11 +217,11 @@ orgfdb query --json '(files)'
 Target notes:
 
 - Bare ~(headings)~ returns the complete heading-query domain: all real headings plus one file/root object per indexed file.
-- ~headings~ root/file results are always serialized as ~kind = "file"~. The internal level-0 storage rows are never exposed as ~kind = "heading"~ results.
+- ~headings~ root/file results are always serialized as ~kind = "root"~. The internal level-0 storage rows are never exposed as ~kind = "heading"~ results.
 - In flat output, the file/root result sorts before headings from the same file.
 - In outline output, the file/root result is the tree root for headings in that file.
 - Predicates such as ~title~ may also match the synthetic root/file object when their documented root participation is enabled.
-- File predicates on ~headings~ apply to both real headings and file/root objects: real headings inspect their containing file, and matching file/root objects are returned as ~kind = "file"~.
+- File predicates on ~headings~ apply to both real headings and file/root objects: real headings inspect their containing file, and matching file/root objects are returned as ~kind = "root"~.
 - ~links~ always return link objects. Nested source/target/file/headings relations affect matching only; they do not change the returned object kind.
 - ~files~ return file objects and use the file root heading as the storage source for tags, keywords, properties, and file-level links.
 
@@ -293,7 +293,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(done)'~.
 - ~title~ :: Syntax: ~(title STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~.
-  Default is case-insensitive substring matching against normalized heading titles. Matching file/root titles return ~kind = "file"~ nodes.
+  Default is case-insensitive substring matching against normalized heading titles. Matching file/root titles return ~kind = "root"~ nodes.
   Example: ~'(title "Query Engine" :exact t)'~.
 - ~has-text~ :: Syntax: ~(has-text STRING... :regexp t|nil)~.
   Targets: ~headings~.
@@ -330,15 +330,15 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(keyword "AUTHOR" "Alice")'~.
 - ~file-name~ :: Syntax: ~(file-name STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~files~.
-  Matches the containing file name. On ~headings~, matching file/root objects are also returned as ~kind = "file"~.
+  Matches the containing file name. On ~headings~, matching file/root objects are also returned as ~kind = "root"~.
   Example: ~'(file-name "notes.org" :exact t)'~.
 - ~file-path~ :: Syntax: ~(file-path STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
-  Matches the containing file path. A value of ~~ or beginning with ~~/~ expands its leading ~~ from the process ~HOME~ environment variable before substring, exact, or regexp matching. Named-user forms such as ~~alice/~ are not supported. Expansion does not invoke a shell, resolve symlinks, canonicalize paths, or require them to exist; stored and returned paths remain unchanged. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. On links this applies through the source file relation.
+  Matches the containing file path. A value of ~~ or beginning with ~~/~ expands its leading ~~ from the process ~HOME~ environment variable before substring, exact, or regexp matching. Named-user forms such as ~~alice/~ are not supported. Expansion does not invoke a shell, resolve symlinks, canonicalize paths, or require them to exist; stored and returned paths remain unchanged. On ~headings~, matching file/root objects are also returned as ~kind = "root"~. On links this applies through the source file relation.
   Example: ~'(file-path "~/projects/notes.org" :exact t)'~.
 - ~file-dir~ :: Syntax: ~(file-dir STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
-  Matches the containing directory path. A value of ~~ or beginning with ~~/~ expands its leading ~~ from the process ~HOME~ environment variable before substring, exact, or regexp matching. Named-user forms such as ~~alice/~ are not supported. Expansion does not invoke a shell, resolve symlinks, canonicalize paths, or require them to exist; stored and returned paths remain unchanged. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. On links this applies through the source file relation.
+  Matches the containing directory path. A value of ~~ or beginning with ~~/~ expands its leading ~~ from the process ~HOME~ environment variable before substring, exact, or regexp matching. Named-user forms such as ~~alice/~ are not supported. Expansion does not invoke a shell, resolve symlinks, canonicalize paths, or require them to exist; stored and returned paths remain unchanged. On ~headings~, matching file/root objects are also returned as ~kind = "root"~. On links this applies through the source file relation.
   Example: ~'(file-dir "~/projects" :exact t)'~.
 - ~file-title~ :: Syntax: ~(file-title STRING... :regexp t|nil :exact t|nil)~.
   Targets: ~headings~, ~links~, ~files~.
@@ -346,7 +346,7 @@ Options are validated per predicate. A supported option on one predicate does no
   Example: ~'(file-title "Projects" :exact t)'~.
 - ~file-modified~ :: Syntax: ~(file-modified :from DATE :to DATE :on DATE)~.
   Targets: ~headings~, ~files~.
-  Matches persisted file modification timestamps. On ~headings~, matching file/root objects are also returned as ~kind = "file"~. Relative dates such as ~today~ or integer day offsets are resolved before SQL execution.
+  Matches persisted file modification timestamps. On ~headings~, matching file/root objects are also returned as ~kind = "root"~. Relative dates such as ~today~ or integer day offsets are resolved before SQL execution.
   Example: ~'(file-modified :from -7 :to today)'~.
 - ~outline-contains~ :: Syntax: ~(outline-contains STRING... :regexp t|nil)~.
   Targets: ~headings~.
@@ -515,9 +515,9 @@ Synthetic root/file behavior matters most for heading queries:
 
 - Every indexed file has a synthetic level-0 heading in storage.
 - Every heading predicate is evaluated against the same heading-query domain: real headings plus the synthetic file/root object.
-- When a heading query matches the root/file object, the JSON result is emitted as ~kind = "file"~, not ~kind = "heading"~.
+- When a heading query matches the root/file object, the JSON result is emitted as ~kind = "root"~, not ~kind = "heading"~.
 - Matching file/root results expose ~level = 0~.
-- This is why a heading query may legitimately return file nodes.
+- This is why a heading query may legitimately return root nodes.
 
 Important distinctions:
 
@@ -581,7 +581,7 @@ Public rules for nested relation predicates:
 - The outer target determines the returned result kind.
 - The nested query filters related rows only.
 - Nested queries must use explicit target wrappers.
-- Nested ~(headings ...)~ relation queries use the complete heading domain, including synthetic level-0 file/root objects. When an outer heading query returns one of those matches, it remains ~kind = "file"~.
+- Nested ~(headings ...)~ relation queries use the complete heading domain, including synthetic level-0 file/root objects. When an outer heading query returns one of those matches, it remains ~kind = "root"~.
 - Invalid nested targets are validation errors.
 
 Implemented relation directions:
@@ -862,7 +862,7 @@ The output is a JSON array ordered deterministically by:
 Each JSON object exposes these public fields:
 
 - ~heading_id~
-- ~kind~ :: ~file~ for a synthetic level-0 file root, or ~heading~ for a real heading.
+- ~kind~ :: ~root~ for a synthetic level-0 file root, or ~heading~ for a real heading.
 - ~path~
 - ~title~
 - ~line_number~
@@ -880,4 +880,5 @@ Notes:
 - Existing databases built before persisted FTS trust metadata, or before level-0 roots were added to the FTS contract, must be rebuilt once before ~search~ works. The command will instruct the user to run ~orgfdb rebuild~ when the trusted search metadata is missing or stale.
 - ~--body~ requires a trusted FTS index that was rebuilt with body indexing enabled. Title-only trusted indexes still support default and ~--title~ searches.
 - Root titles are indexed in ~title~. Root preamble text is indexed only in ~body~ when body indexing is enabled.
+- This is a breaking JSON API change: synthetic roots previously emitted as ~kind = "file"~ now emit ~kind = "root"~; ~(files ...)~ results remain ~kind = "file"~.
 - When ~--title~ or ~--body~ is used, explicit FTS column filters inside ~EXPRESSION~ are rejected so user input cannot broaden the selected scope.

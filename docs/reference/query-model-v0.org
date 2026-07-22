@@ -480,17 +480,17 @@ The root context contains file-level facts:
 - CATEGORY
 - links in the file preamble
 
-The root context is represented as a file node in output.
+The root context is represented as a root node in output.
 
 It is not returned as a normal heading.
 
-*** 6.1 Root as file node in output
+*** 6.1 Root node in output
 
 The output kind remains:
 
 #+begin_src json
 {
-  "kind": "file"
+  "kind": "root"
 }
 #+end_src
 
@@ -514,7 +514,7 @@ The bare query:
 
 returns:
 
-- every indexed file/root object as ~kind = "file"~
+- every indexed file/root object as ~kind = "root"~
 - every real heading as ~kind = "heading"~
 
 A filtered heading query evaluates its predicate against this same domain. Applying a predicate may only reduce the bare ~(headings)~ result set; it must not add a new object kind that was absent from the bare target domain.
@@ -548,7 +548,7 @@ Example:
 ]
 #+end_src
 
-For links in the file preamble, the source path contains only the file/root node.
+For links in the file preamble, the source path contains only the file entry.
 
 Example:
 
@@ -713,11 +713,11 @@ Outline output returns a tree.
 
 Rules:
 
-- file/root nodes appear at the top
+- root nodes appear at the top of heading outlines
 - ancestor headings may be included as context
 - real matches are marked with ~matched: true~
 - context-only nodes are marked with ~matched: false~
-- root/file nodes use ~kind: "file"~
+- root nodes use ~kind: "root"~
 
 Example:
 
@@ -916,9 +916,9 @@ Future extensions should follow these rules:
 - Multi-value semantics are documented per predicate.
 - Text predicates use ~:regexp t~ instead of separate regexp predicates.
 - ~:exact t~ requires exactly one text argument.
-- Root/file context is represented as ~kind: "file"~.
+- Serialized root/file context is represented as ~kind: "root"~.
 - Root may act as synthetic heading context for selected predicates.
-- Path output always includes the root/file node.
+- Path output always includes the file entry.
 - Links in the file preamble are indexed and belong to the file/root context.
 - Output mode and include options are separate from query semantics.
 - Sorting is outside predicate logic.
@@ -962,7 +962,7 @@ That domain contains:
 
 A matching real heading is returned as ~kind = "heading"~.
 
-A matching file/root object is returned as ~kind = "file"~.
+A matching file/root object is returned as ~kind = "root"~.
 
 A heading predicate never returns links by itself.
 
@@ -999,7 +999,7 @@ Examples of root/file-level facts:
 - file modified time
 - file preamble links
 
-Root/file context is represented as ~kind: "file"~ in output. It is not returned as a normal heading.
+Serialized root/file context is represented as ~kind: "root"~ in output. It is not returned as a normal heading.
 
 *** 2.3 Subqueries must use explicit target wrappers
 
@@ -1151,7 +1151,7 @@ Matches headings whose title matches the regexp.
 
 Invalid because ~:exact t~ requires exactly one title argument.
 
-- ~title~ on heading queries can return a file/root match as ~kind = "file"~.
+- ~title~ on heading queries can return a file/root match as ~kind = "root"~.
 - ~file-title~ remains distinct: it filters by the containing file title and does not by itself turn that file title into a heading-title match.
 
 *** ~(has-text &rest strings &key regexp)~
@@ -2368,7 +2368,7 @@ Important core rules repeated here:
 - The outer target form decides which objects are returned.
 - ~(headings ...)~ returns real headings and matching file/root objects.
 - ~(links ...)~ returns links.
-- ~(files ...)~ returns files / root nodes.
+- ~(files ...)~ returns actual file-domain results, backed by each file's synthetic root row.
 - Top-level heading shorthand applies only at the outermost query.
 - Nested relation predicates must use explicit target wrappers.
 - Output mode and include options do not affect matching.
@@ -3020,7 +3020,7 @@ Notes:
 
 ** 8. Link-related predicates for file queries
 
-File queries return files/root nodes.
+File queries return actual file-domain results.
 
 Files can be filtered by links located in the file or by backlinks to the file.
 
@@ -3123,14 +3123,12 @@ It contains file-level facts:
 
 A file/root object may appear:
 
-- as a result of a ~(files ...)~ query
-- as the root node in path output
+- as a root result of a ~(headings ...)~ query
 - as the root node in outline output
-- as source or target in link queries
 
 ** 10. File queries
 
-A file query returns files/root nodes.
+A file query returns actual file-domain results.
 
 The outer form is:
 
@@ -3784,7 +3782,7 @@ Output grouped by source location:
 #+begin_src json
 [
   {
-    "kind": "file",
+    "kind": "root",
     "matched": false,
     "path": "index.org",
     "title": "Index",
@@ -4130,8 +4128,8 @@ JSON examples are conceptual. Exact field names may be adjusted by the API speci
 - result objects have a ~kind~
 - matched objects use ~matched: true~
 - context-only objects use ~matched: false~
-- paths always include the file/root node
-- file/root nodes use ~kind: "file"~
+- paths always include the file entry
+- serialized root nodes use ~kind: "root"~
 - root is not represented as a fake heading
 
 ** 3. Basic heading queries
@@ -4930,7 +4928,7 @@ Output:
 #+begin_src json
 [
   {
-    "kind": "file",
+    "kind": "root",
     "matched": false,
     "path": "notes.org",
     "title": "Notes",
@@ -5213,7 +5211,7 @@ Output:
 #+begin_src json
 [
   {
-    "kind": "file",
+    "kind": "root",
     "matched": false,
     "path": "projects.org",
     "title": "Projects",
@@ -5829,10 +5827,10 @@ Separate predicates such as ~(broken)~ and ~(resolved)~ do not scale.
 
 The file/root context behaves like a synthetic heading context for selected predicates, but it is not a real Org heading.
 
-In output it must remain:
+In output it is represented as:
 
 #+begin_src json
-{ "kind": "file" }
+{ "kind": "root" }
 #+end_src
 
 This avoids confusing real headings with file-level facts.
@@ -5887,7 +5885,9 @@ Empty target queries return the complete default domain of that target:
 - ~(links)~ returns all indexed links.
 - ~(files)~ returns all indexed files/root objects.
 
-File/root objects in the ~headings~ target use ~kind = "file"~. Synthetic level-0 storage rows are never exposed as ~kind = "heading"~.
+File/root objects in the ~headings~ target use ~kind = "root"~. Synthetic level-0 storage rows are never exposed as ~kind = "heading"~.
+
+This is a breaking API change: previously serialized synthetic roots used ~kind = "file"~. Actual file-domain results, including every ~(files ...)~ result, continue to use ~kind = "file"~.
 
 *** 21.3 Heading predicates
 
@@ -6143,7 +6143,7 @@ Core decisions:
 - multi-value semantics are documented per predicate family
 - regexp behavior uses ~:regexp t~
 - exact behavior uses ~:exact t~
-- root/file context is represented as ~kind: "file"~
+- serialized root/file context is represented as ~kind: "root"~
 - root may act as synthetic heading context for selected predicates
 - output mode is separate from query semantics
 - includes enrich results without changing matches
