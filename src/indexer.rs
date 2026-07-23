@@ -22,6 +22,7 @@ use crate::{
     },
     exclusions::ExclusionMatcher,
     file_identity::{display_path, FileIdentity},
+    indexing_context::IndexingContext,
     link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
     parser::{
@@ -81,14 +82,13 @@ where
         config: &Config,
         allow_empty: bool,
     ) -> Result<RebuildReport, IndexerError> {
-        if config.search.fts5_enabled
-            && !sqlite_supports_fts5(connection).map_err(|source| {
-                IndexerError::Database(DbError::Inspect {
-                    target: config.db_path.display().to_string(),
-                    source,
-                })
-            })?
-        {
+        let fts_backend_available = sqlite_supports_fts5(connection).map_err(|source| {
+            IndexerError::Database(DbError::Inspect {
+                target: config.db_path.display().to_string(),
+                source,
+            })
+        })?;
+        if config.search.fts5_enabled && !fts_backend_available {
             return Err(IndexerError::Write(DbWriteError::UnsupportedBackendFeature {
                 feature: "SQLite FTS5",
                 message:
@@ -96,6 +96,7 @@ where
                         .to_string(),
             }));
         }
+        let indexing_context = IndexingContext::from_config(config, fts_backend_available);
 
         let discovery = discover_org_files(config)?;
         if discovery.files.is_empty() && !discovery.had_exclusion_match {
@@ -170,6 +171,7 @@ where
         }
 
         LinkResolver::resolve_all(&tx, &discovery.indexed_universe).map_err(IndexerError::Write)?;
+        indexing_context.persist(&tx).map_err(IndexerError::Write)?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -1422,7 +1424,8 @@ mod tests {
         db::{
             open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
-            DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+            DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
+            DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
         },
         file_identity::FileIdentity,
         link_resolver::{
@@ -7496,9 +7499,9 @@ index_body_text = false
         let good_path = test_dir.path().join("a-good.org");
         let bad_path = test_dir.path().join("b-bad.org");
         let db_path = test_dir.path().join("db.sqlite");
-        let config = Config {
+        let initial_config = Config {
             db_path: db_path.clone(),
-            files: vec![good_path.clone(), bad_path.clone()],
+            files: vec![good_path.clone()],
             dirs: Vec::new(),
             links: Default::default(),
             todo: Default::default(),
@@ -7517,6 +7520,34 @@ index_body_text = false
 
         write_file(&good_path, "* Good\n");
         write_file(&bad_path, "* Bad\n");
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &initial_config)
+            .expect("initial rebuild should succeed");
+        let persisted_context: (String, String) = connection
+            .query_row(
+                "SELECT
+                    (SELECT value FROM db_metadata WHERE key = ?1),
+                    (SELECT value FROM db_metadata WHERE key = ?2)",
+                [
+                    DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
+                    DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("persisted context should load");
+        let context_entry_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM db_metadata WHERE key LIKE 'indexing_%'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("all indexing context entries should persist");
+        assert_eq!(context_entry_count, 6);
+        let config = Config {
+            files: vec![good_path.clone(), bad_path.clone()],
+            ..initial_config
+        };
 
         let error = Indexer::new(FailingParser)
             .rebuild(&mut connection, &config)
@@ -7537,8 +7568,188 @@ index_body_text = false
             .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
             .expect("heading count should load");
 
-        assert_eq!(files_count, 0);
-        assert_eq!(headings_count, 0);
+        assert_eq!(files_count, 1);
+        assert_eq!(headings_count, 2);
+        let unchanged_context: (String, String) = connection
+            .query_row(
+                "SELECT
+                    (SELECT value FROM db_metadata WHERE key = ?1),
+                    (SELECT value FROM db_metadata WHERE key = ?2)",
+                [
+                    DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
+                    DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("persisted context should remain readable");
+        assert_eq!(unchanged_context, persisted_context);
+    }
+
+    #[test]
+    fn full_rebuild_replaces_malformed_previous_indexing_context() {
+        let test_dir = TestDir::new("malformed-indexing-context-recovery");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+            discovery: Default::default(),
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        write_file(&org_path, "* Original\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        connection
+            .execute(
+                "UPDATE db_metadata SET value = CAST(x'0102' AS BLOB) WHERE key = ?1",
+                [DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY],
+            )
+            .expect("metadata should corrupt");
+
+        write_file(&org_path, "* Rebuilt\n");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("full rebuild should recover from malformed metadata");
+
+        let (storage_type, value): (String, String) = connection
+            .query_row(
+                "SELECT typeof(value), value FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("replaced metadata should load");
+        assert_eq!(storage_type, "text");
+        assert_eq!(value.len(), 64);
+        assert!(value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')));
+    }
+
+    #[test]
+    fn failed_context_persistence_rolls_back_all_rebuild_state() {
+        let test_dir = TestDir::new("indexing-context-persist-rollback");
+        let org_path = test_dir.path().join("notes.org");
+        let db_path = test_dir.path().join("db.sqlite");
+        let config = Config {
+            db_path: db_path.clone(),
+            files: vec![org_path.clone()],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+            discovery: Default::default(),
+        };
+        let mut connection = crate::db::open_database_with_schema(
+            &db_path,
+            &crate::db::SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        write_file(&org_path, "* Original\n[[https://example.com]]\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        let snapshot = |connection: &Connection| {
+            let files: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT path || ':' || mtime_ns || ':' || size || ':' || content_hash AS value
+                        FROM files ORDER BY id
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("file snapshot should load");
+            let headings: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT level || ':' || title || ':' || byte_start || ':' || byte_end AS value
+                        FROM headings ORDER BY id
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("heading snapshot should load");
+            let links: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT raw || ':' || COALESCE(resolution_status, '') AS value
+                        FROM links ORDER BY id
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("link snapshot should load");
+            let outline: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT materialized_path || ':' || breadcrumbs_json AS value
+                        FROM outline_path ORDER BY heading_id
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("outline snapshot should load");
+            let metadata: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT key || ':' || value AS value
+                        FROM db_metadata
+                        WHERE key IN (
+                            'body_text_available', 'fts_available', 'fts_body_indexed',
+                            'fts_schema_version'
+                        ) OR key LIKE 'indexing_%'
+                        ORDER BY key
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("metadata snapshot should load");
+            (files, headings, links, outline, metadata)
+        };
+        let before = snapshot(&connection);
+
+        connection
+            .execute_batch(
+                "CREATE TRIGGER fail_indexing_context_persist
+                 BEFORE UPDATE OF value ON db_metadata
+                 WHEN NEW.key = 'indexing_derived_search_fingerprint'
+                 BEGIN
+                    SELECT RAISE(ABORT, 'forced indexing context persistence failure');
+                 END;",
+            )
+            .expect("failure trigger should install");
+        write_file(&org_path, "* Changed\n[[https://example.invalid]]\n");
+
+        let error = indexer
+            .rebuild(&mut connection, &config)
+            .expect_err("context persistence trigger should abort rebuild");
+        assert!(error.to_string().contains("set_metadata_value"));
+        assert_eq!(snapshot(&connection), before);
     }
 
     #[test]

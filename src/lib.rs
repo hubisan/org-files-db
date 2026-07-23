@@ -7,6 +7,7 @@ pub mod db;
 mod exclusions;
 mod file_identity;
 pub mod indexer;
+mod indexing_context;
 mod link_resolver;
 pub mod parser;
 pub mod query;

@@ -97,21 +97,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-23--extract-stable-per-file-preparation.org]]
 
-** PLAN Persist indexing context and define invalidation rules
+** DONE Persist indexing context and define invalidation rules
 
-Goal: Prevent unchanged files from being skipped when indexing semantics or persisted capabilities have changed.
-
-Acceptance criteria:
-
-- The DB persists an explicit indexing-context version or deterministic fingerprint in ~db_metadata~.
-- The invalidation contract covers parser/indexer contract changes, configured default TODO keywords, configured plain-link protocols, body-text persistence, the FTS contract, and other parse- or write-affecting settings introduced later.
-- Query-only settings such as ~query.timezone~ do not force reparsing.
-- Source-root and ignore-rule changes trigger source-set and link-universe reconciliation even when file bytes are unchanged.
-- Each changed context component has a documented action: no action, derived-state rebuild, reparse affected files, or full rebuild.
-- A missing or incompatible context value in an older DB fails safe by requiring the necessary rebuild or reindex rather than trusting stale rows.
-- ~body_text_available~, ~fts_available~, ~fts_body_indexed~, ~fts_schema_version~, and the indexing-context metadata are updated atomically with the data they describe.
-- Global capability flags are never set to available when only a subset of current files satisfies the capability.
-- Tests cover config-only changes to TODO defaults, link protocols, body indexing, and FTS settings as applicable.
+- Task file: [[file:archive/2026-07-23--persist-indexing-context-and-define-invalidation-rules.org]]
 
 ** TODO Add deterministic change planning
 

@@ -1,0 +1,104 @@
+#+TITLE: Persist indexing context and define invalidation rules
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu 10:00]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Persist deterministic, versioned indexing-context fingerprints and classify configuration changes safely before later incremental planning is added.
+** DONE Persist indexing context and define invalidation rules
+
+- Task file: [[file:archive/2026-07-23--persist-indexing-context-and-define-invalidation-rules.org]]
+
+Goal: Prevent unchanged files from being skipped when indexing semantics or persisted capabilities have changed.
+
+Acceptance criteria:
+
+- The DB persists an explicit indexing-context version or deterministic fingerprint in ~db_metadata~.
+- The invalidation contract covers parser/indexer contract changes, configured default TODO keywords, configured plain-link protocols, body-text persistence, the FTS contract, and other parse- or write-affecting settings introduced later.
+- Query-only settings such as ~query.timezone~ do not force reparsing.
+- Source-root and ignore-rule changes trigger source-set and link-universe reconciliation even when file bytes are unchanged.
+- Each changed context component has a documented action: no action, derived-state rebuild, reparse affected files, or full rebuild.
+- A missing or incompatible context value in an older DB fails safe by requiring the necessary rebuild or reindex rather than trusting stale rows.
+- ~body_text_available~, ~fts_available~, ~fts_body_indexed~, ~fts_schema_version~, and the indexing-context metadata are updated atomically with the data they describe.
+- Global capability flags are never set to available when only a subset of current files satisfies the capability.
+- Tests cover config-only changes to TODO defaults, link protocols, body indexing, and FTS settings as applicable.
+
+
+* Planning
+
+** Problem summary
+
+Persisted file snapshots alone cannot establish that unchanged bytes remain valid after parser, discovery, or derived-search settings change.
+
+** Goals
+
+- Persist semantic, source-universe, and derived-search context versions and fingerprints atomically with a successful rebuild.
+- Compare stored and current context through one fail-safe API with composable invalidations.
+- Keep native Unix paths byte-preserving and query-only timezone configuration out of the context.
+
+** Non-goals
+
+- Change planning, incremental writes, watcher integration, and parallel preparation remain out of scope.
+
+** Architecture
+
+Use tagged, length-prefixed binary SHA-256 inputs. Semantic changes request reparsing, source-universe changes request source/link reconciliation, and derived-search changes request a derived-search rebuild. Missing, malformed, or unsupported metadata requires a full rebuild.
+
+** Execution plan
+
+1. Add the context model, binary encoder, persistence, and comparison API.
+2. Persist the current context in the existing rebuild transaction.
+3. Add focused unit and rebuild-atomicity tests.
+4. Document the contracts and update the changelog.
+
+** Risks & assumptions
+
+Context fingerprints are conservative: a harmless representation change can require extra work, but stale data must never be trusted.
+
+** Proposed checks
+
+- cargo fmt --check
+- cargo clippy --all-targets -- -D warnings
+- cargo test
+- cargo build --all-targets
+- make ci
+- git diff --check
+
+* Results
+
+** Approach
+
+- Added a private, reusable indexing-context comparison API with ~Compatible~, ~FullRebuildRequired~, and combinable invalidations.
+- Persisted semantic, discovery, and derived-search versions plus lowercase SHA-256 fingerprints in ~db_metadata~.
+- Kept full rebuild as the recovery path and persisted context only after file writes, FTS reconciliation, and link resolution in the existing transaction.
+
+** Changed files
+
+- ~src/indexing_context.rs~ defines tagged length-prefixed fingerprint encoding, metadata comparison, and focused tests.
+- ~src/indexer.rs~ probes the current FTS5 capability and persists the new context atomically on rebuild success without making full rebuild depend on old metadata.
+- ~src/db.rs~, ~docs/design/incremental-indexing.org~, and ~CHANGELOG.org~ document the metadata contract.
+
+** Checks performed
+
+- ~cargo fmt --check~
+- ~cargo clippy --all-targets -- -D warnings~
+- ~cargo test~
+- ~cargo build --all-targets~
+- ~make ci~
+- ~git diff --check~
+
+** Test results
+
+All checks passed. The focused tests cover deterministic non-UTF-8 Unix path input, ordered TODO settings, set-like source/protocol settings, source-universe changes, body/FTS/backend invalidation, combined actions, missing/malformed/unsupported/non-TEXT metadata, full-rebuild recovery from malformed metadata, and transaction rollback after a forced context-persistence failure.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+The next change-planning task will consume the comparison result. Selective reparsing and direction-specific body-policy optimisation remain intentionally deferred until per-file dependency evidence exists.

@@ -26,6 +26,13 @@ pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
 pub const DB_METADATA_FTS_AVAILABLE_KEY: &str = "fts_available";
 pub const DB_METADATA_FTS_BODY_INDEXED_KEY: &str = "fts_body_indexed";
 pub const DB_METADATA_FTS_SCHEMA_VERSION_KEY: &str = "fts_schema_version";
+pub const DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY: &str = "indexing_semantics_version";
+pub const DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY: &str = "indexing_semantics_fingerprint";
+pub const DB_METADATA_INDEXING_DISCOVERY_VERSION_KEY: &str = "indexing_discovery_version";
+pub const DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY: &str = "indexing_discovery_fingerprint";
+pub const DB_METADATA_INDEXING_DERIVED_SEARCH_VERSION_KEY: &str = "indexing_derived_search_version";
+pub const DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY: &str =
+    "indexing_derived_search_fingerprint";
 pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "3";
 
 #[cfg(test)]
