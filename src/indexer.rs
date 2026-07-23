@@ -7,6 +7,7 @@ use std::{
 };
 
 use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 
 use crate::{
     config::{Config, ConfigError},
@@ -106,48 +107,10 @@ where
             }
         }
 
-        let parse_options = config.parse_options();
         let mut pending = Vec::with_capacity(discovery.files.len());
         let _missing_explicit_files = discovery.missing_explicit_files;
         for discovered in discovery.files {
-            let identity = discovered.identity;
-            let path = discovered.path;
-            let metadata = fs::metadata(&path).map_err(|source| IndexerError::ReadFile {
-                path: path.clone(),
-                source,
-            })?;
-            let content = fs::read_to_string(&path).map_err(|source| IndexerError::ReadFile {
-                path: path.clone(),
-                source,
-            })?;
-            let resolved_todo_keywords = resolve_todo_keywords_with_default_source(
-                &content,
-                &parse_options.todo_keywords,
-                TodoKeywordSourceKind::ConfigDefault,
-            );
-            let document = self
-                .parser
-                .parse_document_core(
-                    &path,
-                    &content,
-                    &ParseOptions {
-                        todo_keywords: resolved_todo_keywords.effective.clone(),
-                        link_scanner: parse_options.link_scanner.clone(),
-                    },
-                )
-                .map_err(|diagnostic| IndexerError::Parse {
-                    path: path.clone(),
-                    diagnostic,
-                })?;
-            let normalized = normalize_document(document, &path, &content);
-            let file_record = build_file_record(&path, &metadata, &identity)?;
-            pending.push(PendingRebuildFile {
-                path,
-                document: normalized,
-                todo_keywords: resolved_todo_keywords,
-                diagnostics: Vec::new(),
-                file_record,
-            });
+            pending.push(self.prepare_discovered_file(discovered, config)?);
         }
 
         let tx = connection
@@ -163,8 +126,12 @@ where
 
         let mut report = RebuildReport::default();
         for pending_file in pending {
-            let file_id = DbWriter::upsert_file(&tx, &pending_file.file_record)
-                .map_err(IndexerError::Write)?;
+            debug_assert_eq!(
+                pending_file.file_record.identity.as_deref(),
+                Some(pending_file.identity.as_bytes())
+            );
+            let file_record = file_record_for_write(&pending_file.file_record, &pending_file.path)?;
+            let file_id = DbWriter::upsert_file(&tx, &file_record).map_err(IndexerError::Write)?;
             let heading_count = index_document(
                 &tx,
                 file_id,
@@ -209,6 +176,45 @@ where
 
         Ok(report)
     }
+
+    fn prepare_discovered_file(
+        &self,
+        discovered: DiscoveredOrgFile,
+        config: &Config,
+    ) -> Result<PreparedFile, IndexerError> {
+        let path = discovered.path;
+        let identity = discovered.identity;
+        let (content, snapshot) = read_stable_file_content(&path)?;
+        let parse_options = config.parse_options();
+        let todo_keywords = resolve_todo_keywords_with_default_source(
+            &content,
+            &parse_options.todo_keywords,
+            TodoKeywordSourceKind::ConfigDefault,
+        );
+        let document = self
+            .parser
+            .parse_document_core(
+                &path,
+                &content,
+                &ParseOptions {
+                    todo_keywords: todo_keywords.effective.clone(),
+                    link_scanner: parse_options.link_scanner,
+                },
+            )
+            .map_err(|diagnostic| IndexerError::Parse {
+                path: path.clone(),
+                diagnostic,
+            })?;
+
+        Ok(PreparedFile {
+            file_record: build_file_record(&path, &identity, &snapshot)?,
+            identity,
+            document: normalize_document(document, &path, &content),
+            todo_keywords,
+            diagnostics: Vec::new(),
+            path,
+        })
+    }
 }
 
 fn persist_search_trust_metadata(
@@ -230,12 +236,23 @@ fn persist_search_trust_metadata(
     Ok(())
 }
 
-struct PendingRebuildFile {
+/// Owned, DB-free preparation output suitable for later change planning and
+/// parallel parsing. The file record carries the stable source snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreparedFile {
     path: PathBuf,
+    identity: FileIdentity,
     document: ParsedOrgDocument,
     todo_keywords: ResolvedTodoKeywords,
     diagnostics: Vec<IndexDiagnostic>,
     file_record: FileRecordInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileSnapshot {
+    mtime_ns: i64,
+    size: i64,
+    content_hash: String,
 }
 
 struct DiscoveryResult {
@@ -305,6 +322,9 @@ pub enum IndexerError {
         path: PathBuf,
         field: &'static str,
     },
+    UnstableFileSnapshot {
+        path: PathBuf,
+    },
     Parse {
         path: PathBuf,
         diagnostic: ParseDiagnostic,
@@ -342,6 +362,11 @@ impl fmt::Display for IndexerError {
                 "failed to convert file metadata field {field} for {}",
                 path.display()
             ),
+            Self::UnstableFileSnapshot { path } => write!(
+                f,
+                "file changed while preparing {}; retry the indexing operation",
+                path.display()
+            ),
             Self::Parse { path, diagnostic } => {
                 write!(
                     f,
@@ -375,6 +400,7 @@ impl Error for IndexerError {
             Self::Discover { source, .. } => Some(source),
             Self::InvalidDocument(_) => None,
             Self::InvalidFileMetadata { .. } => None,
+            Self::UnstableFileSnapshot { .. } => None,
             Self::Parse { .. } => None,
             Self::ReadFile { source, .. } => Some(source),
             Self::Serialize { source, .. } => Some(source),
@@ -648,11 +674,73 @@ fn canonicalize_existing_dir(path: &Path) -> Result<PathBuf, IndexerError> {
     Ok(canonical)
 }
 
-fn build_file_record(
+trait FileSnapshotReader {
+    fn metadata(&mut self, path: &Path) -> Result<FileMetadata, IndexerError>;
+    fn read_bytes(&mut self, path: &Path) -> Result<Vec<u8>, IndexerError>;
+}
+
+struct FilesystemSnapshotReader;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileMetadata {
+    mtime_ns: i64,
+    size: i64,
+}
+
+impl FileSnapshotReader for FilesystemSnapshotReader {
+    fn metadata(&mut self, path: &Path) -> Result<FileMetadata, IndexerError> {
+        file_metadata(path)
+    }
+
+    fn read_bytes(&mut self, path: &Path) -> Result<Vec<u8>, IndexerError> {
+        fs::read(path).map_err(|source| IndexerError::ReadFile {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+}
+
+fn read_stable_file_content(path: &Path) -> Result<(String, FileSnapshot), IndexerError> {
+    read_stable_file_content_with(&mut FilesystemSnapshotReader, path)
+}
+
+fn read_stable_file_content_with(
+    reader: &mut impl FileSnapshotReader,
     path: &Path,
-    metadata: &fs::Metadata,
-    identity: &FileIdentity,
-) -> Result<FileRecordInput, IndexerError> {
+) -> Result<(String, FileSnapshot), IndexerError> {
+    for _ in 0..2 {
+        let before = reader.metadata(path)?;
+        let bytes = reader.read_bytes(path)?;
+        let after = reader.metadata(path)?;
+        if before != after {
+            continue;
+        }
+
+        let content_hash = format!("{:x}", Sha256::digest(&bytes));
+        let content = String::from_utf8(bytes).map_err(|source| IndexerError::ReadFile {
+            path: path.to_path_buf(),
+            source: io::Error::new(io::ErrorKind::InvalidData, source),
+        })?;
+        return Ok((
+            content,
+            FileSnapshot {
+                mtime_ns: before.mtime_ns,
+                size: before.size,
+                content_hash,
+            },
+        ));
+    }
+
+    Err(IndexerError::UnstableFileSnapshot {
+        path: path.to_path_buf(),
+    })
+}
+
+fn file_metadata(path: &Path) -> Result<FileMetadata, IndexerError> {
+    let metadata = fs::metadata(path).map_err(|source| IndexerError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
     let modified = metadata
         .modified()
         .map_err(|source| IndexerError::ReadFile {
@@ -667,6 +755,37 @@ fn build_file_record(
         })?
         .as_nanos();
     let size = metadata.len();
+    Ok(FileMetadata {
+        mtime_ns: i64::try_from(modified_ns).map_err(|_| IndexerError::InvalidFileMetadata {
+            path: path.to_path_buf(),
+            field: "mtime_ns",
+        })?,
+        size: i64::try_from(size).map_err(|_| IndexerError::InvalidFileMetadata {
+            path: path.to_path_buf(),
+            field: "size",
+        })?,
+    })
+}
+
+fn build_file_record(
+    path: &Path,
+    identity: &FileIdentity,
+    snapshot: &FileSnapshot,
+) -> Result<FileRecordInput, IndexerError> {
+    Ok(FileRecordInput {
+        path: path.to_path_buf(),
+        identity: Some(identity.as_bytes().to_vec()),
+        mtime_ns: snapshot.mtime_ns,
+        size: snapshot.size,
+        content_hash: Some(snapshot.content_hash.clone()),
+        indexed_at: None,
+    })
+}
+
+fn file_record_for_write(
+    prepared_record: &FileRecordInput,
+    path: &Path,
+) -> Result<FileRecordInput, IndexerError> {
     let indexed_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| IndexerError::InvalidFileMetadata {
@@ -676,23 +795,13 @@ fn build_file_record(
         .as_secs();
 
     Ok(FileRecordInput {
-        path: path.to_path_buf(),
-        identity: Some(identity.as_bytes().to_vec()),
-        mtime_ns: i64::try_from(modified_ns).map_err(|_| IndexerError::InvalidFileMetadata {
-            path: path.to_path_buf(),
-            field: "mtime_ns",
-        })?,
-        size: i64::try_from(size).map_err(|_| IndexerError::InvalidFileMetadata {
-            path: path.to_path_buf(),
-            field: "size",
-        })?,
-        content_hash: None,
         indexed_at: Some(i64::try_from(indexed_at).map_err(|_| {
             IndexerError::InvalidFileMetadata {
                 path: path.to_path_buf(),
                 field: "indexed_at",
             }
         })?),
+        ..prepared_record.clone()
     })
 }
 
@@ -1304,7 +1413,10 @@ fn db_write_invalid_input(message: &'static str) -> DbWriteError {
 
 #[cfg(test)]
 mod tests {
-    use super::{discover_org_files, IndexedFile, Indexer, IndexerError};
+    use super::{
+        discover_org_files, read_stable_file_content_with, DiscoveredOrgFile, FileMetadata,
+        FileSnapshotReader, IndexedFile, Indexer, IndexerError,
+    };
     use crate::{
         config::{Config, SearchConfig},
         db::{
@@ -1312,6 +1424,7 @@ mod tests {
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
             DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
         },
+        file_identity::FileIdentity,
         link_resolver::{
             CUSTOM_ID_MISSING_DIAGNOSTIC, DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
             FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
@@ -1325,10 +1438,29 @@ mod tests {
     };
     use rusqlite::Connection;
     use std::{
+        collections::VecDeque,
         fs,
         path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    struct ScriptedSnapshotReader {
+        metadata: VecDeque<FileMetadata>,
+        bytes: VecDeque<Vec<u8>>,
+    }
+
+    impl FileSnapshotReader for ScriptedSnapshotReader {
+        fn metadata(&mut self, _path: &Path) -> Result<FileMetadata, IndexerError> {
+            Ok(self
+                .metadata
+                .pop_front()
+                .expect("test metadata should exist"))
+        }
+
+        fn read_bytes(&mut self, _path: &Path) -> Result<Vec<u8>, IndexerError> {
+            Ok(self.bytes.pop_front().expect("test bytes should exist"))
+        }
+    }
 
     #[derive(Debug, PartialEq, Eq)]
     struct StoredLinkRow {
@@ -7407,6 +7539,240 @@ index_body_text = false
 
         assert_eq!(files_count, 0);
         assert_eq!(headings_count, 0);
+    }
+
+    #[test]
+    fn preparation_hashes_and_normalizes_one_stable_file_snapshot() {
+        let test_dir = TestDir::new("prepared-file");
+        let path = test_dir.path().join("prepared.org");
+        write_file(&path, "* Prepared\n");
+        let canonical_path = fs::canonicalize(&path).expect("path should canonicalize");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: Vec::new(),
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let prepared = Indexer::new(OrgizeAdapter::new())
+            .prepare_discovered_file(
+                DiscoveredOrgFile {
+                    identity: FileIdentity::from_canonical_path(&canonical_path),
+                    path: canonical_path.clone(),
+                    scan_root: test_dir.path().to_path_buf(),
+                },
+                &config,
+            )
+            .expect("preparation should succeed");
+
+        assert_eq!(prepared.path, canonical_path);
+        assert_eq!(
+            prepared.file_record.content_hash.as_deref(),
+            Some("40e60c2e39f6e79d31d21d605d33d858cf27fb7ed9a706982e9698a34c725075")
+        );
+        assert_eq!(prepared.file_record.indexed_at, None);
+        assert_eq!(prepared.document.headings.len(), 2);
+        assert_eq!(prepared.document.headings[1].title, "Prepared");
+    }
+
+    #[test]
+    fn unchanged_preparations_have_equal_source_derived_fields() {
+        let test_dir = TestDir::new("prepared-file-determinism");
+        let path = test_dir.path().join("prepared.org");
+        write_file(&path, "* Prepared\n");
+        let canonical_path = fs::canonicalize(&path).expect("path should canonicalize");
+        let config = Config::default();
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let discovered = || DiscoveredOrgFile {
+            identity: FileIdentity::from_canonical_path(&canonical_path),
+            path: canonical_path.clone(),
+            scan_root: test_dir.path().to_path_buf(),
+        };
+
+        let first = indexer
+            .prepare_discovered_file(discovered(), &config)
+            .expect("first preparation should succeed");
+        let second = indexer
+            .prepare_discovered_file(discovered(), &config)
+            .expect("second preparation should succeed");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn rebuild_persists_the_prepared_exact_content_hash() {
+        let test_dir = TestDir::new("prepared-content-hash-persistence");
+        let config_path = test_dir.path().join("config.toml");
+        let path = test_dir.path().join("prepared.org");
+        write_file(&path, "* Prepared\n");
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles = [\"prepared.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+        let connection =
+            Connection::open(test_dir.path().join("db.sqlite")).expect("database should open");
+        let row: (String, Option<i64>) = connection
+            .query_row("SELECT content_hash, indexed_at FROM files", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("prepared metadata should persist");
+        assert_eq!(
+            row.0,
+            "40e60c2e39f6e79d31d21d605d33d858cf27fb7ed9a706982e9698a34c725075"
+        );
+        assert!(row.1.is_some());
+    }
+
+    #[test]
+    fn preparation_rejects_invalid_utf8_without_opening_a_database_transaction() {
+        let test_dir = TestDir::new("prepared-invalid-utf8");
+        let path = test_dir.path().join("invalid.org");
+        fs::write(&path, b"* Invalid\n\xff").expect("invalid file should write");
+        let canonical_path = fs::canonicalize(&path).expect("path should canonicalize");
+        let config = Config::default();
+
+        let error = Indexer::new(OrgizeAdapter::new())
+            .prepare_discovered_file(
+                DiscoveredOrgFile {
+                    identity: FileIdentity::from_canonical_path(&canonical_path),
+                    path: canonical_path.clone(),
+                    scan_root: test_dir.path().to_path_buf(),
+                },
+                &config,
+            )
+            .expect_err("invalid UTF-8 should fail preparation");
+        assert!(matches!(error, IndexerError::ReadFile { path, .. } if path == canonical_path));
+    }
+
+    #[test]
+    fn stable_reader_retries_one_unstable_attempt_then_uses_the_second_snapshot() {
+        let path = Path::new("/tmp/retry.org");
+        let mut reader = ScriptedSnapshotReader {
+            metadata: VecDeque::from([
+                FileMetadata {
+                    mtime_ns: 1,
+                    size: 4,
+                },
+                FileMetadata {
+                    mtime_ns: 2,
+                    size: 4,
+                },
+                FileMetadata {
+                    mtime_ns: 3,
+                    size: 10,
+                },
+                FileMetadata {
+                    mtime_ns: 3,
+                    size: 10,
+                },
+            ]),
+            bytes: VecDeque::from([b"old\n".to_vec(), b"* Stable\n".to_vec()]),
+        };
+
+        let (content, snapshot) =
+            read_stable_file_content_with(&mut reader, path).expect("second attempt should win");
+        assert_eq!(content, "* Stable\n");
+        assert_eq!(snapshot.mtime_ns, 3);
+        assert_eq!(snapshot.size, 10);
+        assert_eq!(
+            snapshot.content_hash,
+            "9bff91c3ea0353d6792c39f79b35052dfd6379d8fa9a83147e04058ac160d998"
+        );
+    }
+
+    #[test]
+    fn stable_reader_rejects_two_unstable_attempts_deterministically() {
+        let path = Path::new("/tmp/unstable.org");
+        let mut reader = ScriptedSnapshotReader {
+            metadata: VecDeque::from([
+                FileMetadata {
+                    mtime_ns: 1,
+                    size: 1,
+                },
+                FileMetadata {
+                    mtime_ns: 2,
+                    size: 1,
+                },
+                FileMetadata {
+                    mtime_ns: 3,
+                    size: 1,
+                },
+                FileMetadata {
+                    mtime_ns: 4,
+                    size: 1,
+                },
+            ]),
+            bytes: VecDeque::from([b"a".to_vec(), b"b".to_vec()]),
+        };
+
+        assert!(matches!(
+            read_stable_file_content_with(&mut reader, path),
+            Err(IndexerError::UnstableFileSnapshot { path: error_path }) if error_path == path
+        ));
+    }
+
+    #[test]
+    fn stable_reader_hashes_crlf_bytes_exactly() {
+        let path = Path::new("/tmp/crlf.org");
+        let mut reader = ScriptedSnapshotReader {
+            metadata: VecDeque::from([
+                FileMetadata {
+                    mtime_ns: 1,
+                    size: 11,
+                },
+                FileMetadata {
+                    mtime_ns: 1,
+                    size: 11,
+                },
+            ]),
+            bytes: VecDeque::from([b"* Heading\r\n".to_vec()]),
+        };
+
+        let (_, snapshot) =
+            read_stable_file_content_with(&mut reader, path).expect("snapshot should be stable");
+        assert_eq!(
+            snapshot.content_hash,
+            "5339665855497512213a47b97f835bad7c112b2b344a73efce829edd9a0f075f"
+        );
+    }
+
+    #[test]
+    fn preparation_failure_preserves_an_existing_database() {
+        let test_dir = TestDir::new("prepared-failure-rollback");
+        let config_path = test_dir.path().join("config.toml");
+        let path = test_dir.path().join("note.org");
+        write_file(&path, "* Original\n");
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles = [\"note.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("initial rebuild should succeed");
+        fs::write(&path, b"* Invalid\n\xff").expect("invalid replacement should write");
+
+        assert!(matches!(
+            indexer.rebuild_from_config_path(&config_path),
+            Err(IndexerError::ReadFile { .. })
+        ));
+        let connection =
+            Connection::open(test_dir.path().join("db.sqlite")).expect("database should open");
+        let title: String = connection
+            .query_row("SELECT title FROM headings WHERE level = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("previous heading should remain");
+        assert_eq!(title, "Original");
     }
 
     fn query_rows<T, F>(connection: &Connection, sql: &str, mut map: F) -> Vec<T>

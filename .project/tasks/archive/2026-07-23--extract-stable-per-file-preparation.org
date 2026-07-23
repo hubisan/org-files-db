@@ -1,0 +1,88 @@
+#+TITLE: Extract Stable Per-File Preparation
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu]
+#+TASK_COMPLETED: [2026-07-23 Thu]
+
+* Original Task (User only)
+
+- Implement the approved Phase 6 per-file preparation plan.
+** DONE Extract stable per-file preparation
+
+Goal: Produce an independent, DB-free value containing everything needed to replace one file.
+
+- Task file: [[file:2026-07-23--extract-stable-per-file-preparation.org]]
+
+Acceptance criteria:
+
+- A prepared-file value contains the normalized document, resolved per-file TODO keywords, diagnostics, file identity, ~mtime_ns~, ~size~, ~content_hash~, and any write options needed by the DB layer.
+- File bytes are read once for hashing and UTF-8 decoding; the hash and parsed document refer to the same byte sequence.
+- The metadata stored with the prepared file describes the same stable file snapshot. A file that changes while it is being read is retried or fails clearly rather than producing a mixed snapshot.
+- The prepared value carries enough snapshot evidence for the caller to detect a file that changed while waiting to be applied; the retry or stale-preparation policy is explicit.
+- ~content_hash~ is calculated over the exact file content bytes without newline, encoding, BOM, or whitespace normalization.
+- Invalid UTF-8 and file I/O failures retain file-path context and do not mutate the DB.
+- Preparation uses the existing parser adapter, TODO keyword resolver, link-scanner options, normalization, and synthetic level-0 rules.
+- Preparation performs no DB lookup or DB mutation and produces an owned value suitable for later Phase 8 parallel parsing.
+- Full rebuild uses the same preparation path.
+- Tests cover successful preparation, invalid UTF-8, file changes during read where practical, metadata conversion failures where practical, diagnostics, and deterministic output.
+
+
+* Planning
+
+** Problem summary
+
+- Rebuild currently reads, parses, normalizes, and constructs file metadata inline, leaving ~content_hash~ unset and providing no stable snapshot contract for future incremental work.
+
+** Goals
+
+- Produce an owned, DB-free prepared-file value and make full rebuild consume it.
+- Store a lowercase SHA-256 hash of the exact read bytes and reject unstable source snapshots after one retry.
+
+** Non-goals
+
+- Change planning, incremental application, watcher integration, and parallel execution remain separate Phase 6/7/8 tasks.
+
+** Architecture
+
+- Preparation reads bytes once per attempt, derives SHA-256, decodes and parses those same bytes, verifies mtime/size before and after the read, and returns an owned DB-ready value without opening a transaction.
+
+** Execution plan
+
+- Extract preparation, use it in rebuild, add focused snapshot/hash/error tests, then document and validate the unchanged transactional boundary.
+
+** Risks & assumptions
+
+- One retry balances transient editor writes against deterministic failure. Snapshot evidence remains available to later change planning through the prepared file record.
+
+** Proposed checks
+
+- Run focused preparation tests followed by ~make ci~.
+
+* Results
+
+** Approach
+
+- Extracted an owned ~PreparedFile~ preparation value from rebuild. It contains the canonical identity, normalized document, resolved TODO keywords, diagnostics, and DB-ready file record.
+- Preparation reads raw bytes once per attempt, hashes them with lowercase hexadecimal SHA-256, decodes and parses those same bytes, and compares mtime/size before and after the read. It retains no wall-clock write timestamp.
+- A changed snapshot retries once; a second mismatch returns ~UnstableFileSnapshot~ before any DB transaction is opened. ~indexed_at~ is assigned only immediately before the prepared file is written. Full rebuild prepares all files before its unchanged all-or-nothing write transaction.
+
+** Changed files
+
+- ~src/indexer.rs~ adds preparation and snapshot verification; ~Cargo.toml~ and ~Cargo.lock~ add SHA-256 support.
+- ~docs/design/incremental-indexing.org~ and ~CHANGELOG.org~ document the source snapshot and persisted hash contract.
+
+** Checks performed
+
+- Deterministic scripted-reader retry tests, hash persistence/CRLF tests, preparation-failure rollback tests, formatting, Clippy with warnings denied, all-targets build, ~git diff --check~, and ~make ci~.
+
+** Test results
+
+- All checks passed: 393 unit tests, integration tests, and all-targets build.
+
+** Blockers
+
+- The initial dependency lookup could not resolve crates.io in the sandbox. The approved retry updated the lock file and completed successfully.
+
+** Follow-ups
+
+- Later incremental application must revalidate prepared snapshot evidence before writing; a known-stale prepared value must be retried or rejected.

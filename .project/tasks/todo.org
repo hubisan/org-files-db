@@ -93,24 +93,11 @@ General rules:
 
 - Task file: [[file:archive/2026-07-23--add-configured-file-and-directory-exclusions.org]]
 
-** TODO Extract stable per-file preparation
+** DONE Extract stable per-file preparation
 
-Goal: Produce an independent, DB-free value containing everything needed to replace one file.
+- Task file: [[file:archive/2026-07-23--extract-stable-per-file-preparation.org]]
 
-Acceptance criteria:
-
-- A prepared-file value contains the normalized document, resolved per-file TODO keywords, diagnostics, file identity, ~mtime_ns~, ~size~, ~content_hash~, and any write options needed by the DB layer.
-- File bytes are read once for hashing and UTF-8 decoding; the hash and parsed document refer to the same byte sequence.
-- The metadata stored with the prepared file describes the same stable file snapshot. A file that changes while it is being read is retried or fails clearly rather than producing a mixed snapshot.
-- The prepared value carries enough snapshot evidence for the caller to detect a file that changed while waiting to be applied; the retry or stale-preparation policy is explicit.
-- ~content_hash~ is calculated over the exact file content bytes without newline, encoding, BOM, or whitespace normalization.
-- Invalid UTF-8 and file I/O failures retain file-path context and do not mutate the DB.
-- Preparation uses the existing parser adapter, TODO keyword resolver, link-scanner options, normalization, and synthetic level-0 rules.
-- Preparation performs no DB lookup or DB mutation and produces an owned value suitable for later Phase 8 parallel parsing.
-- Full rebuild uses the same preparation path.
-- Tests cover successful preparation, invalid UTF-8, file changes during read where practical, metadata conversion failures where practical, diagnostics, and deterministic output.
-
-** TODO Persist indexing context and define invalidation rules
+** PLAN Persist indexing context and define invalidation rules
 
 Goal: Prevent unchanged files from being skipped when indexing semantics or persisted capabilities have changed.
 
