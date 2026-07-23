@@ -1,0 +1,229 @@
+#+TITLE: Index FTS title from ~title_raw~
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu 13:30]
+#+TASK_COMPLETED: [2026-07-23 Thu 14:16]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Implement the approved plan to index FTS titles from ~title_raw~ with the canonical title fallback.
+** DONE [#B] Index FTS title from ~title_raw~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-23--index-fts-title-from-title-raw.org]]
+
+Goal:
+
+- Change the derived FTS ~title~ content from the normalized semantic heading title to the source-oriented ~title_raw~ value.
+- Make quick full-text search find TODO keywords, priority cookies, and statistics cookies present in the Org headline.
+- Preserve normalized ~title~ semantics everywhere outside the dedicated ~search~ command.
+
+Current implementation:
+
+- ~DbWriter::rebuild_heading_fts~ currently populates ~heading_fts.title~ directly from ~headings.title~.
+- ~heading_fts~ is a contentless FTS5 table with the columns ~title~ and ~body~.
+- Search retrieves only heading IDs and BM25 ranks from FTS; the public result fields already come from the canonical heading/root serializer.
+- Real heading ~title_raw~ preserves the source title area after the headline stars, including:
+  - TODO keywords
+  - priority cookies such as ~[#A]~
+  - statistics cookies such as ~[2/5]~ and ~[50%]~
+- Trailing Org tags are deliberately excluded from ~title_raw~.
+- Synthetic roots without a source ~#+TITLE~ have:
+  - an effective fallback ~title~ derived from the file stem
+  - ~title_raw = null~
+
+Required FTS content:
+
+- Populate ~heading_fts.title~ from:
+
+#+begin_src sql
+COALESCE(headings.title_raw, headings.title)
+#+end_src
+
+- Use ~title_raw~ whenever it is available.
+- Fall back to the canonical ~title~ when ~title_raw~ is null.
+- The fallback is required so roots without a source ~#+TITLE~ remain searchable by their effective file-stem title.
+- Do not append tags, TODO fields, priority fields, properties, keywords, planning values, or other metadata separately.
+- Do not change the physical ~heading_fts~ table shape.
+- Keep the public FTS column name ~title~.
+- Keep ~body~ population and ~search.index_body_text~ behaviour unchanged.
+
+Public semantics:
+
+- ~orgfdb search --json --title EXPRESSION~ must search the source-oriented title text represented by ~title_raw~, with the root fallback described above.
+- Default ~orgfdb search --json EXPRESSION~ must search:
+  - source-oriented title text
+  - body text when body indexing is enabled
+- ~orgfdb search --json --body EXPRESSION~ remains unchanged.
+- TODO keywords may now match through their textual occurrence in ~title_raw~.
+- Priority and statistics cookie tokens may now participate according to SQLite FTS5 tokenization.
+- Trailing Org tags must not become searchable through ~heading_fts.title~ because they are not part of ~title_raw~.
+- Search remains raw SQLite FTS5 matching, not structured TODO, priority, statistics, or tag matching.
+- For precise structured matching, users must continue to use Query Model v0 predicates such as:
+  - ~(todo "NEXT")~
+  - ~(priority "A")~
+  - ~(tags "project")~
+  - ~(title "Searchable Heading")~
+
+Unchanged semantics:
+
+- Do not change the Query Model v0 ~(title ...)~ predicate.
+- ~(title ...)~ must continue matching the normalized semantic ~headings.title~ value.
+- Do not change ~title~ or ~title_raw~ storage.
+- Do not change parsing or normalization of headline titles.
+- Do not include trailing Org tags in ~title_raw~.
+- Do not change link resolution by normalized heading title.
+- Do not change ~has-text~.
+- Do not change search JSON serialization.
+- Do not add additional FTS columns or new search options.
+- Do not scan source files during search.
+
+FTS contract version:
+
+- Treat the indexed title source as part of the persisted FTS content contract.
+- Increment ~FTS_SCHEMA_CONTRACT_VERSION~ from ~"2"~ to ~"3"~.
+- A database carrying trusted FTS contract version ~"2"~ must be treated as stale and must instruct the user to run:
+
+#+begin_src shell
+orgfdb rebuild
+#+end_src
+
+- Do not classify the known older version ~"2"~ as invalid trust metadata.
+- Adjust trust-metadata validation so valid older contract versions are recognised as stale rather than malformed.
+- Prefer parsing ~fts_schema_version~ as a non-negative integer:
+  - current version → trusted
+  - valid older or newer numeric version → incompatible or stale index
+  - missing or non-numeric value → missing or invalid trust metadata as appropriate
+- Preserve the existing clear rebuild-required error for stale FTS contracts.
+- Rebuild must persist ~fts_schema_version = "3"~ only after the new index has been populated successfully.
+- This requires an index rebuild but no database schema migration and no ~PRAGMA user_version~ change.
+
+Implementation:
+
+- Change the single ~INSERT INTO heading_fts ... SELECT ... FROM headings~ population query in ~DbWriter::rebuild_heading_fts~.
+- Continue deriving every FTS row from the canonical ~headings~ and ~heading_bodies~ tables.
+- Preserve one FTS row per canonical heading ID, including level-0 roots.
+- Preserve contentless FTS operation.
+- Preserve the current tokenizer and BM25 query implementation.
+- Preserve deterministic search ordering:
+  1. ~rank~ ascending
+  2. canonical heading ~id~ ascending
+- Do not promise identical numeric ranks or identical ordering between differently matching documents, because changing indexed title text may legitimately affect BM25 scores.
+
+Tests:
+
+- Add a real heading whose stored values distinguish the two title representations, for example:
+
+#+begin_src org
+,* TODO [#A] Searchable Heading [2/5] :project:
+#+end_src
+
+- Verify the canonical values are approximately:
+  - ~title = "Searchable Heading"~
+  - ~title_raw = "TODO [#A] Searchable Heading [2/5]"~
+  - ~todo_keyword = "TODO"~
+  - ~priority = "A"~
+  - ~all_tags~ contains ~"project"~
+- After rebuilding FTS, verify ~--title TODO~ matches the heading.
+- Verify ~--title Searchable~ continues to match the heading.
+- Verify a suitable FTS expression matching the statistics-cookie tokens finds the heading.
+- Verify ~--title project~ does not match solely because ~project~ is a trailing Org tag.
+- Verify the default search scope also finds the TODO keyword through the title column.
+- Verify ~--body TODO~ does not match unless the body itself contains that token.
+- Verify the returned JSON still contains the canonical normalized ~title~ and source-oriented ~title_raw~ values; do not replace the public ~title~ field with raw text.
+- Verify a root with a source ~#+TITLE~ remains searchable by that title.
+- Verify a root without ~#+TITLE~ remains searchable by its effective file-stem fallback title despite ~title_raw = null~.
+- Verify Query Model v0 ~(title "TODO")~ does not start matching a heading merely because ~TODO~ exists in ~title_raw~.
+- Verify Query Model v0 ~(title "Searchable Heading")~ remains unchanged.
+- Update the stale-contract test to verify FTS contract version ~"2"~ produces the rebuild-required stale-index error.
+- Preserve coverage for version ~"1"~ as a stale index.
+- Add or retain coverage showing malformed non-numeric FTS contract metadata is rejected as invalid.
+- Verify a successful rebuild persists contract version ~"3"~.
+- Verify body-disabled FTS rebuilds still index raw titles and store an empty FTS body.
+- Verify rebuilding twice remains idempotent.
+
+Documentation:
+
+- Update the ~orgfdb search --json~ section in ~docs/cli.org~.
+- Define the FTS ~title~ column as source-oriented headline title text:
+  - ~title_raw~ when available
+  - effective root/file ~title~ as fallback
+- State that ~--title~ can find textual TODO keywords, priority cookies, and statistics cookies present in the headline.
+- State that trailing Org tags are excluded because ~title_raw~ excludes them.
+- Clarify that TODO keywords are not represented by a dedicated structured FTS column; they merely participate as text in the raw headline.
+- Keep the distinction explicit:
+  - ~search --title~ uses source-oriented FTS title text.
+  - Query Model v0 ~(title ...)~ uses the normalized semantic title.
+  - Structured predicates provide exact TODO, priority, and tag semantics.
+- Document that databases built with FTS contract version ~2~ require one ~orgfdb rebuild~ before search can be used.
+- Update the changelog because the set of title-search matches and potentially BM25 ranking changes.
+
+* Planning
+
+** Problem summary
+
+- FTS currently indexes normalized titles, so source-oriented TODO, priority, and statistics-cookie text is not searchable through ~search --title~.
+
+** Goals
+
+- Index ~COALESCE(headings.title_raw, headings.title)~ and invalidate prior derived indexes through FTS contract version ~3~.
+
+** Non-goals
+
+- Do not change parser, canonical title storage, Query Model title semantics, FTS schema, tokenizer, or search JSON shape.
+
+** Architecture
+
+- Change the FTS rebuild projection, persist the new contract after a successful rebuild, and treat every other non-negative contract version as rebuild-required.
+
+** Execution plan
+
+- Update the writer, contract constant and validation, regression tests, CLI reference, and changelog.
+
+** Risks & assumptions
+
+- Search results and BM25 ranks may change after rebuilding; no database migration or ~PRAGMA user_version~ change is required.
+
+** Proposed checks
+
+- Run focused FTS/search tests and ~make ci~.
+
+* Results
+
+** Approach
+
+- FTS rebuild now indexes ~COALESCE(headings.title_raw, headings.title)~ and contract version 3 invalidates title-normalized derived indexes until rebuild.
+
+** Changed files
+
+- ~src/db.rs~, ~src/db/writer.rs~, and ~src/cli.rs~
+- ~docs/cli.org~, ~README.org~, and ~CHANGELOG.org~
+- Search and FTS writer tests
+
+** Checks performed
+
+- ~cargo test --all-targets --all-features search_~
+- ~cargo test --all-targets --all-features rebuild_heading_fts_~
+- ~make ci~
+
+** Test results
+
+- Focused search tests: 42 passed.
+- Focused FTS writer tests: 3 passed.
+- Full CI: formatting, Clippy, 356 library tests, integration tests, and build passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

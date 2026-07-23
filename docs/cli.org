@@ -832,27 +832,339 @@ orgfdb query --json --include source,target '(links (status "broken"))'
 
 * ~orgfdb search --json~
 
-~orgfdb search --json EXPRESSION~ executes a raw SQLite FTS5 ~MATCH~ expression against the trusted derived ~=heading_fts= index and prints ranked canonical heading/root match rows as JSON.
+~orgfdb search --json EXPRESSION~ executes a raw SQLite FTS5 ~MATCH~ expression against the trusted derived ~=heading_fts= index and prints ranked canonical heading/root results as JSON.
 
 The command is read-only. It does not scan Org files, rebuild the index, repair stale search state, apply migrations, or mutate the database.
 
+** Search scope
+
+Without a scope option, the expression searches both indexed columns:
+
+- ~title~
+- ~body~
+
 Supported options:
 
-- ~--json~ :: required for the stable output mode
-- ~--title~ :: restricts the search to the FTS ~=title= column
-- ~--body~ :: restricts the search to the FTS ~=body= column
-- ~--config PATH~ :: loads ~db_path~ and ~search.fts5_enabled~ before opening the database read-only
+- ~--json~ :: Required for the stable JSON output mode.
+- ~--title~ :: Restricts the complete expression to the FTS ~=title= column.
+- ~--body~ :: Restricts the complete expression to the FTS ~=body= column.
+- ~--config PATH~ :: Loads ~db_path~ and ~search.fts5_enabled~ before opening the database read-only.
 
 ~--title~ and ~--body~ are mutually exclusive.
 
 Examples:
 
 #+begin_src shell
+# Search title and body.
 orgfdb search --json sqlite
-orgfdb search --json --title '"sqlite phrase"'
-orgfdb search --json --body 'phrase AND search'
-orgfdb search --json 'title:(sqlite) OR body:(search)'
+
+# Search only the title column.
+orgfdb search --json --title sqlite
+
+# Search only the body column.
+orgfdb search --json --body sqlite
 #+end_src
+
+Without ~--title~ or ~--body~, column filters may be placed directly in the FTS5 expression:
+
+#+begin_src shell
+# The title must contain sqlite.
+orgfdb search --json 'title:sqlite'
+
+# The body must contain alphaquartz.
+orgfdb search --json 'body:alphaquartz'
+
+# Both conditions must match the same result.
+orgfdb search --json 'title:sqlite AND body:alphaquartz'
+
+# Either condition may match.
+orgfdb search --json 'title:sqlite OR body:alphaquartz'
+
+# Search explicitly in either indexed column.
+orgfdb search --json '{title body}:sqlite'
+#+end_src
+
+When ~--title~ or ~--body~ is used, explicit column filters inside ~EXPRESSION~ are rejected. This prevents the expression from broadening the scope selected by the command-line option.
+
+** FTS5 expression syntax
+
+~EXPRESSION~ uses SQLite FTS5 syntax. It is not a regular expression and does not use shell glob syntax.
+
+*** Terms
+
+A plain term searches for a complete token:
+
+#+begin_src shell
+orgfdb search --json 'sqlite'
+orgfdb search --json 'title:sqlite'
+#+end_src
+
+A search for ~alpha~ does not normally match ~alphaquartz~, because these are different tokens.
+
+Search is normally case-insensitive according to the configured FTS5 tokenizer:
+
+#+begin_src shell
+orgfdb search --json 'sqlite'
+orgfdb search --json 'SQLITE'
+#+end_src
+
+Punctuation is handled by the tokenizer. Text such as ~alpha-quartz~, ~alpha/quartz~, or ~alpha.quartz~ may therefore be indexed as multiple tokens rather than as one literal string.
+
+*** Prefixes
+
+Append ~*~ to a token to match all tokens beginning with that prefix:
+
+#+begin_src shell
+orgfdb search --json 'alpha*'
+orgfdb search --json 'body:alpha*'
+orgfdb search --json 'title:sql* AND body:alpha*'
+#+end_src
+
+~alpha*~ may match tokens such as:
+
+- ~alpha~
+- ~alphabet~
+- ~alphaquartz~
+- ~alphanumeric~
+
+The ~*~ operator matches only from the beginning of a token.
+
+These are not supported as general wildcard or substring searches:
+
+#+begin_src text
+alpha.*
+*quartz
+*quartz*
+alph?quartz
+#+end_src
+
+In particular:
+
+- ~alpha.*~ is regular-expression syntax, not FTS5 syntax.
+- ~*quartz~ cannot search by token suffix.
+- ~*quartz*~ cannot search for an arbitrary substring.
+- ~?~ is not a single-character wildcard.
+
+Place the prefix operator outside quoted text. This is reliable:
+
+#+begin_src text
+alpha*
+#+end_src
+
+This may not behave as expected because the tokenizer can consume or discard the ~*~ inside the quoted string:
+
+#+begin_src text
+"alpha*"
+#+end_src
+
+*** Phrases
+
+Use double quotes when tokens must occur consecutively and in the specified order:
+
+#+begin_src shell
+orgfdb search --json '"full text search"'
+orgfdb search --json 'title:"sqlite database"'
+orgfdb search --json 'body:"alpha quartz"'
+#+end_src
+
+The phrase:
+
+#+begin_src text
+"alpha quartz"
+#+end_src
+
+matches a consecutive ~alpha~ token followed immediately by a ~quartz~ token. It does not merely require both tokens to occur somewhere in the same text.
+
+Phrase components can also be joined explicitly with ~+~:
+
+#+begin_src shell
+orgfdb search --json 'alpha + quartz'
+orgfdb search --json 'alpha + quart*'
+#+end_src
+
+The second expression matches a phrase beginning with ~alpha~ followed by a token whose prefix is ~quart~.
+
+*** Boolean operators
+
+FTS5 supports the uppercase operators:
+
+- ~AND~ :: Both expressions must match.
+- ~OR~ :: At least one expression must match.
+- ~NOT~ :: The left expression must match and the right expression must not match.
+
+Examples:
+
+#+begin_src shell
+orgfdb search --json 'sqlite AND database'
+orgfdb search --json 'sqlite OR postgres'
+orgfdb search --json 'sqlite NOT deprecated'
+orgfdb search --json 'title:sqlite AND body:alpha*'
+orgfdb search --json '(sqlite OR database) AND body:index*'
+#+end_src
+
+The operator names must be uppercase to be interpreted as operators. Lowercase words such as ~and~ or ~or~ are ordinary search terms.
+
+Whitespace between terms implies ~AND~:
+
+#+begin_src text
+sqlite database
+#+end_src
+
+is equivalent to:
+
+#+begin_src text
+sqlite AND database
+#+end_src
+
+Use parentheses whenever an expression combines ~AND~, ~OR~, and ~NOT~. FTS5 operator precedence is not identical to that of many programming languages.
+
+For example:
+
+#+begin_src text
+(sqlite OR postgres) AND index
+#+end_src
+
+means that either ~sqlite~ or ~postgres~ must match, and ~index~ must also match.
+
+By contrast:
+
+#+begin_src text
+sqlite OR postgres AND index
+#+end_src
+
+is interpreted according to FTS5 precedence and may not express the intended grouping.
+
+*** Column filters
+
+A column filter restricts a term, phrase, proximity expression, or grouped expression to an indexed column:
+
+#+begin_src shell
+orgfdb search --json 'title:sqlite'
+orgfdb search --json 'body:"full text search"'
+orgfdb search --json 'title:(sqlite OR database)'
+orgfdb search --json 'body:(alpha* AND quartz)'
+#+end_src
+
+Use braces to search a set of columns:
+
+#+begin_src shell
+orgfdb search --json '{title body}:sqlite'
+orgfdb search --json '{title body}:(sqlite AND index*)'
+#+end_src
+
+Because ~=heading_fts= contains only ~=title= and ~=body=, an unqualified expression already searches both:
+
+#+begin_src shell
+orgfdb search --json 'sqlite'
+#+end_src
+
+is normally preferable to:
+
+#+begin_src shell
+orgfdb search --json '{title body}:sqlite'
+#+end_src
+
+Use explicit column filters when different conditions must apply to different fields:
+
+#+begin_src shell
+orgfdb search --json 'title:sqlite AND body:alpha*'
+#+end_src
+
+*** Proximity with ~NEAR~
+
+~NEAR~ requires phrases to occur within a limited token distance:
+
+#+begin_src shell
+orgfdb search --json 'NEAR(sqlite index)'
+orgfdb search --json 'NEAR(sqlite index, 5)'
+orgfdb search --json 'body:NEAR("query model" sqlite, 10)'
+#+end_src
+
+The optional number specifies the maximum allowed separation according to FTS5 token positions. When omitted, SQLite FTS5 uses its default distance.
+
+~NEAR~ is useful when requiring both terms with ~AND~ would be too broad:
+
+#+begin_src text
+sqlite AND index
+#+end_src
+
+requires both terms somewhere in the indexed result, whereas:
+
+#+begin_src text
+NEAR(sqlite index, 5)
+#+end_src
+
+requires them to occur close to each other.
+
+*** Combining constructs
+
+FTS5 constructs can be combined:
+
+#+begin_src shell
+# Exact phrase in the title.
+orgfdb search --json 'title:"sqlite database"'
+
+# Title token plus body prefix.
+orgfdb search --json 'title:sqlite AND body:alpha*'
+
+# One of two title terms and a required body term.
+orgfdb search --json 'title:(sqlite OR database) AND body:index'
+
+# Phrase or prefix in either column.
+orgfdb search --json '"full text search" OR alpha*'
+
+# Nearby terms in the body, excluding deprecated results.
+orgfdb search --json 'body:NEAR(sqlite index, 5) NOT body:deprecated'
+#+end_src
+
+Shell quoting is recommended so spaces, parentheses, ~*~, and quotation marks reach ~orgfdb~ unchanged:
+
+#+begin_src shell
+orgfdb search --json 'title:sqlite AND body:alpha*'
+orgfdb search --json 'title:"full text search"'
+#+end_src
+
+** Indexed title semantics
+
+The FTS ~=title= column contains source-oriented headline text:
+
+- ~=headings.title_raw= when available
+- otherwise the effective canonical ~=headings.title=
+
+For real headings, ~title_raw~ may contain:
+
+- the TODO keyword
+- a priority cookie such as ~[#A]~
+- the source title text
+- a statistics cookie such as ~[2/5]~ or ~[50%]~
+
+Trailing Org tags are excluded because they are not part of ~title_raw~.
+
+For example:
+
+#+begin_src org
+,* NEXT [#A] Improve search documentation [2/5] :docs:
+#+end_src
+
+may be found through textual title searches for:
+
+#+begin_src shell
+orgfdb search --json --title NEXT
+orgfdb search --json --title Improve
+orgfdb search --json --title documentation
+#+end_src
+
+The trailing tag ~docs~ is not indexed as part of the FTS title merely because it occurs in the headline.
+
+Priority and statistics cookies are tokenized by FTS5. Their punctuation should not be assumed to remain part of one searchable token. Exact structured semantics must use Query Model v0 predicates instead.
+
+The distinction is intentional:
+
+- ~search --title~ searches source-oriented FTS title text.
+- Query Model v0 ~(title ...)~ matches the normalized semantic title.
+- ~(todo ...)~, ~(priority ...)~, and ~(tags ...)~ provide exact structured matching.
+
+** Output
 
 The output is a JSON array ordered deterministically by:
 
@@ -862,28 +1174,36 @@ The output is a JSON array ordered deterministically by:
 Each JSON object is a canonical flat heading/root result plus ~rank~. It exposes:
 
 - ~kind~ :: ~root~ for a synthetic level-0 file root, or ~heading~ for a real heading.
-- ~matched~ :: always ~true~.
+- ~matched~ :: Always ~true~.
 - ~id~, ~file_id~, ~parent_id~, ~level~
 - ~title~, ~title_raw~
 - ~todo_keyword~, ~todo_type~, ~priority~
-- ~scheduled_raw~, ~scheduled_ts~, ~deadline_raw~, ~deadline_ts~, ~closed_raw~, ~closed_ts~
+- ~scheduled_raw~, ~scheduled_ts~
+- ~deadline_raw~, ~deadline_ts~
+- ~closed_raw~, ~closed_ts~
 - ~archivedp~, ~footnote_section_p~, ~all_tags~
-- ~location~ :: ~file_path~, ~line~, ~byte_start~, and ~byte_end~
-- ~rank~ :: the only search-specific field.
+- ~location~ :: ~file_path~, ~line~, ~byte_start~, and ~byte_end~.
+- ~rank~ :: The only search-specific field.
 
-The FTS ~=title= column contains source-oriented headline text: ~=headings.title_raw= when available, otherwise the effective canonical title. Therefore ~--title~ can find textual TODO keywords, priority cookies, and statistics cookies present in headlines. Trailing Org tags are excluded because they are not part of ~title_raw~.
+~rank~ is an FTS5 relevance value. Lower values sort before higher values. Numeric rank values may change after rebuilding the index or changing indexed text, even when the public JSON shape remains unchanged.
 
-Notes:
+** Behaviour and limitations
 
-- ~EXPRESSION~ is raw backend-specific SQLite FTS5 syntax. Supported constructs follow the linked SQLite FTS5 implementation and may include terms, quoted phrases, prefixes, boolean operators, grouping, column filters, and ~NEAR~.
-- ~search~ is a convenience command, not Query Model v0. It does not change ~(has-text ...)~ or other query semantics.
-- Search matches only through the derived ~=heading_fts= index, including canonical level-0 file roots. It retrieves only matching heading IDs and ranks from FTS; all public heading/root fields come from canonical ~=headings= and ~=files= rows.
+- ~EXPRESSION~ is passed as raw backend-specific SQLite FTS5 syntax.
+- ~search~ is a convenience command, not part of Query Model v0.
+- It does not change ~(has-text ...)~ or any other query semantics.
+- Search matches only through the derived ~=heading_fts= index, including canonical level-0 file roots.
+- Search retrieves only matching heading IDs and ranks from FTS.
+- All public heading/root fields come from canonical ~=headings= and ~=files= rows.
 - The command never reads ~=heading_fts.title= or ~=heading_fts.body= payload values from the contentless FTS table.
-- TODO keywords, tags, and planning metadata are returned as canonical metadata but are not FTS columns. Use Query Model v0 predicates to combine text, TODO, tag, property, keyword, or other structured conditions.
-- ~search --title~ searches source-oriented FTS text, whereas Query Model v0 ~(title ...)~ matches normalized semantic titles. Use structured predicates such as ~(todo ...)~, ~(priority ...)~, and ~(tags ...)~ for exact semantics.
-- The active config must leave ~search.fts5_enabled = true~. This is permission to use search, not proof that the database contains a trusted index.
-- Existing databases built before persisted FTS trust metadata, level-0 roots, or FTS contract version ~3~ must be rebuilt once before ~search~ works. The command will instruct the user to run ~orgfdb rebuild~ when the trusted search metadata is missing or stale.
-- ~--body~ requires a trusted FTS index that was rebuilt with body indexing enabled. Title-only trusted indexes still support default and ~--title~ searches.
-- Root titles are indexed in ~title~. Root preamble text is indexed only in ~body~ when body indexing is enabled.
-- This is a breaking JSON API change: synthetic roots previously emitted as ~kind = "file"~ now emit ~kind = "root"~; ~(files ...)~ results remain ~kind = "file"~.
-- When ~--title~ or ~--body~ is used, explicit FTS column filters inside ~EXPRESSION~ are rejected so user input cannot broaden the selected scope.
+- TODO keywords, tags, priorities, and planning metadata are returned as canonical metadata but are not separate FTS columns.
+- A textual FTS match is not equivalent to an exact structured metadata match.
+- Use Query Model v0 predicates to combine body text with TODO, tag, property, keyword, timestamp, or other structured conditions.
+- The active configuration must leave ~search.fts5_enabled = true~. This permits search but does not prove that the database contains a trusted index.
+- Existing databases built before persisted FTS trust metadata, level-0 roots, or FTS contract version ~3~ must be rebuilt once before ~search~ works.
+- When trusted search metadata is missing or stale, the command instructs the user to run ~orgfdb rebuild~.
+- ~--body~ requires a trusted FTS index rebuilt with body indexing enabled.
+- A trusted title-only index still supports default and ~--title~ searches, but its default search can match only indexed title content.
+- Root titles are indexed in ~=title=.
+- Root preamble text is indexed only in ~=body= when body indexing is enabled.
+- Synthetic roots previously emitted as ~kind = "file"~ now emit ~kind = "root"~. Actual ~(files ...)~ results remain ~kind = "file"~.
