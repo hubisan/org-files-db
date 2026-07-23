@@ -49,319 +49,212 @@ Archived in [[./archive/todo-archive.org]]
 Archived in [[./archive/todo-archive.org]]
 
 * DONE Phase 5: Query engine and optional full-text search
-
-Goal of this phase:
-
-- Build a small, safe query layer for indexed Org graph data.
-- Implement the Query Model v0 contract defined in [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]].
-- Keep the query model independent from CLI and SQL.
-- Support headings, links, and files as explicit query targets.
-- Keep full-text search optional and separate from the core query model.
-- Return stable JSON that is useful for Emacs/editor integrations.
-
-General rules:
-
-- Query AST/model is independent of CLI and SQL.
-- SQL generation must use bound parameters.
-- Query execution uses the persisted database, not parser re-analysis.
-- Query target is explicit through ~(headings ...)~, ~(links ...)~, and ~(files ...)~.
-- Bare predicates are shorthand for heading queries only at the top level.
-- Nested relation queries must use explicit target wrappers.
-- Query output mode must not change match semantics.
-- Include options may enrich results but must not change which objects match.
-- Direct parsed facts and effective/derived semantics must stay clearly separated.
-- Query results must include enough location data for editor jumps.
-- Body text search must fail clearly when body text is unavailable.
-- FTS5 is optional and must only be required for FTS-specific functionality.
-- Mutation and repair operations are out of scope for Query Model v0.
-
-** DONE Implement query AST and parser
-
-- Task file: [[file:archive/2026-07-07--implement-query-ast-and-parser.org]]
-
-** DONE Implement query semantic validation and normalization
-
-- Task file: [[file:archive/2026-07-07--implement-query-semantic-validation-and-normalization.org]]
-
-** DONE Implement safe SQL translation and core metadata query execution
-
-- Task file: [[file:archive/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org]]
-
-** DONE Implement effective root, tag, property, and keyword semantics for queries
-
-- Task file: [[file:archive/2026-07-08--implement-effective-root-tag-property-and-keyword-semantics-for-queries.org]]
-
-** DONE Implement hierarchy and graph relation predicates [2026-07-09 Thu]
-
-- Task file: [[file:archive/2026-07-08--implement-hierarchy-and-graph-relation-predicates.org]]
-
-** DONE [#B] Implement query result shaping and JSON output model [2026-07-09 Thu]
-
-- Task file: [[file:archive/2026-07-09--implement-query-result-shaping-and-json-output-model.org]]
-
-** DONE [#B] Implement CLI command ~query~
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:archive/2026-07-09--implement-cli-command-query.org]]
-
-** DONE [#B] Parse priorities correctly with configured TODO keywords
-
-- Task file: [[file:archive/2026-07-11--parse-priorities-correctly-with-configured-todo-keywords.org]]
-
-** DONE [#B] Normalize heading titles and title-query matching
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:archive/2026-07-11--normalize-heading-titles-and-title-query-matching.org]]
-
-** DONE [#B] Include TODO keywords in ~title_raw~
-
-- Task file: [[file:archive/2026-07-12--include-todo-keywords-in-title-raw.org]]
-
-** DONE [#B] Distinguish source titles from fallback file titles
-
-- Task file: [[file:archive/2026-07-12--distinguish-source-titles-from-fallback-file-titles.org]]
-
-** DONE [#B] Replace ~:with-root~ with ~:without-root~
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:2026-07-12--replace-with-root-with-without-root.org]]
-
-** DONE [#B] Align ~title~ with root/file matching semantics
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Medium
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:2026-07-12--align-title-with-root-file-matching-semantics.org]]
-
-** DONE [#B] Add configurable query timezone and deterministic relative-date resolution
-
-- Task file: [[file:archive/2026-07-12--add-configurable-query-timezone-and-deterministic-relative-date-resolution.org]]
-
-** DONE [#B] Complete date-only and datetime query-bound semantics
-- Task file: [[file:archive/2026-07-13--complete-date-only-and-datetime-query-bound-semantics.org]]
-
-** DONE [#B] Persist explicit-time metadata for indexed Org timestamps
-
-- Task file: [[file:archive/2026-07-13--persist-explicit-time-metadata-for-indexed-org-timestamps.org]]
-
-** DONE [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
-
-- Task file: [[file:archive/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
-
-** DONE [#C] Persist heading body text for query execution
-:PROPERTIES:
-:PRIORITY: Low
-:RISK: Medium
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-- Task file: [[file:archive/2026-07-16--persist-heading-body-text-for-query-execution.org]]
-
-** DONE [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
-
-- Task file: [[file:archive/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
-
-** DONE [#C] Enable optional contentless SQLite FTS5 for full-text search
-
-- Task file: [[file:archive/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
-
-** DONE [#C] Provide CLI command ~search~
-
-- Task file: [[file:2026-07-16--provide-cli-command-search.org]]
-
-** DONE [#A] Repair dependent tables after ~headings~ schema migration
-
-- Task file: [[file:archive/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org]]
-
-** DONE [#B] Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
-
-- Task file: [[file:archive/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
-
-** DONE [#B] Make bare ~(headings)~ include file/root results
-
-- Task file: [[file:archive/2026-07-16--make-bare-headings-include-file-root-results.org]]
-
-** DONE [#B] Include matching file/root objects for file predicates in heading queries
-
-- Task file: [[file:archive/2026-07-16--include-matching-file-root-objects-for-file-predicates-in-heading-queries.org]]
-
-** DONE Make file/root participation consistent across all heading predicates
-
-- Task file: [[file:archive/2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
-
-** DONE [#B] Resolve effective property values for query matching
-
-- Task file: [[file:archive/2026-07-17--resolve-effective-property-values-for-query-matching.org]]
-
-** DONE [#B] Match Org property append ordering semantics
-
-- Task file: [[file:archive/2026-07-17--match-org-property-append-ordering-semantics.org]]
-
-** DONE [#C] Document uniform property resolution and Org incompatibility
-
-- Task file: [[file:archive/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org]]
-
-** DONE [#B] Index empty property values in property drawers
-
-- Task file: [[file:archive/2026-07-17--index-empty-property-values-in-property-drawers.org]]
-
-** DONE [#B] Implement outline predicates in the SQLite query backend
-
-- Task file: [[file:archive/2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org]]
-
-** DONE [#B] Implement regexp matching for remaining SQLite metadata predicates
-
-- Task file: [[file:archive/2026-07-17--implement-regexp-matching-for-remaining-sqlite-metadata-predicates.org]]
-
-** DONE [#C] Align documented ~level~ comparators with Query Model v0
-
-- Task file: [[file:archive/2026-07-19--align-level-comparators-with-query-model-v0.org]]
-
-** DONE [#B] Implement semantic ~priority~ comparison with query-time normalisation
-
-- Task file: [[file:archive/2026-07-19--implement-semantic-priority-comparison-with-query-time-normalisation.org]]
-
-** DONE [#B] Add ~:inherit~ control to heading ~keyword~ queries
-
-- Task file: [[file:archive/2026-07-19--add-inherit-control-to-heading-keyword-queries.org]]
-
-** DONE [#B] Expand leading ~~ in ~file-path~ query values
-
-- Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-path-query-values.org]]
-
-** DONE [#B] Expand leading ~~ in ~file-dir~ query values
-
-- Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-dir-query-values.org]]
-
-** DONE [#A] Apply ~query.timezone~ to temporal query boundaries
-
-- Task file: [[file:archive/2026-07-19--apply-query-timezone-to-temporal-query-boundaries.org]]
-
-** DONE [#B] Remove ~:with-time~ from temporal predicates
-
-- Task file: [[file:archive/2026-07-19--remove-with-time-from-temporal-predicates.org]]
-
-** DONE [#B] Extend inclusive temporal ranges to minute and second precision
-
-- Task file: [[file:archive/2026-07-20--extend-inclusive-temporal-ranges-to-minute-and-second-precision.org]]
-
-** DONE [#B] Include the synthetic file root in outline path predicates
-
-Task file: [[file:archive/2026-07-20--include-synthetic-file-root-in-outline-path-predicates.org][Include the synthetic file root in outline path predicates]]
-
-** DONE Allow synthetic roots in nested heading relation queries
-
-Task file: [[file:archive/2026-07-21--allow-synthetic-roots-in-nested-heading-relation-queries.org][Allow Synthetic Roots in Nested Heading Relation Queries]]
-
-** DONE Improve hierarchy predicate documentation with direct and transitive examples
-
-Task file: [[file:archive/2026-07-21--improve-hierarchy-predicate-documentation.org][Improve Hierarchy Predicate Documentation]]
-
-** DONE Correct link predicate target documentation
-
-Task file: [[file:archive/2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
-
-** DONE Document link resolution statuses
-
-Task file: [[file:archive/2026-07-21--document-link-resolution-statuses.org][Document Link Resolution Statuses]]
-
-** DONE Correct ~source~ and ~target~ any-value syntax in documentation
-
-Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documentation.org][Correct Source and Target Any Syntax Documentation]]
-
-** DONE Include level-0 roots in nested heading relation queries
-
-- Task file: [[file:archive/2026-07-21--include-level-zero-roots-in-nested-heading-relation-queries.org][Include Level-0 Roots in Nested Heading Relation Queries]]
-
-** DONE [#A] Include level-0 file roots in the FTS heading index
-
-- Task file: [[file:archive/2026-07-22--include-level-zero-file-roots-in-the-fts-heading-index.org][Include Level-Zero File Roots in the FTS Heading Index]]
-
-** DONE [#A] Rename public root result kind from ~file~ to ~root~
-
-- Task file: [[file:archive/2026-07-22--rename-public-root-result-kind.org][Rename Public Root Result Kind]]
-
-** DONE Manual Test the Implementation
-
-*** Query
-
-**** DONE Properties
-
-**** DONE Todo Keywords
-
-**** DONE File Local Todo Keywords
-
-**** DONE Heading Predicates
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
-***** DONE todo
-***** DONE done
-***** DONE title
-***** DONE has-text
-***** DONE property
-***** DONE level
-***** DONE priority
-***** DONE tags
-***** DONE tags-all
-***** DONE keyword
-***** DONE file-name
-***** DONE file-path
-***** DONE file-title
-***** DONE file-modified
-***** DONE outline-contains
-***** DONE outline-sequence
-***** DONE ts
-***** DONE ts-active
-***** DONE ts-inactive
-***** DONE deadline
-***** DONE scheduled
-***** DONE closed
-***** DONE planning
-***** DONE parent
-***** DONE children
-***** DONE ancestors
-***** DONE descendants
-***** DONE has-link
-***** DONE links-to
-***** DONE linked-from
 
-**** DONE Link Predicates
-
-**** DONE File Predicates
-
-**** DONE Output Modes
-
-**** DONE Includes
-
-*** DONE Search
-
-** DONE Align ~search~ output with canonical heading serialization
-
-- Task file: [[file:archive/2026-07-23--align-search-output-with-canonical-heading-serialization.org]]
-
-** DONE [#B] Index FTS title from ~title_raw~
-
-- Task file: [[file:archive/2026-07-23--index-fts-title-from-title-raw.org]]
+Archived in [[./archive/todo-archive.org]]
 
 
 
-** DONE [#B] Make JSON the default CLI output format
+* Phase 6: Robust incremental indexer core
 
-- Task file: [[file:archive/2026-07-23--make-json-the-default-cli-output-format.org]]
+Goal of this phase:
+
+- Turn the current all-or-nothing rebuild into a deterministic indexing core that can discover, classify, prepare, replace, and remove files without requiring a watcher.
+- Keep full rebuild as a complete recovery path while making the same per-file preparation and DB write primitives reusable by later incremental entry points.
+- Leave Phase 7 responsible for filesystem events and Phase 8 responsible for parallel execution rather than duplicating indexing semantics there.
+
+Existing groundwork:
+
+- ~discover_org_files~ already supports explicit files, per-directory recursive or non-recursive discovery, canonical-path deduplication, and deterministic ordering.
+- The current rebuild reads and parses every discovered file before opening one all-or-nothing DB transaction.
+- The ~files~ table already stores ~mtime_ns~, ~size~, optional ~content_hash~, and ~indexed_at~.
+- ~DbWriter::rebuild_file~ and ~DbWriter::delete_file_data~ exist only as test scaffolding and do not yet maintain production FTS or link-resolution state.
+- The current FTS maintenance and ~LinkResolver::resolve_all~ operations are global. Phase 6 may keep them global initially, but they must run at the correct transaction boundary.
+
+General rules:
+
+- File reading, hashing, TODO keyword resolution, parsing, and normalization happen outside DB write transactions.
+- DB mutation and all required derived-state reconciliation happen inside controlled transactions.
+- Discovery policy, file eligibility, and indexed-universe semantics must be reusable by Phase 7.
+- Full rebuild and incremental reconciliation must use the same normalized per-file write path.
+- A successful indexing operation must not expose stale ~outline_path~, trusted ~heading_fts~, search metadata, or link-resolution snapshots.
+- Full rebuild and incremental reconciliation over the same final source set must produce semantically equivalent stored facts. Any exclusions such as ~indexed_at~ or surrogate row IDs must be explicit and documented.
+- Changes to parser/indexer semantics or parse-affecting configuration must invalidate change-detection decisions safely; unchanged file bytes alone are not sufficient.
+- Targeted link resolution and incremental FTS optimization may be deferred, but correctness may not be deferred. A global reconciliation pass is acceptable initially.
+- Watcher integration, debounce, and parallel parsing remain out of scope for this phase.
+
+** TODO Define file identity and harden reusable discovery
+
+Goal: Turn the existing discovery implementation into a documented, reusable source-set contract for rebuild, incremental reconciliation, and the later watcher.
+
+Acceptance criteria:
+
+- Existing explicit-file and per-directory recursive/non-recursive discovery behavior is preserved or deliberately changed with migration notes.
+- Discovery order is deterministic and duplicate files from overlapping roots or aliases are handled deterministically.
+- Only regular files with an ~.org~ extension are collected by default; extension case behavior is documented and tested.
+- Ignored files or directories can be configured with clearly defined matching semantics and precedence.
+- Hidden file and directory behavior is explicit. Hidden entries are not accidentally treated differently from ordinary entries.
+- Symlink behavior is explicit for configured files, configured directory roots, file symlinks encountered during traversal, and directory symlinks encountered during traversal.
+- File identity, stored path, canonicalization, rename/delete handling, and any configured-path provenance are defined together.
+- The source-set model preserves enough identity to reconcile a configured file after its leaf disappears; deletion detection must not require canonicalizing an existing leaf.
+- Non-UTF-8 path behavior is explicit; paths must not be silently collapsed through lossy conversion.
+- The same inclusion and exclusion policy is used to construct ~IndexedUniverse~, so ignored paths are not incorrectly classified as missing in-universe link targets.
+- Missing configured files and missing configured directory roots have separate, documented safety behavior. A temporarily unavailable root must not silently cause mass deletion.
+- Tests cover recursive and non-recursive roots, overlapping roots, ignored paths, hidden entries, symlinks, path aliases, extension filtering, deterministic order, and missing-source behavior where supported by the platform.
+- ~docs/config.org~ and the relevant architecture documentation describe the public behavior.
+
+** TODO Extract stable per-file preparation
+
+Goal: Produce an independent, DB-free value containing everything needed to replace one file.
+
+Acceptance criteria:
+
+- A prepared-file value contains the normalized document, resolved per-file TODO keywords, diagnostics, file identity, ~mtime_ns~, ~size~, ~content_hash~, and any write options needed by the DB layer.
+- File bytes are read once for hashing and UTF-8 decoding; the hash and parsed document refer to the same byte sequence.
+- The metadata stored with the prepared file describes the same stable file snapshot. A file that changes while it is being read is retried or fails clearly rather than producing a mixed snapshot.
+- The prepared value carries enough snapshot evidence for the caller to detect a file that changed while waiting to be applied; the retry or stale-preparation policy is explicit.
+- ~content_hash~ is calculated over the exact file content bytes without newline, encoding, BOM, or whitespace normalization.
+- Invalid UTF-8 and file I/O failures retain file-path context and do not mutate the DB.
+- Preparation uses the existing parser adapter, TODO keyword resolver, link-scanner options, normalization, and synthetic level-0 rules.
+- Preparation performs no DB lookup or DB mutation and produces an owned value suitable for later Phase 8 parallel parsing.
+- Full rebuild uses the same preparation path.
+- Tests cover successful preparation, invalid UTF-8, file changes during read where practical, metadata conversion failures where practical, diagnostics, and deterministic output.
+
+** TODO Persist indexing context and define invalidation rules
+
+Goal: Prevent unchanged files from being skipped when indexing semantics or persisted capabilities have changed.
+
+Acceptance criteria:
+
+- The DB persists an explicit indexing-context version or deterministic fingerprint in ~db_metadata~.
+- The invalidation contract covers parser/indexer contract changes, configured default TODO keywords, configured plain-link protocols, body-text persistence, the FTS contract, and other parse- or write-affecting settings introduced later.
+- Query-only settings such as ~query.timezone~ do not force reparsing.
+- Source-root and ignore-rule changes trigger source-set and link-universe reconciliation even when file bytes are unchanged.
+- Each changed context component has a documented action: no action, derived-state rebuild, reparse affected files, or full rebuild.
+- A missing or incompatible context value in an older DB fails safe by requiring the necessary rebuild or reindex rather than trusting stale rows.
+- ~body_text_available~, ~fts_available~, ~fts_body_indexed~, ~fts_schema_version~, and the indexing-context metadata are updated atomically with the data they describe.
+- Global capability flags are never set to available when only a subset of current files satisfies the capability.
+- Tests cover config-only changes to TODO defaults, link protocols, body indexing, and FTS settings as applicable.
+
+** TODO Add deterministic change planning
+
+Goal: Classify the current source set against persisted file state before any DB mutation.
+
+Expected change kinds:
+
+- unchanged
+- metadata-only
+- created
+- modified
+- deleted
+
+Acceptance criteria:
+
+- ~mtime_ns~ and ~size~ are the fast unchanged check when the indexing context is compatible.
+- If either fast signal differs, the current bytes are hashed and compared with the stored hash before deciding whether parsing is required.
+- When hashing is required, the same captured bytes and snapshot are reused for preparation if the file is modified rather than reading a second, potentially different version.
+- A metadata-only change updates file metadata without replacing parsed rows when the content hash is unchanged.
+- The same-metadata verification policy is explicit. A caller can request stronger hash verification rather than being forced to trust ~mtime_ns~ and ~size~ forever.
+- The hash algorithm and serialized representation are versioned or algorithm-qualified so future algorithms cannot be compared accidentally.
+- New files are prepared and inserted.
+- Files that were indexed but are no longer eligible, configured, or present are planned for hard deletion. A missing-status retention model is out of scope unless a separate schema decision is approved.
+- Discovery or stat/read errors are distinct from deletions and do not produce destructive plans.
+- The existing empty-source safety guard remains effective, and any additional mass-deletion safeguard is documented.
+- Planning is deterministic, performs no DB mutation, and returns a report suitable for tests and later CLI/watcher callers.
+- Tests cover unchanged files, touched files with identical content, changed content with equal size where practical, created files, deleted files, ignore/config changes, forced verification, and incompatible indexing context.
+
+** TODO Implement transactional change-set application and per-file wrappers
+
+Goal: Apply one or more planned file replacements or removals through one production write path, with a one-file wrapper for Phase 7.
+
+General rules:
+
+- Low-level row replacement or removal functions operate on an existing transaction.
+- A higher-level change-set operation owns the transaction, applies file mutations in deterministic path order, reconciles required global derived state at most once, updates trust metadata, and commits.
+- A single-file replacement or removal call is a one-item change set, not a separate implementation.
+
+Acceptance criteria:
+
+- A created or modified file can be prepared and replaced transactionally without filesystem events.
+- Prepared snapshots are revalidated according to the documented stale-preparation policy before mutation; a known-stale value is retried or rejected rather than committed as current.
+- A deleted file hard-deletes its ~files~ row and all owned rows consistently.
+- Updating an existing path preserves its file row identity where practical. Heading, link, timestamp, and other surrogate-ID stability is explicitly documented rather than assumed.
+- Old headings, TODO keywords, keywords, properties, tags, timestamps, timestamp repeaters, links, heading bodies, outline rows, and other file-owned rows are replaced where applicable.
+- Exactly one synthetic level-0 heading and one matching root ~outline_path~ row are recreated for every indexed file.
+- The operation works when FTS5 is disabled and keeps any stale on-disk FTS table explicitly untrusted.
+- When FTS5 is enabled, no stale FTS row IDs or terms survive. Rebuilding the complete contentless ~heading_fts~ table once per committed change set is acceptable initially.
+- FTS trust metadata becomes valid only in the same transaction that creates the matching FTS contents.
+- Incoming links to replaced or deleted headings/files do not remain marked ~resolved~ with null or obsolete targets. The current global ~LinkResolver::resolve_all~ may run once per change set before commit.
+- The indexed universe passed to link resolution reflects the post-change source set and ignore policy.
+- Full rebuild uses the same per-file preparation and row-write primitives rather than maintaining a second import implementation.
+- Any parse, validation, SQL, FTS, resolver, or commit error leaves the previously committed DB state intact for the affected transaction.
+- Tests cover created, modified, metadata-only, deleted, failed replacement, failed removal where practical, incoming links, FTS enabled/disabled, body indexing enabled/disabled, level-0 rows, and rollback behavior.
+
+** TODO Define batching, interruption, and error semantics
+
+Goal: Process many planned changes efficiently without weakening consistency or making results depend on processing order.
+
+Acceptance criteria:
+
+- Preparation remains outside DB write transactions.
+- File mutation order inside a change set is deterministic.
+- Full rebuild atomicity is explicitly preserved or deliberately changed with a documented reason. The current all-or-nothing behavior is the default expectation.
+- Incremental reconciliation defines whether the complete run is one atomic change set or a sequence of atomic batches.
+- If batches are used, the batch size is configurable or selected from measurements rather than guesswork.
+- FTS rebuild and global link resolution run at most once per committed change set or batch and are skipped only when the plan proves the corresponding derived state cannot have changed.
+- Parse/read failures preserve the previous rows for the failed file and follow a documented fail-fast or continue strategy.
+- SQL or reconciliation failure rolls back the complete current transaction or batch.
+- Interruption leaves either the previous committed state or complete committed batches, never a partially replaced file or partially reconciled derived state.
+- Reports distinguish skipped, metadata-only, created, modified, deleted, failed, and committed files.
+- Tests or deterministic fault-injection checks cover failure before mutation, during file-row replacement, during derived-state reconciliation, and during commit where practical.
+
+** TODO Add index integrity and rebuild-equivalence checks
+
+Goal: Prove that incremental operations produce the same logical database as a clean rebuild and that derived/cache rows remain trustworthy.
+
+Acceptance criteria:
+
+- A semantic snapshot comparison is defined by stable source identity such as file path and source positions rather than raw surrogate IDs.
+- A clean full rebuild and an incremental sequence reaching the same final corpus produce equivalent canonical facts, outline data, FTS matches when enabled, and link-resolution outcomes.
+- Documented operational differences such as ~indexed_at~ and intentionally unstable surrogate IDs are excluded explicitly rather than ignored ad hoc.
+- Repeating an unchanged incremental run performs no reparsing and leaves semantic state unchanged.
+- Integrity checks cover one level-0 heading per file, one ~outline_path~ row per heading, foreign-key validity, no orphaned file-owned rows, and consistent resolver target/status combinations.
+- When FTS is trusted, its row IDs exactly match the canonical heading set and expected title/body policy. When FTS is untrusted or disabled, search metadata reflects that state.
+- Checks use ~PRAGMA foreign_key_check~ and targeted repository invariants; ~PRAGMA integrity_check~ may be included for manual or benchmark runs.
+- Tests cover create, modify, delete, rename-as-delete-plus-create, configuration invalidation, FTS modes, link targets, and rollback.
+
+** TODO Establish SQLite query-performance baseline
+
+Goal: Measure whether the current schema and existing indexes are fast enough for the intended Query Model v0 workload before changing indexes.
+
+Note: The project is query-oriented, but a separate data warehouse is unnecessary unless measurements show a real bottleneck.
+
+Acceptance criteria:
+
+- A reproducible benchmark corpus defines file count, heading count, hierarchy shape, tags, properties, timestamps, links, body-text volume, and representative selectivity.
+- Common queries are generated through the real Query Model v0 compiler where possible rather than only handwritten SQL.
+- Workloads include TODO, tags, properties, links and link status, planning/timestamps, file predicates, outline ancestors/descendants/subtrees, and representative result shaping.
+- FTS query performance is measured when FTS5 is enabled, including title-only and body-enabled databases.
+- Materialized-path subtree queries are measured for both shallow/wide and deep outlines.
+- ~EXPLAIN QUERY PLAN~ output is recorded for representative queries and related to the indexes already present in ~sql/schema.sql~.
+- Measurements distinguish warm and cold behavior where practical, report result counts, use repeated runs, and document SQLite/build settings.
+- Baseline DB size and relevant index/rebuild write cost are recorded so read improvements are not evaluated in isolation.
+- Commands, corpus generation, results, and limitations are documented reproducibly.
+
+** TODO Tune SQLite indexes from measured query plans
+
+Goal: Add, remove, or change indexes only where the baseline demonstrates a useful workload improvement.
+
+Acceptance criteria:
+
+- Existing indexes are reviewed for actual planner use, redundancy, and write cost before new indexes are added.
+- Candidate changes are tied to specific measured queries or clearly documented expected workloads.
+- Before/after ~EXPLAIN QUERY PLAN~, latency, DB size, and index/rebuild cost are recorded.
+- Typical exact-match predicates and relation joins are distinguished from substring and regexp predicates that normal B-tree indexes cannot accelerate directly.
+- Persistent index changes bump ~CURRENT_SCHEMA_VERSION~ and include migration/schema tests where required.
+- FTS-specific tuning remains conditional on FTS5 support.
+- The accepted index set has no known redundant indexes without a documented reason.
+- Findings and rejected candidates are documented so later work does not repeat the same experiments.
 

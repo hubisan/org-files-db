@@ -5,119 +5,15 @@ This file contains later phases, backlog items, and long-term project direction.
 
 Do not work directly from this file. Active tasks are tracked in [[./todo.org]].
 
-* Phase 6: Robust initial indexer
-
-Goal of this phase: Turn the MVP rebuild into a robust indexer.
-
-General rules:
-
-- Parsing and DB writing should remain cleanly separated.
-- Rebuilds should be deterministic.
-- Derived/cache tables must stay consistent with core rows.
-- Parallel parsing is tracked separately in Phase 8; Phase 6 should keep the indexer structure clean enough to enable it later.
-
-** TODO Recursive file discovery ~(find_org_files)~
-
-Acceptance criteria:
-
-- Recursive search works.
-- Ignored directories can be configured.
-- Symlink behavior is decided.
-- Only ~.org~ files are collected by default.
-- Hidden files/directories behavior is documented.
-
-** TODO Add change detection
-
-Goal: Avoid reparsing unchanged files unnecessarily.
-
-Signals:
-
-- ~mtime_ns~
-- ~size~
-- ~content_hash~
-
-Acceptance criteria:
-
-- Unchanged files are skipped.
-- Changed files are parsed again.
-- ~mtime_ns~ and ~size~ are used as a fast check.
-- ~content_hash~ is used when stronger verification is needed.
-- ~content_hash~ is explicitly defined as file content bytes unless decided otherwise.
-- Deleted files are removed from the DB or marked as missing.
-- Tests cover unchanged, changed, and deleted files.
-
-** TODO Implement transactional per-file replacement
-
-Goal: Provide a reusable indexer operation for replacing or removing exactly one file without requiring a watcher.
-
-General rules:
-
-- The operation must use the same parser adapter and DB write path as a full rebuild.
-- A file update replaces all rows belonging to that file inside one transaction.
-- File removal deletes or marks all rows belonging to that file consistently.
-- The operation must be callable and testable independently of filesystem events.
-- Link resolution updates may be deferred but must be documented.
-
-Acceptance criteria:
-
-- One changed file can be parsed and replaced transactionally.
-- One deleted file can be removed or marked missing consistently.
-- Old headings, TODO keywords, tags, keywords, properties, timestamps, links, bodies, outline rows, and FTS rows for the file are replaced where applicable.
-- Level 0 heading is recreated consistently.
-- The operation works when FTS5 is disabled.
-- FTS rows are updated when FTS5 is enabled.
-- Transaction errors do not leave partial file data.
-- Tests cover modified, created, deleted, and failed replacements where practical.
-
-** TODO Optimize transaction batching
-
-Goal: Index multiple files efficiently without losing database consistency.
-
-Acceptance criteria:
-
-- Batch size is configurable or sensibly fixed.
-- Error strategy is defined.
-- DB remains consistent even on interruption.
-- Derived/cache tables are kept consistent with core rows.
-- Optional FTS rows are kept consistent only when FTS5 is enabled.
-- Tests or manual checks cover partial failure behavior.
-
-** TODO Optimize SQLite indexes
-
-Goal: Speed up common queries.
-
-Acceptance criteria:
-
-- Important indexes are defined.
-- ~EXPLAIN QUERY PLAN~ is checked for typical queries.
-- Typical queries include TODO, tags, properties, links, planning, outline/subtree lookups, and FTS if enabled.
-- Results are documented.
-- Index changes are based on observed query plans or clear expected workloads.
-
-** TODO Evaluate SQLite query performance
-
-Goal: Check whether the current SQLite schema is fast enough for the intended query workload.
-
-Note: The project is query-oriented, but a separate data warehouse is probably unnecessary unless measurements show a real bottleneck.
-
-Acceptance criteria:
-
-- Benchmark data set is defined.
-- Common queries are measured.
-- FTS query performance is measured when FTS5 is enabled.
-- Materialized path subtree queries are measured.
-- Findings are documented.
-- Schema changes are based on measurements, not assumptions.
-
 * Phase 7: Watcher for incremental updates
 
 Goal of this phase: Detect file changes and index selectively.
 
 General rules:
 
-- Selective reparse should call the transactional per-file replacement operation from Phase 6.
-- Filesystem events should remain separate from parsing and DB mutation logic.
-- Link resolution updates may be deferred but must be documented.
+- Selective replacement and removal must call the Phase 6 one-file change-set wrappers.
+- Filesystem events must remain separate from parsing and DB mutation logic.
+- Watcher-triggered updates inherit the Phase 6 FTS, link-resolution, trust-metadata, and rollback contract; the watcher must not maintain derived DB state itself.
 
 ** TODO Integrate file watcher via ~notify~
 
@@ -145,10 +41,11 @@ Goal: Translate watcher events into calls to the transactional per-file replacem
 
 Acceptance criteria:
 
-- Only the affected file operation is triggered.
-- Modified and created files call the Phase 6 replacement operation.
-- Deleted files call the Phase 6 removal operation.
-- Link resolution is updated for affected targets or explicitly marked as later work.
+- Only the affected one-file change-set operation is triggered after event normalization.
+- Modified and created files call the Phase 6 replacement wrapper.
+- Deleted files call the Phase 6 removal wrapper.
+- The resulting transaction satisfies the Phase 6 FTS, link-resolution, indexed-universe, trust-metadata, and rollback requirements before commit.
+- Targeted FTS or link-resolution optimization may remain later work, but stale derived state is not acceptable.
 - Duplicate or redundant watcher events do not cause inconsistent DB state.
 - Tests cover modified, created, and deleted files where practical.
 
@@ -170,17 +67,18 @@ General rules:
 - Resolver caches must be explicit, bounded, and safe to use from a future parallel pipeline.
 - Parallel behavior must be configurable or limitable.
 
-** TODO Split rebuild into discovery, parse jobs, and write jobs
+** TODO Adapt the prepared-file pipeline for parallel parse jobs
 
-Goal: Make the indexing pipeline structurally ready for parallel parsing without changing parser semantics.
+Goal: Parallelize Phase 6 per-file preparation without changing discovery, change-planning, parsing, or DB semantics.
 
 Acceptance criteria:
 
-- File discovery is separated from per-file parse work.
-- Per-file parse inputs include content, path metadata, and effective parse options.
-- Per-file parse outputs are independent values that can be written later.
-- SQLite writes remain transactional and deterministic.
-- Error reporting preserves file path context.
+- Phase 6 discovery and change planning remain the single source of parse jobs.
+- Per-file preparation inputs and outputs are owned, independent values suitable for worker execution.
+- Parse completion order does not affect deterministic DB mutation order or stored semantic results.
+- SQLite writes remain serial or explicitly batched inside controlled transactions.
+- Error reporting preserves file path context and distinguishes preparation from write failures.
+- Sequential execution remains available as the reference behavior and fallback.
 
 ** TODO Make per-file context resolvers parallel-safe
 
