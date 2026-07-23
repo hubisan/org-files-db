@@ -7,6 +7,7 @@ This file records completed changes.
 :VISIBILITY: all
 :END:
 
+- =ADDED= Index planning now classifies source changes deterministically without modifying the database.
 - =CHANGED= Rebuild now records versioned indexing context so future incremental updates safely detect source, parser, and search-policy changes.
 - =CHANGED= Rebuild now prepares each file from one verified source snapshot and stores its SHA-256 content hash.
 - =ADDED= Configuration now supports global file exclusions and directory-local file or tree exclusions for discovery.

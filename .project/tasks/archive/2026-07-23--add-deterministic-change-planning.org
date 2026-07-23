@@ -1,0 +1,127 @@
+#+TITLE: Add deterministic change planning
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu 11:00]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Add a deterministic, read-only plan that classifies discovered sources against persisted snapshots before later transactional application.
+
+** DONE Add deterministic change planning
+
+- Task file: [[file:archive/2026-07-23--add-deterministic-change-planning.org]]
+
+Goal: Classify the current source set against persisted file state before any DB mutation.
+
+Expected change kinds:
+
+- unchanged
+- metadata-only
+- created
+- modified
+- deleted
+
+Acceptance criteria:
+
+- Planning compares the current discovered source set with persisted file state without performing DB mutations.
+- The persisted indexing context is compared before unchanged files are trusted.
+- Missing, malformed, or incompatible indexing context produces the previously defined full-rebuild or invalidation requirement rather than an unsafe incremental plan.
+- ~mtime_ns~ and ~size~ are the fast unchanged check when the indexing context is compatible.
+- The same-metadata verification policy is explicit. A caller can request stronger hash verification rather than being forced to trust ~mtime_ns~ and ~size~ indefinitely.
+- If either fast signal differs, or stronger verification is requested, the current bytes are captured and hashed before deciding whether parsing is required.
+- When hashing is required, the same captured bytes and snapshot are reused for preparation if the file is modified rather than reading a second, potentially different version.
+- A touched file whose content hash is unchanged is classified as metadata-only.
+- A metadata-only change updates file metadata without replacing parsed rows.
+- New files are prepared and classified as created.
+- Changed file content is prepared and classified as modified.
+- Files that were indexed but are no longer eligible, configured, or present are classified as deleted.
+- Rename correlation is not attempted; a rename remains deletion plus creation.
+- A missing-status retention model is out of scope unless a separate schema decision is approved.
+- Discovery, stat, read, parse, or snapshot errors are distinct from deletions and do not produce destructive plans.
+- The existing empty-source safety guard remains effective.
+- Any additional safeguard against unexpected mass deletion is documented and deterministic.
+- The hash algorithm and serialized representation are versioned or algorithm-qualified so incompatible hashes cannot be compared accidentally.
+- Planning order and output are deterministic.
+- The resulting plan contains enough information for later CLI, watcher, batch, and test callers.
+- The plan reports unchanged, metadata-only, created, modified, deleted, and failed items separately.
+- Tests cover unchanged files, touched files with identical content, changed content with equal size where practical, created files, deleted files, exclusions and configuration changes, forced verification, discovery failures, and incompatible indexing context.
+
+* Planning
+
+** Problem summary
+
+The indexer has deterministic discovery, stable per-file preparation, and persisted context fingerprints, but no reusable read-only decision layer for future incremental callers.
+
+** Goals
+
+- Return a terminal full-rebuild requirement for unsafe context or persisted identities.
+- Classify source changes deterministically without DB mutation.
+- Preserve captured bytes for preparation and use a qualified hash format.
+
+** Non-goals
+
+- No application, watcher, rename correlation, CLI command, schema migration, or parallel execution.
+
+** Architecture
+
+Compare context and stored identities before discovery-dependent planning. A successful source universe is required before deletion. Use captured byte snapshots only when classification needs hash evidence or preparation.
+
+** Execution plan
+
+1. Add planner result, options, snapshot, and captured-source types.
+2. Refactor stable capture and preparation around exact bytes and qualified hashes.
+3. Add persisted-file reads and deterministic classification.
+4. Add focused read-only, context, identity, hash, and failure tests.
+5. Update design documentation and changelog.
+
+** Risks & assumptions
+
+Legacy bare hashes are deliberately reparsed when planning examines them. Per-file failures are non-destructive plan entries; hard discovery failure aborts planning.
+
+** Proposed checks
+
+- cargo fmt --check
+- cargo clippy --all-targets -- -D warnings
+- cargo test
+- cargo build --all-targets
+- make ci
+- git diff --check
+
+* Results
+
+** Approach
+
+- Added a read-only planner with terminal ~FullRebuildRequired~ and deterministic actionable groups.
+- Captured exact source bytes separately from preparation and introduced strict ~sha256:<hex>~ snapshot hashes.
+- Kept context invalidations combinable and made only reparse-all override the file fast path.
+- Follow-up review work makes captured metadata authoritative after a read, carries existing file-row IDs in every applicable plan entry, and validates persisted SQLite value types conservatively.
+
+** Changed files
+
+- ~src/indexer.rs~ contains the planner, captured-source flow, qualified hash handling, and planner tests.
+- ~docs/design/incremental-indexing.org~ documents terminal recovery, observed-identity deletion, and hash rules.
+- ~CHANGELOG.org~ records deterministic read-only planning.
+
+** Checks performed
+
+- ~cargo fmt --check~
+- ~cargo clippy --all-targets -- -D warnings~
+- ~cargo test~
+- ~cargo build --all-targets~
+- ~make ci~
+- ~git diff --check~
+
+** Test results
+
+All checks passed. Focused tests cover read-only unchanged planning, derived-search and semantic invalidations, metadata-only hashing without parsing, terminal context recovery, failed files remaining observed rather than deleted, captured-metadata classification, existing-row ID propagation, and malformed SQLite-value coverage.
+
+** Blockers
+
+None.
+
+** Follow-ups
+
+Transactional application will consume prepared and metadata-only plan entries in the next task.

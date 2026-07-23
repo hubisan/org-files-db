@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::Connection;
+use rusqlite::{types::ValueRef, Connection};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -22,7 +22,7 @@ use crate::{
     },
     exclusions::ExclusionMatcher,
     file_identity::{display_path, FileIdentity},
-    indexing_context::IndexingContext,
+    indexing_context::{IndexInvalidationSet, IndexingContext, IndexingContextComparison},
     link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
     parser::{
@@ -74,6 +74,185 @@ where
         config: &Config,
     ) -> Result<RebuildReport, IndexerError> {
         self.rebuild_with_options(connection, config, false)
+    }
+
+    #[allow(dead_code)] // Consumed by the next transactional application task.
+    pub(crate) fn plan_changes(
+        &self,
+        connection: &Connection,
+        config: &Config,
+    ) -> Result<ChangePlanningResult, IndexerError> {
+        self.plan_changes_with_options(connection, config, ChangePlanningOptions::default())
+    }
+
+    #[allow(dead_code)] // Consumed by the next transactional application task.
+    pub(crate) fn plan_changes_with_options(
+        &self,
+        connection: &Connection,
+        config: &Config,
+        options: ChangePlanningOptions,
+    ) -> Result<ChangePlanningResult, IndexerError> {
+        let fts_backend_available =
+            sqlite_fts5_available_read_only(connection).map_err(|source| {
+                IndexerError::Database(DbError::Inspect {
+                    target: config.db_path.display().to_string(),
+                    source,
+                })
+            })?;
+        if config.search.fts5_enabled && !fts_backend_available {
+            return Err(IndexerError::Write(DbWriteError::UnsupportedBackendFeature {
+                feature: "SQLite FTS5",
+                message: "SQLite FTS5 was requested, but the opened SQLite connection does not support FTS5".to_string(),
+            }));
+        }
+        let context = IndexingContext::from_config(config, fts_backend_available);
+        let context_comparison = context.compare(connection).map_err(IndexerError::Write)?;
+        if context_comparison == IndexingContextComparison::FullRebuildRequired {
+            return Ok(ChangePlanningResult::FullRebuildRequired);
+        }
+
+        let persisted = match load_persisted_file_snapshots(connection)? {
+            PersistedFileSnapshots::Valid(files) => files,
+            PersistedFileSnapshots::InvalidIdentity => {
+                return Ok(ChangePlanningResult::FullRebuildRequired)
+            }
+        };
+        let discovery = discover_org_files(config)?;
+        if discovery.files.is_empty() && !discovery.had_exclusion_match && !options.allow_empty {
+            let existing_indexed_files = existing_indexed_file_count(connection)?;
+            if existing_indexed_files > 0 {
+                return Err(IndexerError::RefusedEmptyRebuild {
+                    existing_indexed_files,
+                });
+            }
+        }
+
+        let invalidations = match context_comparison {
+            IndexingContextComparison::Compatible => IndexInvalidationSet::default(),
+            IndexingContextComparison::Invalidations(invalidations) => invalidations,
+            IndexingContextComparison::FullRebuildRequired => unreachable!("handled above"),
+        };
+        let reparse_all = invalidations.contains(IndexInvalidationSet::REPARSE_ALL_FILES);
+        let mut by_identity = BTreeMap::new();
+        let mut legacy_by_path = BTreeMap::new();
+        for file in persisted {
+            if let Some(identity) = file.identity.clone() {
+                by_identity.insert(identity, file);
+            } else {
+                legacy_by_path.insert(file.path.clone(), file);
+            }
+        }
+
+        let mut discovery_files = discovery.files;
+        discovery_files
+            .sort_by(|left, right| left.identity.as_bytes().cmp(right.identity.as_bytes()));
+        let mut plan = ChangePlan {
+            invalidations,
+            ..ChangePlan::default()
+        };
+        for discovered in discovery_files {
+            let persisted = by_identity.remove(&discovered.identity).or_else(|| {
+                discovered
+                    .path
+                    .to_str()
+                    .and_then(|_| legacy_by_path.remove(&display_path(&discovered.path)))
+            });
+            match self.plan_discovered_file(discovered, persisted, config, options, reparse_all) {
+                Ok(PlannedCurrentFile::Unchanged(file)) => plan.unchanged.push(file),
+                Ok(PlannedCurrentFile::MetadataOnly(file)) => plan.metadata_only.push(file),
+                Ok(PlannedCurrentFile::Created(file)) => plan.created.push(file),
+                Ok(PlannedCurrentFile::Modified(file)) => plan.modified.push(file),
+                Err(error) => plan.failed.push(FailedChange {
+                    path: error_path(&error),
+                    error,
+                }),
+            }
+        }
+        plan.deleted.extend(
+            by_identity
+                .into_values()
+                .chain(legacy_by_path.into_values())
+                .map(DeletedFile::from),
+        );
+        plan.deleted
+            .sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
+        Ok(ChangePlanningResult::Ready(plan))
+    }
+
+    #[allow(dead_code)] // Reached through the planner entry points above.
+    fn plan_discovered_file(
+        &self,
+        discovered: DiscoveredOrgFile,
+        persisted: Option<PersistedFileSnapshot>,
+        config: &Config,
+        options: ChangePlanningOptions,
+        reparse_all: bool,
+    ) -> Result<PlannedCurrentFile, IndexerError> {
+        self.plan_discovered_file_with_reader(
+            discovered,
+            persisted,
+            config,
+            options,
+            reparse_all,
+            &mut FilesystemSnapshotReader,
+        )
+    }
+
+    fn plan_discovered_file_with_reader<R>(
+        &self,
+        discovered: DiscoveredOrgFile,
+        persisted: Option<PersistedFileSnapshot>,
+        config: &Config,
+        options: ChangePlanningOptions,
+        reparse_all: bool,
+        reader: &mut R,
+    ) -> Result<PlannedCurrentFile, IndexerError>
+    where
+        R: FileSnapshotReader,
+    {
+        let metadata = reader.metadata(&discovered.path)?;
+        let fast_snapshot_matches = persisted
+            .as_ref()
+            .is_some_and(|file| file.mtime_ns == metadata.mtime_ns && file.size == metadata.size);
+        let hash_comparable = persisted
+            .as_ref()
+            .and_then(|file| qualified_sha256_hash(file.content_hash.as_deref()))
+            .is_some();
+        if let Some(persisted) = persisted.as_ref() {
+            if fast_snapshot_matches && hash_comparable && !options.verify_hashes && !reparse_all {
+                return Ok(PlannedCurrentFile::Unchanged(PlannedFile::from_persisted(
+                    &discovered,
+                    persisted,
+                )));
+            }
+        }
+
+        let captured = capture_stable_source_with(reader, &discovered.path)?;
+        if let Some(persisted) = persisted.as_ref() {
+            let hash_matches = qualified_sha256_hash(persisted.content_hash.as_deref())
+                .is_some_and(|hash| hash == captured.snapshot.content_hash);
+            let captured_snapshot_matches = persisted.mtime_ns == captured.snapshot.mtime_ns
+                && persisted.size == captured.snapshot.size;
+            if !reparse_all && hash_matches {
+                let file = PlannedFile::from_captured(&discovered, persisted, &captured)?;
+                return Ok(if captured_snapshot_matches {
+                    PlannedCurrentFile::Unchanged(file)
+                } else {
+                    PlannedCurrentFile::MetadataOnly(file)
+                });
+            }
+            let prepared = self.prepare_captured_file(discovered, config, captured)?;
+            return Ok(PlannedCurrentFile::Modified(PlannedPreparedFile {
+                existing_file_id: Some(persisted.file_id),
+                prepared,
+            }));
+        }
+
+        let prepared = self.prepare_captured_file(discovered, config, captured)?;
+        Ok(PlannedCurrentFile::Created(PlannedPreparedFile {
+            existing_file_id: None,
+            prepared,
+        }))
     }
 
     pub(crate) fn rebuild_with_options(
@@ -184,9 +363,20 @@ where
         discovered: DiscoveredOrgFile,
         config: &Config,
     ) -> Result<PreparedFile, IndexerError> {
+        let captured = capture_stable_source(&discovered.path)?;
+        self.prepare_captured_file(discovered, config, captured)
+    }
+
+    fn prepare_captured_file(
+        &self,
+        discovered: DiscoveredOrgFile,
+        config: &Config,
+        captured: CapturedSource,
+    ) -> Result<PreparedFile, IndexerError> {
         let path = discovered.path;
         let identity = discovered.identity;
-        let (content, snapshot) = read_stable_file_content(&path)?;
+        let CapturedSource { bytes, snapshot } = captured;
+        let content = decode_captured_source(&path, bytes)?;
         let parse_options = config.parse_options();
         let todo_keywords = resolve_todo_keywords_with_default_source(
             &content,
@@ -241,7 +431,7 @@ fn persist_search_trust_metadata(
 /// Owned, DB-free preparation output suitable for later change planning and
 /// parallel parsing. The file record carries the stable source snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct PreparedFile {
+pub(crate) struct PreparedFile {
     path: PathBuf,
     identity: FileIdentity,
     document: ParsedOrgDocument,
@@ -255,6 +445,150 @@ struct FileSnapshot {
     mtime_ns: i64,
     size: i64,
     content_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CapturedSource {
+    bytes: Vec<u8>,
+    snapshot: FileSnapshot,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ChangePlanningOptions {
+    pub(crate) allow_empty: bool,
+    pub(crate) verify_hashes: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) enum ChangePlanningResult {
+    FullRebuildRequired,
+    Ready(ChangePlan),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Default)]
+pub(crate) struct ChangePlan {
+    pub(crate) invalidations: IndexInvalidationSet,
+    pub(crate) unchanged: Vec<PlannedFile>,
+    pub(crate) metadata_only: Vec<PlannedFile>,
+    pub(crate) created: Vec<PlannedPreparedFile>,
+    pub(crate) modified: Vec<PlannedPreparedFile>,
+    pub(crate) deleted: Vec<DeletedFile>,
+    pub(crate) failed: Vec<FailedChange>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlannedFile {
+    /// Existing row selected by identity (or the exact UTF-8 legacy display path).
+    pub(crate) existing_file_id: i64,
+    pub(crate) path: PathBuf,
+    pub(crate) identity: FileIdentity,
+    pub(crate) file_record: FileRecordInput,
+}
+
+#[allow(dead_code)]
+impl PlannedFile {
+    fn from_persisted(discovered: &DiscoveredOrgFile, persisted: &PersistedFileSnapshot) -> Self {
+        Self {
+            existing_file_id: persisted.file_id,
+            path: discovered.path.clone(),
+            identity: discovered.identity.clone(),
+            file_record: FileRecordInput {
+                path: discovered.path.clone(),
+                identity: Some(discovered.identity.as_bytes().to_vec()),
+                mtime_ns: persisted.mtime_ns,
+                size: persisted.size,
+                content_hash: persisted.content_hash.clone(),
+                indexed_at: None,
+            },
+        }
+    }
+
+    fn from_captured(
+        discovered: &DiscoveredOrgFile,
+        persisted: &PersistedFileSnapshot,
+        captured: &CapturedSource,
+    ) -> Result<Self, IndexerError> {
+        Ok(Self {
+            existing_file_id: persisted.file_id,
+            path: discovered.path.clone(),
+            identity: discovered.identity.clone(),
+            file_record: build_file_record(
+                &discovered.path,
+                &discovered.identity,
+                &captured.snapshot,
+            )?,
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct PlannedPreparedFile {
+    /// `None` denotes a created source; otherwise application must update this row.
+    pub(crate) existing_file_id: Option<i64>,
+    pub(crate) prepared: PreparedFile,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeletedFile {
+    pub(crate) file_id: i64,
+    pub(crate) path: String,
+    pub(crate) identity: Option<FileIdentity>,
+    sort_key: Vec<u8>,
+}
+
+#[allow(dead_code)]
+impl From<PersistedFileSnapshot> for DeletedFile {
+    fn from(value: PersistedFileSnapshot) -> Self {
+        let sort_key = value
+            .identity
+            .as_ref()
+            .map(|identity| identity.as_bytes().to_vec())
+            .unwrap_or_else(|| value.path.as_bytes().to_vec());
+        Self {
+            file_id: value.file_id,
+            path: value.path,
+            identity: value.identity,
+            sort_key,
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct FailedChange {
+    pub(crate) path: PathBuf,
+    pub(crate) error: IndexerError,
+}
+
+#[allow(dead_code)]
+enum PlannedCurrentFile {
+    Unchanged(PlannedFile),
+    MetadataOnly(PlannedFile),
+    Created(PlannedPreparedFile),
+    Modified(PlannedPreparedFile),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct PersistedFileSnapshot {
+    file_id: i64,
+    path: String,
+    identity: Option<FileIdentity>,
+    mtime_ns: i64,
+    size: i64,
+    content_hash: Option<String>,
+}
+
+#[allow(dead_code)]
+enum PersistedFileSnapshots {
+    Valid(Vec<PersistedFileSnapshot>),
+    InvalidIdentity,
 }
 
 struct DiscoveryResult {
@@ -702,14 +1036,14 @@ impl FileSnapshotReader for FilesystemSnapshotReader {
     }
 }
 
-fn read_stable_file_content(path: &Path) -> Result<(String, FileSnapshot), IndexerError> {
-    read_stable_file_content_with(&mut FilesystemSnapshotReader, path)
+fn capture_stable_source(path: &Path) -> Result<CapturedSource, IndexerError> {
+    capture_stable_source_with(&mut FilesystemSnapshotReader, path)
 }
 
-fn read_stable_file_content_with(
+fn capture_stable_source_with(
     reader: &mut impl FileSnapshotReader,
     path: &Path,
-) -> Result<(String, FileSnapshot), IndexerError> {
+) -> Result<CapturedSource, IndexerError> {
     for _ in 0..2 {
         let before = reader.metadata(path)?;
         let bytes = reader.read_bytes(path)?;
@@ -718,24 +1052,161 @@ fn read_stable_file_content_with(
             continue;
         }
 
-        let content_hash = format!("{:x}", Sha256::digest(&bytes));
-        let content = String::from_utf8(bytes).map_err(|source| IndexerError::ReadFile {
-            path: path.to_path_buf(),
-            source: io::Error::new(io::ErrorKind::InvalidData, source),
-        })?;
-        return Ok((
-            content,
-            FileSnapshot {
+        let content_hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+        return Ok(CapturedSource {
+            bytes,
+            snapshot: FileSnapshot {
                 mtime_ns: before.mtime_ns,
                 size: before.size,
                 content_hash,
             },
-        ));
+        });
     }
 
     Err(IndexerError::UnstableFileSnapshot {
         path: path.to_path_buf(),
     })
+}
+
+fn decode_captured_source(path: &Path, bytes: Vec<u8>) -> Result<String, IndexerError> {
+    String::from_utf8(bytes).map_err(|source| IndexerError::ReadFile {
+        path: path.to_path_buf(),
+        source: io::Error::new(io::ErrorKind::InvalidData, source),
+    })
+}
+
+#[allow(dead_code)]
+fn qualified_sha256_hash(value: Option<&str>) -> Option<&str> {
+    let value = value?;
+    let digest = value.strip_prefix("sha256:")?;
+    (digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')))
+    .then_some(value)
+}
+
+#[allow(dead_code)]
+fn sqlite_fts5_available_read_only(connection: &Connection) -> rusqlite::Result<bool> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_module_list WHERE name = 'fts5')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|value| value != 0)
+}
+
+#[allow(dead_code)]
+fn load_persisted_file_snapshots(
+    connection: &Connection,
+) -> Result<PersistedFileSnapshots, IndexerError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, path, identity, mtime_ns, size, content_hash
+             FROM files",
+        )
+        .map_err(|source| {
+            IndexerError::Database(DbError::Inspect {
+                target: "persisted file snapshots".to_string(),
+                source,
+            })
+        })?;
+    let mut rows = statement.query([]).map_err(|source| {
+        IndexerError::Database(DbError::Inspect {
+            target: "persisted file snapshots".to_string(),
+            source,
+        })
+    })?;
+    let mut snapshots = Vec::new();
+    while let Some(row) = rows.next().map_err(|source| {
+        IndexerError::Database(DbError::Inspect {
+            target: "persisted file snapshots".to_string(),
+            source,
+        })
+    })? {
+        let values = (|| -> rusqlite::Result<_> {
+            Ok((
+                row.get_ref(0)?,
+                row.get_ref(1)?,
+                row.get_ref(2)?,
+                row.get_ref(3)?,
+                row.get_ref(4)?,
+                row.get_ref(5)?,
+            ))
+        })()
+        .map_err(|source| {
+            IndexerError::Database(DbError::Inspect {
+                target: "persisted file snapshots".to_string(),
+                source,
+            })
+        })?;
+        let (
+            ValueRef::Integer(file_id),
+            ValueRef::Text(path),
+            identity,
+            ValueRef::Integer(mtime_ns),
+            ValueRef::Integer(size),
+            content_hash,
+        ) = values
+        else {
+            return Ok(PersistedFileSnapshots::InvalidIdentity);
+        };
+        let Ok(path) = std::str::from_utf8(path) else {
+            return Ok(PersistedFileSnapshots::InvalidIdentity);
+        };
+        if path.is_empty() || size < 0 {
+            return Ok(PersistedFileSnapshots::InvalidIdentity);
+        }
+        let identity = match identity {
+            ValueRef::Blob(identity) => match FileIdentity::from_stored_bytes(identity.to_vec()) {
+                Some(identity) => Some(identity),
+                None => return Ok(PersistedFileSnapshots::InvalidIdentity),
+            },
+            ValueRef::Null => None,
+            ValueRef::Integer(_) | ValueRef::Real(_) | ValueRef::Text(_) => {
+                return Ok(PersistedFileSnapshots::InvalidIdentity)
+            }
+        };
+        let content_hash = match content_hash {
+            ValueRef::Text(value) => std::str::from_utf8(value).ok().map(str::to_owned),
+            ValueRef::Null | ValueRef::Integer(_) | ValueRef::Real(_) | ValueRef::Blob(_) => None,
+        };
+        snapshots.push(PersistedFileSnapshot {
+            file_id,
+            path: path.to_owned(),
+            identity,
+            mtime_ns,
+            size,
+            content_hash,
+        });
+    }
+    snapshots.sort_by(|left, right| {
+        let left = left
+            .identity
+            .as_ref()
+            .map(|identity| identity.as_bytes())
+            .unwrap_or(left.path.as_bytes());
+        let right = right
+            .identity
+            .as_ref()
+            .map(|identity| identity.as_bytes())
+            .unwrap_or(right.path.as_bytes());
+        left.cmp(right)
+    });
+    Ok(PersistedFileSnapshots::Valid(snapshots))
+}
+
+#[allow(dead_code)]
+fn error_path(error: &IndexerError) -> PathBuf {
+    match error {
+        IndexerError::Discover { path, .. }
+        | IndexerError::InvalidFileMetadata { path, .. }
+        | IndexerError::UnstableFileSnapshot { path }
+        | IndexerError::Parse { path, .. }
+        | IndexerError::ReadFile { path, .. } => path.clone(),
+        _ => PathBuf::new(),
+    }
 }
 
 fn file_metadata(path: &Path) -> Result<FileMetadata, IndexerError> {
@@ -1416,16 +1887,21 @@ fn db_write_invalid_input(message: &'static str) -> DbWriteError {
 #[cfg(test)]
 mod tests {
     use super::{
-        discover_org_files, read_stable_file_content_with, DiscoveredOrgFile, FileMetadata,
-        FileSnapshotReader, IndexedFile, Indexer, IndexerError,
+        capture_stable_source_with, discover_org_files, ChangePlanningOptions,
+        ChangePlanningResult, DiscoveredOrgFile, FileMetadata, FileSnapshotReader,
+        IndexInvalidationSet, IndexedFile, Indexer, IndexerError, PersistedFileSnapshot,
+        PlannedCurrentFile,
     };
     use crate::{
         config::{Config, SearchConfig},
         db::{
             open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
-            DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
+            DB_METADATA_BODY_TEXT_AVAILABLE_KEY,
+            DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY,
+            DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
             DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
+            DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY,
         },
         file_identity::FileIdentity,
         link_resolver::{
@@ -1440,6 +1916,7 @@ mod tests {
         },
     };
     use rusqlite::Connection;
+    use sha2::{Digest, Sha256};
     use std::{
         collections::VecDeque,
         fs,
@@ -7785,7 +8262,7 @@ index_body_text = false
         assert_eq!(prepared.path, canonical_path);
         assert_eq!(
             prepared.file_record.content_hash.as_deref(),
-            Some("40e60c2e39f6e79d31d21d605d33d858cf27fb7ed9a706982e9698a34c725075")
+            Some("sha256:40e60c2e39f6e79d31d21d605d33d858cf27fb7ed9a706982e9698a34c725075")
         );
         assert_eq!(prepared.file_record.indexed_at, None);
         assert_eq!(prepared.document.headings.len(), 2);
@@ -7838,7 +8315,7 @@ index_body_text = false
             .expect("prepared metadata should persist");
         assert_eq!(
             row.0,
-            "40e60c2e39f6e79d31d21d605d33d858cf27fb7ed9a706982e9698a34c725075"
+            "sha256:40e60c2e39f6e79d31d21d605d33d858cf27fb7ed9a706982e9698a34c725075"
         );
         assert!(row.1.is_some());
     }
@@ -7889,14 +8366,14 @@ index_body_text = false
             bytes: VecDeque::from([b"old\n".to_vec(), b"* Stable\n".to_vec()]),
         };
 
-        let (content, snapshot) =
-            read_stable_file_content_with(&mut reader, path).expect("second attempt should win");
-        assert_eq!(content, "* Stable\n");
-        assert_eq!(snapshot.mtime_ns, 3);
-        assert_eq!(snapshot.size, 10);
+        let captured =
+            capture_stable_source_with(&mut reader, path).expect("second attempt should win");
+        assert_eq!(captured.bytes, b"* Stable\n");
+        assert_eq!(captured.snapshot.mtime_ns, 3);
+        assert_eq!(captured.snapshot.size, 10);
         assert_eq!(
-            snapshot.content_hash,
-            "9bff91c3ea0353d6792c39f79b35052dfd6379d8fa9a83147e04058ac160d998"
+            captured.snapshot.content_hash,
+            "sha256:9bff91c3ea0353d6792c39f79b35052dfd6379d8fa9a83147e04058ac160d998"
         );
     }
 
@@ -7926,7 +8403,7 @@ index_body_text = false
         };
 
         assert!(matches!(
-            read_stable_file_content_with(&mut reader, path),
+            capture_stable_source_with(&mut reader, path),
             Err(IndexerError::UnstableFileSnapshot { path: error_path }) if error_path == path
         ));
     }
@@ -7948,12 +8425,443 @@ index_body_text = false
             bytes: VecDeque::from([b"* Heading\r\n".to_vec()]),
         };
 
-        let (_, snapshot) =
-            read_stable_file_content_with(&mut reader, path).expect("snapshot should be stable");
+        let captured =
+            capture_stable_source_with(&mut reader, path).expect("snapshot should be stable");
         assert_eq!(
-            snapshot.content_hash,
-            "5339665855497512213a47b97f835bad7c112b2b344a73efce829edd9a0f075f"
+            captured.snapshot.content_hash,
+            "sha256:5339665855497512213a47b97f835bad7c112b2b344a73efce829edd9a0f075f"
         );
+    }
+
+    #[test]
+    fn change_planning_is_read_only_and_uses_the_unchanged_fast_path() {
+        struct PanicParser;
+
+        impl OrgParserCore for PanicParser {
+            fn parse_document_core(
+                &self,
+                _path: &Path,
+                _content: &str,
+                _options: &ParseOptions,
+            ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+                panic!("unchanged planning must not parse")
+            }
+        }
+
+        let test_dir = TestDir::new("change-plan-read-only");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Original\n[[https://example.com]]\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let before_changes = connection.total_changes();
+        let before: (i64, i64, i64, String) = connection
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM files),
+                    (SELECT COUNT(*) FROM headings),
+                    (SELECT COUNT(*) FROM links),
+                    (SELECT group_concat(key || ':' || value, '|')
+                     FROM (SELECT key, value FROM db_metadata ORDER BY key))",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("state should load");
+
+        let result = Indexer::new(PanicParser)
+            .plan_changes(&connection, &config)
+            .expect("planning should succeed");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("current context should produce an actionable plan");
+        };
+        assert_eq!(plan.unchanged.len(), 1);
+        assert!(plan.metadata_only.is_empty());
+        assert!(plan.created.is_empty());
+        assert!(plan.modified.is_empty());
+        assert!(plan.deleted.is_empty());
+        assert!(plan.failed.is_empty());
+        assert_eq!(connection.total_changes(), before_changes);
+        let after: (i64, i64, i64, String) = connection
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM files),
+                    (SELECT COUNT(*) FROM headings),
+                    (SELECT COUNT(*) FROM links),
+                    (SELECT group_concat(key || ':' || value, '|')
+                     FROM (SELECT key, value FROM db_metadata ORDER BY key))",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("state should load");
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn change_planning_handles_context_invalidation_without_unnecessary_parsing() {
+        struct PanicParser;
+
+        impl OrgParserCore for PanicParser {
+            fn parse_document_core(
+                &self,
+                _path: &Path,
+                _content: &str,
+                _options: &ParseOptions,
+            ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+                panic!("derived-search-only planning must not parse")
+            }
+        }
+
+        let test_dir = TestDir::new("change-plan-invalidations");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        connection
+            .execute(
+                "UPDATE db_metadata SET value = ?1 WHERE key = ?2",
+                [
+                    "0000000000000000000000000000000000000000000000000000000000000000",
+                    DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY,
+                ],
+            )
+            .expect("derived fingerprint should change");
+        let result = Indexer::new(PanicParser)
+            .plan_changes(&connection, &config)
+            .expect("derived-only planning should succeed");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("derived-only invalidation remains actionable");
+        };
+        assert_eq!(plan.unchanged.len(), 1);
+        assert!(plan.modified.is_empty());
+        assert!(plan
+            .invalidations
+            .contains(IndexInvalidationSet::REBUILD_DERIVED_SEARCH));
+
+        connection
+            .execute(
+                "UPDATE db_metadata SET value = ?1 WHERE key = ?2",
+                [
+                    "0000000000000000000000000000000000000000000000000000000000000000",
+                    DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
+                ],
+            )
+            .expect("semantic fingerprint should change");
+        let result = Indexer::new(OrgizeAdapter::new())
+            .plan_changes(&connection, &config)
+            .expect("semantic invalidation should plan");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("semantic invalidation remains actionable");
+        };
+        assert_eq!(plan.modified.len(), 1);
+        assert!(plan.unchanged.is_empty());
+        assert_eq!(plan.modified[0].prepared.path, path);
+        assert!(plan
+            .invalidations
+            .contains(IndexInvalidationSet::REPARSE_ALL_FILES));
+    }
+
+    #[test]
+    fn terminal_context_or_identity_problems_have_no_actionable_change_groups() {
+        let test_dir = TestDir::new("change-plan-terminal");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        connection
+            .execute(
+                "UPDATE db_metadata SET value = 'invalid' WHERE key = ?1",
+                [DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY],
+            )
+            .expect("context should corrupt");
+        assert!(matches!(
+            Indexer::new(OrgizeAdapter::new()).plan_changes(&connection, &config),
+            Ok(ChangePlanningResult::FullRebuildRequired)
+        ));
+    }
+
+    #[test]
+    fn change_planning_hashes_metadata_only_files_without_parsing() {
+        struct PanicParser;
+
+        impl OrgParserCore for PanicParser {
+            fn parse_document_core(
+                &self,
+                _path: &Path,
+                _content: &str,
+                _options: &ParseOptions,
+            ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+                panic!("metadata-only planning must not parse")
+            }
+        }
+
+        let test_dir = TestDir::new("change-plan-metadata-only");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        connection
+            .execute("UPDATE files SET mtime_ns = 0", [])
+            .expect("stored metadata should change");
+
+        let result = Indexer::new(PanicParser)
+            .plan_changes(&connection, &config)
+            .expect("planning should hash the source");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("current context should remain actionable");
+        };
+        assert_eq!(plan.metadata_only.len(), 1);
+        assert!(plan.modified.is_empty());
+        assert!(plan.metadata_only[0]
+            .file_record
+            .content_hash
+            .as_deref()
+            .is_some_and(|hash| hash.starts_with("sha256:")));
+    }
+
+    #[test]
+    fn change_planning_uses_captured_metadata_after_the_fast_path() {
+        struct PanicParser;
+
+        impl OrgParserCore for PanicParser {
+            fn parse_document_core(
+                &self,
+                _path: &Path,
+                _content: &str,
+                _options: &ParseOptions,
+            ) -> Result<ParsedOrgDocument, ParseDiagnostic> {
+                panic!("equal captured bytes must remain metadata-only")
+            }
+        }
+
+        let path = PathBuf::from("/tmp/change-plan-captured-metadata.org");
+        let bytes = b"* Same\n".to_vec();
+        let hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+        let discovered = DiscoveredOrgFile {
+            identity: FileIdentity::from_canonical_path(&path),
+            path: path.clone(),
+            scan_root: PathBuf::from("/tmp"),
+        };
+        let persisted = PersistedFileSnapshot {
+            file_id: 41,
+            path: path.display().to_string(),
+            identity: Some(discovered.identity.clone()),
+            mtime_ns: 10,
+            size: i64::try_from(bytes.len()).expect("test size fits"),
+            content_hash: Some(hash),
+        };
+        let mut reader = ScriptedSnapshotReader {
+            // The no-read probe matches persisted metadata. The subsequent
+            // stable capture observes the later touched snapshot.
+            metadata: VecDeque::from([
+                FileMetadata {
+                    mtime_ns: 10,
+                    size: 7,
+                },
+                FileMetadata {
+                    mtime_ns: 11,
+                    size: 7,
+                },
+                FileMetadata {
+                    mtime_ns: 11,
+                    size: 7,
+                },
+            ]),
+            bytes: VecDeque::from([bytes]),
+        };
+        let config = Config::default();
+        let result = Indexer::new(PanicParser)
+            .plan_discovered_file_with_reader(
+                discovered,
+                Some(persisted),
+                &config,
+                ChangePlanningOptions {
+                    allow_empty: false,
+                    verify_hashes: true,
+                },
+                false,
+                &mut reader,
+            )
+            .expect("capture should classify deterministically");
+        let PlannedCurrentFile::MetadataOnly(file) = result else {
+            panic!("captured metadata, rather than the fast probe, decides the result");
+        };
+        assert_eq!(file.existing_file_id, 41);
+        assert_eq!(file.file_record.mtime_ns, 11);
+    }
+
+    #[test]
+    fn change_planning_treats_unusable_stored_values_conservatively() {
+        let test_dir = TestDir::new("change-plan-stored-values");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        connection
+            .execute("UPDATE files SET content_hash = X'00'", [])
+            .expect("test fixture should store a blob hash");
+        let result = Indexer::new(OrgizeAdapter::new())
+            .plan_changes(&connection, &config)
+            .expect("wrong hash type is non-comparable, not a planner error");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("context is valid")
+        };
+        assert_eq!(plan.modified.len(), 1);
+        assert!(plan.modified[0]
+            .prepared
+            .file_record
+            .content_hash
+            .as_deref()
+            .is_some_and(|value| value.starts_with("sha256:")));
+
+        connection
+            .execute("UPDATE files SET identity = X'00'", [])
+            .expect("test fixture should corrupt identity");
+        assert!(matches!(
+            Indexer::new(OrgizeAdapter::new()).plan_changes(&connection, &config),
+            Ok(ChangePlanningResult::FullRebuildRequired)
+        ));
+    }
+
+    #[test]
+    fn change_planning_reports_failed_sources_without_deleting_them() {
+        let test_dir = TestDir::new("change-plan-failed-source");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        fs::write(&path, b"* Invalid\n\xff").expect("invalid source should write");
+
+        let result = Indexer::new(OrgizeAdapter::new())
+            .plan_changes(&connection, &config)
+            .expect("per-file failure should not abort planning");
+        let ChangePlanningResult::Ready(plan) = result else {
+            panic!("file-level failure should remain actionable for other files");
+        };
+        assert_eq!(plan.failed.len(), 1);
+        assert_eq!(
+            plan.failed[0].path,
+            fs::canonicalize(&path).expect("path should resolve")
+        );
+        assert!(matches!(
+            plan.failed[0].error,
+            IndexerError::ReadFile { .. }
+        ));
+        assert!(plan.deleted.is_empty());
     }
 
     #[test]

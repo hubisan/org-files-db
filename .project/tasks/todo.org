@@ -101,122 +101,127 @@ General rules:
 
 - Task file: [[file:archive/2026-07-23--persist-indexing-context-and-define-invalidation-rules.org]]
 
-** TODO Add deterministic change planning
+** DONE Add deterministic change planning
 
-Goal: Classify the current source set against persisted file state before any DB mutation.
+- Task file: [[file:archive/2026-07-23--add-deterministic-change-planning.org]]
 
-Expected change kinds:
+** PLAN Implement transactional change application and prove rebuild equivalence
 
-- unchanged
-- metadata-only
-- created
-- modified
-- deleted
-
-Acceptance criteria:
-
-- ~mtime_ns~ and ~size~ are the fast unchanged check when the indexing context is compatible.
-- If either fast signal differs, the current bytes are hashed and compared with the stored hash before deciding whether parsing is required.
-- When hashing is required, the same captured bytes and snapshot are reused for preparation if the file is modified rather than reading a second, potentially different version.
-- A metadata-only change updates file metadata without replacing parsed rows when the content hash is unchanged.
-- The same-metadata verification policy is explicit. A caller can request stronger hash verification rather than being forced to trust ~mtime_ns~ and ~size~ forever.
-- The hash algorithm and serialized representation are versioned or algorithm-qualified so future algorithms cannot be compared accidentally.
-- New files are prepared and inserted.
-- Files that were indexed but are no longer eligible, configured, or present are planned for hard deletion. A missing-status retention model is out of scope unless a separate schema decision is approved.
-- Discovery or stat/read errors are distinct from deletions and do not produce destructive plans.
-- The existing empty-source safety guard remains effective, and any additional mass-deletion safeguard is documented.
-- Planning is deterministic, performs no DB mutation, and returns a report suitable for tests and later CLI/watcher callers.
-- Tests cover unchanged files, touched files with identical content, changed content with equal size where practical, created files, deleted files, ignore/config changes, forced verification, and incompatible indexing context.
-
-** TODO Implement transactional change-set application and per-file wrappers
-
-Goal: Apply one or more planned file replacements or removals through one production write path, with a one-file wrapper for Phase 7.
+Goal: Apply planned changes through one deterministic transactional production path, define interruption and batching semantics, and prove that the resulting database is equivalent to a clean rebuild.
 
 General rules:
 
-- Low-level row replacement or removal functions operate on an existing transaction.
-- A higher-level change-set operation owns the transaction, applies file mutations in deterministic path order, reconciles required global derived state at most once, updates trust metadata, and commits.
-- A single-file replacement or removal call is a one-item change set, not a separate implementation.
-
-Acceptance criteria:
-
-- A created or modified file can be prepared and replaced transactionally without filesystem events.
-- Prepared snapshots are revalidated according to the documented stale-preparation policy before mutation; a known-stale value is retried or rejected rather than committed as current.
-- A deleted file hard-deletes its ~files~ row and all owned rows consistently.
-- Updating an existing path preserves its file row identity where practical. Heading, link, timestamp, and other surrogate-ID stability is explicitly documented rather than assumed.
-- Old headings, TODO keywords, keywords, properties, tags, timestamps, timestamp repeaters, links, heading bodies, outline rows, and other file-owned rows are replaced where applicable.
-- Exactly one synthetic level-0 heading and one matching root ~outline_path~ row are recreated for every indexed file.
-- The operation works when FTS5 is disabled and keeps any stale on-disk FTS table explicitly untrusted.
-- When FTS5 is enabled, no stale FTS row IDs or terms survive. Rebuilding the complete contentless ~heading_fts~ table once per committed change set is acceptable initially.
-- FTS trust metadata becomes valid only in the same transaction that creates the matching FTS contents.
-- Incoming links to replaced or deleted headings/files do not remain marked ~resolved~ with null or obsolete targets. The current global ~LinkResolver::resolve_all~ may run once per change set before commit.
-- The indexed universe passed to link resolution reflects the post-change source set and ignore policy.
-- Full rebuild uses the same per-file preparation and row-write primitives rather than maintaining a second import implementation.
-- Any parse, validation, SQL, FTS, resolver, or commit error leaves the previously committed DB state intact for the affected transaction.
-- Tests cover created, modified, metadata-only, deleted, failed replacement, failed removal where practical, incoming links, FTS enabled/disabled, body indexing enabled/disabled, level-0 rows, and rollback behavior.
-
-** TODO Define batching, interruption, and error semantics
-
-Goal: Process many planned changes efficiently without weakening consistency or making results depend on processing order.
-
-Acceptance criteria:
-
+- Low-level file replacement, metadata update, and removal functions operate on an existing transaction.
+- A higher-level change-set operation owns the transaction.
+- A single-file replacement or removal is implemented as a one-item change set, not through a separate mutation implementation.
 - Preparation remains outside DB write transactions.
-- File mutation order inside a change set is deterministic.
-- Full rebuild atomicity is explicitly preserved or deliberately changed with a documented reason. The current all-or-nothing behavior is the default expectation.
-- Incremental reconciliation defines whether the complete run is one atomic change set or a sequence of atomic batches.
-- If batches are used, the batch size is configurable or selected from measurements rather than guesswork.
-- FTS rebuild and global link resolution run at most once per committed change set or batch and are skipped only when the plan proves the corresponding derived state cannot have changed.
-- Parse/read failures preserve the previous rows for the failed file and follow a documented fail-fast or continue strategy.
-- SQL or reconciliation failure rolls back the complete current transaction or batch.
-- Interruption leaves either the previous committed state or complete committed batches, never a partially replaced file or partially reconciled derived state.
-- Reports distinguish skipped, metadata-only, created, modified, deleted, failed, and committed files.
-- Tests or deterministic fault-injection checks cover failure before mutation, during file-row replacement, during derived-state reconciliation, and during commit where practical.
-
-** TODO Add index integrity and rebuild-equivalence checks
-
-Goal: Prove that incremental operations produce the same logical database as a clean rebuild and that derived/cache rows remain trustworthy.
+- Prepared snapshots are revalidated immediately before mutation according to the documented stale-preparation policy.
+- A known-stale prepared value is retried or rejected and must not be committed as current.
+- File mutations inside a change set are applied in deterministic canonical identity or path order.
+- Full rebuild uses the same per-file preparation and row-write primitives rather than maintaining a separate import implementation.
+- Full rebuild retains its all-or-nothing transaction unless a later measured reason justifies changing it.
+- Incremental reconciliation initially uses one atomic change set unless measurements justify explicit batching.
+- If batching is introduced, the batch size and interruption semantics must be documented and based on measurements rather than guesswork.
 
 Acceptance criteria:
 
-- A semantic snapshot comparison is defined by stable source identity such as file path and source positions rather than raw surrogate IDs.
-- A clean full rebuild and an incremental sequence reaching the same final corpus produce equivalent canonical facts, outline data, FTS matches when enabled, and link-resolution outcomes.
-- Documented operational differences such as ~indexed_at~ and intentionally unstable surrogate IDs are excluded explicitly rather than ignored ad hoc.
+- Created and modified files can be prepared and replaced transactionally without filesystem events.
+- Metadata-only changes update file metadata without replacing parsed file-owned rows.
+- Deleted files hard-delete their ~files~ row and all owned rows consistently.
+- Updating an existing physical file preserves its file-row identity where practical.
+- Stability or instability of heading, link, timestamp, and other surrogate IDs is explicitly documented rather than assumed.
+- Replacing a file removes all previous file-owned headings, TODO keywords, keywords, properties, tags, timestamps, timestamp repeaters, links, heading bodies, outline rows, and other applicable rows.
+- Exactly one synthetic level-0 heading and one matching root ~outline_path~ row are recreated for every indexed file.
+- The operation works when FTS5 is disabled and leaves any stale on-disk FTS table explicitly untrusted.
+- When FTS5 is enabled, no stale FTS row IDs or terms survive.
+- Rebuilding the complete contentless ~heading_fts~ table once per committed change set is acceptable initially.
+- FTS trust metadata becomes valid only in the same transaction that creates the matching FTS contents.
+- Global FTS reconciliation runs at most once per committed change set or batch.
+- Incoming links to replaced or deleted headings or files do not remain marked ~resolved~ with missing or obsolete targets.
+- The current global ~LinkResolver::resolve_all~ may run once per committed change set before commit.
+- Link resolution uses the post-change indexed universe and the current inclusion and exclusion policy.
+- Global link reconciliation runs at most once per committed change set or batch.
+- It may be skipped only when the plan proves that link-derived state cannot have changed.
+- Any parse, snapshot validation, SQL, FTS, resolver, metadata, or commit error rolls back the complete current transaction or batch.
+- A failed replacement preserves the previously committed rows for that file.
+- A failed deletion preserves the previously committed file and owned rows.
+- Interruption leaves either the previous committed state or complete committed batches, never a partially replaced file or partially reconciled derived state.
+- The failure strategy is explicit: preparation and validation failures occur before mutation; transaction failures are fail-fast and roll back the complete current change set or batch.
+- Reports distinguish planned, skipped, metadata-only, created, modified, deleted, failed, rolled-back, and committed files.
+
+Integrity and equivalence criteria:
+
+- A semantic database snapshot is defined using stable source identity, file paths, source positions, and canonical values rather than raw surrogate IDs.
+- Operational fields such as ~indexed_at~ and intentionally unstable surrogate IDs are explicitly excluded from semantic comparison.
+- A clean full rebuild and an incremental sequence reaching the same final corpus produce equivalent canonical facts.
+- Equivalence covers files, level-0 roots, headings, TODO keywords, keywords, properties, tags, timestamps, timestamp repeaters, links, heading bodies where enabled, outline data, link-resolution outcomes, and FTS matches where enabled.
 - Repeating an unchanged incremental run performs no reparsing and leaves semantic state unchanged.
-- Integrity checks cover one level-0 heading per file, one ~outline_path~ row per heading, foreign-key validity, no orphaned file-owned rows, and consistent resolver target/status combinations.
-- When FTS is trusted, its row IDs exactly match the canonical heading set and expected title/body policy. When FTS is untrusted or disabled, search metadata reflects that state.
-- Checks use ~PRAGMA foreign_key_check~ and targeted repository invariants; ~PRAGMA integrity_check~ may be included for manual or benchmark runs.
-- Tests cover create, modify, delete, rename-as-delete-plus-create, configuration invalidation, FTS modes, link targets, and rollback.
+- Integrity checks verify exactly one level-0 heading per file.
+- Integrity checks verify exactly one ~outline_path~ row per heading.
+- Integrity checks verify foreign-key validity and no orphaned file-owned rows.
+- Resolver target fields and statuses must form valid documented combinations.
+- When FTS is trusted, its row IDs exactly match the canonical heading set and expected title/body policy.
+- When FTS is disabled or untrusted, search metadata accurately records that state.
+- Checks use ~PRAGMA foreign_key_check~ and targeted repository invariants.
+- ~PRAGMA integrity_check~ may be included for manual or benchmark validation.
+
+Tests:
+
+- Tests cover created, modified, metadata-only, deleted, and unchanged files.
+- Tests cover rename as deletion plus creation.
+- Tests cover failed preparation, failed replacement, failed removal where practical, derived-state failure, and commit failure where practical.
+- Tests cover incoming links to modified and deleted targets.
+- Tests cover FTS enabled and disabled.
+- Tests cover body indexing enabled and disabled.
+- Tests cover level-0 and outline invariants.
+- Tests cover configuration and indexing-context invalidation.
+- Tests compare a clean full rebuild with equivalent incremental create, modify, and delete sequences.
+- Deterministic fault injection covers failure before mutation, during file-row replacement, during derived-state reconciliation, and during commit where practical.
 
 ** TODO Establish SQLite query-performance baseline
 
 Goal: Measure whether the current schema and existing indexes are fast enough for the intended Query Model v0 workload before changing indexes.
 
-Note: The project is query-oriented, but a separate data warehouse is unnecessary unless measurements show a real bottleneck.
+Note:
+
+- The project is query-oriented, but a separate data warehouse is unnecessary unless measurements demonstrate a real bottleneck.
+- This task measures and documents existing behaviour. It does not change persistent indexes.
 
 Acceptance criteria:
 
 - A reproducible benchmark corpus defines file count, heading count, hierarchy shape, tags, properties, timestamps, links, body-text volume, and representative selectivity.
+- The corpus includes both shallow and wide outlines and deep hierarchical outlines.
 - Common queries are generated through the real Query Model v0 compiler where possible rather than only handwritten SQL.
-- Workloads include TODO, tags, properties, links and link status, planning/timestamps, file predicates, outline ancestors/descendants/subtrees, and representative result shaping.
-- FTS query performance is measured when FTS5 is enabled, including title-only and body-enabled databases.
-- Materialized-path subtree queries are measured for both shallow/wide and deep outlines.
-- ~EXPLAIN QUERY PLAN~ output is recorded for representative queries and related to the indexes already present in ~sql/schema.sql~.
-- Measurements distinguish warm and cold behavior where practical, report result counts, use repeated runs, and document SQLite/build settings.
-- Baseline DB size and relevant index/rebuild write cost are recorded so read improvements are not evaluated in isolation.
-- Commands, corpus generation, results, and limitations are documented reproducibly.
+- Workloads include TODO predicates, tags, properties, links and link status, planning and timestamps, file predicates, outline ancestors, descendants and subtrees, and representative result shaping.
+- FTS query performance is measured when FTS5 is enabled.
+- FTS measurements include title-only and body-enabled databases.
+- Materialized-path subtree queries are measured for shallow, wide, and deep outlines.
+- ~EXPLAIN QUERY PLAN~ output is recorded for representative queries.
+- Query plans are related to the indexes already present in ~sql/schema.sql~.
+- Measurements distinguish warm and cold behaviour where practical.
+- Measurements report result counts and use repeated runs.
+- SQLite version, build capabilities, relevant pragmas, hardware assumptions, and command configuration are documented.
+- Baseline database size is recorded.
+- Existing index size and rebuild/write cost are recorded so read performance is not evaluated in isolation.
+- Commands, corpus generation, raw results, summaries, and limitations are documented reproducibly.
+- No index is added or removed merely because it appears theoretically useful.
 
 ** TODO Tune SQLite indexes from measured query plans
 
-Goal: Add, remove, or change indexes only where the baseline demonstrates a useful workload improvement.
+Goal: Add, remove, or change indexes only where the performance baseline demonstrates a useful workload improvement.
 
 Acceptance criteria:
 
-- Existing indexes are reviewed for actual planner use, redundancy, and write cost before new indexes are added.
-- Candidate changes are tied to specific measured queries or clearly documented expected workloads.
-- Before/after ~EXPLAIN QUERY PLAN~, latency, DB size, and index/rebuild cost are recorded.
-- Typical exact-match predicates and relation joins are distinguished from substring and regexp predicates that normal B-tree indexes cannot accelerate directly.
-- Persistent index changes bump ~CURRENT_SCHEMA_VERSION~ and include migration/schema tests where required.
+- Existing indexes are reviewed for actual planner use, redundancy, storage cost, and write cost before new indexes are proposed.
+- Every candidate change is tied to a measured query or a clearly documented expected production workload.
+- Before and after results include ~EXPLAIN QUERY PLAN~, latency, result count, database size, and rebuild or incremental-write cost.
+- Improvements are measured against the same reproducible corpus and environment used by the baseline.
+- Typical exact-match predicates and relation joins are distinguished from substring and regexp predicates that ordinary B-tree indexes cannot accelerate directly.
+- Candidate indexes that do not provide a meaningful measured benefit are rejected and documented.
+- Redundant or unused indexes may be removed only when measurements and planner inspection support the change.
+- Persistent index changes bump ~CURRENT_SCHEMA_VERSION~.
+- Persistent index changes include migration tests and fresh-schema tests.
 - FTS-specific tuning remains conditional on FTS5 support.
-- The accepted index set has no known redundant indexes without a documented reason.
-- Findings and rejected candidates are documented so later work does not repeat the same experiments.
+- FTS tuning does not weaken existing trust-metadata and rebuild-equivalence contracts.
+- The accepted index set contains no known redundant index without a documented reason.
+- Final before and after measurements, accepted changes, rejected candidates, and limitations are documented so later work does not repeat the same experiments.
