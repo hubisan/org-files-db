@@ -467,6 +467,33 @@ pub fn shape_query_results(
     })
 }
 
+pub fn shape_matched_heading_nodes(
+    connection: &Connection,
+    heading_ids: &[i64],
+) -> Result<Vec<HeadingResultNode>, QueryShapeError> {
+    if heading_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let file_ids = load_file_ids_for_headings(connection, heading_ids)?;
+    let context = EnrichmentContext {
+        files: load_files(connection, &file_ids)?,
+        headings: load_headings_for_files(connection, &file_ids)?,
+        properties: HashMap::new(),
+        effective_properties: HashMap::new(),
+        keywords: HashMap::new(),
+        links_by_file: HashMap::new(),
+        links_by_heading: HashMap::new(),
+        backlinks_by_file: HashMap::new(),
+        backlinks_by_heading: HashMap::new(),
+    };
+
+    heading_ids
+        .iter()
+        .map(|heading_id| context.shape_heading_node(*heading_id, true, &[], false))
+        .collect()
+}
+
 fn normalized_includes(includes: &[QueryInclude]) -> Vec<QueryInclude> {
     includes
         .iter()
@@ -1414,6 +1441,25 @@ fn load_files(
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|source| QueryShapeError::database("load_files.collect", source))
         .map(|rows| rows.into_iter().map(|row| (row.id, row)).collect())
+}
+
+fn load_file_ids_for_headings(
+    connection: &Connection,
+    heading_ids: &[i64],
+) -> Result<BTreeSet<i64>, QueryShapeError> {
+    let sql = format!(
+        "SELECT DISTINCT file_id FROM headings WHERE id IN ({}) ORDER BY file_id",
+        placeholders(heading_ids.len())
+    );
+    let mut statement = connection.prepare(&sql).map_err(|source| {
+        QueryShapeError::database("load_file_ids_for_headings.prepare", source)
+    })?;
+    let rows = statement
+        .query_map(params_from_iter(heading_ids.iter()), |row| row.get(0))
+        .map_err(|source| QueryShapeError::database("load_file_ids_for_headings.query", source))?;
+
+    rows.collect::<Result<BTreeSet<_>, _>>()
+        .map_err(|source| QueryShapeError::database("load_file_ids_for_headings.collect", source))
 }
 
 fn load_headings_for_files(

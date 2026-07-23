@@ -1,0 +1,191 @@
+#+TITLE: Align ~search~ output with canonical heading serialization
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu 13:20]
+#+TASK_COMPLETED: [2026-07-23 Thu 13:24]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Implement the approved plan to align ~orgfdb search --json~ output with canonical heading serialization.
+** DONE Align ~search~ output with canonical heading serialization
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-23--align-search-output-with-canonical-heading-serialization.org]]
+
+Goal:
+
+- Make ~orgfdb search --json~ return useful canonical heading/root objects instead of a minimal search-specific result shape.
+- Keep ~search~ a small ranked full-text convenience command over title and body text.
+- Keep structured matching for TODO keywords, tags, properties, keywords, and other metadata in Query Model v0.
+
+Public design:
+
+- ~search~ remains separate from Query Model v0.
+- ~search~ continues to execute raw SQLite FTS5 ~MATCH~ expressions.
+- The searchable FTS columns remain:
+  - ~title~
+  - ~body~
+- Do not add TODO keywords, tags, properties, keywords, or other structured fields to ~=heading_fts=.
+- Users who need structured conditions must use the corresponding query predicates, for example:
+
+#+begin_src lisp
+(headings
+  (and
+    (has-text "sqlite")
+    (todo "NEXT")
+    (tags "project")))
+#+end_src
+
+- A future general search filter such as ~--filter QUERY~ is outside this task.
+
+JSON output:
+
+- Replace the current minimal search-specific row serialization with the existing canonical flat heading/root serialization wherever possible.
+- Preserve ~rank~ as the only search-specific result field.
+- Preserve the current top-level JSON array unless implementation inspection finds an established shared envelope that is already appropriate for ~search~.
+- Real headings must expose the same base fields as flat heading query results:
+  - ~kind = "heading"~
+  - ~id~
+  - ~file_id~
+  - ~parent_id~
+  - ~level~
+  - ~title~
+  - ~title_raw~
+  - ~todo_keyword~
+  - ~todo_type~
+  - ~priority~
+  - ~scheduled_raw~
+  - ~scheduled_ts~
+  - ~deadline_raw~
+  - ~deadline_ts~
+  - ~closed_raw~
+  - ~closed_ts~
+  - ~archivedp~
+  - ~footnote_section_p~
+  - ~all_tags~
+  - ~matched~
+  - ~location~
+  - ~rank~
+- Synthetic level-0 heading objects must use:
+  - ~kind = "root"~
+  - the same canonical heading fields
+  - ~level = 0~
+  - ~parent_id = null~
+  - ~rank~
+- ~location~ must use the canonical shape:
+  - ~file_path~
+  - ~line~
+  - ~byte_start~
+  - ~byte_end~
+- Do not keep parallel search-only aliases such as ~heading_id~, ~path~, or ~line_number~ when the canonical serializer uses ~id~ and ~location~.
+- Treat this as an intentional breaking change limited to the ~search --json~ result shape.
+- Update the CLI reference and examples accordingly.
+
+Implementation rules:
+
+- Reuse the existing centralized public-kind derivation and canonical heading serialization code.
+- Do not introduce a second serializer that manually copies the canonical fields.
+- Search result rows may obtain only the matching heading ID and FTS rank from ~=heading_fts=.
+- All public heading, root, title, tag, TODO, planning, and location values must come from canonical ~=headings= and ~=files= rows.
+- Never read public payload values from the contentless FTS table.
+- Do not change FTS indexing, trust metadata, rebuild behaviour, tokenizer configuration, or body-index capability handling.
+- Do not change ~(has-text ...)~ semantics or implementation as part of this task.
+- Do not add new ~search~ options for TODO keywords or tags.
+
+Ordering:
+
+- Preserve deterministic ordering by:
+  1. ~rank~ ascending
+  2. canonical heading ~id~ ascending
+
+Tests:
+
+- Add a heading search result with a TODO keyword and verify that ~todo_keyword~ and ~todo_type~ are returned from the canonical heading row.
+- Add a heading with priority and tags and verify that ~priority~ and ~all_tags~ are returned.
+- Verify that ~title_raw~ and all planning fields use the same values as the corresponding flat heading query result.
+- Verify that ~location~ matches the canonical query result location.
+- Verify that a level-0 match returns ~kind = "root"~ and ~level = 0~.
+- Verify that real headings return ~kind = "heading"~.
+- Verify that ~rank~ remains present and ordering remains unchanged.
+- Verify that ~--title~, ~--body~, explicit FTS column filters, and existing capability errors behave unchanged.
+- Verify that this task requires no schema migration and no database rebuild.
+- Verify that ordinary ~query --json~ serialization is unchanged.
+
+Documentation:
+
+- Update ~docs/cli.org~ to describe ~search~ as ranked text retrieval with canonical heading/root output.
+- List the canonical fields and the additional ~rank~ field.
+- Remove the old minimal field list.
+- State explicitly that TODO keywords and tags are returned as metadata but are not searchable FTS columns.
+- Keep the distinction clear:
+  - ~(has-text ...)~ is the portable Query Model v0 body-text predicate.
+  - ~search~ is the backend-specific ranked SQLite FTS5 convenience command.
+
+* Planning
+
+** Problem summary
+
+- ~search --json~ returned a small search-specific row instead of the canonical flat heading/root shape used by Query Model v0.
+
+** Goals
+
+- Preserve ranked raw SQLite FTS5 search while returning canonical heading/root data plus ~rank~.
+- Keep the JSON array response, result order, and existing FTS trust, scope, and capability behavior.
+
+** Non-goals
+
+- Do not add structured FTS fields, query filters, schema changes, migrations, or rebuild requirements.
+
+** Architecture
+
+- Read only heading IDs and FTS ranks from ~=heading_fts=, then shape those IDs with the shared canonical heading-node serializer and flatten the result with ~rank~.
+
+** Execution plan
+
+- Add a shared matched-heading shaping entry point, replace the search-specific serializer, update tests, and revise the CLI reference.
+
+** Risks & assumptions
+
+- The intentional breaking change is confined to the ~search --json~ result shape; the shared serializer produces roots as canonical heading nodes with ~kind = "root"~.
+
+** Proposed checks
+
+- Run focused search tests and ~make ci~.
+
+* Results
+
+** Approach
+
+- FTS lookup now returns only canonical heading IDs and ranks. The shared heading-node shaper loads canonical rows and the search response flattens that node with ~rank~.
+
+** Changed files
+
+- ~src/db/reader.rs~, ~src/query/result.rs~, ~src/query.rs~, and ~src/cli.rs~
+- ~docs/cli.org~
+- Search CLI tests
+
+** Checks performed
+
+- ~cargo test --all-targets --all-features search_~
+- ~make ci~
+
+** Test results
+
+- Focused search tests: 40 passed.
+- Full CI: formatting, Clippy, 354 library tests, integration tests, and build passed.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

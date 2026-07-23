@@ -3,8 +3,6 @@ use std::fmt;
 use rusqlite::Connection;
 use serde::Serialize;
 
-use crate::query::QueryResultKind;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct HeadingListRow {
     pub id: i64,
@@ -62,12 +60,6 @@ pub(crate) struct LinkListRow {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct SearchHeadingRow {
     pub heading_id: i64,
-    pub kind: String,
-    pub path: String,
-    pub title: String,
-    pub line_number: Option<i64>,
-    pub byte_start: i64,
-    pub byte_end: i64,
     pub rank: f64,
 }
 
@@ -240,16 +232,9 @@ impl DbReader {
             .prepare(
                 "SELECT
                     headings.id,
-                    headings.level,
-                    files.path,
-                    headings.title,
-                    headings.line_number,
-                    headings.byte_start,
-                    headings.byte_end,
                     bm25(heading_fts) AS rank
                  FROM heading_fts
                  INNER JOIN headings ON heading_fts.rowid = headings.id
-                 INNER JOIN files ON files.id = headings.file_id
                  WHERE heading_fts MATCH ?1
                  ORDER BY rank ASC, headings.id ASC",
             )
@@ -262,15 +247,7 @@ impl DbReader {
             .query_map([expression], |row| {
                 Ok(SearchHeadingRow {
                     heading_id: row.get(0)?,
-                    kind: QueryResultKind::from_heading_level(row.get(1)?)
-                        .as_str()
-                        .to_string(),
-                    path: row.get(2)?,
-                    title: row.get(3)?,
-                    line_number: row.get(4)?,
-                    byte_start: row.get(5)?,
-                    byte_end: row.get(6)?,
-                    rank: row.get(7)?,
+                    rank: row.get(1)?,
                 })
             })
             .map_err(|source| DbReadError::Query {

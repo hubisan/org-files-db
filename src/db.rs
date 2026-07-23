@@ -13,7 +13,7 @@ pub(crate) mod reader;
 pub mod schema;
 pub(crate) mod writer;
 
-pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow, SearchHeadingRow};
+pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::DbWriteError;
 pub(crate) use writer::{

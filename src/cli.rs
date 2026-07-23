@@ -14,16 +14,16 @@ use crate::{
     config::{Config, ConfigError},
     db::{
         open_existing_database_read_only, sqlite_supports_fts5, DbError, DbReader, HeadingListRow,
-        LinkListRow, SearchHeadingRow, DB_METADATA_FTS_AVAILABLE_KEY,
-        DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
-        FTS_SCHEMA_CONTRACT_VERSION,
+        LinkListRow, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
+        DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     },
     indexer::{Indexer, IndexerError, RebuildReport},
     parser::OrgizeAdapter,
     query::{
-        execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
-        QueryExecutionError, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryParseError,
-        QueryResponse, QueryShapeError, QueryValidationError,
+        execute_and_shape_query, parse_query, shape_matched_heading_nodes,
+        sqlite_query_validation_options, validate_query, HeadingResultNode, QueryExecutionError,
+        QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryParseError, QueryResponse,
+        QueryShapeError, QueryValidationError,
     },
 };
 
@@ -324,11 +324,20 @@ fn search_json_rows(
         return Err(CliError::Search(SearchError::BodyScopeUnavailable));
     }
 
-    DbReader::search_headings(&connection, &compiled_expression)
-        .map_err(map_search_db_read_error)?
+    let search_rows = DbReader::search_headings(&connection, &compiled_expression)
+        .map_err(map_search_db_read_error)?;
+    let heading_ids = search_rows
+        .iter()
+        .map(|row| row.heading_id)
+        .collect::<Vec<_>>();
+    let headings =
+        shape_matched_heading_nodes(&connection, &heading_ids).map_err(CliError::QueryShape)?;
+
+    Ok(search_rows
         .into_iter()
-        .map(SearchJsonRow::from_db_row)
-        .collect()
+        .zip(headings)
+        .map(|(row, heading)| SearchJsonRow::from_parts(heading, row.rank))
+        .collect())
 }
 
 fn map_search_db_read_error(error: crate::db::DbReadError) -> CliError {
@@ -870,13 +879,8 @@ struct LinkJsonRow {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct SearchJsonRow {
-    heading_id: i64,
-    kind: String,
-    path: String,
-    title: String,
-    line_number: Option<i64>,
-    byte_start: i64,
-    byte_end: i64,
+    #[serde(flatten)]
+    heading: HeadingResultNode,
     rank: f64,
 }
 
@@ -958,17 +962,8 @@ impl TryFrom<LinkListRow> for LinkJsonRow {
 }
 
 impl SearchJsonRow {
-    fn from_db_row(row: SearchHeadingRow) -> Result<Self, CliError> {
-        Ok(Self {
-            heading_id: row.heading_id,
-            kind: row.kind,
-            path: row.path,
-            title: row.title,
-            line_number: row.line_number,
-            byte_start: row.byte_start,
-            byte_end: row.byte_end,
-            rank: row.rank,
-        })
+    fn from_parts(heading: HeadingResultNode, rank: f64) -> Self {
+        Self { heading, rank }
     }
 }
 
@@ -1358,10 +1353,10 @@ mod tests {
         let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
             .expect("search should succeed");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].kind, "heading");
-        assert_eq!(rows[0].title, "Canonical Override");
+        assert_eq!(rows[0].heading.kind.as_str(), "heading");
+        assert_eq!(rows[0].heading.title, "Canonical Override");
         assert_eq!(
-            rows[0].path,
+            rows[0].heading.location.file_path,
             db_path
                 .parent()
                 .unwrap()
@@ -1369,9 +1364,64 @@ mod tests {
                 .display()
                 .to_string()
         );
-        assert_eq!(rows[0].line_number, Some(1));
-        assert_eq!(rows[0].byte_start, 0);
-        assert!(rows[0].byte_end >= rows[0].byte_start);
+        assert_eq!(rows[0].heading.location.line, Some(1));
+        assert_eq!(rows[0].heading.location.byte_start, Some(0));
+        assert!(rows[0].heading.location.byte_end.unwrap() >= 0);
+    }
+
+    #[test]
+    fn search_serializes_the_canonical_flat_heading_shape_with_rank() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-canonical-shape",
+            &[(
+                "notes.org",
+                "* TODO [#A] Searchable Heading :project:rust:\nSCHEDULED: <2026-07-20 Mon> DEADLINE: <2026-07-21 Tue> CLOSED: [2026-07-22 Wed]\n",
+            )],
+            true,
+        );
+
+        let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect("search should succeed");
+        let query = super::query_json_response(
+            true,
+            "(headings (title \"Searchable Heading\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("heading query should succeed");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(query.results.len(), 1);
+
+        let mut search_json = serde_json::to_value(&rows[0]).expect("search row should serialize");
+        let rank = search_json
+            .as_object_mut()
+            .expect("search row should be an object")
+            .remove("rank")
+            .expect("search row should include rank");
+        let query_json =
+            serde_json::to_value(&query.results[0]).expect("query row should serialize");
+
+        assert!(rank.is_number());
+        assert_eq!(search_json, query_json);
+        assert_eq!(search_json["kind"], "heading");
+        assert_eq!(search_json["matched"], true);
+        assert_eq!(search_json["todo_keyword"], "TODO");
+        assert!(search_json["todo_type"].is_string());
+        assert_eq!(search_json["priority"], "A");
+        assert_eq!(
+            search_json["all_tags"],
+            serde_json::json!(["project", "rust"])
+        );
+        assert!(search_json["title_raw"].is_string());
+        assert!(search_json["scheduled_raw"].is_string());
+        assert!(search_json["deadline_raw"].is_string());
+        assert!(search_json["closed_raw"].is_string());
+        assert!(search_json["location"].is_object());
+        assert!(search_json.get("heading_id").is_none());
+        assert!(search_json.get("path").is_none());
+        assert!(search_json.get("line_number").is_none());
     }
 
     #[test]
@@ -1428,8 +1478,10 @@ mod tests {
         )
         .expect("default preamble search should succeed");
         assert_eq!(preamble_rows.len(), 1);
-        assert_eq!(preamble_rows[0].heading_id, root_id);
-        assert_eq!(preamble_rows[0].kind, "root");
+        assert_eq!(preamble_rows[0].heading.id, root_id);
+        assert_eq!(preamble_rows[0].heading.kind.as_str(), "root");
+        assert_eq!(preamble_rows[0].heading.level, 0);
+        assert_eq!(preamble_rows[0].heading.parent_id, None);
         assert_eq!(
             serde_json::to_value(&preamble_rows).expect("search rows should serialize")[0]["kind"],
             "root"
@@ -1443,7 +1495,7 @@ mod tests {
         )
         .expect("body preamble search should succeed");
         assert_eq!(body_rows.len(), 1);
-        assert_eq!(body_rows[0].kind, "root");
+        assert_eq!(body_rows[0].heading.kind.as_str(), "root");
 
         let title_preamble_rows = search_json_rows(
             true,
@@ -1458,12 +1510,12 @@ mod tests {
             search_json_rows(true, CliSearchScope::Title, "Sapphire", Some(&config_path))
                 .expect("root title search should succeed");
         assert_eq!(root_title_rows.len(), 1);
-        assert_eq!(root_title_rows[0].kind, "root");
+        assert_eq!(root_title_rows[0].heading.kind.as_str(), "root");
 
         let heading_rows = search_json_rows(true, CliSearchScope::All, "Amber", Some(&config_path))
             .expect("real heading search should succeed");
         assert_eq!(heading_rows.len(), 1);
-        assert_eq!(heading_rows[0].kind, "heading");
+        assert_eq!(heading_rows[0].heading.kind.as_str(), "heading");
 
         let preamble_only_rows = search_json_rows(
             true,
@@ -1473,7 +1525,7 @@ mod tests {
         )
         .expect("preamble-only search should succeed");
         assert_eq!(preamble_only_rows.len(), 1);
-        assert_eq!(preamble_only_rows[0].kind, "root");
+        assert_eq!(preamble_only_rows[0].heading.kind.as_str(), "root");
     }
 
     #[test]
@@ -1491,7 +1543,7 @@ mod tests {
             search_json_rows(true, CliSearchScope::Title, "Emerald", Some(&config_path))
                 .expect("title-only root title search should succeed");
         assert_eq!(title_rows.len(), 1);
-        assert_eq!(title_rows[0].kind, "root");
+        assert_eq!(title_rows[0].heading.kind.as_str(), "root");
 
         let default_preamble_rows = search_json_rows(
             true,
@@ -1951,7 +2003,7 @@ index_body_text = true
         assert_eq!(rows.len(), 2);
         assert!(rows[0].rank <= rows[1].rank);
         if (rows[0].rank - rows[1].rank).abs() < f64::EPSILON {
-            assert!(rows[0].heading_id < rows[1].heading_id);
+            assert!(rows[0].heading.id < rows[1].heading.id);
         }
     }
 

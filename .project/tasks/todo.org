@@ -179,15 +179,15 @@ General rules:
 ** DONE [#C] Enable optional contentless SQLite FTS5 for full-text search
 
 - Task file: [[file:archive/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
-  
+
 ** DONE [#C] Provide CLI command ~search~
 
 - Task file: [[file:2026-07-16--provide-cli-command-search.org]]
-  
+
 ** DONE [#A] Repair dependent tables after ~headings~ schema migration
 
 - Task file: [[file:archive/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org]]
-  
+
 ** DONE [#B] Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
 
 - Task file: [[file:archive/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
@@ -247,7 +247,7 @@ General rules:
 ** DONE [#B] Expand leading ~~ in ~file-dir~ query values
 
 - Task file: [[file:archive/2026-07-19--expand-leading-tilde-in-file-dir-query-values.org]]
-  
+
 ** DONE [#A] Apply ~query.timezone~ to temporal query boundaries
 
 - Task file: [[file:archive/2026-07-19--apply-query-timezone-to-temporal-query-boundaries.org]]
@@ -296,7 +296,7 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 
 - Task file: [[file:archive/2026-07-22--rename-public-root-result-kind.org][Rename Public Root Result Kind]]
 
-** TODO Manual Test the Implementation
+** DONE Manual Test the Implementation
 
 *** Query
 
@@ -349,4 +349,9 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 
 **** DONE Includes
 
-*** Search
+*** DONE Search
+
+** DONE Align ~search~ output with canonical heading serialization
+
+- Task file: [[file:archive/2026-07-23--align-search-output-with-canonical-heading-serialization.org]]
+
