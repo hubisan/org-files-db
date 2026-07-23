@@ -105,7 +105,9 @@ General rules:
 
 - Task file: [[file:archive/2026-07-23--add-deterministic-change-planning.org]]
 
-** PLAN Implement transactional change application and prove rebuild equivalence
+** CONTINUE Implement transactional change application and prove rebuild equivalence
+
+- Task file: [[file:archive/2026-07-24--implement-transactional-change-application-and-prove-rebuild-equivalence.org]]
 
 Goal: Apply planned changes through one deterministic transactional production path, define interruption and batching semantics, and prove that the resulting database is equivalent to a clean rebuild.
 

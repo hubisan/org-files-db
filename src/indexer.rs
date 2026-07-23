@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{types::ValueRef, Connection};
+use rusqlite::{types::ValueRef, Connection, OptionalExtension, TransactionBehavior};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -133,6 +133,7 @@ where
             IndexingContextComparison::FullRebuildRequired => unreachable!("handled above"),
         };
         let reparse_all = invalidations.contains(IndexInvalidationSet::REPARSE_ALL_FILES);
+        let expected_files = persisted.clone();
         let mut by_identity = BTreeMap::new();
         let mut legacy_by_path = BTreeMap::new();
         for file in persisted {
@@ -148,7 +149,17 @@ where
             .sort_by(|left, right| left.identity.as_bytes().cmp(right.identity.as_bytes()));
         let mut plan = ChangePlan {
             invalidations,
-            ..ChangePlan::default()
+            indexed_universe: Some(discovery.indexed_universe),
+            planning_context: context,
+            fts_backend_available,
+            verification_policy: options,
+            expected_files,
+            unchanged: Vec::new(),
+            metadata_only: Vec::new(),
+            created: Vec::new(),
+            modified: Vec::new(),
+            deleted: Vec::new(),
+            failed: Vec::new(),
         };
         for discovered in discovery_files {
             let persisted = by_identity.remove(&discovered.identity).or_else(|| {
@@ -176,7 +187,168 @@ where
         );
         plan.deleted
             .sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
-        Ok(ChangePlanningResult::Ready(plan))
+        Ok(ChangePlanningResult::Ready(Box::new(plan)))
+    }
+
+    /// Converts a successful, failure-free planning result into the only input
+    /// accepted by the transactional mutation boundary.
+    #[allow(dead_code)]
+    pub(crate) fn actionable_plan(
+        &self,
+        result: ChangePlanningResult,
+    ) -> Result<ActionableChangePlan, ChangeApplicationRejection> {
+        match result {
+            ChangePlanningResult::FullRebuildRequired => {
+                Err(ChangeApplicationRejection::FullRebuildRequired)
+            }
+            ChangePlanningResult::Ready(plan) if !plan.failed.is_empty() => {
+                Err(ChangeApplicationRejection::FailedSources)
+            }
+            ChangePlanningResult::Ready(plan) => ActionableChangePlan::try_from(*plan),
+        }
+    }
+
+    /// Applies one single-use actionable plan as one immediate SQLite transaction.
+    #[allow(dead_code)]
+    pub(crate) fn apply_change_plan(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+        actionable: ActionableChangePlan,
+    ) -> Result<ChangeApplicationResult, IndexerError> {
+        let ActionableChangePlan {
+            plan,
+            indexed_universe,
+        } = actionable;
+        if !plan.failed.is_empty() {
+            return Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::FailedSources,
+            ));
+        }
+        // Revalidate every current source before a write transaction. This also
+        // rejects plans whose prepared evidence is no longer current.
+        for file in plan.unchanged.iter().chain(plan.metadata_only.iter()) {
+            if !snapshot_matches_record(&file.path, &file.file_record)? {
+                return Ok(ChangeApplicationResult::Rejected(
+                    ChangeApplicationRejection::Stale,
+                ));
+            }
+        }
+        for file in plan.created.iter().chain(plan.modified.iter()) {
+            if !snapshot_matches_record(&file.prepared.path, &file.prepared.file_record)? {
+                return Ok(ChangeApplicationResult::Rejected(
+                    ChangeApplicationRejection::Stale,
+                ));
+            }
+        }
+        let fts_available = sqlite_fts5_available_read_only(connection).map_err(|source| {
+            IndexerError::Database(DbError::Inspect {
+                target: config.db_path.display().to_string(),
+                source,
+            })
+        })?;
+        if config.search.fts5_enabled && !fts_available {
+            return Err(IndexerError::Write(DbWriteError::UnsupportedBackendFeature { feature: "SQLite FTS5", message: "SQLite FTS5 was requested, but the opened SQLite connection does not support FTS5".to_string() }));
+        }
+        let current_context = IndexingContext::from_config(config, fts_available);
+        if fts_available != plan.fts_backend_available || current_context != plan.planning_context {
+            return Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::Stale,
+            ));
+        }
+        let current_invalidations = match current_context
+            .compare(connection)
+            .map_err(IndexerError::Write)?
+        {
+            IndexingContextComparison::Compatible => IndexInvalidationSet::default(),
+            IndexingContextComparison::Invalidations(invalidations) => invalidations,
+            IndexingContextComparison::FullRebuildRequired => {
+                return Ok(ChangeApplicationResult::Rejected(
+                    ChangeApplicationRejection::Stale,
+                ))
+            }
+        };
+        if current_invalidations != plan.invalidations {
+            return Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::Stale,
+            ));
+        }
+        let rediscovery = discover_org_files(config)?;
+        let mut observed = rediscovery
+            .files
+            .iter()
+            .map(|file| file.identity.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        let mut planned = plan
+            .current_identities()
+            .into_iter()
+            .map(|identity| identity.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        observed.sort();
+        planned.sort();
+        if observed != planned {
+            return Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::Stale,
+            ));
+        }
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
+        if !plan_baseline_matches(&tx, &plan)? {
+            return Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::Stale,
+            ));
+        }
+        for file in plan.unchanged.iter().chain(plan.metadata_only.iter()) {
+            if !metadata_matches_record(&file.path, &file.file_record)? {
+                return Ok(ChangeApplicationResult::Rejected(
+                    ChangeApplicationRejection::Stale,
+                ));
+            }
+        }
+        for file in plan.created.iter().chain(plan.modified.iter()) {
+            if !metadata_matches_record(&file.prepared.path, &file.prepared.file_record)? {
+                return Ok(ChangeApplicationResult::Rejected(
+                    ChangeApplicationRejection::Stale,
+                ));
+            }
+        }
+        for file in &plan.metadata_only {
+            update_existing_file_metadata(&tx, file)?;
+        }
+        for file in &plan.modified {
+            replace_prepared_file(
+                &tx,
+                file.existing_file_id,
+                &file.prepared,
+                config.search.index_body_text,
+            )?;
+        }
+        for file in &plan.created {
+            replace_prepared_file(&tx, None, &file.prepared, config.search.index_body_text)?;
+        }
+        for file in &plan.deleted {
+            DbWriter::delete_file(&tx, file.file_id).map_err(IndexerError::Write)?;
+        }
+        if config.search.fts5_enabled {
+            DbWriter::rebuild_heading_fts(&tx, config.search.index_body_text)
+                .map_err(IndexerError::Write)?;
+            persist_search_trust_metadata(&tx, true, config.search.index_body_text)
+                .map_err(IndexerError::Write)?;
+        } else {
+            persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
+        }
+        let _ = indexed_universe;
+        LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
+            .map_err(IndexerError::Write)?;
+        IndexingContext::from_config(config, fts_available)
+            .persist(&tx)
+            .map_err(IndexerError::Write)?;
+        tx.commit()
+            .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
+        Ok(ChangeApplicationResult::Applied(
+            ChangeApplicationReport::from(&plan),
+        ))
     }
 
     #[allow(dead_code)] // Reached through the planner entry points above.
@@ -241,9 +413,11 @@ where
                     PlannedCurrentFile::MetadataOnly(file)
                 });
             }
+            let expected_file_record = persisted_file_record(persisted, &discovered.path);
             let prepared = self.prepare_captured_file(discovered, config, captured)?;
             return Ok(PlannedCurrentFile::Modified(PlannedPreparedFile {
                 existing_file_id: Some(persisted.file_id),
+                expected_file_record: Some(expected_file_record),
                 prepared,
             }));
         }
@@ -251,6 +425,7 @@ where
         let prepared = self.prepare_captured_file(discovered, config, captured)?;
         Ok(PlannedCurrentFile::Created(PlannedPreparedFile {
             existing_file_id: None,
+            expected_file_record: None,
             prepared,
         }))
     }
@@ -464,19 +639,99 @@ pub(crate) struct ChangePlanningOptions {
 #[derive(Debug)]
 pub(crate) enum ChangePlanningResult {
     FullRebuildRequired,
-    Ready(ChangePlan),
+    Ready(Box<ChangePlan>),
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct ChangePlan {
     pub(crate) invalidations: IndexInvalidationSet,
+    indexed_universe: Option<IndexedUniverse>,
+    planning_context: IndexingContext,
+    fts_backend_available: bool,
+    verification_policy: ChangePlanningOptions,
+    expected_files: Vec<PersistedFileSnapshot>,
     pub(crate) unchanged: Vec<PlannedFile>,
     pub(crate) metadata_only: Vec<PlannedFile>,
     pub(crate) created: Vec<PlannedPreparedFile>,
     pub(crate) modified: Vec<PlannedPreparedFile>,
     pub(crate) deleted: Vec<DeletedFile>,
     pub(crate) failed: Vec<FailedChange>,
+}
+
+impl ChangePlan {
+    fn current_identities(&self) -> Vec<&FileIdentity> {
+        self.unchanged
+            .iter()
+            .chain(self.metadata_only.iter())
+            .map(|file| &file.identity)
+            .chain(self.created.iter().map(|file| &file.prepared.identity))
+            .chain(self.modified.iter().map(|file| &file.prepared.identity))
+            .collect()
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub(crate) struct ActionableChangePlan {
+    plan: ChangePlan,
+    indexed_universe: IndexedUniverse,
+}
+
+impl TryFrom<ChangePlan> for ActionableChangePlan {
+    type Error = ChangeApplicationRejection;
+
+    fn try_from(mut plan: ChangePlan) -> Result<Self, Self::Error> {
+        if !plan.failed.is_empty() {
+            return Err(ChangeApplicationRejection::FailedSources);
+        }
+        let indexed_universe = plan
+            .indexed_universe
+            .take()
+            .ok_or(ChangeApplicationRejection::InvalidPlan)?;
+        Ok(Self {
+            plan,
+            indexed_universe,
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChangeApplicationRejection {
+    FullRebuildRequired,
+    FailedSources,
+    InvalidPlan,
+    Stale,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ChangeApplicationResult {
+    Applied(ChangeApplicationReport),
+    Rejected(ChangeApplicationRejection),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ChangeApplicationReport {
+    pub(crate) unchanged: usize,
+    pub(crate) metadata_only: usize,
+    pub(crate) created: usize,
+    pub(crate) modified: usize,
+    pub(crate) deleted: usize,
+}
+
+impl From<&ChangePlan> for ChangeApplicationReport {
+    fn from(plan: &ChangePlan) -> Self {
+        Self {
+            unchanged: plan.unchanged.len(),
+            metadata_only: plan.metadata_only.len(),
+            created: plan.created.len(),
+            modified: plan.modified.len(),
+            deleted: plan.deleted.len(),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -487,6 +742,7 @@ pub(crate) struct PlannedFile {
     pub(crate) path: PathBuf,
     pub(crate) identity: FileIdentity,
     pub(crate) file_record: FileRecordInput,
+    expected_file_record: FileRecordInput,
 }
 
 #[allow(dead_code)]
@@ -504,6 +760,7 @@ impl PlannedFile {
                 content_hash: persisted.content_hash.clone(),
                 indexed_at: None,
             },
+            expected_file_record: persisted_file_record(persisted, &discovered.path),
         }
     }
 
@@ -521,7 +778,22 @@ impl PlannedFile {
                 &discovered.identity,
                 &captured.snapshot,
             )?,
+            expected_file_record: persisted_file_record(persisted, &discovered.path),
         })
+    }
+}
+
+fn persisted_file_record(persisted: &PersistedFileSnapshot, path: &Path) -> FileRecordInput {
+    FileRecordInput {
+        path: path.to_path_buf(),
+        identity: persisted
+            .identity
+            .as_ref()
+            .map(|identity| identity.as_bytes().to_vec()),
+        mtime_ns: persisted.mtime_ns,
+        size: persisted.size,
+        content_hash: persisted.content_hash.clone(),
+        indexed_at: None,
     }
 }
 
@@ -530,6 +802,7 @@ impl PlannedFile {
 pub(crate) struct PlannedPreparedFile {
     /// `None` denotes a created source; otherwise application must update this row.
     pub(crate) existing_file_id: Option<i64>,
+    expected_file_record: Option<FileRecordInput>,
     pub(crate) prepared: PreparedFile,
 }
 
@@ -1278,6 +1551,158 @@ fn file_record_for_write(
     })
 }
 
+#[allow(dead_code)]
+fn snapshot_matches_record(path: &Path, record: &FileRecordInput) -> Result<bool, IndexerError> {
+    let captured = capture_stable_source(path)?;
+    Ok(captured.snapshot.mtime_ns == record.mtime_ns
+        && captured.snapshot.size == record.size
+        && record.content_hash.as_deref() == Some(captured.snapshot.content_hash.as_str()))
+}
+
+fn metadata_matches_record(path: &Path, record: &FileRecordInput) -> Result<bool, IndexerError> {
+    let metadata = file_metadata(path)?;
+    Ok(metadata.mtime_ns == record.mtime_ns && metadata.size == record.size)
+}
+
+#[allow(dead_code)]
+fn plan_baseline_matches(connection: &Connection, plan: &ChangePlan) -> Result<bool, IndexerError> {
+    let PersistedFileSnapshots::Valid(current_files) = load_persisted_file_snapshots(connection)?
+    else {
+        return Ok(false);
+    };
+    if !same_persisted_file_baseline(&plan.expected_files, &current_files) {
+        return Ok(false);
+    }
+    for file in plan.unchanged.iter().chain(plan.metadata_only.iter()) {
+        if !row_matches_file_record(
+            connection,
+            file.existing_file_id,
+            &file.expected_file_record,
+        )? {
+            return Ok(false);
+        }
+    }
+    for file in &plan.modified {
+        let Some(file_id) = file.existing_file_id else {
+            continue;
+        };
+        let Some(expected) = file.expected_file_record.as_ref() else {
+            return Ok(false);
+        };
+        if !row_matches_file_record(connection, file_id, expected)? {
+            return Ok(false);
+        }
+    }
+    for file in &plan.deleted {
+        let found = connection
+            .query_row("SELECT 1 FROM files WHERE id = ?1", [file.file_id], |_| {
+                Ok(())
+            })
+            .optional()
+            .map_err(|source| {
+                IndexerError::Write(DbWriteError::ReadBack {
+                    operation: "apply_change_plan.deleted_baseline",
+                    source,
+                })
+            })?;
+        if found.is_none() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn same_persisted_file_baseline(
+    expected: &[PersistedFileSnapshot],
+    current: &[PersistedFileSnapshot],
+) -> bool {
+    expected.len() == current.len()
+        && expected.iter().zip(current).all(|(left, right)| {
+            left.file_id == right.file_id
+                && left.path == right.path
+                && left.identity == right.identity
+                && left.mtime_ns == right.mtime_ns
+                && left.size == right.size
+                && left.content_hash == right.content_hash
+        })
+}
+
+#[allow(dead_code)]
+fn row_matches_file_record(
+    connection: &Connection,
+    file_id: i64,
+    record: &FileRecordInput,
+) -> Result<bool, IndexerError> {
+    let expected_path = display_path(&record.path);
+    let found = connection
+        .query_row(
+            "SELECT path, identity, mtime_ns, size, content_hash FROM files WHERE id = ?1",
+            [file_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|source| {
+            IndexerError::Write(DbWriteError::ReadBack {
+                operation: "apply_change_plan.file_baseline",
+                source,
+            })
+        })?;
+    Ok(found.is_some_and(|(path, identity, mtime, size, hash)| {
+        path == expected_path
+            && identity == record.identity
+            && mtime == record.mtime_ns
+            && size == record.size
+            && hash == record.content_hash
+    }))
+}
+
+#[allow(dead_code)]
+fn update_existing_file_metadata(
+    connection: &Connection,
+    file: &PlannedFile,
+) -> Result<(), IndexerError> {
+    let record = file_record_for_write(&file.file_record, &file.path)?;
+    connection.execute(
+        "UPDATE files SET mtime_ns = ?1, size = ?2, content_hash = ?3, indexed_at = ?4 WHERE id = ?5",
+        rusqlite::params![record.mtime_ns, record.size, record.content_hash, record.indexed_at, file.existing_file_id],
+    ).map_err(|source| IndexerError::Write(DbWriteError::Write { operation: "apply_change_plan.metadata_only", source }))?;
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn replace_prepared_file(
+    connection: &Connection,
+    expected_file_id: Option<i64>,
+    prepared: &PreparedFile,
+    index_body_text: bool,
+) -> Result<(), IndexerError> {
+    let record = file_record_for_write(&prepared.file_record, &prepared.path)?;
+    let file_id = DbWriter::upsert_file(connection, &record).map_err(IndexerError::Write)?;
+    if expected_file_id.is_some_and(|expected| expected != file_id) {
+        return Err(IndexerError::Write(DbWriteError::InvalidInput(
+            "planned file identity selected a different file row",
+        )));
+    }
+    DbWriter::delete_file_data(connection, file_id).map_err(IndexerError::Write)?;
+    index_document(
+        connection,
+        file_id,
+        &prepared.document,
+        &prepared.todo_keywords,
+        index_body_text,
+    )
+    .map_err(IndexerError::Write)?;
+    Ok(())
+}
+
 fn normalize_document(
     document: ParsedOrgDocument,
     path: &Path,
@@ -1887,10 +2312,10 @@ fn db_write_invalid_input(message: &'static str) -> DbWriteError {
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_stable_source_with, discover_org_files, ChangePlanningOptions,
-        ChangePlanningResult, DiscoveredOrgFile, FileMetadata, FileSnapshotReader,
-        IndexInvalidationSet, IndexedFile, Indexer, IndexerError, PersistedFileSnapshot,
-        PlannedCurrentFile,
+        capture_stable_source_with, discover_org_files, ChangeApplicationRejection,
+        ChangeApplicationResult, ChangePlanningOptions, ChangePlanningResult, DiscoveredOrgFile,
+        FileMetadata, FileSnapshotReader, IndexInvalidationSet, IndexedFile, Indexer, IndexerError,
+        PersistedFileSnapshot, PlannedCurrentFile,
     };
     use crate::{
         config::{Config, SearchConfig},
@@ -8862,6 +9287,119 @@ index_body_text = false
             IndexerError::ReadFile { .. }
         ));
         assert!(plan.deleted.is_empty());
+    }
+
+    #[test]
+    fn actionable_plan_applies_a_modified_file_and_rejects_a_stale_one() {
+        let test_dir = TestDir::new("actionable-change-plan");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild");
+
+        write_file(&path, "* Changed\n");
+        let actionable = indexer
+            .actionable_plan(indexer.plan_changes(&connection, &config).expect("plan"))
+            .expect("modified plan should be actionable");
+        assert!(matches!(
+            indexer.apply_change_plan(&mut connection, &config, actionable),
+            Ok(ChangeApplicationResult::Applied(_))
+        ));
+        let title: String = connection
+            .query_row("SELECT title FROM headings WHERE level = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("changed heading should exist");
+        assert_eq!(title, "Changed");
+
+        write_file(&path, "* Planned\n");
+        let actionable = indexer
+            .actionable_plan(indexer.plan_changes(&connection, &config).expect("plan"))
+            .expect("modified plan should be actionable");
+        write_file(&path, "* Stale\n");
+        assert!(matches!(
+            indexer.apply_change_plan(&mut connection, &config, actionable),
+            Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::Stale
+            ))
+        ));
+        let title: String = connection
+            .query_row("SELECT title FROM headings WHERE level = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("old heading should remain after rejection");
+        assert_eq!(title, "Changed");
+    }
+
+    #[test]
+    fn actionable_plan_rejects_a_changed_database_baseline_and_terminal_results() {
+        let test_dir = TestDir::new("actionable-plan-baseline");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild");
+        write_file(&path, "* Changed\n");
+        let actionable = indexer
+            .actionable_plan(indexer.plan_changes(&connection, &config).expect("plan"))
+            .expect("plan should be actionable");
+        connection
+            .execute("UPDATE files SET indexed_at = indexed_at + 1", [])
+            .expect("out-of-band update should succeed");
+        // indexed_at is intentionally operational and does not invalidate the
+        // source baseline, so change source evidence instead.
+        connection
+            .execute("UPDATE files SET content_hash = 'sha256:0000000000000000000000000000000000000000000000000000000000000000'", [])
+            .expect("out-of-band baseline update should succeed");
+        assert!(matches!(
+            indexer.apply_change_plan(&mut connection, &config, actionable),
+            Ok(ChangeApplicationResult::Rejected(
+                ChangeApplicationRejection::Stale
+            ))
+        ));
+        assert!(matches!(
+            indexer.actionable_plan(ChangePlanningResult::FullRebuildRequired),
+            Err(ChangeApplicationRejection::FullRebuildRequired)
+        ));
     }
 
     #[test]

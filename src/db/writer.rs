@@ -339,7 +339,7 @@ impl DbWriter {
             })
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn delete_file_data(
         connection: &Connection,
         file_id: i64,
@@ -354,6 +354,17 @@ impl DbWriter {
             .execute("DELETE FROM headings WHERE file_id = ?1", [file_id])
             .map_err(|source| DbWriteError::Write {
                 operation: "delete_file_data.headings",
+                source,
+            })?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn delete_file(connection: &Connection, file_id: i64) -> Result<(), DbWriteError> {
+        connection
+            .execute("DELETE FROM files WHERE id = ?1", [file_id])
+            .map_err(|source| DbWriteError::Write {
+                operation: "delete_file",
                 source,
             })?;
         Ok(())

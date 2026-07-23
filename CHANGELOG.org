@@ -3,6 +3,8 @@
 This file records completed changes.
 
 * Unreleased
+
+- =ADDED= Internal transactional application primitives for deterministic actionable index plans.
 :PROPERTIES:
 :VISIBILITY: all
 :END:
