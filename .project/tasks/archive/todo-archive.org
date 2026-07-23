@@ -1649,3 +1649,322 @@ Task file: [[./phase-4--link-resolution/2026-07-05--expose-resolution-fields-in-
 ** DONE Add Link Resolving to the Documentation
 
 Task file: [[./phase-4--link-resolution/2026-07-05--add-link-resolving-to-the-documentation.org]]
+
+* DONE Phase 5: Query engine and optional full-text search
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal of this phase:
+
+- Build a small, safe query layer for indexed Org graph data.
+- Implement the Query Model v0 contract defined in [[file:../../docs/reference/query-model-v0.org][Query Model v0 Specification]].
+- Keep the query model independent from CLI and SQL.
+- Support headings, links, and files as explicit query targets.
+- Keep full-text search optional and separate from the core query model.
+- Return stable JSON that is useful for Emacs/editor integrations.
+
+General rules:
+
+- Query AST/model is independent of CLI and SQL.
+- SQL generation must use bound parameters.
+- Query execution uses the persisted database, not parser re-analysis.
+- Query target is explicit through ~(headings ...)~, ~(links ...)~, and ~(files ...)~.
+- Bare predicates are shorthand for heading queries only at the top level.
+- Nested relation queries must use explicit target wrappers.
+- Query output mode must not change match semantics.
+- Include options may enrich results but must not change which objects match.
+- Direct parsed facts and effective/derived semantics must stay clearly separated.
+- Query results must include enough location data for editor jumps.
+- Body text search must fail clearly when body text is unavailable.
+- FTS5 is optional and must only be required for FTS-specific functionality.
+- Mutation and repair operations are out of scope for Query Model v0.
+
+** DONE Implement query AST and parser
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-07--implement-query-ast-and-parser.org]]
+
+** DONE Implement query semantic validation and normalization
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-07--implement-query-semantic-validation-and-normalization.org]]
+
+** DONE Implement safe SQL translation and core metadata query execution
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-08--implement-safe-sql-translation-and-core-metadata-query-execution.org]]
+
+** DONE Implement effective root, tag, property, and keyword semantics for queries
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-08--implement-effective-root-tag-property-and-keyword-semantics-for-queries.org]]
+
+** DONE Implement hierarchy and graph relation predicates [2026-07-09 Thu]
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-08--implement-hierarchy-and-graph-relation-predicates.org]]
+
+** DONE [#B] Implement query result shaping and JSON output model [2026-07-09 Thu]
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-09--implement-query-result-shaping-and-json-output-model.org]]
+
+** DONE [#B] Implement CLI command ~query~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-09--implement-cli-command-query.org]]
+
+** DONE [#B] Parse priorities correctly with configured TODO keywords
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-11--parse-priorities-correctly-with-configured-todo-keywords.org]]
+
+** DONE [#B] Normalize heading titles and title-query matching
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-11--normalize-heading-titles-and-title-query-matching.org]]
+
+** DONE [#B] Include TODO keywords in ~title_raw~
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-12--include-todo-keywords-in-title-raw.org]]
+
+** DONE [#B] Distinguish source titles from fallback file titles
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-12--distinguish-source-titles-from-fallback-file-titles.org]]
+
+** DONE [#B] Replace ~:with-root~ with ~:without-root~
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-12--replace-with-root-with-without-root.org]]
+
+** DONE [#B] Align ~title~ with root/file matching semantics
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-12--align-title-with-root-file-matching-semantics.org]]
+
+** DONE [#B] Add configurable query timezone and deterministic relative-date resolution
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-12--add-configurable-query-timezone-and-deterministic-relative-date-resolution.org]]
+
+** DONE [#B] Complete date-only and datetime query-bound semantics
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-13--complete-date-only-and-datetime-query-bound-semantics.org]]
+
+** DONE [#B] Persist explicit-time metadata for indexed Org timestamps
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-13--persist-explicit-time-metadata-for-indexed-org-timestamps.org]]
+
+** DONE [#B] Implement ~:with-time~ timestamp filtering in the SQLite metadata backend
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-14--implement-with-time-timestamp-filtering-in-the-sqlite-metadata-backend.org]]
+
+** DONE [#C] Persist heading body text for query execution
+:PROPERTIES:
+:PRIORITY: Low
+:RISK: Medium
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--persist-heading-body-text-for-query-execution.org]]
+
+** DONE [#C] Implement ~(has-text ...)~ in the SQLite metadata backend
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--implement-has-text-in-the-sqlite-metadata-backend.org]]
+
+** DONE [#C] Enable optional contentless SQLite FTS5 for full-text search
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--enable-optional-contentless-sqlite-fts5-for-full-text-search.org]]
+
+** DONE [#C] Provide CLI command ~search~
+
+- Task file: [[file:2026-07-16--provide-cli-command-search.org]]
+
+** DONE [#A] Repair dependent tables after ~headings~ schema migration
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--repair-dependent-tables-after-headings-schema-migration.org]]
+
+** DONE [#B] Make ~docs/cli.org~ the complete public reference for ~orgfdb query~
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--make-docs-cli-org-the-complete-public-reference-for-orgfdb-query.org]]
+
+** DONE [#B] Make bare ~(headings)~ include file/root results
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--make-bare-headings-include-file-root-results.org]]
+
+** DONE [#B] Include matching file/root objects for file predicates in heading queries
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-16--include-matching-file-root-objects-for-file-predicates-in-heading-queries.org]]
+
+** DONE Make file/root participation consistent across all heading predicates
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--make-file-root-participation-consistent-across-all-heading-predicates.org]]
+
+** DONE [#B] Resolve effective property values for query matching
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--resolve-effective-property-values-for-query-matching.org]]
+
+** DONE [#B] Match Org property append ordering semantics
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--match-org-property-append-ordering-semantics.org]]
+
+** DONE [#C] Document uniform property resolution and Org incompatibility
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--document-uniform-property-resolution-and-org-incompatibility.org]]
+
+** DONE [#B] Index empty property values in property drawers
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--index-empty-property-values-in-property-drawers.org]]
+
+** DONE [#B] Implement outline predicates in the SQLite query backend
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--implement-outline-predicates-in-the-sqlite-query-backend.org]]
+
+** DONE [#B] Implement regexp matching for remaining SQLite metadata predicates
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-17--implement-regexp-matching-for-remaining-sqlite-metadata-predicates.org]]
+
+** DONE [#C] Align documented ~level~ comparators with Query Model v0
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--align-level-comparators-with-query-model-v0.org]]
+
+** DONE [#B] Implement semantic ~priority~ comparison with query-time normalisation
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--implement-semantic-priority-comparison-with-query-time-normalisation.org]]
+
+** DONE [#B] Add ~:inherit~ control to heading ~keyword~ queries
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--add-inherit-control-to-heading-keyword-queries.org]]
+
+** DONE [#B] Expand leading ~~ in ~file-path~ query values
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--expand-leading-tilde-in-file-path-query-values.org]]
+
+** DONE [#B] Expand leading ~~ in ~file-dir~ query values
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--expand-leading-tilde-in-file-dir-query-values.org]]
+
+** DONE [#A] Apply ~query.timezone~ to temporal query boundaries
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--apply-query-timezone-to-temporal-query-boundaries.org]]
+
+** DONE [#B] Remove ~:with-time~ from temporal predicates
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-19--remove-with-time-from-temporal-predicates.org]]
+
+** DONE [#B] Extend inclusive temporal ranges to minute and second precision
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-20--extend-inclusive-temporal-ranges-to-minute-and-second-precision.org]]
+
+** DONE [#B] Include the synthetic file root in outline path predicates
+
+Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-20--include-synthetic-file-root-in-outline-path-predicates.org][Include the synthetic file root in outline path predicates]]
+
+** DONE Allow synthetic roots in nested heading relation queries
+
+Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--allow-synthetic-roots-in-nested-heading-relation-queries.org][Allow Synthetic Roots in Nested Heading Relation Queries]]
+
+** DONE Improve hierarchy predicate documentation with direct and transitive examples
+
+Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--improve-hierarchy-predicate-documentation.org][Improve Hierarchy Predicate Documentation]]
+
+** DONE Correct link predicate target documentation
+
+Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--correct-link-predicate-target-documentation.org][Correct Link Predicate Target Documentation]]
+
+** DONE Document link resolution statuses
+
+Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--document-link-resolution-statuses.org][Document Link Resolution Statuses]]
+
+** DONE Correct ~source~ and ~target~ any-value syntax in documentation
+
+Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--correct-source-target-any-syntax-documentation.org][Correct Source and Target Any Syntax Documentation]]
+
+** DONE Include level-0 roots in nested heading relation queries
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21--include-level-zero-roots-in-nested-heading-relation-queries.org][Include Level-0 Roots in Nested Heading Relation Queries]]
+
+** DONE [#A] Include level-0 file roots in the FTS heading index
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-22--include-level-zero-file-roots-in-the-fts-heading-index.org][Include Level-Zero File Roots in the FTS Heading Index]]
+
+** DONE [#A] Rename public root result kind from ~file~ to ~root~
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-22--rename-public-root-result-kind.org][Rename Public Root Result Kind]]
+
+** DONE Manual Test the Implementation
+
+*** Query
+
+**** DONE Properties
+
+**** DONE Todo Keywords
+
+**** DONE File Local Todo Keywords
+
+**** DONE Heading Predicates
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+***** DONE todo
+***** DONE done
+***** DONE title
+***** DONE has-text
+***** DONE property
+***** DONE level
+***** DONE priority
+***** DONE tags
+***** DONE tags-all
+***** DONE keyword
+***** DONE file-name
+***** DONE file-path
+***** DONE file-title
+***** DONE file-modified
+***** DONE outline-contains
+***** DONE outline-sequence
+***** DONE ts
+***** DONE ts-active
+***** DONE ts-inactive
+***** DONE deadline
+***** DONE scheduled
+***** DONE closed
+***** DONE planning
+***** DONE parent
+***** DONE children
+***** DONE ancestors
+***** DONE descendants
+***** DONE has-link
+***** DONE links-to
+***** DONE linked-from
+
+**** DONE Link Predicates
+
+**** DONE File Predicates
+
+**** DONE Output Modes
+
+**** DONE Includes
+
+*** DONE Search
+
+** DONE Align ~search~ output with canonical heading serialization
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--align-search-output-with-canonical-heading-serialization.org]]
+
+** DONE [#B] Index FTS title from ~title_raw~
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--index-fts-title-from-title-raw.org]]
+
+** DONE [#B] Make JSON the default CLI output format
+
+- Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--make-json-the-default-cli-output-format.org]]
+

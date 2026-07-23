@@ -48,7 +48,7 @@ Archived in [[./archive/todo-archive.org]]
 
 Archived in [[./archive/todo-archive.org]]
 
-* Phase 5: Query engine and optional full-text search
+* DONE Phase 5: Query engine and optional full-text search
 
 Goal of this phase:
 
