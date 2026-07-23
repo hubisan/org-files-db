@@ -7,6 +7,7 @@ use std::{
 };
 
 use chrono_tz::Tz;
+use globset::GlobBuilder;
 use serde::Deserialize;
 use toml::Value;
 
@@ -23,6 +24,7 @@ pub struct Config {
     pub db_path: PathBuf,
     pub files: Vec<PathBuf>,
     pub dirs: Vec<ConfiguredDir>,
+    pub discovery: DiscoveryConfig,
     pub links: LinkConfig,
     pub todo: TodoConfig,
     pub search: SearchConfig,
@@ -33,6 +35,14 @@ pub struct Config {
 pub struct ConfiguredDir {
     pub path: PathBuf,
     pub recursive: bool,
+    pub exclude: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DiscoveryConfig {
+    pub files_exclude: Vec<String>,
+    pub config_dir: PathBuf,
+    pub home_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -67,6 +77,7 @@ impl Config {
             db_path: raw_db_path,
             files: raw_files,
             dirs: raw_dirs,
+            files_exclude,
             links,
             todo,
             search,
@@ -81,12 +92,15 @@ impl Config {
         let dirs = raw_dirs
             .into_iter()
             .map(|dir| {
+                validate_exclusion_patterns(path, "dirs.exclude", &dir.exclude, home_dir)?;
                 Ok(ConfiguredDir {
                     path: resolve_path(&base_dir, dir.path, home_dir)?,
                     recursive: dir.recursive,
+                    exclude: dir.exclude,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        validate_exclusion_patterns(path, "files_exclude", &files_exclude, home_dir)?;
         let todo = todo.unwrap_or(RawTodoConfig {
             default_open_keywords: None,
             default_closed_keywords: None,
@@ -109,6 +123,11 @@ impl Config {
             db_path,
             files,
             dirs,
+            discovery: DiscoveryConfig {
+                files_exclude,
+                config_dir: base_dir,
+                home_dir: home_dir.map(Path::to_path_buf),
+            },
             links: LinkConfig {
                 plain_protocols: effective_plain_link_protocols(
                     links.plain_protocols,
@@ -190,6 +209,7 @@ impl Default for Config {
             db_path: PathBuf::from("org-files-db.sqlite"),
             files: Vec::new(),
             dirs: Vec::new(),
+            discovery: DiscoveryConfig::default(),
             links: LinkConfig::default(),
             todo: TodoConfig::default(),
             search: SearchConfig::default(),
@@ -254,6 +274,12 @@ pub enum ConfigError {
         path: PathBuf,
         value: String,
     },
+    InvalidExclusionPattern {
+        path: PathBuf,
+        field: &'static str,
+        pattern: String,
+        message: String,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -295,6 +321,16 @@ impl fmt::Display for ConfigError {
                 value,
                 path.display()
             ),
+            Self::InvalidExclusionPattern {
+                path,
+                field,
+                pattern,
+                message,
+            } => write!(
+                f,
+                "invalid {field} glob `{pattern}` in config {}: {message}",
+                path.display()
+            ),
         }
     }
 }
@@ -308,7 +344,8 @@ impl Error for ConfigError {
             | Self::MissingFile { .. }
             | Self::MissingDirectory { .. }
             | Self::MissingHomeDirectory { .. }
-            | Self::InvalidTimezone { .. } => None,
+            | Self::InvalidTimezone { .. }
+            | Self::InvalidExclusionPattern { .. } => None,
         }
     }
 }
@@ -321,6 +358,8 @@ struct RawConfig {
     files: Vec<PathBuf>,
     #[serde(default)]
     dirs: Vec<RawConfiguredDir>,
+    #[serde(default)]
+    files_exclude: Vec<String>,
     links: Option<RawLinksConfig>,
     todo: Option<RawTodoConfig>,
     search: Option<RawSearchConfig>,
@@ -332,6 +371,8 @@ struct RawConfiguredDir {
     path: PathBuf,
     #[serde(default)]
     recursive: bool,
+    #[serde(default)]
+    exclude: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -390,6 +431,30 @@ fn validate_query_timezone(path: &Path, timezone: &str) -> Result<(), ConfigErro
             path: path.to_path_buf(),
             value: timezone.to_string(),
         })
+}
+
+fn validate_exclusion_patterns(
+    config_path: &Path,
+    field: &'static str,
+    patterns: &[String],
+    home_dir: Option<&Path>,
+) -> Result<(), ConfigError> {
+    for pattern in patterns {
+        if pattern.starts_with("~/") {
+            expand_home_directory(Path::new(pattern), home_dir)?;
+        }
+        GlobBuilder::new(pattern)
+            .literal_separator(true)
+            .backslash_escape(true)
+            .build()
+            .map_err(|source| ConfigError::InvalidExclusionPattern {
+                path: config_path.to_path_buf(),
+                field,
+                pattern: pattern.clone(),
+                message: source.to_string(),
+            })?;
+    }
+    Ok(())
 }
 
 fn reject_legacy_discovery_config(path: &Path, value: &Value) -> Result<(), ConfigError> {
@@ -533,20 +598,9 @@ fn absolute_syntactic_path(path: PathBuf) -> PathBuf {
 }
 
 fn current_home_dir() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(home));
-    }
-
-    if let Some(profile) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
-        return Some(PathBuf::from(profile));
-    }
-
-    let home_drive = std::env::var_os("HOMEDRIVE").filter(|value| !value.is_empty());
-    let home_path = std::env::var_os("HOMEPATH").filter(|value| !value.is_empty());
-    match (home_drive, home_path) {
-        (Some(drive), Some(path)) => Some(PathBuf::from(drive).join(path)),
-        _ => None,
-    }
+    std::env::var_os("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 #[cfg(test)]
@@ -763,6 +817,7 @@ recursive = true
             vec![ConfiguredDir {
                 path: dir_path,
                 recursive: true,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -811,6 +866,7 @@ path = "./notes"
             vec![ConfiguredDir {
                 path: dir_path,
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -852,6 +908,7 @@ path = "{}"
             vec![ConfiguredDir {
                 path: normalized_dir_path,
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -885,6 +942,7 @@ path = "{}"
             vec![ConfiguredDir {
                 path: notes_dir,
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -930,6 +988,7 @@ path = "missing-dir"
             vec![ConfiguredDir {
                 path: missing_dir,
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -956,6 +1015,7 @@ path = "notes"
             vec![ConfiguredDir {
                 path: test_dir.path().join("notes"),
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -1271,6 +1331,7 @@ custom_protocols = ["JIRA", "jira", "shell"]
             vec![ConfiguredDir {
                 path: notes_dir,
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -1304,6 +1365,7 @@ custom_protocols = ["JIRA", "jira", "shell"]
             vec![ConfiguredDir {
                 path: dir_path,
                 recursive: false,
+                exclude: Vec::new(),
             }]
         );
     }
@@ -1328,6 +1390,59 @@ custom_protocols = ["JIRA", "jira", "shell"]
         }
     }
 
+    #[test]
+    fn loads_global_and_directory_exclusion_patterns() {
+        let test_dir = TestDir::new("discovery-exclusions");
+        let config_path = test_dir.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"
+files_exclude = ["secret.org", "**/*.private.org"]
+
+[[dirs]]
+path = "notes"
+recursive = true
+exclude = ["archive/**"]
+"#,
+        );
+
+        let config = Config::load_from_file(&config_path).expect("config should load");
+        assert_eq!(
+            config.discovery.files_exclude,
+            vec!["secret.org", "**/*.private.org"]
+        );
+        assert_eq!(config.dirs[0].exclude, vec!["archive/**"]);
+        assert_eq!(config.discovery.config_dir, test_dir.path());
+    }
+
+    #[test]
+    fn stores_the_injected_home_directory_for_home_relative_exclusions() {
+        let test_dir = TestDir::new("stable-exclusion-home");
+        let config_path = test_dir.path().join("config.toml");
+        let home_dir = test_dir.path().join("injected-home");
+        let mut raw = raw_config("db.sqlite", Vec::new(), Vec::new());
+        raw.files_exclude = vec!["~/private.org".to_string()];
+
+        let config = Config::from_raw_with_home_dir(&config_path, raw, Some(&home_dir))
+            .expect("config should load with injected home");
+        assert_eq!(config.discovery.home_dir, Some(home_dir));
+    }
+
+    #[test]
+    fn rejects_invalid_exclusion_globs_with_field_context() {
+        let test_dir = TestDir::new("invalid-discovery-exclusion");
+        let config_path = test_dir.path().join("config.toml");
+        write_file(&config_path, "files_exclude = [\"[\"]\n");
+
+        assert!(matches!(
+            Config::load_from_file(&config_path),
+            Err(ConfigError::InvalidExclusionPattern {
+                field: "files_exclude",
+                ..
+            })
+        ));
+    }
+
     fn raw_config(db_path: &str, files: Vec<String>, dirs: Vec<String>) -> RawConfig {
         RawConfig {
             db_path: PathBuf::from(db_path),
@@ -1337,6 +1452,7 @@ custom_protocols = ["JIRA", "jira", "shell"]
                 .map(|path| RawConfiguredDir {
                     path: PathBuf::from(path),
                     recursive: false,
+                    exclude: Vec::new(),
                 })
                 .collect(),
             links: Some(RawLinksConfig::default()),
@@ -1349,6 +1465,7 @@ custom_protocols = ["JIRA", "jira", "shell"]
                 index_body_text: None,
             }),
             query: Some(RawQueryConfig { timezone: None }),
+            files_exclude: Vec::new(),
         }
     }
 }

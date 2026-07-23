@@ -6,6 +6,8 @@ use std::{
 use rusqlite::{params, Connection};
 
 use crate::db::DbWriteError;
+use crate::exclusions::ExclusionMatcher;
+use crate::file_identity::{display_path, FileIdentity};
 
 pub(crate) const UNSUPPORTED_DIAGNOSTIC: &str = "unsupported link type";
 pub(crate) const FILE_MISSING_DIAGNOSTIC: &str = "missing in indexed universe";
@@ -22,10 +24,20 @@ const DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC: &str = "duplicate synthetic root head
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct IndexedUniverse {
-    recursive_roots: BTreeSet<PathBuf>,
-    exact_paths: BTreeSet<PathBuf>,
+    global_exclusions: ExclusionMatcher,
+    globally_excluded_paths: BTreeSet<PathBuf>,
+    explicit_inclusions: BTreeSet<PathBuf>,
+    root_scopes: Vec<IndexedRootScope>,
+}
+
+#[derive(Debug)]
+struct IndexedRootScope {
+    logical_root: PathBuf,
+    recursive: bool,
+    local_exclusions: ExclusionMatcher,
+    directory_mappings: Vec<(PathBuf, PathBuf)>,
 }
 
 #[derive(Debug)]
@@ -104,7 +116,7 @@ impl LinkResolver {
     fn load_links(connection: &Connection) -> Result<Vec<StoredLink>, DbWriteError> {
         let mut statement = connection
             .prepare(
-                "SELECT links.id, links.file_id, links.link_type, links.path, links.search_option, files.path
+                "SELECT links.id, links.file_id, links.link_type, links.path, links.search_option, files.path, files.identity
                  FROM links
                  INNER JOIN files ON files.id = links.file_id
                  ORDER BY links.file_id, links.byte_start, links.id",
@@ -121,7 +133,14 @@ impl LinkResolver {
                     link_type: row.get(2)?,
                     path: row.get(3)?,
                     search_option: row.get(4)?,
-                    source_file_path: PathBuf::from(row.get::<_, String>(5)?),
+                    source_file_path: {
+                        let display_path = row.get::<_, String>(5)?;
+                        let identity = row.get::<_, Option<Vec<u8>>>(6)?;
+                        identity
+                            .and_then(FileIdentity::from_stored_bytes)
+                            .and_then(|identity| identity.to_path())
+                            .unwrap_or_else(|| PathBuf::from(display_path))
+                    },
                 })
             })
             .map_err(|source| DbWriteError::Write {
@@ -137,7 +156,7 @@ impl LinkResolver {
 
     fn load_known_files(connection: &Connection) -> Result<KnownFiles, DbWriteError> {
         let mut statement = connection
-            .prepare("SELECT id, path FROM files")
+            .prepare("SELECT id, path, identity FROM files")
             .map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.load_known_files.prepare",
                 source,
@@ -146,7 +165,8 @@ impl LinkResolver {
             .query_map([], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
-                    PathBuf::from(row.get::<_, String>(1)?),
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<Vec<u8>>>(2)?,
                 ))
             })
             .map_err(|source| DbWriteError::Write {
@@ -155,10 +175,14 @@ impl LinkResolver {
             })?;
         let mut known_files = KnownFiles::default();
         for row in rows {
-            let (file_id, path) = row.map_err(|source| DbWriteError::Write {
+            let (file_id, display_path, identity) = row.map_err(|source| DbWriteError::Write {
                 operation: "link_resolver.load_known_files.collect",
                 source,
             })?;
+            let path = identity
+                .and_then(FileIdentity::from_stored_bytes)
+                .and_then(|identity| identity.to_path())
+                .unwrap_or_else(|| PathBuf::from(display_path));
             known_files.by_path.insert(path, file_id);
         }
         Ok(known_files)
@@ -636,7 +660,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     "resolved"
                 ],
@@ -666,7 +690,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     "resolved",
                     resolution_diagnostic,
@@ -697,7 +721,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     target_heading_id,
                     "resolved"
@@ -731,7 +755,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     target_heading_id,
                     target_custom_id,
@@ -847,7 +871,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     "broken",
                     FILE_MISSING_DIAGNOSTIC
                 ],
@@ -874,7 +898,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     "unresolved",
                     FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC
                 ],
@@ -903,7 +927,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     "ambiguous",
                     DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC,
@@ -933,7 +957,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     "broken",
                     HEADING_TITLE_MISSING_DIAGNOSTIC
@@ -966,7 +990,7 @@ impl LinkResolver {
                  WHERE id = ?1",
                 params![
                     link_id,
-                    path_absolute.to_string_lossy().to_string(),
+                    display_path(path_absolute),
                     target_file_id,
                     target_custom_id,
                     "broken",
@@ -1108,21 +1132,126 @@ impl LinkResolver {
     }
 }
 
+impl Default for IndexedUniverse {
+    fn default() -> Self {
+        Self {
+            global_exclusions: ExclusionMatcher::empty(),
+            globally_excluded_paths: BTreeSet::new(),
+            explicit_inclusions: BTreeSet::new(),
+            root_scopes: Vec::new(),
+        }
+    }
+}
+
 impl IndexedUniverse {
+    pub(crate) fn set_global_exclusions(&mut self, exclusions: ExclusionMatcher) {
+        self.global_exclusions = exclusions;
+    }
+
+    pub(crate) fn add_root_scope(
+        &mut self,
+        logical_root: PathBuf,
+        canonical_root: PathBuf,
+        recursive: bool,
+        local_exclusions: ExclusionMatcher,
+    ) -> usize {
+        let scope_id = self.root_scopes.len();
+        self.root_scopes.push(IndexedRootScope {
+            directory_mappings: vec![(logical_root.clone(), canonical_root.clone())],
+            logical_root,
+            recursive,
+            local_exclusions,
+        });
+        scope_id
+    }
+
+    pub(crate) fn add_directory_mapping(
+        &mut self,
+        scope_id: usize,
+        logical_directory: PathBuf,
+        canonical_directory: PathBuf,
+    ) {
+        let scope = &mut self.root_scopes[scope_id];
+        if !scope
+            .directory_mappings
+            .iter()
+            .any(|mapping| mapping == &(logical_directory.clone(), canonical_directory.clone()))
+        {
+            scope
+                .directory_mappings
+                .push((logical_directory, canonical_directory));
+        }
+    }
+
+    pub(crate) fn add_explicit_path(&mut self, path: PathBuf) {
+        self.explicit_inclusions.insert(path);
+    }
+
+    pub(crate) fn add_globally_excluded_path(&mut self, path: PathBuf) {
+        self.globally_excluded_paths.insert(path);
+    }
+
+    pub(crate) fn root_scope_excludes_file(&self, scope_id: usize, path: &Path) -> bool {
+        self.root_scopes[scope_id]
+            .local_exclusions
+            .matches_file(path)
+    }
+
+    pub(crate) fn root_scope_excludes_directory(&self, scope_id: usize, path: &Path) -> bool {
+        self.root_scopes[scope_id]
+            .local_exclusions
+            .matches_directory(path)
+    }
+
+    // Compatibility helpers retained for focused resolver fixtures.
+    #[cfg(test)]
     pub(crate) fn add_recursive_root(&mut self, path: PathBuf) {
-        self.recursive_roots.insert(path);
+        self.add_root_scope(path.clone(), path, true, ExclusionMatcher::empty());
     }
 
+    #[cfg(test)]
     pub(crate) fn add_exact_path(&mut self, path: PathBuf) {
-        self.exact_paths.insert(path);
+        self.add_explicit_path(path);
     }
 
-    fn contains(&self, path: &Path) -> bool {
-        self.exact_paths.contains(path)
-            || self
-                .recursive_roots
-                .iter()
-                .any(|root| path.starts_with(root))
+    pub(crate) fn contains(&self, path: &Path) -> bool {
+        if self.globally_excluded_paths.contains(path)
+            || self.root_scopes.iter().any(|scope| {
+                scope
+                    .logical_candidates(path)
+                    .any(|logical_path| self.global_exclusions.matches_file(&logical_path))
+            })
+        {
+            return false;
+        }
+
+        self.explicit_inclusions.contains(path)
+            || self.root_scopes.iter().any(|scope| scope.includes(path))
+    }
+}
+
+impl IndexedRootScope {
+    fn logical_candidates<'a>(&'a self, path: &'a Path) -> impl Iterator<Item = PathBuf> + 'a {
+        self.directory_mappings
+            .iter()
+            .filter_map(move |(logical, canonical)| {
+                path.strip_prefix(canonical)
+                    .ok()
+                    .map(|suffix| logical.join(suffix))
+            })
+    }
+
+    fn includes(&self, path: &Path) -> bool {
+        self.logical_candidates(path).any(|logical_path| {
+            let relative = logical_path
+                .strip_prefix(&self.logical_root)
+                .expect("logical candidate is rooted in its scope");
+            let direct_child = relative.components().count() <= 1;
+            (self.recursive || direct_child)
+                && !self
+                    .local_exclusions
+                    .matches_path_or_excluded_ancestor(&logical_path, &self.logical_root)
+        })
     }
 }
 
@@ -1251,7 +1380,7 @@ mod tests {
         SAME_FILE_STAR_HEADING_MISSING_DIAGNOSTIC, UNSUPPORTED_DIAGNOSTIC,
     };
     use crate::db::{
-        open_in_memory_database_with_schema, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        open_in_memory_database_with_schema, DbWriteError, SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
     use rusqlite::{params, Connection};
     use std::path::{Path, PathBuf};
@@ -1307,6 +1436,41 @@ mod tests {
         Option<String>,
         Option<String>,
     );
+
+    #[test]
+    fn known_files_fall_back_from_malformed_identity_but_propagate_path_decode_errors() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        connection
+            .execute(
+                "INSERT INTO files (path, identity, mtime_ns, size) VALUES (?1, ?2, 1, 1)",
+                params!["/tmp/legacy.org", b"orgfdb-path-v1\0unknown\0/path"],
+            )
+            .expect("malformed identity fixture should insert");
+
+        let known_files = LinkResolver::load_known_files(&connection)
+            .expect("malformed identity should use display-path fallback");
+        assert!(known_files
+            .by_path
+            .contains_key(Path::new("/tmp/legacy.org")));
+
+        connection
+            .execute(
+                "INSERT INTO files (path, mtime_ns, size) VALUES (?1, 1, 1)",
+                params![vec![0xff_u8]],
+            )
+            .expect("non-text path fixture should insert");
+        assert!(matches!(
+            LinkResolver::load_known_files(&connection),
+            Err(DbWriteError::Write {
+                operation: "link_resolver.load_known_files.collect",
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn resolve_all_resets_stale_resolver_owned_fields_before_marking_unsupported() {

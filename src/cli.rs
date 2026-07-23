@@ -2729,6 +2729,7 @@ index_body_text = false
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file = FileRecordInput {
             path: PathBuf::from("/tmp/project.org"),
+            identity: None,
             mtime_ns: 10,
             size: 100,
             content_hash: None,
@@ -2830,6 +2831,7 @@ index_body_text = false
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file = FileRecordInput {
             path: PathBuf::from("/tmp/project.org"),
+            identity: None,
             mtime_ns: 10,
             size: 100,
             content_hash: None,
@@ -2926,6 +2928,7 @@ db_path = "../db.sqlite"
             &mut configured_db,
             &FileRecordInput {
                 path: file_path.clone(),
+                identity: None,
                 mtime_ns: 10,
                 size: 100,
                 content_hash: None,
@@ -3121,6 +3124,7 @@ db_path = "./db.sqlite"
             &mut connection,
             &FileRecordInput {
                 path: org_path.clone(),
+                identity: None,
                 mtime_ns: 10,
                 size: 100,
                 content_hash: None,
@@ -3869,6 +3873,7 @@ index_body_text = false
     ) {
         let file = FileRecordInput {
             path: PathBuf::from(file_path),
+            identity: None,
             mtime_ns: 10,
             size: 100,
             content_hash: None,

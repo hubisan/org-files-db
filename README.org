@@ -17,6 +17,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - =src/query.rs= contains query-side helpers used by the CLI and tests
 - =src/cli.rs= exposes the supported rebuild, headings, and links commands
 - =main.rs= remains thin and delegates directly to the CLI module
+- org-files-db supports Linux and Unix-like systems, including macOS. Windows is unsupported.
 
 ** Parser Contract Notes
 
@@ -33,6 +34,8 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 
 - CLI reference: [[./docs/cli.org][docs/cli.org]]
 - Config reference: [[./docs/config.org][docs/config.org]]
+- Incremental indexing source-set contract: [[./docs/design/incremental-indexing.org][docs/design/incremental-indexing.org]]
+- Discovery supports global file exclusions and root-local file/tree exclusions; see [[./docs/config.org][docs/config.org]] for glob semantics.
 - =headings=, =links=, =query=, and =search= emit JSON by default; use =--format json= for the canonical explicit form or =--json= for the compatible short form.
 - Phase 3 link indexing notes are documented alongside parser risks in [[./docs/design/parser-risks.org][docs/design/parser-risks.org]].
 - Link resolving is documented in the CLI reference and summarized here so the Phase 3 source facts and Phase 4 resolver-owned fields stay clearly separated.
@@ -98,8 +101,9 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 
 - Relative configured paths are resolved against the config file location, not the current shell directory.
 - =db_path= is normalized syntactically only. It is not required to exist during config loading.
-- =files= and =dirs= are resolved syntactically during config loading, but rebuild/indexing validates that they exist and canonicalizes them before discovery.
-- Rebuild-time canonicalization collapses equivalent configured paths, including paths that differ only by =..= segments or symlink traversal.
+- =files= and =dirs= are resolved syntactically during config loading. Discovery canonicalizes present paths, deduplicates aliases and followed symlinks by canonical target, and retains byte-preserving identities for persistence.
+- Missing explicit files are absent configured sources for later reconciliation; missing configured directory roots remain discovery failures and cannot trigger mass deletion.
+- Version-8 migration leaves legacy TEXT-only file rows with a null identity. A later successful rebuild or reconciliation upgrades them only after observing the canonical Unix path.
 - Rebuild refuses to wipe an existing indexed database when discovery finds zero input files unless =--allow-empty= is passed explicitly.
 - Read-only commands such as =headings= load the config without requiring configured source paths to exist.
 

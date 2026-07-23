@@ -14,6 +14,9 @@ General rules:
 - Selective replacement and removal must call the Phase 6 one-file change-set wrappers.
 - Filesystem events must remain separate from parsing and DB mutation logic.
 - Watcher-triggered updates inherit the Phase 6 FTS, link-resolution, trust-metadata, and rollback contract; the watcher must not maintain derived DB state itself.
+- The watcher follows the project-wide platform contract: Linux and Unix-like systems, including macOS, are supported; Windows is not supported.
+- Do not add Windows-specific watcher backends, path conversion, rename handling, or compatibility abstractions.
+- Watcher path handling must preserve the byte-oriented Unix file identity and symlink semantics defined in Phase 6.
 
 ** TODO Integrate file watcher via ~notify~
 
@@ -24,6 +27,7 @@ Acceptance criteria:
 - Deleted files are detected.
 - Ignored directories are respected if file discovery supports them.
 - Watcher errors are reported clearly.
+- The selected ~notify~ backend and event handling are validated on supported Unix platforms; Windows-specific behavior is out of scope.
 
 ** TODO Implement debounce mechanism
 
@@ -66,6 +70,9 @@ General rules:
 - Do not share mutable parser state across files.
 - Resolver caches must be explicit, bounded, and safe to use from a future parallel pipeline.
 - Parallel behavior must be configurable or limitable.
+- The parallel pipeline follows the project-wide platform contract: Linux and Unix-like systems, including macOS, are supported; Windows is not supported.
+- Do not introduce Windows-specific path, filesystem, thread-pool, or watcher compatibility abstractions in this phase.
+- Worker inputs and results must preserve the byte-oriented Unix file identity defined in Phase 6.
 
 ** TODO Adapt the prepared-file pipeline for parallel parse jobs
 

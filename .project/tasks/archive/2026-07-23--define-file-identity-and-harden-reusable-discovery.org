@@ -1,0 +1,98 @@
+#+TITLE: Define file identity and harden reusable discovery
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu 16:10]
+#+TASK_COMPLETED: [2026-07-23 Thu]
+
+* Original Task (User only)
+
+- Implement the approved Phase 6.1 plan for file identity and reusable discovery.
+** DONE Define file identity and harden reusable discovery
+
+Goal: Turn the existing discovery implementation into a documented, reusable source-set contract for rebuild, incremental reconciliation, and the later watcher.
+
+- Task file: [[file:archive/2026-07-23--define-file-identity-and-harden-reusable-discovery.org]]
+
+Acceptance criteria:
+
+- Existing explicit-file and per-directory recursive/non-recursive discovery behavior is preserved or deliberately changed with migration notes.
+- Discovery order is deterministic and duplicate files from overlapping roots or aliases are handled deterministically.
+- Only regular files with an ~.org~ extension are collected by default; extension case behavior is documented and tested.
+- Ignored files or directories can be configured with clearly defined matching semantics and precedence.
+- Hidden file and directory behavior is explicit. Hidden entries are not accidentally treated differently from ordinary entries.
+- Symlink behavior is explicit for configured files, configured directory roots, file symlinks encountered during traversal, and directory symlinks encountered during traversal.
+- File identity, stored path, canonicalization, rename/delete handling, and any configured-path provenance are defined together.
+- The source-set model preserves enough identity to reconcile a configured file after its leaf disappears; deletion detection must not require canonicalizing an existing leaf.
+- Non-UTF-8 path behavior is explicit; paths must not be silently collapsed through lossy conversion.
+- The same inclusion and exclusion policy is used to construct ~IndexedUniverse~, so ignored paths are not incorrectly classified as missing in-universe link targets.
+- Missing configured files and missing configured directory roots have separate, documented safety behavior. A temporarily unavailable root must not silently cause mass deletion.
+- Tests cover recursive and non-recursive roots, overlapping roots, ignored paths, hidden entries, symlinks, path aliases, extension filtering, deterministic order, and missing-source behavior where supported by the platform.
+- ~docs/config.org~ and the relevant architecture documentation describe the public behavior.
+
+
+* Planning
+
+** Problem summary
+
+- Discovery currently uses canonical paths but persists them through lossy text conversion and does not classify absent explicit sources or traversal symlinks.
+
+** Goals
+
+- Establish byte-preserving canonical file identity, deterministic source discovery, and safe source-failure semantics reusable by later incremental reconciliation.
+
+** Non-goals
+
+- Configured exclusion fields/globs, change planning, watcher integration, parsing preparation, and transactional incremental application remain separate tasks.
+
+** Architecture
+
+- Persist a version-tagged byte identity alongside a reversible display path. Canonical targets deduplicate aliases; source-set records retain discovery provenance and explicit missing-source status.
+
+** Execution plan
+
+- Add identity encoding and schema migration, harden traversal and source classification, update link-resolution identity lookup where stored paths are consumed, and document/test the contract.
+
+** Risks & assumptions
+
+- Platform-specific path encodings are explicitly tagged. Legacy lossy path bytes cannot be reconstructed; a later reconciliation must treat unmatched legacy rows conservatively.
+
+** Proposed checks
+
+- Run focused schema/discovery tests followed by ~make ci~.
+
+* Results
+
+** Approach
+
+- Added a Unix-only, version-tagged, byte-preserving canonical path identity with a reversible display-path representation for non-UTF-8 names.
+- Tightened the stored identity format to the complete ~orgfdb-path-v1\0unix\0~ prefix with a nonempty Unix-path payload; untagged, unknown-platform, truncated, and malformed values remain legacy fallbacks.
+- Migrated the files schema to add a nullable identity column without manufacturing identities from legacy TEXT. Fresh and migrated databases use the single named partial ~files_identity_unique~ index; successful discovery upgrades legacy rows only through the identity-first upsert path.
+- Reworked production upsert so identity selects the file row, aliases update its display path only after an explicit conflict check, and distinct identity/display collisions fail before any metadata update rather than merge.
+- Reworked discovery to classify absent explicit files, follow file and directory symlinks with per-root canonical cycle detection, and retain global final-file deduplication.
+
+** Changed files
+
+- ~src/file_identity.rs~, ~src/indexer.rs~, ~src/link_resolver.rs~, and ~src/db/~ implement the identity and discovery contract.
+- ~sql/schema.sql~ and the schema migrator bump the persistent schema to version ~8~.
+- ~docs/config.org~, ~docs/design/incremental-indexing.org~, ~README.org~, and ~CHANGELOG.org~ document the behavior.
+
+** Checks performed
+
+- Focused discovery, schema-migration/index-contract, Unix identity, and upsert-conflict tests.
+- ~make ci~.
+- Manual ~sqlite3~ index inspection and targeted checks for lossy identity/path recovery and suppressed SQLite row decoding.
+
+** Test results
+
+- ~make ci~ passed: formatting, Clippy with warnings denied, 370 unit tests, all integration tests, and the all-targets build.
+- The manual index inspection shows only ~files_identity_unique~ for ~identity~ plus SQLite's separate ~path~ autoindex.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- Implement the deferred configured exclusion contract in its dedicated Phase 6 task.
+- Legacy NULL-identity rows remain compatibility fallbacks until a later successful rebuild or reconciliation observes their canonical Unix paths.
+- The global diff still contains pre-existing trailing whitespace in ~.project/tasks/roadmap.org~ outside this task's semantic changes.

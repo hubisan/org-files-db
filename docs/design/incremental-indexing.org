@@ -1,0 +1,24 @@
+#+TITLE: Incremental Indexing Source-Set Contract
+#+STARTUP: showall
+
+* Source identity
+
+org-files-db supports Linux and Unix-like systems, including macOS. Windows is unsupported. The indexer identifies a source by its canonical Unix target-path bytes, encoded as a version-tagged byte sequence. This identity is stable across configured aliases and symlink paths. The database also keeps a human-facing display path: UTF-8 paths are stored unchanged, while non-UTF-8 paths use reversible percent-escaped bytes with the ~path-bytes:~ prefix.
+
+Legacy databases have only a TEXT path and retain ~identity = NULL~ after the version-8 migration. The original native bytes cannot be reconstructed safely. A successful rebuild or future reconciliation upgrades the row only after discovery observes its canonical Unix path.
+
+Hard links are separate sources because their canonical paths are distinct. A rename is therefore represented as deletion plus creation until a later task adds explicit rename correlation.
+
+* Discovery policy
+
+- Explicit configured files are regular-file overrides and may have any extension.
+- Directory roots collect regular files with an ASCII case-insensitive ~.org~ extension.
+- Hidden entries are not special.
+- File and directory symlinks are followed. Directory cycles and repeated traversal are prevented within each configured root; directory targets outside the configured root remain eligible.
+- Overlapping roots may traverse the same physical directory independently so later root-local exclusions can use the correct logical provenance. The resulting files are still globally deduplicated by canonical identity.
+
+* Failure policy
+
+A missing explicit file becomes an absent configured source so a later change planner can remove its persisted state without trying to canonicalize a missing leaf. A missing configured directory root, or any traversal/stat/canonicalization error other than an explicit missing file, is a hard discovery failure. Such a failure must not be interpreted as deletion.
+
+Configured exclusions are evaluated before the final source set and link-resolution universe are built. The universe retains explicit inclusions plus one scope for every configured directory root, including its logical-to-canonical directory provenance and local rules. Global file exclusions are evaluated for every logical discovery provenance and remove a matched physical identity everywhere; directory-local exclusions apply only to their own logical root. Link resolution asks this same universe, so an excluded target is outside the indexed universe rather than missing within it. Directory matches prune recursive traversal. An explicit file matched by a global rule is ignored before stat or canonicalization, even if it is missing. Home-relative patterns are expanded once during configuration loading and use that stable basis thereafter. A source set made empty solely by valid exclusions, including a pruned tree, is an intentional rebuild input; genuinely empty input retains the full-rebuild safety guard.

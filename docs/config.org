@@ -60,6 +60,8 @@ Explicit Org files to index.
 
 Each entry is a file path. Relative paths are resolved against the config file location.
 
+Explicit files are regular-file overrides: they may use an extension other than ~.org~. A missing explicit file is recorded as an absent configured source for later incremental reconciliation; it does not make a configured directory root disappear.
+
 * ~dirs~
 
 Directories to search for Org files.
@@ -95,6 +97,21 @@ recursive = true
 path = "inbox"
 recursive = false
 #+end_src
+
+* Discovery and file identity
+
+Discovery constructs one deterministic source set shared by rebuild and later incremental entry points.
+
+- org-files-db supports Linux and Unix-like platforms, including macOS. Windows is unsupported.
+- Directory roots include regular files whose extension is ASCII case-insensitively ~.org~. Explicit ~files~ entries are the documented extension override.
+- Hidden entries follow the same rules as ordinary entries. Recursive roots descend into hidden directories.
+- Configured aliases, overlapping roots, and file symlinks are canonicalized and deduplicated to one indexed file. A recursive directory symlink is followed even when its target is outside the configured root. Cycle detection is per configured root, so overlapping roots may traverse a physical directory separately while final files remain globally deduplicated.
+- A missing configured directory root is a discovery error and prevents destructive reconciliation. A missing explicit file is an absent-source record; the existing empty-source rebuild guard still prevents an unintended wipe.
+- Indexed file identity is a version-tagged byte-preserving canonical Unix path. The public path field remains unchanged for UTF-8 paths; non-UTF-8 paths use a reversible ~path-bytes:%XX...~ representation rather than lossy replacement text. Existing TEXT-only DB rows retain ~identity = NULL~ until a successful rebuild or later reconciliation rediscovers the canonical path.
+- ~files_exclude~ contains global, file-only Unix globs. Relative patterns are evaluated from the config directory; absolute patterns are matched against absolute logical paths; leading ~~/~ patterns are expanded once while loading the config and retain that stable home-directory basis for discovery.
+- Each ~[[dirs]]~ entry may contain ~exclude = ["..."]~. Relative local patterns are evaluated from that entry's logical root and may exclude files or whole directory trees. A matching recursive directory is pruned; use ~archive/**~ to exclude that directory and all descendants.
+- Globs are case-sensitive, use ~/~ as a literal path separator, and match Unix path bytes without lossy conversion. Global rules win across aliases and are never undone by another root; local rules remain isolated to their configured root. Logical discovery provenance is retained for this decision while canonical paths remain the physical identity and final deduplication key.
+- An explicit file matched by a global exclusion is ignored before any stat or canonicalization, so an excluded missing explicit file is not an error. A rebuild emptied by matching exclusions, including a pruned tree, is intentional and transactionally removes prior indexed rows. Missing roots and genuinely empty input retain the existing safety behavior.
 
 * ~[links]~
 

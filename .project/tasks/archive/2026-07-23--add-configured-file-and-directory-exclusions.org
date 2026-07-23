@@ -1,0 +1,166 @@
+#+TITLE: Add configured file and directory exclusions
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu]
+#+TASK_COMPLETED: [2026-07-23 Thu]
+
+* Original Task (User only)
+
+- Implement the approved Phase 6 exclusion plan.
+
+** BUILD Add configured file and directory exclusions
+
+- Task file: [[file:2026-07-23--add-configured-file-and-directory-exclusions.org]]
+
+Goal:
+
+- Allow individual files to be excluded globally and files or directory trees
+  to be excluded for individual discovery roots.
+
+Configuration example:
+
+#+begin_src toml
+files = [
+  "inbox.org",
+  "projects.org",
+]
+
+files_exclude = [
+  "secret.org",
+  "**/*.private.org",
+  "/mnt/shared/do-not-index.org",
+  "~/org/personal.org",
+]
+
+[[dirs]]
+path = "notes"
+recursive = true
+exclude = [
+  "secret.org",
+  "archive/**",
+  "generated/**",
+  "**/*.private.org",
+]
+
+[[dirs]]
+path = "shared"
+recursive = true
+exclude = [
+  "generated/**",
+]
+#+end_src
+
+General rules:
+
+- Top-level ~files_exclude~ contains glob patterns that match files only.
+- ~files_exclude~ applies to files from both the explicit ~files~ list and
+  configured directory discovery.
+- ~exclude~ belongs to an individual ~[[dirs]]~ entry.
+- A directory-local ~exclude~ may match individual files or complete directory
+  trees.
+- Relative ~files_exclude~ patterns are evaluated relative to the directory
+  containing ~config.toml~.
+- Relative ~[[dirs]].exclude~ patterns are evaluated relative to that
+  directory entry's ~path~.
+- Absolute patterns are evaluated against normalized absolute paths.
+- Home-relative patterns beginning with ~~/~ are expanded before matching.
+- Exclusion rules take precedence over inclusion rules.
+- An exclusion belonging to one ~[[dirs]]~ entry does not affect another
+  independently configured directory entry.
+- Global ~files_exclude~ rules apply regardless of which configured source
+  produced the candidate file.
+- Excluded directories should be pruned during recursive traversal where
+  practical.
+- Missing exclusion targets are not errors.
+- Invalid glob patterns produce clear configuration errors.
+- Symlink handling follows the separately defined discovery policy.
+- Full rebuilds and later incremental reconciliation use the same exclusion
+  semantics.
+- A previously indexed file that becomes excluded is removed from the indexed
+  universe during the next reconciliation.
+- Removing an exclusion makes newly eligible files discoverable again.
+
+Acceptance criteria:
+
+- Configuration supports top-level ~files_exclude~.
+- Configuration supports per-directory ~[[dirs]].exclude~.
+- Both settings accept zero or more glob patterns.
+- ~files_exclude~ can exclude an explicitly configured file.
+- ~files_exclude~ can exclude a file found through directory discovery.
+- A local relative pattern can exclude one file within its directory root.
+- A local directory pattern excludes the directory and all descendants.
+- Recursive traversal does not descend into excluded directory trees.
+- Absolute patterns are supported.
+- Home-relative patterns are expanded consistently.
+- Relative pattern bases are documented and tested.
+- Path normalization and path-separator behaviour are defined and tested.
+- Exclusions work with recursive and non-recursive directory entries.
+- Overlapping directory roots follow the documented global and local exclusion
+  precedence.
+- Files that become excluded are removed transactionally from the database.
+- The exclusion policy is exposed in a reusable form so the later watcher can apply the same matching semantics without duplicating discovery logic.
+- Tests cover explicit files, discovered files, excluded directories, nested
+  paths, absolute patterns, home-relative patterns, overlapping roots, newly
+  excluded files, and exclusions that are later removed.
+
+* Planning
+
+** Problem summary
+
+- Discovery has no configurable exclusion policy and its indexed universe cannot distinguish excluded targets from missing in-universe targets.
+
+** Goals
+
+- Add global file and root-local file/tree exclusion globs while preserving Unix path identity, symlink handling, root provenance, and deterministic discovery.
+
+** Non-goals
+
+- Watcher integration, incremental replacement, rename correlation, and change detection remain out of scope.
+
+** Architecture
+
+- A shared exclusion matcher evaluates logical Unix paths. Canonical physical paths remain the global identity and deduplication key.
+
+** Execution plan
+
+- Parse and validate glob settings, apply them during discovery and universe construction, preserve transactional rebuild behavior, then document and test the resulting contract.
+
+** Risks & assumptions
+
+- Global matches exclude a physical file from every provenance; local matches remain root-local. A source set emptied only by valid exclusions is an intentional rebuild input.
+
+** Proposed checks
+
+- Run focused config/discovery/rebuild tests followed by ~make ci~.
+
+* Results
+
+** Approach
+
+- Centralized glob matching in a reusable Unix-path matcher shared by discovery and the provenance-aware indexed universe.
+- Replaced flat negative path sets with explicit inclusions, global physical exclusions, and per-root logical-to-canonical scopes. Local exclusions therefore stay local, while a globally matched physical file remains excluded through every discovered alias.
+- Changed empty-rebuild safety to allow an empty result only when discovery recorded a real exclusion match, including a pruned directory tree. Empty configurations and empty unexcluded sources remain protected.
+- Applied global explicit-file exclusions before filesystem access and retained the configuration-time home directory in the discovery configuration.
+- Tightened stored Unix identity validation to reject relative and NUL-containing payloads.
+
+** Changed files
+
+- ~src/exclusions.rs~, ~src/config.rs~, ~src/indexer.rs~, and ~src/link_resolver.rs~ provide the shared matcher, stable home basis, filtering, and provenance-aware universe behavior.
+- ~docs/config.org~, ~docs/design/incremental-indexing.org~, ~README.org~, and ~CHANGELOG.org~ document the public contract.
+
+** Checks performed
+
+- Focused matcher, config, discovery, symlink, non-UTF-8, intentional-empty, exclusion-removal, identity, and universe tests.
+- ~cargo fmt --check~, Clippy with warnings denied, all-targets build, ~git diff --check~, and ~make ci~.
+
+** Test results
+
+- All checks passed: formatting, Clippy with warnings denied, 385 unit tests, integration tests, and all-targets build.
+
+** Blockers
+
+- The first dependency resolution attempt could not reach crates.io; the cached registry completed the lock update and validation with ~--offline~ before the normal CI run.
+
+** Follow-ups
+
+- Later watcher and incremental reconciliation entry points must reuse the configured discovery exclusion policy; this task does not add those entry points.

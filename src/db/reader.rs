@@ -305,6 +305,7 @@ mod tests {
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file = FileRecordInput {
             path: PathBuf::from("/tmp/project.org"),
+            identity: None,
             mtime_ns: 10,
             size: 100,
             content_hash: None,
@@ -394,6 +395,7 @@ mod tests {
             open_in_memory_database_with_schema(&schema).expect("database should open");
         let file = FileRecordInput {
             path: PathBuf::from("/tmp/project.org"),
+            identity: None,
             mtime_ns: 10,
             size: 100,
             content_hash: None,

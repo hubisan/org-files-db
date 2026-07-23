@@ -2,13 +2,17 @@ use std::{fmt, path::PathBuf};
 
 #[cfg(test)]
 use rusqlite::Transaction;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::schema::{heading_fts_sql, sqlite_supports_fts5};
+use crate::file_identity::display_path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileRecordInput {
     pub path: PathBuf,
+    /// Present for production discovery. `None` remains accepted by low-level
+    /// fixture helpers that seed legacy rows directly.
+    pub identity: Option<Vec<u8>>,
     pub mtime_ns: i64,
     pub size: i64,
     pub content_hash: Option<String>,
@@ -180,17 +184,138 @@ impl DbWriter {
         connection: &Connection,
         file: &FileRecordInput,
     ) -> Result<i64, DbWriteError> {
+        let display_path = display_path(&file.path);
+        if let Some(identity) = file.identity.as_deref() {
+            if let Some(file_id) = connection
+                .query_row(
+                    "SELECT id FROM files WHERE identity = ?1",
+                    [identity],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|source| DbWriteError::ReadBack {
+                    operation: "upsert_file.find_identity",
+                    source,
+                })?
+            {
+                let conflicting_file_id = connection
+                    .query_row(
+                        "SELECT id FROM files WHERE path = ?1 AND id != ?2",
+                        params![&display_path, file_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()
+                    .map_err(|source| DbWriteError::ReadBack {
+                        operation: "upsert_file.check_identity_display_path",
+                        source,
+                    })?;
+                if conflicting_file_id.is_some() {
+                    return Err(DbWriteError::InvalidInput(
+                        "file display path is already owned by a different identity",
+                    ));
+                }
+
+                // The identity is authoritative. Its row receives the current
+                // deterministic display path after the conflict check above.
+                connection
+                    .execute(
+                        "UPDATE files
+                         SET path = ?1,
+                             mtime_ns = ?3,
+                             size = ?4,
+                             content_hash = ?5,
+                             indexed_at = ?6
+                        WHERE id = ?2",
+                        params![
+                            &display_path,
+                            file_id,
+                            file.mtime_ns,
+                            file.size,
+                            file.content_hash,
+                            file.indexed_at
+                        ],
+                    )
+                    .map_err(|source| DbWriteError::Write {
+                        operation: "upsert_file.update_identity",
+                        source,
+                    })?;
+                return Ok(file_id);
+            }
+
+            // Only an unambiguous UTF-8 path can upgrade a legacy NULL row.
+            // A reversible escaped display value can never identify a legacy
+            // native path and must not merge a lossy collision.
+            if file.path.to_str().is_some() {
+                if let Some(file_id) = connection
+                    .query_row(
+                        "SELECT id FROM files WHERE path = ?1 AND identity IS NULL",
+                        [&display_path],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|source| DbWriteError::ReadBack {
+                        operation: "upsert_file.find_legacy_path",
+                        source,
+                    })?
+                {
+                    connection
+                        .execute(
+                            "UPDATE files
+                             SET identity = ?1,
+                                 mtime_ns = ?2,
+                                 size = ?3,
+                                 content_hash = ?4,
+                                 indexed_at = ?5
+                             WHERE id = ?6",
+                            params![
+                                identity,
+                                file.mtime_ns,
+                                file.size,
+                                file.content_hash,
+                                file.indexed_at,
+                                file_id
+                            ],
+                        )
+                        .map_err(|source| DbWriteError::Write {
+                            operation: "upsert_file.upgrade_legacy_path",
+                            source,
+                        })?;
+                    return Ok(file_id);
+                }
+            }
+
+            if connection
+                .query_row(
+                    "SELECT id FROM files WHERE path = ?1",
+                    [&display_path],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|source| DbWriteError::ReadBack {
+                    operation: "upsert_file.check_display_path",
+                    source,
+                })?
+                .is_some()
+            {
+                return Err(DbWriteError::InvalidInput(
+                    "file display path is already owned by a different identity",
+                ));
+            }
+        }
+
         connection
             .execute(
-                "INSERT INTO files (path, mtime_ns, size, content_hash, indexed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO files (path, identity, mtime_ns, size, content_hash, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
                  ON CONFLICT(path) DO UPDATE SET
+                   identity = COALESCE(excluded.identity, files.identity),
                    mtime_ns = excluded.mtime_ns,
                    size = excluded.size,
                    content_hash = excluded.content_hash,
                    indexed_at = excluded.indexed_at",
                 params![
-                    file.path.to_string_lossy(),
+                    &display_path,
+                    file.identity.as_deref(),
                     file.mtime_ns,
                     file.size,
                     file.content_hash,
@@ -205,7 +330,7 @@ impl DbWriter {
         connection
             .query_row(
                 "SELECT id FROM files WHERE path = ?1",
-                [file.path.to_string_lossy().as_ref()],
+                [&display_path],
                 |row| row.get(0),
             )
             .map_err(|source| DbWriteError::ReadBack {
@@ -775,6 +900,7 @@ mod tests {
         open_in_memory_database_with_schema, sqlite_supports_fts5, SchemaDefinition,
         CURRENT_SCHEMA_VERSION,
     };
+    use crate::file_identity::FileIdentity;
     use rusqlite::Connection;
     use std::path::PathBuf;
 
@@ -843,6 +969,196 @@ mod tests {
 
         assert_eq!(heading_count, 2);
         assert_eq!(current_title, "Updated");
+    }
+
+    #[test]
+    fn upsert_uses_identity_as_authoritative_alias_key_and_upgrades_legacy_rows() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let identity = FileIdentity::from_canonical_path(std::path::Path::new("/tmp/physical.org"));
+        let alias = FileRecordInput {
+            path: PathBuf::from("/tmp/alias.org"),
+            identity: Some(identity.as_bytes().to_vec()),
+            mtime_ns: 1,
+            size: 1,
+            content_hash: None,
+            indexed_at: None,
+        };
+        let alias_id = DbWriter::upsert_file(&connection, &alias).expect("alias should upsert");
+        let canonical = FileRecordInput {
+            path: PathBuf::from("/tmp/physical.org"),
+            identity: Some(identity.as_bytes().to_vec()),
+            mtime_ns: 2,
+            size: 2,
+            content_hash: None,
+            indexed_at: None,
+        };
+        assert_eq!(
+            DbWriter::upsert_file(&connection, &canonical).expect("canonical alias should upsert"),
+            alias_id
+        );
+        let stored_path: String = connection
+            .query_row("SELECT path FROM files WHERE id = ?1", [alias_id], |row| {
+                row.get(0)
+            })
+            .expect("stored path should load");
+        assert_eq!(stored_path, "/tmp/physical.org");
+
+        let legacy = file_record("/tmp/legacy.org", 1, 1);
+        let legacy_id =
+            DbWriter::upsert_file(&connection, &legacy).expect("legacy row should insert");
+        let legacy_identity =
+            FileIdentity::from_canonical_path(std::path::Path::new("/tmp/legacy.org"));
+        let rediscovered = FileRecordInput {
+            path: PathBuf::from("/tmp/legacy.org"),
+            identity: Some(legacy_identity.as_bytes().to_vec()),
+            mtime_ns: 2,
+            size: 2,
+            content_hash: None,
+            indexed_at: None,
+        };
+        assert_eq!(
+            DbWriter::upsert_file(&connection, &rediscovered).expect("legacy row should upgrade"),
+            legacy_id
+        );
+    }
+
+    #[test]
+    fn upsert_rejects_display_path_collisions_between_distinct_identities() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let first = FileRecordInput {
+            path: PathBuf::from("/tmp/collision.org"),
+            identity: Some(
+                FileIdentity::from_canonical_path(std::path::Path::new("/tmp/first.org"))
+                    .as_bytes()
+                    .to_vec(),
+            ),
+            mtime_ns: 1,
+            size: 1,
+            content_hash: None,
+            indexed_at: None,
+        };
+        DbWriter::upsert_file(&connection, &first).expect("first identity should insert");
+        let second = FileRecordInput {
+            path: PathBuf::from("/tmp/collision.org"),
+            identity: Some(
+                FileIdentity::from_canonical_path(std::path::Path::new("/tmp/second.org"))
+                    .as_bytes()
+                    .to_vec(),
+            ),
+            mtime_ns: 2,
+            size: 2,
+            content_hash: None,
+            indexed_at: None,
+        };
+        assert!(matches!(
+            DbWriter::upsert_file(&connection, &second),
+            Err(DbWriteError::InvalidInput(
+                "file display path is already owned by a different identity"
+            ))
+        ));
+    }
+
+    #[test]
+    fn upsert_rejects_identity_alias_update_when_another_row_owns_display_path() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let identity_a = FileIdentity::from_canonical_path(std::path::Path::new("/tmp/a.org"));
+        let identity_b = FileIdentity::from_canonical_path(std::path::Path::new("/tmp/b.org"));
+        let alias_a = FileRecordInput {
+            path: PathBuf::from("/tmp/alias.org"),
+            identity: Some(identity_a.as_bytes().to_vec()),
+            mtime_ns: 1,
+            size: 2,
+            content_hash: Some("first-hash".to_string()),
+            indexed_at: Some(3),
+        };
+        let canonical_b = FileRecordInput {
+            path: PathBuf::from("/tmp/canonical.org"),
+            identity: Some(identity_b.as_bytes().to_vec()),
+            mtime_ns: 4,
+            size: 5,
+            content_hash: Some("second-hash".to_string()),
+            indexed_at: Some(6),
+        };
+        let file_a_id = DbWriter::upsert_file(&connection, &alias_a).expect("A should insert");
+        let file_b_id = DbWriter::upsert_file(&connection, &canonical_b).expect("B should insert");
+
+        let conflicting_update = FileRecordInput {
+            path: PathBuf::from("/tmp/canonical.org"),
+            identity: Some(identity_a.as_bytes().to_vec()),
+            mtime_ns: 10,
+            size: 11,
+            content_hash: Some("updated-hash".to_string()),
+            indexed_at: Some(12),
+        };
+        assert!(matches!(
+            DbWriter::upsert_file(&connection, &conflicting_update),
+            Err(DbWriteError::InvalidInput(
+                "file display path is already owned by a different identity"
+            ))
+        ));
+
+        let stored_a: (String, i64, i64, Option<String>, Option<i64>) = connection
+            .query_row(
+                "SELECT path, mtime_ns, size, content_hash, indexed_at FROM files WHERE id = ?1",
+                [file_a_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("A should remain readable");
+        assert_eq!(
+            stored_a,
+            (
+                "/tmp/alias.org".to_string(),
+                1,
+                2,
+                Some("first-hash".to_string()),
+                Some(3)
+            )
+        );
+        let stored_b: (String, i64, i64, Option<String>, Option<i64>) = connection
+            .query_row(
+                "SELECT path, mtime_ns, size, content_hash, indexed_at FROM files WHERE id = ?1",
+                [file_b_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .expect("B should remain readable");
+        assert_eq!(
+            stored_b,
+            (
+                "/tmp/canonical.org".to_string(),
+                4,
+                5,
+                Some("second-hash".to_string()),
+                Some(6)
+            )
+        );
     }
 
     #[test]
@@ -1421,6 +1737,7 @@ mod tests {
     fn file_record(path: &str, mtime_ns: i64, size: i64) -> FileRecordInput {
         FileRecordInput {
             path: PathBuf::from(path),
+            identity: None,
             mtime_ns,
             size,
             content_hash: None,

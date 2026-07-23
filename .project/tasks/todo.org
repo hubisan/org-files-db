@@ -85,25 +85,13 @@ General rules:
 - Targeted link resolution and incremental FTS optimization may be deferred, but correctness may not be deferred. A global reconciliation pass is acceptable initially.
 - Watcher integration, debounce, and parallel parsing remain out of scope for this phase.
 
-** TODO Define file identity and harden reusable discovery
+** DONE Define file identity and harden reusable discovery
 
-Goal: Turn the existing discovery implementation into a documented, reusable source-set contract for rebuild, incremental reconciliation, and the later watcher.
+- Task file: [[file:archive/2026-07-23--define-file-identity-and-harden-reusable-discovery.org]]
 
-Acceptance criteria:
+** DONE Add configured file and directory exclusions
 
-- Existing explicit-file and per-directory recursive/non-recursive discovery behavior is preserved or deliberately changed with migration notes.
-- Discovery order is deterministic and duplicate files from overlapping roots or aliases are handled deterministically.
-- Only regular files with an ~.org~ extension are collected by default; extension case behavior is documented and tested.
-- Ignored files or directories can be configured with clearly defined matching semantics and precedence.
-- Hidden file and directory behavior is explicit. Hidden entries are not accidentally treated differently from ordinary entries.
-- Symlink behavior is explicit for configured files, configured directory roots, file symlinks encountered during traversal, and directory symlinks encountered during traversal.
-- File identity, stored path, canonicalization, rename/delete handling, and any configured-path provenance are defined together.
-- The source-set model preserves enough identity to reconcile a configured file after its leaf disappears; deletion detection must not require canonicalizing an existing leaf.
-- Non-UTF-8 path behavior is explicit; paths must not be silently collapsed through lossy conversion.
-- The same inclusion and exclusion policy is used to construct ~IndexedUniverse~, so ignored paths are not incorrectly classified as missing in-universe link targets.
-- Missing configured files and missing configured directory roots have separate, documented safety behavior. A temporarily unavailable root must not silently cause mass deletion.
-- Tests cover recursive and non-recursive roots, overlapping roots, ignored paths, hidden entries, symlinks, path aliases, extension filtering, deterministic order, and missing-source behavior where supported by the platform.
-- ~docs/config.org~ and the relevant architecture documentation describe the public behavior.
+- Task file: [[file:archive/2026-07-23--add-configured-file-and-directory-exclusions.org]]
 
 ** TODO Extract stable per-file preparation
 
@@ -257,4 +245,3 @@ Acceptance criteria:
 - FTS-specific tuning remains conditional on FTS5 support.
 - The accepted index set has no known redundant indexes without a documented reason.
 - Findings and rejected candidates are documented so later work does not repeat the same experiments.
-

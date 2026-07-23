@@ -1,6 +1,11 @@
+#[cfg(not(unix))]
+compile_error!("org-files-db supports Unix-like platforms only; Windows is unsupported");
+
 pub mod cli;
 pub mod config;
 pub mod db;
+mod exclusions;
+mod file_identity;
 pub mod indexer;
 mod link_resolver;
 pub mod parser;

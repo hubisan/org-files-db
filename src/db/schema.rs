@@ -7,7 +7,7 @@ use super::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -168,6 +168,7 @@ impl SchemaDefinition {
     }
 
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
+        migrate_legacy_files_identity(connection)?;
         migrate_legacy_timestamp_repeaters(connection)?;
         migrate_legacy_todo_keywords_table(connection)?;
         migrate_legacy_properties_table(connection)?;
@@ -177,6 +178,112 @@ impl SchemaDefinition {
         migrate_legacy_links_table(connection)?;
         repair_tables_depending_on_headings(connection)?;
         connection.execute_batch(&self.render_sql(connection))
+    }
+}
+
+fn migrate_legacy_files_identity(connection: &Connection) -> rusqlite::Result<()> {
+    if !table_exists(connection, "files")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "files")?;
+    if !columns.iter().any(|column| column == "identity") {
+        connection.execute_batch("ALTER TABLE files ADD COLUMN identity BLOB;")?;
+    }
+
+    // A legacy TEXT path cannot prove its original native bytes. Leave it NULL
+    // until a successful discovery observes and writes a tagged identity.
+    connection.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS files_identity_unique
+         ON files(identity) WHERE identity IS NOT NULL;",
+    )
+}
+
+#[cfg(test)]
+mod file_identity_migration_tests {
+    use super::SchemaDefinition;
+    use rusqlite::Connection;
+
+    fn assert_files_identity_index_contract(connection: &Connection) {
+        let mut statement = connection
+            .prepare("PRAGMA index_list('files')")
+            .expect("files index list should prepare");
+        let index_names = statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("files index list should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("files index names should decode");
+        drop(statement);
+
+        let identity_indexes = index_names
+            .iter()
+            .filter(|name| {
+                let mut index_info = connection
+                    .prepare(&format!("PRAGMA index_info('{name}')"))
+                    .expect("index info should prepare");
+                index_info
+                    .query_map([], |row| row.get::<_, String>(2))
+                    .expect("index info should query")
+                    .collect::<Result<Vec<_>, _>>()
+                    .expect("index columns should decode")
+                    .iter()
+                    .any(|column| column == "identity")
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(identity_indexes, vec!["files_identity_unique"]);
+
+        let mut identity_statement = connection
+            .prepare("PRAGMA index_info('files_identity_unique')")
+            .expect("identity index info should prepare");
+        let identity_columns = identity_statement
+            .query_map([], |row| row.get::<_, String>(2))
+            .expect("identity index info should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("identity index columns should decode");
+        assert_eq!(identity_columns, vec!["identity"]);
+    }
+
+    #[test]
+    fn fresh_files_schema_has_one_named_partial_identity_index() {
+        let connection = Connection::open_in_memory().expect("database should open");
+        SchemaDefinition::new(8, false)
+            .apply(&connection)
+            .expect("schema should apply");
+
+        assert_files_identity_index_contract(&connection);
+    }
+
+    #[test]
+    fn legacy_files_keep_null_identity_during_schema_application() {
+        let connection = Connection::open_in_memory().expect("database should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE files (
+                     id INTEGER PRIMARY KEY,
+                     path TEXT NOT NULL UNIQUE,
+                     mtime_ns INTEGER NOT NULL,
+                     size INTEGER NOT NULL,
+                     content_hash TEXT,
+                     indexed_at INTEGER
+                 );
+                 INSERT INTO files (path, mtime_ns, size) VALUES ('/tmp/notes.org', 1, 2);",
+            )
+            .expect("legacy files table should seed");
+
+        SchemaDefinition::new(8, false)
+            .apply(&connection)
+            .expect("schema should migrate legacy files");
+
+        let identity: Option<Vec<u8>> = connection
+            .query_row(
+                "SELECT identity FROM files WHERE path = '/tmp/notes.org'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("identity should load");
+        assert_eq!(identity, None);
+        assert_files_identity_index_contract(&connection);
     }
 }
 

@@ -26,7 +26,13 @@
   Each row represents one indexed Org file.
 
   path:
-    Absolute normalized path. Must be unique.
+    Reversible display representation of the absolute normalized path. Must be unique.
+
+  identity:
+    Version-tagged, byte-preserving canonical Unix path identity. Production
+    index writes populate it after discovery; legacy TEXT-only rows retain NULL
+    until successful rediscovery or reconciliation. Non-NULL values are unique
+    through the named partial files_identity_unique index.
 
   mtime_ns:
     Last modification time in nanoseconds since Unix epoch.
@@ -46,11 +52,16 @@
 CREATE TABLE IF NOT EXISTS files (
     id              INTEGER PRIMARY KEY,
     path            TEXT NOT NULL UNIQUE,
+    identity        BLOB,
     mtime_ns        INTEGER NOT NULL,
     size            INTEGER NOT NULL,
     content_hash    TEXT,
     indexed_at      INTEGER
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS files_identity_unique
+ON files(identity)
+WHERE identity IS NOT NULL;
 
 --------------------------------------------------
 -- DATABASE METADATA

@@ -2593,6 +2593,7 @@ mod tests {
     fn seed_database(connection: &mut Connection, alpha_path: &Path, beta_path: &Path) {
         let alpha = FileRecordInput {
             path: alpha_path.to_path_buf(),
+            identity: None,
             mtime_ns: 1_767_398_400_000_000_000,
             size: 100,
             content_hash: None,
@@ -2600,6 +2601,7 @@ mod tests {
         };
         let beta = FileRecordInput {
             path: beta_path.to_path_buf(),
+            identity: None,
             mtime_ns: 1_767_484_800_000_000_000,
             size: 120,
             content_hash: None,

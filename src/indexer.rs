@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
@@ -19,6 +19,8 @@ use crate::{
         DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
         FTS_SCHEMA_CONTRACT_VERSION,
     },
+    exclusions::ExclusionMatcher,
+    file_identity::{display_path, FileIdentity},
     link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
     parser::{
@@ -95,7 +97,7 @@ where
         }
 
         let discovery = discover_org_files(config)?;
-        if discovery.files.is_empty() {
+        if discovery.files.is_empty() && !discovery.had_exclusion_match {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
             if existing_indexed_files > 0 && !allow_empty {
                 return Err(IndexerError::RefusedEmptyRebuild {
@@ -106,7 +108,9 @@ where
 
         let parse_options = config.parse_options();
         let mut pending = Vec::with_capacity(discovery.files.len());
+        let _missing_explicit_files = discovery.missing_explicit_files;
         for discovered in discovery.files {
+            let identity = discovered.identity;
             let path = discovered.path;
             let metadata = fs::metadata(&path).map_err(|source| IndexerError::ReadFile {
                 path: path.clone(),
@@ -136,7 +140,7 @@ where
                     diagnostic,
                 })?;
             let normalized = normalize_document(document, &path, &content);
-            let file_record = build_file_record(&path, &metadata)?;
+            let file_record = build_file_record(&path, &metadata, &identity)?;
             pending.push(PendingRebuildFile {
                 path,
                 document: normalized,
@@ -237,11 +241,14 @@ struct PendingRebuildFile {
 struct DiscoveryResult {
     files: Vec<DiscoveredOrgFile>,
     indexed_universe: IndexedUniverse,
+    missing_explicit_files: Vec<PathBuf>,
+    had_exclusion_match: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DiscoveredOrgFile {
     path: PathBuf,
+    identity: FileIdentity,
     scan_root: PathBuf,
 }
 
@@ -380,14 +387,32 @@ impl Error for IndexerError {
 fn discover_org_files(config: &Config) -> Result<DiscoveryResult, IndexerError> {
     let mut paths = BTreeMap::new();
     let mut indexed_universe = IndexedUniverse::default();
+    let mut missing_explicit_files = Vec::new();
+    let mut globally_excluded = BTreeSet::new();
+    let global_exclusions = ExclusionMatcher::global(&config.discovery);
+    indexed_universe.set_global_exclusions(ExclusionMatcher::global(&config.discovery));
+    let mut had_exclusion_match = false;
 
     for file in &config.files {
-        let canonical_file = canonicalize_existing_file(file)?;
+        if global_exclusions.matches_file(file) {
+            had_exclusion_match = true;
+            continue;
+        }
+        let canonical_file = match canonicalize_existing_file(file) {
+            Ok(path) => path,
+            Err(IndexerError::Discover { source, .. })
+                if source.kind() == io::ErrorKind::NotFound =>
+            {
+                missing_explicit_files.push(file.clone());
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         let scan_root = canonical_file
             .parent()
             .unwrap_or(canonical_file.as_path())
             .to_path_buf();
-        indexed_universe.add_exact_path(canonical_file.clone());
+        indexed_universe.add_explicit_path(canonical_file.clone());
         insert_discovered_path(
             &mut paths,
             canonical_file,
@@ -398,24 +423,44 @@ fn discover_org_files(config: &Config) -> Result<DiscoveryResult, IndexerError> 
 
     for dir in &config.dirs {
         let canonical_dir = canonicalize_existing_dir(&dir.path)?;
-        if dir.recursive {
-            indexed_universe.add_recursive_root(canonical_dir.clone());
-        }
-        collect_org_files(
-            &canonical_dir,
-            &canonical_dir,
+        let mut visited_directories = BTreeSet::new();
+        let local_exclusions = ExclusionMatcher::local(dir, &config.discovery);
+        let scope_id = indexed_universe.add_root_scope(
+            dir.path.clone(),
+            canonical_dir.clone(),
             dir.recursive,
-            &mut paths,
-            &mut indexed_universe,
-        )?;
+            local_exclusions,
+        );
+        let mut collector = DirectoryCollector {
+            scan_root: &canonical_dir,
+            recursive: dir.recursive,
+            output: &mut paths,
+            indexed_universe: &mut indexed_universe,
+            visited_directories: &mut visited_directories,
+            global_exclusions: &global_exclusions,
+            globally_excluded: &mut globally_excluded,
+            had_exclusion_match: &mut had_exclusion_match,
+            scope_id,
+        };
+        collector.collect(&dir.path)?;
+    }
+
+    for excluded in &globally_excluded {
+        paths.remove(excluded);
     }
 
     Ok(DiscoveryResult {
         files: paths
             .into_iter()
-            .map(|(path, (scan_root, _))| DiscoveredOrgFile { path, scan_root })
+            .map(|(path, (scan_root, _))| DiscoveredOrgFile {
+                identity: FileIdentity::from_canonical_path(&path),
+                path,
+                scan_root,
+            })
             .collect(),
         indexed_universe,
+        missing_explicit_files,
+        had_exclusion_match,
     })
 }
 
@@ -432,62 +477,107 @@ fn existing_indexed_file_count(connection: &Connection) -> Result<usize, Indexer
     Ok(count as usize)
 }
 
-fn collect_org_files(
-    scan_root: &Path,
-    dir: &Path,
+struct DirectoryCollector<'a> {
+    scan_root: &'a Path,
     recursive: bool,
-    output: &mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
-    indexed_universe: &mut IndexedUniverse,
-) -> Result<(), IndexerError> {
-    let mut entries = fs::read_dir(dir)
-        .map_err(|source| IndexerError::Discover {
-            path: dir.to_path_buf(),
-            source,
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| IndexerError::Discover {
-            path: dir.to_path_buf(),
-            source,
-        })?;
-    entries.sort_by_key(|entry| entry.path());
+    output: &'a mut BTreeMap<PathBuf, (PathBuf, ScanRootKind)>,
+    indexed_universe: &'a mut IndexedUniverse,
+    visited_directories: &'a mut BTreeSet<PathBuf>,
+    global_exclusions: &'a ExclusionMatcher,
+    globally_excluded: &'a mut BTreeSet<PathBuf>,
+    had_exclusion_match: &'a mut bool,
+    scope_id: usize,
+}
 
-    for entry in entries {
-        let path = entry.path();
-        let file_type = entry.file_type().map_err(|source| IndexerError::Discover {
-            path: path.clone(),
-            source,
-        })?;
-
-        if file_type.is_file() {
-            if path
-                .extension()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.eq_ignore_ascii_case("org"))
-            {
-                let canonical_path = canonicalize_existing_file(&path)?;
-                if !recursive {
-                    indexed_universe.add_exact_path(canonical_path.clone());
-                }
-                insert_discovered_path(
-                    output,
-                    canonical_path,
-                    scan_root.to_path_buf(),
-                    ScanRootKind::ConfiguredDir,
-                );
-            }
-        } else if recursive && file_type.is_dir() {
-            let canonical_dir = canonicalize_existing_dir(&path)?;
-            collect_org_files(
-                scan_root,
-                &canonical_dir,
-                recursive,
-                output,
-                indexed_universe,
-            )?;
+impl DirectoryCollector<'_> {
+    fn collect(&mut self, logical_dir: &Path) -> Result<(), IndexerError> {
+        let canonical_dir = canonicalize_existing_dir(logical_dir)?;
+        if !self.visited_directories.insert(canonical_dir.clone()) {
+            return Ok(());
         }
-    }
+        self.indexed_universe.add_directory_mapping(
+            self.scope_id,
+            logical_dir.to_path_buf(),
+            canonical_dir,
+        );
+        let mut entries = fs::read_dir(logical_dir)
+            .map_err(|source| IndexerError::Discover {
+                path: logical_dir.to_path_buf(),
+                source,
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|source| IndexerError::Discover {
+                path: logical_dir.to_path_buf(),
+                source,
+            })?;
+        entries.sort_by_key(|entry| entry.path());
 
-    Ok(())
+        for entry in entries {
+            let path = entry.path();
+            let file_type = entry.file_type().map_err(|source| IndexerError::Discover {
+                path: path.clone(),
+                source,
+            })?;
+
+            let followed_metadata = if file_type.is_symlink() {
+                Some(
+                    fs::metadata(&path).map_err(|source| IndexerError::Discover {
+                        path: path.clone(),
+                        source,
+                    })?,
+                )
+            } else {
+                None
+            };
+            let is_file = file_type.is_file()
+                || followed_metadata
+                    .as_ref()
+                    .is_some_and(fs::Metadata::is_file);
+            let is_dir =
+                file_type.is_dir() || followed_metadata.as_ref().is_some_and(fs::Metadata::is_dir);
+
+            if is_file {
+                if path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|value| value.eq_ignore_ascii_case("org"))
+                {
+                    let canonical_path = canonicalize_existing_file(&path)?;
+                    if self.global_exclusions.matches_file(&path) {
+                        self.globally_excluded.insert(canonical_path.clone());
+                        self.indexed_universe
+                            .add_globally_excluded_path(canonical_path);
+                        *self.had_exclusion_match = true;
+                        continue;
+                    }
+                    if self
+                        .indexed_universe
+                        .root_scope_excludes_file(self.scope_id, &path)
+                    {
+                        *self.had_exclusion_match = true;
+                        continue;
+                    }
+                    insert_discovered_path(
+                        self.output,
+                        canonical_path,
+                        self.scan_root.to_path_buf(),
+                        ScanRootKind::ConfiguredDir,
+                    );
+                }
+            } else if self.recursive && is_dir {
+                if self
+                    .indexed_universe
+                    .root_scope_excludes_directory(self.scope_id, &path)
+                {
+                    *self.had_exclusion_match = true;
+                    continue;
+                }
+                self.collect(&path)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn insert_discovered_path(
@@ -561,6 +651,7 @@ fn canonicalize_existing_dir(path: &Path) -> Result<PathBuf, IndexerError> {
 fn build_file_record(
     path: &Path,
     metadata: &fs::Metadata,
+    identity: &FileIdentity,
 ) -> Result<FileRecordInput, IndexerError> {
     let modified = metadata
         .modified()
@@ -586,6 +677,7 @@ fn build_file_record(
 
     Ok(FileRecordInput {
         path: path.to_path_buf(),
+        identity: Some(identity.as_bytes().to_vec()),
         mtime_ns: i64::try_from(modified_ns).map_err(|_| IndexerError::InvalidFileMetadata {
             path: path.to_path_buf(),
             field: "mtime_ns",
@@ -697,9 +789,9 @@ fn synthetic_level_zero_title(path: &Path, document_title: Option<&str>) -> Stri
 
     path.file_stem()
         .or_else(|| path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
+        .and_then(|name| name.to_str().map(str::to_string))
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| path.display().to_string())
+        .unwrap_or_else(|| display_path(path))
 }
 
 fn source_document_title(document_title: Option<&str>) -> Option<String> {
@@ -1212,7 +1304,7 @@ fn db_write_invalid_input(message: &'static str) -> DbWriteError {
 
 #[cfg(test)]
 mod tests {
-    use super::{IndexedFile, Indexer, IndexerError};
+    use super::{discover_org_files, IndexedFile, Indexer, IndexerError};
     use crate::{
         config::{Config, SearchConfig},
         db::{
@@ -1377,6 +1469,7 @@ mod tests {
             connection,
             &FileRecordInput {
                 path: PathBuf::from("/tmp/existing.org"),
+                identity: None,
                 mtime_ns: 1,
                 size: 1,
                 content_hash: None,
@@ -3134,7 +3227,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_reports_missing_configured_files_at_rebuild_time() {
+    fn discovery_classifies_missing_configured_files_without_canonicalizing_them() {
         let test_dir = TestDir::new("missing-configured-file");
         let config_path = test_dir.path().join("config.toml");
         let missing_file = test_dir.path().join("missing.org");
@@ -3152,22 +3245,428 @@ index_body_text = false
         );
 
         let config = Config::load_from_file(&config_path).expect("config should load");
+        let discovery = discover_org_files(&config).expect("missing explicit file is classified");
+        assert!(discovery.files.is_empty());
+        assert_eq!(discovery.missing_explicit_files, vec![missing_file]);
+    }
+
+    #[test]
+    fn discovery_ignores_a_missing_explicit_file_matched_by_a_global_exclusion() {
+        let test_dir = TestDir::new("excluded-missing-explicit-file");
+        let config_path = test_dir.path().join("config.toml");
+        write_config(
+            &config_path,
+            r#"
+files = ["missing.org"]
+files_exclude = ["missing.org"]
+"#,
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("excluded missing file should not be inspected");
+        assert!(discovery.files.is_empty());
+        assert!(discovery.missing_explicit_files.is_empty());
+        assert!(discovery.had_exclusion_match);
+    }
+
+    #[test]
+    fn rebuild_allows_an_intentionally_empty_pruned_directory() {
+        let test_dir = TestDir::new("intentionally-empty-pruned-directory");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        write_file(&test_dir.path().join("notes/archive/old.org"), "* Old\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("initial rebuild should succeed");
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\nexclude = [\"archive/**\"]\n[search]\nfts5_enabled = false\n",
+        );
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("pruned exclusion should be intentional");
+        let connection = Connection::open(&db_path).expect("database should open");
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn link_resolution_marks_a_globally_excluded_target_outside_the_universe() {
+        let test_dir = TestDir::new("excluded-link-target");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        write_file(
+            &test_dir.path().join("notes/source.org"),
+            "* Source\n[[file:target.org]]\n",
+        );
+        write_file(&test_dir.path().join("notes/target.org"), "* Target\n");
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles_exclude = [\"notes/target.org\"]\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild should succeed");
+        let connection = Connection::open(&db_path).expect("database should open");
+        let result: (String, String) = connection
+            .query_row(
+                "SELECT resolution_status, resolution_diagnostic FROM links",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("link resolution should load");
+        assert_eq!(
+            result,
+            (
+                "unresolved".to_string(),
+                "outside indexed universe".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn removing_an_exclusion_makes_the_file_eligible_again() {
+        let test_dir = TestDir::new("removing-exclusion");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        write_file(&test_dir.path().join("note.org"), "* Note\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles = [\"note.org\"]\nfiles_exclude = [\"note.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("excluded rebuild should succeed");
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles = [\"note.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("rebuild after removal should succeed");
+        let connection = Connection::open(&db_path).expect("database should open");
+        let counts: (i64, i64) = connection
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM files), (SELECT COUNT(*) FROM headings)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("rows should exist after exclusion removal");
+        assert_eq!(counts, (1, 2));
+    }
+
+    #[test]
+    fn discovery_applies_global_and_root_local_exclusions() {
+        let test_dir = TestDir::new("discovery-exclusions");
+        let config_path = test_dir.path().join("config.toml");
+        let explicit = test_dir.path().join("explicit.org");
+        let root = test_dir.path().join("notes");
+        let kept = root.join("kept.org");
+        let local_secret = root.join("secret.org");
+        let archived = root.join("archive/old.org");
+        let private = root.join("nested/private.private.org");
+        write_file(&explicit, "* Explicit\n");
+        write_file(&kept, "* Kept\n");
+        write_file(&local_secret, "* Secret\n");
+        write_file(&archived, "* Archived\n");
+        write_file(&private, "* Private\n");
+        write_config(
+            &config_path,
+            r#"
+files = ["explicit.org"]
+files_exclude = ["explicit.org", "**/*.private.org"]
+
+[[dirs]]
+path = "notes"
+recursive = true
+exclude = ["secret.org", "archive/**"]
+"#,
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("discovery should succeed");
+        assert_eq!(
+            discovery
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            vec![fs::canonicalize(&kept).expect("kept path should canonicalize")]
+        );
+    }
+
+    #[test]
+    fn absolute_global_and_local_exclusion_patterns_apply_to_their_logical_paths() {
+        let test_dir = TestDir::new("absolute-discovery-exclusions");
+        let config_path = test_dir.path().join("config.toml");
+        let explicit = test_dir.path().join("explicit.org");
+        let root = test_dir.path().join("notes");
+        let global = root.join("global.org");
+        let local = root.join("local.org");
+        let archived = root.join("archive/old.org");
+        let kept = root.join("kept.org");
+        for path in [&explicit, &global, &local, &archived, &kept] {
+            write_file(path, "* Note\n");
+        }
+        write_config(
+            &config_path,
+            &format!(
+                "files = [\"explicit.org\"]\nfiles_exclude = [\"{}\", \"{}\"]\n\n[[dirs]]\npath = \"notes\"\nrecursive = true\nexclude = [\"{}\", \"{}/**\"]\n",
+                explicit.display(),
+                global.display(),
+                local.display(),
+                root.join("archive").display(),
+            ),
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("discovery should succeed");
+        assert_eq!(
+            discovery
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            vec![fs::canonicalize(kept).expect("kept path should canonicalize")]
+        );
+    }
+
+    #[test]
+    fn rebuild_removes_files_excluded_by_a_new_configuration() {
+        let test_dir = TestDir::new("rebuild-new-exclusion");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("db.sqlite");
+        let note = test_dir.path().join("note.org");
+        write_file(&note, "* Note\n");
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles = [\"note.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("initial rebuild should succeed");
+
+        write_config(
+            &config_path,
+            "db_path = \"db.sqlite\"\nfiles = [\"note.org\"]\nfiles_exclude = [\"note.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+        indexer
+            .rebuild_from_config_path(&config_path)
+            .expect("all-excluded rebuild should be intentional");
+
+        let connection = Connection::open(&db_path).expect("database should open");
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should load");
+        assert_eq!(count, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exclusions_use_logical_symlink_paths_and_global_matches_win_across_roots() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("logical-symlink-exclusions");
+        let aliases = test_dir.path().join("aliases");
+        let external = test_dir.path().join("external");
+        let config_path = test_dir.path().join("config.toml");
+        let target = external.join("target.org");
+        write_file(&target, "* Target\n");
+        fs::create_dir_all(&aliases).expect("alias directory should be created");
+        symlink(&external, aliases.join("linked")).expect("directory symlink should be created");
+        write_config(
+            &config_path,
+            r#"
+files_exclude = ["aliases/linked/target.org"]
+
+[[dirs]]
+path = "aliases"
+recursive = true
+
+[[dirs]]
+path = "external"
+recursive = true
+"#,
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("discovery should succeed");
+        assert!(discovery.files.is_empty());
+        assert!(!discovery
+            .indexed_universe
+            .contains(&fs::canonicalize(&target).expect("target should canonicalize")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_exclusions_do_not_leak_to_an_overlapping_root() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("local-overlap-exclusions");
+        let aliases = test_dir.path().join("aliases");
+        let external = test_dir.path().join("external");
+        let config_path = test_dir.path().join("config.toml");
+        let target = external.join("target.org");
+        write_file(&target, "* Target\n");
+        fs::create_dir_all(&aliases).expect("alias directory should be created");
+        symlink(&external, aliases.join("linked")).expect("directory symlink should be created");
+        write_config(
+            &config_path,
+            r#"
+[[dirs]]
+path = "aliases"
+recursive = true
+exclude = ["linked/**"]
+
+[[dirs]]
+path = "external"
+recursive = true
+"#,
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("discovery should succeed");
+        assert_eq!(
+            discovery
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            vec![fs::canonicalize(&target).expect("target should canonicalize")]
+        );
+        assert!(discovery
+            .indexed_universe
+            .contains(&fs::canonicalize(&target).expect("target should canonicalize")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exclusion_globs_match_non_utf8_unix_file_names_without_lossy_conversion() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+        let test_dir = TestDir::new("non-utf8-exclusion");
+        let notes = test_dir.path().join("notes");
+        let config_path = test_dir.path().join("config.toml");
+        write_file(
+            &notes.join(OsStr::from_bytes(b"private-\xff.org")),
+            "* Private\n",
+        );
+        write_config(
+            &config_path,
+            r#"
+[[dirs]]
+path = "notes"
+recursive = true
+exclude = ["*.org"]
+"#,
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("discovery should succeed");
+        assert!(discovery.files.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_follows_file_and_directory_symlinks_without_cycles() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("symlink-discovery");
+        let root = test_dir.path().join("root");
+        let external = test_dir.path().join("external");
+        let config_path = test_dir.path().join("config.toml");
+        let direct = root.join("direct.org");
+        let external_file = external.join("external.org");
+        write_file(&direct, "* Direct\n");
+        write_file(&external_file, "* External\n");
+        symlink(&direct, root.join("alias.org")).expect("file symlink should be created");
+        symlink(&external, root.join("external-dir")).expect("directory symlink should be created");
+        symlink(&root, external.join("cycle")).expect("cycle symlink should be created");
+        write_config(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+[[dirs]]
+path = "root"
+recursive = true
+"#,
+        );
+
+        let discovery =
+            discover_org_files(&Config::load_from_file(&config_path).expect("config should load"))
+                .expect("symlink traversal should finish");
+        assert_eq!(discovery.files.len(), 2);
+        let mut expected = vec![
+            fs::canonicalize(&direct).unwrap(),
+            fs::canonicalize(&external_file).unwrap(),
+        ];
+        expected.sort();
+        assert_eq!(
+            discovery
+                .files
+                .iter()
+                .map(|file| file.path.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_ne!(discovery.files[0].identity, discovery.files[1].identity);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rebuild_persists_non_utf8_paths_without_lossy_identity_conversion() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+        let test_dir = TestDir::new("non-utf8-file-identity");
+        let org_path = test_dir.path().join(OsStr::from_bytes(b"notes-\xff.org"));
+        write_file(&org_path, "* Heading\n");
+        let config = Config {
+            db_path: PathBuf::from("db.sqlite"),
+            files: vec![org_path],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+            discovery: Default::default(),
+        };
         let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
             CURRENT_SCHEMA_VERSION,
             false,
         ))
         .expect("database should open");
 
-        let error = Indexer::new(OrgizeAdapter::new())
+        Indexer::new(OrgizeAdapter::new())
             .rebuild(&mut connection, &config)
-            .expect_err("rebuild should fail for a missing configured file");
+            .expect("non-UTF-8 file should rebuild");
 
-        match error {
-            IndexerError::Discover { path, .. } => {
-                assert_eq!(path, missing_file);
-            }
-            other => panic!("unexpected error: {other}"),
-        }
+        let (path, identity): (String, Vec<u8>) = connection
+            .query_row("SELECT path, identity FROM files", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .expect("stored path should load");
+        assert!(path.starts_with("path-bytes:"));
+        assert!(identity.starts_with(b"orgfdb-path-v1\0unix\0"));
+        assert!(identity.ends_with(b"notes-\xff.org"));
     }
 
     #[test]
@@ -3190,6 +3689,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
 
         let error = Indexer::new(OrgizeAdapter::new())
@@ -3240,6 +3740,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
 
         let report = Indexer::new(OrgizeAdapter::new())
@@ -3311,6 +3812,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
 
         let report = Indexer::new(OrgizeAdapter::new())
@@ -5736,6 +6238,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5776,6 +6279,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5857,6 +6361,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5917,6 +6422,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -5974,6 +6480,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6035,6 +6542,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6118,6 +6626,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6386,6 +6895,7 @@ index_body_text = false
                 index_body_text: true,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6467,6 +6977,7 @@ index_body_text = false
                 index_body_text: true,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
 
         let report = Indexer::new(OrgizeAdapter::new())
@@ -6522,6 +7033,7 @@ index_body_text = false
                 index_body_text: true,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6654,6 +7166,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6708,6 +7221,7 @@ index_body_text = false
                 index_body_text: true,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         Indexer::new(OrgizeAdapter::new())
             .rebuild(&mut connection, &enabled)
@@ -6764,6 +7278,7 @@ index_body_text = false
                 index_body_text: true,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
@@ -6860,6 +7375,7 @@ index_body_text = false
                 index_body_text: false,
             },
             query: Default::default(),
+            discovery: Default::default(),
         };
         let mut connection = crate::db::open_database_with_schema(
             &db_path,
