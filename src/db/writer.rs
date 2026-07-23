@@ -600,7 +600,7 @@ impl DbWriter {
             .execute(
                 "INSERT INTO heading_fts (rowid, title, body)
                  SELECT headings.id,
-                        headings.title,
+                        COALESCE(headings.title_raw, headings.title),
                         CASE
                             WHEN ?1 = 1 THEN COALESCE(heading_bodies.body_text, '')
                             ELSE ''
@@ -1067,6 +1067,7 @@ mod tests {
             &connection,
             &[HeadingRecord {
                 id: Some(43),
+                title_raw: Some("TODO [#A] Title Only [2/5]".to_string()),
                 ..child_heading(file_id, root_id, 10, "Title Only")
             }],
         )
@@ -1096,6 +1097,20 @@ mod tests {
             count(
                 &connection,
                 "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'Title'"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH 'TODO'"
+            ),
+            1
+        );
+        assert_eq!(
+            count(
+                &connection,
+                "SELECT COUNT(*) FROM heading_fts WHERE heading_fts MATCH '2'"
             ),
             1
         );

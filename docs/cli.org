@@ -871,6 +871,8 @@ Each JSON object is a canonical flat heading/root result plus ~rank~. It exposes
 - ~location~ :: ~file_path~, ~line~, ~byte_start~, and ~byte_end~
 - ~rank~ :: the only search-specific field.
 
+The FTS ~=title= column contains source-oriented headline text: ~=headings.title_raw= when available, otherwise the effective canonical title. Therefore ~--title~ can find textual TODO keywords, priority cookies, and statistics cookies present in headlines. Trailing Org tags are excluded because they are not part of ~title_raw~.
+
 Notes:
 
 - ~EXPRESSION~ is raw backend-specific SQLite FTS5 syntax. Supported constructs follow the linked SQLite FTS5 implementation and may include terms, quoted phrases, prefixes, boolean operators, grouping, column filters, and ~NEAR~.
@@ -878,8 +880,9 @@ Notes:
 - Search matches only through the derived ~=heading_fts= index, including canonical level-0 file roots. It retrieves only matching heading IDs and ranks from FTS; all public heading/root fields come from canonical ~=headings= and ~=files= rows.
 - The command never reads ~=heading_fts.title= or ~=heading_fts.body= payload values from the contentless FTS table.
 - TODO keywords, tags, and planning metadata are returned as canonical metadata but are not FTS columns. Use Query Model v0 predicates to combine text, TODO, tag, property, keyword, or other structured conditions.
+- ~search --title~ searches source-oriented FTS text, whereas Query Model v0 ~(title ...)~ matches normalized semantic titles. Use structured predicates such as ~(todo ...)~, ~(priority ...)~, and ~(tags ...)~ for exact semantics.
 - The active config must leave ~search.fts5_enabled = true~. This is permission to use search, not proof that the database contains a trusted index.
-- Existing databases built before persisted FTS trust metadata, or before level-0 roots were added to the FTS contract, must be rebuilt once before ~search~ works. The command will instruct the user to run ~orgfdb rebuild~ when the trusted search metadata is missing or stale.
+- Existing databases built before persisted FTS trust metadata, level-0 roots, or FTS contract version ~3~ must be rebuilt once before ~search~ works. The command will instruct the user to run ~orgfdb rebuild~ when the trusted search metadata is missing or stale.
 - ~--body~ requires a trusted FTS index that was rebuilt with body indexing enabled. Title-only trusted indexes still support default and ~--title~ searches.
 - Root titles are indexed in ~title~. Root preamble text is indexed only in ~body~ when body indexing is enabled.
 - This is a breaking JSON API change: synthetic roots previously emitted as ~kind = "file"~ now emit ~kind = "root"~; ~(files ...)~ results remain ~kind = "file"~.

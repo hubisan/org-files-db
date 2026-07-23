@@ -443,13 +443,13 @@ fn inspect_search_backend_state(connection: &Connection) -> Result<SearchBackend
     if fts_body_indexed != "1" && fts_body_indexed != "0" {
         return Err(CliError::Search(SearchError::InvalidTrustMetadata));
     }
-    if fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION
-        && fts_schema_version != "1"
-        && fts_schema_version != "0"
-    {
+    let Ok(fts_schema_version) = fts_schema_version.parse::<u64>() else {
         return Err(CliError::Search(SearchError::InvalidTrustMetadata));
-    }
-    if fts_available != "1" || fts_schema_version != FTS_SCHEMA_CONTRACT_VERSION {
+    };
+    let current_fts_schema_version = FTS_SCHEMA_CONTRACT_VERSION
+        .parse::<u64>()
+        .expect("FTS schema contract version must be a non-negative integer");
+    if fts_available != "1" || fts_schema_version != current_fts_schema_version {
         return Err(CliError::Search(SearchError::MissingTrustedIndex));
     }
 
@@ -1425,6 +1425,96 @@ mod tests {
     }
 
     #[test]
+    fn search_indexes_source_title_text_without_changing_query_title_semantics() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "search-source-title-text",
+            &[
+                (
+                    "headline.org",
+                    "* TODO [#A] Searchable Heading [2/5] :project:\nBody phrase without marker.\n",
+                ),
+                ("titled-root.org", "#+TITLE: Explicit Root Title\n"),
+                ("fallbacktitle.org", ""),
+            ],
+            true,
+        );
+
+        let todo_rows = search_json_rows(true, CliSearchScope::Title, "TODO", Some(&config_path))
+            .expect("TODO should match source title text");
+        let title_rows = search_json_rows(
+            true,
+            CliSearchScope::Title,
+            "Searchable",
+            Some(&config_path),
+        )
+        .expect("normalized title text should remain searchable");
+        let statistics_rows =
+            search_json_rows(true, CliSearchScope::Title, "2", Some(&config_path))
+                .expect("statistics cookie token should match source title text");
+        let tag_rows = search_json_rows(true, CliSearchScope::Title, "project", Some(&config_path))
+            .expect("trailing tag search should succeed");
+        let default_rows = search_json_rows(true, CliSearchScope::All, "TODO", Some(&config_path))
+            .expect("default search should include title text");
+        let body_rows = search_json_rows(true, CliSearchScope::Body, "TODO", Some(&config_path))
+            .expect("body search should succeed");
+
+        assert_eq!(todo_rows.len(), 1);
+        assert_eq!(title_rows.len(), 1);
+        assert_eq!(statistics_rows.len(), 1);
+        assert!(tag_rows.is_empty());
+        assert_eq!(default_rows.len(), 1);
+        assert!(body_rows.is_empty());
+
+        let heading = &todo_rows[0].heading;
+        assert_eq!(heading.title, "Searchable Heading");
+        assert_eq!(
+            heading.title_raw.as_deref(),
+            Some("TODO [#A] Searchable Heading [2/5]")
+        );
+        assert_eq!(heading.todo_keyword.as_deref(), Some("TODO"));
+        assert_eq!(heading.priority.as_deref(), Some("A"));
+        assert_eq!(heading.all_tags, vec!["project"]);
+
+        let explicit_root_rows =
+            search_json_rows(true, CliSearchScope::Title, "Explicit", Some(&config_path))
+                .expect("source-titled root should remain searchable");
+        assert_eq!(explicit_root_rows.len(), 1);
+        assert_eq!(explicit_root_rows[0].heading.kind.as_str(), "root");
+        assert_eq!(explicit_root_rows[0].heading.title, "Explicit Root Title");
+
+        let fallback_root_rows = search_json_rows(
+            true,
+            CliSearchScope::Title,
+            "fallbacktitle",
+            Some(&config_path),
+        )
+        .expect("fallback root title should remain searchable");
+        assert_eq!(fallback_root_rows.len(), 1);
+        assert_eq!(fallback_root_rows[0].heading.kind.as_str(), "root");
+        assert_eq!(fallback_root_rows[0].heading.title, "fallbacktitle");
+        assert_eq!(fallback_root_rows[0].heading.title_raw, None);
+
+        let raw_title_query = super::query_json_response(
+            true,
+            "(headings (title \"TODO\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("normalized title query should succeed");
+        let normalized_title_query = super::query_json_response(
+            true,
+            "(headings (title \"Searchable Heading\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("normalized title query should succeed");
+        assert!(raw_title_query.results.is_empty());
+        assert_eq!(normalized_title_query.results.len(), 1);
+    }
+
+    #[test]
     fn search_indexes_file_roots_with_kind_and_preamble_bodies() {
         let (test_dir, config_path, db_path) = build_search_fixture(
             "search-file-roots",
@@ -1739,28 +1829,53 @@ mod tests {
     }
 
     #[test]
-    fn search_rejects_version_one_fts_indexes_as_stale() {
+    fn search_rejects_non_current_numeric_fts_contract_versions_as_stale() {
         let (_test_dir, config_path, db_path) = build_search_fixture(
             "search-stale-fts-contract",
             &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
             true,
         );
         let connection = open_database(&db_path).expect("database should open");
+        for version in ["0", "1", "2", "4"] {
+            connection
+                .execute(
+                    "UPDATE db_metadata SET value = ?1 WHERE key = ?2",
+                    (version, DB_METADATA_FTS_SCHEMA_VERSION_KEY),
+                )
+                .expect("non-current FTS contract version should store");
+
+            let error =
+                search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+                    .expect_err("non-current FTS contract version should be stale");
+            assert!(matches!(
+                error,
+                CliError::Search(SearchError::MissingTrustedIndex)
+            ));
+            assert!(error.to_string().contains("run orgfdb rebuild"));
+        }
+    }
+
+    #[test]
+    fn search_rejects_non_numeric_fts_contract_metadata() {
+        let (_test_dir, config_path, db_path) = build_search_fixture(
+            "search-invalid-fts-contract",
+            &[("notes.org", "* Searchable Heading\nBody phrase.\n")],
+            true,
+        );
+        let connection = open_database(&db_path).expect("database should open");
         connection
             .execute(
-                "UPDATE db_metadata SET value = '1' WHERE key = ?1",
+                "UPDATE db_metadata SET value = 'invalid' WHERE key = ?1",
                 [DB_METADATA_FTS_SCHEMA_VERSION_KEY],
             )
-            .expect("legacy FTS contract version should store");
-        drop(connection);
+            .expect("invalid FTS contract metadata should store");
 
         let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
-            .expect_err("version one FTS index should be stale");
+            .expect_err("non-numeric FTS contract metadata should be invalid");
         assert!(matches!(
             error,
-            CliError::Search(SearchError::MissingTrustedIndex)
+            CliError::Search(SearchError::InvalidTrustMetadata)
         ));
-        assert!(error.to_string().contains("run orgfdb rebuild"));
     }
 
     #[test]

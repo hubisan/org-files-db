@@ -133,13 +133,36 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 279,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
-    "title": "SQLite phrase heading",
-    "line_number": 6,
-    "byte_start": 138,
-    "byte_end": 402,
-    "rank": -3.8967991019340764
+    "kind": "root",
+    "matched": true,
+    "id": 278,
+    "file_id": 44,
+    "parent_id": null,
+    "level": 0,
+    "title": "SQLite Phrase Laboratory",
+    "title_raw": "SQLite Phrase Laboratory",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "alpha"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+      "line": 1,
+      "byte_start": -1,
+      "byte_end": 562
+    },
+    "rank": -5.614667718136309
   }
 ]
 #+end_SRC
@@ -181,13 +204,36 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 285,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 285,
+    "file_id": 45,
+    "parent_id": 283,
+    "level": 1,
     "title": "Body-only sqlite marker",
-    "line_number": 8,
-    "byte_start": 210,
-    "byte_end": 301,
-    "rank": -5.1325988329476555
+    "title_raw": "Body-only sqlite marker",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "beta"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+      "line": 8,
+      "byte_start": 210,
+      "byte_end": 301
+    },
+    "rank": -5.10109612137851
   }
 ]
 #+end_SRC
@@ -256,13 +302,36 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 279,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 279,
+    "file_id": 44,
+    "parent_id": 278,
+    "level": 1,
     "title": "SQLite phrase heading",
-    "line_number": 6,
-    "byte_start": 138,
-    "byte_end": 402,
-    "rank": -3.8967991019340764
+    "title_raw": "SQLite phrase heading",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "alpha"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+      "line": 6,
+      "byte_start": 138,
+      "byte_end": 402
+    },
+    "rank": -3.8199336963994845
   }
 ]
 #+end_SRC
@@ -285,13 +354,36 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 280,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 280,
+    "file_id": 44,
+    "parent_id": 279,
+    "level": 2,
     "title": "Prefix child",
-    "line_number": 10,
-    "byte_start": 309,
-    "byte_end": 402,
-    "rank": -7.32657186913822
+    "title_raw": "Prefix child",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "alpha"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+      "line": 10,
+      "byte_start": 309,
+      "byte_end": 402
+    },
+    "rank": -7.393436806293785
   }
 ]
 #+end_SRC
@@ -314,13 +406,36 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 284,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 284,
+    "file_id": 45,
+    "parent_id": 283,
+    "level": 1,
     "title": "Phrase search handbook",
-    "line_number": 4,
-    "byte_start": 61,
-    "byte_end": 210,
-    "rank": -7.217355717112374
+    "title_raw": "Phrase search handbook",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "beta"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+      "line": 4,
+      "byte_start": 61,
+      "byte_end": 210
+    },
+    "rank": -7.134539533377076
   }
 ]
 #+end_SRC
@@ -344,22 +459,68 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 285,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 285,
+    "file_id": 45,
+    "parent_id": 283,
+    "level": 1,
     "title": "Body-only sqlite marker",
-    "line_number": 8,
-    "byte_start": 210,
-    "byte_end": 301,
-    "rank": -5.1325988329476555
+    "title_raw": "Body-only sqlite marker",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "beta"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+      "line": 8,
+      "byte_start": 210,
+      "byte_end": 301
+    },
+    "rank": -5.10109612137851
   },
   {
-    "heading_id": 279,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 279,
+    "file_id": 44,
+    "parent_id": 278,
+    "level": 1,
     "title": "SQLite phrase heading",
-    "line_number": 6,
-    "byte_start": 138,
-    "byte_end": 402,
-    "rank": -3.8967991019340764
+    "title_raw": "SQLite phrase heading",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "alpha"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+      "line": 6,
+      "byte_start": 138,
+      "byte_end": 402
+    },
+    "rank": -3.8199336963994845
   }
 ]
 #+end_SRC
@@ -383,22 +544,68 @@ Expected:
 #+begin_SRC js
 [
   {
-    "heading_id": 281,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 281,
+    "file_id": 44,
+    "parent_id": 278,
+    "level": 1,
     "title": "Boolean alternative",
-    "line_number": 13,
-    "byte_start": 402,
-    "byte_end": 483,
-    "rank": -4.673297793376658
+    "title_raw": "Boolean alternative",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "alpha"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-alpha.org",
+      "line": 13,
+      "byte_start": 402,
+      "byte_end": 483
+    },
+    "rank": -4.702679712263578
   },
   {
-    "heading_id": 284,
-    "path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+    "kind": "heading",
+    "matched": true,
+    "id": 284,
+    "file_id": 45,
+    "parent_id": 283,
+    "level": 1,
     "title": "Phrase search handbook",
-    "line_number": 4,
-    "byte_start": 61,
-    "byte_end": 210,
-    "rank": -3.469005261559465
+    "title_raw": "Phrase search handbook",
+    "todo_keyword": null,
+    "todo_type": null,
+    "priority": null,
+    "scheduled_raw": null,
+    "scheduled_ts": null,
+    "deadline_raw": null,
+    "deadline_ts": null,
+    "closed_raw": null,
+    "closed_ts": null,
+    "archivedp": false,
+    "footnote_section_p": false,
+    "all_tags": [
+      "search_fixture",
+      "beta"
+    ],
+    "location": {
+      "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/search/search-beta.org",
+      "line": 4,
+      "byte_start": 61,
+      "byte_end": 210
+    },
+    "rank": -3.4347310787285146
   }
 ]
 #+end_SRC
