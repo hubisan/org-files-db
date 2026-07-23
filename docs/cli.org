@@ -3,9 +3,19 @@
 
 This page documents the user-facing ~orgfdb~ commands that are stable enough to treat as repository-local reference material.
 
-* ~orgfdb headings --json~
+* Output format
 
-~orgfdb headings --json~ prints stored heading rows from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.
+~headings~, ~links~, ~query~, and ~search~ emit JSON by default. ~--format json~ is the canonical explicit form and leaves room for future formats; ~--json~ remains a visible compatibility form. The three forms use the same renderer and produce byte-identical JSON. Supplying more than one format selector, including repeated ~--format~, is a CLI usage error with exit code ~2~.
+
+#+begin_src shell
+orgfdb query '(todo "NEXT")'
+orgfdb query --json '(todo "NEXT")'
+orgfdb query --format json '(todo "NEXT")'
+#+end_src
+
+* ~orgfdb headings~
+
+~orgfdb headings~ prints stored heading rows from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.
 
 The command is read-only. It does not scan Org files, rebuild files, resolve targets, or mutate the database.
 
@@ -48,9 +58,9 @@ For real headings, ~title~ is the cleaned semantic title. ~title_raw~ preserves 
 
 If you need the underlying configuration settings for the database path, source file selection, link protocols, TODO keywords, or search options, see [[./config.org][docs/config.org]].
 
-* ~orgfdb links --json~
+* ~orgfdb links~
 
-~orgfdb links --json~ prints stored link source facts plus stored resolution snapshot fields from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.
+~orgfdb links~ prints stored link source facts plus stored resolution snapshot fields from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.
 
 The command is read-only. It does not scan Org files, rebuild files, resolve targets, or mutate the database.
 
@@ -103,9 +113,9 @@ Notes:
 - Org ~id:~ links resolve only against indexed non-root headings. External ~org-id-locations~ are not supported, so missing indexed IDs remain ~unresolved~ with ~id not found~.
 - The command opens the existing database in read-only mode. If ~--config~ is provided, only the stored ~db_path~ is read from that config file.
 
-* ~orgfdb query --json~
+* ~orgfdb query~
 
-~orgfdb query --json QUERY~ parses Query Model v0 syntax, validates it against the current query contract, executes it against the existing SQLite database, and prints the shaped JSON response.
+~orgfdb query QUERY~ parses Query Model v0 syntax, validates it against the current query contract, executes it against the existing SQLite database, and prints the shaped JSON response.
 
 The command is strictly read-only. It does not scan Org files, rebuild files, resolve links on demand, apply migrations beyond opening the existing DB read-only, or mutate stored facts.
 
@@ -121,21 +131,23 @@ The normative language contract remains [[./reference/query-model-v0.org][docs/r
 ** Synopsis
 
 #+begin_src shell
-orgfdb query --json [OPTIONS] QUERY
+orgfdb query [OPTIONS] QUERY
 #+end_src
 
 ~QUERY~ is a single Query Model v0 expression. In normal shells, quote the whole expression with single quotes and keep query strings inside it in double quotes.
 
 #+begin_src shell
-orgfdb query --json '(todo "NEXT")'
-orgfdb query --json '(files (file-title "Projects" :exact t))'
-orgfdb query --json '(links (status "broken"))'
+orgfdb query '(todo "NEXT")'
+orgfdb query '(files (file-title "Projects" :exact t))'
+orgfdb query '(links (status "broken"))'
 #+end_src
 
 Accepted options:
 
-- ~--json~ :: Required for the stable output mode.
-  Without it, the command exits with code ~2~ and prints ~query currently only supports --json~.
+- ~--format FORMAT~ :: Accepted value: ~json~. Default: ~json~.
+  This is the canonical explicit output selector.
+- ~--json~ :: Compatibility form for ~--format json~.
+  It may not be combined with ~--format~ or repeated.
 - ~--output~ :: Accepted values: ~flat~, ~outline~.
   Default: ~flat~.
   Repeatable: no.
@@ -190,10 +202,10 @@ Important public rules:
 Examples:
 
 #+begin_src shell
-orgfdb query --json '(and (todo "NEXT") (priority "A"))'
-orgfdb query --json '(headings (not (tags "archive")))'
-orgfdb query --json '(links (source (headings (title "Query Engine" :exact t))))'
-orgfdb query --json '(files)'
+orgfdb query '(and (todo "NEXT") (priority "A"))'
+orgfdb query '(headings (not (tags "archive")))'
+orgfdb query '(links (source (headings (title "Query Engine" :exact t))))'
+orgfdb query '(files)'
 #+end_src
 
 ** Targets
@@ -535,10 +547,10 @@ Important distinctions:
 Examples:
 
 #+begin_src shell
-orgfdb query --json '(headings (title "Alpha Index" :exact t))'
-orgfdb query --json '(headings (property "CATEGORY" "work"))'
-orgfdb query --json '(headings (file-title "Alpha Index" :exact t))'
-orgfdb query --json '(files (file-title "Alpha Index" :exact t))'
+orgfdb query '(headings (title "Alpha Index" :exact t))'
+orgfdb query '(headings (property "CATEGORY" "work"))'
+orgfdb query '(headings (file-title "Alpha Index" :exact t))'
+orgfdb query '(files (file-title "Alpha Index" :exact t))'
 #+end_src
 
 ** Timestamp Semantics
@@ -567,11 +579,11 @@ Resolution and boundary rules:
 Examples:
 
 #+begin_src shell
-orgfdb query --json '(scheduled :on today)'
-orgfdb query --json '(deadline :to 7)'
-orgfdb query --json '(ts-active :from "2026-01-01" :to "2026-12-31")'
-orgfdb query --json '(scheduled :from "2026-01-03 14:00" :to "2026-01-03 15:00")'
-orgfdb query --json '(planning :from -30 :to today)'
+orgfdb query '(scheduled :on today)'
+orgfdb query '(deadline :to 7)'
+orgfdb query '(ts-active :from "2026-01-01" :to "2026-12-31")'
+orgfdb query '(scheduled :from "2026-01-03 14:00" :to "2026-01-03 15:00")'
+orgfdb query '(planning :from -30 :to today)'
 #+end_src
 
 ** Relation and Hierarchy Semantics
@@ -599,11 +611,11 @@ Implemented relation directions:
 Examples:
 
 #+begin_src shell
-orgfdb query --json '(headings (children (headings (todo "NEXT"))))'
-orgfdb query --json '(headings (ancestors (headings (tags "project"))))'
-orgfdb query --json '(headings (links-to (files (file-title "Beta Index" :exact t))))'
-orgfdb query --json '(links (source (headings (title "Query Engine" :exact t))))'
-orgfdb query --json '(links (target (files (file-path "notes.org" :exact t))))'
+orgfdb query '(headings (children (headings (todo "NEXT"))))'
+orgfdb query '(headings (ancestors (headings (tags "project"))))'
+orgfdb query '(headings (links-to (files (file-title "Beta Index" :exact t))))'
+orgfdb query '(links (source (headings (title "Query Engine" :exact t))))'
+orgfdb query '(links (target (files (file-path "notes.org" :exact t))))'
 #+end_src
 
 ** Includes
@@ -753,10 +765,10 @@ Included source/target objects:
 Representative examples:
 
 #+begin_src shell
-orgfdb query --json '(todo "NEXT")'
-orgfdb query --json --output outline '(headings (title "sqlite"))'
-orgfdb query --json --include path,properties,keywords,links '(headings (todo "NEXT"))'
-orgfdb query --json --include source,target '(links (status "broken"))'
+orgfdb query '(todo "NEXT")'
+orgfdb query --output outline '(headings (title "sqlite"))'
+orgfdb query --include path,properties,keywords,links '(headings (todo "NEXT"))'
+orgfdb query --include source,target '(links (status "broken"))'
 #+end_src
 
 ** Errors and Exit Codes
@@ -765,7 +777,7 @@ Exit codes:
 
 - ~0~ :: success
 - ~1~ :: query parse/validation/backend/config/database/output error
-- ~2~ :: CLI usage error reported by Clap or missing required ~--json~
+- ~2~ :: CLI usage error reported by Clap
 
 User-visible error categories include:
 
@@ -778,61 +790,60 @@ User-visible error categories include:
 
 Important expected messages:
 
-- ~query currently only supports --json~
 - ~unsupported operator: tags-regexp; use (tags ... :regexp t) instead~
 - ~has-text requires body text to be available in the database~
 
 ** Executable Query Examples
 
 #+begin_src shell
-orgfdb query --json '(todo)'
-orgfdb query --json '(done)'
-orgfdb query --json '(title "Query Engine" :exact t)'
-orgfdb query --json '(title "Alpha Index" :exact t)'
-orgfdb query --json '(has-text "sqlite" "fts")'
-orgfdb query --json '(level 1 2)'
-orgfdb query --json '(priority "A" "B")'
-orgfdb query --json '(tags "project" "urgent" :match :all)'
-orgfdb query --json '(tags-all "project" "urgent")'
-orgfdb query --json '(property "CATEGORY" "work")'
-orgfdb query --json '(keyword "AUTHOR" "Alice")'
-orgfdb query --json '(file-name "notes.org" :exact t)'
-orgfdb query --json '(file-path "projects/.*\\.org" :regexp t)'
-orgfdb query --json '(file-dir "/home/me/org/projects" :exact t)'
-orgfdb query --json '(file-title "Projects" :exact t)'
-orgfdb query --json '(file-modified :from -7 :to today)'
-orgfdb query --json '(outline-contains "Project" "Query")'
-orgfdb query --json '(outline-sequence "Projects" "Org database" :exact t)'
-orgfdb query --json '(ts :on today)'
-orgfdb query --json '(ts-active :from "2026-01-01" :to "2026-12-31")'
-orgfdb query --json '(deadline :to 7)'
-orgfdb query --json '(scheduled :from "2026-01-03 14:00" :to "2026-01-03 15:00")'
-orgfdb query --json '(closed :from -7)'
-orgfdb query --json '(planning :from today :to 7)'
-orgfdb query --json '(parent (headings (tags "project")))'
-orgfdb query --json '(children (headings (todo "NEXT")))'
-orgfdb query --json '(ancestors (headings (priority "A")))'
-orgfdb query --json '(descendants (headings (todo "WAITING")))'
-orgfdb query --json '(has-link (links (link-type "file")))'
-orgfdb query --json '(links-to (files (file-title "Beta Index" :exact t)))'
-orgfdb query --json '(linked-from (headings (property "CUSTOM_ID" "query-model" :inherit nil)))'
-orgfdb query --json '(links (link-type "file" "id"))'
-orgfdb query --json '(links (link-target "notes.org" :exact t))'
-orgfdb query --json '(links (link-description "Project.*" :regexp t))'
-orgfdb query --json '(links (has-description))'
-orgfdb query --json '(links (status "broken" "unresolved"))'
-orgfdb query --json '(links (source (headings (title "Query Engine" :exact t))))'
-orgfdb query --json '(links (target (files (file-path "notes.org" :exact t))))'
-orgfdb query --json --output outline '(headings (todo "NEXT"))'
-orgfdb query --json --include path '(todo "NEXT")'
-orgfdb query --json --include properties,keywords '(files (file-title "Projects" :exact t))'
-orgfdb query --json --include links,backlinks '(property "CUSTOM_ID")'
-orgfdb query --json --include source,target '(links (status "broken"))'
+orgfdb query '(todo)'
+orgfdb query '(done)'
+orgfdb query '(title "Query Engine" :exact t)'
+orgfdb query '(title "Alpha Index" :exact t)'
+orgfdb query '(has-text "sqlite" "fts")'
+orgfdb query '(level 1 2)'
+orgfdb query '(priority "A" "B")'
+orgfdb query '(tags "project" "urgent" :match :all)'
+orgfdb query '(tags-all "project" "urgent")'
+orgfdb query '(property "CATEGORY" "work")'
+orgfdb query '(keyword "AUTHOR" "Alice")'
+orgfdb query '(file-name "notes.org" :exact t)'
+orgfdb query '(file-path "projects/.*\\.org" :regexp t)'
+orgfdb query '(file-dir "/home/me/org/projects" :exact t)'
+orgfdb query '(file-title "Projects" :exact t)'
+orgfdb query '(file-modified :from -7 :to today)'
+orgfdb query '(outline-contains "Project" "Query")'
+orgfdb query '(outline-sequence "Projects" "Org database" :exact t)'
+orgfdb query '(ts :on today)'
+orgfdb query '(ts-active :from "2026-01-01" :to "2026-12-31")'
+orgfdb query '(deadline :to 7)'
+orgfdb query '(scheduled :from "2026-01-03 14:00" :to "2026-01-03 15:00")'
+orgfdb query '(closed :from -7)'
+orgfdb query '(planning :from today :to 7)'
+orgfdb query '(parent (headings (tags "project")))'
+orgfdb query '(children (headings (todo "NEXT")))'
+orgfdb query '(ancestors (headings (priority "A")))'
+orgfdb query '(descendants (headings (todo "WAITING")))'
+orgfdb query '(has-link (links (link-type "file")))'
+orgfdb query '(links-to (files (file-title "Beta Index" :exact t)))'
+orgfdb query '(linked-from (headings (property "CUSTOM_ID" "query-model" :inherit nil)))'
+orgfdb query '(links (link-type "file" "id"))'
+orgfdb query '(links (link-target "notes.org" :exact t))'
+orgfdb query '(links (link-description "Project.*" :regexp t))'
+orgfdb query '(links (has-description))'
+orgfdb query '(links (status "broken" "unresolved"))'
+orgfdb query '(links (source (headings (title "Query Engine" :exact t))))'
+orgfdb query '(links (target (files (file-path "notes.org" :exact t))))'
+orgfdb query --output outline '(headings (todo "NEXT"))'
+orgfdb query --include path '(todo "NEXT")'
+orgfdb query --include properties,keywords '(files (file-title "Projects" :exact t))'
+orgfdb query --include links,backlinks '(property "CUSTOM_ID")'
+orgfdb query --include source,target '(links (status "broken"))'
 #+end_src
 
-* ~orgfdb search --json~
+* ~orgfdb search~
 
-~orgfdb search --json EXPRESSION~ executes a raw SQLite FTS5 ~MATCH~ expression against the trusted derived ~=heading_fts= index and prints ranked canonical heading/root results as JSON.
+~orgfdb search EXPRESSION~ executes a raw SQLite FTS5 ~MATCH~ expression against the trusted derived ~=heading_fts= index and prints ranked canonical heading/root results as JSON.
 
 The command is read-only. It does not scan Org files, rebuild the index, repair stale search state, apply migrations, or mutate the database.
 
@@ -845,7 +856,10 @@ Without a scope option, the expression searches both indexed columns:
 
 Supported options:
 
-- ~--json~ :: Required for the stable JSON output mode.
+- ~--format FORMAT~ :: Accepted value: ~json~. Default: ~json~.
+  This is the canonical explicit output selector.
+- ~--json~ :: Compatibility form for ~--format json~.
+  It may not be combined with ~--format~ or repeated.
 - ~--title~ :: Restricts the complete expression to the FTS ~=title= column.
 - ~--body~ :: Restricts the complete expression to the FTS ~=body= column.
 - ~--config PATH~ :: Loads ~db_path~ and ~search.fts5_enabled~ before opening the database read-only.
@@ -856,32 +870,32 @@ Examples:
 
 #+begin_src shell
 # Search title and body.
-orgfdb search --json sqlite
+orgfdb search sqlite
 
 # Search only the title column.
-orgfdb search --json --title sqlite
+orgfdb search --title sqlite
 
 # Search only the body column.
-orgfdb search --json --body sqlite
+orgfdb search --body sqlite
 #+end_src
 
 Without ~--title~ or ~--body~, column filters may be placed directly in the FTS5 expression:
 
 #+begin_src shell
 # The title must contain sqlite.
-orgfdb search --json 'title:sqlite'
+orgfdb search 'title:sqlite'
 
 # The body must contain alphaquartz.
-orgfdb search --json 'body:alphaquartz'
+orgfdb search 'body:alphaquartz'
 
 # Both conditions must match the same result.
-orgfdb search --json 'title:sqlite AND body:alphaquartz'
+orgfdb search 'title:sqlite AND body:alphaquartz'
 
 # Either condition may match.
-orgfdb search --json 'title:sqlite OR body:alphaquartz'
+orgfdb search 'title:sqlite OR body:alphaquartz'
 
 # Search explicitly in either indexed column.
-orgfdb search --json '{title body}:sqlite'
+orgfdb search '{title body}:sqlite'
 #+end_src
 
 When ~--title~ or ~--body~ is used, explicit column filters inside ~EXPRESSION~ are rejected. This prevents the expression from broadening the scope selected by the command-line option.
@@ -895,8 +909,8 @@ When ~--title~ or ~--body~ is used, explicit column filters inside ~EXPRESSION~ 
 A plain term searches for a complete token:
 
 #+begin_src shell
-orgfdb search --json 'sqlite'
-orgfdb search --json 'title:sqlite'
+orgfdb search 'sqlite'
+orgfdb search 'title:sqlite'
 #+end_src
 
 A search for ~alpha~ does not normally match ~alphaquartz~, because these are different tokens.
@@ -904,8 +918,8 @@ A search for ~alpha~ does not normally match ~alphaquartz~, because these are di
 Search is normally case-insensitive according to the configured FTS5 tokenizer:
 
 #+begin_src shell
-orgfdb search --json 'sqlite'
-orgfdb search --json 'SQLITE'
+orgfdb search 'sqlite'
+orgfdb search 'SQLITE'
 #+end_src
 
 Punctuation is handled by the tokenizer. Text such as ~alpha-quartz~, ~alpha/quartz~, or ~alpha.quartz~ may therefore be indexed as multiple tokens rather than as one literal string.
@@ -915,9 +929,9 @@ Punctuation is handled by the tokenizer. Text such as ~alpha-quartz~, ~alpha/qua
 Append ~*~ to a token to match all tokens beginning with that prefix:
 
 #+begin_src shell
-orgfdb search --json 'alpha*'
-orgfdb search --json 'body:alpha*'
-orgfdb search --json 'title:sql* AND body:alpha*'
+orgfdb search 'alpha*'
+orgfdb search 'body:alpha*'
+orgfdb search 'title:sql* AND body:alpha*'
 #+end_src
 
 ~alpha*~ may match tokens such as:
@@ -962,9 +976,9 @@ This may not behave as expected because the tokenizer can consume or discard the
 Use double quotes when tokens must occur consecutively and in the specified order:
 
 #+begin_src shell
-orgfdb search --json '"full text search"'
-orgfdb search --json 'title:"sqlite database"'
-orgfdb search --json 'body:"alpha quartz"'
+orgfdb search '"full text search"'
+orgfdb search 'title:"sqlite database"'
+orgfdb search 'body:"alpha quartz"'
 #+end_src
 
 The phrase:
@@ -978,8 +992,8 @@ matches a consecutive ~alpha~ token followed immediately by a ~quartz~ token. It
 Phrase components can also be joined explicitly with ~+~:
 
 #+begin_src shell
-orgfdb search --json 'alpha + quartz'
-orgfdb search --json 'alpha + quart*'
+orgfdb search 'alpha + quartz'
+orgfdb search 'alpha + quart*'
 #+end_src
 
 The second expression matches a phrase beginning with ~alpha~ followed by a token whose prefix is ~quart~.
@@ -995,11 +1009,11 @@ FTS5 supports the uppercase operators:
 Examples:
 
 #+begin_src shell
-orgfdb search --json 'sqlite AND database'
-orgfdb search --json 'sqlite OR postgres'
-orgfdb search --json 'sqlite NOT deprecated'
-orgfdb search --json 'title:sqlite AND body:alpha*'
-orgfdb search --json '(sqlite OR database) AND body:index*'
+orgfdb search 'sqlite AND database'
+orgfdb search 'sqlite OR postgres'
+orgfdb search 'sqlite NOT deprecated'
+orgfdb search 'title:sqlite AND body:alpha*'
+orgfdb search '(sqlite OR database) AND body:index*'
 #+end_src
 
 The operator names must be uppercase to be interpreted as operators. Lowercase words such as ~and~ or ~or~ are ordinary search terms.
@@ -1039,35 +1053,35 @@ is interpreted according to FTS5 precedence and may not express the intended gro
 A column filter restricts a term, phrase, proximity expression, or grouped expression to an indexed column:
 
 #+begin_src shell
-orgfdb search --json 'title:sqlite'
-orgfdb search --json 'body:"full text search"'
-orgfdb search --json 'title:(sqlite OR database)'
-orgfdb search --json 'body:(alpha* AND quartz)'
+orgfdb search 'title:sqlite'
+orgfdb search 'body:"full text search"'
+orgfdb search 'title:(sqlite OR database)'
+orgfdb search 'body:(alpha* AND quartz)'
 #+end_src
 
 Use braces to search a set of columns:
 
 #+begin_src shell
-orgfdb search --json '{title body}:sqlite'
-orgfdb search --json '{title body}:(sqlite AND index*)'
+orgfdb search '{title body}:sqlite'
+orgfdb search '{title body}:(sqlite AND index*)'
 #+end_src
 
 Because ~=heading_fts= contains only ~=title= and ~=body=, an unqualified expression already searches both:
 
 #+begin_src shell
-orgfdb search --json 'sqlite'
+orgfdb search 'sqlite'
 #+end_src
 
 is normally preferable to:
 
 #+begin_src shell
-orgfdb search --json '{title body}:sqlite'
+orgfdb search '{title body}:sqlite'
 #+end_src
 
 Use explicit column filters when different conditions must apply to different fields:
 
 #+begin_src shell
-orgfdb search --json 'title:sqlite AND body:alpha*'
+orgfdb search 'title:sqlite AND body:alpha*'
 #+end_src
 
 *** Proximity with ~NEAR~
@@ -1075,9 +1089,9 @@ orgfdb search --json 'title:sqlite AND body:alpha*'
 ~NEAR~ requires phrases to occur within a limited token distance:
 
 #+begin_src shell
-orgfdb search --json 'NEAR(sqlite index)'
-orgfdb search --json 'NEAR(sqlite index, 5)'
-orgfdb search --json 'body:NEAR("query model" sqlite, 10)'
+orgfdb search 'NEAR(sqlite index)'
+orgfdb search 'NEAR(sqlite index, 5)'
+orgfdb search 'body:NEAR("query model" sqlite, 10)'
 #+end_src
 
 The optional number specifies the maximum allowed separation according to FTS5 token positions. When omitted, SQLite FTS5 uses its default distance.
@@ -1102,26 +1116,26 @@ FTS5 constructs can be combined:
 
 #+begin_src shell
 # Exact phrase in the title.
-orgfdb search --json 'title:"sqlite database"'
+orgfdb search 'title:"sqlite database"'
 
 # Title token plus body prefix.
-orgfdb search --json 'title:sqlite AND body:alpha*'
+orgfdb search 'title:sqlite AND body:alpha*'
 
 # One of two title terms and a required body term.
-orgfdb search --json 'title:(sqlite OR database) AND body:index'
+orgfdb search 'title:(sqlite OR database) AND body:index'
 
 # Phrase or prefix in either column.
-orgfdb search --json '"full text search" OR alpha*'
+orgfdb search '"full text search" OR alpha*'
 
 # Nearby terms in the body, excluding deprecated results.
-orgfdb search --json 'body:NEAR(sqlite index, 5) NOT body:deprecated'
+orgfdb search 'body:NEAR(sqlite index, 5) NOT body:deprecated'
 #+end_src
 
 Shell quoting is recommended so spaces, parentheses, ~*~, and quotation marks reach ~orgfdb~ unchanged:
 
 #+begin_src shell
-orgfdb search --json 'title:sqlite AND body:alpha*'
-orgfdb search --json 'title:"full text search"'
+orgfdb search 'title:sqlite AND body:alpha*'
+orgfdb search 'title:"full text search"'
 #+end_src
 
 ** Indexed title semantics
@@ -1149,9 +1163,9 @@ For example:
 may be found through textual title searches for:
 
 #+begin_src shell
-orgfdb search --json --title NEXT
-orgfdb search --json --title Improve
-orgfdb search --json --title documentation
+orgfdb search --title NEXT
+orgfdb search --title Improve
+orgfdb search --title documentation
 #+end_src
 
 The trailing tag ~docs~ is not indexed as part of the FTS title merely because it occurs in the headline.

@@ -17,7 +17,7 @@
 ** Single String
 
 #+begin_src shell :noweb yes :results raw :wrap SRC js
-  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --json --config <<config-path()>> '(headings (has-text "single match"))' \
+  cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- query --config <<config-path()>> '(headings (has-text "single match"))' \
   | jq '.results[] | {
       kind,
       file_path: .location.file_path,
@@ -29,7 +29,7 @@
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/has-text.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/has-text.org",
   "title_raw": "has-text: Single Has Text"
 }
 #+end_SRC

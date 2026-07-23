@@ -1,0 +1,253 @@
+#+TITLE: Make JSON the default CLI output format
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-23 Thu 14:25]
+#+TASK_COMPLETED: [2026-07-23 Thu]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+- Implement the approved plan to make JSON the default CLI output format.
+** DONE [#B] Make JSON the default CLI output format
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+- Task file: [[file:2026-07-23--make-json-the-default-cli-output-format.org]]
+
+Goal:
+
+- Make JSON the default output format for all existing commands whose current public output is JSON.
+- Keep ~--json~ as the short explicit form.
+- Add ~--format json~ as the long explicit form.
+- Preserve JSON as the default when further output formats are introduced later.
+
+Affected commands:
+
+- ~orgfdb headings~
+- ~orgfdb links~
+- ~orgfdb query~
+- ~orgfdb search~
+
+Public behaviour:
+
+- The following forms must be equivalent:
+
+#+begin_src shell
+orgfdb headings
+orgfdb headings --json
+orgfdb headings --format json
+
+orgfdb links
+orgfdb links --json
+orgfdb links --format json
+
+orgfdb query '(todo "NEXT")'
+orgfdb query --json '(todo "NEXT")'
+orgfdb query --format json '(todo "NEXT")'
+
+orgfdb search 'title:sqlite AND body:alpha*'
+orgfdb search --json 'title:sqlite AND body:alpha*'
+orgfdb search --format json 'title:sqlite AND body:alpha*'
+#+end_src
+
+- Omitting an output option must select ~json~.
+- ~--json~ must remain accepted as a backward-compatible short form for ~--format json~.
+- ~--format json~ must be the canonical long form.
+- JSON remains the stable machine-readable output format.
+- Do not change JSON envelopes, fields, ordering, null handling, ranks, includes, output modes, errors, or exit codes except for removing the missing-~--json~ usage error.
+- Do not add another output format as part of this task.
+
+CLI design:
+
+- Introduce one shared output-format type used by all affected commands.
+- The initial public format enum contains only:
+  - ~json~
+- Default the format to ~json~.
+- Map ~--json~ to the same internal ~Json~ format value as ~--format json~.
+- Do not maintain separate output execution paths for implicit JSON, ~--json~, and ~--format json~.
+- Prefer centralised argument and conflict handling rather than duplicating it in every command.
+- Preserve each command's existing argument positions and unrelated options.
+
+Conflict handling:
+
+- Accept either:
+  - no format option;
+  - ~--json~;
+  - ~--format json~.
+- Reject repeated or conflicting output-format selections according to one consistent rule.
+- At minimum, reject combinations that would become ambiguous once additional formats exist.
+- It is acceptable for ~--json --format json~ either:
+  - to be accepted as the same format; or
+  - to be rejected as duplicate format selection.
+- Choose one behaviour and test it consistently across all affected commands.
+- Future non-JSON formats must conflict with ~--json~.
+- Unknown format values must be rejected by Clap with exit code ~2~.
+
+Implementation:
+
+- Remove the manual guards that currently require ~--json~ for ~query~ and ~search~.
+- Remove user-visible errors such as:
+  - ~query currently only supports --json~
+  - ~search currently only supports --json~
+- Replace command-specific JSON booleans with a shared format selection where practical.
+- Keep ~--json~ visible in help output as the short compatibility form.
+- Document ~--format FORMAT~ as the extensible long form.
+- Do not rename existing command result types or serializers unless required for clean format dispatch.
+- Do not change database opening, capability validation, parsing, query execution, FTS matching, enrichment, or serialization logic.
+- Do not perform output-format selection after command execution; resolve it during CLI argument processing.
+
+Future compatibility:
+
+- The intended future interface is:
+
+#+begin_src text
+--format json
+--format table
+--format org
+#+end_src
+
+- JSON must remain the default even after additional formats are added.
+- ~--json~ must remain an alias for ~--format json~ unless a separate intentional breaking-change task removes it.
+- Adding another format later must require only:
+  - a new format enum value;
+  - its serializer or renderer;
+  - dispatch from the shared format selection.
+- Future human-readable formats must not silently replace JSON output in scripts that omit a format option.
+
+Tests:
+
+- For every affected command, compare stdout byte-for-byte between:
+  - implicit JSON;
+  - ~--json~;
+  - ~--format json~.
+- Verify equivalent successful invocations for:
+  - ~headings~
+  - ~links~
+  - a flat heading ~query~
+  - an outline ~query~
+  - a ~query~ with repeated or comma-separated ~--include~ values
+  - an unscoped ~search~
+  - ~search --title~
+  - ~search --body~
+- Verify stderr and exit codes remain equivalent for:
+  - invalid query syntax;
+  - invalid query semantics;
+  - invalid include values;
+  - invalid search expressions;
+  - missing database;
+  - stale or missing FTS trust metadata;
+  - unavailable body-text capability;
+  - invalid configuration.
+- Verify omitting ~--json~ no longer exits with code ~2~.
+- Verify ~--format invalid~ is rejected by Clap with exit code ~2~.
+- Verify the selected duplicate/conflict rule for ~--json --format json~ on every affected command.
+- Verify JSON ordering remains unchanged:
+  - ~headings~ ordering;
+  - ~links~ ordering;
+  - query result ordering and envelopes;
+  - search ordering by ~rank~ and canonical heading ~id~.
+- Verify help output shows:
+  - JSON as the default;
+  - ~--format <FORMAT>~;
+  - ~--json~ as the short compatibility form.
+- Update CLI parser tests and snapshots that currently require ~--json~.
+
+Documentation:
+
+- Update all affected command headings and synopses:
+  - ~orgfdb headings~
+  - ~orgfdb links~
+  - ~orgfdb query QUERY~
+  - ~orgfdb search EXPRESSION~
+- Use the shorter implicit-JSON form in the primary examples.
+- Retain selected ~--json~ examples to demonstrate explicit script usage.
+- Document:
+  - JSON is the default format;
+  - ~--json~ is the short explicit form;
+  - ~--format json~ is the long explicit form;
+  - all three forms produce identical output.
+- Replace statements that ~--json~ is required.
+- Remove documentation for the old missing-~--json~ errors.
+- Remove ~missing required --json~ from exit-code descriptions.
+- Keep JSON documented as the stable machine-readable contract.
+- State that future formats may be selected through ~--format~, while JSON remains the default.
+- Update every executable example in ~docs/cli.org~ so the new default is represented consistently.
+- Update the changelog.
+
+Acceptance criteria:
+
+- Existing scripts using ~--json~ continue to work unchanged.
+- Scripts using ~--format json~ receive identical JSON.
+- Interactive users may omit the format option.
+- Every affected command uses JSON by default.
+- No JSON schema or matching behaviour changes.
+- No database rebuild or migration is required.
+
+* Planning
+
+** Problem summary
+
+- JSON-producing commands currently require separate ~--json~ flags and have no shared extensible format selection.
+
+** Goals
+
+- Default all existing JSON commands to JSON while retaining ~--json~ and adding ~--format json~.
+
+** Non-goals
+
+- Do not add another output format or change JSON payloads, query semantics, database behavior, or result ordering.
+
+** Architecture
+
+- Use one shared ~CliOutputFormat~ enum and flat output arguments. Reject duplicate format selection and route JSON output through one internal writer.
+
+** Execution plan
+
+- Replace command-local JSON guards, update tests and CLI documentation, and record the public behavior in the changelog.
+
+** Risks & assumptions
+
+- This removes only the missing-~--json~ usage error; existing explicit JSON invocations remain compatible.
+
+** Proposed checks
+
+- Run focused CLI tests and ~make ci~.
+
+* Results
+
+** Approach
+
+- Added a shared, private ~CliOutputFormat~ enum with JSON as its default and flat shared output arguments for ~headings~, ~links~, ~query~, and ~search~.
+- Kept ~--json~ as the visible compatibility selector and added canonical ~--format json~; Clap rejects duplicate selectors and unknown format values with exit code ~2~.
+- Routed all four commands through one private writer-backed JSON renderer without changing result serialization.
+
+** Changed files
+
+- ~src/cli.rs~: shared format parsing, central writer-based rendering, and equivalence/help/error tests.
+- ~docs/cli.org~, ~docs/config.org~, ~README.org~, and ~CHANGELOG.org~: JSON-default usage and compatibility documentation.
+- ~.project/tasks/todo.org~: task status updated for review.
+
+** Checks performed
+
+- ~cargo fmt --all~
+- ~cargo test --all-targets --all-features output_format~
+- ~cargo test --all-targets --all-features implicit_and_explicit_json_forms~
+- ~make ci~
+
+** Test results
+
+- All checks passed. ~make ci~ completed formatting, Clippy with warnings denied, 359 unit tests, integration tests, and the all-targets build.
+
+** Blockers
+
+- None.
+
+** Follow-ups
+
+- None.

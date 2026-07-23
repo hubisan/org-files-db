@@ -6,7 +6,7 @@ use std::{
     process::ExitCode,
 };
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -43,8 +43,8 @@ enum Command {
         allow_empty: bool,
     },
     Headings {
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        format: CliOutputArgs,
         #[arg(long)]
         no_root: bool,
         #[arg(
@@ -56,14 +56,14 @@ enum Command {
         config: Option<PathBuf>,
     },
     Links {
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        format: CliOutputArgs,
         #[arg(long)]
         config: Option<PathBuf>,
     },
     Query {
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        format: CliOutputArgs,
         #[arg(long, value_enum, default_value_t = CliQueryOutput::Flat)]
         output: CliQueryOutput,
         #[arg(long, value_enum, value_delimiter = ',')]
@@ -74,8 +74,8 @@ enum Command {
         query: String,
     },
     Search {
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        format: CliOutputArgs,
         #[arg(long, conflicts_with = "body")]
         title: bool,
         #[arg(long, conflicts_with = "title")]
@@ -85,6 +85,33 @@ enum Command {
         #[arg(help = "Raw SQLite FTS5 MATCH expression")]
         expression: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, Args)]
+struct CliOutputArgs {
+    #[arg(long, value_enum, default_value_t = CliOutputFormat::Json, conflicts_with = "json")]
+    format: CliOutputFormat,
+    #[arg(
+        long,
+        conflicts_with = "format",
+        help = "Compatibility form for --format json"
+    )]
+    json: bool,
+}
+
+impl CliOutputArgs {
+    fn selected(self) -> CliOutputFormat {
+        if self.json {
+            CliOutputFormat::Json
+        } else {
+            self.format
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliOutputFormat {
+    Json,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -130,7 +157,9 @@ impl From<CliQueryInclude> for QueryInclude {
 }
 
 pub fn run() -> ExitCode {
-    match run_with_args(std::env::args_os()) {
+    let stdout = io::stdout();
+    let mut handle = stdout.lock();
+    match run_with_args_and_writer(std::env::args_os(), &mut handle) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
@@ -139,10 +168,11 @@ pub fn run() -> ExitCode {
     }
 }
 
-fn run_with_args<I, T>(args: I) -> Result<(), CliError>
+fn run_with_args_and_writer<I, T, W>(args: I, writer: &mut W) -> Result<(), CliError>
 where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
+    W: Write,
 {
     let cli = Cli::try_parse_from(args).map_err(CliError::Parse)?;
     match cli.command {
@@ -155,50 +185,46 @@ where
             Ok(())
         }
         Command::Headings {
-            json,
+            format,
             no_root,
             include_root,
             config,
         } => {
             let _deprecated_include_root = include_root;
-            let rows = headings_json_rows(json, no_root, config.as_deref())?;
-            let stdout = io::stdout();
-            let mut handle = stdout.lock();
-            serde_json::to_writer_pretty(&mut handle, &rows).map_err(CliError::Json)?;
-            handle.write_all(b"\n").map_err(CliError::Io)?;
-            Ok(())
+            let output_format = format.selected();
+            let rows = headings_json_rows(no_root, config.as_deref())?;
+            write_output(output_format, writer, &rows)
         }
-        Command::Links { json, config } => {
-            let rows = links_json_rows(json, config.as_deref())?;
-            write_json_output(&rows)?;
-            Ok(())
+        Command::Links { format, config } => {
+            let output_format = format.selected();
+            let rows = links_json_rows(config.as_deref())?;
+            write_output(output_format, writer, &rows)
         }
         Command::Query {
-            json,
+            format,
             output,
             include,
             config,
             query,
         } => {
-            let response = query_json_response(json, &query, output, &include, config.as_deref())?;
-            write_json_output(&response)?;
-            Ok(())
+            let output_format = format.selected();
+            let response = query_json_response(&query, output, &include, config.as_deref())?;
+            write_output(output_format, writer, &response)
         }
         Command::Search {
-            json,
+            format,
             title,
             body,
             config,
             expression,
         } => {
+            let output_format = format.selected();
             let rows = search_json_rows(
-                json,
                 cli_search_scope(title, body),
                 &expression,
                 config.as_deref(),
             )?;
-            write_json_output(&rows)?;
-            Ok(())
+            write_output(output_format, writer, &rows)
         }
     }
 }
@@ -218,38 +244,24 @@ fn rebuild_with_options(
 }
 
 fn headings_json_rows(
-    json: bool,
     exclude_root: bool,
     config_path: Option<&Path>,
 ) -> Result<Vec<HeadingJsonRow>, CliError> {
-    if !json {
-        return Err(CliError::MissingJsonFlag("headings"));
-    }
-
     let connection = open_cli_database(config_path)?;
     headings_rows_for_json(&connection, exclude_root)
 }
 
-fn links_json_rows(json: bool, config_path: Option<&Path>) -> Result<Vec<LinkJsonRow>, CliError> {
-    if !json {
-        return Err(CliError::MissingJsonFlag("links"));
-    }
-
+fn links_json_rows(config_path: Option<&Path>) -> Result<Vec<LinkJsonRow>, CliError> {
     let connection = open_cli_database(config_path)?;
     links_rows_for_json(&connection)
 }
 
 fn query_json_response(
-    json: bool,
     query: &str,
     output: CliQueryOutput,
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
 ) -> Result<QueryResponse, CliError> {
-    if !json {
-        return Err(CliError::MissingJsonFlag("query"));
-    }
-
     let config = load_cli_config(config_path)?;
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
@@ -284,15 +296,10 @@ fn cli_search_scope(title: bool, body: bool) -> CliSearchScope {
 }
 
 fn search_json_rows(
-    json: bool,
     scope: CliSearchScope,
     expression: &str,
     config_path: Option<&Path>,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
-    if !json {
-        return Err(CliError::MissingJsonFlag("search"));
-    }
-
     if expression.trim().is_empty() {
         return Err(CliError::InvalidSearchUsage(
             "search requires a non-empty FTS expression".to_string(),
@@ -597,12 +604,19 @@ fn load_cli_config(config_path: Option<&std::path::Path>) -> Result<Config, CliE
     }
 }
 
-fn write_json_output<T: Serialize>(value: &T) -> Result<(), CliError> {
-    let stdout = io::stdout();
-    let mut handle = stdout.lock();
-    serde_json::to_writer_pretty(&mut handle, value).map_err(CliError::Json)?;
-    handle.write_all(b"\n").map_err(CliError::Io)?;
-    Ok(())
+fn write_output<T: Serialize>(
+    format: CliOutputFormat,
+    writer: &mut impl Write,
+    value: &T,
+) -> Result<(), CliError> {
+    match format {
+        CliOutputFormat::Json => write_json_output(writer, value),
+    }
+}
+
+fn write_json_output<T: Serialize>(writer: &mut impl Write, value: &T) -> Result<(), CliError> {
+    serde_json::to_writer_pretty(&mut *writer, value).map_err(CliError::Json)?;
+    writer.write_all(b"\n").map_err(CliError::Io)
 }
 
 fn print_diagnostics(report: &RebuildReport) {
@@ -628,7 +642,6 @@ fn print_diagnostics(report: &RebuildReport) {
 #[derive(Debug)]
 enum CliError {
     Parse(clap::Error),
-    MissingJsonFlag(&'static str),
     InvalidSearchUsage(String),
     Config(ConfigError),
     Database(DbError),
@@ -654,7 +667,7 @@ enum CliError {
 impl CliError {
     fn exit_code(&self) -> u8 {
         match self {
-            Self::Parse(_) | Self::MissingJsonFlag(_) | Self::InvalidSearchUsage(_) => 2,
+            Self::Parse(_) | Self::InvalidSearchUsage(_) => 2,
             Self::Config(_)
             | Self::Database(_)
             | Self::DbRead(_)
@@ -676,9 +689,6 @@ impl fmt::Display for CliError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Parse(error) => write!(f, "{error}"),
-            Self::MissingJsonFlag(command) => {
-                write!(f, "{command} currently only supports --json")
-            }
             Self::InvalidSearchUsage(message) => write!(f, "{message}"),
             Self::Config(source) => write!(f, "{source}"),
             Self::Database(source) => write!(f, "{source}"),
@@ -713,7 +723,7 @@ impl Error for CliError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Parse(error) => Some(error),
-            Self::MissingJsonFlag(_) | Self::InvalidSearchUsage(_) => None,
+            Self::InvalidSearchUsage(_) => None,
             Self::Config(source) => Some(source),
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
@@ -980,7 +990,10 @@ fn strip_root_breadcrumb(mut breadcrumbs: Vec<String>, heading_level: i64) -> Ve
 
 #[cfg(test)]
 mod tests {
-    use super::{rebuild, search_json_rows, Cli, CliError, CliSearchScope, SearchError};
+    use super::{
+        rebuild, run_with_args_and_writer, search_json_rows, Cli, CliError, CliSearchScope,
+        SearchError,
+    };
     use crate::db::{
         open_database, open_database_with_schema, open_in_memory_database_with_schema,
         sqlite_supports_fts5, DbError, DbWriter, FileRecordInput, HeadingRecord, LinkRecord,
@@ -1086,6 +1099,43 @@ mod tests {
         (test_dir, config_path, db_path)
     }
 
+    fn run_cli_output(args: Vec<String>) -> Result<Vec<u8>, CliError> {
+        let mut output = Vec::new();
+        run_with_args_and_writer(args, &mut output)?;
+        Ok(output)
+    }
+
+    fn assert_equivalent_json_output(
+        implicit: Vec<String>,
+        explicit_json: Vec<String>,
+        explicit_format: Vec<String>,
+    ) {
+        let implicit_output =
+            run_cli_output(implicit).expect("implicit JSON command should succeed");
+        let json_output =
+            run_cli_output(explicit_json).expect("explicit --json command should succeed");
+        let format_output =
+            run_cli_output(explicit_format).expect("explicit --format command should succeed");
+
+        assert_eq!(implicit_output, json_output);
+        assert_eq!(implicit_output, format_output);
+    }
+
+    fn cli_error_summary(args: Vec<String>) -> (u8, String) {
+        let error = run_cli_output(args).expect_err("command should fail");
+        (error.exit_code(), error.to_string())
+    }
+
+    fn assert_equivalent_cli_error(
+        implicit: Vec<String>,
+        explicit_json: Vec<String>,
+        explicit_format: Vec<String>,
+    ) {
+        let implicit_error = cli_error_summary(implicit);
+        assert_eq!(implicit_error, cli_error_summary(explicit_json));
+        assert_eq!(implicit_error, cli_error_summary(explicit_format));
+    }
+
     #[test]
     fn parses_rebuild_and_headings_arguments() {
         let cli = Cli::try_parse_from(["orgfdb", "rebuild", "--config", "config.toml"])
@@ -1127,12 +1177,13 @@ mod tests {
 
         match cli.command {
             super::Command::Headings {
-                json,
+                format,
                 no_root,
                 include_root,
                 ..
             } => {
-                assert!(json);
+                assert!(format.json);
+                assert_eq!(format.selected(), super::CliOutputFormat::Json);
                 assert!(!no_root);
                 assert!(!include_root);
             }
@@ -1144,12 +1195,12 @@ mod tests {
 
         match cli.command {
             super::Command::Headings {
-                json,
+                format,
                 no_root,
                 include_root,
                 ..
             } => {
-                assert!(json);
+                assert!(format.json);
                 assert!(!no_root);
                 assert!(include_root);
             }
@@ -1161,12 +1212,12 @@ mod tests {
 
         match cli.command {
             super::Command::Headings {
-                json,
+                format,
                 no_root,
                 include_root,
                 ..
             } => {
-                assert!(json);
+                assert!(format.json);
                 assert!(no_root);
                 assert!(!include_root);
             }
@@ -1178,12 +1229,13 @@ mod tests {
 
         match cli.command {
             super::Command::Headings {
-                json,
+                format,
                 no_root,
                 include_root,
                 config,
+                ..
             } => {
-                assert!(json);
+                assert!(format.json);
                 assert!(!no_root);
                 assert!(!include_root);
                 assert_eq!(config, Some(PathBuf::from("config.toml")));
@@ -1195,8 +1247,8 @@ mod tests {
             Cli::try_parse_from(["orgfdb", "links", "--json"]).expect("links args should parse");
 
         match cli.command {
-            super::Command::Links { json, config } => {
-                assert!(json);
+            super::Command::Links { format, config } => {
+                assert!(format.json);
                 assert_eq!(config, None);
             }
             other => panic!("unexpected command: {other:?}"),
@@ -1206,8 +1258,8 @@ mod tests {
             .expect("links config args should parse");
 
         match cli.command {
-            super::Command::Links { json, config } => {
-                assert!(json);
+            super::Command::Links { format, config } => {
+                assert!(format.json);
                 assert_eq!(config, Some(PathBuf::from("config.toml")));
             }
             other => panic!("unexpected command: {other:?}"),
@@ -1227,13 +1279,13 @@ mod tests {
 
         match cli.command {
             super::Command::Query {
-                json,
+                format,
                 output,
                 include,
                 config,
                 query,
             } => {
-                assert!(json);
+                assert!(format.json);
                 assert_eq!(output, super::CliQueryOutput::Outline);
                 assert_eq!(
                     include,
@@ -1253,13 +1305,13 @@ mod tests {
             .expect("search args should parse");
         match cli.command {
             super::Command::Search {
-                json,
+                format,
                 title,
                 body,
                 config,
                 expression,
             } => {
-                assert!(json);
+                assert!(format.json);
                 assert!(!title);
                 assert!(!body);
                 assert_eq!(config, None);
@@ -1280,13 +1332,13 @@ mod tests {
         .expect("search scoped args should parse");
         match cli.command {
             super::Command::Search {
-                json,
+                format,
                 title,
                 body,
                 config,
                 expression,
             } => {
-                assert!(json);
+                assert!(format.json);
                 assert!(title);
                 assert!(!body);
                 assert_eq!(config, Some(PathBuf::from("config.toml")));
@@ -1294,6 +1346,242 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn output_format_defaults_to_json_and_rejects_duplicate_selection() {
+        let cli = Cli::try_parse_from(["orgfdb", "headings"]).expect("default format should parse");
+        match cli.command {
+            super::Command::Headings { format, .. } => {
+                assert!(!format.json);
+                assert_eq!(format.selected(), super::CliOutputFormat::Json);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        for args in [
+            vec!["orgfdb", "headings", "--json", "--format", "json"],
+            vec!["orgfdb", "links", "--json", "--format", "json"],
+            vec!["orgfdb", "query", "--json", "--format", "json", "(todo)"],
+            vec!["orgfdb", "search", "--json", "--format", "json", "sqlite"],
+            vec!["orgfdb", "headings", "--format", "json", "--format", "json"],
+        ] {
+            let error =
+                Cli::try_parse_from(args).expect_err("duplicate format selection should fail");
+            assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+        }
+
+        let error = Cli::try_parse_from(["orgfdb", "headings", "--format", "invalid"])
+            .expect_err("unknown output format should fail");
+        assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        assert_eq!(error.exit_code(), 2);
+    }
+
+    #[test]
+    fn output_format_help_is_visible_for_all_json_commands() {
+        for command in ["headings", "links", "query", "search"] {
+            let error = Cli::try_parse_from(["orgfdb", command, "--help"])
+                .expect_err("help should stop argument parsing");
+            assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+            let help = error.to_string();
+            assert!(help.contains("--format <FORMAT>"));
+            assert!(help.contains("[default: json]"));
+            assert!(help.contains("--json"));
+        }
+    }
+
+    #[test]
+    fn implicit_and_explicit_json_forms_produce_identical_stdout() {
+        let (_test_dir, config_path, _) = build_search_fixture(
+            "output-format-equivalence",
+            &[(
+                "notes.org",
+                "* TODO Searchable Heading\nBody phrase for sqlite search.\n",
+            )],
+            true,
+        );
+        let config = config_path.display().to_string();
+
+        assert_equivalent_json_output(
+            vec![
+                "orgfdb".into(),
+                "headings".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "headings".into(),
+                "--json".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "headings".into(),
+                "--format".into(),
+                "json".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+        );
+        assert_equivalent_json_output(
+            vec![
+                "orgfdb".into(),
+                "links".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "links".into(),
+                "--json".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "links".into(),
+                "--format".into(),
+                "json".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+        );
+
+        for extra_args in [
+            vec!["(headings (title \"Searchable Heading\"))"],
+            vec!["--output", "outline", "(headings (todo \"TODO\"))"],
+            vec![
+                "--include",
+                "path,path",
+                "--include",
+                "links",
+                "(headings (todo \"TODO\"))",
+            ],
+        ] {
+            let mut implicit = vec![
+                "orgfdb".to_string(),
+                "query".to_string(),
+                "--config".to_string(),
+                config.clone(),
+            ];
+            implicit.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+            let mut explicit_json = vec![
+                "orgfdb".to_string(),
+                "query".to_string(),
+                "--json".to_string(),
+                "--config".to_string(),
+                config.clone(),
+            ];
+            explicit_json.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+            let mut explicit_format = vec![
+                "orgfdb".to_string(),
+                "query".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+                "--config".to_string(),
+                config.clone(),
+            ];
+            explicit_format.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+            assert_equivalent_json_output(implicit, explicit_json, explicit_format);
+        }
+
+        for extra_args in [
+            vec!["sqlite"],
+            vec!["--title", "Searchable"],
+            vec!["--body", "phrase"],
+        ] {
+            let mut implicit = vec![
+                "orgfdb".to_string(),
+                "search".to_string(),
+                "--config".to_string(),
+                config.clone(),
+            ];
+            implicit.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+            let mut explicit_json = vec![
+                "orgfdb".to_string(),
+                "search".to_string(),
+                "--json".to_string(),
+                "--config".to_string(),
+                config.clone(),
+            ];
+            explicit_json.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+            let mut explicit_format = vec![
+                "orgfdb".to_string(),
+                "search".to_string(),
+                "--format".to_string(),
+                "json".to_string(),
+                "--config".to_string(),
+                config.clone(),
+            ];
+            explicit_format.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+            assert_equivalent_json_output(implicit, explicit_json, explicit_format);
+        }
+    }
+
+    #[test]
+    fn implicit_and_explicit_json_forms_preserve_runtime_errors() {
+        let missing_config = TestDir::new("output-format-errors")
+            .path()
+            .join("missing.toml");
+        let config = missing_config.display().to_string();
+
+        assert_equivalent_cli_error(
+            vec!["orgfdb".into(), "query".into(), "(todo".into()],
+            vec![
+                "orgfdb".into(),
+                "query".into(),
+                "--json".into(),
+                "(todo".into(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "query".into(),
+                "--format".into(),
+                "json".into(),
+                "(todo".into(),
+            ],
+        );
+        assert_equivalent_cli_error(
+            vec!["orgfdb".into(), "search".into(), "AND".into()],
+            vec![
+                "orgfdb".into(),
+                "search".into(),
+                "--json".into(),
+                "AND".into(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "search".into(),
+                "--format".into(),
+                "json".into(),
+                "AND".into(),
+            ],
+        );
+        assert_equivalent_cli_error(
+            vec![
+                "orgfdb".into(),
+                "headings".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "headings".into(),
+                "--json".into(),
+                "--config".into(),
+                config.clone(),
+            ],
+            vec![
+                "orgfdb".into(),
+                "headings".into(),
+                "--format".into(),
+                "json".into(),
+                "--config".into(),
+                config,
+            ],
+        );
     }
 
     #[test]
@@ -1312,15 +1600,8 @@ mod tests {
     }
 
     #[test]
-    fn search_requires_json_flag() {
-        let error = search_json_rows(false, CliSearchScope::All, "sqlite", None)
-            .expect_err("search should require json");
-        assert!(matches!(error, CliError::MissingJsonFlag("search")));
-    }
-
-    #[test]
     fn search_rejects_empty_expression() {
-        let error = search_json_rows(true, CliSearchScope::All, "   ", None)
+        let error = search_json_rows(CliSearchScope::All, "   ", None)
             .expect_err("empty expression should fail");
         match error {
             CliError::InvalidSearchUsage(message) => {
@@ -1350,7 +1631,7 @@ mod tests {
             .expect("canonical title should update");
         drop(connection);
 
-        let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+        let rows = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
             .expect("search should succeed");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].heading.kind.as_str(), "heading");
@@ -1380,10 +1661,9 @@ mod tests {
             true,
         );
 
-        let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+        let rows = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
             .expect("search should succeed");
         let query = super::query_json_response(
-            true,
             "(headings (title \"Searchable Heading\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -1439,23 +1719,17 @@ mod tests {
             true,
         );
 
-        let todo_rows = search_json_rows(true, CliSearchScope::Title, "TODO", Some(&config_path))
+        let todo_rows = search_json_rows(CliSearchScope::Title, "TODO", Some(&config_path))
             .expect("TODO should match source title text");
-        let title_rows = search_json_rows(
-            true,
-            CliSearchScope::Title,
-            "Searchable",
-            Some(&config_path),
-        )
-        .expect("normalized title text should remain searchable");
-        let statistics_rows =
-            search_json_rows(true, CliSearchScope::Title, "2", Some(&config_path))
-                .expect("statistics cookie token should match source title text");
-        let tag_rows = search_json_rows(true, CliSearchScope::Title, "project", Some(&config_path))
+        let title_rows = search_json_rows(CliSearchScope::Title, "Searchable", Some(&config_path))
+            .expect("normalized title text should remain searchable");
+        let statistics_rows = search_json_rows(CliSearchScope::Title, "2", Some(&config_path))
+            .expect("statistics cookie token should match source title text");
+        let tag_rows = search_json_rows(CliSearchScope::Title, "project", Some(&config_path))
             .expect("trailing tag search should succeed");
-        let default_rows = search_json_rows(true, CliSearchScope::All, "TODO", Some(&config_path))
+        let default_rows = search_json_rows(CliSearchScope::All, "TODO", Some(&config_path))
             .expect("default search should include title text");
-        let body_rows = search_json_rows(true, CliSearchScope::Body, "TODO", Some(&config_path))
+        let body_rows = search_json_rows(CliSearchScope::Body, "TODO", Some(&config_path))
             .expect("body search should succeed");
 
         assert_eq!(todo_rows.len(), 1);
@@ -1476,26 +1750,21 @@ mod tests {
         assert_eq!(heading.all_tags, vec!["project"]);
 
         let explicit_root_rows =
-            search_json_rows(true, CliSearchScope::Title, "Explicit", Some(&config_path))
+            search_json_rows(CliSearchScope::Title, "Explicit", Some(&config_path))
                 .expect("source-titled root should remain searchable");
         assert_eq!(explicit_root_rows.len(), 1);
         assert_eq!(explicit_root_rows[0].heading.kind.as_str(), "root");
         assert_eq!(explicit_root_rows[0].heading.title, "Explicit Root Title");
 
-        let fallback_root_rows = search_json_rows(
-            true,
-            CliSearchScope::Title,
-            "fallbacktitle",
-            Some(&config_path),
-        )
-        .expect("fallback root title should remain searchable");
+        let fallback_root_rows =
+            search_json_rows(CliSearchScope::Title, "fallbacktitle", Some(&config_path))
+                .expect("fallback root title should remain searchable");
         assert_eq!(fallback_root_rows.len(), 1);
         assert_eq!(fallback_root_rows[0].heading.kind.as_str(), "root");
         assert_eq!(fallback_root_rows[0].heading.title, "fallbacktitle");
         assert_eq!(fallback_root_rows[0].heading.title_raw, None);
 
         let raw_title_query = super::query_json_response(
-            true,
             "(headings (title \"TODO\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -1503,7 +1772,6 @@ mod tests {
         )
         .expect("normalized title query should succeed");
         let normalized_title_query = super::query_json_response(
-            true,
             "(headings (title \"Searchable Heading\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -1560,13 +1828,9 @@ mod tests {
         assert_eq!(real_heading_count, 0);
         drop(connection);
 
-        let preamble_rows = search_json_rows(
-            true,
-            CliSearchScope::All,
-            "preamblequartz",
-            Some(&config_path),
-        )
-        .expect("default preamble search should succeed");
+        let preamble_rows =
+            search_json_rows(CliSearchScope::All, "preamblequartz", Some(&config_path))
+                .expect("default preamble search should succeed");
         assert_eq!(preamble_rows.len(), 1);
         assert_eq!(preamble_rows[0].heading.id, root_id);
         assert_eq!(preamble_rows[0].heading.kind.as_str(), "root");
@@ -1577,43 +1841,31 @@ mod tests {
             "root"
         );
 
-        let body_rows = search_json_rows(
-            true,
-            CliSearchScope::Body,
-            "preamblequartz",
-            Some(&config_path),
-        )
-        .expect("body preamble search should succeed");
+        let body_rows =
+            search_json_rows(CliSearchScope::Body, "preamblequartz", Some(&config_path))
+                .expect("body preamble search should succeed");
         assert_eq!(body_rows.len(), 1);
         assert_eq!(body_rows[0].heading.kind.as_str(), "root");
 
-        let title_preamble_rows = search_json_rows(
-            true,
-            CliSearchScope::Title,
-            "preamblequartz",
-            Some(&config_path),
-        )
-        .expect("title preamble search should succeed");
+        let title_preamble_rows =
+            search_json_rows(CliSearchScope::Title, "preamblequartz", Some(&config_path))
+                .expect("title preamble search should succeed");
         assert!(title_preamble_rows.is_empty());
 
         let root_title_rows =
-            search_json_rows(true, CliSearchScope::Title, "Sapphire", Some(&config_path))
+            search_json_rows(CliSearchScope::Title, "Sapphire", Some(&config_path))
                 .expect("root title search should succeed");
         assert_eq!(root_title_rows.len(), 1);
         assert_eq!(root_title_rows[0].heading.kind.as_str(), "root");
 
-        let heading_rows = search_json_rows(true, CliSearchScope::All, "Amber", Some(&config_path))
+        let heading_rows = search_json_rows(CliSearchScope::All, "Amber", Some(&config_path))
             .expect("real heading search should succeed");
         assert_eq!(heading_rows.len(), 1);
         assert_eq!(heading_rows[0].heading.kind.as_str(), "heading");
 
-        let preamble_only_rows = search_json_rows(
-            true,
-            CliSearchScope::Body,
-            "solopreamblezinc",
-            Some(&config_path),
-        )
-        .expect("preamble-only search should succeed");
+        let preamble_only_rows =
+            search_json_rows(CliSearchScope::Body, "solopreamblezinc", Some(&config_path))
+                .expect("preamble-only search should succeed");
         assert_eq!(preamble_only_rows.len(), 1);
         assert_eq!(preamble_only_rows[0].heading.kind.as_str(), "root");
     }
@@ -1629,19 +1881,14 @@ mod tests {
             false,
         );
 
-        let title_rows =
-            search_json_rows(true, CliSearchScope::Title, "Emerald", Some(&config_path))
-                .expect("title-only root title search should succeed");
+        let title_rows = search_json_rows(CliSearchScope::Title, "Emerald", Some(&config_path))
+            .expect("title-only root title search should succeed");
         assert_eq!(title_rows.len(), 1);
         assert_eq!(title_rows[0].heading.kind.as_str(), "root");
 
-        let default_preamble_rows = search_json_rows(
-            true,
-            CliSearchScope::All,
-            "preambleruby",
-            Some(&config_path),
-        )
-        .expect("title-only preamble search should succeed");
+        let default_preamble_rows =
+            search_json_rows(CliSearchScope::All, "preambleruby", Some(&config_path))
+                .expect("title-only preamble search should succeed");
         assert!(default_preamble_rows.is_empty());
     }
 
@@ -1656,10 +1903,9 @@ mod tests {
             true,
         );
 
-        let title_rows =
-            search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
-                .expect("title search should succeed");
-        let body_rows = search_json_rows(true, CliSearchScope::All, "phrase", Some(&config_path))
+        let title_rows = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
+            .expect("title search should succeed");
+        let body_rows = search_json_rows(CliSearchScope::All, "phrase", Some(&config_path))
             .expect("body search should succeed");
 
         assert_eq!(title_rows.len(), 1);
@@ -1677,17 +1923,11 @@ mod tests {
             true,
         );
 
-        let title_rows = search_json_rows(
-            true,
-            CliSearchScope::Title,
-            "Searchable",
-            Some(&config_path),
-        )
-        .expect("title scope should succeed");
-        let no_body_rows =
-            search_json_rows(true, CliSearchScope::Title, "phrase", Some(&config_path))
-                .expect("title scope should return empty on body term");
-        let body_rows = search_json_rows(true, CliSearchScope::Body, "phrase", Some(&config_path))
+        let title_rows = search_json_rows(CliSearchScope::Title, "Searchable", Some(&config_path))
+            .expect("title scope should succeed");
+        let no_body_rows = search_json_rows(CliSearchScope::Title, "phrase", Some(&config_path))
+            .expect("title scope should return empty on body term");
+        let body_rows = search_json_rows(CliSearchScope::Body, "phrase", Some(&config_path))
             .expect("body scope should succeed");
 
         assert_eq!(title_rows.len(), 1);
@@ -1697,7 +1937,7 @@ mod tests {
 
     #[test]
     fn search_rejects_explicit_column_filters_when_scope_is_fixed() {
-        let error = search_json_rows(true, CliSearchScope::Title, "body:sqlite", None)
+        let error = search_json_rows(CliSearchScope::Title, "body:sqlite", None)
             .expect_err("scoped explicit column filter should fail");
         match error {
             CliError::Search(SearchError::ScopedColumnFilter { scope }) => {
@@ -1719,19 +1959,13 @@ mod tests {
         );
 
         let title_rows = search_json_rows(
-            true,
             CliSearchScope::All,
             "title:(Searchable)",
             Some(&config_path),
         )
         .expect("title filter should succeed");
-        let body_rows = search_json_rows(
-            true,
-            CliSearchScope::All,
-            "body:(phrase)",
-            Some(&config_path),
-        )
-        .expect("body filter should succeed");
+        let body_rows = search_json_rows(CliSearchScope::All, "body:(phrase)", Some(&config_path))
+            .expect("body filter should succeed");
 
         assert_eq!(title_rows.len(), 1);
         assert_eq!(body_rows.len(), 1);
@@ -1748,7 +1982,7 @@ mod tests {
             false,
         );
 
-        let error = search_json_rows(true, CliSearchScope::Body, "phrase", Some(&config_path))
+        let error = search_json_rows(CliSearchScope::Body, "phrase", Some(&config_path))
             .expect_err("body scope should fail for title-only index");
         assert!(matches!(
             error,
@@ -1819,7 +2053,7 @@ mod tests {
         .expect("database should open");
         drop(connection);
 
-        let error = search_json_rows(true, CliSearchScope::All, "sqlite", Some(&config_path))
+        let error = search_json_rows(CliSearchScope::All, "sqlite", Some(&config_path))
             .expect_err("missing metadata should fail");
         match error {
             CliError::Search(SearchError::MissingTrustMetadata) => {}
@@ -1844,9 +2078,8 @@ mod tests {
                 )
                 .expect("non-current FTS contract version should store");
 
-            let error =
-                search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
-                    .expect_err("non-current FTS contract version should be stale");
+            let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
+                .expect_err("non-current FTS contract version should be stale");
             assert!(matches!(
                 error,
                 CliError::Search(SearchError::MissingTrustedIndex)
@@ -1870,7 +2103,7 @@ mod tests {
             )
             .expect("invalid FTS contract metadata should store");
 
-        let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+        let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
             .expect_err("non-numeric FTS contract metadata should be invalid");
         assert!(matches!(
             error,
@@ -1903,7 +2136,7 @@ index_body_text = true
         assert!(report.indexed_files.is_empty());
         assert!(report.diagnostics.is_empty());
 
-        let rows = search_json_rows(true, CliSearchScope::All, "sqlite", Some(&config_path))
+        let rows = search_json_rows(CliSearchScope::All, "sqlite", Some(&config_path))
             .expect("search should trust the empty rebuild");
         assert!(rows.is_empty());
 
@@ -1963,7 +2196,6 @@ index_body_text = true
         );
 
         let error = search_json_rows(
-            true,
             CliSearchScope::All,
             "Searchable",
             Some(&disabled_config_path),
@@ -1975,7 +2207,6 @@ index_body_text = true
         ));
 
         let trusted_rows = search_json_rows(
-            true,
             CliSearchScope::All,
             "Searchable",
             Some(&trusted_config_path),
@@ -1998,7 +2229,7 @@ index_body_text = true
             .expect("fts table should drop");
         drop(connection);
 
-        let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+        let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
             .expect_err("missing table should fail");
         assert!(matches!(
             error,
@@ -2023,7 +2254,7 @@ index_body_text = true
             .expect("incompatible fts table should install");
         drop(connection);
 
-        let error = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+        let error = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
             .expect_err("incompatible schema should fail");
         assert!(matches!(
             error,
@@ -2039,7 +2270,7 @@ index_body_text = true
             true,
         );
 
-        let error = search_json_rows(true, CliSearchScope::All, "AND", Some(&config_path))
+        let error = search_json_rows(CliSearchScope::All, "AND", Some(&config_path))
             .expect_err("invalid expression should fail");
         match error {
             CliError::Search(SearchError::InvalidExpression { .. }) => {}
@@ -2076,7 +2307,7 @@ index_body_text = true
 
         fs::remove_file(test_dir.path().join("notes.org")).expect("source org file should delete");
 
-        let rows = search_json_rows(true, CliSearchScope::All, "Searchable", Some(&config_path))
+        let rows = search_json_rows(CliSearchScope::All, "Searchable", Some(&config_path))
             .expect("search should succeed without source file");
         assert_eq!(rows.len(), 1);
 
@@ -2113,7 +2344,7 @@ index_body_text = true
             true,
         );
 
-        let rows = search_json_rows(true, CliSearchScope::All, "Shared", Some(&config_path))
+        let rows = search_json_rows(CliSearchScope::All, "Shared", Some(&config_path))
             .expect("search should succeed");
         assert_eq!(rows.len(), 2);
         assert!(rows[0].rank <= rows[1].rank);
@@ -2156,7 +2387,6 @@ index_body_text = true
         let config_path = write_query_fixture(&test_dir);
 
         let heading = super::query_json_response(
-            true,
             "(todo \"NEXT\")",
             super::CliQueryOutput::Flat,
             &[],
@@ -2174,7 +2404,6 @@ index_body_text = true
         }
 
         let links = super::query_json_response(
-            true,
             "(links (status \"broken\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2191,7 +2420,6 @@ index_body_text = true
         }
 
         let files = super::query_json_response(
-            true,
             "(files (file-title \"Projects\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2214,7 +2442,6 @@ index_body_text = true
         let config_path = write_query_fixture(&test_dir);
 
         let error = super::query_json_response(
-            true,
             "(headings (has-text \"sqlite\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2251,7 +2478,6 @@ index_body_text = false
         assert_eq!(report.indexed_files.len(), 1);
 
         let response = super::query_json_response(
-            true,
             "(files (file-title \"no-title-set\" :exact t))",
             super::CliQueryOutput::Flat,
             &[super::CliQueryInclude::Path],
@@ -2291,7 +2517,6 @@ index_body_text = false
         rebuild(&config_path).expect("rebuild should succeed");
 
         let response = super::query_json_response(
-            true,
             "(headings (title \"Projects\" :exact t))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2330,7 +2555,6 @@ index_body_text = false
         rebuild(&config_path).expect("rebuild should succeed");
 
         let response = super::query_json_response(
-            true,
             "(headings (title \"no-title-set\" :exact t))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2351,7 +2575,6 @@ index_body_text = false
         let config_path = write_query_fixture(&test_dir);
 
         let response = super::query_json_response(
-            true,
             "(headings (title \"sqlite\"))",
             super::CliQueryOutput::Outline,
             &[
@@ -2404,7 +2627,6 @@ index_body_text = false
 
         for query in examples {
             let response = super::query_json_response(
-                true,
                 query,
                 super::CliQueryOutput::Flat,
                 &[],
@@ -2415,7 +2637,6 @@ index_body_text = false
         }
 
         let include_response = super::query_json_response(
-            true,
             "(headings (todo \"NEXT\"))",
             super::CliQueryOutput::Flat,
             &[super::CliQueryInclude::Path, super::CliQueryInclude::Links],
@@ -2437,7 +2658,6 @@ index_body_text = false
         let config_path = write_query_fixture(&test_dir);
 
         let syntax_error = super::query_json_response(
-            true,
             "(todo \"NEXT\"",
             super::CliQueryOutput::Flat,
             &[],
@@ -2448,7 +2668,6 @@ index_body_text = false
         assert!(syntax_error.to_string().contains("unterminated"));
 
         let semantic_error = super::query_json_response(
-            true,
             "(links (todo \"NEXT\"))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2461,7 +2680,6 @@ index_body_text = false
             .contains("predicate todo is not valid for target links"));
 
         let backend_response = super::query_json_response(
-            true,
             "(links (link-target \"notes.*\" :regexp t))",
             super::CliQueryOutput::Flat,
             &[],
@@ -2479,7 +2697,6 @@ index_body_text = false
         let org_path = test_dir.path().join("projects.org");
 
         let initial = super::query_json_response(
-            true,
             "(todo \"NEXT\")",
             super::CliQueryOutput::Flat,
             &[],
@@ -2490,7 +2707,6 @@ index_body_text = false
         write_file(&org_path, "#+TITLE: Changed\n* DONE Different\n");
 
         let stored = super::query_json_response(
-            true,
             "(todo \"NEXT\")",
             super::CliQueryOutput::Flat,
             &[],
@@ -2781,7 +2997,7 @@ db_path = "../db.sqlite"
 
         drop(configured_db);
 
-        let rows = super::headings_json_rows(true, false, Some(&config_path))
+        let rows = super::headings_json_rows(false, Some(&config_path))
             .expect("rows should load from configured db");
 
         assert_eq!(rows.len(), 2);
@@ -2816,8 +3032,8 @@ index_body_text = false
         assert_eq!(report.indexed_files.len(), 1);
         assert_eq!(report.indexed_files[0].path, org_path);
 
-        let json_rows = super::headings_json_rows(true, false, Some(&config_path))
-            .expect("json rows should load");
+        let json_rows =
+            super::headings_json_rows(false, Some(&config_path)).expect("json rows should load");
         assert_eq!(json_rows.len(), 2);
         assert_eq!(json_rows[0].level, 0);
         assert_eq!(json_rows[1].level, 1);
@@ -2834,13 +3050,13 @@ index_body_text = false
         assert!(json_rows[1].closed_raw.is_none());
         assert!(json_rows[1].all_tags.is_empty());
 
-        let excluded_rows = super::headings_json_rows(true, true, Some(&config_path))
-            .expect("excluded rows should load");
+        let excluded_rows =
+            super::headings_json_rows(true, Some(&config_path)).expect("excluded rows should load");
         assert_eq!(excluded_rows.len(), 1);
         assert_eq!(excluded_rows[0].level, 1);
         assert_eq!(excluded_rows[0].title, "Inbox");
 
-        let include_root_rows = super::headings_json_rows(true, false, Some(&config_path))
+        let include_root_rows = super::headings_json_rows(false, Some(&config_path))
             .expect("included rows should load");
         assert_eq!(include_root_rows.len(), 2);
         assert_eq!(include_root_rows[0].level, 0);
@@ -2874,7 +3090,7 @@ db_path = "./missing.sqlite"
 "#,
         );
 
-        let error = super::headings_json_rows(true, false, Some(&config_path))
+        let error = super::headings_json_rows(false, Some(&config_path))
             .expect_err("missing database should fail");
         assert!(
             matches!(error, CliError::Database(DbError::Open { .. })),
@@ -2986,7 +3202,7 @@ db_path = "./db.sqlite"
             .expect("heading_fts existence should load");
         drop(connection);
 
-        let rows = super::headings_json_rows(true, false, Some(&config_path))
+        let rows = super::headings_json_rows(false, Some(&config_path))
             .expect("rows should load from existing database");
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].level, 0);
@@ -3028,7 +3244,7 @@ db_path = "./future.sqlite"
             .expect("future user_version should seed");
         drop(connection);
 
-        let error = super::headings_json_rows(true, false, Some(&config_path))
+        let error = super::headings_json_rows(false, Some(&config_path))
             .expect_err("future schema version should fail closed");
         match error {
             CliError::Database(DbError::UnsupportedFutureSchemaVersion {
@@ -3379,8 +3595,7 @@ db_path = "../db.sqlite"
         );
         drop(configured_db);
 
-        let rows =
-            super::links_json_rows(true, Some(&config_path)).expect("rows should load from db");
+        let rows = super::links_json_rows(Some(&config_path)).expect("rows should load from db");
 
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].file_path, "/tmp/configured.org");
@@ -3412,8 +3627,7 @@ index_body_text = false
         let report = rebuild(&config_path).expect("rebuild should succeed");
         assert_eq!(report.indexed_files.len(), 1);
 
-        let initial_rows =
-            super::links_json_rows(true, Some(&config_path)).expect("rows should load");
+        let initial_rows = super::links_json_rows(Some(&config_path)).expect("rows should load");
         assert_eq!(initial_rows.len(), 3);
         assert_eq!(initial_rows[0].heading_level, 0);
         assert!(initial_rows[0].heading_path.is_empty());
@@ -3429,7 +3643,7 @@ index_body_text = false
         );
 
         let stored_rows =
-            super::links_json_rows(true, Some(&config_path)).expect("stored rows should load");
+            super::links_json_rows(Some(&config_path)).expect("stored rows should load");
         assert_eq!(stored_rows, initial_rows);
     }
 
@@ -3446,8 +3660,8 @@ db_path = "./missing.sqlite"
 "#,
         );
 
-        let error = super::links_json_rows(true, Some(&config_path))
-            .expect_err("missing database should fail");
+        let error =
+            super::links_json_rows(Some(&config_path)).expect_err("missing database should fail");
         assert!(
             matches!(error, CliError::Database(DbError::Open { .. })),
             "expected read-only open error, got {error}"
@@ -3477,7 +3691,7 @@ db_path = "./future.sqlite"
             .expect("future user_version should seed");
         drop(connection);
 
-        let error = super::links_json_rows(true, Some(&config_path))
+        let error = super::links_json_rows(Some(&config_path))
             .expect_err("future schema version should fail closed");
         match error {
             CliError::Database(DbError::UnsupportedFutureSchemaVersion {

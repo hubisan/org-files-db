@@ -7,6 +7,7 @@ This file records completed changes.
 :VISIBILITY: all
 :END:
 
+- =CHANGED= =headings=, =links=, =query=, and =search= now emit JSON by default; =--format json= is available and =--json= remains supported.
 - =CHANGED= FTS title search now indexes source headline text, so TODO keywords, priority cookies, and statistics cookies can match after rebuilding the index.
 - =ADDED= Rebuild now resolves file-context =CUSTOM_ID= links such as =[[file:other.org::#custom-id]]= against properties in the resolved target file.
 - =ADDED= =orgfdb links --json= now exposes stored link-resolution fields alongside the existing raw link source facts.

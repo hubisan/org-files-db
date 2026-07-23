@@ -787,7 +787,7 @@ Expected:
 #+begin_src shell :noweb yes :results raw :wrap SRC js
   set -o pipefail
 
-  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --json --config <<config-path()>> \
+  cargo run --quiet --manifest-path <<cargo-manifest()>> --bin orgfdb -- search --config <<config-path()>> \
     'title:sqlite' \
   | jq .
 #+end_src

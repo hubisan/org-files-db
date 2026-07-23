@@ -26,13 +26,14 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - TODO keyword precedence is:
   1. Org in-buffer =#+TODO= / =#+SEQ_TODO= / =#+TYP_TODO= declarations
   2. config defaults
-- The parser and indexer produce synthetic level-0/root rows for file and document roots; =headings --json= includes them by default and =--no-root= excludes them.
+- The parser and indexer produce synthetic level-0/root rows for file and document roots; =headings= includes them by default and =--no-root= excludes them.
 - Planning lines populate the supported =scheduled=, =deadline=, and =closed= fields, while body timestamps remain available as parsed timestamp rows.
 
 ** Documentation
 
 - CLI reference: [[./docs/cli.org][docs/cli.org]]
 - Config reference: [[./docs/config.org][docs/config.org]]
+- =headings=, =links=, =query=, and =search= emit JSON by default; use =--format json= for the canonical explicit form or =--json= for the compatible short form.
 - Phase 3 link indexing notes are documented alongside parser risks in [[./docs/design/parser-risks.org][docs/design/parser-risks.org]].
 - Link resolving is documented in the CLI reference and summarized here so the Phase 3 source facts and Phase 4 resolver-owned fields stay clearly separated.
 
@@ -82,11 +83,11 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - =heading_fts= is optional. It is created only when rebuild/indexing enables FTS and the local SQLite build supports FTS5.
 - =heading_fts= is a contentless derived/cache FTS5 table rebuilt from canonical relational facts. It indexes every canonical heading, including synthetic level-0 file roots, with =rowid = headings.id=.
 - Heading titles remain canonical in =headings.title= and body text remains canonical in =heading_bodies.body_text=. FTS indexes =headings.title_raw= when available, falling back to the canonical title for roots without a source title; title-only FTS indexing uses an empty FTS body when canonical body persistence is disabled.
-- =orgfdb search --json= is a read-only FTS5 convenience command over the trusted derived index. It requires the active config to leave =search.fts5_enabled = true= and requires persisted FTS trust metadata written by a successful rebuild.
+- =orgfdb search= is a read-only FTS5 convenience command over the trusted derived index. It requires the active config to leave =search.fts5_enabled = true= and requires persisted FTS trust metadata written by a successful rebuild.
 - Search JSON rows include =kind=: =root= for synthetic level-0 file roots and =heading= for real headings.
-- Databases created before the FTS trust metadata existed, level-0 roots were added, or FTS contract version 3 changed the indexed title source must be rebuilt once before =orgfdb search --json= will trust the stored index.
+- Databases created before the FTS trust metadata existed, level-0 roots were added, or FTS contract version 3 changed the indexed title source must be rebuilt once before =orgfdb search= will trust the stored index.
 - =links= stores raw Phase 3 link source facts plus nullable Phase 4 target fields and explicit resolution state columns. The current rebuild pipeline resolves file-like links to indexed files when possible, maps file-only links to the resolved target file's synthetic root heading, resolves =file:...::*Heading= against normalized heading titles in the resolved target file, resolves same-file =[[*Heading]]= fuzzy star links against normalized titles in the source file, resolves same-file =[[#custom-id]]= links against =CUSTOM_ID= properties in the source file, resolves file-context =file:...::#custom-id= links against =CUSTOM_ID= properties in the resolved target file, resolves Org =id:...= links against =ID= properties across indexed non-root headings, trims surrounding whitespace only for star heading-title targets, preserves significant surrounding whitespace for =CUSTOM_ID= and Org =ID= targets, and matches those targets case-insensitively via Rust-side Unicode lowercase comparison. Duplicate heading-title and =CUSTOM_ID= matches stay silent, duplicate Org =ID= matches become =ambiguous=, missing in-universe file or heading-title targets become =broken=, missing Org =ID= targets and outside-universe file targets become =unresolved=, and other link forms become =unsupported=.
-- Read-only CLI queries such as =headings --json=, =query --json=, and =search --json= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
+- Read-only CLI queries such as =headings=, =query=, and =search= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
 - Synthetic level-0/root rows are DB/indexing sentinels for file/document roots, not parser-level Org headings.
 - Persisted synthetic root rows use =level = 0=, =parent_id = NULL=, and =byte_start = -1=.
 - Rebuild/indexing creates one synthetic root row per indexed file and attaches file-level keywords, file-level properties, file tags, and other file-scope facts to that row.
@@ -100,11 +101,11 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - =files= and =dirs= are resolved syntactically during config loading, but rebuild/indexing validates that they exist and canonicalizes them before discovery.
 - Rebuild-time canonicalization collapses equivalent configured paths, including paths that differ only by =..= segments or symlink traversal.
 - Rebuild refuses to wipe an existing indexed database when discovery finds zero input files unless =--allow-empty= is passed explicitly.
-- Read-only commands such as =headings --json= load the config without requiring configured source paths to exist.
+- Read-only commands such as =headings= load the config without requiring configured source paths to exist.
 
-** headings --json Contract
+** headings JSON Contract
 
-- =orgfdb headings --json= returns a top-level JSON array.
+- =orgfdb headings= returns a top-level JSON array.
 - Each row currently exposes these fields:
   - =id=: integer
   - =file_id=: integer

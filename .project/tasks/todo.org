@@ -359,3 +359,9 @@ Task file: [[file:archive/2026-07-21--correct-source-target-any-syntax-documenta
 
 - Task file: [[file:archive/2026-07-23--index-fts-title-from-title-raw.org]]
 
+
+
+** DONE [#B] Make JSON the default CLI output format
+
+- Task file: [[file:archive/2026-07-23--make-json-the-default-cli-output-format.org]]
+

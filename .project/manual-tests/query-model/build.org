@@ -64,14 +64,14 @@ sqlite3 <<db-path()>> .dump > <<db-dump()>>
 
 #+name: write-headings-json-with-root
 #+begin_src shell :noweb yes :results silent
-cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- headings --json --include-root --config <<config-path()>> > <<headings-json-with-root()>>
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- headings --include-root --config <<config-path()>> > <<headings-json-with-root()>>
 #+end_src
 
 ** Write links JSON
 
 #+name: write-links-json
 #+begin_src shell :noweb yes :results silent
-cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- links --json --config <<config-path()>> > <<links-json()>>
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- links --format json --config <<config-path()>> > <<links-json()>>
 #+end_src
 
 ** DB as Markdown, Top 10 Rows
