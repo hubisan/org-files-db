@@ -113,6 +113,7 @@ pub struct VariantResult {
     pub id: &'static str,
     pub profile_id: &'static str,
     pub profile_kind: &'static str,
+    pub internal_source_path: String,
     pub explicit_indexes: Vec<String>,
     pub index_inventory: Vec<IndexInventoryEntry>,
     pub dbstat: DbstatAvailability,
@@ -275,6 +276,13 @@ pub fn run(output: &Path, work_dir: &Path, options: BenchmarkOptions) -> Result<
     if options.files < 3 || options.iterations == 0 {
         return Err("--files must be at least 3 and --iterations must be positive".into());
     }
+    let work_dir = if work_dir.is_absolute() {
+        work_dir.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| error.to_string())?
+            .join(work_dir)
+    };
     if work_dir.exists() {
         return Err(format!(
             "benchmark work directory must not already exist: {}",
@@ -287,13 +295,14 @@ pub fn run(output: &Path, work_dir: &Path, options: BenchmarkOptions) -> Result<
             output.display()
         ));
     }
-    fs::create_dir_all(work_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&work_dir).map_err(|error| error.to_string())?;
+    let work_dir = fs::canonicalize(&work_dir).map_err(|error| error.to_string())?;
     let source_dir = work_dir.join("corpus");
     let corpus_start = Instant::now();
     let mut manifest = generate_corpus(&source_dir, options.files, options.seed)?;
     manifest.generation_duration_ns = corpus_start.elapsed().as_nanos();
     let mut variants = Vec::new();
-    for (id, search) in [
+    for (mode_index, (id, search)) in [
         (
             "no-fts",
             SearchConfig {
@@ -315,15 +324,19 @@ pub fn run(output: &Path, work_dir: &Path, options: BenchmarkOptions) -> Result<
                 index_body_text: true,
             },
         ),
-    ] {
-        for profile in INDEX_PROFILES {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (profile_index, profile) in INDEX_PROFILES.iter().enumerate() {
             variants.push(run_variant(
-                work_dir,
+                &work_dir,
                 &source_dir,
                 id,
                 *profile,
                 search.clone(),
                 options,
+                mode_index * INDEX_PROFILES.len() + profile_index,
             )?);
         }
     }
@@ -461,9 +474,12 @@ fn run_variant(
     profile: IndexProfile,
     search: SearchConfig,
     options: BenchmarkOptions,
+    variant_index: usize,
 ) -> Result<VariantResult, String> {
     let db_path = work_dir.join(format!("{id}-{}.sqlite", profile.id));
-    let variant_source = work_dir.join(format!("corpus-{id}-{}", profile.id));
+    let variant_source = work_dir
+        .join(format!("variant-{variant_index:02}"))
+        .join("corpus");
     copy_directory(source_dir, &variant_source)?;
     let config = Config {
         db_path: db_path.clone(),
@@ -489,6 +505,7 @@ fn run_variant(
             id,
             profile_id: profile.id,
             profile_kind: profile.kind,
+            internal_source_path: variant_source.display().to_string(),
             explicit_indexes: explicit_indexes(&connection)?,
             index_inventory: index_inventory(&connection)?,
             dbstat: dbstat_availability(&connection),
@@ -547,10 +564,12 @@ fn run_variant(
     let mut results = Vec::new();
     for workload in workloads {
         let workload_id = workload.id;
-        results.push(
-            measure_query(&db_path, &workload, options)
-                .map_err(|error| format!("{workload_id}: {error}"))?,
-        );
+        let result = measure_query(&db_path, &workload, options)
+            .map_err(|error| format!("{workload_id}: {error}"))?;
+        if workload.expect_nonempty && result.result_count == 0 {
+            return Err(format!("positive lookup returned zero results: workload={workload_id} variant={id} profile={} expression={:?} result_count={}", profile.id, workload.expression, result.result_count));
+        }
+        results.push(result);
     }
     let (fts_workloads, search_workloads) = if search.fts5_enabled && search.index_body_text {
         (
@@ -623,6 +642,7 @@ fn run_variant(
         id,
         profile_id: profile.id,
         profile_kind: profile.kind,
+        internal_source_path: variant_source.display().to_string(),
         explicit_indexes,
         index_inventory,
         dbstat,
@@ -1206,6 +1226,7 @@ struct QueryWorkload {
     id: &'static str,
     expression: String,
     output_mode: QueryOutputMode,
+    expect_nonempty: bool,
 }
 
 fn query_workloads(source_dir: &Path) -> Vec<QueryWorkload> {
@@ -1359,6 +1380,7 @@ fn query_workloads(source_dir: &Path) -> Vec<QueryWorkload> {
             id,
             expression,
             output_mode,
+            expect_nonempty: matches!(id, "query.file.path" | "query.file.dir"),
         })
         .collect()
 }
@@ -1845,6 +1867,36 @@ mod tests {
     }
 
     #[test]
+    fn relative_work_directory_is_canonicalized_before_workload_paths_are_built() {
+        let label = format!(".tmp/orgfdb-benchmark-relative-{}", std::process::id());
+        let work = PathBuf::from(&label);
+        let _ = fs::remove_dir_all(&work);
+        let output = temporary_root("relative-output").join("result.json");
+        fs::create_dir_all(output.parent().expect("output parent")).expect("output parent");
+        run(
+            &output,
+            &work,
+            BenchmarkOptions {
+                files: 3,
+                seed: 1,
+                warmups: 0,
+                iterations: 1,
+            },
+        )
+        .expect("relative benchmark");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&output).expect("output")).expect("json");
+        let variants = value["variants"].as_array().expect("variants");
+        assert!(variants
+            .iter()
+            .all(|variant| variant["internal_source_path"]
+                .as_str()
+                .is_some_and(|path| Path::new(path).is_absolute())));
+        let _ = fs::remove_dir_all(".tmp");
+        let _ = fs::remove_file(output);
+    }
+
+    #[test]
     fn semantic_snapshot_rejects_relationship_corruption() {
         assert_relationship_corruption_detected("parent", |connection| {
             let (heading_id, current_parent_id, alternate_parent_id): (i64, i64, i64) = connection
@@ -2078,6 +2130,24 @@ mod tests {
         assert!(value["environment"]["pragmas"]["cache_size"].is_number());
         let variants = value["variants"].as_array().expect("variants");
         assert_eq!(variants.len(), 3 * INDEX_PROFILES.len());
+        let source_paths = variants
+            .iter()
+            .map(|variant| {
+                variant["internal_source_path"]
+                    .as_str()
+                    .expect("source path")
+            })
+            .collect::<Vec<_>>();
+        assert!(source_paths
+            .iter()
+            .all(|path| std::path::Path::new(path).is_absolute()));
+        assert!(source_paths
+            .iter()
+            .map(|path| path.len())
+            .all(|length| length == source_paths[0].len()));
+        assert!(source_paths.iter().all(|path| !INDEX_PROFILES
+            .iter()
+            .any(|profile| path.contains(profile.id))));
         for variant in variants {
             let workloads = variant["workloads"].as_array().expect("workloads");
             let ids = workloads
@@ -2111,6 +2181,38 @@ mod tests {
             .expect("link count");
         assert_eq!(headings, 24);
         assert_eq!(links, 3);
+        let file_path_counts = variants
+            .iter()
+            .map(|variant| {
+                variant["workloads"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|workload| workload["id"] == "query.file.path")
+                    .unwrap()["result_count"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let file_dir_counts = variants
+            .iter()
+            .map(|variant| {
+                variant["workloads"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|workload| workload["id"] == "query.file.dir")
+                    .unwrap()["result_count"]
+                    .as_u64()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert!(file_path_counts
+            .iter()
+            .all(|count| *count > 0 && *count == file_path_counts[0]));
+        assert!(file_dir_counts
+            .iter()
+            .all(|count| *count > 0 && *count == file_dir_counts[0]));
         assert!(no_fts["incremental"]["semantic_equivalent"].as_bool() == Some(true));
         assert_eq!(
             no_fts["incremental"]["operations"].as_array().map(Vec::len),

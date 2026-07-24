@@ -182,7 +182,298 @@ Checks:
 - ~cargo clippy --all-targets --all-features -- -D warnings~
 - focused and complete tests
 - ~git diff --check~
+  
+*** BUILD [#B] Fix index-profile benchmark comparability defects
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
 
+Goal:
+
+- Fix the comparability defects discovered in the completed 1,000-file index-profile benchmark before making any production index decisions.
+
+Context:
+
+- A relative benchmark ~--work-dir~ caused the ~file-path~ and ~file-dir~ workloads to use relative paths while the production index stored canonical absolute paths.
+- The affected positive lookup workloads therefore returned zero results.
+- Corpus directory names currently contain profile IDs of different lengths.
+- Because absolute source paths are stored in the database, those different directory-name lengths contaminate whole-database size comparisons between profiles.
+- The benchmark must remain a measurement-only facility.
+- Production schema version 8 and all candidate decisions must remain unchanged.
+
+Implementation:
+
+- Resolve the supplied benchmark work directory to a canonical absolute path before creating any corpus directories, databases, workload expressions, or recorded command paths that depend on it.
+- Ensure that ~file-path~ and ~file-dir~ workload parameters use the same canonical absolute path representation stored by the production indexing path.
+- Replace profile-derived corpus directory names with deterministic fixed-width internal names such as ~variant-00~ through ~variant-23~.
+- Preserve the existing FTS mode, profile ID, and profile kind in the JSON report.
+- Keep a deterministic mapping between each fixed-width internal variant directory and its reported benchmark identity.
+- Ensure that all variant corpus paths have equal lengths so stored path data cannot bias database-size comparisons.
+- Mark workloads intended as positive lookups explicitly in the benchmark definition or otherwise maintain an unambiguous expected-result contract.
+- Fail the benchmark with a clear diagnostic when a positive lookup unexpectedly returns zero results.
+- Include the workload ID, variant ID, profile ID, FTS mode, expression, and unexpected result count in that diagnostic.
+- Do not turn legitimately empty or negative lookup workloads into failures.
+- Keep ~dbstat~ capability detection optional and based on the SQLite library linked into the benchmark binary.
+- Do not make unavailable ~dbstat~ support a failure condition in this task.
+
+Regression coverage:
+
+- Add a test that invokes the benchmark with a relative ~--work-dir~.
+- Verify that the work directory is canonicalized before corpus generation and workload construction.
+- Verify that ~query.file.path~ returns its expected positive result set.
+- Verify that ~query.file.dir~ returns a non-empty expected result set.
+- Verify that these result counts are identical across all comparable profiles.
+- Verify that all 24 variant corpus paths use deterministic fixed-width directory names of equal length.
+- Verify that profile IDs do not appear in the internal corpus directory names.
+- Verify that the original profile IDs and kinds remain present in the JSON report.
+- Verify that all variants remain semantically comparable.
+- Add a negative regression test proving that an unexpectedly empty positive workload causes a clear benchmark failure.
+
+Preserve:
+
+- Output schema version ~2~.
+- Corpus contract version ~1~ unless an existing contract rule demonstrably requires a change.
+- The complete matrix of 8 profiles across 3 FTS modes.
+- Production query and search execution paths.
+- Cold and warmed query measurements.
+- Incremental planning and application measurements.
+- Clean-reference rebuilds and semantic equivalence checks.
+- Existing FTS availability and skip reporting.
+- Authoritative database schema version ~8~.
+
+Non-goals:
+
+- Do not apply any candidate index to the production schema.
+- Do not remove any production index.
+- Do not accept or reject any candidate in this task.
+- Do not change Query Model semantics.
+- Do not optimise the expensive property workloads.
+- Do not add benchmark profile or workload filtering.
+- Do not require ~dbstat~ support.
+- Do not rerun the final 1,000-file benchmark as part of automated tests.
+
+Acceptance criteria:
+
+- A benchmark started with a relative work directory produces canonical absolute indexed paths and valid positive ~file-path~ and ~file-dir~ results.
+- Every variant uses an equal-length internal corpus path.
+- Whole-database size comparisons are no longer biased by profile-name length.
+- Unexpected zero-result positive workloads fail immediately with an actionable diagnostic.
+- The JSON output still contains all 24 variants and remains schema version ~2~.
+- Every completed variant reports successful semantic equivalence.
+- Formatting, unit tests, integration tests, and ~make ci~ pass.
+- No authoritative schema or candidate decision is changed.
+
+After implementation:
+
+- Run exactly one smoke benchmark using:
+  - ~--files 50~
+  - ~--seed 1~
+  - ~--warmups 2~
+  - ~--iterations 5~
+  - a relative ~.tmp/...~ work directory
+- Inspect the generated JSON and confirm:
+  - exactly 24 variants are present;
+  - ~query.file.path~ returns the expected positive result count;
+  - ~query.file.dir~ returns a non-zero expected result count;
+  - both result counts are identical across all comparable profiles;
+  - all completed variants report successful semantic equivalence.
+- Run ~make ci~.
+- Do not run a 1,000-file benchmark in this task.
+- Leave the corrected full 1,000-file measurement exclusively for the separate ~Measure index profiles and decide every candidate~ task.
+
+*** TODO [#B] Investigate optional ~dbstat~ evidence for index benchmarks
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Determine why the system ~sqlite3~ CLI provides ~dbstat~ while the SQLite library linked into ~orgfdb-benchmark~ does not.
+- Enable direct per-index ~dbstat~ measurements only when this can be done with a small, portable, and low-maintenance change.
+- Preserve graceful structured skip behaviour when ~dbstat~ is unavailable or enabling it would require disproportionate changes.
+
+Context:
+
+- The system ~sqlite3~ CLI reports ~ENABLE_DBSTAT_VTAB~ in ~PRAGMA compile_options~.
+- A direct CLI query against ~dbstat~ succeeds.
+- The completed benchmark report did not include ~ENABLE_DBSTAT_VTAB~ in the compile options of the SQLite library used by the Rust benchmark.
+- The benchmark reported:
+  - ~dbstat.available: false~
+  - ~reason: "no such table: dbstat"~
+- The CLI and Rust benchmark therefore appear to use different SQLite builds or linkage configurations.
+- Matching SQLite version numbers do not prove that both executables use the same library or compile options.
+- Per-index ~dbstat~ evidence would improve index decisions by separating the storage cost of individual indexes from unrelated whole-database size variation.
+- ~dbstat~ is optional benchmark evidence and is not required for normal OrgFDB operation.
+
+Investigation:
+
+- Identify exactly which SQLite implementation and library ~rusqlite~ and ~libsqlite3-sys~ use for:
+  - normal development builds;
+  - release builds;
+  - the ~orgfdb~ binary;
+  - the ~orgfdb-benchmark~ binary;
+  - unit and integration tests;
+  - CI.
+- Determine whether the project uses:
+  - the system SQLite library;
+  - the ~rusqlite~ bundled feature;
+  - feature-unified bundled SQLite from another dependency;
+  - environment-selected SQLite headers or libraries;
+  - static or dynamic linkage.
+- Record the effective Cargo feature selection for ~rusqlite~ and ~libsqlite3-sys~.
+- Inspect the resolved dependency tree and feature graph rather than relying only on ~Cargo.toml~ declarations.
+- Compare the benchmark binary's reported:
+  - SQLite version;
+  - ~PRAGMA compile_options~;
+  - ~sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')~ result;
+  - direct ~dbstat~ query result;
+  with the corresponding system ~sqlite3~ CLI results.
+- Demonstrate the actual cause of the mismatch.
+- Do not infer linkage solely from matching SQLite version numbers.
+
+Decision rule:
+
+- Treat ~dbstat~ as optional benchmark evidence, not as a required project capability.
+- Enable it only when the required change is:
+  - local and clearly understood;
+  - portable across supported development environments;
+  - compatible with the project's existing SQLite linkage;
+  - low risk for normal OrgFDB builds;
+  - negligible in ongoing maintenance cost.
+- Do not enable ~dbstat~ when doing so would require:
+  - a project-wide SQLite linkage change solely for benchmarking;
+  - replacing the system SQLite installation;
+  - introducing multiple incompatible SQLite builds into one process;
+  - adopting bundled SQLite solely to obtain ~dbstat~;
+  - custom SQLite compilation instructions for normal users;
+  - reduced portability;
+  - fragile environment-specific linker configuration;
+  - significant CI or release-build complexity;
+  - a material increase in maintenance risk.
+- When any of those conditions apply:
+  - do not enable ~dbstat~;
+  - document the demonstrated limitation;
+  - retain runtime capability detection;
+  - retain structured skip reporting;
+  - complete the task without ~dbstat~ support.
+- Lack of ~dbstat~ support is an acceptable final outcome when the alternative would be disproportionate.
+
+Implementation:
+
+- Prefer the smallest reliable solution that exposes ~SQLITE_ENABLE_DBSTAT_VTAB~ to the benchmark.
+- Where practical, scope any special configuration to benchmark or development tooling.
+- Do not change production database semantics, compatibility, schema, queries, or index definitions.
+- Do not require normal ~orgfdb~ users to install or compile a special SQLite build.
+- If Cargo feature unification prevents benchmark-only SQLite features, document that limitation before making any project-wide change.
+- Do not introduce multiple SQLite libraries into the same process.
+- Keep runtime capability detection even when the selected development build normally supports ~dbstat~.
+- Continue to emit structured skip information with a clear reason whenever ~dbstat~ is unavailable.
+- Do not make unavailable ~dbstat~ support a benchmark failure.
+- Do not silently substitute whole-database size differences for direct per-index evidence.
+
+Benchmark output:
+
+- Preserve output schema version ~2~.
+- When ~dbstat~ is available, populate the existing per-table and per-index evidence fields with:
+  - page count;
+  - allocated bytes;
+  - payload bytes where supported;
+  - unused bytes where supported.
+- Associate every measurement with the correct table or index.
+- Keep explicit, implicit, unique-constraint, and primary-key indexes classified separately.
+- Measure ~dbstat~ after the documented checkpoint state so values are comparable between variants.
+- Ensure skipped ~dbstat~ evidence remains represented through:
+  - ~available: false~;
+  - an actionable reason.
+- Do not derive individual index sizes by subtracting whole database file sizes when direct ~dbstat~ evidence is unavailable.
+
+Regression coverage:
+
+- Add a focused capability test for the SQLite library actually linked into the benchmark code.
+- Verify the result of:
+  - ~sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')~;
+  - a direct query against ~dbstat~.
+- When the selected test build supports ~dbstat~, verify that:
+  - querying ~dbstat~ succeeds;
+  - at least one known table or index has non-zero page evidence after inserting test data;
+  - page count and byte calculations are internally consistent;
+  - the benchmark inventory attaches the evidence to the correct database object.
+- Keep tests portable when CI intentionally lacks ~dbstat~:
+  - capability-dependent assertions may skip with an explicit reason;
+  - unrelated benchmark tests must continue to pass.
+- Verify that unavailable ~dbstat~ support produces structured skip information rather than a benchmark failure.
+- Do not make CI success depend on the host system's ~sqlite3~ executable having the same capabilities as the Rust-linked SQLite library.
+
+Documentation:
+
+- Document which SQLite library the Rust binaries use.
+- Document whether and why that differs from the system ~sqlite3~ executable.
+- Document the effective ~rusqlite~ and ~libsqlite3-sys~ feature selection.
+- Document how to inspect support using:
+  - ~PRAGMA compile_options~;
+  - ~sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')~;
+  - a direct query against ~dbstat~.
+- Document any benchmark-specific Cargo feature or environment requirement when one is introduced.
+- When support is deliberately not enabled, document:
+  - the technical reason;
+  - the rejected linkage alternatives;
+  - why structured skip behaviour is the preferable outcome.
+
+Non-goals:
+
+- Do not change the authoritative database schema version.
+- Do not add, remove, accept, or reject any production index candidate.
+- Do not change Query Model or search semantics.
+- Do not replace the system SQLite installation.
+- Do not make ~dbstat~ mandatory for normal OrgFDB operation.
+- Do not introduce a custom SQLite distribution for end users.
+- Do not redesign benchmark output schema version ~2~.
+- Do not rerun the full 1,000-file benchmark in this task.
+- Do not optimise unrelated query workloads.
+
+Acceptance criteria:
+
+- The SQLite linkage used by ~orgfdb-benchmark~ is identified and documented.
+- The difference from the system ~sqlite3~ CLI is demonstrated rather than assumed.
+- The effective Cargo feature and linkage configuration is recorded.
+- One of the following outcomes is completed:
+
+  - ~dbstat~ is enabled through a small, portable, low-risk change, and the benchmark records correct direct per-index evidence.
+
+  - ~dbstat~ remains unavailable because enabling it would require a disproportionate linkage, portability, CI, or maintenance change; the limitation is documented and structured skip reporting remains intact.
+
+- Lack of ~dbstat~ support is accepted as a valid final result when the decision rule rejects the required implementation change.
+- No production schema, query semantics, or index candidate decision changes.
+- Output schema version ~2~ remains compatible.
+- Formatting, tests, and ~make ci~ pass.
+
+After implementation:
+
+- Run exactly one smoke benchmark using:
+  - ~--files 50~
+  - ~--seed 1~
+  - ~--warmups 2~
+  - ~--iterations 5~
+  - a relative ~.tmp/...~ work directory
+- Inspect the generated JSON.
+- When ~dbstat~ is available, confirm:
+  - ~dbstat.available~ is ~true~;
+  - per-index page and byte evidence is populated;
+  - known indexes have plausible non-zero measurements.
+- When ~dbstat~ remains unavailable, confirm:
+  - ~dbstat.available~ is ~false~;
+  - the reason clearly identifies the linked SQLite capability;
+  - the benchmark otherwise completes normally.
+- Run ~make ci~.
+- Do not run a 1,000-file benchmark in this task.
+- Leave the corrected full 1,000-file measurement exclusively for the separate ~Measure index profiles and decide every candidate~ task.
+  
 *** TODO Measure index profiles and decide every candidate
 
 Goal:

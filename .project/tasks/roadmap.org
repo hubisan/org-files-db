@@ -55,6 +55,8 @@ Acceptance criteria:
 
 * Phase 8: Parallel indexing pipeline
 
+TODO allenfalls macht parallel nur Sinn ab einer gewissen Anzahl von Dateien.
+
 Goal of this phase: Make rebuild fast on larger Org collections by parallelizing file parsing while keeping filesystem discovery, per-file context resolution, and SQLite writes deterministic.
 
 Reason for separate phase:
