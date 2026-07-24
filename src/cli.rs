@@ -279,7 +279,7 @@ fn query_json_response(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CliSearchScope {
+pub(crate) enum CliSearchScope {
     All,
     Title,
     Body,
@@ -300,22 +300,56 @@ fn search_json_rows(
     expression: &str,
     config_path: Option<&Path>,
 ) -> Result<Vec<SearchJsonRow>, CliError> {
+    let config = load_cli_config(config_path)?;
+    search_json_rows_for_config(scope, expression, &config)
+}
+
+fn search_json_rows_for_config(
+    scope: CliSearchScope,
+    expression: &str,
+    config: &Config,
+) -> Result<Vec<SearchJsonRow>, CliError> {
+    // Validate purely syntactic usage before opening the configured database.
+    // This preserves the CLI error contract for invalid input even when the
+    // configured database does not exist yet.
     if expression.trim().is_empty() {
         return Err(CliError::InvalidSearchUsage(
             "search requires a non-empty FTS expression".to_string(),
         ));
     }
+    let _ = compile_search_expression(scope, expression)?;
+    let connection =
+        open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
+    production_search_rows_with_connection(&connection, scope, expression, config)
+}
 
+pub(crate) fn production_search_result_count_with_connection(
+    connection: &Connection,
+    scope: CliSearchScope,
+    expression: &str,
+    config: &Config,
+) -> Result<usize, String> {
+    production_search_rows_with_connection(connection, scope, expression, config)
+        .map(|rows| rows.len())
+        .map_err(|error| error.to_string())
+}
+
+fn production_search_rows_with_connection(
+    connection: &Connection,
+    scope: CliSearchScope,
+    expression: &str,
+    config: &Config,
+) -> Result<Vec<SearchJsonRow>, CliError> {
+    if expression.trim().is_empty() {
+        return Err(CliError::InvalidSearchUsage(
+            "search requires a non-empty FTS expression".to_string(),
+        ));
+    }
     let compiled_expression = compile_search_expression(scope, expression)?;
-
-    let config = load_cli_config(config_path)?;
     if !config.search.fts5_enabled {
         return Err(CliError::Search(SearchError::DisabledByConfig));
     }
-
-    let connection =
-        open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
-    match sqlite_supports_fts5(&connection) {
+    match sqlite_supports_fts5(connection) {
         Ok(true) => {}
         Ok(false) => return Err(CliError::Search(SearchError::FtsUnavailable)),
         Err(source) => {
@@ -325,21 +359,18 @@ fn search_json_rows(
             }))
         }
     }
-
-    let trust = inspect_search_backend_state(&connection)?;
+    let trust = inspect_search_backend_state(connection)?;
     if scope == CliSearchScope::Body && !trust.body_indexed {
         return Err(CliError::Search(SearchError::BodyScopeUnavailable));
     }
-
-    let search_rows = DbReader::search_headings(&connection, &compiled_expression)
+    let search_rows = DbReader::search_headings(connection, &compiled_expression)
         .map_err(map_search_db_read_error)?;
     let heading_ids = search_rows
         .iter()
         .map(|row| row.heading_id)
         .collect::<Vec<_>>();
     let headings =
-        shape_matched_heading_nodes(&connection, &heading_ids).map_err(CliError::QueryShape)?;
-
+        shape_matched_heading_nodes(connection, &heading_ids).map_err(CliError::QueryShape)?;
     Ok(search_rows
         .into_iter()
         .zip(headings)

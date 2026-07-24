@@ -1,0 +1,33 @@
+#+TITLE: SQLite Query Performance Baseline
+#+STARTUP: showall
+
+* Purpose
+
+The benchmark records the current Query Model v0 and production-search behaviour before any index tuning. It is measurement-only: it does not change persistent indexes, schema versions, query semantics, or CI thresholds.
+
+* Run
+
+Use an optimized release build and explicit, untracked output paths:
+
+#+begin_src sh
+cargo run --release --bin orgfdb-benchmark -- \
+  --files 1000 --seed 1 --warmups 5 --iterations 30 \
+  --work-dir /tmp/orgfdb-benchmark-work \
+  --output /tmp/orgfdb-benchmark.json
+#+end_src
+
+The corpus generator contract is versioned and its manifest contains the file count, expected heading and link cardinalities, seed, generation duration, and SHA-256 fingerprint. It generates deterministic directory and filename groups, shallow/wide and deep outlines, TODO states, tags, direct properties, planning and generic timestamps, repeaters, resolved and broken links, title/body tokens, and varying body sizes. The fingerprint uses tagged length-prefixed relative native paths and exact file bytes. The runner requires both a new work directory and a new output path, writes JSON only to the requested output path, and does not modify source fixtures or documentation.
+
+* Measurement protocol
+
+Workloads have stable IDs and are measured in stable order. Query Model workloads use parser, validator, compiler, executor, and both flat and outline result materialization. FTS title and body workloads use the existing production search path; unavailable or disabled FTS is recorded as a structured skip and is never replaced by LIKE or regexp.
+
+After rebuilding, the writer connection is closed. Each workload group then opens one fresh read-only connection for the single cold-connection end-to-end sample, closes it, and uses a second fresh read-only connection for its warm-ups and measured samples. The runner records parser/validation/compiler timing separately from validated-query end-to-end execution and result materialization; it does not claim a separate compiled-SQL-only timing. It runs five warm-ups and thirty measured executions by default. A newly opened connection is described as a cold connection only; it is not evidence of a cold operating-system or storage cache. Optional OS-cache experiments must be performed and documented separately by the operator.
+
+* Output and size policy
+
+Each workload records its expression, production path, output mode, compiled SQL, deterministic parameters, result count, cold-connection end-to-end sample, warmed timing distributions, and =EXPLAIN QUERY PLAN= details. Variant records include FTS capability and structured skips. The environment records command arguments, build profile, OS/architecture, available CPUs where available, SQLite version and compile options, relevant pragma values, and explicit unknown storage notes.
+
+For each database variant, the output records corpus rebuild duration, main database size before and after checkpoint, WAL size before and after =wal_checkpoint(TRUNCATE)=, page count, page size, freelist count, and journal mode. The checkpoint policy is identical for all variants. =VACUUM= is not part of the normal baseline.
+
+Commit the generator, runner, output schema, and tests. Benchmark JSON is intentionally local and untracked, including small machine-specific examples, so the repository does not imply that one machine's timings are a reference baseline.

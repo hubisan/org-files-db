@@ -1,6 +1,7 @@
 #[cfg(not(unix))]
 compile_error!("org-files-db supports Unix-like platforms only; Windows is unsupported");
 
+pub mod benchmark;
 pub mod cli;
 pub mod config;
 pub mod db;

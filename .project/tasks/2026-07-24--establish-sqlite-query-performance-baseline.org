@@ -1,0 +1,43 @@
+#+TITLE: Establish SQLite Query Performance Baseline
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-24 Fri 01:10]
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Establish a reproducible SQLite query-performance baseline without changing indexes.
+
+* Results
+
+** Approach
+
+- Added the =orgfdb-benchmark= release runner with explicit corpus, seed, iteration, new work-directory, and new output-path arguments.
+- Added a deterministic versioned corpus with path groups, shallow/wide and deep outlines, TODOs, tags, properties, planning and generic timestamps, repeaters, resolved/broken links, and controlled search tokens.
+- Added stable Query Model v0 workload IDs covering selective/non-selective TODO, tag, property, file, link, timestamp, hierarchy, flat, and outline paths. FTS title/body workloads use the production search implementation and emit structured skips when unavailable or disabled.
+- Closed the rebuild connection before measurement. Each workload records one fresh-connection end-to-end sample, then warm-ups and samples on a separate reused read-only connection.
+- Recorded generation/rebuild durations, SQLite version and compile options, capability, pragma, environment, query-plan, and database/WAL/checkpoint evidence.
+
+** Changed files
+
+- ~src/benchmark.rs~ and ~src/bin/orgfdb-benchmark.rs~ provide the generator, runner, output contract, and focused contract tests.
+- ~src/cli.rs~ exposes the existing production search execution against a supplied connection for the runner while retaining early CLI input validation.
+- ~docs/performance-baseline.org~ documents the protocol and intentionally local JSON artifacts.
+
+** Checks performed
+
+- ~cargo fmt --check~ passed.
+- ~cargo clippy --all-targets -- -D warnings~ passed.
+- ~cargo test~ passed (416 unit and integration tests).
+- ~cargo build --all-targets~ passed.
+- Release smoke benchmark passed with a fresh three-file corpus, explicit temporary work directory, and explicit output path.
+- ~make ci~ passed.
+- ~git diff --check~ passed.
+
+** Limitations
+
+- The fresh connection is a cold-connection measurement only; it does not flush or claim a cold operating-system/storage cache.
+- Available memory is reported as unknown without adding a platform-specific dependency.
+- Full machine-specific JSON results remain intentionally local and untracked.
