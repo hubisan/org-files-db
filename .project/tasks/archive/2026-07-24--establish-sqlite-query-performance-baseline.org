@@ -10,6 +10,36 @@
 
 Establish a reproducible SQLite query-performance baseline without changing indexes.
 
+** DONE Establish SQLite query-performance baseline
+
+- Task file: [[file:archive/2026-07-24--establish-sqlite-query-performance-baseline.org]]
+
+Goal: Measure whether the current schema and existing indexes are fast enough for the intended Query Model v0 workload before changing indexes.
+
+Note:
+
+- The project is query-oriented, but a separate data warehouse is unnecessary unless measurements demonstrate a real bottleneck.
+- This task measures and documents existing behaviour. It does not change persistent indexes.
+
+Acceptance criteria:
+
+- A reproducible benchmark corpus defines file count, heading count, hierarchy shape, tags, properties, timestamps, links, body-text volume, and representative selectivity.
+- The corpus includes both shallow and wide outlines and deep hierarchical outlines.
+- Common queries are generated through the real Query Model v0 compiler where possible rather than only handwritten SQL.
+- Workloads include TODO predicates, tags, properties, links and link status, planning and timestamps, file predicates, outline ancestors, descendants and subtrees, and representative result shaping.
+- FTS query performance is measured when FTS5 is enabled.
+- FTS measurements include title-only and body-enabled databases.
+- Materialized-path subtree queries are measured for shallow, wide, and deep outlines.
+- ~EXPLAIN QUERY PLAN~ output is recorded for representative queries.
+- Query plans are related to the indexes already present in ~sql/schema.sql~.
+- Measurements distinguish warm and cold behaviour where practical.
+- Measurements report result counts and use repeated runs.
+- SQLite version, build capabilities, relevant pragmas, hardware assumptions, and command configuration are documented.
+- Baseline database size is recorded.
+- Existing index size and rebuild/write cost are recorded so read performance is not evaluated in isolation.
+- Commands, corpus generation, raw results, summaries, and limitations are documented reproducibly.
+- No index is added or removed merely because it appears theoretically useful.
+
 * Results
 
 ** Approach

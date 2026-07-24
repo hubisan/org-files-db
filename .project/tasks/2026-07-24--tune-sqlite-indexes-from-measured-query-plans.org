@@ -1,0 +1,39 @@
+#+TITLE: Tune SQLite Indexes from Measured Query Plans
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-24 Fri 12:30]
+
+* Original Task (User only)
+
+Tune SQLite indexes from measured query plans.
+
+* Planning
+
+** Problem summary
+
+- Compare each index candidate against the unchanged version-8 schema, then compare a combined candidate profile before changing persistent schema.
+
+** Goals
+
+- Preserve production query semantics and record reproducible planner, read, storage, rebuild, and incremental-write evidence.
+
+** Non-goals
+
+- FTS virtual-table tuning and query compiler changes.
+
+** Architecture
+
+- The benchmark runner creates fresh profile databases using the production schema/rebuild path and rejects incomparable results.
+
+** Execution plan
+
+- Add profile, inventory, statistics, incremental-sequence, and comparison evidence to the benchmark runner.
+- Run individual and combined candidates; change the persistent schema only for accepted evidence.
+
+** Risks & assumptions
+
+- A candidate remains rejected unless repeatable evidence supports it; raw machine results stay untracked.
+
+** Proposed checks
+
+- ~make ci~ and a release benchmark smoke run.

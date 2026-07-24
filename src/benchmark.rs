@@ -26,7 +26,7 @@ use crate::{
 };
 
 pub const CORPUS_CONTRACT_VERSION: &str = "1";
-pub const OUTPUT_SCHEMA_VERSION: &str = "1";
+pub const OUTPUT_SCHEMA_VERSION: &str = "2";
 pub const DEFAULT_FILES: usize = 1_000;
 pub const DEFAULT_WARMUPS: usize = 5;
 pub const DEFAULT_ITERATIONS: usize = 30;
@@ -71,6 +71,7 @@ pub struct Environment {
     pub sqlite_version: String,
     pub sqlite_compile_options: Vec<String>,
     pub pragmas: ConnectionPragmas,
+    pub statistics_tables: Vec<String>,
     pub storage_notes: &'static str,
 }
 
@@ -103,12 +104,67 @@ pub struct Protocol {
 #[derive(Debug, Serialize)]
 pub struct VariantResult {
     pub id: &'static str,
+    pub profile_id: &'static str,
+    pub profile_kind: &'static str,
+    pub explicit_indexes: Vec<String>,
+    pub index_inventory: Vec<IndexInventoryEntry>,
+    pub dbstat: DbstatAvailability,
     pub fts5_available: bool,
     pub fts_workloads: Vec<SkippedWorkload>,
     pub search_workloads: Vec<SearchWorkloadResult>,
     pub workloads: Vec<WorkloadResult>,
     pub database: DatabaseSize,
 }
+
+#[derive(Debug, Serialize)]
+pub struct IndexInventoryEntry {
+    pub table: String,
+    pub name: Option<String>,
+    pub classification: &'static str,
+    pub unique: bool,
+    pub partial: bool,
+    pub columns: Vec<IndexColumn>,
+    pub sql: Option<String>,
+    pub dbstat: Option<IndexDbstat>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IndexDbstat {
+    pub pages: i64,
+    pub total_bytes: i64,
+    pub payload_bytes: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IndexColumn {
+    pub sequence: i64,
+    pub column: Option<String>,
+    pub expression: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DbstatAvailability {
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct IndexProfile {
+    id: &'static str,
+    kind: &'static str,
+    sql: &'static str,
+}
+
+const INDEX_PROFILES: &[IndexProfile] = &[
+    IndexProfile { id: "baseline-v8", kind: "baseline", sql: "" },
+    IndexProfile { id: "candidate-add-links-resolution-status", kind: "individual-candidate", sql: "CREATE INDEX idx_benchmark_links_resolution_status ON links(resolution_status);" },
+    IndexProfile { id: "candidate-add-files-path-lower", kind: "individual-candidate", sql: "CREATE INDEX idx_benchmark_files_path_lower ON files(LOWER(path));" },
+    IndexProfile { id: "candidate-add-headings-title-lower", kind: "individual-candidate", sql: "CREATE INDEX idx_benchmark_headings_title_lower ON headings(LOWER(title));" },
+    IndexProfile { id: "candidate-remove-tags-heading", kind: "individual-candidate", sql: "DROP INDEX IF EXISTS idx_tags_heading;" },
+    IndexProfile { id: "candidate-remove-keywords-heading", kind: "individual-candidate", sql: "DROP INDEX IF EXISTS idx_keywords_heading;" },
+    IndexProfile { id: "candidate-remove-repeaters-timestamp", kind: "individual-candidate", sql: "DROP INDEX IF EXISTS idx_timestamp_repeaters_timestamp_id;" },
+    IndexProfile { id: "combined-candidates", kind: "combined-candidate", sql: "CREATE INDEX idx_benchmark_links_resolution_status ON links(resolution_status); CREATE INDEX idx_benchmark_files_path_lower ON files(LOWER(path)); CREATE INDEX idx_benchmark_headings_title_lower ON headings(LOWER(title)); DROP INDEX IF EXISTS idx_tags_heading; DROP INDEX IF EXISTS idx_keywords_heading; DROP INDEX IF EXISTS idx_timestamp_repeaters_timestamp_id;" },
+];
 
 #[derive(Debug, Serialize)]
 pub struct SearchWorkloadResult {
@@ -216,8 +272,18 @@ pub fn run(output: &Path, work_dir: &Path, options: BenchmarkOptions) -> Result<
             },
         ),
     ] {
-        variants.push(run_variant(work_dir, &source_dir, id, search, options)?);
+        for profile in INDEX_PROFILES {
+            variants.push(run_variant(
+                work_dir,
+                &source_dir,
+                id,
+                *profile,
+                search.clone(),
+                options,
+            )?);
+        }
     }
+    ensure_comparable_profiles(&variants)?;
     let result = BenchmarkOutput {
         output_schema_version: OUTPUT_SCHEMA_VERSION,
         corpus_contract_version: CORPUS_CONTRACT_VERSION,
@@ -236,6 +302,45 @@ pub fn run(output: &Path, work_dir: &Path, options: BenchmarkOptions) -> Result<
         serde_json::to_vec_pretty(&result).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())
+}
+
+fn ensure_comparable_profiles(variants: &[VariantResult]) -> Result<(), String> {
+    for baseline in variants
+        .iter()
+        .filter(|variant| variant.profile_id == "baseline-v8")
+    {
+        for candidate in variants.iter().filter(|variant| variant.id == baseline.id) {
+            if candidate.workloads.len() != baseline.workloads.len()
+                || candidate.search_workloads.len() != baseline.search_workloads.len()
+            {
+                return Err(format!(
+                    "incomparable profile {} for {}",
+                    candidate.profile_id, candidate.id
+                ));
+            }
+            for (expected, actual) in baseline.workloads.iter().zip(&candidate.workloads) {
+                if expected.id != actual.id || expected.result_count != actual.result_count {
+                    return Err(format!(
+                        "result mismatch for {} in {}",
+                        actual.id, candidate.profile_id
+                    ));
+                }
+            }
+            for (expected, actual) in baseline
+                .search_workloads
+                .iter()
+                .zip(&candidate.search_workloads)
+            {
+                if expected.id != actual.id || expected.result_count != actual.result_count {
+                    return Err(format!(
+                        "search result mismatch for {} in {}",
+                        actual.id, candidate.profile_id
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn generate_corpus(
@@ -309,10 +414,11 @@ fn run_variant(
     work_dir: &Path,
     source_dir: &Path,
     id: &'static str,
+    profile: IndexProfile,
     search: SearchConfig,
     options: BenchmarkOptions,
 ) -> Result<VariantResult, String> {
-    let db_path = work_dir.join(format!("{id}.sqlite"));
+    let db_path = work_dir.join(format!("{id}-{}.sqlite", profile.id));
     let config = Config {
         db_path: db_path.clone(),
         files: Vec::new(),
@@ -335,6 +441,11 @@ fn run_variant(
         let connection = Connection::open(&db_path).map_err(|error| error.to_string())?;
         return Ok(VariantResult {
             id,
+            profile_id: profile.id,
+            profile_kind: profile.kind,
+            explicit_indexes: explicit_indexes(&connection)?,
+            index_inventory: index_inventory(&connection)?,
+            dbstat: dbstat_availability(&connection),
             fts5_available,
             fts_workloads: vec![
                 SkippedWorkload {
@@ -356,12 +467,18 @@ fn run_variant(
         &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, search.fts5_enabled),
     )
     .map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(profile.sql)
+        .map_err(|error| error.to_string())?;
     let rebuild_start = Instant::now();
     Indexer::new(OrgizeAdapter::new())
         .rebuild(&mut connection, &config)
         .map_err(|error| error.to_string())?;
     let rebuild_duration_ns = rebuild_start.elapsed().as_nanos();
     let database = database_size(&connection, &db_path, rebuild_duration_ns)?;
+    let explicit_indexes = explicit_indexes(&connection)?;
+    let index_inventory = index_inventory(&connection)?;
+    let dbstat = dbstat_availability(&connection);
     drop(connection);
     let workloads = query_workloads(source_dir);
     let mut results = Vec::new();
@@ -429,6 +546,11 @@ fn run_variant(
     };
     Ok(VariantResult {
         id,
+        profile_id: profile.id,
+        profile_kind: profile.kind,
+        explicit_indexes,
+        index_inventory,
+        dbstat,
         fts5_available,
         fts_workloads,
         workloads: results,
@@ -812,6 +934,19 @@ fn environment() -> Result<Environment, String> {
     let journal_mode = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .map_err(|error| error.to_string())?;
+    let statistics_tables = ["sqlite_stat1", "sqlite_stat4"]
+        .into_iter()
+        .filter(|table| {
+            connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+                    [table],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false)
+        })
+        .map(str::to_string)
+        .collect();
     Ok(Environment {
         command_arguments: std::env::args().collect(),
         build_profile: if cfg!(debug_assertions) {
@@ -831,8 +966,136 @@ fn environment() -> Result<Environment, String> {
             journal_mode,
             transaction_state: "read-only autocommit for workload groups",
         },
+        statistics_tables,
         storage_notes: "unknown",
     })
+}
+
+fn explicit_indexes(connection: &Connection) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL ORDER BY name",
+        )
+        .map_err(|error| error.to_string())?;
+    let indexes = statement
+        .query_map([], |row| row.get(0))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|error| error.to_string())?;
+    Ok(indexes)
+}
+
+fn index_inventory(connection: &Connection) -> Result<Vec<IndexInventoryEntry>, String> {
+    let mut tables = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .map_err(|error| error.to_string())?;
+    let tables = tables
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    let mut result = Vec::new();
+    for table in tables {
+        let quoted = format!("'{}'", table.replace('\'', "''"));
+        let mut statement = connection
+            .prepare(&format!("PRAGMA index_list({quoted})"))
+            .map_err(|error| error.to_string())?;
+        let indexes = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? != 0,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)? != 0,
+                ))
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        for (name, unique, origin, partial) in indexes {
+            let mut columns_statement = connection
+                .prepare(&format!(
+                    "PRAGMA index_xinfo('{}')",
+                    name.replace('\'', "''")
+                ))
+                .map_err(|error| error.to_string())?;
+            let columns = columns_statement
+                .query_map([], |row| {
+                    let key: i64 = row.get(5)?;
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, Option<String>>(2)?,
+                        key != 0,
+                    ))
+                })
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .filter_map(|(sequence, column, key)| {
+                    key.then_some(IndexColumn {
+                        sequence,
+                        expression: column.is_none(),
+                        column,
+                    })
+                })
+                .collect();
+            let sql = connection
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                    [&name],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?
+                .flatten();
+            let classification = match origin.as_str() {
+                "c" => "explicit_declared",
+                "u" => "unique_constraint_implied",
+                "pk" => "primary_key_implied",
+                _ => "sqlite_internal",
+            };
+            let dbstat = connection
+                .query_row(
+                    "SELECT COUNT(*), COALESCE(SUM(pgsize), 0), COALESCE(SUM(payload), 0) FROM dbstat WHERE name = ?1",
+                    [&name],
+                    |row| {
+                        Ok(IndexDbstat {
+                            pages: row.get(0)?,
+                            total_bytes: row.get(1)?,
+                            payload_bytes: row.get(2)?,
+                        })
+                    },
+                )
+                .ok();
+            result.push(IndexInventoryEntry {
+                table: table.clone(),
+                name: Some(name),
+                classification,
+                unique,
+                partial,
+                columns,
+                sql,
+                dbstat,
+            });
+        }
+    }
+    Ok(result)
+}
+
+fn dbstat_availability(connection: &Connection) -> DbstatAvailability {
+    match connection.query_row("SELECT COUNT(*) FROM dbstat", [], |row| {
+        row.get::<_, i64>(0)
+    }) {
+        Ok(_) => DbstatAvailability {
+            available: true,
+            reason: None,
+        },
+        Err(error) => DbstatAvailability {
+            available: false,
+            reason: Some(error.to_string()),
+        },
+    }
 }
 
 fn database_size(
@@ -937,7 +1200,7 @@ mod tests {
         assert!(value["environment"]["sqlite_version"].is_string());
         assert!(value["environment"]["pragmas"]["cache_size"].is_number());
         let variants = value["variants"].as_array().expect("variants");
-        assert_eq!(variants.len(), 3);
+        assert_eq!(variants.len(), 3 * INDEX_PROFILES.len());
         for variant in variants {
             let workloads = variant["workloads"].as_array().expect("workloads");
             let ids = workloads
@@ -954,10 +1217,15 @@ mod tests {
             assert!(variant["database"]["main_before_checkpoint_bytes"].is_number());
             assert!(variant["database"]["main_after_checkpoint_bytes"].is_number());
             assert!(variant["database"]["wal_before_checkpoint_bytes"].is_number());
+            assert!(variant["profile_id"].is_string());
+            assert!(variant["profile_kind"].is_string());
+            assert!(variant["explicit_indexes"].is_array());
+            assert!(variant["dbstat"]["available"].is_boolean());
         }
         let no_fts = &variants[0];
-        let connection = open_existing_database_read_only(work_dir.join("no-fts.sqlite"))
-            .expect("read-only database");
+        let connection =
+            open_existing_database_read_only(work_dir.join("no-fts-baseline-v8.sqlite"))
+                .expect("read-only database");
         let headings: usize = connection
             .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
             .expect("heading count");

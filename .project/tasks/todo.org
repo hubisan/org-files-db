@@ -109,37 +109,11 @@ General rules:
 
 - Task file: [[file:archive/2026-07-24--implement-transactional-change-application-and-prove-rebuild-equivalence.org]]
 
-** REVIEW Establish SQLite query-performance baseline
+** DONE Establish SQLite query-performance baseline
 
-- Task file: [[file:2026-07-24--establish-sqlite-query-performance-baseline.org]]
+- Task file: [[file:archive/2026-07-24--establish-sqlite-query-performance-baseline.org]]
 
-Goal: Measure whether the current schema and existing indexes are fast enough for the intended Query Model v0 workload before changing indexes.
-
-Note:
-
-- The project is query-oriented, but a separate data warehouse is unnecessary unless measurements demonstrate a real bottleneck.
-- This task measures and documents existing behaviour. It does not change persistent indexes.
-
-Acceptance criteria:
-
-- A reproducible benchmark corpus defines file count, heading count, hierarchy shape, tags, properties, timestamps, links, body-text volume, and representative selectivity.
-- The corpus includes both shallow and wide outlines and deep hierarchical outlines.
-- Common queries are generated through the real Query Model v0 compiler where possible rather than only handwritten SQL.
-- Workloads include TODO predicates, tags, properties, links and link status, planning and timestamps, file predicates, outline ancestors, descendants and subtrees, and representative result shaping.
-- FTS query performance is measured when FTS5 is enabled.
-- FTS measurements include title-only and body-enabled databases.
-- Materialized-path subtree queries are measured for shallow, wide, and deep outlines.
-- ~EXPLAIN QUERY PLAN~ output is recorded for representative queries.
-- Query plans are related to the indexes already present in ~sql/schema.sql~.
-- Measurements distinguish warm and cold behaviour where practical.
-- Measurements report result counts and use repeated runs.
-- SQLite version, build capabilities, relevant pragmas, hardware assumptions, and command configuration are documented.
-- Baseline database size is recorded.
-- Existing index size and rebuild/write cost are recorded so read performance is not evaluated in isolation.
-- Commands, corpus generation, raw results, summaries, and limitations are documented reproducibly.
-- No index is added or removed merely because it appears theoretically useful.
-
-** TODO Tune SQLite indexes from measured query plans
+** CONTINUE Tune SQLite indexes from measured query plans
 
 Goal: Add, remove, or change indexes only where the performance baseline demonstrates a useful workload improvement.
 
@@ -158,3 +132,159 @@ Acceptance criteria:
 - FTS tuning does not weaken existing trust-metadata and rebuild-equivalence contracts.
 - The accepted index set contains no known redundant index without a documented reason.
 - Final before and after measurements, accepted changes, rejected candidates, and limitations are documented so later work does not repeat the same experiments.
+  
+*** BUILD Complete index-profile measurement infrastructure
+
+Goal:
+
+- Finish all tooling required to compare the version-8 baseline, individual index candidates, and the combined candidate profile reproducibly.
+
+Acceptance criteria:
+
+- Measure the same deterministic incremental sequence for every profile:
+  - metadata-only update;
+  - modified-file replacement;
+  - created file;
+  - deleted file;
+  - mixed change set.
+- Measure planning and transactional application separately.
+- Record database and WAL sizes before and after the incremental sequence.
+- Verify semantic equivalence after the sequence.
+- Record per-index page and byte usage through ~dbstat~ when available.
+- Emit a structured reason when ~dbstat~ is unavailable.
+- Distinguish explicit indexes, indexes implied by primary or unique constraints, and SQLite autoindexes.
+- Add representative workloads for:
+  - exact case-insensitive file path;
+  - exact case-insensitive file title;
+  - link resolution status;
+  - source-link relations;
+  - resolved-target relations;
+  - temporal ranges.
+- Keep representative TODO, tag, property, hierarchy, substring, regexp, and FTS workloads.
+- Strengthen profile comparability checks for:
+  - corpus contract and fingerprint;
+  - seed and file count;
+  - SQLite version and compile options;
+  - relevant pragmas;
+  - FTS mode and capability;
+  - workload IDs and ordering;
+  - warm-up and measured iteration counts;
+  - result cardinalities;
+  - structured skipped workloads;
+  - incremental sequence identity.
+- Add focused tests for the measurement protocol and output contract.
+- Keep the authoritative schema unchanged at version 8.
+- Do not make candidate decisions in this subtask.
+
+Checks:
+
+- ~cargo fmt --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- focused and complete tests
+- ~git diff --check~
+
+*** TODO Measure index profiles and decide every candidate
+
+Goal:
+
+- Run the complete release benchmark and produce an explicit accepted or rejected decision for every individual candidate and the combined profile.
+
+Profiles:
+
+- unchanged version-8 baseline;
+- add link resolution-status index;
+- add ~LOWER(files.path)~ expression index;
+- add ~LOWER(headings.title)~ expression index;
+- remove ~idx_tags_heading~;
+- remove ~idx_keywords_heading~;
+- remove ~idx_timestamp_repeaters_timestamp_id~;
+- combined candidate profile.
+
+Acceptance criteria:
+
+- Run all comparable profiles with the same:
+  - corpus;
+  - seed;
+  - SQLite build;
+  - pragmas;
+  - warm-ups;
+  - iterations;
+  - workload ordering.
+- Run FTS-disabled, FTS-title, and FTS-body variants where supported.
+- Do not assume that any addition is useful or that any removal candidate is redundant.
+- For each candidate, document:
+  - candidate ID;
+  - target workloads;
+  - before and after ~EXPLAIN QUERY PLAN~;
+  - minimum, median, p95, and sample count;
+  - result equivalence;
+  - database-size delta;
+  - per-index ~dbstat~ footprint where available;
+  - rebuild-time delta;
+  - incremental planning and application delta;
+  - actual planner use;
+  - accepted or rejected decision;
+  - rationale and measurement limitations.
+- Review removal candidates using table definitions, key constraints, column order, covering behaviour, read use, deletion behaviour, rebuild cost, and incremental-write cost.
+- Verify that expression-index candidates match the existing compiled SQL structurally.
+- Do not change query semantics or compiler output to make an index useful.
+- Treat roughly 20 percent median improvement as strong evidence, not as a mandatory threshold.
+- Reject noisy, unused, isolated, or disproportionately costly candidates.
+- Produce a separate accepted or rejected decision for the combined profile.
+- Keep the authoritative schema unchanged during this subtask.
+
+Result:
+
+- A complete decision table with no undecided candidate.
+
+*** TODO Apply the measured index decision and finish tuning
+
+Goal:
+
+- Apply the final measured index decision, update project records, and complete the parent tuning task.
+
+Acceptance criteria:
+
+- If every candidate was rejected:
+  - retain the current authoritative index set;
+  - keep ~CURRENT_SCHEMA_VERSION~ at 8;
+  - add no migration;
+  - document that retaining the existing schema was the measured decision.
+- If one or more candidates were accepted:
+  - change only the accepted authoritative indexes;
+  - bump ~CURRENT_SCHEMA_VERSION~;
+  - add the project-standard migration from the real version-8 schema;
+  - update fresh-schema definitions;
+  - safely create or drop only the accepted named indexes.
+- Preserve:
+  - query-result equivalence;
+  - foreign-key integrity;
+  - rebuild equivalence;
+  - FTS trust metadata;
+  - FTS-disabled and FTS-enabled behaviour.
+- Add fresh-schema tests for the exact explicit accepted index inventory.
+- Add migration tests when the schema changes.
+- Do not assert unstable SQLite autoindex names.
+- Update:
+  - ~docs/performance-baseline.org~;
+  - the tuning task file;
+  - ~todo.org~;
+  - ~CHANGELOG.org~ where appropriate.
+- Record:
+  - the release benchmark command;
+  - measured environment;
+  - complete candidate decision table;
+  - final accepted index set;
+  - final schema version;
+  - migration summary when applicable;
+  - all checks actually run.
+- Mark the parent task DONE only after the schema decision has been applied or explicitly retained unchanged.
+
+Checks:
+
+- ~cargo fmt --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test~
+- ~cargo build --all-targets~
+- ~make ci~
+- ~git diff --check~

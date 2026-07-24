@@ -31,3 +31,9 @@ Each workload records its expression, production path, output mode, compiled SQL
 For each database variant, the output records corpus rebuild duration, main database size before and after checkpoint, WAL size before and after =wal_checkpoint(TRUNCATE)=, page count, page size, freelist count, and journal mode. The checkpoint policy is identical for all variants. =VACUUM= is not part of the normal baseline.
 
 Commit the generator, runner, output schema, and tests. Benchmark JSON is intentionally local and untracked, including small machine-specific examples, so the repository does not imply that one machine's timings are a reference baseline.
+
+* Index-tuning profiles
+
+The runner also measures the unchanged version-8 baseline, every named individual index candidate, and a combined candidate profile. Profiles are rebuilt into fresh databases through the normal production path. They use the same generated corpus, query workload order, warm-ups, iterations, SQLite build, and application pragmas. The runner rejects a profile set when query or search result cardinalities differ from its matching baseline variant.
+
+Candidates are experiments only. The current persistent schema remains version 8 until documented measurements support a change. The output records explicit declared-index inventory separately from SQLite implicit indexes, dbstat availability, plans, timing distributions, database/WAL evidence, and FTS variant identity. It does not run ANALYZE, VACUUM, or benchmark-only pragmas.
