@@ -132,8 +132,8 @@ Acceptance criteria:
 - FTS tuning does not weaken existing trust-metadata and rebuild-equivalence contracts.
 - The accepted index set contains no known redundant index without a documented reason.
 - Final before and after measurements, accepted changes, rejected candidates, and limitations are documented so later work does not repeat the same experiments.
-  
-*** REVIEW Complete index-profile measurement infrastructure
+
+*** DONE Complete index-profile measurement infrastructure
 
 Goal:
 
@@ -183,97 +183,7 @@ Checks:
 - focused and complete tests
 - ~git diff --check~
 
-*Finish only the remaining tests for:
-
-Complete index-profile measurement infrastructure
-
-Do not start profile measurements, candidate decisions, or schema changes.
-
-Add focused negative tests proving that the semantic rebuild-equivalence comparison rejects intentional corruption of:
-
-- a heading parent relationship;
-- a tag or property owner;
-- a link source or resolved target;
-- an outline-path association;
-- trusted FTS contents or observable production-search results when FTS5 is available.
-
-Each test must:
-
-- begin with two semantically equivalent databases;
-- corrupt exactly one relationship or derived state on one side;
-- prove that the equivalence comparison reports inequality or an explicit error;
-- avoid relying on unstable surrogate IDs where a stable semantic key is available.
-
-Also assert the exact incremental operation order and classifications:
-
-- metadata-only: one metadata-only;
-- modified-replacement: one modified;
-- created-file: one created;
-- deleted-file: one deleted;
-- mixed-change-set: one created, one modified, and one deleted;
-- zero failed entries throughout.
-
-Keep the existing positive incremental-versus-clean-rebuild equivalence test.
-
-Run:
-
-- cargo fmt --check
-- cargo clippy --all-targets --all-features -- -D warnings
-- cargo test
-- cargo build --all-targets
-- make ci
-- git diff --check
-
-After all tests pass:
-
-- mark Complete index-profile measurement infrastructure DONE;
-- move Measure index profiles and decide every candidate to BUILD;
-- stop without running the full profile benchmark or making candidate decisions.Finish only the remaining tests for:
-
-Complete index-profile measurement infrastructure
-
-Do not start profile measurements, candidate decisions, or schema changes.
-
-Add focused negative tests proving that the semantic rebuild-equivalence comparison rejects intentional corruption of:
-
-- a heading parent relationship;
-- a tag or property owner;
-- a link source or resolved target;
-- an outline-path association;
-- trusted FTS contents or observable production-search results when FTS5 is available.
-
-Each test must:
-
-- begin with two semantically equivalent databases;
-- corrupt exactly one relationship or derived state on one side;
-- prove that the equivalence comparison reports inequality or an explicit error;
-- avoid relying on unstable surrogate IDs where a stable semantic key is available.
-
-Also assert the exact incremental operation order and classifications:
-
-- metadata-only: one metadata-only;
-- modified-replacement: one modified;
-- created-file: one created;
-- deleted-file: one deleted;
-- mixed-change-set: one created, one modified, and one deleted;
-- zero failed entries throughout.
-
-Keep the existing positive incremental-versus-clean-rebuild equivalence test.
-
-Run:
-
-- cargo fmt --check
-- cargo clippy --all-targets --all-features -- -D warnings
-- cargo test
-- cargo build --all-targets
-- make ci
-- git diff --check
-
-After all tests pass:
-
-- mark Complete index-profile measurement infrastructure DONE;
-- move Measure index profiles and decide every candidate to BUILD;
-- stop without running the full profile benchmark or making candidate decisions.** TODO Measure index profiles and decide every candidate
+*** TODO Measure index profiles and decide every candidate
 
 Goal:
 

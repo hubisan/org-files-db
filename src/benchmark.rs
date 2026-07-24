@@ -12,11 +12,15 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    cli::{production_search_result_count_with_connection, CliSearchScope},
+    cli::{
+        production_search_result_count_with_connection,
+        production_search_stable_results_with_connection, CliSearchScope,
+    },
     config::{Config, SearchConfig},
     db::{
         open_database_with_schema, open_existing_database_read_only, SchemaDefinition,
-        CURRENT_SCHEMA_VERSION,
+        CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
+        DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     },
     indexer::Indexer,
     parser::OrgizeAdapter,
@@ -31,6 +35,8 @@ pub const OUTPUT_SCHEMA_VERSION: &str = "2";
 pub const DEFAULT_FILES: usize = 1_000;
 pub const DEFAULT_WARMUPS: usize = 5;
 pub const DEFAULT_ITERATIONS: usize = 30;
+const TITLE_SEARCH_EXPRESSION: &str = "Project";
+const BODY_SEARCH_EXPRESSION: &str = "token";
 
 #[derive(Debug, Clone, Copy)]
 pub struct BenchmarkOptions {
@@ -555,7 +561,7 @@ fn run_variant(
                     &config,
                     "search.title.project",
                     CliSearchScope::Title,
-                    "Project",
+                    TITLE_SEARCH_EXPRESSION,
                     options,
                 )
                 .map_err(|error| format!("search.title.project: {error}"))?,
@@ -564,7 +570,7 @@ fn run_variant(
                     &config,
                     "search.body.token",
                     CliSearchScope::Body,
-                    "token",
+                    BODY_SEARCH_EXPRESSION,
                     options,
                 )
                 .map_err(|error| format!("search.body.token: {error}"))?,
@@ -788,7 +794,7 @@ fn measure_incremental_sequence(
             "incremental database differs from clean production rebuild: {tables}"
         ));
     }
-    verify_fts_equivalence(connection, &reference, config.search.index_body_text)?;
+    verify_fts_equivalence(connection, &reference, config)?;
     Ok(IncrementalSequence {
         id: "incremental-v1",
         before: sequence_before,
@@ -802,70 +808,129 @@ fn measure_incremental_sequence(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FtsMetadataState {
+    available: bool,
+    body_indexed: bool,
+    schema_version: String,
+}
+
+fn required_metadata_value(connection: &Connection, key: &str) -> Result<String, String> {
+    connection
+        .query_row(
+            "SELECT value FROM db_metadata WHERE key = ?1",
+            [key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("missing required metadata key {key}"))
+}
+
+fn required_metadata_flag(connection: &Connection, key: &str) -> Result<bool, String> {
+    match required_metadata_value(connection, key)?.as_str() {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        value => Err(format!("invalid metadata flag {key}={value}")),
+    }
+}
+
+fn fts_metadata_state(connection: &Connection) -> Result<FtsMetadataState, String> {
+    Ok(FtsMetadataState {
+        available: required_metadata_flag(connection, DB_METADATA_FTS_AVAILABLE_KEY)?,
+        body_indexed: required_metadata_flag(connection, DB_METADATA_FTS_BODY_INDEXED_KEY)?,
+        schema_version: required_metadata_value(connection, DB_METADATA_FTS_SCHEMA_VERSION_KEY)?,
+    })
+}
+
+fn verify_fts_row_coverage(connection: &Connection) -> Result<(), String> {
+    let load_ids = |sql: &str| -> Result<Vec<i64>, String> {
+        let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
+        let ids = statement
+            .query_map([], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<i64>, _>>()
+            .map_err(|error| error.to_string())?;
+        Ok(ids)
+    };
+    let heading_ids = load_ids("SELECT id FROM headings ORDER BY id")?;
+    let fts_row_ids = load_ids("SELECT rowid FROM heading_fts ORDER BY rowid")?;
+    if fts_row_ids != heading_ids {
+        return Err("trusted FTS row IDs do not exactly match canonical heading IDs".into());
+    }
+    Ok(())
+}
+
+fn verify_production_search_equivalence(
+    left: &Connection,
+    right: &Connection,
+    config: &Config,
+    scope: CliSearchScope,
+    expression: &str,
+) -> Result<(), String> {
+    let left_results =
+        production_search_stable_results_with_connection(left, scope, expression, config)?;
+    let right_results =
+        production_search_stable_results_with_connection(right, scope, expression, config)?;
+    if left_results != right_results {
+        return Err(format!(
+            "production-search results differ for scope {scope:?} and expression {expression:?}"
+        ));
+    }
+    Ok(())
+}
+
 fn verify_fts_equivalence(
     left: &Connection,
     right: &Connection,
-    body_indexed: bool,
+    config: &Config,
 ) -> Result<(), String> {
-    let trusted = |connection: &Connection| -> Result<bool, String> {
-        connection
-            .query_row(
-                "SELECT value FROM db_metadata WHERE key = 'fts_available'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| error.to_string())
-            .map(|value| value.as_deref() == Some("1"))
-    };
-    let left_trusted = trusted(left)?;
-    let right_trusted = trusted(right)?;
-    if left_trusted != right_trusted {
-        return Err("FTS trust metadata differs".into());
+    let left_state = fts_metadata_state(left)?;
+    let right_state = fts_metadata_state(right)?;
+    if left_state != right_state {
+        return Err(format!(
+            "FTS trust metadata differs: left={left_state:?} right={right_state:?}"
+        ));
     }
-    if !left_trusted {
+
+    let expected_available = config.search.fts5_enabled;
+    let expected_body_indexed = expected_available && config.search.index_body_text;
+    let expected_schema_version = if expected_available {
+        FTS_SCHEMA_CONTRACT_VERSION
+    } else {
+        "0"
+    };
+    let expected_state = FtsMetadataState {
+        available: expected_available,
+        body_indexed: expected_body_indexed,
+        schema_version: expected_schema_version.to_string(),
+    };
+    if left_state != expected_state {
+        return Err(format!(
+            "FTS trust metadata does not match configured policy: actual={left_state:?} expected={expected_state:?}"
+        ));
+    }
+    if !left_state.available {
         return Ok(());
     }
-    let keys = |connection: &Connection, query: Option<&str>| -> Result<Vec<String>, String> {
-        let sql = if query.is_some() {
-            "SELECT hex(f.identity)||':'||h.byte_start FROM heading_fts x JOIN headings h ON h.id=x.rowid JOIN files f ON f.id=h.file_id WHERE heading_fts MATCH ?1 ORDER BY hex(f.identity), h.byte_start"
-        } else {
-            "SELECT hex(f.identity)||':'||h.byte_start FROM heading_fts x JOIN headings h ON h.id=x.rowid JOIN files f ON f.id=h.file_id ORDER BY hex(f.identity), h.byte_start"
-        };
-        let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
-        match query {
-            Some(query) => statement
-                .query_map([query], |row| row.get(0))
-                .map_err(|error| error.to_string())?
-                .collect::<Result<Vec<String>, _>>()
-                .map_err(|error| error.to_string()),
-            None => statement
-                .query_map([], |row| row.get(0))
-                .map_err(|error| error.to_string())?
-                .collect::<Result<Vec<String>, _>>()
-                .map_err(|error| error.to_string()),
-        }
-    };
-    let expected = |connection: &Connection| -> Result<Vec<String>, String> {
-        let mut statement = connection.prepare("SELECT hex(f.identity)||':'||h.byte_start FROM headings h JOIN files f ON f.id=h.file_id ORDER BY hex(f.identity), h.byte_start").map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map([], |row| row.get(0))
-            .map_err(|error| error.to_string())?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|error| error.to_string())?;
-        Ok(rows)
-    };
-    for query in [
-        None,
-        Some("title:Project"),
-        body_indexed.then_some("body:token"),
-    ] {
-        if keys(left, query)? != keys(right, query)? {
-            return Err(format!("observable FTS results differ for {:?}", query));
-        }
-    }
-    if keys(left, None)? != expected(left)? || keys(right, None)? != expected(right)? {
-        return Err("trusted FTS rows do not match canonical heading rows".into());
+
+    verify_fts_row_coverage(left)?;
+    verify_fts_row_coverage(right)?;
+    verify_production_search_equivalence(
+        left,
+        right,
+        config,
+        CliSearchScope::Title,
+        TITLE_SEARCH_EXPRESSION,
+    )?;
+    if expected_body_indexed {
+        verify_production_search_equivalence(
+            left,
+            right,
+            config,
+            CliSearchScope::Body,
+            BODY_SEARCH_EXPRESSION,
+        )?;
     }
     Ok(())
 }
@@ -874,18 +939,125 @@ type SemanticSnapshot = Vec<(String, Vec<String>)>;
 
 fn semantic_snapshot(connection: &Connection) -> Result<SemanticSnapshot, String> {
     let specs = [
-        ("files", "SELECT hex(identity)||'|'||quote(path)||'|'||mtime_ns||'|'||size||'|'||quote(content_hash) FROM files ORDER BY 1"),
-        ("headings", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||COALESCE(p.byte_start,'')||'|'||h.level||'|'||quote(h.title)||'|'||quote(h.title_raw)||'|'||quote(h.todo_keyword)||'|'||quote(h.todo_type)||'|'||quote(h.priority)||'|'||quote(h.all_tags_json) FROM headings h JOIN files f ON f.id=h.file_id LEFT JOIN headings p ON p.id=h.parent_id ORDER BY 1"),
-        ("todo_keywords", "SELECT hex(f.identity)||'|'||quote(t.keyword)||'|'||quote(t.state_type)||'|'||t.sequence_no||'|'||quote(t.source_kind) FROM todo_keywords t JOIN files f ON f.id=t.file_id ORDER BY 1"),
-        ("keywords", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(k.keyword)||'|'||quote(k.value)||'|'||quote(k.line_number) FROM keywords k JOIN headings h ON h.id=k.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
-        ("properties", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(p.key)||'|'||quote(p.value)||'|'||quote(p.source)||'|'||p.append||'|'||quote(p.line_number) FROM properties p JOIN headings h ON h.id=p.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
-        ("tags", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(t.tag) FROM tags t JOIN headings h ON h.id=t.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
-        ("timestamps", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(t.role)||'|'||quote(t.start_ts)||'|'||quote(t.end_ts)||'|'||quote(t.raw_value)||'|'||t.byte_start FROM timestamps t JOIN headings h ON h.id=t.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
-        ("timestamp_repeaters", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||t.byte_start||'|'||quote(r.repeater_type)||'|'||quote(r.repeater_value)||'|'||quote(r.repeater_unit) FROM timestamp_repeaters r JOIN timestamps t ON t.id=r.timestamp_id JOIN headings h ON h.id=t.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
-        ("heading_bodies", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(b.body_text)||'|'||quote(b.body_byte_start)||'|'||quote(b.body_byte_end) FROM heading_bodies b JOIN headings h ON h.id=b.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
-        ("outline", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||COALESCE(p.byte_start,'')||'|'||quote(o.materialized_path)||'|'||quote(o.breadcrumbs_json) FROM outline_path o JOIN headings h ON h.id=o.heading_id JOIN files f ON f.id=h.file_id LEFT JOIN headings p ON p.id=o.parent_id ORDER BY 1"),
-        ("links", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(l.raw_target)||'|'||quote(l.path)||'|'||quote(l.resolution_status)||'|'||COALESCE(hex(tf.identity),'')||'|'||COALESCE(th.byte_start,'') FROM links l JOIN headings h ON h.id=l.heading_id JOIN files f ON f.id=h.file_id LEFT JOIN files tf ON tf.id=l.target_file_id LEFT JOIN headings th ON th.id=l.target_heading_id ORDER BY 1"),
-        ("metadata", "SELECT quote(key)||'|'||quote(value) FROM db_metadata ORDER BY 1"),
+        (
+            "files",
+            r#"SELECT hex(identity) || '|' || quote(path) || '|' || mtime_ns || '|' || size || '|' || quote(content_hash)
+               FROM files
+               ORDER BY 1"#,
+        ),
+        (
+            "headings",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' ||
+                      COALESCE(hex(parent_file.identity) || ':' || parent.byte_start, '') || '|' ||
+                      heading.level || '|' || quote(heading.title) || '|' || quote(heading.title_raw) || '|' ||
+                      quote(heading.todo_keyword) || '|' || quote(heading.todo_type) || '|' ||
+                      quote(heading.priority) || '|' || quote(heading.all_tags_json)
+               FROM headings AS heading
+               INNER JOIN files AS file ON file.id = heading.file_id
+               LEFT JOIN headings AS parent ON parent.id = heading.parent_id
+               LEFT JOIN files AS parent_file ON parent_file.id = parent.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "todo_keywords",
+            r#"SELECT hex(file.identity) || '|' || quote(todo.keyword) || '|' || quote(todo.state_type) || '|' ||
+                      todo.sequence_no || '|' || quote(todo.source_kind)
+               FROM todo_keywords AS todo
+               INNER JOIN files AS file ON file.id = todo.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "keywords",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' || quote(keyword.keyword) || '|' ||
+                      quote(keyword.value) || '|' || quote(keyword.line_number)
+               FROM keywords AS keyword
+               INNER JOIN headings AS heading ON heading.id = keyword.heading_id
+               INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "properties",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' || quote(property.key) || '|' ||
+                      quote(property.value) || '|' || quote(property.source) || '|' || property.append || '|' ||
+                      quote(property.line_number)
+               FROM properties AS property
+               INNER JOIN headings AS heading ON heading.id = property.heading_id
+               INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "tags",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' || quote(tag.tag)
+               FROM tags AS tag
+               INNER JOIN headings AS heading ON heading.id = tag.heading_id
+               INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "timestamps",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' || quote(timestamp.role) || '|' ||
+                      quote(timestamp.start_ts) || '|' || quote(timestamp.end_ts) || '|' ||
+                      quote(timestamp.raw_value) || '|' || timestamp.byte_start
+               FROM timestamps AS timestamp
+               INNER JOIN headings AS heading ON heading.id = timestamp.heading_id
+               INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "timestamp_repeaters",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' || timestamp.byte_start || '|' ||
+                      quote(repeater.repeater_type) || '|' || quote(repeater.repeater_value) || '|' ||
+                      quote(repeater.repeater_unit)
+               FROM timestamp_repeaters AS repeater
+               INNER JOIN timestamps AS timestamp ON timestamp.id = repeater.timestamp_id
+               INNER JOIN headings AS heading ON heading.id = timestamp.heading_id
+               INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "heading_bodies",
+            r#"SELECT hex(file.identity) || '|' || heading.byte_start || '|' || quote(body.body_text) || '|' ||
+                      quote(body.body_byte_start) || '|' || quote(body.body_byte_end)
+               FROM heading_bodies AS body
+               INNER JOIN headings AS heading ON heading.id = body.heading_id
+               INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "outline",
+            r#"SELECT hex(heading_file.identity) || '|' || heading.byte_start || '|' ||
+                      hex(outline_file.identity) || '|' ||
+                      COALESCE(hex(parent_file.identity) || ':' || parent.byte_start, '') || '|' ||
+                      quote(outline.materialized_path) || '|' || quote(outline.breadcrumbs_json)
+               FROM outline_path AS outline
+               INNER JOIN headings AS heading ON heading.id = outline.heading_id
+               INNER JOIN files AS heading_file ON heading_file.id = heading.file_id
+               INNER JOIN files AS outline_file ON outline_file.id = outline.file_id
+               LEFT JOIN headings AS parent ON parent.id = outline.parent_id
+               LEFT JOIN files AS parent_file ON parent_file.id = parent.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "links",
+            r#"SELECT hex(source_heading_file.identity) || '|' || source_heading.byte_start || '|' ||
+                      hex(link_file.identity) || '|' || link.byte_start || '|' || quote(link.raw_target) || '|' ||
+                      quote(link.path) || '|' || quote(link.search_option) || '|' || quote(link.resolution_status) || '|' ||
+                      quote(link.resolution_diagnostic) || '|' || COALESCE(hex(target_file.identity), '') || '|' ||
+                      COALESCE(hex(target_heading_file.identity) || ':' || target_heading.byte_start, '') || '|' ||
+                      quote(link.target_custom_id) || '|' || quote(link.target_id)
+               FROM links AS link
+               INNER JOIN headings AS source_heading ON source_heading.id = link.heading_id
+               INNER JOIN files AS source_heading_file ON source_heading_file.id = source_heading.file_id
+               INNER JOIN files AS link_file ON link_file.id = link.file_id
+               LEFT JOIN files AS target_file ON target_file.id = link.target_file_id
+               LEFT JOIN headings AS target_heading ON target_heading.id = link.target_heading_id
+               LEFT JOIN files AS target_heading_file ON target_heading_file.id = target_heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "metadata",
+            "SELECT quote(key) || '|' || quote(value) FROM db_metadata ORDER BY 1",
+        ),
     ];
     specs
         .into_iter()
@@ -1571,6 +1743,85 @@ mod tests {
         ))
     }
 
+    fn build_equivalent_databases(
+        label: &str,
+        search: SearchConfig,
+    ) -> (PathBuf, Config, Connection, Connection) {
+        let root = temporary_root(label);
+        let source_dir = root.join("corpus");
+        generate_corpus(&source_dir, 3, 1).expect("corpus should generate");
+        let left_path = root.join("left.sqlite");
+        let config = Config {
+            db_path: left_path.clone(),
+            files: Vec::new(),
+            dirs: vec![crate::config::ConfiguredDir {
+                path: source_dir,
+                recursive: true,
+                exclude: Vec::new(),
+            }],
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: search.clone(),
+            query: Default::default(),
+        };
+        let mut left = open_database_with_schema(
+            &left_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, search.fts5_enabled),
+        )
+        .expect("left database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut left, &config)
+            .expect("left database should rebuild");
+
+        let right_path = root.join("right.sqlite");
+        let mut right_config = config.clone();
+        right_config.db_path = right_path.clone();
+        let mut right = open_database_with_schema(
+            &right_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, search.fts5_enabled),
+        )
+        .expect("right database should open");
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut right, &right_config)
+            .expect("right database should rebuild");
+
+        assert_eq!(
+            semantic_snapshot(&left).expect("left semantic snapshot"),
+            semantic_snapshot(&right).expect("right semantic snapshot")
+        );
+        verify_fts_equivalence(&left, &right, &config)
+            .expect("equivalent databases should have equivalent FTS state");
+        (root, config, left, right)
+    }
+
+    fn assert_relationship_corruption_detected<F>(label: &str, corrupt: F)
+    where
+        F: FnOnce(&Connection) -> Result<(), String>,
+    {
+        let (root, _config, left, right) = build_equivalent_databases(
+            label,
+            SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+        );
+        corrupt(&right).expect("corruption should be applied deterministically");
+        assert_ne!(
+            semantic_snapshot(&left).expect("left semantic snapshot"),
+            semantic_snapshot(&right).expect("corrupted semantic snapshot"),
+            "{label} corruption must be detected"
+        );
+        drop(left);
+        drop(right);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn sqlite_has_fts5() -> bool {
+        let connection = Connection::open_in_memory().expect("probe database should open");
+        crate::db::sqlite_supports_fts5(&connection).unwrap_or(false)
+    }
+
     #[test]
     fn deterministic_manifest_has_expected_cardinality() {
         let root = temporary_root("manifest");
@@ -1595,21 +1846,210 @@ mod tests {
 
     #[test]
     fn semantic_snapshot_rejects_relationship_corruption() {
-        for (label, sql) in [
-            ("parent", "UPDATE headings SET parent_id = id WHERE id = (SELECT id FROM headings WHERE level = 1 LIMIT 1)"),
-            ("tag-owner", "UPDATE tags SET heading_id = (SELECT id FROM headings WHERE level = 0 LIMIT 1) WHERE rowid = (SELECT rowid FROM tags LIMIT 1)"),
-            ("link-source", "UPDATE links SET heading_id = (SELECT id FROM headings WHERE level = 1 ORDER BY id DESC LIMIT 1) WHERE id = (SELECT id FROM links LIMIT 1)"),
-            ("outline-parent", "UPDATE outline_path SET parent_id = NULL WHERE heading_id = (SELECT id FROM headings WHERE level = 1 LIMIT 1)"),
-        ] {
-            let root = temporary_root(label); let output = root.join("result.json"); let work = root.join("work");
-            run(&output, &work, BenchmarkOptions { files: 3, seed: 1, warmups: 0, iterations: 1 }).expect("benchmark");
-            let baseline = Connection::open(work.join("no-fts-baseline-v8.sqlite")).expect("baseline");
-            let changed = Connection::open(work.join("no-fts-baseline-v8.reference.sqlite")).expect("reference");
-            assert_eq!(semantic_snapshot(&baseline).expect("baseline snapshot"), semantic_snapshot(&changed).expect("reference snapshot"));
-            changed.execute_batch(sql).expect("corruption");
-            assert_ne!(semantic_snapshot(&baseline).expect("baseline snapshot"), semantic_snapshot(&changed).expect("changed snapshot"), "{label}");
-            let _ = fs::remove_dir_all(root);
+        assert_relationship_corruption_detected("parent", |connection| {
+            let (heading_id, current_parent_id, alternate_parent_id): (i64, i64, i64) = connection
+                .query_row(
+                    "SELECT child.id, child.parent_id, alternative.id
+                     FROM headings AS child
+                     INNER JOIN headings AS alternative
+                       ON alternative.id != child.parent_id
+                      AND alternative.id != child.id
+                     WHERE child.parent_id IS NOT NULL
+                     ORDER BY child.id, alternative.id
+                     LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| error.to_string())?;
+            if current_parent_id == alternate_parent_id {
+                return Err("parent corruption target did not change".into());
+            }
+            let changed = connection
+                .execute(
+                    "UPDATE headings SET parent_id = ?1 WHERE id = ?2 AND parent_id = ?3",
+                    rusqlite::params![alternate_parent_id, heading_id, current_parent_id],
+                )
+                .map_err(|error| error.to_string())?;
+            if changed != 1 {
+                return Err(format!("parent corruption changed {changed} rows"));
+            }
+            let stored: i64 = connection
+                .query_row(
+                    "SELECT parent_id FROM headings WHERE id = ?1",
+                    [heading_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if stored != alternate_parent_id {
+                return Err("parent corruption did not persist the alternate parent".into());
+            }
+            Ok(())
+        });
+
+        assert_relationship_corruption_detected("tag-owner", |connection| {
+            let (current_heading_id, tag, alternate_heading_id): (i64, String, i64) = connection
+                .query_row(
+                    "SELECT tag.heading_id, tag.tag, alternative.id
+                     FROM tags AS tag
+                     INNER JOIN headings AS alternative ON alternative.id != tag.heading_id
+                     WHERE NOT EXISTS (
+                         SELECT 1
+                         FROM tags AS existing
+                         WHERE existing.heading_id = alternative.id
+                           AND existing.tag = tag.tag
+                     )
+                     ORDER BY tag.heading_id, tag.tag, alternative.id
+                     LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| error.to_string())?;
+            if current_heading_id == alternate_heading_id {
+                return Err("tag owner corruption target did not change".into());
+            }
+            let changed = connection
+                .execute(
+                    "UPDATE tags SET heading_id = ?1 WHERE heading_id = ?2 AND tag = ?3",
+                    rusqlite::params![alternate_heading_id, current_heading_id, &tag],
+                )
+                .map_err(|error| error.to_string())?;
+            if changed != 1 {
+                return Err(format!("tag owner corruption changed {changed} rows"));
+            }
+            let stored: i64 = connection
+                .query_row(
+                    "SELECT heading_id FROM tags WHERE heading_id = ?1 AND tag = ?2",
+                    rusqlite::params![alternate_heading_id, &tag],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if stored != alternate_heading_id {
+                return Err("tag owner corruption did not persist the alternate owner".into());
+            }
+            Ok(())
+        });
+
+        assert_relationship_corruption_detected("link-source", |connection| {
+            let (link_id, current_heading_id, alternate_heading_id): (i64, i64, i64) = connection
+                .query_row(
+                    "SELECT link.id, link.heading_id, alternative.id
+                     FROM links AS link
+                     INNER JOIN headings AS alternative
+                       ON alternative.file_id = link.file_id
+                      AND alternative.id != link.heading_id
+                     ORDER BY link.id, alternative.id
+                     LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| error.to_string())?;
+            if current_heading_id == alternate_heading_id {
+                return Err("link source corruption target did not change".into());
+            }
+            let changed = connection
+                .execute(
+                    "UPDATE links SET heading_id = ?1 WHERE id = ?2 AND heading_id = ?3",
+                    rusqlite::params![alternate_heading_id, link_id, current_heading_id],
+                )
+                .map_err(|error| error.to_string())?;
+            if changed != 1 {
+                return Err(format!("link source corruption changed {changed} rows"));
+            }
+            let stored: i64 = connection
+                .query_row(
+                    "SELECT heading_id FROM links WHERE id = ?1",
+                    [link_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if stored != alternate_heading_id {
+                return Err("link source corruption did not persist the alternate source".into());
+            }
+            Ok(())
+        });
+
+        assert_relationship_corruption_detected("outline-parent", |connection| {
+            let (heading_id, current_parent_id, alternate_parent_id): (i64, i64, i64) = connection
+                .query_row(
+                    "SELECT outline.heading_id, outline.parent_id, alternative.id
+                     FROM outline_path AS outline
+                     INNER JOIN headings AS alternative
+                       ON alternative.id != outline.parent_id
+                      AND alternative.id != outline.heading_id
+                     WHERE outline.parent_id IS NOT NULL
+                     ORDER BY outline.heading_id, alternative.id
+                     LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .map_err(|error| error.to_string())?;
+            if current_parent_id == alternate_parent_id {
+                return Err("outline parent corruption target did not change".into());
+            }
+            let changed = connection
+                .execute(
+                    "UPDATE outline_path SET parent_id = ?1 WHERE heading_id = ?2 AND parent_id = ?3",
+                    rusqlite::params![alternate_parent_id, heading_id, current_parent_id],
+                )
+                .map_err(|error| error.to_string())?;
+            if changed != 1 {
+                return Err(format!("outline parent corruption changed {changed} rows"));
+            }
+            let stored: i64 = connection
+                .query_row(
+                    "SELECT parent_id FROM outline_path WHERE heading_id = ?1",
+                    [heading_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| error.to_string())?;
+            if stored != alternate_parent_id {
+                return Err("outline corruption did not persist the alternate parent".into());
+            }
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn fts_equivalence_rejects_extra_rows_and_body_policy_mismatch() {
+        if !sqlite_has_fts5() {
+            return;
         }
+        let body_search = SearchConfig {
+            fts5_enabled: true,
+            index_body_text: true,
+        };
+
+        let (root, config, left, right) =
+            build_equivalent_databases("fts-extra-row", body_search.clone());
+        let bogus_row_id: i64 = right
+            .query_row(
+                "SELECT COALESCE(MAX(id), 0) + 1000 FROM headings",
+                [],
+                |row| row.get(0),
+            )
+            .expect("bogus FTS row ID should load");
+        let inserted = right
+            .execute(
+                "INSERT INTO heading_fts (rowid, title, body) VALUES (?1, ?2, ?3)",
+                rusqlite::params![bogus_row_id, "Corrupt Project", "token"],
+            )
+            .expect("bogus FTS row should insert");
+        assert_eq!(inserted, 1);
+        assert!(verify_fts_equivalence(&left, &right, &config).is_err());
+        drop(left);
+        drop(right);
+        let _ = fs::remove_dir_all(root);
+
+        let (root, config, left, right) =
+            build_equivalent_databases("fts-body-policy", body_search);
+        crate::db::DbWriter::rebuild_heading_fts(&right, false)
+            .expect("title-only FTS rebuild should succeed");
+        let error = verify_fts_equivalence(&left, &right, &config)
+            .expect_err("body-content mismatch must be detected");
+        assert!(error.contains("production-search results differ"));
+        drop(left);
+        drop(right);
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1680,16 +2120,22 @@ mod tests {
             .as_array()
             .expect("operations");
         let expected = [
-            ("metadata-only", "metadata_only"),
-            ("modified-replacement", "modified"),
-            ("created-file", "created"),
-            ("deleted-file", "deleted"),
-            ("mixed-change-set", "created"),
+            ("metadata-only", 1, 0, 0, 0),
+            ("modified-replacement", 0, 0, 1, 0),
+            ("created-file", 0, 1, 0, 0),
+            ("deleted-file", 0, 0, 0, 1),
+            ("mixed-change-set", 0, 1, 1, 1),
         ];
-        for (operation, (id, required)) in operations.iter().zip(expected) {
+        for (operation, (id, metadata_only, created, modified, deleted)) in
+            operations.iter().zip(expected)
+        {
+            let classifications = &operation["classifications"];
             assert_eq!(operation["id"], id);
-            assert_eq!(operation["classifications"]["failed"], 0);
-            assert!(operation["classifications"][required].as_u64().unwrap_or(0) >= 1);
+            assert_eq!(classifications["metadata_only"], metadata_only);
+            assert_eq!(classifications["created"], created);
+            assert_eq!(classifications["modified"], modified);
+            assert_eq!(classifications["deleted"], deleted);
+            assert_eq!(classifications["failed"], 0);
         }
         assert!(no_fts["fts_workloads"].as_array().expect("skips").len() == 2);
         let _ = fs::remove_dir_all(root);
