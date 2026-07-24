@@ -113,7 +113,6 @@ pub struct VariantResult {
     pub id: &'static str,
     pub profile_id: &'static str,
     pub profile_kind: &'static str,
-    pub internal_source_path: String,
     pub explicit_indexes: Vec<String>,
     pub index_inventory: Vec<IndexInventoryEntry>,
     pub dbstat: DbstatAvailability,
@@ -477,9 +476,8 @@ fn run_variant(
     variant_index: usize,
 ) -> Result<VariantResult, String> {
     let db_path = work_dir.join(format!("{id}-{}.sqlite", profile.id));
-    let variant_source = work_dir
-        .join(format!("variant-{variant_index:02}"))
-        .join("corpus");
+    let variant_label = format!("variant-{variant_index:02}");
+    let variant_source = variant_source_dir(work_dir, variant_index);
     copy_directory(source_dir, &variant_source)?;
     let config = Config {
         db_path: db_path.clone(),
@@ -501,14 +499,15 @@ fn run_variant(
     drop(capability_connection);
     if search.fts5_enabled && !fts5_available {
         let connection = Connection::open(&db_path).map_err(|error| error.to_string())?;
+        let dbstat = dbstat_availability(&connection);
+        let index_inventory = index_inventory(&connection, dbstat.available)?;
         return Ok(VariantResult {
             id,
             profile_id: profile.id,
             profile_kind: profile.kind,
-            internal_source_path: variant_source.display().to_string(),
             explicit_indexes: explicit_indexes(&connection)?,
-            index_inventory: index_inventory(&connection)?,
-            dbstat: dbstat_availability(&connection),
+            index_inventory,
+            dbstat,
             fts5_available,
             fts_workloads: vec![
                 SkippedWorkload {
@@ -556,19 +555,16 @@ fn run_variant(
         .map_err(|error| error.to_string())?;
     let rebuild_duration_ns = rebuild_start.elapsed().as_nanos();
     let database = database_size(&connection, &db_path, rebuild_duration_ns)?;
-    let explicit_indexes = explicit_indexes(&connection)?;
-    let index_inventory = index_inventory(&connection)?;
     let dbstat = dbstat_availability(&connection);
+    let explicit_indexes = explicit_indexes(&connection)?;
+    let index_inventory = index_inventory(&connection, dbstat.available)?;
     drop(connection);
     let workloads = query_workloads(&variant_source);
     let mut results = Vec::new();
     for workload in workloads {
         let workload_id = workload.id;
-        let result = measure_query(&db_path, &workload, options)
+        let result = measure_query(&db_path, &workload, options, &variant_label, id, profile.id)
             .map_err(|error| format!("{workload_id}: {error}"))?;
-        if workload.expect_nonempty && result.result_count == 0 {
-            return Err(format!("positive lookup returned zero results: workload={workload_id} variant={id} profile={} expression={:?} result_count={}", profile.id, workload.expression, result.result_count));
-        }
         results.push(result);
     }
     let (fts_workloads, search_workloads) = if search.fts5_enabled && search.index_body_text {
@@ -642,7 +638,6 @@ fn run_variant(
         id,
         profile_id: profile.id,
         profile_kind: profile.kind,
-        internal_source_path: variant_source.display().to_string(),
         explicit_indexes,
         index_inventory,
         dbstat,
@@ -653,6 +648,12 @@ fn run_variant(
         database,
         incremental,
     })
+}
+
+fn variant_source_dir(work_dir: &Path, variant_index: usize) -> PathBuf {
+    work_dir
+        .join(format!("variant-{variant_index:02}"))
+        .join("corpus")
 }
 
 fn measure_search(
@@ -1221,12 +1222,18 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResultExpectation {
+    Any,
+    NonEmpty,
+}
+
 #[derive(Debug)]
 struct QueryWorkload {
     id: &'static str,
     expression: String,
     output_mode: QueryOutputMode,
-    expect_nonempty: bool,
+    expectation: ResultExpectation,
 }
 
 fn query_workloads(source_dir: &Path) -> Vec<QueryWorkload> {
@@ -1380,7 +1387,11 @@ fn query_workloads(source_dir: &Path) -> Vec<QueryWorkload> {
             id,
             expression,
             output_mode,
-            expect_nonempty: matches!(id, "query.file.path" | "query.file.dir"),
+            expectation: if matches!(id, "query.file.path" | "query.file.dir") {
+                ResultExpectation::NonEmpty
+            } else {
+                ResultExpectation::Any
+            },
         })
         .collect()
 }
@@ -1389,6 +1400,9 @@ fn measure_query(
     db_path: &Path,
     workload: &QueryWorkload,
     options: BenchmarkOptions,
+    variant_label: &str,
+    fts_mode: &str,
+    profile_id: &str,
 ) -> Result<WorkloadResult, String> {
     let cold_start = Instant::now();
     let cold_connection =
@@ -1407,6 +1421,8 @@ fn measure_query(
         },
     )
     .map_err(|error| error.to_string())?;
+    let result_count = cold_rows.results.len();
+    validate_result_expectation(workload, result_count, variant_label, fts_mode, profile_id)?;
     std::hint::black_box(cold_rows);
     let cold_connection_end_to_end_ns = cold_start.elapsed().as_nanos();
     drop(cold_connection);
@@ -1438,7 +1454,6 @@ fn measure_query(
         std::hint::black_box(response);
     }
     let mut samples = Vec::with_capacity(options.iterations);
-    let mut result_count = 0;
     for _ in 0..options.iterations {
         let start = Instant::now();
         let response = execute_and_shape_query(
@@ -1450,7 +1465,17 @@ fn measure_query(
             },
         )
         .map_err(|error| error.to_string())?;
-        result_count = response.results.len();
+        if response.results.len() != result_count {
+            return Err(format!(
+                "query result count changed during measurement: workload={} variant={} fts_mode={} profile={} expected_result_count={} actual_result_count={}",
+                workload.id,
+                variant_label,
+                fts_mode,
+                profile_id,
+                result_count,
+                response.results.len()
+            ));
+        }
         std::hint::black_box(response);
         samples.push(start.elapsed());
     }
@@ -1477,6 +1502,22 @@ fn measure_query(
         validated_query_end_to_end: timing(&samples),
         explain_query_plan,
     })
+}
+
+fn validate_result_expectation(
+    workload: &QueryWorkload,
+    result_count: usize,
+    variant_label: &str,
+    fts_mode: &str,
+    profile_id: &str,
+) -> Result<(), String> {
+    if workload.expectation == ResultExpectation::NonEmpty && result_count == 0 {
+        return Err(format!(
+            "positive lookup returned zero results: workload={} variant={} fts_mode={} profile={} expression={:?} result_count={result_count}",
+            workload.id, variant_label, fts_mode, profile_id, workload.expression
+        ));
+    }
+    Ok(())
 }
 
 fn explain(
@@ -1597,7 +1638,10 @@ fn explicit_indexes(connection: &Connection) -> Result<Vec<String>, String> {
     Ok(indexes)
 }
 
-fn index_inventory(connection: &Connection) -> Result<Vec<IndexInventoryEntry>, String> {
+fn index_inventory(
+    connection: &Connection,
+    dbstat_available: bool,
+) -> Result<Vec<IndexInventoryEntry>, String> {
     let mut tables = connection
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .map_err(|error| error.to_string())?;
@@ -1667,19 +1711,27 @@ fn index_inventory(connection: &Connection) -> Result<Vec<IndexInventoryEntry>, 
                 "pk" => "primary_key_implied",
                 _ => "sqlite_internal",
             };
-            let dbstat = connection
-                .query_row(
-                    "SELECT COUNT(*), COALESCE(SUM(pgsize), 0), COALESCE(SUM(payload), 0) FROM dbstat WHERE name = ?1",
-                    [&name],
-                    |row| {
-                        Ok(IndexDbstat {
-                            pages: row.get(0)?,
-                            total_bytes: row.get(1)?,
-                            payload_bytes: row.get(2)?,
-                        })
-                    },
+            let dbstat = if dbstat_available {
+                Some(
+                    connection
+                        .query_row(
+                            "SELECT COUNT(*), COALESCE(SUM(pgsize), 0), COALESCE(SUM(payload), 0) FROM dbstat WHERE name = ?1",
+                            [&name],
+                            |row| {
+                                Ok(IndexDbstat {
+                                    pages: row.get(0)?,
+                                    total_bytes: row.get(1)?,
+                                    payload_bytes: row.get(2)?,
+                                })
+                            },
+                        )
+                        .map_err(|error| {
+                            format!("dbstat query failed for index {name}: {error}")
+                        })?,
                 )
-                .ok();
+            } else {
+                None
+            };
             result.push(IndexInventoryEntry {
                 table: table.clone(),
                 name: Some(name),
@@ -1696,6 +1748,14 @@ fn index_inventory(connection: &Connection) -> Result<Vec<IndexInventoryEntry>, 
 }
 
 fn dbstat_availability(connection: &Connection) -> DbstatAvailability {
+    let compile_option_enabled = connection
+        .query_row(
+            "SELECT sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        != 0;
     match connection.query_row("SELECT COUNT(*) FROM dbstat", [], |row| {
         row.get::<_, i64>(0)
     }) {
@@ -1703,10 +1763,22 @@ fn dbstat_availability(connection: &Connection) -> DbstatAvailability {
             available: true,
             reason: None,
         },
-        Err(error) => DbstatAvailability {
-            available: false,
-            reason: Some(error.to_string()),
-        },
+        Err(error) => {
+            let sqlite_version = connection
+                .query_row("SELECT sqlite_version()", [], |row| row.get::<_, String>(0))
+                .unwrap_or_else(|_| "unknown".into());
+            let source_id = connection
+                .query_row("SELECT sqlite_source_id()", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap_or_else(|_| "unknown".into());
+            DbstatAvailability {
+                available: false,
+                reason: Some(format!(
+                    "linked SQLite dbstat unavailable: {error}; ENABLE_DBSTAT_VTAB={compile_option_enabled}; sqlite_version={sqlite_version}; sqlite_source_id={source_id}"
+                )),
+            }
+        }
     }
 }
 
@@ -1868,11 +1940,19 @@ mod tests {
 
     #[test]
     fn relative_work_directory_is_canonicalized_before_workload_paths_are_built() {
-        let label = format!(".tmp/orgfdb-benchmark-relative-{}", std::process::id());
+        let nonce = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let label = format!(
+            ".tmp/orgfdb-benchmark-relative-{}-{nonce}",
+            std::process::id()
+        );
         let work = PathBuf::from(&label);
         let _ = fs::remove_dir_all(&work);
-        let output = temporary_root("relative-output").join("result.json");
-        fs::create_dir_all(output.parent().expect("output parent")).expect("output parent");
+        let output_root = temporary_root("relative-output");
+        let output = output_root.join("result.json");
+        fs::create_dir_all(&output_root).expect("output parent");
         run(
             &output,
             &work,
@@ -1887,13 +1967,131 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_slice(&fs::read(&output).expect("output")).expect("json");
         let variants = value["variants"].as_array().expect("variants");
-        assert!(variants
+        assert_eq!(variants.len(), 3 * INDEX_PROFILES.len());
+        let file_path_counts = variants
             .iter()
-            .all(|variant| variant["internal_source_path"]
-                .as_str()
-                .is_some_and(|path| Path::new(path).is_absolute())));
-        let _ = fs::remove_dir_all(".tmp");
-        let _ = fs::remove_file(output);
+            .map(|variant| {
+                variant["workloads"]
+                    .as_array()
+                    .expect("workloads")
+                    .iter()
+                    .find(|workload| workload["id"] == "query.file.path")
+                    .expect("file path workload")["result_count"]
+                    .as_u64()
+                    .expect("file path result count")
+            })
+            .collect::<Vec<_>>();
+        let file_dir_counts = variants
+            .iter()
+            .map(|variant| {
+                variant["workloads"]
+                    .as_array()
+                    .expect("workloads")
+                    .iter()
+                    .find(|workload| workload["id"] == "query.file.dir")
+                    .expect("file dir workload")["result_count"]
+                    .as_u64()
+                    .expect("file dir result count")
+            })
+            .collect::<Vec<_>>();
+        assert!(file_path_counts
+            .iter()
+            .all(|count| *count > 0 && *count == file_path_counts[0]));
+        assert!(file_dir_counts
+            .iter()
+            .all(|count| *count > 0 && *count == file_dir_counts[0]));
+
+        let canonical_work = fs::canonicalize(&work).expect("canonical work directory");
+        let variant_paths = (0..3 * INDEX_PROFILES.len())
+            .map(|index| variant_source_dir(&canonical_work, index))
+            .collect::<Vec<_>>();
+        assert!(variant_paths.iter().all(|path| path.is_absolute()));
+        assert!(variant_paths.iter().all(|path| path.is_dir()));
+        assert!(variant_paths
+            .iter()
+            .map(|path| path.as_os_str().len())
+            .all(|length| length == variant_paths[0].as_os_str().len()));
+        assert!(variant_paths.iter().all(|path| !INDEX_PROFILES
+            .iter()
+            .any(|profile| path.to_string_lossy().contains(profile.id))));
+
+        let _ = fs::remove_dir_all(&work);
+        let _ = fs::remove_dir_all(output_root);
+    }
+
+    #[test]
+    fn positive_lookup_expectation_reports_actionable_context() {
+        let workload = QueryWorkload {
+            id: "query.file.path",
+            expression: "(headings (file-path \"/missing.org\" :exact t))".into(),
+            output_mode: QueryOutputMode::Flat,
+            expectation: ResultExpectation::NonEmpty,
+        };
+        let error = validate_result_expectation(
+            &workload,
+            0,
+            "variant-07",
+            "fts-title",
+            "candidate-add-files-path-lower",
+        )
+        .expect_err("empty positive lookup must fail");
+        for expected in [
+            "workload=query.file.path",
+            "variant=variant-07",
+            "fts_mode=fts-title",
+            "profile=candidate-add-files-path-lower",
+            "result_count=0",
+            "/missing.org",
+        ] {
+            assert!(
+                error.contains(expected),
+                "missing {expected:?} in {error:?}"
+            );
+        }
+
+        let optional_workload = QueryWorkload {
+            expectation: ResultExpectation::Any,
+            ..workload
+        };
+        validate_result_expectation(
+            &optional_workload,
+            0,
+            "variant-07",
+            "fts-title",
+            "candidate-add-files-path-lower",
+        )
+        .expect("legitimately empty workload must remain allowed");
+    }
+
+    #[test]
+    fn dbstat_probe_reports_linked_sqlite_capability() {
+        let connection = Connection::open_in_memory().expect("probe database should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE dbstat_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
+                 CREATE INDEX idx_dbstat_probe_value ON dbstat_probe(value);
+                 INSERT INTO dbstat_probe(value) VALUES ('alpha'), ('beta'), ('gamma');",
+            )
+            .expect("probe schema should be created");
+
+        let availability = dbstat_availability(&connection);
+        if availability.available {
+            let inventory = index_inventory(&connection, true).expect("index inventory");
+            let evidence = inventory
+                .iter()
+                .find(|entry| entry.name.as_deref() == Some("idx_dbstat_probe_value"))
+                .and_then(|entry| entry.dbstat.as_ref())
+                .expect("dbstat evidence for probe index");
+            assert!(evidence.pages > 0);
+            assert!(evidence.total_bytes > 0);
+            assert!(evidence.payload_bytes > 0);
+        } else {
+            let reason = availability.reason.expect("unavailable reason");
+            assert!(reason.contains("linked SQLite dbstat unavailable"));
+            assert!(reason.contains("ENABLE_DBSTAT_VTAB="));
+            assert!(reason.contains("sqlite_version="));
+            assert!(reason.contains("sqlite_source_id="));
+        }
     }
 
     #[test]
@@ -2130,24 +2328,17 @@ mod tests {
         assert!(value["environment"]["pragmas"]["cache_size"].is_number());
         let variants = value["variants"].as_array().expect("variants");
         assert_eq!(variants.len(), 3 * INDEX_PROFILES.len());
-        let source_paths = variants
-            .iter()
-            .map(|variant| {
-                variant["internal_source_path"]
-                    .as_str()
-                    .expect("source path")
-            })
+        let variant_paths = (0..3 * INDEX_PROFILES.len())
+            .map(|index| variant_source_dir(&work_dir, index))
             .collect::<Vec<_>>();
-        assert!(source_paths
+        assert!(variant_paths.iter().all(|path| path.is_dir()));
+        assert!(variant_paths
             .iter()
-            .all(|path| std::path::Path::new(path).is_absolute()));
-        assert!(source_paths
+            .map(|path| path.as_os_str().len())
+            .all(|length| length == variant_paths[0].as_os_str().len()));
+        assert!(variant_paths.iter().all(|path| !INDEX_PROFILES
             .iter()
-            .map(|path| path.len())
-            .all(|length| length == source_paths[0].len()));
-        assert!(source_paths.iter().all(|path| !INDEX_PROFILES
-            .iter()
-            .any(|profile| path.contains(profile.id))));
+            .any(|profile| path.to_string_lossy().contains(profile.id))));
         for variant in variants {
             let workloads = variant["workloads"].as_array().expect("workloads");
             let ids = workloads

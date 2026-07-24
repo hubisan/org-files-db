@@ -32,6 +32,28 @@ For each database variant, the output records corpus rebuild duration, main data
 
 Commit the generator, runner, output schema, and tests. Benchmark JSON is intentionally local and untracked, including small machine-specific examples, so the repository does not imply that one machine's timings are a reference baseline.
 
+* SQLite linkage and optional dbstat evidence
+
+The project enables the ~rusqlite~ ~functions~ feature but does not enable bundled SQLite. On Unix-like systems, ~libsqlite3-sys~ therefore resolves an external SQLite library through the normal build environment, commonly through ~pkg-config~. The exact linked library is environment-specific and may differ from the SQLite implementation used by the system ~sqlite3~ executable. Matching version numbers do not prove matching binaries or compile options.
+
+The benchmark records the runtime SQLite version and compile options of the library linked into the Rust process. It also probes ~sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')~ and performs a direct query against ~dbstat~. A successful direct query is the capability check. When the linked library does not provide ~dbstat~, the benchmark records a structured skip containing the direct SQLite error, the compile-option result, ~sqlite_version()~, and ~sqlite_source_id()~. Missing ~dbstat~ support does not fail the benchmark.
+
+When available, ~dbstat~ supplies direct per-index page count, allocated bytes, and payload bytes after the documented checkpoint state. This evidence isolates individual index storage cost from unrelated whole-database variation. It does not establish whether an index improves a workload; planner output, timing distributions, rebuild duration, and incremental-update measurements remain authoritative for that decision.
+
+OrgFDB deliberately does not change project-wide SQLite linkage, require bundled SQLite, or require a custom SQLite build solely to obtain ~dbstat~. Runtime detection and structured skip reporting are the portable contract. Developers may use a locally supplied dbstat-enabled external SQLite library for additional benchmark evidence without making that capability a normal installation requirement.
+
+On Linux, inspect the exact linked libraries and capabilities with:
+
+#+begin_src sh
+ldd target/release/orgfdb-benchmark | grep -i sqlite
+ldd "$(command -v sqlite3)" | grep -i sqlite
+pkg-config --variable=libdir sqlite3
+sqlite3 ':memory:' "SELECT sqlite_compileoption_used('ENABLE_DBSTAT_VTAB');"
+sqlite3 ':memory:' 'SELECT count(*) FROM dbstat;'
+#+end_src
+
+The first two commands may differ because the CLI can be statically linked or can carry a different SQLite build. The benchmark JSON describes the SQLite library used by the benchmark process, not the capabilities of an unrelated CLI executable.
+
 * Index-tuning profiles
 
 The runner also measures the unchanged version-8 baseline, every named individual index candidate, and a combined candidate profile. Profiles are rebuilt into fresh databases through the normal production path. They use the same generated corpus, query workload order, warm-ups, iterations, SQLite build, and application pragmas. The runner rejects a profile set when query or search result cardinalities differ from its matching baseline variant.
