@@ -393,6 +393,58 @@ mod tests {
             .expect("count query should succeed")
     }
 
+    fn explicit_index_names(connection: &Connection) -> Vec<String> {
+        let mut statement = connection
+            .prepare(
+                "SELECT name
+                 FROM sqlite_master
+                 WHERE type = 'index' AND sql IS NOT NULL
+                 ORDER BY name",
+            )
+            .expect("explicit index inventory should prepare");
+        statement
+            .query_map([], |row| row.get(0))
+            .expect("explicit index inventory should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("explicit index inventory should decode")
+    }
+
+    fn expected_current_explicit_indexes() -> Vec<String> {
+        [
+            "files_identity_unique",
+            "idx_files_hash",
+            "idx_files_mtime_size",
+            "idx_files_path_lower",
+            "idx_headings_closed",
+            "idx_headings_deadline",
+            "idx_headings_parent_id",
+            "idx_headings_scheduled",
+            "idx_headings_title_lower",
+            "idx_headings_todo",
+            "idx_headings_todo_type",
+            "idx_keywords_keyword",
+            "idx_links_heading",
+            "idx_links_path",
+            "idx_links_target_file",
+            "idx_links_target_heading",
+            "idx_outline_file_materialized_path",
+            "idx_outline_parent",
+            "idx_properties_custom_id_lookup",
+            "idx_properties_heading_key",
+            "idx_properties_id_lookup",
+            "idx_properties_key_value",
+            "idx_tags_tag",
+            "idx_timestamps_heading_id",
+            "idx_timestamps_role_start",
+            "idx_timestamps_start",
+            "idx_todo_keywords_file_state",
+            "uq_headings_file_level0",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    }
+
     fn foreign_key_targets(connection: &Connection, table_name: &str) -> Vec<String> {
         let mut statement = connection
             .prepare(&format!("PRAGMA foreign_key_list({table_name})"))
@@ -455,6 +507,83 @@ mod tests {
             .expect("sqlite_master should be queryable");
 
         assert_eq!(heading_fts_exists, 0);
+    }
+
+    #[test]
+    fn fresh_schema_has_the_measured_explicit_index_set() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+
+        assert_eq!(
+            explicit_index_names(&connection),
+            expected_current_explicit_indexes()
+        );
+    }
+
+    #[test]
+    fn migrates_version_8_index_set_to_version_9() {
+        let test_dir = TestDir::new("version-8-index-set");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        {
+            let connection = open_database(&db_path).expect("database should initialize");
+            connection
+                .execute_batch(
+                    r#"
+DROP INDEX idx_files_path_lower;
+DROP INDEX idx_headings_title_lower;
+CREATE INDEX idx_tags_heading ON tags(heading_id);
+CREATE INDEX idx_keywords_heading ON keywords(heading_id);
+CREATE INDEX idx_timestamp_repeaters_timestamp_id
+    ON timestamp_repeaters(timestamp_id);
+PRAGMA user_version = 8;
+"#,
+                )
+                .expect("version-8 index set should seed");
+        }
+
+        let connection = open_database(&db_path).expect("version-8 database should migrate");
+        let version = read_schema_version(&connection).expect("schema version should load");
+
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+        assert_eq!(
+            explicit_index_names(&connection),
+            expected_current_explicit_indexes()
+        );
+        assert!(foreign_key_check_rows(&connection).is_empty());
+    }
+
+    #[test]
+    fn measured_expression_indexes_match_production_query_shapes() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+
+        let mut file_statement = connection
+            .prepare("EXPLAIN QUERY PLAN SELECT id FROM files WHERE LOWER(path) = LOWER(?1)")
+            .expect("file plan should prepare");
+        let file_plan = file_statement
+            .query_map(["/tmp/example.org"], |row| row.get::<_, String>(3))
+            .expect("file plan should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("file plan should decode");
+        assert!(file_plan
+            .iter()
+            .any(|detail| detail.contains("idx_files_path_lower")));
+
+        let mut title_statement = connection
+            .prepare("EXPLAIN QUERY PLAN SELECT id FROM headings WHERE LOWER(title) = LOWER(?1)")
+            .expect("title plan should prepare");
+        let title_plan = title_statement
+            .query_map(["Example"], |row| row.get::<_, String>(3))
+            .expect("title plan should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("title plan should decode");
+        assert!(title_plan
+            .iter()
+            .any(|detail| detail.contains("idx_headings_title_lower")));
     }
 
     #[test]

@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= Exact case-insensitive file-path and file-title queries now use measured SQLite expression indexes, and redundant explicit indexes were removed.
+
 - =ADDED= Release-mode SQLite query-baseline runner with deterministic corpus manifests and structured measurements.
 
 - =ADDED= Internal transactional application primitives for deterministic actionable index plans.

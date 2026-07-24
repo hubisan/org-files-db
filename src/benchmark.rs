@@ -199,6 +199,18 @@ struct IndexProfile {
     sql: &'static str,
 }
 
+const V8_BASELINE_INDEX_SET_SQL: &str = r#"
+DROP INDEX IF EXISTS idx_files_path_lower;
+DROP INDEX IF EXISTS idx_headings_title_lower;
+DROP INDEX IF EXISTS idx_benchmark_links_resolution_status;
+DROP INDEX IF EXISTS idx_benchmark_files_path_lower;
+DROP INDEX IF EXISTS idx_benchmark_headings_title_lower;
+CREATE INDEX IF NOT EXISTS idx_tags_heading ON tags(heading_id);
+CREATE INDEX IF NOT EXISTS idx_keywords_heading ON keywords(heading_id);
+CREATE INDEX IF NOT EXISTS idx_timestamp_repeaters_timestamp_id
+    ON timestamp_repeaters(timestamp_id);
+"#;
+
 const INDEX_PROFILES: &[IndexProfile] = &[
     IndexProfile { id: "baseline-v8", kind: "baseline", sql: "" },
     IndexProfile { id: "candidate-add-links-resolution-status", kind: "individual-candidate", sql: "CREATE INDEX idx_benchmark_links_resolution_status ON links(resolution_status);" },
@@ -546,9 +558,7 @@ fn run_variant(
         &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, search.fts5_enabled),
     )
     .map_err(|error| error.to_string())?;
-    connection
-        .execute_batch(profile.sql)
-        .map_err(|error| error.to_string())?;
+    apply_index_profile(&connection, profile)?;
     let rebuild_start = Instant::now();
     Indexer::new(OrgizeAdapter::new())
         .rebuild(&mut connection, &config)
@@ -627,6 +637,7 @@ fn run_variant(
         &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, search.fts5_enabled),
     )
     .map_err(|error| error.to_string())?;
+    apply_index_profile(&incremental_connection, profile)?;
     let incremental = measure_incremental_sequence(
         &mut incremental_connection,
         &config,
@@ -654,6 +665,15 @@ fn variant_source_dir(work_dir: &Path, variant_index: usize) -> PathBuf {
     work_dir
         .join(format!("variant-{variant_index:02}"))
         .join("corpus")
+}
+
+fn apply_index_profile(connection: &Connection, profile: IndexProfile) -> Result<(), String> {
+    connection
+        .execute_batch(V8_BASELINE_INDEX_SET_SQL)
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(profile.sql)
+        .map_err(|error| error.to_string())
 }
 
 fn measure_search(
@@ -795,9 +815,7 @@ fn measure_incremental_sequence(
         &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, config.search.fts5_enabled),
     )
     .map_err(|error| error.to_string())?;
-    reference
-        .execute_batch(profile.sql)
-        .map_err(|error| error.to_string())?;
+    apply_index_profile(&reference, profile)?;
     Indexer::new(OrgizeAdapter::new())
         .rebuild(&mut reference, &reference_config)
         .map_err(|error| error.to_string())?;
@@ -2017,6 +2035,32 @@ mod tests {
 
         let _ = fs::remove_dir_all(&work);
         let _ = fs::remove_dir_all(output_root);
+    }
+
+    #[test]
+    fn historical_profiles_reconstruct_the_version_8_index_set() {
+        let connection = Connection::open_in_memory().expect("database should open");
+        SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
+            .apply(&connection)
+            .expect("current schema should apply");
+
+        let profile = INDEX_PROFILES[2];
+        apply_index_profile(&connection, profile)
+            .expect("version-8 candidate profile should apply");
+        SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
+            .apply(&connection)
+            .expect("current schema should reapply");
+        apply_index_profile(&connection, profile)
+            .expect("version-8 candidate profile should reapply");
+        let indexes = explicit_indexes(&connection).expect("index inventory should load");
+
+        assert!(indexes.contains(&"idx_tags_heading".to_string()));
+        assert!(indexes.contains(&"idx_keywords_heading".to_string()));
+        assert!(indexes.contains(&"idx_timestamp_repeaters_timestamp_id".to_string()));
+        assert!(indexes.contains(&"idx_benchmark_files_path_lower".to_string()));
+        assert!(!indexes.contains(&"idx_benchmark_links_resolution_status".to_string()));
+        assert!(!indexes.contains(&"idx_files_path_lower".to_string()));
+        assert!(!indexes.contains(&"idx_headings_title_lower".to_string()));
     }
 
     #[test]

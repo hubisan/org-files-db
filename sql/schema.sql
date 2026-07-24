@@ -476,9 +476,6 @@ CREATE INDEX IF NOT EXISTS idx_timestamps_role_start
 CREATE INDEX IF NOT EXISTS idx_timestamps_start
     ON timestamps(start_ts);
 
-CREATE INDEX IF NOT EXISTS idx_timestamp_repeaters_timestamp_id
-    ON timestamp_repeaters(timestamp_id);
-
 --------------------------------------------------
 -- KEYWORDS
 --------------------------------------------------
@@ -877,6 +874,9 @@ CREATE INDEX IF NOT EXISTS idx_files_mtime_size
 CREATE INDEX IF NOT EXISTS idx_files_hash
     ON files(content_hash);
 
+CREATE INDEX IF NOT EXISTS idx_files_path_lower
+    ON files(LOWER(path));
+
 --------------------------------------------------
 -- INDEXES: HEADINGS
 --------------------------------------------------
@@ -898,6 +898,9 @@ CREATE INDEX IF NOT EXISTS idx_headings_deadline
 CREATE INDEX IF NOT EXISTS idx_headings_closed
     ON headings(closed_ts);
 
+CREATE INDEX IF NOT EXISTS idx_headings_title_lower
+    ON headings(LOWER(title));
+
 --------------------------------------------------
 -- INDEXES: TODO KEYWORDS
 --------------------------------------------------
@@ -907,9 +910,6 @@ CREATE INDEX IF NOT EXISTS idx_todo_keywords_file_state
 --------------------------------------------------
 -- INDEXES: KEYWORDS
 --------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_keywords_heading
-    ON keywords(heading_id);
-
 CREATE INDEX IF NOT EXISTS idx_keywords_keyword
     ON keywords(keyword);
 
@@ -935,9 +935,6 @@ CREATE INDEX IF NOT EXISTS idx_properties_custom_id_lookup
 --------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_tags_tag
     ON tags(tag);
-
-CREATE INDEX IF NOT EXISTS idx_tags_heading
-    ON tags(heading_id);
 
 --------------------------------------------------
 -- INDEXES: LINKS

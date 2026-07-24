@@ -7,7 +7,7 @@ use super::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+pub const CURRENT_SCHEMA_VERSION: u32 = 9;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -177,8 +177,19 @@ impl SchemaDefinition {
         migrate_legacy_timestamps_table(connection)?;
         migrate_legacy_links_table(connection)?;
         repair_tables_depending_on_headings(connection)?;
+        migrate_v8_index_set(connection)?;
         connection.execute_batch(&self.render_sql(connection))
     }
+}
+
+fn migrate_v8_index_set(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(
+        r#"
+DROP INDEX IF EXISTS idx_tags_heading;
+DROP INDEX IF EXISTS idx_keywords_heading;
+DROP INDEX IF EXISTS idx_timestamp_repeaters_timestamp_id;
+"#,
+    )
 }
 
 fn migrate_legacy_files_identity(connection: &Connection) -> rusqlite::Result<()> {
@@ -201,7 +212,7 @@ fn migrate_legacy_files_identity(connection: &Connection) -> rusqlite::Result<()
 
 #[cfg(test)]
 mod file_identity_migration_tests {
-    use super::SchemaDefinition;
+    use super::{SchemaDefinition, CURRENT_SCHEMA_VERSION};
     use rusqlite::Connection;
 
     fn assert_files_identity_index_contract(connection: &Connection) {
@@ -222,11 +233,12 @@ mod file_identity_migration_tests {
                     .prepare(&format!("PRAGMA index_info('{name}')"))
                     .expect("index info should prepare");
                 index_info
-                    .query_map([], |row| row.get::<_, String>(2))
+                    .query_map([], |row| row.get::<_, Option<String>>(2))
                     .expect("index info should query")
                     .collect::<Result<Vec<_>, _>>()
                     .expect("index columns should decode")
                     .iter()
+                    .flatten()
                     .any(|column| column == "identity")
             })
             .cloned()
@@ -247,7 +259,7 @@ mod file_identity_migration_tests {
     #[test]
     fn fresh_files_schema_has_one_named_partial_identity_index() {
         let connection = Connection::open_in_memory().expect("database should open");
-        SchemaDefinition::new(8, false)
+        SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
             .apply(&connection)
             .expect("schema should apply");
 
@@ -271,7 +283,7 @@ mod file_identity_migration_tests {
             )
             .expect("legacy files table should seed");
 
-        SchemaDefinition::new(8, false)
+        SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
             .apply(&connection)
             .expect("schema should migrate legacy files");
 

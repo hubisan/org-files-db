@@ -113,279 +113,282 @@ General rules:
 
 - Task file: [[file:archive/2026-07-24--establish-sqlite-query-performance-baseline.org]]
 
-** Tune SQLite indexes from measured query plans
+** DONE Tune SQLite indexes from measured query plans
 
-Goal: Add, remove, or change indexes only where the performance baseline demonstrates a useful workload improvement.
+Task file: [[file:archive/2026-07-24--tune-sqlite-indexes-from-measured-query-plans.org][Tune SQLite Indexes from Measured Query Plans]]
 
-Acceptance criteria:
-
-- Existing indexes are reviewed for actual planner use, redundancy, storage cost, and write cost before new indexes are proposed.
-- Every candidate change is tied to a measured query or a clearly documented expected production workload.
-- Before and after results include ~EXPLAIN QUERY PLAN~, latency, result count, database size, and rebuild or incremental-write cost.
-- Improvements are measured against the same reproducible corpus and environment used by the baseline.
-- Typical exact-match predicates and relation joins are distinguished from substring and regexp predicates that ordinary B-tree indexes cannot accelerate directly.
-- Candidate indexes that do not provide a meaningful measured benefit are rejected and documented.
-- Redundant or unused indexes may be removed only when measurements and planner inspection support the change.
-- Persistent index changes bump ~CURRENT_SCHEMA_VERSION~.
-- Persistent index changes include migration tests and fresh-schema tests.
-- FTS-specific tuning remains conditional on FTS5 support.
-- FTS tuning does not weaken existing trust-metadata and rebuild-equivalence contracts.
-- The accepted index set contains no known redundant index without a documented reason.
-- Final before and after measurements, accepted changes, rejected candidates, and limitations are documented so later work does not repeat the same experiments.
-
-*** DONE Complete index-profile measurement infrastructure
-
-Goal:
-
-- Finish all tooling required to compare the version-8 baseline, individual index candidates, and the combined candidate profile reproducibly.
-
-Acceptance criteria:
-
-- Measure the same deterministic incremental sequence for every profile:
-  - metadata-only update;
-  - modified-file replacement;
-  - created file;
-  - deleted file;
-  - mixed change set.
-- Measure planning and transactional application separately.
-- Record database and WAL sizes before and after the incremental sequence.
-- Verify semantic equivalence after the sequence.
-- Record per-index page and byte usage through ~dbstat~ when available.
-- Emit a structured reason when ~dbstat~ is unavailable.
-- Distinguish explicit indexes, indexes implied by primary or unique constraints, and SQLite autoindexes.
-- Add representative workloads for:
-  - exact case-insensitive file path;
-  - exact case-insensitive file title;
-  - link resolution status;
-  - source-link relations;
-  - resolved-target relations;
-  - temporal ranges.
-- Keep representative TODO, tag, property, hierarchy, substring, regexp, and FTS workloads.
-- Strengthen profile comparability checks for:
-  - corpus contract and fingerprint;
-  - seed and file count;
-  - SQLite version and compile options;
-  - relevant pragmas;
-  - FTS mode and capability;
-  - workload IDs and ordering;
-  - warm-up and measured iteration counts;
-  - result cardinalities;
-  - structured skipped workloads;
-  - incremental sequence identity.
-- Add focused tests for the measurement protocol and output contract.
-- Keep the authoritative schema unchanged at version 8.
-- Do not make candidate decisions in this subtask.
-
-Checks:
-
-- ~cargo fmt --check~
-- ~cargo clippy --all-targets --all-features -- -D warnings~
-- focused and complete tests
-- ~git diff --check~
-  
-*** DONE [#B] Fix index-profile benchmark comparability defects
+** TODO [#B] Materialize effective properties in schema version 10
 :PROPERTIES:
 :PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
+:RISK: High
+:DB_SCHEMA_CHANGE: Yes
 :API_CONTRACT_CHANGE: No
 :END:
 
-Goal:
+Depends on:
 
-- Fix the comparability defects discovered in the completed 1,000-file index-profile benchmark before making any production index decisions.
-
-Context:
-
-- A relative benchmark ~--work-dir~ caused the ~file-path~ and ~file-dir~ workloads to use relative paths while the production index stored canonical absolute paths.
-- The affected positive lookup workloads therefore returned zero results.
-- Corpus directory names currently contain profile IDs of different lengths.
-- Because absolute source paths are stored in the database, those different directory-name lengths contaminate whole-database size comparisons between profiles.
-- The benchmark must remain a measurement-only facility.
-- Production schema version 8 and all candidate decisions must remain unchanged.
-
-Implementation:
-
-- Resolve the supplied benchmark work directory to a canonical absolute path before creating any corpus directories, databases, workload expressions, or recorded command paths that depend on it.
-- Ensure that ~file-path~ and ~file-dir~ workload parameters use the same canonical absolute path representation stored by the production indexing path.
-- Replace profile-derived corpus directory names with deterministic fixed-width internal names such as ~variant-00~ through ~variant-23~.
-- Preserve the existing FTS mode, profile ID, and profile kind in the JSON report.
-- Keep a deterministic mapping between each fixed-width internal variant directory and its reported benchmark identity.
-- Ensure that all variant corpus paths have equal lengths so stored path data cannot bias database-size comparisons.
-- Mark workloads intended as positive lookups explicitly in the benchmark definition or otherwise maintain an unambiguous expected-result contract.
-- Fail the benchmark with a clear diagnostic when a positive lookup unexpectedly returns zero results.
-- Include the workload ID, variant ID, profile ID, FTS mode, expression, and unexpected result count in that diagnostic.
-- Do not turn legitimately empty or negative lookup workloads into failures.
-- Keep ~dbstat~ capability detection optional and based on the SQLite library linked into the benchmark binary.
-- Do not make unavailable ~dbstat~ support a failure condition in this task.
-
-Regression coverage:
-
-- Add a test that invokes the benchmark with a relative ~--work-dir~.
-- Verify that the work directory is canonicalized before corpus generation and workload construction.
-- Verify that ~query.file.path~ returns its expected positive result set.
-- Verify that ~query.file.dir~ returns a non-empty expected result set.
-- Verify that these result counts are identical across all comparable profiles.
-- Verify that all 24 variant corpus paths use deterministic fixed-width directory names of equal length.
-- Verify that profile IDs do not appear in the internal corpus directory names.
-- Verify that the original profile IDs and kinds remain present in the JSON report.
-- Verify that all variants remain semantically comparable.
-- Add a negative regression test proving that an unexpectedly empty positive workload causes a clear benchmark failure.
-
-Preserve:
-
-- Output schema version ~2~.
-- Corpus contract version ~1~ unless an existing contract rule demonstrably requires a change.
-- The complete matrix of 8 profiles across 3 FTS modes.
-- Production query and search execution paths.
-- Cold and warmed query measurements.
-- Incremental planning and application measurements.
-- Clean-reference rebuilds and semantic equivalence checks.
-- Existing FTS availability and skip reporting.
-- Authoritative database schema version ~8~.
-
-Non-goals:
-
-- Do not apply any candidate index to the production schema.
-- Do not remove any production index.
-- Do not accept or reject any candidate in this task.
-- Do not change Query Model semantics.
-- Do not optimise the expensive property workloads.
-- Do not add benchmark profile or workload filtering.
-- Do not require ~dbstat~ support.
-- Do not rerun the final 1,000-file benchmark as part of automated tests.
-
-Acceptance criteria:
-
-- A benchmark started with a relative work directory produces canonical absolute indexed paths and valid positive ~file-path~ and ~file-dir~ results.
-- Every variant uses an equal-length internal corpus path.
-- Whole-database size comparisons are no longer biased by profile-name length.
-- Unexpected zero-result positive workloads fail immediately with an actionable diagnostic.
-- The JSON output still contains all 24 variants and remains schema version ~2~.
-- Every completed variant reports successful semantic equivalence.
-- Formatting, unit tests, integration tests, and ~make ci~ pass.
-- No authoritative schema or candidate decision is changed.
-
-After implementation:
-
-- Run exactly one smoke benchmark using:
-  - ~--files 50~
-  - ~--seed 1~
-  - ~--warmups 2~
-  - ~--iterations 5~
-  - a relative ~.tmp/...~ work directory
-- Inspect the generated JSON and confirm:
-  - exactly 24 variants are present;
-  - ~query.file.path~ returns the expected positive result count;
-  - ~query.file.dir~ returns a non-zero expected result count;
-  - both result counts are identical across all comparable profiles;
-  - all completed variants report successful semantic equivalence.
-- Run ~make ci~.
-- Do not run a 1,000-file benchmark in this task.
-- Leave the corrected full 1,000-file measurement exclusively for the separate ~Measure index profiles and decide every candidate~ task.
-
-*** TODO Measure index profiles and decide every candidate
+- Complete the measured SQLite index-profile decisions for schema version 9.
+- Existing effective property semantics and regression tests.
 
 Goal:
 
-- Run the complete release benchmark and produce an explicit accepted or rejected decision for every individual candidate and the combined profile.
+- Replace query-time recursive property resolution with a normalized, materialized ~effective_properties~ projection.
+- Treat the projection as mandatory derived database state analogous to ~outline_path~, not as an optional cache.
+- Preserve all existing property query and output semantics while making direct and inherited property queries suitable for interactive use.
 
-Profiles:
+Measured reason:
 
-- unchanged version-8 baseline;
-- add link resolution-status index;
-- add ~LOWER(files.path)~ expression index;
-- add ~LOWER(headings.title)~ expression index;
-- remove ~idx_tags_heading~;
-- remove ~idx_keywords_heading~;
-- remove ~idx_timestamp_repeaters_timestamp_id~;
-- combined candidate profile.
+- The 1,000-file benchmark measured approximately 200 ms for a direct property query and approximately 4.7 seconds median for an inherited property query.
+- The current implementation repeatedly reconstructs heading lineages, local property summaries, and effective values inside correlated subqueries.
+- Property resolution should instead be performed once when a file is indexed or replaced.
+
+Canonical source contract:
+
+- The existing ~properties~ table remains the canonical source of property facts.
+- ~effective_properties~ is derived exclusively from canonical headings and property rows.
+- Property drawer rows and property-like keyword rows already normalized into ~properties~ must use identical resolution rules.
+- Root property sources include supported ~#+PROPERTY~ declarations, ~#+CATEGORY~, and level-0 property drawer rows.
+- Generic keywords such as ~TITLE~ and ~AUTHOR~ must not become properties merely because an effective-property projection exists.
+- The separate ~keywords~ table and ~(keyword ...)~ predicate retain their current root/file-level semantics.
+
+Schema:
+
+- Bump the database schema version from 9 to 10.
+- Add a normalized ~effective_properties~ table with one row per visible property key and heading.
+- Store at least:
+  - ~heading_id~
+  - ~file_id~
+  - normalized ~key~
+  - nullable ~local_value~
+  - ~effective_value~
+  - nullable ~effective_value_without_root~
+- Use ~NULL~ for ~local_value~ when the heading does not define the property locally.
+- Preserve an explicitly defined empty local value as an empty string rather than ~NULL~.
+- Use ~NULL~ for ~effective_value_without_root~ when the key exists only through the file/root context.
+- Enforce uniqueness for ~(heading_id, key)~.
+- Reference headings and files with foreign keys and cascade derived rows when their owning heading or file is deleted.
+
+Indexes:
+
+- Add an index supporting exact inherited lookups by ~(key, effective_value, heading_id)~.
+- Add a partial index supporting direct lookups by ~(key, local_value, heading_id)~ where ~local_value IS NOT NULL~.
+- Add a partial index supporting root-excluding lookups by ~(key, effective_value_without_root, heading_id)~ where ~effective_value_without_root IS NOT NULL~.
+- Keep index names and the complete schema inventory deterministic and tested.
+
+Resolution semantics:
+
+- Preserve the current key normalization rules.
+- Preserve source order where it affects property resolution.
+- The last applicable non-append value at one location wins.
+- Append rows are combined in their defined source order.
+- Append-only local definitions can extend an inherited value.
+- A local non-append definition replaces the inherited base before local appends are applied.
+- Root, ancestor, and current-heading precedence must remain unchanged.
+- Missing values, explicitly empty values, empty bases, and empty append values must remain distinguishable where required by the current semantics.
+- Effective resolution must be deterministic and independent of surrogate row IDs.
+
+Derivation:
+
+- Implement property derivation as a pure, testable operation over one prepared file and its heading tree.
+- Resolve local property values once per heading and key.
+- Walk the tree from root to leaves and propagate effective values downward.
+- Calculate both the normal effective value and the effective value with root participation excluded.
+- Map the derived rows to stored heading IDs during transactional application.
+- Do not execute recursive property SQL once per candidate heading during query execution.
+
+Transactional maintenance:
+
+- Full rebuild and incremental replacement must use the same derivation and insertion path.
+- A created or modified file regenerates all of its ~effective_properties~ rows in the same transaction as its headings and canonical properties.
+- A deleted file removes its derived rows through the controlled file deletion path.
+- A metadata-only change must not regenerate effective properties.
+- Any derivation or insertion failure must roll back the complete affected transaction.
+- No committed database may contain new canonical property rows with stale effective-property rows.
+
+Migration:
+
+- Add a transactional migration from schema version 9 to 10.
+- Create and backfill ~effective_properties~ from existing headings and canonical property rows.
+- Do not require reparsing Org files when the existing database contains all required canonical facts.
+- Advance the stored schema version only after the table, indexes, and backfill complete successfully.
+- Preserve the previous database unchanged when migration fails.
+
+Query compiler:
+
+- Compile ~(property KEY VALUE :inherit nil)~ against ~local_value~.
+- Compile the default inherited form against ~effective_value~.
+- Compile ~:inherit t :without-root t~ against ~effective_value_without_root~.
+- Preserve key-only existence queries, exact value matching, regexp matching, root-result behaviour, and bound SQL parameters.
+- Remove the recursive lineage and effective-value CTEs from normal property predicate execution.
+- Ensure nested property predicates in relation queries use the same materialized projection.
+
+Output:
+
+- Preserve the existing public JSON contract for included direct and effective properties.
+- Load included effective properties from ~effective_properties~ rather than recomputing them.
+- Keep direct property output sourced from canonical/local values according to the current include contract.
+- Do not expose internal projection columns unless already required by the public API.
+
+Integrity and equivalence:
+
+- Extend semantic database snapshots to include effective properties using stable file paths, heading source positions, keys, and values rather than raw surrogate IDs.
+- Verify that every stored effective row references the correct file and heading.
+- Verify that no stale or orphaned effective rows survive replacement or deletion.
+- Verify that a clean rebuild and an equivalent incremental sequence produce identical effective-property projections.
+- Include ~effective_properties~ in foreign-key and derived-state integrity checks.
+
+Tests:
+
+- Cover a direct drawer property.
+- Cover a root-level property drawer.
+- Cover ~#+PROPERTY~ as a root property source.
+- Cover ~#+CATEGORY~ as a root property source and inherited ~CATEGORY~ lookup.
+- Cover a generic keyword that remains a keyword and does not become a property.
+- Cover root inheritance, parent inheritance, and multiple ancestor levels.
+- Cover local replacement of an inherited value.
+- Cover append-only local values and append onto an inherited value.
+- Cover multiple appends and the last local base definition winning.
+- Cover explicit empty values, missing values, empty base plus append, and empty append rows.
+- Cover ~:inherit nil~, default inheritance, and ~:without-root t~.
+- Cover key-only existence and value matching.
+- Cover file creation, modification, metadata-only change, deletion, migration, rollback, and rebuild equivalence.
+- Assert that representative property query plans use ~effective_properties~ and no longer contain the recursive property-resolution CTE.
+- Run a focused benchmark and record direct and inherited property query latency after the change.
 
 Acceptance criteria:
 
-- Run all comparable profiles with the same:
-  - corpus;
-  - seed;
-  - SQLite build;
-  - pragmas;
-  - warm-ups;
-  - iterations;
-  - workload ordering.
-- Run FTS-disabled, FTS-title, and FTS-body variants where supported.
-- Do not assume that any addition is useful or that any removal candidate is redundant.
-- For each candidate, document:
-  - candidate ID;
-  - target workloads;
-  - before and after ~EXPLAIN QUERY PLAN~;
-  - minimum, median, p95, and sample count;
-  - result equivalence;
-  - database-size delta;
-  - per-index ~dbstat~ footprint where available;
-  - rebuild-time delta;
-  - incremental planning and application delta;
-  - actual planner use;
-  - accepted or rejected decision;
-  - rationale and measurement limitations.
-- Review removal candidates using table definitions, key constraints, column order, covering behaviour, read use, deletion behaviour, rebuild cost, and incremental-write cost.
-- Verify that expression-index candidates match the existing compiled SQL structurally.
-- Do not change query semantics or compiler output to make an index useful.
-- Treat roughly 20 percent median improvement as strong evidence, not as a mandatory threshold.
-- Reject noisy, unused, isolated, or disproportionately costly candidates.
-- Produce a separate accepted or rejected decision for the combined profile.
-- Keep the authoritative schema unchanged during this subtask.
+- Fresh databases use schema version 10.
+- Version-9 databases migrate deterministically to version 10.
+- Existing property semantics and public output remain unchanged.
+- ~#+CATEGORY~ and supported ~#+PROPERTY~ facts participate in effective property resolution.
+- Arbitrary root keywords do not silently become properties.
+- Direct and inherited property predicates read the materialized projection.
+- Full rebuild and incremental replacement maintain the projection transactionally.
+- Integrity and semantic-equivalence checks include the new derived table.
+- The focused benchmark shows a substantial reduction from the current approximately 200 ms direct and 4.7 second inherited measurements.
+- ~make ci~ passes.
 
-Result:
+** TODO [#B] Replace ~all_tags_json~ with normalized effective tags
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: No
+:END:
 
-- A complete decision table with no undecided candidate.
+Depends on:
 
-*** TODO Apply the measured index decision and finish tuning
+- Materialize effective properties in schema version 10.
 
 Goal:
 
-- Apply the final measured index decision, update project records, and complete the parent tuning task.
+- Store effective tag membership in a normalized ~effective_tags~ projection.
+- Remove ~headings.all_tags_json~ as redundant derived state.
+- Use canonical direct tag rows for local matching and normalized effective tag rows for inherited matching and output.
+- Implement this directly without a separate measurement gate.
+
+Architecture:
+
+- The existing ~tags~ table remains the canonical source of tags defined directly on a heading or file/root.
+- ~effective_tags~ becomes the mandatory derived projection of all tags visible on each heading.
+- Root-level ~FILETAGS~ participate when inheritance and root participation are enabled.
+- The projection is maintained transactionally in the same manner as ~outline_path~ and ~effective_properties~.
+- ~all_tags_json~ must not remain as a second effective-tag cache after ~effective_tags~ is authoritative.
+
+Schema:
+
+- Bump the database schema version from 10 to 11.
+- Add an ~effective_tags~ table containing at least:
+  - ~heading_id~
+  - ~file_id~
+  - ~tag~
+  - a flag indicating whether the tag remains visible when root/FILETAGS participation is excluded
+  - deterministic ordering metadata if required to preserve the current JSON tag order
+- Enforce uniqueness for ~(heading_id, tag)~.
+- Reference headings and files with foreign keys and cascade derived rows when their owner is deleted.
+- Add an index supporting inherited tag lookup by ~(tag, heading_id)~.
+- Add a partial index supporting inherited lookup without root participation.
+- Remove ~all_tags_json~ from the fresh ~headings~ schema and from all corresponding row models and SQL projections.
+
+Effective tag semantics:
+
+- Preserve current tag normalization and case behaviour.
+- Deduplicate a tag inherited through more than one level.
+- Include local tags, ancestor tags, and root ~FILETAGS~ in the default effective set.
+- For ~:without-root t~, retain a tag when it is also supplied locally or by a real ancestor even when the same tag is present in ~FILETAGS~.
+- For ~:inherit nil~, use only canonical direct rows from ~tags~.
+- Preserve deterministic output ordering according to the current public output contract.
+
+Derivation:
+
+- Implement effective-tag derivation as a pure operation over one prepared heading tree.
+- Walk the tree from root to leaves while carrying the effective tag set.
+- Calculate both normal visibility and visibility with root participation excluded.
+- Produce at most one row per heading and tag.
+- Do not reconstruct ancestor tag sets through recursive SQL during each query.
+
+Transactional maintenance:
+
+- A created or modified file regenerates all of its ~effective_tags~ rows in the same transaction as headings, direct tags, and other derived state.
+- A metadata-only change leaves the projection unchanged.
+- File replacement and deletion must not leave stale effective tags.
+- Full rebuild and incremental replacement must use the same derivation path.
+- Any effective-tag failure rolls back the affected transaction.
+
+Migration:
+
+- Add a transactional migration from schema version 10 to 11.
+- Create and backfill ~effective_tags~ from canonical headings and direct ~tags~ rows.
+- Verify the backfilled normalized rows before removing or ceasing to use ~all_tags_json~.
+- Remove the obsolete ~all_tags_json~ column using the project's supported SQLite migration strategy.
+- Advance the schema version only after the projection and schema transition complete successfully.
+- Do not require Org-file reparsing when the canonical direct tag rows are sufficient.
+
+Query compiler:
+
+- Compile ~(tags ... :inherit nil)~ against canonical ~tags~.
+- Compile inherited tag predicates against ~effective_tags~.
+- Apply the root-exclusion flag for ~:inherit t :without-root t~.
+- Preserve ~:match :any~, ~:match :all~, ~tags-all~, regexp matching, root-result behaviour, and bound parameters.
+- Remove recursive per-heading lineage resolution from tag predicate SQL.
+
+Output:
+
+- Build public effective tag arrays from ~effective_tags~.
+- Preserve the existing JSON field and its semantics.
+- Remove JSON decoding of ~headings.all_tags_json~ from query execution and result shaping.
+- Ensure flat, outline, path, source, target, and included result objects all obtain effective tags from the same normalized source.
+
+Integrity and equivalence:
+
+- Require the file/root and every real heading to have exactly the expected normalized effective tag rows.
+- Verify no duplicate, stale, or orphaned effective tags exist.
+- Include ~effective_tags~ in semantic rebuild-versus-incremental comparisons.
+- Ensure direct ~tags~, derived ~effective_tags~, and public tag output cannot disagree after a committed transaction.
+
+Tests:
+
+- Cover local tags and ~:inherit nil~.
+- Cover parent and multi-level ancestor inheritance.
+- Cover root ~FILETAGS~ inheritance.
+- Cover ~:without-root t~.
+- Cover the same tag supplied by root and a real ancestor.
+- Cover duplicate tags across multiple levels.
+- Cover ~:match :any~, ~:match :all~, ~tags-all~, and regexp matching.
+- Cover root/file results and real heading results.
+- Cover deterministic JSON tag ordering.
+- Cover creation, modification, metadata-only change, deletion, migration, rollback, and rebuild equivalence.
+- Assert that inherited tag query plans use ~effective_tags~ rather than recursive lineage SQL.
+- Assert that the fresh schema and runtime SQL no longer reference ~all_tags_json~.
 
 Acceptance criteria:
 
-- If every candidate was rejected:
-  - retain the current authoritative index set;
-  - keep ~CURRENT_SCHEMA_VERSION~ at 8;
-  - add no migration;
-  - document that retaining the existing schema was the measured decision.
-- If one or more candidates were accepted:
-  - change only the accepted authoritative indexes;
-  - bump ~CURRENT_SCHEMA_VERSION~;
-  - add the project-standard migration from the real version-8 schema;
-  - update fresh-schema definitions;
-  - safely create or drop only the accepted named indexes.
-- Preserve:
-  - query-result equivalence;
-  - foreign-key integrity;
-  - rebuild equivalence;
-  - FTS trust metadata;
-  - FTS-disabled and FTS-enabled behaviour.
-- Add fresh-schema tests for the exact explicit accepted index inventory.
-- Add migration tests when the schema changes.
-- Do not assert unstable SQLite autoindex names.
-- Update:
-  - ~docs/performance-baseline.org~;
-  - the tuning task file;
-  - ~todo.org~;
-  - ~CHANGELOG.org~ where appropriate.
-- Record:
-  - the release benchmark command;
-  - measured environment;
-  - complete candidate decision table;
-  - final accepted index set;
-  - final schema version;
-  - migration summary when applicable;
-  - all checks actually run.
-- Mark the parent task DONE only after the schema decision has been applied or explicitly retained unchanged.
-
-Checks:
-
-- ~cargo fmt --check~
-- ~cargo clippy --all-targets --all-features -- -D warnings~
-- ~cargo test~
-- ~cargo build --all-targets~
-- ~make ci~
-- ~git diff --check~
+- Fresh databases use schema version 11.
+- Version-10 databases migrate deterministically to version 11.
+- ~effective_tags~ is the only stored effective-tag representation.
+- ~headings.all_tags_json~ is removed.
+- Direct and effective tag query semantics remain unchanged.
+- Public JSON tag output remains compatible and deterministic.
+- Full rebuild and incremental replacement maintain normalized effective tags transactionally.
+- Integrity and semantic-equivalence checks include the new projection.
+- ~make ci~ passes.

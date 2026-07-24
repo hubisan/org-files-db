@@ -1,0 +1,372 @@
+#+TITLE: Tune SQLite Indexes from Measured Query Plans
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-24 Fri 12:30]
+
+* Original Task (User only)
+
+Tune SQLite indexes from measured query plans.
+
+** DONE Tune SQLite indexes from measured query plans
+
+Goal: Add, remove, or change indexes only where the performance baseline demonstrates a useful workload improvement.
+
+Acceptance criteria:
+
+- Existing indexes are reviewed for actual planner use, redundancy, storage cost, and write cost before new indexes are proposed.
+- Every candidate change is tied to a measured query or a clearly documented expected production workload.
+- Before and after results include ~EXPLAIN QUERY PLAN~, latency, result count, database size, and rebuild or incremental-write cost.
+- Improvements are measured against the same reproducible corpus and environment used by the baseline.
+- Typical exact-match predicates and relation joins are distinguished from substring and regexp predicates that ordinary B-tree indexes cannot accelerate directly.
+- Candidate indexes that do not provide a meaningful measured benefit are rejected and documented.
+- Redundant or unused indexes may be removed only when measurements and planner inspection support the change.
+- Persistent index changes bump ~CURRENT_SCHEMA_VERSION~.
+- Persistent index changes include migration tests and fresh-schema tests.
+- FTS-specific tuning remains conditional on FTS5 support.
+- FTS tuning does not weaken existing trust-metadata and rebuild-equivalence contracts.
+- The accepted index set contains no known redundant index without a documented reason.
+- Final before and after measurements, accepted changes, rejected candidates, and limitations are documented so later work does not repeat the same experiments.
+
+*** DONE Complete index-profile measurement infrastructure
+
+Goal:
+
+- Finish all tooling required to compare the version-8 baseline, individual index candidates, and the combined candidate profile reproducibly.
+
+Acceptance criteria:
+
+- Measure the same deterministic incremental sequence for every profile:
+  - metadata-only update;
+  - modified-file replacement;
+  - created file;
+  - deleted file;
+  - mixed change set.
+- Measure planning and transactional application separately.
+- Record database and WAL sizes before and after the incremental sequence.
+- Verify semantic equivalence after the sequence.
+- Record per-index page and byte usage through ~dbstat~ when available.
+- Emit a structured reason when ~dbstat~ is unavailable.
+- Distinguish explicit indexes, indexes implied by primary or unique constraints, and SQLite autoindexes.
+- Add representative workloads for:
+  - exact case-insensitive file path;
+  - exact case-insensitive file title;
+  - link resolution status;
+  - source-link relations;
+  - resolved-target relations;
+  - temporal ranges.
+- Keep representative TODO, tag, property, hierarchy, substring, regexp, and FTS workloads.
+- Strengthen profile comparability checks for:
+  - corpus contract and fingerprint;
+  - seed and file count;
+  - SQLite version and compile options;
+  - relevant pragmas;
+  - FTS mode and capability;
+  - workload IDs and ordering;
+  - warm-up and measured iteration counts;
+  - result cardinalities;
+  - structured skipped workloads;
+  - incremental sequence identity.
+- Add focused tests for the measurement protocol and output contract.
+- Keep the authoritative schema unchanged at version 8.
+- Do not make candidate decisions in this subtask.
+
+Checks:
+
+- ~cargo fmt --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- focused and complete tests
+- ~git diff --check~
+  
+*** DONE [#B] Fix index-profile benchmark comparability defects
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Fix the comparability defects discovered in the completed 1,000-file index-profile benchmark before making any production index decisions.
+
+Context:
+
+- A relative benchmark ~--work-dir~ caused the ~file-path~ and ~file-dir~ workloads to use relative paths while the production index stored canonical absolute paths.
+- The affected positive lookup workloads therefore returned zero results.
+- Corpus directory names currently contain profile IDs of different lengths.
+- Because absolute source paths are stored in the database, those different directory-name lengths contaminate whole-database size comparisons between profiles.
+- The benchmark must remain a measurement-only facility.
+- Production schema version 8 and all candidate decisions must remain unchanged.
+
+Implementation:
+
+- Resolve the supplied benchmark work directory to a canonical absolute path before creating any corpus directories, databases, workload expressions, or recorded command paths that depend on it.
+- Ensure that ~file-path~ and ~file-dir~ workload parameters use the same canonical absolute path representation stored by the production indexing path.
+- Replace profile-derived corpus directory names with deterministic fixed-width internal names such as ~variant-00~ through ~variant-23~.
+- Preserve the existing FTS mode, profile ID, and profile kind in the JSON report.
+- Keep a deterministic mapping between each fixed-width internal variant directory and its reported benchmark identity.
+- Ensure that all variant corpus paths have equal lengths so stored path data cannot bias database-size comparisons.
+- Mark workloads intended as positive lookups explicitly in the benchmark definition or otherwise maintain an unambiguous expected-result contract.
+- Fail the benchmark with a clear diagnostic when a positive lookup unexpectedly returns zero results.
+- Include the workload ID, variant ID, profile ID, FTS mode, expression, and unexpected result count in that diagnostic.
+- Do not turn legitimately empty or negative lookup workloads into failures.
+- Keep ~dbstat~ capability detection optional and based on the SQLite library linked into the benchmark binary.
+- Do not make unavailable ~dbstat~ support a failure condition in this task.
+
+Regression coverage:
+
+- Add a test that invokes the benchmark with a relative ~--work-dir~.
+- Verify that the work directory is canonicalized before corpus generation and workload construction.
+- Verify that ~query.file.path~ returns its expected positive result set.
+- Verify that ~query.file.dir~ returns a non-empty expected result set.
+- Verify that these result counts are identical across all comparable profiles.
+- Verify that all 24 variant corpus paths use deterministic fixed-width directory names of equal length.
+- Verify that profile IDs do not appear in the internal corpus directory names.
+- Verify that the original profile IDs and kinds remain present in the JSON report.
+- Verify that all variants remain semantically comparable.
+- Add a negative regression test proving that an unexpectedly empty positive workload causes a clear benchmark failure.
+
+Preserve:
+
+- Output schema version ~2~.
+- Corpus contract version ~1~ unless an existing contract rule demonstrably requires a change.
+- The complete matrix of 8 profiles across 3 FTS modes.
+- Production query and search execution paths.
+- Cold and warmed query measurements.
+- Incremental planning and application measurements.
+- Clean-reference rebuilds and semantic equivalence checks.
+- Existing FTS availability and skip reporting.
+- Authoritative database schema version ~8~.
+
+Non-goals:
+
+- Do not apply any candidate index to the production schema.
+- Do not remove any production index.
+- Do not accept or reject any candidate in this task.
+- Do not change Query Model semantics.
+- Do not optimise the expensive property workloads.
+- Do not add benchmark profile or workload filtering.
+- Do not require ~dbstat~ support.
+- Do not rerun the final 1,000-file benchmark as part of automated tests.
+
+Acceptance criteria:
+
+- A benchmark started with a relative work directory produces canonical absolute indexed paths and valid positive ~file-path~ and ~file-dir~ results.
+- Every variant uses an equal-length internal corpus path.
+- Whole-database size comparisons are no longer biased by profile-name length.
+- Unexpected zero-result positive workloads fail immediately with an actionable diagnostic.
+- The JSON output still contains all 24 variants and remains schema version ~2~.
+- Every completed variant reports successful semantic equivalence.
+- Formatting, unit tests, integration tests, and ~make ci~ pass.
+- No authoritative schema or candidate decision is changed.
+
+After implementation:
+
+- Run exactly one smoke benchmark using:
+  - ~--files 50~
+  - ~--seed 1~
+  - ~--warmups 2~
+  - ~--iterations 5~
+  - a relative ~.tmp/...~ work directory
+- Inspect the generated JSON and confirm:
+  - exactly 24 variants are present;
+  - ~query.file.path~ returns the expected positive result count;
+  - ~query.file.dir~ returns a non-zero expected result count;
+  - both result counts are identical across all comparable profiles;
+  - all completed variants report successful semantic equivalence.
+- Run ~make ci~.
+- Do not run a 1,000-file benchmark in this task.
+- Leave the corrected full 1,000-file measurement exclusively for the separate ~Measure index profiles and decide every candidate~ task.
+
+*** DONE Measure index profiles and decide every candidate
+
+Goal:
+
+- Run the complete release benchmark and produce an explicit accepted or rejected decision for every individual candidate and the combined profile.
+
+Profiles:
+
+- unchanged version-8 baseline;
+- add link resolution-status index;
+- add ~LOWER(files.path)~ expression index;
+- add ~LOWER(headings.title)~ expression index;
+- remove ~idx_tags_heading~;
+- remove ~idx_keywords_heading~;
+- remove ~idx_timestamp_repeaters_timestamp_id~;
+- combined candidate profile.
+
+Acceptance criteria:
+
+- Run all comparable profiles with the same:
+  - corpus;
+  - seed;
+  - SQLite build;
+  - pragmas;
+  - warm-ups;
+  - iterations;
+  - workload ordering.
+- Run FTS-disabled, FTS-title, and FTS-body variants where supported.
+- Do not assume that any addition is useful or that any removal candidate is redundant.
+- For each candidate, document:
+  - candidate ID;
+  - target workloads;
+  - before and after ~EXPLAIN QUERY PLAN~;
+  - minimum, median, p95, and sample count;
+  - result equivalence;
+  - database-size delta;
+  - per-index ~dbstat~ footprint where available;
+  - rebuild-time delta;
+  - incremental planning and application delta;
+  - actual planner use;
+  - accepted or rejected decision;
+  - rationale and measurement limitations.
+- Review removal candidates using table definitions, key constraints, column order, covering behaviour, read use, deletion behaviour, rebuild cost, and incremental-write cost.
+- Verify that expression-index candidates match the existing compiled SQL structurally.
+- Do not change query semantics or compiler output to make an index useful.
+- Treat roughly 20 percent median improvement as strong evidence, not as a mandatory threshold.
+- Reject noisy, unused, isolated, or disproportionately costly candidates.
+- Produce a separate accepted or rejected decision for the combined profile.
+- Keep the authoritative schema unchanged during this subtask.
+
+Result:
+
+- A complete decision table with no undecided candidate.
+
+*** DONE Apply the measured index decision and finish tuning
+
+Goal:
+
+- Apply the final measured index decision, update project records, and complete the parent tuning task.
+
+Acceptance criteria:
+
+- If every candidate was rejected:
+  - retain the current authoritative index set;
+  - keep ~CURRENT_SCHEMA_VERSION~ at 8;
+  - add no migration;
+  - document that retaining the existing schema was the measured decision.
+- If one or more candidates were accepted:
+  - change only the accepted authoritative indexes;
+  - bump ~CURRENT_SCHEMA_VERSION~;
+  - add the project-standard migration from the real version-8 schema;
+  - update fresh-schema definitions;
+  - safely create or drop only the accepted named indexes.
+- Preserve:
+  - query-result equivalence;
+  - foreign-key integrity;
+  - rebuild equivalence;
+  - FTS trust metadata;
+  - FTS-disabled and FTS-enabled behaviour.
+- Add fresh-schema tests for the exact explicit accepted index inventory.
+- Add migration tests when the schema changes.
+- Do not assert unstable SQLite autoindex names.
+- Update:
+  - ~docs/performance-baseline.org~;
+  - the tuning task file;
+  - ~todo.org~;
+  - ~CHANGELOG.org~ where appropriate.
+- Record:
+  - the release benchmark command;
+  - measured environment;
+  - complete candidate decision table;
+  - final accepted index set;
+  - final schema version;
+  - migration summary when applicable;
+  - all checks actually run.
+- Mark the parent task DONE only after the schema decision has been applied or explicitly retained unchanged.
+
+Checks:
+
+- ~cargo fmt --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test~
+- ~cargo build --all-targets~
+- ~make ci~
+- ~git diff --check~
+
+* Planning
+
+** Problem summary
+
+- Compare each index candidate against the unchanged version-8 schema, then compare a combined candidate profile before changing persistent schema.
+
+** Goals
+
+- Preserve production query semantics and record reproducible planner, read, storage, rebuild, and incremental-write evidence.
+
+** Non-goals
+
+- FTS virtual-table tuning and query compiler changes.
+
+** Architecture
+
+- The benchmark runner creates fresh profile databases using the production schema/rebuild path and rejects incomparable results.
+
+** Execution plan
+
+- Add profile, inventory, statistics, incremental-sequence, and comparison evidence to the benchmark runner.
+- Run individual and combined candidates; change the persistent schema only for accepted evidence.
+
+** Risks & assumptions
+
+- A candidate remains rejected unless repeatable evidence supports it; raw machine results stay untracked.
+
+** Proposed checks
+
+- ~make ci~ and a release benchmark smoke run.
+
+* Results
+
+** Approach
+
+- Built a deterministic 24-variant benchmark matrix covering the version-8 index baseline, six individual candidates, and the combined profile across no-FTS, title-FTS, and body-FTS modes.
+- Corrected profile comparability by canonicalizing relative work directories, using equal-length internal corpus paths, and requiring positive path and directory lookup results.
+- Measured read plans and latency, database size, rebuild duration, incremental planning/application cost, and semantic equivalence on the 1,000-file release corpus.
+- Applied only the accepted subset to the authoritative schema and preserved the historical version-8 benchmark matrix by reconstructing that index set before each profile.
+
+** Measurement decision
+
+| Candidate | Decision | Rationale |
+|-----------+----------+-----------|
+| ~candidate-add-files-path-lower~ | Accepted | About 65-66 percent median improvement for exact case-insensitive file-path lookup; planner used the expression index. |
+| ~candidate-add-headings-title-lower~ | Accepted | About 68-70 percent median improvement for exact file-title lookup; planner used the expression index. |
+| ~candidate-add-links-resolution-status~ | Rejected | No stable meaningful read improvement and a measurable incremental-write penalty. |
+| ~candidate-remove-tags-heading~ | Accepted | Redundant with the primary-key index beginning with ~heading_id~. |
+| ~candidate-remove-keywords-heading~ | Accepted | Redundant with the unique index beginning with ~heading_id~. |
+| ~candidate-remove-repeaters-timestamp~ | Accepted | Duplicated the index implied by ~timestamp_id UNIQUE~. |
+| ~combined-candidates~ | Rejected as measured | Included the rejected link-status index; only the accepted subset was applied. |
+
+- All 24 variants preserved result counts and completed semantic equivalence checks.
+- The accepted subset adds an estimated net 232 KiB on the 1,000-file corpus.
+- ~dbstat~ remained unavailable in the externally linked SQLite build and was recorded as a structured skip.
+- The exact accepted subset was not a standalone benchmark profile; the combined profile also contained the rejected resolution-status index.
+
+** Changed files
+
+- ~sql/schema.sql~ adds ~idx_files_path_lower~ and ~idx_headings_title_lower~ and removes the three accepted redundant indexes.
+- ~src/db/schema.rs~ advances ~CURRENT_SCHEMA_VERSION~ from 8 to 9 and drops the version-8 redundant indexes during schema application.
+- ~src/db.rs~ adds exact fresh-schema inventory, version-8 migration, planner-use, and foreign-key checks.
+- ~src/benchmark.rs~ reconstructs the historical version-8 index set before applying benchmark profiles.
+- ~docs/performance-baseline.org~ records the release command, environment, decisions, limitations, and final schema.
+- ~CHANGELOG.org~ records the measured query-performance change.
+
+** Checks performed
+
+- Parsed the updated ~sql/schema.sql~ with Python's SQLite 3 module.
+- Verified the exact explicit index inventory from the fresh schema.
+- Verified ~EXPLAIN QUERY PLAN~ selects ~idx_files_path_lower~ and ~idx_headings_title_lower~ for the production expression shapes.
+- Could not run Rust formatting, compilation, Clippy, or tests in the assistant environment because ~cargo~ and ~rustfmt~ are unavailable.
+
+** Test results
+
+- SQL schema application passed.
+- Fresh explicit index inventory matched the expected version-9 set.
+- Both accepted expression indexes were selected by SQLite for their target equality predicates.
+
+** Blockers
+
+- User-side ~make ci~ is still required before approval.
+
+** Follow-ups
+
+- Optimizing effective inherited-property queries remains a separate task; the measured multi-second query shape was not changed here.

@@ -3,7 +3,7 @@
 
 * Purpose
 
-The benchmark records the current Query Model v0 and production-search behaviour before any index tuning. It is measurement-only: it does not change persistent indexes, schema versions, query semantics, or CI thresholds.
+The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds.
 
 * Run
 
@@ -56,6 +56,45 @@ The first two commands may differ because the CLI can be statically linked or ca
 
 * Index-tuning profiles
 
-The runner also measures the unchanged version-8 baseline, every named individual index candidate, and a combined candidate profile. Profiles are rebuilt into fresh databases through the normal production path. They use the same generated corpus, query workload order, warm-ups, iterations, SQLite build, and application pragmas. The runner rejects a profile set when query or search result cardinalities differ from its matching baseline variant.
+The runner measures the historical version-8 index baseline, every named individual index candidate, and a combined candidate profile. Profiles are rebuilt into fresh databases through the normal production path. Before applying a profile, the runner reconstructs the version-8 index set explicitly so the historical matrix remains reproducible after the authoritative schema moves to version 9. The databases still use the current table schema and production code; only the measured index set is restored.
 
-Candidates are experiments only. The current persistent schema remains version 8 until documented measurements support a change. The output records explicit declared-index inventory separately from SQLite implicit indexes, dbstat availability, plans, timing distributions, database/WAL evidence, and FTS variant identity. It does not run ANALYZE, VACUUM, or benchmark-only pragmas.
+All profiles use the same generated corpus, query workload order, warm-ups, iterations, SQLite build, and application pragmas. The runner rejects a profile set when query or search result cardinalities differ from its matching baseline variant. The output records explicit declared-index inventory separately from SQLite implicit indexes, dbstat availability, plans, timing distributions, database/WAL evidence, and FTS variant identity. It does not run ANALYZE, VACUUM, or benchmark-only pragmas.
+
+* Final measured decision
+
+The release decision used the following command:
+
+#+begin_src sh
+cargo run --release --bin orgfdb-benchmark -- \
+  --output .tmp/orgfdb-index-profiles-1000-fixed.json \
+  --work-dir .tmp/orgfdb-index-profiles-1000-fixed-work \
+  --files 1000 \
+  --seed 1 \
+  --warmups 5 \
+  --iterations 30
+#+end_src
+
+The deterministic corpus contained 1,000 files, 5,675 headings, and 1,091 links. The environment was Linux x86_64 with eight available CPUs and SQLite 3.40.1. FTS-disabled, title-only FTS, and body-enabled FTS variants all completed. All 24 profile variants reported semantic equivalence after the incremental sequence. The linked SQLite library did not provide ~dbstat~, so per-index page evidence was unavailable and the structured capability skip was retained.
+
+| Candidate | Target evidence | Storage delta | Decision |
+|-----------+-----------------+---------------+----------|
+| Add ~LOWER(files.path)~ | Exact case-insensitive ~file-path~ changed from a covering scan to ~idx_files_path_lower~ and improved warmed median latency by about 65-66 percent. | +164 KiB | Accept |
+| Add ~LOWER(headings.title)~ | Exact case-insensitive file-title and nested exact-title lookups used ~idx_headings_title_lower~ and improved the file-title workload by about 68-70 percent. | +136 KiB | Accept |
+| Add ~links(resolution_status)~ | The planner used the candidate, but resolved/broken-link timings showed no stable meaningful gain and incremental application became about 5-9 percent slower. | +24 KiB | Reject |
+| Remove ~idx_tags_heading~ | The primary-key index on ~(heading_id, tag)~ already covers heading-first access; no meaningful read regression was measured. | -36 KiB | Accept |
+| Remove ~idx_keywords_heading~ | The unique index on ~(heading_id, keyword, line_number)~ already covers heading-first access; no meaningful read regression was measured. | -16 KiB | Accept |
+| Remove ~idx_timestamp_repeaters_timestamp_id~ | The ~UNIQUE~ constraint on ~timestamp_id~ already creates an equivalent index. | -16 KiB | Accept |
+| Combined candidate | The combined profile included the rejected link-status index. | +256 KiB relative to the version-8 baseline | Reject as measured |
+
+The accepted subset has an estimated net database-size increase of 232 KiB on the 1,000-file corpus. Every individual accepted profile preserved result counts and semantic equivalence, and its rebuild and incremental measurements remained close to the matching baseline. The exact accepted subset was not measured as a separate profile; the combined profile cannot stand in for it because that profile also included the rejected resolution-status index.
+
+The authoritative schema is version 9. It adds:
+
+#+begin_src sql
+CREATE INDEX idx_files_path_lower ON files(LOWER(path));
+CREATE INDEX idx_headings_title_lower ON headings(LOWER(title));
+#+end_src
+
+It removes the redundant explicit indexes ~idx_tags_heading~, ~idx_keywords_heading~, and ~idx_timestamp_repeaters_timestamp_id~. It does not add a resolution-status index. Opening a version-8 database performs these index-only changes transactionally and advances ~PRAGMA user_version~ to 9.
+
+The inherited-property workload remains a separate query-shape hotspot. Its effective-value query took several seconds on the 1,000-file corpus, but changing that query or its semantics was outside this index-tuning task.
