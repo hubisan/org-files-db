@@ -37,3 +37,26 @@ Tune SQLite indexes from measured query plans.
 ** Proposed checks
 
 - ~make ci~ and a release benchmark smoke run.
+
+* Results
+
+** Approach
+
+- Added isolated fresh source copies per FTS/profile run, detailed SQLite index inventories, per-index dbstat evidence when available, and one deterministic incremental sequence using the production change planner and transactional application path.
+- Read workloads run on the unchanged rebuilt database before the incremental sequence. Every operation validates its planned classifications before becoming actionable and records exact counts, separate planning/application timings, and DB/WAL sizes.
+- The final incremental database is compared with a clean rebuild of the final corpus using the same FTS mode and profile. The snapshot excludes operational IDs and ~indexed_at~ while preserving canonical tables and trust metadata; FTS shadow tables are not canonical facts.
+
+** Checks performed
+
+- ~cargo fmt --check~ passed.
+- ~cargo clippy --all-targets --all-features -- -D warnings~ passed.
+- ~cargo test benchmark --lib~ passed.
+- ~cargo test~ passed (416 tests).
+- ~cargo build --all-targets~ passed.
+- ~make ci~ passed.
+- Release smoke benchmark passed with three files, one measured iteration, and fresh temporary work/output paths (24 profile/FTS variants).
+- ~git diff --check~ passed.
+
+** Follow-ups
+
+- The next subtask performs release measurements and candidate decisions. The authoritative schema remains version 8.

@@ -2,8 +2,9 @@
 
 use std::{
     fs,
+    fs::File,
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use rusqlite::{Connection, OptionalExtension};
@@ -114,6 +115,43 @@ pub struct VariantResult {
     pub search_workloads: Vec<SearchWorkloadResult>,
     pub workloads: Vec<WorkloadResult>,
     pub database: DatabaseSize,
+    pub incremental: IncrementalSequence,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IncrementalSequence {
+    pub id: &'static str,
+    pub before: FileSizes,
+    pub after: FileSizes,
+    pub total_planning_ns: u128,
+    pub total_application_ns: u128,
+    pub operations: Vec<IncrementalOperation>,
+    pub semantic_equivalent: Option<bool>,
+    pub semantic_status: &'static str,
+    pub equivalence_error: Option<String>,
+}
+#[derive(Debug, Serialize)]
+pub struct IncrementalOperation {
+    pub id: &'static str,
+    pub classifications: ChangeCounts,
+    pub planning_ns: u128,
+    pub application_ns: u128,
+    pub before: FileSizes,
+    pub after: FileSizes,
+}
+#[derive(Debug, Serialize)]
+pub struct ChangeCounts {
+    pub unchanged: usize,
+    pub metadata_only: usize,
+    pub created: usize,
+    pub modified: usize,
+    pub deleted: usize,
+    pub failed: usize,
+}
+#[derive(Debug, Serialize)]
+pub struct FileSizes {
+    pub database_bytes: u64,
+    pub wal_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -228,8 +266,8 @@ pub struct DatabaseSize {
 }
 
 pub fn run(output: &Path, work_dir: &Path, options: BenchmarkOptions) -> Result<(), String> {
-    if options.files == 0 || options.iterations == 0 {
-        return Err("--files and --iterations must be positive".into());
+    if options.files < 3 || options.iterations == 0 {
+        return Err("--files must be at least 3 and --iterations must be positive".into());
     }
     if work_dir.exists() {
         return Err(format!(
@@ -419,11 +457,13 @@ fn run_variant(
     options: BenchmarkOptions,
 ) -> Result<VariantResult, String> {
     let db_path = work_dir.join(format!("{id}-{}.sqlite", profile.id));
+    let variant_source = work_dir.join(format!("corpus-{id}-{}", profile.id));
+    copy_directory(source_dir, &variant_source)?;
     let config = Config {
         db_path: db_path.clone(),
         files: Vec::new(),
         dirs: vec![crate::config::ConfiguredDir {
-            path: source_dir.to_path_buf(),
+            path: variant_source.clone(),
             recursive: true,
             exclude: Vec::new(),
         }],
@@ -460,6 +500,23 @@ fn run_variant(
             workloads: Vec::new(),
             search_workloads: Vec::new(),
             database: database_size(&connection, &db_path, 0)?,
+            incremental: IncrementalSequence {
+                id: "incremental-v1",
+                before: FileSizes {
+                    database_bytes: 0,
+                    wal_bytes: 0,
+                },
+                after: FileSizes {
+                    database_bytes: 0,
+                    wal_bytes: 0,
+                },
+                total_planning_ns: 0,
+                total_application_ns: 0,
+                operations: Vec::new(),
+                semantic_equivalent: None,
+                semantic_status: "skipped",
+                equivalence_error: Some("SQLite FTS5 unavailable; profile skipped".into()),
+            },
         });
     }
     let mut connection = open_database_with_schema(
@@ -480,7 +537,7 @@ fn run_variant(
     let index_inventory = index_inventory(&connection)?;
     let dbstat = dbstat_availability(&connection);
     drop(connection);
-    let workloads = query_workloads(source_dir);
+    let workloads = query_workloads(&variant_source);
     let mut results = Vec::new();
     for workload in workloads {
         let workload_id = workload.id;
@@ -544,6 +601,18 @@ fn run_variant(
             Vec::new(),
         )
     };
+    let mut incremental_connection = open_database_with_schema(
+        &db_path,
+        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, search.fts5_enabled),
+    )
+    .map_err(|error| error.to_string())?;
+    let incremental = measure_incremental_sequence(
+        &mut incremental_connection,
+        &config,
+        &variant_source,
+        &db_path,
+        profile,
+    )?;
     Ok(VariantResult {
         id,
         profile_id: profile.id,
@@ -556,6 +625,7 @@ fn run_variant(
         workloads: results,
         search_workloads,
         database,
+        incremental,
     })
 }
 
@@ -609,6 +679,354 @@ fn measure_search(
         cold_connection_end_to_end_ns,
         warmed: timing(&samples),
     })
+}
+
+fn measure_incremental_sequence(
+    connection: &mut Connection,
+    config: &Config,
+    source_dir: &Path,
+    db_path: &Path,
+    profile: IndexProfile,
+) -> Result<IncrementalSequence, String> {
+    let sequence_before = file_sizes(db_path)?;
+    let mut operations = Vec::new();
+    let metadata = source_dir.join("projects/alpha/note-00000.org");
+    rewrite_metadata_only(&metadata)?;
+    operations.push(apply_incremental(
+        connection,
+        config,
+        db_path,
+        "metadata-only",
+    )?);
+
+    let modified = source_dir.join("archive/beta/note-00001.org");
+    fs::write(
+        &modified,
+        format!(
+            "{}\nIncremental replacement\n",
+            fs::read_to_string(&modified).map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    operations.push(apply_incremental(
+        connection,
+        config,
+        db_path,
+        "modified-replacement",
+    )?);
+
+    let created = source_dir.join("projects/alpha/incremental-created.org");
+    fs::write(&created, "#+TITLE: Incremental Created\n* TODO Created\n")
+        .map_err(|error| error.to_string())?;
+    operations.push(apply_incremental(
+        connection,
+        config,
+        db_path,
+        "created-file",
+    )?);
+
+    let deleted = source_dir.join("projects/alpha/note-00002.org");
+    fs::remove_file(&deleted).map_err(|error| error.to_string())?;
+    operations.push(apply_incremental(
+        connection,
+        config,
+        db_path,
+        "deleted-file",
+    )?);
+
+    let mixed = source_dir.join("archive/beta/incremental-mixed.org");
+    fs::write(&mixed, "* TODO Mixed\n").map_err(|error| error.to_string())?;
+    let mixed_modified = source_dir.join("projects/alpha/note-00000.org");
+    fs::write(
+        &mixed_modified,
+        format!(
+            "{}\nMixed replacement\n",
+            fs::read_to_string(&mixed_modified).map_err(|error| error.to_string())?
+        ),
+    )
+    .map_err(|error| error.to_string())?;
+    fs::remove_file(&created).map_err(|error| error.to_string())?;
+    operations.push(apply_incremental(
+        connection,
+        config,
+        db_path,
+        "mixed-change-set",
+    )?);
+    let total_planning_ns = operations
+        .iter()
+        .map(|operation| operation.planning_ns)
+        .sum();
+    let total_application_ns = operations
+        .iter()
+        .map(|operation| operation.application_ns)
+        .sum();
+    let reference_path = db_path.with_extension("reference.sqlite");
+    let mut reference_config = config.clone();
+    reference_config.db_path = reference_path.clone();
+    let mut reference = open_database_with_schema(
+        &reference_path,
+        &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, config.search.fts5_enabled),
+    )
+    .map_err(|error| error.to_string())?;
+    reference
+        .execute_batch(profile.sql)
+        .map_err(|error| error.to_string())?;
+    Indexer::new(OrgizeAdapter::new())
+        .rebuild(&mut reference, &reference_config)
+        .map_err(|error| error.to_string())?;
+    let incremental_snapshot = semantic_snapshot(connection)?;
+    let reference_snapshot = semantic_snapshot(&reference)?;
+    let equivalent = incremental_snapshot == reference_snapshot;
+    if !equivalent {
+        let tables = incremental_snapshot
+            .iter()
+            .zip(&reference_snapshot)
+            .filter_map(|(left, right)| (left != right).then_some(left.0.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!(
+            "incremental database differs from clean production rebuild: {tables}"
+        ));
+    }
+    verify_fts_equivalence(connection, &reference, config.search.index_body_text)?;
+    Ok(IncrementalSequence {
+        id: "incremental-v1",
+        before: sequence_before,
+        after: file_sizes(db_path)?,
+        total_planning_ns,
+        total_application_ns,
+        semantic_equivalent: Some(true),
+        semantic_status: "completed",
+        equivalence_error: None,
+        operations,
+    })
+}
+
+fn verify_fts_equivalence(
+    left: &Connection,
+    right: &Connection,
+    body_indexed: bool,
+) -> Result<(), String> {
+    let trusted = |connection: &Connection| -> Result<bool, String> {
+        connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = 'fts_available'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())
+            .map(|value| value.as_deref() == Some("1"))
+    };
+    let left_trusted = trusted(left)?;
+    let right_trusted = trusted(right)?;
+    if left_trusted != right_trusted {
+        return Err("FTS trust metadata differs".into());
+    }
+    if !left_trusted {
+        return Ok(());
+    }
+    let keys = |connection: &Connection, query: Option<&str>| -> Result<Vec<String>, String> {
+        let sql = if query.is_some() {
+            "SELECT hex(f.identity)||':'||h.byte_start FROM heading_fts x JOIN headings h ON h.id=x.rowid JOIN files f ON f.id=h.file_id WHERE heading_fts MATCH ?1 ORDER BY hex(f.identity), h.byte_start"
+        } else {
+            "SELECT hex(f.identity)||':'||h.byte_start FROM heading_fts x JOIN headings h ON h.id=x.rowid JOIN files f ON f.id=h.file_id ORDER BY hex(f.identity), h.byte_start"
+        };
+        let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
+        match query {
+            Some(query) => statement
+                .query_map([query], |row| row.get(0))
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<String>, _>>()
+                .map_err(|error| error.to_string()),
+            None => statement
+                .query_map([], |row| row.get(0))
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<String>, _>>()
+                .map_err(|error| error.to_string()),
+        }
+    };
+    let expected = |connection: &Connection| -> Result<Vec<String>, String> {
+        let mut statement = connection.prepare("SELECT hex(f.identity)||':'||h.byte_start FROM headings h JOIN files f ON f.id=h.file_id ORDER BY hex(f.identity), h.byte_start").map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|error| error.to_string())?;
+        Ok(rows)
+    };
+    for query in [
+        None,
+        Some("title:Project"),
+        body_indexed.then_some("body:token"),
+    ] {
+        if keys(left, query)? != keys(right, query)? {
+            return Err(format!("observable FTS results differ for {:?}", query));
+        }
+    }
+    if keys(left, None)? != expected(left)? || keys(right, None)? != expected(right)? {
+        return Err("trusted FTS rows do not match canonical heading rows".into());
+    }
+    Ok(())
+}
+
+type SemanticSnapshot = Vec<(String, Vec<String>)>;
+
+fn semantic_snapshot(connection: &Connection) -> Result<SemanticSnapshot, String> {
+    let specs = [
+        ("files", "SELECT hex(identity)||'|'||quote(path)||'|'||mtime_ns||'|'||size||'|'||quote(content_hash) FROM files ORDER BY 1"),
+        ("headings", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||COALESCE(p.byte_start,'')||'|'||h.level||'|'||quote(h.title)||'|'||quote(h.title_raw)||'|'||quote(h.todo_keyword)||'|'||quote(h.todo_type)||'|'||quote(h.priority)||'|'||quote(h.all_tags_json) FROM headings h JOIN files f ON f.id=h.file_id LEFT JOIN headings p ON p.id=h.parent_id ORDER BY 1"),
+        ("todo_keywords", "SELECT hex(f.identity)||'|'||quote(t.keyword)||'|'||quote(t.state_type)||'|'||t.sequence_no||'|'||quote(t.source_kind) FROM todo_keywords t JOIN files f ON f.id=t.file_id ORDER BY 1"),
+        ("keywords", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(k.keyword)||'|'||quote(k.value)||'|'||quote(k.line_number) FROM keywords k JOIN headings h ON h.id=k.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
+        ("properties", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(p.key)||'|'||quote(p.value)||'|'||quote(p.source)||'|'||p.append||'|'||quote(p.line_number) FROM properties p JOIN headings h ON h.id=p.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
+        ("tags", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(t.tag) FROM tags t JOIN headings h ON h.id=t.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
+        ("timestamps", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(t.role)||'|'||quote(t.start_ts)||'|'||quote(t.end_ts)||'|'||quote(t.raw_value)||'|'||t.byte_start FROM timestamps t JOIN headings h ON h.id=t.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
+        ("timestamp_repeaters", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||t.byte_start||'|'||quote(r.repeater_type)||'|'||quote(r.repeater_value)||'|'||quote(r.repeater_unit) FROM timestamp_repeaters r JOIN timestamps t ON t.id=r.timestamp_id JOIN headings h ON h.id=t.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
+        ("heading_bodies", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(b.body_text)||'|'||quote(b.body_byte_start)||'|'||quote(b.body_byte_end) FROM heading_bodies b JOIN headings h ON h.id=b.heading_id JOIN files f ON f.id=h.file_id ORDER BY 1"),
+        ("outline", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||COALESCE(p.byte_start,'')||'|'||quote(o.materialized_path)||'|'||quote(o.breadcrumbs_json) FROM outline_path o JOIN headings h ON h.id=o.heading_id JOIN files f ON f.id=h.file_id LEFT JOIN headings p ON p.id=o.parent_id ORDER BY 1"),
+        ("links", "SELECT hex(f.identity)||'|'||h.byte_start||'|'||quote(l.raw_target)||'|'||quote(l.path)||'|'||quote(l.resolution_status)||'|'||COALESCE(hex(tf.identity),'')||'|'||COALESCE(th.byte_start,'') FROM links l JOIN headings h ON h.id=l.heading_id JOIN files f ON f.id=h.file_id LEFT JOIN files tf ON tf.id=l.target_file_id LEFT JOIN headings th ON th.id=l.target_heading_id ORDER BY 1"),
+        ("metadata", "SELECT quote(key)||'|'||quote(value) FROM db_metadata ORDER BY 1"),
+    ];
+    specs
+        .into_iter()
+        .map(|(name, sql)| {
+            let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
+            let rows = statement
+                .query_map([], |row| row.get(0))
+                .map_err(|error| error.to_string())?
+                .collect::<Result<Vec<String>, _>>()
+                .map_err(|error| error.to_string())?;
+            Ok((name.to_string(), rows))
+        })
+        .collect()
+}
+
+fn rewrite_metadata_only(path: &Path) -> Result<(), String> {
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let before = fs::metadata(path).map_err(|error| error.to_string())?;
+    fs::write(path, &bytes).map_err(|error| error.to_string())?;
+    File::open(path)
+        .map_err(|error| error.to_string())?
+        .set_times(fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(1)))
+        .map_err(|error| {
+            format!(
+                "set metadata-only modification time for {}: {error}",
+                path.display()
+            )
+        })?;
+    let after = fs::metadata(path).map_err(|error| error.to_string())?;
+    if fs::read(path).map_err(|error| error.to_string())? != bytes {
+        return Err("metadata-only rewrite changed bytes".into());
+    }
+    if before.modified().ok() == after.modified().ok() && before.len() == after.len() {
+        return Err(format!(
+            "metadata-only rewrite did not change a fast snapshot signal for {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn apply_incremental(
+    connection: &mut Connection,
+    config: &Config,
+    db_path: &Path,
+    id: &'static str,
+) -> Result<IncrementalOperation, String> {
+    let before = file_sizes(db_path)?;
+    let indexer = Indexer::new(OrgizeAdapter::new());
+    let planning = Instant::now();
+    let planned = indexer
+        .plan_changes(connection, config)
+        .map_err(|error| format!("{error:?}"))?;
+    let classifications = validate_plan(&planned, id)?;
+    let actionable = indexer
+        .actionable_plan(planned)
+        .map_err(|error| format!("{error:?}"))?;
+    let planning_ns = planning.elapsed().as_nanos();
+    let application = Instant::now();
+    let result = indexer
+        .apply_change_plan(connection, config, actionable)
+        .map_err(|error| error.to_string())?;
+    if !matches!(result, crate::indexer::ChangeApplicationResult::Applied(_)) {
+        return Err(format!("incremental operation {id} was rejected"));
+    }
+    Ok(IncrementalOperation {
+        id,
+        classifications,
+        planning_ns,
+        application_ns: application.elapsed().as_nanos(),
+        before,
+        after: file_sizes(db_path)?,
+    })
+}
+
+fn file_sizes(path: &Path) -> Result<FileSizes, String> {
+    let mut wal = path.as_os_str().to_os_string();
+    wal.push("-wal");
+    let database_bytes = fs::metadata(path)
+        .map_err(|error| format!("inspect database {}: {error}", path.display()))?
+        .len();
+    let wal_path = PathBuf::from(wal);
+    let wal_bytes = match fs::metadata(&wal_path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => return Err(format!("inspect WAL {}: {error}", wal_path.display())),
+    };
+    Ok(FileSizes {
+        database_bytes,
+        wal_bytes,
+    })
+}
+
+fn validate_plan(
+    result: &crate::indexer::ChangePlanningResult,
+    id: &str,
+) -> Result<ChangeCounts, String> {
+    let crate::indexer::ChangePlanningResult::Ready(plan) = result else {
+        return Err(format!("{id}: full rebuild required"));
+    };
+    let counts = ChangeCounts {
+        unchanged: plan.unchanged.len(),
+        metadata_only: plan.metadata_only.len(),
+        created: plan.created.len(),
+        modified: plan.modified.len(),
+        deleted: plan.deleted.len(),
+        failed: plan.failed.len(),
+    };
+    let valid = match id {
+        "metadata-only" => (1, 0, 0, 0, 0),
+        "modified-replacement" => (0, 0, 1, 0, 0),
+        "created-file" => (0, 1, 0, 0, 0),
+        "deleted-file" => (0, 0, 0, 1, 0),
+        "mixed-change-set" => (0, 1, 1, 1, 0),
+        _ => return Err(format!("unknown operation {id}")),
+    };
+    if (
+        counts.metadata_only,
+        counts.created,
+        counts.modified,
+        counts.deleted,
+        counts.failed,
+    ) != (valid.0, valid.1, valid.2, valid.3, valid.4)
+    {
+        return Err(format!("{id}: unexpected classifications metadata={} created={} modified={} deleted={} failed={}", counts.metadata_only, counts.created, counts.modified, counts.deleted, counts.failed));
+    }
+    Ok(counts)
+}
+
+fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination).map_err(|error| error.to_string())?;
+    for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let destination_path = destination.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_directory(&entry.path(), &destination_path)?;
+        } else {
+            fs::copy(entry.path(), destination_path).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1176,6 +1594,25 @@ mod tests {
     }
 
     #[test]
+    fn semantic_snapshot_rejects_relationship_corruption() {
+        for (label, sql) in [
+            ("parent", "UPDATE headings SET parent_id = id WHERE id = (SELECT id FROM headings WHERE level = 1 LIMIT 1)"),
+            ("tag-owner", "UPDATE tags SET heading_id = (SELECT id FROM headings WHERE level = 0 LIMIT 1) WHERE rowid = (SELECT rowid FROM tags LIMIT 1)"),
+            ("link-source", "UPDATE links SET heading_id = (SELECT id FROM headings WHERE level = 1 ORDER BY id DESC LIMIT 1) WHERE id = (SELECT id FROM links LIMIT 1)"),
+            ("outline-parent", "UPDATE outline_path SET parent_id = NULL WHERE heading_id = (SELECT id FROM headings WHERE level = 1 LIMIT 1)"),
+        ] {
+            let root = temporary_root(label); let output = root.join("result.json"); let work = root.join("work");
+            run(&output, &work, BenchmarkOptions { files: 3, seed: 1, warmups: 0, iterations: 1 }).expect("benchmark");
+            let baseline = Connection::open(work.join("no-fts-baseline-v8.sqlite")).expect("baseline");
+            let changed = Connection::open(work.join("no-fts-baseline-v8.reference.sqlite")).expect("reference");
+            assert_eq!(semantic_snapshot(&baseline).expect("baseline snapshot"), semantic_snapshot(&changed).expect("reference snapshot"));
+            changed.execute_batch(sql).expect("corruption");
+            assert_ne!(semantic_snapshot(&baseline).expect("baseline snapshot"), semantic_snapshot(&changed).expect("changed snapshot"), "{label}");
+            let _ = fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
     fn benchmark_output_covers_workloads_protocol_and_database_evidence() {
         let root = temporary_root("output");
         let output = root.join("result.json");
@@ -1232,8 +1669,28 @@ mod tests {
         let links: usize = connection
             .query_row("SELECT COUNT(*) FROM links", [], |row| row.get(0))
             .expect("link count");
-        assert_eq!(headings, 26);
-        assert_eq!(links, 4);
+        assert_eq!(headings, 24);
+        assert_eq!(links, 3);
+        assert!(no_fts["incremental"]["semantic_equivalent"].as_bool() == Some(true));
+        assert_eq!(
+            no_fts["incremental"]["operations"].as_array().map(Vec::len),
+            Some(5)
+        );
+        let operations = no_fts["incremental"]["operations"]
+            .as_array()
+            .expect("operations");
+        let expected = [
+            ("metadata-only", "metadata_only"),
+            ("modified-replacement", "modified"),
+            ("created-file", "created"),
+            ("deleted-file", "deleted"),
+            ("mixed-change-set", "created"),
+        ];
+        for (operation, (id, required)) in operations.iter().zip(expected) {
+            assert_eq!(operation["id"], id);
+            assert_eq!(operation["classifications"]["failed"], 0);
+            assert!(operation["classifications"][required].as_u64().unwrap_or(0) >= 1);
+        }
         assert!(no_fts["fts_workloads"].as_array().expect("skips").len() == 2);
         let _ = fs::remove_dir_all(root);
     }
