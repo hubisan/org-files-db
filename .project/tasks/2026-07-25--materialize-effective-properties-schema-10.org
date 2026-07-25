@@ -8,11 +8,15 @@
 
 * Build
 
-- Added the ~effective_properties~ derived table with local and inherited values, transactional migration backfill, and projection-backed heading property queries.
-- Kept ~properties~ canonical and reused one Rust derivation for normal property writes and migration.
-- Updated result shaping to load effective property output from the projection.
+- Added the normalized ~effective_properties~ table with local and inherited values.
+- Kept ~properties~ canonical and reused one shared root-to-leaf derivation for normal indexing, test fixtures, and migration backfill.
+- Moved property-key normalization into the neutral shared property module.
+- Made migration backfill file-scoped and validated roots, parent ownership, reachability, and cycles before inserting derived rows.
+- Switched property predicates and included effective-property output to the stored projection.
+- Removed the obsolete recursive query-time resolver and legacy SQL.
 
 * Checks
 
-- Focused property query and result tests passed during implementation.
-- ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test~, ~cargo build --all-targets --all-features~, ~git diff --check~, and ~make ci~ passed.
+- The implementation is ready for ~make ci~ in the user environment.
+- The review environment did not provide ~cargo~, ~rustfmt~, or ~rustc~, so Rust checks were not run here.
+- The existing benchmark runner was intentionally left unchanged; performance verification remains a separate run after CI.

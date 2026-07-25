@@ -11,5 +11,6 @@ pub mod indexer;
 mod indexing_context;
 mod link_resolver;
 pub mod parser;
+pub(crate) mod property;
 pub mod query;
 pub mod todo_keywords;

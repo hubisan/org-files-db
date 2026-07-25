@@ -939,8 +939,9 @@ fn heading_fts_table_exists(connection: &Connection) -> Result<bool, DbWriteErro
 #[cfg(test)]
 mod tests {
     use super::{
-        DbWriteError, DbWriter, FileRecordInput, HeadingFtsRecord, HeadingRecord, KeywordRecord,
-        LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord, TodoKeywordRecord,
+        DbWriteError, DbWriter, EffectivePropertyRecord, FileRecordInput, HeadingFtsRecord,
+        HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord,
+        TodoKeywordRecord,
     };
     use crate::db::{
         open_in_memory_database_with_schema, sqlite_supports_fts5, SchemaDefinition,
@@ -1272,6 +1273,17 @@ mod tests {
             }],
         )
         .expect("property should insert");
+        DbWriter::insert_effective_properties(
+            &connection,
+            &[EffectivePropertyRecord {
+                heading_id: child_id,
+                file_id,
+                key: "CUSTOM_ID".to_string(),
+                local_value: Some("inbox".to_string()),
+                effective_value: "inbox".to_string(),
+            }],
+        )
+        .expect("effective property should insert");
         DbWriter::insert_outline_path(
             &connection,
             &[OutlinePathRecord {
@@ -1321,6 +1333,10 @@ mod tests {
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM tags"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM keywords"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM properties"), 0);
+        assert_eq!(
+            count(&connection, "SELECT COUNT(*) FROM effective_properties"),
+            0
+        );
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM outline_path"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM heading_bodies"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM links"), 0);

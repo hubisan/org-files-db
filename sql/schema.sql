@@ -568,8 +568,26 @@ CREATE TABLE IF NOT EXISTS properties (
 );
 
 /*
-  Mandatory, rebuildable projection of the property values visible at each
-  heading.  Canonical source facts remain in properties.
+  Mandatory, rebuildable projection of resolved property values.
+
+  Canonical source rows remain in properties, including duplicate base
+  definitions and append rows.
+
+  One row exists for each property key visible at a heading.
+
+  local_value:
+    The value resolved from definitions on this heading only, after applying
+    the local duplicate-base and append rules. NULL means that the heading has
+    no local definition for the key, even though the key may still be inherited
+    and therefore have a non-NULL effective_value.. An empty string is an explicit
+    empty local value.
+
+  effective_value:
+    The final value visible at the heading after inheriting the resolved value
+    from the file root or parent headings and then applying this heading's
+    local replacement and append rules.
+
+  Property inheritance never crosses file boundaries.
 */
 CREATE TABLE IF NOT EXISTS effective_properties (
     heading_id                   INTEGER NOT NULL,

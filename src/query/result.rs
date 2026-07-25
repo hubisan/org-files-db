@@ -1838,9 +1838,11 @@ mod tests {
         QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode,
     };
     use crate::db::{
-        open_in_memory_database_with_schema, DbWriter, FileRecordInput, HeadingRecord,
-        KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord,
+        open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, FileRecordInput,
+        HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord,
+        SchemaDefinition, TagRecord,
     };
+    use crate::property::{derive_effective_properties, PropertyRow};
     use crate::query::{
         execute_sqlite_query, parse_query, validate_query, QueryTarget, QueryValidationOptions,
     };
@@ -2550,6 +2552,64 @@ mod tests {
         validate_query(parsed, &QueryValidationOptions::default()).expect("query should validate")
     }
 
+    fn seed_effective_properties(connection: &Connection, file_id: i64) {
+        let parents = {
+            let mut statement = connection
+                .prepare("SELECT id, parent_id FROM headings WHERE file_id = ?1 ORDER BY id")
+                .expect("seed heading query should prepare");
+            statement
+                .query_map([file_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                })
+                .expect("seed heading query should run")
+                .collect::<Result<std::collections::HashMap<_, _>, _>>()
+                .expect("seed heading rows should decode")
+        };
+        let rows_by_heading = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                            properties.append, properties.line_number
+                     FROM properties
+                     INNER JOIN headings ON headings.id = properties.heading_id
+                     WHERE headings.file_id = ?1
+                     ORDER BY properties.line_number, properties.id",
+                )
+                .expect("seed property query should prepare");
+            let rows = statement
+                .query_map([file_id], |row| {
+                    Ok(PropertyRow {
+                        id: row.get(0)?,
+                        heading_id: row.get(1)?,
+                        key: row.get(2)?,
+                        value: row.get(3)?,
+                        append: row.get::<_, i64>(4)? != 0,
+                        line_number: row.get(5)?,
+                    })
+                })
+                .expect("seed property query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("seed property rows should decode");
+            let mut by_heading = std::collections::HashMap::<i64, Vec<PropertyRow>>::new();
+            for row in rows {
+                by_heading.entry(row.heading_id).or_default().push(row);
+            }
+            by_heading
+        };
+        let rows = derive_effective_properties(&parents, &rows_by_heading)
+            .into_iter()
+            .map(|row| EffectivePropertyRecord {
+                heading_id: row.heading_id,
+                file_id,
+                key: row.key,
+                local_value: row.local_value,
+                effective_value: row.effective_value,
+            })
+            .collect::<Vec<_>>();
+        DbWriter::insert_effective_properties(connection, &rows)
+            .expect("effective properties should seed through the production writer");
+    }
+
     fn seeded_connection() -> Connection {
         let schema = SchemaDefinition::new(3, false);
         let mut connection =
@@ -2559,8 +2619,6 @@ mod tests {
             Path::new("/tmp/query-alpha.org"),
             Path::new("/tmp/query-beta.org"),
         );
-        crate::db::schema::backfill_effective_properties(&connection)
-            .expect("effective properties should seed");
         connection
     }
 
@@ -2859,6 +2917,7 @@ mod tests {
             Ok(())
         })
         .expect("alpha file should seed");
+        seed_effective_properties(connection, alpha_file_id);
 
         connection
             .execute(

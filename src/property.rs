@@ -1,6 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::parser::orgize_adapter::normalize_property_key;
+/// Normalize an Org property key and report whether the trailing append marker was present.
+pub(crate) fn normalize_property_key(raw_key: &str) -> (String, bool) {
+    let (key, append) = if let Some(key) = raw_key.strip_suffix('+') {
+        (key, true)
+    } else {
+        (raw_key, false)
+    };
+    (key.to_uppercase(), append)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PropertyRow {

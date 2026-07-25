@@ -1,5 +1,6 @@
 use std::{collections::HashSet, ops::Range, path::Path};
 
+use crate::property::normalize_property_key;
 use orgize::{
     ast::{
         CenterBlock, CommentBlock, DelayType, Document as OrgDocument, Drawer, ExampleBlock,
@@ -1514,15 +1515,6 @@ fn parsed_property_from_raw_line(
         append: normalized_append,
         line_number: Some(line_number),
     })
-}
-
-pub(crate) fn normalize_property_key(raw_key: &str) -> (String, bool) {
-    let (key, append) = if let Some(key) = raw_key.strip_suffix('+') {
-        (key, true)
-    } else {
-        (raw_key, false)
-    };
-    (key.to_uppercase(), append)
 }
 
 fn line_number_for_offset(content: &str, offset: usize) -> u32 {

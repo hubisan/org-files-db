@@ -30,7 +30,7 @@ use crate::{
         ParsedLink, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
-    query::property::{derive_effective_properties, PropertyRow},
+    property::{derive_effective_properties, PropertyRow},
     todo_keywords::{
         resolve_todo_keywords_with_default_source, ResolvedTodoKeywordEntry, ResolvedTodoKeywords,
         TodoKeywordSourceKind,
@@ -8601,7 +8601,10 @@ index_body_text = false
             &crate::db::SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
         )
         .expect("database should open");
-        write_file(&org_path, "* Original\n[[https://example.com]]\n");
+        write_file(
+            &org_path,
+            "* Original\n:PROPERTIES:\n:OWNER: Alice\n:END:\n[[https://example.com]]\n",
+        );
         let indexer = Indexer::new(OrgizeAdapter::new());
         indexer
             .rebuild(&mut connection, &config)
@@ -8652,6 +8655,21 @@ index_body_text = false
                     |row| row.get(0),
                 )
                 .expect("outline snapshot should load");
+            let effective_properties: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT headings.byte_start || ':' || effective.key || ':' ||
+                               quote(effective.local_value) || ':' ||
+                               quote(effective.effective_value) AS value
+                        FROM effective_properties AS effective
+                        INNER JOIN headings ON headings.id = effective.heading_id
+                        ORDER BY headings.byte_start, effective.key
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("effective-property snapshot should load");
             let metadata: String = connection
                 .query_row(
                     "SELECT COALESCE(group_concat(value, '|'), '')
@@ -8668,7 +8686,14 @@ index_body_text = false
                     |row| row.get(0),
                 )
                 .expect("metadata snapshot should load");
-            (files, headings, links, outline, metadata)
+            (
+                files,
+                headings,
+                links,
+                outline,
+                effective_properties,
+                metadata,
+            )
         };
         let before = snapshot(&connection);
 
@@ -8682,7 +8707,10 @@ index_body_text = false
                  END;",
             )
             .expect("failure trigger should install");
-        write_file(&org_path, "* Changed\n[[https://example.invalid]]\n");
+        write_file(
+            &org_path,
+            "* Changed\n:PROPERTIES:\n:OWNER: Bob\n:END:\n[[https://example.invalid]]\n",
+        );
 
         let error = indexer
             .rebuild(&mut connection, &config)

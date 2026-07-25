@@ -784,6 +784,152 @@ VALUES (1, 'legacy body text', 0, 10);
     }
 
     #[test]
+    fn migrates_version_9_properties_to_effective_projection() {
+        let test_dir = TestDir::new("effective-properties-v9");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        {
+            let connection = Connection::open(&db_path).expect("seed database should open");
+            SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
+                .apply(&connection)
+                .expect("current schema should seed");
+            connection
+                .execute_batch(
+                    "DROP TABLE effective_properties;
+                     PRAGMA user_version = 9;
+                     INSERT INTO files (id, path, mtime_ns, size)
+                     VALUES (1, '/tmp/properties.org', 1, 1);
+                     INSERT INTO headings
+                         (id, file_id, parent_id, level, byte_start, byte_end, title)
+                     VALUES
+                         (10, 1, NULL, 0, -1, 100, 'Properties'),
+                         (11, 1, 10, 1, 0, 50, 'Parent'),
+                         (12, 1, 11, 2, 51, 100, 'Child');
+                     INSERT INTO properties
+                         (id, heading_id, key, value, source, append, line_number)
+                     VALUES
+                         (1, 10, 'CATEGORY', 'work', 'category_keyword', 0, 1),
+                         (2, 10, 'OWNER', 'Alice', 'property_keyword', 0, 2),
+                         (3, 11, 'AREA', 'infra', 'property_drawer', 0, 3),
+                         (4, 12, 'AREA', 'ops', 'property_drawer', 1, 4),
+                         (5, 12, 'EMPTY', '', 'property_drawer', 0, 5);
+                     INSERT INTO keywords (heading_id, keyword, value, line_number)
+                     VALUES (10, 'AUTHOR', 'Alice', 6);",
+                )
+                .expect("version-9 property fixture should seed");
+        }
+
+        let opened = open_database(&db_path).expect("version-9 database should migrate");
+        assert_eq!(
+            read_schema_version(&opened).expect("schema version should load"),
+            CURRENT_SCHEMA_VERSION
+        );
+
+        let category: (Option<String>, String) = opened
+            .query_row(
+                "SELECT local_value, effective_value
+                 FROM effective_properties
+                 WHERE heading_id = 12 AND key = 'CATEGORY'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("inherited category should load");
+        assert_eq!(category, (None, "work".to_string()));
+
+        let area: (Option<String>, String) = opened
+            .query_row(
+                "SELECT local_value, effective_value
+                 FROM effective_properties
+                 WHERE heading_id = 12 AND key = 'AREA'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("inherited append should load");
+        assert_eq!(area, (Some("ops".to_string()), "infra ops".to_string()));
+
+        let empty: (Option<String>, String) = opened
+            .query_row(
+                "SELECT local_value, effective_value
+                 FROM effective_properties
+                 WHERE heading_id = 12 AND key = 'EMPTY'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("explicit empty property should load");
+        assert_eq!(empty, (Some(String::new()), String::new()));
+
+        let author_property_count = count_rows(
+            &opened,
+            "SELECT COUNT(*) FROM effective_properties WHERE key = 'AUTHOR'",
+        );
+        assert_eq!(author_property_count, 0);
+    }
+
+    #[test]
+    fn effective_properties_migration_rolls_back_schema_and_backfill_together() {
+        let test_dir = TestDir::new("effective-properties-rollback");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        {
+            let connection = Connection::open(&db_path).expect("seed database should open");
+            SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false)
+                .apply(&connection)
+                .expect("current schema should seed");
+            connection
+                .execute_batch(
+                    "DROP TABLE effective_properties;
+                     PRAGMA user_version = 9;
+                     INSERT INTO files (id, path, mtime_ns, size)
+                     VALUES
+                         (1, '/tmp/one.org', 1, 1),
+                         (2, '/tmp/two.org', 1, 1);
+                     INSERT INTO headings
+                         (id, file_id, parent_id, level, byte_start, byte_end, title)
+                     VALUES
+                         (10, 1, NULL, 0, -1, 1, 'One'),
+                         (20, 2, NULL, 0, -1, 1, 'Two'),
+                         (11, 1, 20, 1, 0, 1, 'Cross-file child');",
+                )
+                .expect("version-9 fixture should seed");
+        }
+
+        let first_error = open_database(&db_path)
+            .expect_err("cross-file parent should fail effective-properties migration");
+        assert!(
+            first_error.to_string().contains("belongs to file 2"),
+            "unexpected migration error: {first_error}"
+        );
+
+        {
+            let connection = Connection::open(&db_path).expect("database should reopen raw");
+            let version = read_schema_version(&connection).expect("schema version should load");
+            assert_eq!(version, 9);
+            let effective_table_count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'table' AND name = 'effective_properties'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("effective table existence should load");
+            assert_eq!(effective_table_count, 0);
+            let stored_parent: i64 = connection
+                .query_row("SELECT parent_id FROM headings WHERE id = 11", [], |row| {
+                    row.get(0)
+                })
+                .expect("original heading should remain");
+            assert_eq!(stored_parent, 20);
+        }
+
+        let second_error = open_database(&db_path)
+            .expect_err("reopening must retry and reject the same migration");
+        assert!(
+            second_error.to_string().contains("belongs to file 2"),
+            "unexpected repeated migration error: {second_error}"
+        );
+    }
+
+    #[test]
     fn does_not_advance_schema_version_when_initialization_fails() {
         let mut connection =
             Connection::open_in_memory().expect("broken legacy database should open");

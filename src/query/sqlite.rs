@@ -17,7 +17,7 @@ use super::{
     ValidatedExpr, ValidatedOption, ValidatedPredicate, ValidatedQuery,
 };
 use crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY;
-use crate::parser::orgize_adapter::normalize_property_key;
+use crate::property::normalize_property_key;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledSqlQuery {
@@ -1802,243 +1802,6 @@ fn compile_resolved_property_predicate(
     Ok(SqlFragment { sql, params })
 }
 
-/*
-    let regexp = option_bool(&predicate.options, "regexp")?;
-    let key = arg_as_string(&predicate.args[0]).map_err(|message| {
-        QueryExecutionError::unsupported_backend_feature(target, "property", message)
-    })?;
-    let mut params = vec![QueryParam::Text(key)];
-    let final_select = if inherit {
-        if predicate.args.get(1).is_some() {
-            if regexp {
-                "SELECT 1
-                 FROM effective
-                 WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
-                   AND effective.has_any = 1
-                   AND orgfdb_regexp(?, effective.effective_value) = 1"
-            } else {
-                "SELECT 1
-             FROM effective
-             WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
-               AND effective.has_any = 1
-               AND effective.effective_value = ?"
-            }
-        } else {
-            "SELECT 1
-             FROM effective
-             WHERE effective.seq = (SELECT MAX(lineage.seq) FROM lineage)
-               AND effective.has_any = 1"
-        }
-    } else if predicate.args.get(1).is_some() {
-        if regexp {
-            "SELECT 1
-         FROM local_summary
-         WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
-           AND local_summary.has_any = 1
-           AND orgfdb_regexp(?, local_summary.local_value) = 1"
-        } else {
-            "SELECT 1
-         FROM local_summary
-         WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
-           AND local_summary.has_any = 1
-           AND local_summary.local_value = ?"
-        }
-    } else {
-        "SELECT 1
-         FROM local_summary
-         WHERE local_summary.seq = (SELECT MAX(lineage.seq) FROM lineage)
-           AND local_summary.has_any = 1"
-    };
-
-    if let Some(value) = predicate.args.get(1) {
-        let value = arg_as_string(value).map_err(|message| {
-            QueryExecutionError::unsupported_backend_feature(target, "property", message)
-        })?;
-        if regexp {
-            validate_regexp_pattern(target, "property", &value)?;
-        }
-        params.push(QueryParam::Text(value));
-    }
-    Ok(SqlFragment {
-        sql: format!(
-            "(EXISTS (
-                WITH RECURSIVE lineage_up(heading_id, parent_id, depth) AS (
-                    SELECT candidate.id, candidate.parent_id, 0
-                    FROM headings AS candidate
-                    WHERE candidate.id = {heading_id_sql}
-                    UNION ALL
-                    SELECT ancestor.id, ancestor.parent_id, lineage_up.depth + 1
-                    FROM headings AS ancestor
-                    INNER JOIN lineage_up ON lineage_up.parent_id = ancestor.id
-                ),
-                lineage AS (
-                    SELECT
-                        lineage_up.heading_id,
-                        ROW_NUMBER() OVER (ORDER BY lineage_up.depth DESC) AS seq
-                    FROM lineage_up
-                ),
-                local_rows AS (
-                    SELECT
-                        lineage.seq,
-                        lineage.heading_id,
-                        properties.value,
-                        properties.append,
-                        properties.line_number,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY lineage.heading_id
-                            ORDER BY properties.line_number, properties.id
-                        ) AS ord
-                    FROM lineage
-                    INNER JOIN properties ON properties.heading_id = lineage.heading_id
-                    WHERE properties.key = ? COLLATE NOCASE
-                ),
-                local_summary AS (
-                    SELECT
-                        lineage.seq,
-                        lineage.heading_id,
-                        CASE
-                            WHEN EXISTS (
-                                SELECT 1
-                                FROM local_rows
-                                WHERE local_rows.heading_id = lineage.heading_id
-                            ) THEN 1
-                            ELSE 0
-                        END AS has_any,
-                        COALESCE((
-                            SELECT 1
-                            FROM local_rows
-                            WHERE local_rows.heading_id = lineage.heading_id
-                              AND local_rows.append = 0
-                            ORDER BY local_rows.ord DESC
-                            LIMIT 1
-                        ), 0) AS has_non_append,
-                        COALESCE((
-                            SELECT value
-                            FROM local_rows
-                            WHERE local_rows.heading_id = lineage.heading_id
-                              AND local_rows.append = 0
-                            ORDER BY local_rows.ord DESC
-                            LIMIT 1
-                        ), '') AS base_value,
-                        COALESCE((
-                            SELECT group_concat(part, ' ')
-                            FROM (
-                                SELECT
-                                    CASE
-                                        WHEN COALESCE(local_rows.value, '') = '' THEN NULL
-                                        ELSE local_rows.value
-                                    END AS part
-                                FROM local_rows
-                                WHERE local_rows.heading_id = lineage.heading_id
-                                  AND local_rows.append = 1
-                                ORDER BY local_rows.ord
-                            )
-                        ), '') AS append_value,
-                        CASE
-                            WHEN COALESCE((
-                                SELECT value
-                                FROM local_rows
-                                WHERE local_rows.heading_id = lineage.heading_id
-                                  AND local_rows.append = 0
-                                ORDER BY local_rows.ord DESC
-                                LIMIT 1
-                            ), '') = '' THEN COALESCE((
-                                SELECT group_concat(part, ' ')
-                                FROM (
-                                    SELECT
-                                        CASE
-                                            WHEN COALESCE(local_rows.value, '') = '' THEN NULL
-                                            ELSE local_rows.value
-                                        END AS part
-                                    FROM local_rows
-                                    WHERE local_rows.heading_id = lineage.heading_id
-                                      AND local_rows.append = 1
-                                    ORDER BY local_rows.ord
-                                )
-                            ), '')
-                            WHEN COALESCE((
-                                SELECT group_concat(part, ' ')
-                                FROM (
-                                    SELECT
-                                        CASE
-                                            WHEN COALESCE(local_rows.value, '') = '' THEN NULL
-                                            ELSE local_rows.value
-                                        END AS part
-                                    FROM local_rows
-                                    WHERE local_rows.heading_id = lineage.heading_id
-                                      AND local_rows.append = 1
-                                    ORDER BY local_rows.ord
-                                )
-                            ), '') = '' THEN COALESCE((
-                                SELECT value
-                                FROM local_rows
-                                WHERE local_rows.heading_id = lineage.heading_id
-                                  AND local_rows.append = 0
-                                ORDER BY local_rows.ord DESC
-                                LIMIT 1
-                            ), '')
-                            ELSE COALESCE((
-                                SELECT value
-                                FROM local_rows
-                                WHERE local_rows.heading_id = lineage.heading_id
-                                  AND local_rows.append = 0
-                                ORDER BY local_rows.ord DESC
-                                LIMIT 1
-                            ), '') || ' ' || COALESCE((
-                                SELECT group_concat(part, ' ')
-                                FROM (
-                                    SELECT
-                                        CASE
-                                            WHEN COALESCE(local_rows.value, '') = '' THEN NULL
-                                            ELSE local_rows.value
-                                        END AS part
-                                    FROM local_rows
-                                    WHERE local_rows.heading_id = lineage.heading_id
-                                      AND local_rows.append = 1
-                                    ORDER BY local_rows.ord
-                                )
-                            ), '')
-                        END AS local_value
-                    FROM lineage
-                ),
-                effective(seq, heading_id, has_any, effective_value) AS (
-                    SELECT
-                        local_summary.seq,
-                        local_summary.heading_id,
-                        local_summary.has_any,
-                        CASE
-                            WHEN local_summary.has_any = 1 THEN local_summary.local_value
-                            ELSE ''
-                        END
-                    FROM local_summary
-                    WHERE local_summary.seq = 1
-                    UNION ALL
-                    SELECT
-                        local_summary.seq,
-                        local_summary.heading_id,
-                        CASE
-                            WHEN local_summary.has_any = 1 THEN 1
-                            ELSE effective.has_any
-                        END,
-                        CASE
-                            WHEN local_summary.has_any = 0 THEN effective.effective_value
-                            WHEN local_summary.has_non_append = 1 THEN local_summary.local_value
-                            WHEN effective.has_any = 0 THEN local_summary.local_value
-                            WHEN effective.effective_value = '' THEN local_summary.local_value
-                            WHEN local_summary.local_value = '' THEN effective.effective_value
-                            ELSE effective.effective_value || ' ' || local_summary.local_value
-                        END
-                    FROM effective
-                    INNER JOIN local_summary ON local_summary.seq = effective.seq + 1
-                )
-                {final_select}
-            ))"
-        ),
-        params,
-    })
-}
-
-*/
 fn compile_keyword_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
@@ -2803,10 +2566,11 @@ mod tests {
         QueryRows,
     };
     use crate::db::{
-        open_database, open_in_memory_database_with_schema, DbWriter, FileRecordInput,
-        HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord,
-        PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
+        open_database, open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord,
+        FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
+        OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
     };
+    use crate::property::{derive_effective_properties, PropertyRow};
     use crate::query::{
         parse_query, resolve_relative_dates, resolve_temporal_bounds, validate_query,
         QueryDateResolutionOptions, QueryExecutionOptions, QueryTarget, QueryValidationOptions,
@@ -3845,6 +3609,21 @@ mod tests {
         )
         .expect("outline regexp root query should execute");
         assert_eq!(heading_ids(regexp_root_rows), vec![11, 12, 13, 14, 15]);
+    }
+
+    #[test]
+    fn compiled_property_predicates_use_materialized_effective_properties() {
+        for query in [
+            r#"(headings (property "OWNER" "Alice"))"#,
+            r#"(headings (property "OWNER" "Alice" :inherit t))"#,
+            r#"(headings (property "OWNER" "Alice" :inherit nil))"#,
+            r#"(headings (property "OWNER" "A.*" :regexp t))"#,
+        ] {
+            let compiled = compile_sqlite_query(&validated(query)).expect("query should compile");
+            assert!(compiled.sql.contains("FROM effective_properties"));
+            assert!(!compiled.sql.contains("lineage_up"));
+            assert!(!compiled.sql.contains("local_summary"));
+        }
     }
 
     #[test]
@@ -5816,6 +5595,64 @@ mod tests {
             .expect("property rows should collect")
     }
 
+    fn seed_effective_properties(connection: &Connection, file_id: i64) {
+        let parents = {
+            let mut statement = connection
+                .prepare("SELECT id, parent_id FROM headings WHERE file_id = ?1 ORDER BY id")
+                .expect("seed heading query should prepare");
+            statement
+                .query_map([file_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                })
+                .expect("seed heading query should run")
+                .collect::<Result<std::collections::HashMap<_, _>, _>>()
+                .expect("seed heading rows should decode")
+        };
+        let rows_by_heading = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                            properties.append, properties.line_number
+                     FROM properties
+                     INNER JOIN headings ON headings.id = properties.heading_id
+                     WHERE headings.file_id = ?1
+                     ORDER BY properties.line_number, properties.id",
+                )
+                .expect("seed property query should prepare");
+            let rows = statement
+                .query_map([file_id], |row| {
+                    Ok(PropertyRow {
+                        id: row.get(0)?,
+                        heading_id: row.get(1)?,
+                        key: row.get(2)?,
+                        value: row.get(3)?,
+                        append: row.get::<_, i64>(4)? != 0,
+                        line_number: row.get(5)?,
+                    })
+                })
+                .expect("seed property query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("seed property rows should decode");
+            let mut by_heading = std::collections::HashMap::<i64, Vec<PropertyRow>>::new();
+            for row in rows {
+                by_heading.entry(row.heading_id).or_default().push(row);
+            }
+            by_heading
+        };
+        let rows = derive_effective_properties(&parents, &rows_by_heading)
+            .into_iter()
+            .map(|row| EffectivePropertyRecord {
+                heading_id: row.heading_id,
+                file_id,
+                key: row.key,
+                local_value: row.local_value,
+                effective_value: row.effective_value,
+            })
+            .collect::<Vec<_>>();
+        DbWriter::insert_effective_properties(connection, &rows)
+            .expect("effective properties should seed through the production writer");
+    }
+
     fn seeded_connection() -> Connection {
         let schema = SchemaDefinition::new(3, false);
         let mut connection =
@@ -5825,8 +5662,6 @@ mod tests {
             Path::new("/tmp/query-alpha.org"),
             Path::new("/tmp/query-beta.org"),
         );
-        crate::db::schema::backfill_effective_properties(&connection)
-            .expect("effective properties should seed");
         connection
     }
 
@@ -7235,6 +7070,7 @@ CREATE TABLE db_metadata (
             Ok(())
         })
         .expect("alpha file should seed");
+        seed_effective_properties(connection, alpha_file_id);
 
         let (gamma_file_id, ()) = DbWriter::rebuild_file(connection, &gamma, |tx, file_id| {
             let root_id = DbWriter::insert_level0_heading(

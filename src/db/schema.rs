@@ -2,10 +2,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use std::collections::HashMap;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::db::{DbWriter, EffectivePropertyRecord};
-use crate::query::property::{derive_effective_properties, PropertyRow};
+use crate::property::{derive_effective_properties, PropertyRow};
 
 use super::{
     DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
@@ -13,6 +13,7 @@ use super::{
 };
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+const EFFECTIVE_PROPERTIES_SCHEMA_VERSION: u32 = 10;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -173,49 +174,167 @@ impl SchemaDefinition {
     }
 
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
-        let needs_effective_properties_backfill =
-            !table_exists(connection, "effective_properties")?;
+        let on_disk_version: u32 =
+            connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        let mut needs_effective_properties_backfill = on_disk_version
+            < EFFECTIVE_PROPERTIES_SCHEMA_VERSION
+            || !table_exists(connection, "effective_properties")?;
         migrate_legacy_files_identity(connection)?;
         migrate_legacy_timestamp_repeaters(connection)?;
         migrate_legacy_todo_keywords_table(connection)?;
         migrate_legacy_properties_table(connection)?;
         migrate_legacy_tags_table(connection)?;
-        migrate_legacy_headings_table(connection)?;
+        if migrate_legacy_headings_table(connection)? {
+            needs_effective_properties_backfill = true;
+        }
         migrate_legacy_timestamps_table(connection)?;
         migrate_legacy_links_table(connection)?;
-        repair_tables_depending_on_headings(connection)?;
+        if repair_tables_depending_on_headings(connection)? {
+            needs_effective_properties_backfill = true;
+        }
         migrate_v8_index_set(connection)?;
         connection.execute_batch(&self.render_sql(connection))?;
         if needs_effective_properties_backfill {
+            connection.execute("DELETE FROM effective_properties", [])?;
             backfill_effective_properties(connection)?;
         }
         Ok(())
     }
 }
 
-pub(crate) fn backfill_effective_properties(connection: &Connection) -> rusqlite::Result<()> {
-    let mut headings =
-        connection.prepare("SELECT id, file_id, parent_id FROM headings ORDER BY id")?;
-    let heading_rows = headings
-        .query_map([], |row| {
+fn backfill_effective_properties(connection: &Connection) -> rusqlite::Result<()> {
+    let mut file_statement =
+        connection.prepare("SELECT DISTINCT file_id FROM headings ORDER BY file_id")?;
+    let file_ids = file_statement
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(file_statement);
+
+    for file_id in file_ids {
+        backfill_effective_properties_for_file(connection, file_id)?;
+    }
+
+    let mismatch_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM effective_properties AS effective
+         INNER JOIN headings ON headings.id = effective.heading_id
+         WHERE effective.file_id != headings.file_id",
+        [],
+        |row| row.get(0),
+    )?;
+    if mismatch_count != 0 {
+        return Err(effective_properties_migration_error(format!(
+            "effective_properties backfill produced {mismatch_count} row(s) whose file_id does not match the owning heading"
+        )));
+    }
+
+    let foreign_key_violations: i64 =
+        connection.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })?;
+    if foreign_key_violations != 0 {
+        return Err(effective_properties_migration_error(format!(
+            "effective_properties backfill left {foreign_key_violations} foreign-key violation(s)"
+        )));
+    }
+
+    Ok(())
+}
+
+fn backfill_effective_properties_for_file(
+    connection: &Connection,
+    file_id: i64,
+) -> rusqlite::Result<()> {
+    let mut heading_statement = connection.prepare(
+        "SELECT id, parent_id, level
+         FROM headings
+         WHERE file_id = ?1
+         ORDER BY id",
+    )?;
+    let heading_rows = heading_statement
+        .query_map([file_id], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, i64>(2)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let mut parents = HashMap::new();
-    let mut files = HashMap::new();
-    for (id, file_id, parent_id) in heading_rows {
-        parents.insert(id, parent_id);
-        files.insert(id, file_id);
+    drop(heading_statement);
+
+    let root_ids = heading_rows
+        .iter()
+        .filter_map(|(heading_id, _, level)| (*level == 0).then_some(*heading_id))
+        .collect::<Vec<_>>();
+    if root_ids.len() != 1 {
+        return Err(effective_properties_migration_error(format!(
+            "file {file_id} must contain exactly one synthetic level-0 root before effective_properties can be backfilled; found {}",
+            root_ids.len()
+        )));
     }
-    let mut statement = connection.prepare(
-        "SELECT id, heading_id, key, value, append, line_number FROM properties ORDER BY id",
+    let root_id = root_ids[0];
+
+    let parent_by_heading = heading_rows
+        .iter()
+        .map(|(heading_id, parent_id, _)| (*heading_id, *parent_id))
+        .collect::<HashMap<_, _>>();
+
+    for (heading_id, parent_id, level) in &heading_rows {
+        if *heading_id == root_id {
+            if parent_id.is_some() {
+                return Err(effective_properties_migration_error(format!(
+                    "file {file_id} root heading {root_id} must not have a parent"
+                )));
+            }
+            continue;
+        }
+
+        if *level == 0 {
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} contains more than one synthetic level-0 root"
+            )));
+        }
+
+        let Some(parent_id) = parent_id else {
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} heading {heading_id} is not the root but has no parent"
+            )));
+        };
+
+        if !parent_by_heading.contains_key(parent_id) {
+            let parent_file_id = connection
+                .query_row(
+                    "SELECT file_id FROM headings WHERE id = ?1",
+                    [parent_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?;
+            let detail = match parent_file_id {
+                Some(parent_file_id) => {
+                    format!("belongs to file {parent_file_id}")
+                }
+                None => "does not exist".to_string(),
+            };
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} heading {heading_id} references parent {parent_id}, which {detail}"
+            )));
+        }
+    }
+
+    for heading_id in parent_by_heading.keys().copied() {
+        validate_heading_reaches_root(file_id, heading_id, root_id, &parent_by_heading)?;
+    }
+    validate_all_headings_reachable(file_id, root_id, &parent_by_heading)?;
+
+    let mut property_statement = connection.prepare(
+        "SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                properties.append, properties.line_number
+         FROM properties
+         INNER JOIN headings ON headings.id = properties.heading_id
+         WHERE headings.file_id = ?1
+         ORDER BY properties.line_number, properties.id",
     )?;
-    let rows = statement
-        .query_map([], |row| {
+    let property_rows = property_statement
+        .query_map([file_id], |row| {
             Ok(PropertyRow {
                 id: row.get(0)?,
                 heading_id: row.get(1)?,
@@ -226,42 +345,304 @@ pub(crate) fn backfill_effective_properties(connection: &Connection) -> rusqlite
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    drop(property_statement);
+
     let mut rows_by_heading = HashMap::<i64, Vec<PropertyRow>>::new();
-    for row in rows {
+    for row in property_rows {
         rows_by_heading.entry(row.heading_id).or_default().push(row);
     }
-    let projected = derive_effective_properties(&parents, &rows_by_heading)
+
+    let projected = derive_effective_properties(&parent_by_heading, &rows_by_heading)
         .into_iter()
         .map(|row| EffectivePropertyRecord {
             heading_id: row.heading_id,
-            file_id: files[&row.heading_id],
+            file_id,
             key: row.key,
             local_value: row.local_value,
             effective_value: row.effective_value,
         })
         .collect::<Vec<_>>();
+    let projected_count = projected.len();
+
     DbWriter::insert_effective_properties(connection, &projected).map_err(|error| match error {
         crate::db::DbWriteError::Write { source, .. } => source,
-        _ => rusqlite::Error::InvalidQuery,
+        other => effective_properties_migration_error(format!(
+            "failed to insert effective_properties for file {file_id}: {other}"
+        )),
     })?;
-    let mismatch_count: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM effective_properties AS effective
-         INNER JOIN headings ON headings.id = effective.heading_id
-         WHERE effective.file_id != headings.file_id",
-        [],
+
+    let stored_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM effective_properties WHERE file_id = ?1",
+        [file_id],
         |row| row.get(0),
     )?;
-    if mismatch_count != 0 {
-        return Err(rusqlite::Error::InvalidQuery);
+    if stored_count != projected_count as i64 {
+        return Err(effective_properties_migration_error(format!(
+            "file {file_id} effective_properties backfill stored {stored_count} row(s), expected {projected_count}"
+        )));
     }
-    let foreign_key_violations: i64 =
-        connection.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
-            row.get(0)
-        })?;
-    if foreign_key_violations != 0 {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
+
     Ok(())
+}
+
+fn validate_heading_reaches_root(
+    file_id: i64,
+    heading_id: i64,
+    root_id: i64,
+    parent_by_heading: &HashMap<i64, Option<i64>>,
+) -> rusqlite::Result<()> {
+    let mut current = heading_id;
+    let mut path = std::collections::HashSet::new();
+
+    loop {
+        if current == root_id {
+            return Ok(());
+        }
+        if !path.insert(current) {
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} contains a parent cycle involving heading {current}"
+            )));
+        }
+
+        let Some(parent_id) = parent_by_heading.get(&current) else {
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} heading {current} is unreachable from root {root_id}"
+            )));
+        };
+        let Some(parent_id) = *parent_id else {
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} heading {heading_id} is unreachable from root {root_id}"
+            )));
+        };
+        current = parent_id;
+    }
+}
+
+fn validate_all_headings_reachable(
+    file_id: i64,
+    root_id: i64,
+    parent_by_heading: &HashMap<i64, Option<i64>>,
+) -> rusqlite::Result<()> {
+    let mut children = HashMap::<i64, Vec<i64>>::new();
+    for (&heading_id, &parent_id) in parent_by_heading {
+        if let Some(parent_id) = parent_id {
+            children.entry(parent_id).or_default().push(heading_id);
+        }
+    }
+
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = vec![root_id];
+    while let Some(heading_id) = stack.pop() {
+        if !visited.insert(heading_id) {
+            return Err(effective_properties_migration_error(format!(
+                "file {file_id} visits heading {heading_id} more than once while validating the root tree"
+            )));
+        }
+        if let Some(child_ids) = children.get(&heading_id) {
+            stack.extend(child_ids.iter().copied());
+        }
+    }
+
+    if visited.len() != parent_by_heading.len() {
+        let mut unreachable = parent_by_heading
+            .keys()
+            .filter(|heading_id| !visited.contains(heading_id))
+            .copied()
+            .collect::<Vec<_>>();
+        unreachable.sort_unstable();
+        return Err(effective_properties_migration_error(format!(
+            "file {file_id} has headings unreachable from root {root_id}: {unreachable:?}"
+        )));
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct EffectivePropertiesMigrationError(String);
+
+impl std::fmt::Display for EffectivePropertiesMigrationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for EffectivePropertiesMigrationError {}
+
+fn effective_properties_migration_error(message: String) -> rusqlite::Error {
+    rusqlite::Error::UserFunctionError(Box::new(EffectivePropertiesMigrationError(message)))
+}
+
+#[cfg(test)]
+mod effective_properties_migration_tests {
+    use super::backfill_effective_properties;
+    use rusqlite::Connection;
+
+    fn migration_fixture() -> Connection {
+        let connection = Connection::open_in_memory().expect("database should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE files (
+                     id INTEGER PRIMARY KEY
+                 );
+                 CREATE TABLE headings (
+                     id INTEGER PRIMARY KEY,
+                     file_id INTEGER NOT NULL,
+                     parent_id INTEGER,
+                     level INTEGER NOT NULL
+                 );
+                 CREATE TABLE properties (
+                     id INTEGER PRIMARY KEY,
+                     heading_id INTEGER NOT NULL,
+                     key TEXT NOT NULL,
+                     value TEXT,
+                     append INTEGER NOT NULL,
+                     line_number INTEGER
+                 );
+                 CREATE TABLE effective_properties (
+                     heading_id INTEGER NOT NULL,
+                     file_id INTEGER NOT NULL,
+                     key TEXT NOT NULL,
+                     local_value TEXT,
+                     effective_value TEXT NOT NULL,
+                     PRIMARY KEY (heading_id, key)
+                 );",
+            )
+            .expect("migration fixture schema should seed");
+        connection
+    }
+
+    fn error_text(connection: &Connection) -> String {
+        backfill_effective_properties(connection)
+            .expect_err("backfill should reject malformed hierarchy")
+            .to_string()
+    }
+
+    #[test]
+    fn file_scoped_backfill_resolves_root_parent_and_local_properties() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, 10, 1),
+                     (12, 1, 11, 2);
+                 INSERT INTO properties (id, heading_id, key, value, append, line_number) VALUES
+                     (1, 10, 'category', 'work', 0, 1),
+                     (2, 11, 'AREA', 'infra', 0, 2),
+                     (3, 12, 'AREA+', 'ops', 1, 3),
+                     (4, 12, 'EMPTY', '', 0, 4);",
+            )
+            .expect("migration facts should seed");
+
+        backfill_effective_properties(&connection).expect("backfill should succeed");
+
+        let inherited: (Option<String>, String) = connection
+            .query_row(
+                "SELECT local_value, effective_value
+                 FROM effective_properties
+                 WHERE heading_id = 12 AND key = 'CATEGORY'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("inherited category should load");
+        assert_eq!(inherited, (None, "work".to_string()));
+
+        let appended: (Option<String>, String) = connection
+            .query_row(
+                "SELECT local_value, effective_value
+                 FROM effective_properties
+                 WHERE heading_id = 12 AND key = 'AREA'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("appended property should load");
+        assert_eq!(appended, (Some("ops".to_string()), "infra ops".to_string()));
+
+        let empty: (Option<String>, String) = connection
+            .query_row(
+                "SELECT local_value, effective_value
+                 FROM effective_properties
+                 WHERE heading_id = 12 AND key = 'EMPTY'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("empty property should load");
+        assert_eq!(empty, (Some(String::new()), String::new()));
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_cross_file_parent() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1), (2);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (20, 2, NULL, 0),
+                     (11, 1, 20, 1);",
+            )
+            .expect("cross-file fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(
+            error.contains("belongs to file 2"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_missing_parent() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, 999, 1);",
+            )
+            .expect("missing-parent fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(
+            error.contains("does not exist"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_parent_cycle() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, 12, 1),
+                     (12, 1, 11, 2);",
+            )
+            .expect("cycle fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(error.contains("parent cycle"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_multiple_roots() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, NULL, 0);",
+            )
+            .expect("multiple-root fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(error.contains("exactly one"), "unexpected error: {error}");
+    }
 }
 
 fn migrate_v8_index_set(connection: &Connection) -> rusqlite::Result<()> {
@@ -690,15 +1071,20 @@ fn tags_table_uses_direct_facts(columns: &[String]) -> bool {
         && columns.iter().any(|column| column == "tag")
 }
 
-fn migrate_legacy_headings_table(connection: &Connection) -> rusqlite::Result<()> {
+fn migrate_legacy_headings_table(connection: &Connection) -> rusqlite::Result<bool> {
     if !table_exists(connection, "headings")? {
-        return Ok(());
+        return Ok(false);
     }
 
     let columns = table_columns(connection, "headings")?;
     if headings_table_matches_current_contract(connection, &columns)? {
-        return Ok(());
+        return Ok(false);
     }
+
+    // The projection is fully derived from headings and properties. Drop it
+    // before renaming headings so SQLite cannot retarget its foreign key to
+    // headings_legacy and leave a broken reference after that table is removed.
+    drop_table_if_exists(connection, "effective_properties")?;
 
     connection.execute_batch(
         r#"
@@ -789,7 +1175,7 @@ FROM headings_legacy;
     drop_table_if_exists(connection, "headings_legacy")?;
     drop_backed_up_tables(connection, &dependent_backups)?;
 
-    Ok(())
+    Ok(true)
 }
 
 fn headings_table_matches_current_contract(
@@ -980,10 +1366,20 @@ impl HeadingsDependentTable {
     }
 }
 
-fn repair_tables_depending_on_headings(connection: &Connection) -> rusqlite::Result<()> {
+fn repair_tables_depending_on_headings(connection: &Connection) -> rusqlite::Result<bool> {
     let repairs = collect_headings_repair_backups(connection, false)?;
-    if repairs.is_empty() {
-        return Ok(());
+    let rebuild_effective_properties = table_exists(connection, "effective_properties")?
+        && table_references(connection, "effective_properties", "headings_legacy")?;
+
+    if repairs.is_empty() && !rebuild_effective_properties {
+        return Ok(false);
+    }
+
+    if rebuild_effective_properties {
+        // Unlike canonical source tables, this projection is rebuildable. A
+        // table that still references headings_legacy must be recreated rather
+        // than copied forward with the stale foreign key.
+        drop_table_if_exists(connection, "effective_properties")?;
     }
 
     connection.execute_batch(CORE_SCHEMA_SQL)?;
@@ -991,7 +1387,7 @@ fn repair_tables_depending_on_headings(connection: &Connection) -> rusqlite::Res
     rebuild_outline_path(connection)?;
     invalidate_search_trust_metadata(connection)?;
     drop_backed_up_tables(connection, &repairs)?;
-    Ok(())
+    Ok(rebuild_effective_properties)
 }
 
 fn collect_headings_repair_backups(
