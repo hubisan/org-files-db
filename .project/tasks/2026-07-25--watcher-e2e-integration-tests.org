@@ -1,0 +1,113 @@
+#+TITLE: End-to-end watcher integration tests
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-25 Sat 23:50]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Add end-to-end integration tests for real watcher-backed filesystem updates.
+
+* Planning
+
+** Problem summary
+
+The watcher layers have deterministic unit coverage for event normalization, batching, startup, recovery, CLI lifecycle, and failure handling, but the complete path from a real ~notify~ backend event through Phase 6 to committed SQLite state is not yet covered. The missing suite must validate eventual state without depending on one backend-specific event sequence.
+
+** Goals
+
+- Exercise the real supported-platform ~notify~ backend against temporary filesystem roots.
+- Assert eventual committed DB state with bounded polling and useful timeout diagnostics.
+- Cover startup, create, modify, metadata-only, delete, rename, atomic replacement, rapid writes, explicit files, recursive and non-recursive roots, exclusions, unrelated paths, DB sidecar activity, invalid input, restart recovery, and temporary root disruption.
+- Compare watcher-produced canonical, FTS, and link-resolution state with a fresh Phase 6 reconciliation.
+- Keep deterministic batching and recovery policy in the existing unit tests.
+
+** Non-goals
+
+- No production behavior changes, new CLI surface, dependency changes, daemonization, platform-specific event assertions, exact event-count assertions, or Phase 8 parallelism.
+- No timing assumptions about a specific create/modify/rename event sequence.
+
+** Architecture
+
+- Add a crate-internal ~#[cfg(test)]~ module so the tests can drive the crate-private watcher runtime without exposing test-only public APIs.
+- Use a reusable real-backend harness with one real SQLite connection, the production Phase 6 executor, and a production ~NotifyWatcherSource~.
+- Poll the runtime until a DB predicate becomes true or a bounded deadline expires.
+- Include file paths, headings, and links in timeout diagnostics.
+- Use a quiet-period helper only to detect completion of ignored and DB-sidecar event bursts, not as the primary correctness assertion.
+
+** Execution plan
+
+- Add the real-backend harness and DB observation helpers.
+- Add focused tests for no-change startup and normal recursive change sequences.
+- Add scope, exclusion, non-recursive, unrelated-file, and watched-DB activity coverage.
+- Add explicit-file replacement and offline restart recovery coverage.
+- Add invalid-input rollback and temporary-root safety coverage.
+- Add semantic comparison against a fresh Phase 6 reconciliation, including FTS where available and link resolution.
+- Set the task to ~REVIEW~ after static review and available checks.
+
+** Risks & assumptions
+
+- Local filesystem notifications may be bursty or reordered, so tests assert only eventual state.
+- The default 250 ms debounce interval makes the real-backend tests slower than unit tests; the suite uses bounded polling rather than changing production timing.
+- FTS assertions are enabled only when the linked SQLite library reports FTS5 support.
+- Temporary root disruption is made deterministic by first queuing a normal real event, then removing the root before the pending batch executes.
+
+** Open questions
+
+- None for this bounded task.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test watcher_integration_tests -- --test-threads=1~
+- ~cargo test --all-targets --all-features~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- Run the real-backend integration test module twice to expose timing instability.
+
+* Results
+
+** Approach
+
+- Added a crate-internal real-backend test module using production ~NotifyWatcherSource~, ~WatcherRuntime~, ~WatcherExecutionController~, ~Phase6WatcherExecutor~, and SQLite schema setup.
+- Added bounded polling helpers that report runtime state, pending deadlines, files, headings, links, and the last cycle report on failure.
+- Added no-change startup coverage that verifies existing row identity and file fingerprints remain stable.
+- Added create, content modification, same-content metadata-only update, delete, rename, atomic replacement, one-file bursts, and multi-file bursts under a recursive root.
+- Added recursive versus non-recursive behavior, local directory exclusions, global file exclusions, unrelated files, and SQLite WAL/sidecar activity while the database itself is below a watched root.
+- Added explicit-file atomic replacement plus watcher restart after offline modification, deletion, and recreation.
+- Added invalid UTF-8 preparation failure coverage that verifies the previous committed DB state remains intact and the runtime terminates explicitly.
+- Added temporary root disruption coverage that verifies source validation fails before the pending batch can become a mass deletion.
+- Added a semantic snapshot comparison between watcher-produced state and a fresh Phase 6 reconciliation, including heading bodies, links, search trust metadata, and FTS membership when FTS5 is available.
+
+** Changed files
+
+- ~src/lib.rs~
+- ~src/watcher_integration_tests.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-25--watcher-e2e-integration-tests.org~
+
+** Checks performed
+
+- Reviewed every test for eventual-state assertions rather than exact raw event types, counts, or ordering.
+- Reviewed all loops for explicit total deadlines and diagnostic failure messages.
+- Reviewed the suite for unique temporary paths and cleanup after runtime drop.
+- Reviewed the watched-database scenario to ensure SQLite files are exercised without manually corrupting sidecars.
+- Reviewed the failure tests for committed-state assertions after runtime termination.
+- Checked the changed files for conflict markers, placeholder macros, and trailing whitespace.
+
+** Test results
+
+- Added seven real-backend tests covering the required scenario matrix.
+- Rust formatting, compilation, Clippy, and test execution could not be run because the execution environment does not contain ~cargo~, ~rustc~, or ~rustfmt~ and cannot resolve the Rust distribution host.
+- Local verification remains: run ~cargo fmt --all~, then ~cargo test watcher_integration_tests -- --test-threads=1~, run that targeted test a second time, and then run ~make ci~.
+
+** Blockers
+
+- No Rust toolchain is available in the execution environment.
+- The uploaded archive does not contain a ~.git~ directory, so branch creation and native Git diff checks were unavailable.
+
+** Follow-ups
+
+- The final Phase 7 audit should run the real-backend module repeatedly and review any platform-specific timing failure before archiving the phase.

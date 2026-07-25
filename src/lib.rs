@@ -22,3 +22,6 @@ pub(crate) mod watcher;
 pub(crate) mod watcher_cli;
 #[allow(dead_code)]
 pub(crate) mod watcher_runtime;
+
+#[cfg(test)]
+mod watcher_integration_tests;

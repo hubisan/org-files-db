@@ -375,13 +375,15 @@ Required tests:
 - fatal controller failure;
 - unchanged behavior of existing commands.
 
-** TODO [#A] Add end-to-end watcher integration tests
+** DONE [#A] Add end-to-end watcher integration tests
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: No
 :END:
+
+[[./2026-07-25--watcher-e2e-integration-tests.org][Task file]]
 
 Goal:
 
