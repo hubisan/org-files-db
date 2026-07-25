@@ -1,0 +1,119 @@
+#+TITLE: Notify filesystem event source
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-25 Sat 21:17]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Integrate ~notify~ as the thin filesystem event source for the completed Phase 7 watcher event model and execution controller.
+
+* Planning
+
+** Problem summary
+
+Phase 7 has a backend-independent event model and deterministic execution controller but no operating-system event source. The adapter must register the configured Phase 6 inputs, preserve all available path hints, report backend failures, and request reconciliation under uncertainty without duplicating discovery or indexing semantics.
+
+** Goals
+
+- Add a compatible ~notify~ dependency.
+- Watch configured directory roots with their declared recursion mode.
+- Watch explicit-file parents non-recursively so atomic replacement remains observable.
+- Translate ~notify~ events into existing backend-independent ~WatcherInput~ values.
+- Preserve complete rename path order and pass incomplete renames through for conservative reconciliation.
+- Convert rescan indications and runtime backend errors into reconciliation recovery signals.
+- Report watcher creation, inaccessible target, registration, and channel failures with path context.
+- Add synthetic translation and target-planning tests plus one real supported-backend integration test.
+
+** Non-goals
+
+- No startup reconciliation, retry policy, long-running event loop, CLI command, signal handling, or daemonization.
+- No watcher-owned discovery, exclusions, canonicalization, parsing, DB classification, or mutation.
+- No Windows-specific code or compatibility layer.
+- No use of a separate debounce crate; the existing controller remains authoritative.
+
+** Architecture
+
+- Add an internal ~notify_source~ module beside the backend-independent ~watcher~ module.
+- Build a deterministic set of watch targets from configured roots and explicit-file parents.
+- Collapse duplicate or covered targets before registering them with ~RecommendedWatcher~.
+- Keep the watcher alive inside ~NotifyWatcherSource~ and receive raw ~notify::Result<Event>~ values through a standard channel.
+- Translate events at the receive boundary and leave source-universe filtering to ~WatcherBatchNormalizer~.
+- Represent runtime backend failures separately so callers can report them and submit their dropped-events recovery input.
+
+** Execution plan
+
+- Add ~notify~ 8.2 to the dependency set.
+- Implement watch-target planning, validation, deduplication, and registration.
+- Implement event and backend-error translation.
+- Add non-blocking and timeout receive operations for later lifecycle integration.
+- Add deterministic unit tests and a bounded real-backend integration test.
+- Document the adapter contract and update active task state.
+
+** Risks & assumptions
+
+- Backend event counts, ordering, and precise kinds differ across supported platforms; the integration test asserts eventual normalized path observation only.
+- Runtime backend errors may not identify a platform-specific overflow kind uniformly, so every stream error is reported and conservatively treated as possible event loss.
+- The existing Phase 6 normalizer remains responsible for exclusions, source-universe membership, deleted identities, symlinks, and unrelated paths.
+
+** Open questions
+
+- None for this bounded task.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test notify_source~
+- ~cargo test --all-targets --all-features~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+* Results
+
+** Approach
+
+- Added a thin ~notify~ source that owns the recommended Unix backend and a raw event receiver.
+- Registered configured directory roots with their declared recursion mode.
+- Registered explicit files through non-recursive parent-directory watches, allowing replacement of the watched file itself.
+- Collapsed duplicate targets and nested targets already covered by recursive roots.
+- Translated mutating and unknown path-bearing events into the existing watcher path-hint model while ignoring access-only events.
+- Preserved backend rename path order and left incomplete renames for the existing normalizer to escalate.
+- Mapped ~need_rescan~ to reconciliation and runtime backend errors to reportable failures carrying a dropped-events recovery input.
+- Kept all source-universe and exclusion decisions in the existing Phase 6 candidate normalizer.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~src/lib.rs~
+- ~src/notify_source.rs~
+- ~docs/design/incremental-indexing.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-25--notify-event-source.org~
+
+** Checks performed
+
+- Reviewed ~notify~ 8.2 event, rescan, recommended-watcher, and watch registration APIs against the official crate documentation.
+- Reviewed watch target coverage for recursive roots, non-recursive roots, nested explicit files, and external explicit-file parents.
+- Reviewed translation to ensure raw event kinds never select Phase 6 DB operations.
+- Checked that runtime errors retain message and path context and expose reconciliation recovery input.
+- Checked source text for trailing whitespace and placeholder macros.
+
+** Test results
+
+- Added synthetic tests for create, modify, metadata, remove, unknown, complete rename, incomplete rename, rescan, access, pathless unknown, and runtime backend errors.
+- Added target-planning tests for recursive coverage, explicit-file parents, inaccessible roots, and registration error context.
+- Added a Phase 6 filtering test for unrelated files plus SQLite DB and sidecar events.
+- Added a bounded real-backend test that accepts either observation of an Org file created below a recursive root or a conservative backend rescan request, without asserting exact event count, kind, or order.
+- Rust compilation, formatting, Clippy, dependency-lock generation, and test execution could not be run in the provided environment because ~cargo~, ~rustc~, and ~rustfmt~ are not installed.
+- Local verification remains: ~cargo fmt --all~, then ~make ci~. The first Cargo invocation will update ~Cargo.lock~ for the new dependency and that lock-file change should be reviewed and committed with this task.
+
+** Blockers
+
+- The execution environment does not contain a Rust toolchain.
+- The uploaded archive does not contain a ~.git~ directory, so branch creation and Git diff checks were unavailable.
+
+** Follow-ups
+
+- The next Phase 7 task can register this source before startup reconciliation, retain events arriving during startup, and define recovery lifecycle behavior.

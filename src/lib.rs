@@ -10,6 +10,8 @@ mod file_identity;
 pub mod indexer;
 mod indexing_context;
 mod link_resolver;
+#[allow(dead_code)]
+pub(crate) mod notify_source;
 pub mod parser;
 pub(crate) mod property;
 pub mod query;

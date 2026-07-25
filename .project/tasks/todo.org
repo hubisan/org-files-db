@@ -188,7 +188,7 @@ Required tests:
 - deterministic output under permuted raw event order;
 - non-UTF-8 Unix paths where supported by the test platform.
 
-** REVIEW [#A] Implement debounce and watcher execution controller
+** DONE [#A] Implement debounce and watcher execution controller
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
@@ -238,13 +238,15 @@ Required tests:
 - deterministic shutdown with an empty queue;
 - deterministic shutdown with a pending batch.
 
-** TODO [#A] Integrate ~notify~ as the filesystem event source
+** DONE [#A] Integrate ~notify~ as the filesystem event source
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Internal
 :END:
+
+Task file: [[./2026-07-25--notify-event-source.org]]
 
 Goal:
 
