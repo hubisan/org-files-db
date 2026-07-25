@@ -44,7 +44,6 @@ pub(crate) struct HeadingRecord {
     pub closed_has_time: Option<bool>,
     pub archivedp: bool,
     pub footnote_section_p: bool,
-    pub all_tags_json: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +62,14 @@ pub(crate) struct TodoKeywordRecord {
 pub(crate) struct TagRecord {
     pub heading_id: i64,
     pub tag: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectiveTagRecord {
+    pub heading_id: i64,
+    pub file_id: i64,
+    pub tag: String,
+    pub position: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -499,6 +506,25 @@ impl DbWriter {
         Ok(())
     }
 
+    pub(crate) fn insert_effective_tags(
+        connection: &Connection,
+        rows: &[EffectiveTagRecord],
+    ) -> Result<(), DbWriteError> {
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO effective_tags (heading_id, file_id, tag, position)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![row.heading_id, row.file_id, row.tag, row.position],
+                )
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_effective_tags",
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn insert_timestamps(
         connection: &Connection,
         rows: &[TimestampRecord],
@@ -878,9 +904,9 @@ fn insert_heading(
              (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
               todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, scheduled_has_time,
               deadline_raw, deadline_ts, deadline_has_time, closed_raw, closed_ts,
-              closed_has_time, archivedp, footnote_section_p, all_tags_json)
+              closed_has_time, archivedp, footnote_section_p)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
+                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 heading.id,
                 heading.file_id,
@@ -904,8 +930,7 @@ fn insert_heading(
                 heading.closed_ts,
                 heading.closed_has_time.map(bool_to_i64),
                 bool_to_i64(heading.archivedp),
-                bool_to_i64(heading.footnote_section_p),
-                heading.all_tags_json
+                bool_to_i64(heading.footnote_section_p)
             ],
         )
         .map_err(|source| DbWriteError::Write { operation, source })?;
@@ -939,9 +964,9 @@ fn heading_fts_table_exists(connection: &Connection) -> Result<bool, DbWriteErro
 #[cfg(test)]
 mod tests {
     use super::{
-        DbWriteError, DbWriter, EffectivePropertyRecord, FileRecordInput, HeadingFtsRecord,
-        HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord,
-        TodoKeywordRecord,
+        DbWriteError, DbWriter, EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput,
+        HeadingFtsRecord, HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord,
+        PropertyRecord, TagRecord, TodoKeywordRecord,
     };
     use crate::db::{
         open_in_memory_database_with_schema, sqlite_supports_fts5, SchemaDefinition,
@@ -1251,6 +1276,16 @@ mod tests {
             }],
         )
         .expect("tag should insert");
+        DbWriter::insert_effective_tags(
+            &connection,
+            &[EffectiveTagRecord {
+                heading_id: child_id,
+                file_id,
+                tag: "rust".to_string(),
+                position: 0,
+            }],
+        )
+        .expect("effective tag should insert");
         DbWriter::insert_keywords(
             &connection,
             &[KeywordRecord {
@@ -1331,6 +1366,7 @@ mod tests {
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM headings"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM todo_keywords"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM tags"), 0);
+        assert_eq!(count(&connection, "SELECT COUNT(*) FROM effective_tags"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM keywords"), 0);
         assert_eq!(count(&connection, "SELECT COUNT(*) FROM properties"), 0);
         assert_eq!(
@@ -1832,7 +1868,6 @@ mod tests {
             closed_has_time: None,
             archivedp: false,
             footnote_section_p: false,
-            all_tags_json: "[]".to_string(),
         }
     }
 
@@ -1861,7 +1896,6 @@ mod tests {
             closed_has_time: None,
             archivedp: false,
             footnote_section_p: false,
-            all_tags_json: "[\"rust\"]".to_string(),
         }
     }
 

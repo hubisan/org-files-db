@@ -121,7 +121,7 @@ Task file: [[file:archive/2026-07-24--tune-sqlite-indexes-from-measured-query-pl
 
 Task file: [[file:archive/2026-07-25--materialize-effective-properties-schema-10.org][Materialize effective properties in schema version 10]]
 
-** TODO [#B] Replace ~all_tags_json~ with normalized effective tags
+** REVIEW [#B] Replace ~all_tags_json~ with normalized ~effective_tags~
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
@@ -129,119 +129,64 @@ Task file: [[file:archive/2026-07-25--materialize-effective-properties-schema-10
 :API_CONTRACT_CHANGE: No
 :END:
 
-Depends on:
-
-- Materialize effective properties in schema version 10.
+Task file: [[file:2026-07-25--replace-all-tags-json-with-normalized-effective-tags.org][Replace all_tags_json with normalized effective tags]]
 
 Goal:
 
-- Store effective tag membership in a normalized ~effective_tags~ projection.
-- Remove ~headings.all_tags_json~ as redundant derived state.
-- Use canonical direct tag rows for local matching and normalized effective tag rows for inherited matching and output.
-- Implement this directly without a separate measurement gate.
+- Keep ~tags~ as canonical direct tag facts and store inherited tag membership in the mandatory ~effective_tags~ projection.
+- Remove ~headings.all_tags_json~ so query matching and public output use one normalized effective-tag source.
+- Preserve the existing public query syntax, tag case behaviour, inheritance semantics, and deterministic JSON order.
 
-Architecture:
+Final design:
 
-- The existing ~tags~ table remains the canonical source of tags defined directly on a heading or file/root.
-- ~effective_tags~ becomes the mandatory derived projection of all tags visible on each heading.
-- Root-level ~FILETAGS~ participate when inheritance and root participation are enabled.
-- The projection is maintained transactionally in the same manner as ~outline_path~ and ~effective_properties~.
-- ~all_tags_json~ must not remain as a second effective-tag cache after ~effective_tags~ is authoritative.
+- ~tags~ stores only direct tags, including ~FILETAGS~ on the synthetic root heading.
+- ~effective_tags~ stores one row per visible heading/tag pair with:
+  - ~heading_id~;
+  - ~file_id~;
+  - ~tag~;
+  - zero-based ~position~.
+- The primary key is ~(heading_id, tag)~.
+- ~(heading_id, position)~ is unique.
+- ~idx_effective_tags_tag_heading~ supports inherited membership queries.
+- ~idx_effective_tags_file~ supports file-scoped maintenance and validation.
+- The root always participates in inherited tag semantics. There is no ~:without-root~ option or root-excluding projection.
 
-Schema:
+Semantics:
 
-- Bump the database schema version from 10 to 11.
-- Add an ~effective_tags~ table containing at least:
-  - ~heading_id~
-  - ~file_id~
-  - ~tag~
-  - a flag indicating whether the tag remains visible when root/FILETAGS participation is excluded
-  - deterministic ordering metadata if required to preserve the current JSON tag order
-- Enforce uniqueness for ~(heading_id, tag)~.
-- Reference headings and files with foreign keys and cascade derived rows when their owner is deleted.
-- Add an index supporting inherited tag lookup by ~(tag, heading_id)~.
-- Add a partial index supporting inherited lookup without root participation.
-- Remove ~all_tags_json~ from the fresh ~headings~ schema and from all corresponding row models and SQL projections.
+- ~(tags ... )~ and ~(tags ... :inherit t)~ use ~effective_tags~.
+- ~(tags ... :inherit nil)~ uses direct rows from ~tags~.
+- Effective order is root to leaf; inherited tags keep their position, new local tags are appended, and the first occurrence wins when a tag appears at multiple levels.
+- Tag matching remains case-sensitive.
+- Inheritance never crosses file boundaries.
 
-Effective tag semantics:
+Migration and maintenance:
 
-- Preserve current tag normalization and case behaviour.
-- Deduplicate a tag inherited through more than one level.
-- Include local tags, ancestor tags, and root ~FILETAGS~ in the default effective set.
-- For ~:without-root t~, retain a tag when it is also supplied locally or by a real ancestor even when the same tag is present in ~FILETAGS~.
-- For ~:inherit nil~, use only canonical direct rows from ~tags~.
-- Preserve deterministic output ordering according to the current public output contract.
+- Schema version 10 migrates transactionally to version 11.
+- The migration preserves the existing public tag order from ~all_tags_json~, validates it against canonical direct tags, backfills ~effective_tags~, rebuilds ~headings~ without ~all_tags_json~, and advances the schema version only on commit.
+- Fresh rebuilds and created or modified files derive ~effective_tags~ from the prepared heading tree in the same transaction as canonical tags.
+- Metadata-only changes do not regenerate effective tags.
+- Replacement and deletion remove stale effective rows through the controlled transaction and foreign-key cascades.
 
-Derivation:
+Query and output:
 
-- Implement effective-tag derivation as a pure operation over one prepared heading tree.
-- Walk the tree from root to leaves while carrying the effective tag set.
-- Calculate both normal visibility and visibility with root participation excluded.
-- Produce at most one row per heading and tag.
-- Do not reconstruct ancestor tag sets through recursive SQL during each query.
+- Inherited tag predicates use ~effective_tags~ and no longer reconstruct heading ancestry recursively.
+- Local tag predicates continue to use ~tags~.
+- Flat, outline, hierarchy, relation, CLI, and included result objects load ~all_tags~ from ~effective_tags~ ordered by ~position~.
+- The public JSON field remains ~all_tags~; the internal ~all_tags_json~ column is removed.
 
-Transactional maintenance:
+Tests and benchmark evidence:
 
-- A created or modified file regenerates all of its ~effective_tags~ rows in the same transaction as headings, direct tags, and other derived state.
-- A metadata-only change leaves the projection unchanged.
-- File replacement and deletion must not leave stale effective tags.
-- Full rebuild and incremental replacement must use the same derivation path.
-- Any effective-tag failure rolls back the affected transaction.
-
-Migration:
-
-- Add a transactional migration from schema version 10 to 11.
-- Create and backfill ~effective_tags~ from canonical headings and direct ~tags~ rows.
-- Verify the backfilled normalized rows before removing or ceasing to use ~all_tags_json~.
-- Remove the obsolete ~all_tags_json~ column using the project's supported SQLite migration strategy.
-- Advance the schema version only after the projection and schema transition complete successfully.
-- Do not require Org-file reparsing when the canonical direct tag rows are sufficient.
-
-Query compiler:
-
-- Compile ~(tags ... :inherit nil)~ against canonical ~tags~.
-- Compile inherited tag predicates against ~effective_tags~.
-- Apply the root-exclusion flag for ~:inherit t :without-root t~.
-- Preserve ~:match :any~, ~:match :all~, ~tags-all~, regexp matching, root-result behaviour, and bound parameters.
-- Remove recursive per-heading lineage resolution from tag predicate SQL.
-
-Output:
-
-- Build public effective tag arrays from ~effective_tags~.
-- Preserve the existing JSON field and its semantics.
-- Remove JSON decoding of ~headings.all_tags_json~ from query execution and result shaping.
-- Ensure flat, outline, path, source, target, and included result objects all obtain effective tags from the same normalized source.
-
-Integrity and equivalence:
-
-- Require the file/root and every real heading to have exactly the expected normalized effective tag rows.
-- Verify no duplicate, stale, or orphaned effective tags exist.
-- Include ~effective_tags~ in semantic rebuild-versus-incremental comparisons.
-- Ensure direct ~tags~, derived ~effective_tags~, and public tag output cannot disagree after a committed transaction.
-
-Tests:
-
-- Cover local tags and ~:inherit nil~.
-- Cover parent and multi-level ancestor inheritance.
-- Cover root ~FILETAGS~ inheritance.
-- Cover ~:without-root t~.
-- Cover the same tag supplied by root and a real ancestor.
-- Cover duplicate tags across multiple levels.
-- Cover ~:match :any~, ~:match :all~, ~tags-all~, and regexp matching.
-- Cover root/file results and real heading results.
-- Cover deterministic JSON tag ordering.
-- Cover creation, modification, metadata-only change, deletion, migration, rollback, and rebuild equivalence.
-- Assert that inherited tag query plans use ~effective_tags~ rather than recursive lineage SQL.
-- Assert that the fresh schema and runtime SQL no longer reference ~all_tags_json~.
+- Cover root, parent, local, duplicate, case-sensitive, any/all, alias, regexp, migration-order, rollback, replacement, deletion, and semantic-equivalence behaviour.
+- Assert that inherited tag SQL uses ~effective_tags~ and its lookup index without the old recursive lineage SQL.
+- The benchmark records separate direct and effective tag workloads and includes ~effective_tags~ in semantic snapshots.
 
 Acceptance criteria:
 
 - Fresh databases use schema version 11.
-- Version-10 databases migrate deterministically to version 11.
+- Version-10 databases migrate atomically to version 11 without reparsing Org files.
 - ~effective_tags~ is the only stored effective-tag representation.
-- ~headings.all_tags_json~ is removed.
-- Direct and effective tag query semantics remain unchanged.
-- Public JSON tag output remains compatible and deterministic.
-- Full rebuild and incremental replacement maintain normalized effective tags transactionally.
-- Integrity and semantic-equivalence checks include the new projection.
+- ~headings.all_tags_json~ is absent from the current schema and runtime SQL.
+- Direct and inherited tag query results remain compatible.
+- Public ~all_tags~ output remains deterministic and compatible.
+- Rebuild, incremental replacement, migration, rollback, and semantic-equivalence checks include the projection.
 - ~make ci~ passes.

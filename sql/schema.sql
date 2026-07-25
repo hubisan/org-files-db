@@ -199,10 +199,6 @@ CREATE TABLE IF NOT EXISTS db_metadata (
   archivedp / footnote_section_p:
     Stored as 0/1 integers.
 
-  all_tags_json:
-    JSON array of all tags visible on this heading, including inherited tags.
-    This is a query/output convenience cache. The normalized tag rows are stored
-    in tags.
 */
 CREATE TABLE IF NOT EXISTS headings (
     id                  INTEGER PRIMARY KEY,
@@ -228,7 +224,6 @@ CREATE TABLE IF NOT EXISTS headings (
     closed_has_time     INTEGER CHECK (closed_has_time IN (0, 1) OR closed_has_time IS NULL),
     archivedp           INTEGER NOT NULL DEFAULT 0 CHECK (archivedp IN (0, 1)),
     footnote_section_p  INTEGER NOT NULL DEFAULT 0 CHECK (footnote_section_p IN (0, 1)),
-    all_tags_json       TEXT NOT NULL DEFAULT '[]',
     CHECK (
         (level = 0 AND parent_id IS NULL)
         OR
@@ -626,6 +621,31 @@ CREATE TABLE IF NOT EXISTS tags (
     PRIMARY KEY (heading_id, tag)
 );
 
+/*
+  Mandatory, rebuildable projection of the tags visible at each heading.
+
+  Canonical direct tag facts remain in tags. FILETAGS are direct tags of the
+  synthetic level-0 heading and therefore participate in normal inheritance.
+
+  position preserves the public root-to-leaf, first-occurrence order after
+  inherited and local duplicate tags have been removed. Tag inheritance never
+  crosses file boundaries.
+*/
+CREATE TABLE IF NOT EXISTS effective_tags (
+    heading_id      INTEGER NOT NULL,
+    file_id         INTEGER NOT NULL,
+    tag             TEXT NOT NULL,
+    position        INTEGER NOT NULL CHECK (position >= 0),
+    PRIMARY KEY (heading_id, tag),
+    UNIQUE (heading_id, position),
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE
+);
+
 --------------------------------------------------
 -- LINKS
 --------------------------------------------------
@@ -971,6 +991,12 @@ CREATE INDEX IF NOT EXISTS idx_effective_properties_file
 --------------------------------------------------
 CREATE INDEX IF NOT EXISTS idx_tags_tag
     ON tags(tag);
+
+CREATE INDEX IF NOT EXISTS idx_effective_tags_tag_heading
+    ON effective_tags(tag, heading_id);
+
+CREATE INDEX IF NOT EXISTS idx_effective_tags_file
+    ON effective_tags(file_id);
 
 --------------------------------------------------
 -- INDEXES: LINKS

@@ -1,0 +1,23 @@
+#+TITLE: Replace all_tags_json with normalized effective tags
+#+TASK_STARTED: [2026-07-25 Saturday 16:14]
+
+* Planning
+
+- Keep ~tags~ as canonical direct facts and add a mandatory normalized ~effective_tags~ projection.
+- Preserve root-inclusive inheritance and deterministic first-occurrence ordering.
+- Migrate schema version 10 to 11 atomically, remove ~headings.all_tags_json~, and preserve the public ~all_tags~ JSON field.
+- Use ~effective_tags~ for inherited matching and output while keeping ~:inherit nil~ on direct ~tags~.
+- Extend benchmark workloads and semantic equivalence without adding a separate benchmark mode.
+
+* Build
+
+- Added ~effective_tags~ with ordered, deduplicated root-to-leaf visibility and file-scoped indexes.
+- Added one shared derivation path for fresh indexing, file replacement, and migration backfill.
+- Added a transactional version-10 migration that preserves legacy tag order while rebuilding ~headings~ without ~all_tags_json~.
+- Switched inherited tag predicates and all effective tag output to the normalized projection.
+- Added migration, rollback, query-plan, replacement, cascade, semantic-snapshot, and benchmark coverage.
+
+* Checks
+
+- Automated Rust checks were not available in the editing environment.
+- Run ~cargo fmt --all~, ~make ci~, and the documented 300-file benchmark before approval.

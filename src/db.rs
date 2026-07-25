@@ -17,9 +17,9 @@ pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::DbWriteError;
 pub(crate) use writer::{
-    DbWriter, EffectivePropertyRecord, FileRecordInput, HeadingBodyRecord, HeadingRecord,
-    KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
-    TimestampRepeaterRecord, TodoKeywordRecord,
+    DbWriter, EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput, HeadingBodyRecord,
+    HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord,
+    TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
 };
 
 pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
@@ -413,6 +413,8 @@ mod tests {
         [
             "files_identity_unique",
             "idx_effective_properties_file",
+            "idx_effective_tags_file",
+            "idx_effective_tags_tag_heading",
             "idx_files_hash",
             "idx_files_mtime_size",
             "idx_files_path_lower",
@@ -523,7 +525,113 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_8_index_set_to_version_10() {
+    fn fresh_schema_uses_normalized_effective_tags_without_heading_json_cache() {
+        let connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+
+        let heading_columns = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(headings)")
+                .expect("heading columns should prepare");
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .expect("heading columns should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("heading columns should decode")
+        };
+        assert!(!heading_columns
+            .iter()
+            .any(|column| column == "all_tags_json"));
+
+        let effective_tag_columns = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(effective_tags)")
+                .expect("effective tag columns should prepare");
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .expect("effective tag columns should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("effective tag columns should decode")
+        };
+        assert_eq!(
+            effective_tag_columns,
+            vec!["heading_id", "file_id", "tag", "position"]
+        );
+    }
+
+    #[test]
+    fn current_schema_application_does_not_rebuild_healthy_effective_tags() {
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        connection
+            .execute_batch(
+                "INSERT INTO files (id, path, mtime_ns, size)
+                 VALUES (1, '/tmp/tags.org', 1, 1);
+                 INSERT INTO headings
+                     (id, file_id, parent_id, level, byte_start, byte_end, title)
+                 VALUES (10, 1, NULL, 0, -1, 1, 'Tags');
+                 INSERT INTO tags (heading_id, tag) VALUES
+                     (10, 'zeta'),
+                     (10, 'alpha');
+                 INSERT INTO effective_tags (heading_id, file_id, tag, position) VALUES
+                     (10, 1, 'zeta', 0),
+                     (10, 1, 'alpha', 1);",
+            )
+            .expect("effective tag fixture should seed");
+        let before = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT rowid, tag, position
+                     FROM effective_tags
+                     ORDER BY position",
+                )
+                .expect("effective tag snapshot should prepare");
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .expect("effective tag snapshot should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("effective tag snapshot should decode")
+        };
+
+        schema
+            .apply(&connection)
+            .expect("current schema application should remain idempotent");
+
+        let after = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT rowid, tag, position
+                     FROM effective_tags
+                     ORDER BY position",
+                )
+                .expect("effective tag snapshot should prepare");
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                })
+                .expect("effective tag snapshot should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("effective tag snapshot should decode")
+        };
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn migrates_version_8_index_set_to_version_11() {
         let test_dir = TestDir::new("version-8-index-set");
         let db_path = test_dir.path().join("db.sqlite");
 
@@ -548,7 +656,7 @@ PRAGMA user_version = 8;
         let version = read_schema_version(&connection).expect("schema version should load");
 
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
         assert_eq!(
             explicit_index_names(&connection),
             expected_current_explicit_indexes()
@@ -863,6 +971,154 @@ VALUES (1, 'legacy body text', 0, 10);
             "SELECT COUNT(*) FROM effective_properties WHERE key = 'AUTHOR'",
         );
         assert_eq!(author_property_count, 0);
+    }
+
+    #[test]
+    fn migrates_version_10_all_tags_json_to_normalized_effective_tags() {
+        let test_dir = TestDir::new("effective-tags-v10");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        {
+            let connection = open_database(&db_path).expect("database should initialize");
+            connection
+                .execute_batch(
+                    "INSERT INTO files (id, path, mtime_ns, size)
+                     VALUES (1, '/tmp/tags.org', 1, 1);
+                     INSERT INTO headings
+                         (id, file_id, parent_id, level, byte_start, byte_end, title)
+                     VALUES
+                         (10, 1, NULL, 0, -1, 100, 'Tags'),
+                         (11, 1, 10, 1, 0, 50, 'Parent'),
+                         (12, 1, 11, 2, 51, 100, 'Child');
+                     INSERT INTO tags (heading_id, tag) VALUES
+                         (10, 'alpha'),
+                         (10, 'zeta'),
+                         (11, 'parent'),
+                         (11, 'zeta'),
+                         (12, 'child'),
+                         (12, 'alpha');
+                     ALTER TABLE headings
+                         ADD COLUMN all_tags_json TEXT NOT NULL DEFAULT '[]';
+                     UPDATE headings SET all_tags_json = '[\"zeta\",\"alpha\"]'
+                         WHERE id = 10;
+                     UPDATE headings SET all_tags_json = '[\"zeta\",\"alpha\",\"parent\"]'
+                         WHERE id = 11;
+                     UPDATE headings SET all_tags_json = '[\"zeta\",\"alpha\",\"parent\",\"child\"]'
+                         WHERE id = 12;
+                     DROP TABLE effective_tags;
+                     PRAGMA user_version = 10;",
+                )
+                .expect("version-10 tag fixture should seed");
+        }
+
+        let opened = open_database(&db_path).expect("version-10 database should migrate");
+        assert_eq!(
+            read_schema_version(&opened).expect("schema version should load"),
+            CURRENT_SCHEMA_VERSION
+        );
+
+        let columns = {
+            let mut statement = opened
+                .prepare("PRAGMA table_info(headings)")
+                .expect("heading columns should prepare");
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .expect("heading columns should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("heading columns should decode")
+        };
+        assert!(!columns.iter().any(|column| column == "all_tags_json"));
+
+        let mut statement = opened
+            .prepare(
+                "SELECT tag, position
+                 FROM effective_tags
+                 WHERE heading_id = 12
+                 ORDER BY position",
+            )
+            .expect("effective tag query should prepare");
+        let child_tags = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .expect("effective tag query should run")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("effective tags should decode");
+        assert_eq!(
+            child_tags,
+            vec![
+                ("zeta".to_string(), 0),
+                ("alpha".to_string(), 1),
+                ("parent".to_string(), 2),
+                ("child".to_string(), 3),
+            ]
+        );
+        assert!(foreign_key_check_rows(&opened).is_empty());
+    }
+
+    #[test]
+    fn effective_tags_migration_rolls_back_schema_backfill_and_heading_rebuild() {
+        let test_dir = TestDir::new("effective-tags-rollback");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        {
+            let connection = open_database(&db_path).expect("database should initialize");
+            connection
+                .execute_batch(
+                    "INSERT INTO files (id, path, mtime_ns, size)
+                     VALUES (1, '/tmp/tags.org', 1, 1);
+                     INSERT INTO headings
+                         (id, file_id, parent_id, level, byte_start, byte_end, title)
+                     VALUES (10, 1, NULL, 0, -1, 100, 'Tags');
+                     INSERT INTO tags (heading_id, tag) VALUES (10, 'file');
+                     ALTER TABLE headings
+                         ADD COLUMN all_tags_json TEXT NOT NULL DEFAULT '[]';
+                     UPDATE headings SET all_tags_json = 'not-json' WHERE id = 10;
+                     DROP TABLE effective_tags;
+                     PRAGMA user_version = 10;",
+                )
+                .expect("broken version-10 fixture should seed");
+        }
+
+        let first_error = open_database(&db_path)
+            .expect_err("invalid stored tag order should fail effective-tags migration");
+        assert!(
+            first_error.to_string().contains("invalid all_tags_json"),
+            "unexpected migration error: {first_error}"
+        );
+
+        {
+            let connection = Connection::open(&db_path).expect("database should reopen raw");
+            assert_eq!(
+                read_schema_version(&connection).expect("schema version should load"),
+                10
+            );
+            let effective_table_count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'table' AND name = 'effective_tags'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("effective tag table existence should load");
+            assert_eq!(effective_table_count, 0);
+            let all_tags_json: String = connection
+                .query_row(
+                    "SELECT all_tags_json FROM headings WHERE id = 10",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("legacy tag JSON should remain after rollback");
+            assert_eq!(all_tags_json, "not-json");
+            assert_eq!(count_rows(&connection, "SELECT COUNT(*) FROM tags"), 1);
+        }
+
+        let second_error = open_database(&db_path)
+            .expect_err("reopening must retry and reject the same migration");
+        assert!(
+            second_error.to_string().contains("invalid all_tags_json"),
+            "unexpected repeated migration error: {second_error}"
+        );
     }
 
     #[test]
@@ -2107,6 +2363,26 @@ VALUES
         assert_eq!(
             tag_rows,
             vec![(1_i64, "alpha".to_string()), (1_i64, "beta".to_string())]
+        );
+
+        let effective_tag_rows: Vec<(String, i64)> = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT tag, position
+                     FROM effective_tags
+                     WHERE heading_id = 1
+                     ORDER BY position",
+                )
+                .expect("effective tags select should prepare");
+            statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("effective tags select should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("migrated effective tags should collect")
+        };
+        assert_eq!(
+            effective_tag_rows,
+            vec![("alpha".to_string(), 0), ("beta".to_string(), 1)]
         );
     }
 

@@ -724,10 +724,6 @@ enum CliError {
     QueryExecute(QueryExecutionError),
     QueryShape(QueryShapeError),
     Search(SearchError),
-    InvalidHeadingTags {
-        heading_id: i64,
-        source: serde_json::Error,
-    },
     InvalidHeadingPath {
         heading_id: i64,
         source: serde_json::Error,
@@ -749,7 +745,6 @@ impl CliError {
             | Self::QueryExecute(_)
             | Self::QueryShape(_)
             | Self::Search(_)
-            | Self::InvalidHeadingTags { .. }
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
@@ -771,13 +766,6 @@ impl fmt::Display for CliError {
             Self::QueryExecute(source) => write!(f, "{source}"),
             Self::QueryShape(source) => write!(f, "{source}"),
             Self::Search(source) => write!(f, "{source}"),
-            Self::InvalidHeadingTags { heading_id, source } => {
-                write!(
-                    f,
-                    "failed to decode heading tags for heading {}: {}",
-                    heading_id, source
-                )
-            }
             Self::InvalidHeadingPath { heading_id, source } => {
                 write!(
                     f,
@@ -805,7 +793,6 @@ impl Error for CliError {
             Self::QueryExecute(source) => Some(source),
             Self::QueryShape(source) => Some(source),
             Self::Search(source) => Some(source),
-            Self::InvalidHeadingTags { source, .. } => Some(source),
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
@@ -970,13 +957,6 @@ impl TryFrom<HeadingListRow> for HeadingJsonRow {
     type Error = CliError;
 
     fn try_from(row: HeadingListRow) -> Result<Self, Self::Error> {
-        let all_tags = serde_json::from_str(&row.all_tags_json).map_err(|source| {
-            CliError::InvalidHeadingTags {
-                heading_id: row.id,
-                source,
-            }
-        })?;
-
         Ok(Self {
             id: row.id,
             file_id: row.file_id,
@@ -999,7 +979,7 @@ impl TryFrom<HeadingListRow> for HeadingJsonRow {
             closed_ts: row.closed_ts,
             archivedp: row.archivedp,
             footnote_section_p: row.footnote_section_p,
-            all_tags,
+            all_tags: row.all_tags,
         })
     }
 }
@@ -1068,10 +1048,10 @@ mod tests {
     };
     use crate::db::{
         open_database, open_database_with_schema, open_in_memory_database_with_schema,
-        sqlite_supports_fts5, DbError, DbWriter, FileRecordInput, HeadingRecord, LinkRecord,
-        OutlinePathRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY,
-        DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
-        FTS_SCHEMA_CONTRACT_VERSION,
+        sqlite_supports_fts5, DbError, DbWriter, EffectiveTagRecord, FileRecordInput,
+        HeadingRecord, LinkRecord, OutlinePathRecord, SchemaDefinition, TagRecord,
+        CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
+        DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     };
     use clap::Parser;
     use rusqlite::Connection;
@@ -1111,6 +1091,30 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    fn seed_single_heading_tag(
+        connection: &Connection,
+        file_id: i64,
+        heading_id: i64,
+        tag: &str,
+    ) -> Result<(), crate::db::DbWriteError> {
+        DbWriter::insert_tags(
+            connection,
+            &[TagRecord {
+                heading_id,
+                tag: tag.to_string(),
+            }],
+        )?;
+        DbWriter::insert_effective_tags(
+            connection,
+            &[EffectiveTagRecord {
+                heading_id,
+                file_id,
+                tag: tag.to_string(),
+                position: 0,
+            }],
+        )
     }
 
     fn write_file(path: &Path, content: &str) {
@@ -2835,7 +2839,6 @@ index_body_text = false
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
             DbWriter::insert_headings(
@@ -2864,9 +2867,10 @@ index_body_text = false
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[\"rust\"]".to_string(),
                 }],
             )?;
+            let heading_id = tx.last_insert_rowid();
+            seed_single_heading_tag(tx, file_id, heading_id, "rust")?;
             Ok(())
         })
         .expect("rebuild should succeed");
@@ -2937,7 +2941,6 @@ index_body_text = false
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
             DbWriter::insert_headings(
@@ -2966,9 +2969,10 @@ index_body_text = false
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[\"rust\"]".to_string(),
                 }],
             )?;
+            let heading_id = tx.last_insert_rowid();
+            seed_single_heading_tag(tx, file_id, heading_id, "rust")?;
             Ok(())
         })
         .expect("rebuild should succeed");
@@ -3033,7 +3037,6 @@ db_path = "../db.sqlite"
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[]".to_string(),
                     },
                 )?;
                 DbWriter::insert_headings(
@@ -3062,7 +3065,6 @@ db_path = "../db.sqlite"
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[]".to_string(),
                     }],
                 )?;
                 Ok(())
@@ -3229,7 +3231,6 @@ db_path = "./db.sqlite"
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[]".to_string(),
                     },
                 )?;
                 DbWriter::insert_headings(
@@ -3258,9 +3259,10 @@ db_path = "./db.sqlite"
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"tagged\"]".to_string(),
                     }],
                 )?;
+                let heading_id = tx.last_insert_rowid();
+                seed_single_heading_tag(tx, file_id, heading_id, "tagged")?;
                 Ok(())
             },
         )
@@ -3979,7 +3981,6 @@ index_body_text = false
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
             DbWriter::insert_outline_path(
@@ -4019,7 +4020,6 @@ index_body_text = false
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 }],
             )?;
             let child_id = tx.last_insert_rowid();

@@ -13,10 +13,10 @@ use crate::{
     config::{Config, ConfigError},
     db::{
         open_database_with_schema, sqlite_supports_fts5, DbError, DbWriteError, DbWriter,
-        EffectivePropertyRecord, FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord,
-        LinkRecord, OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord,
-        TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
-        DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
+        EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput, HeadingBodyRecord,
+        HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord,
+        SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
+        CURRENT_SCHEMA_VERSION, DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
         DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
         FTS_SCHEMA_CONTRACT_VERSION,
     },
@@ -31,6 +31,7 @@ use crate::{
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
     property::{derive_effective_properties, PropertyRow},
+    tag::derive_effective_tags,
     todo_keywords::{
         resolve_todo_keywords_with_default_source, ResolvedTodoKeywordEntry, ResolvedTodoKeywords,
         TodoKeywordSourceKind,
@@ -1822,12 +1823,10 @@ fn index_document(
         ));
     }
 
-    let effective_tags = effective_tags_for_document(document);
     let level0_heading = &document.headings[0];
     let level0_id = DbWriter::insert_level0_heading(
         connection,
-        &heading_record(file_id, None, level0_heading, &effective_tags[0])
-            .map_err(db_write_invalid_input)?,
+        &heading_record(file_id, None, level0_heading).map_err(db_write_invalid_input)?,
     )?;
 
     let mut heading_ids = vec![level0_id];
@@ -1848,16 +1847,12 @@ fn index_document(
         let parent_id = heading_ids.get(parent_index).copied().ok_or_else(|| {
             DbWriteError::InvalidInput("heading parent_index must reference an earlier heading")
         })?;
-        let heading_id = DbWriter::insert_headings(
-            connection,
-            &[heading_record(
-                file_id,
-                Some(parent_id),
-                heading,
-                &effective_tags[heading_index],
-            )
-            .map_err(db_write_invalid_input)?],
-        )?[0];
+        let heading_id =
+            DbWriter::insert_headings(
+                connection,
+                &[heading_record(file_id, Some(parent_id), heading)
+                    .map_err(db_write_invalid_input)?],
+            )?[0];
 
         if heading_ids.len() != heading_index {
             return Err(DbWriteError::InvalidInput(
@@ -1962,6 +1957,35 @@ fn index_document(
     DbWriter::insert_todo_keywords(connection, &todo_rows)?;
     DbWriter::insert_keywords(connection, &keyword_rows)?;
     DbWriter::insert_tags(connection, &tag_rows)?;
+
+    let parents = document
+        .headings
+        .iter()
+        .enumerate()
+        .map(|(index, heading)| {
+            (
+                heading_ids[index],
+                heading.parent_index.map(|parent| heading_ids[parent]),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let direct_tags_by_heading = document
+        .headings
+        .iter()
+        .enumerate()
+        .map(|(index, heading)| (heading_ids[index], heading.tags.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let effective_tag_rows = derive_effective_tags(&parents, &direct_tags_by_heading)
+        .into_iter()
+        .map(|row| EffectiveTagRecord {
+            heading_id: row.heading_id,
+            file_id,
+            tag: row.tag,
+            position: row.position,
+        })
+        .collect::<Vec<_>>();
+    DbWriter::insert_effective_tags(connection, &effective_tag_rows)?;
+
     DbWriter::insert_properties(connection, &property_rows)?;
     let mut properties_by_heading = std::collections::HashMap::<i64, Vec<PropertyRow>>::new();
     for (order, property) in property_rows.iter().enumerate() {
@@ -1977,17 +2001,6 @@ fn index_document(
                 line_number: property.line_number,
             });
     }
-    let parents = document
-        .headings
-        .iter()
-        .enumerate()
-        .map(|(index, heading)| {
-            (
-                heading_ids[index],
-                heading.parent_index.map(|parent| heading_ids[parent]),
-            )
-        })
-        .collect::<std::collections::HashMap<_, _>>();
     let projection = derive_effective_properties(&parents, &properties_by_heading)
         .into_iter()
         .map(|row| EffectivePropertyRecord {
@@ -2130,7 +2143,6 @@ fn heading_record(
     file_id: i64,
     parent_id: Option<i64>,
     heading: &ParsedHeading,
-    effective_tags: &[String],
 ) -> Result<HeadingRecord, &'static str> {
     let todo_type = heading.todo_type.as_ref().map(|value| match value {
         TodoType::Open => "open".to_string(),
@@ -2165,8 +2177,6 @@ fn heading_record(
         closed_has_time: heading.planning.closed_has_time(),
         archivedp: heading.is_archived,
         footnote_section_p: false,
-        all_tags_json: serde_json::to_string(effective_tags)
-            .map_err(|_| "tag serialization failed")?,
     })
 }
 
@@ -2232,33 +2242,6 @@ fn timestamp_unit_name(unit: ParsedTimestampUnit) -> &'static str {
         ParsedTimestampUnit::Month => "month",
         ParsedTimestampUnit::Year => "year",
     }
-}
-
-fn effective_tags_for_document(document: &ParsedOrgDocument) -> Vec<Vec<String>> {
-    let mut effective_tags: Vec<Vec<String>> = Vec::with_capacity(document.headings.len());
-
-    for heading in &document.headings {
-        let inherited = heading
-            .parent_index
-            .and_then(|index| effective_tags.get(index))
-            .cloned()
-            .unwrap_or_default();
-        effective_tags.push(merge_effective_tags(&inherited, &heading.tags));
-    }
-
-    effective_tags
-}
-
-fn merge_effective_tags(inherited: &[String], local: &[String]) -> Vec<String> {
-    let mut merged = Vec::with_capacity(inherited.len() + local.len());
-
-    for tag in inherited.iter().chain(local.iter()) {
-        if !merged.iter().any(|existing| existing == tag) {
-            merged.push(tag.clone());
-        }
-    }
-
-    merged
 }
 
 fn todo_keyword_rows(
@@ -2578,7 +2561,6 @@ mod tests {
                 closed_has_time: None,
                 archivedp: false,
                 footnote_section_p: false,
-                all_tags_json: "[]".to_string(),
             },
         )
         .expect("heading should insert");
@@ -2636,7 +2618,7 @@ index_body_text = false
         assert_eq!(headings[1].title, "Inbox");
         assert_eq!(headings[1].todo_keyword.as_deref(), Some("PLAN"));
         assert_eq!(headings[1].todo_type.as_deref(), Some("open"));
-        assert_eq!(headings[1].all_tags_json, "[\"rust\"]");
+        assert_eq!(headings[1].all_tags, vec!["rust".to_string()]);
 
         let todo_rows: Vec<TodoProvenanceRow> = query_rows(
             &connection,
@@ -4244,22 +4226,22 @@ index_body_text = false
             .expect("second stale file row should insert");
         connection
             .execute(
-                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p, all_tags_json)
-                 VALUES (1, 1, NULL, 0, 1, -1, 1, 'Old Root', 'Old Root', 0, 0, '[]')",
+                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p)
+                 VALUES (1, 1, NULL, 0, 1, -1, 1, 'Old Root', 'Old Root', 0, 0)",
                 [],
             )
             .expect("first stale root should insert");
         connection
             .execute(
-                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p, all_tags_json)
-                 VALUES (2, 1, 1, 1, 1, 0, 1, 'Old Child', 'Old Child', 0, 0, '[]')",
+                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p)
+                 VALUES (2, 1, 1, 1, 1, 0, 1, 'Old Child', 'Old Child', 0, 0)",
                 [],
             )
             .expect("first stale child should insert");
         connection
             .execute(
-                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p, all_tags_json)
-                 VALUES (3, 2, NULL, 0, 1, -1, 1, 'Older Root', 'Older Root', 0, 0, '[]')",
+                "INSERT INTO headings (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw, archivedp, footnote_section_p)
+                 VALUES (3, 2, NULL, 0, 1, -1, 1, 'Older Root', 'Older Root', 0, 0)",
                 [],
             )
             .expect("second stale root should insert");
@@ -7297,7 +7279,7 @@ index_body_text = false
     }
 
     #[test]
-    fn child_heading_inherits_parent_tags_in_all_tags_json() {
+    fn child_heading_inherits_parent_tags_in_effective_tags() {
         let test_dir = TestDir::new("inherited-tags");
         let org_path = test_dir.path().join("tags.org");
         let db_path = test_dir.path().join("db.sqlite");
@@ -7326,8 +7308,11 @@ index_body_text = false
             .expect("rebuild should succeed");
 
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[1].all_tags_json, "[\"test\"]");
-        assert_eq!(headings[2].all_tags_json, "[\"test\",\"me\"]");
+        assert_eq!(headings[1].all_tags, vec!["test".to_string()]);
+        assert_eq!(
+            headings[2].all_tags,
+            vec!["test".to_string(), "me".to_string()]
+        );
 
         let tag_rows: Vec<String> = query_rows(
             &connection,
@@ -7338,7 +7323,7 @@ index_body_text = false
     }
 
     #[test]
-    fn rebuild_stores_direct_heading_tags_and_filetags_without_materializing_inherited_rows() {
+    fn rebuild_stores_direct_and_effective_heading_tags_and_filetags() {
         let test_dir = TestDir::new("filetags-direct-tags");
         let org_path = test_dir.path().join("tags.org");
         let db_path = test_dir.path().join("db.sqlite");
@@ -7370,16 +7355,31 @@ index_body_text = false
             .expect("rebuild should succeed");
 
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[0].all_tags_json, "[\"file\",\"project\"]");
         assert_eq!(
-            headings[1].all_tags_json,
-            "[\"file\",\"project\",\"parent\"]"
+            headings[0].all_tags,
+            vec!["file".to_string(), "project".to_string()]
         );
         assert_eq!(
-            headings[2].all_tags_json,
-            "[\"file\",\"project\",\"parent\",\"child\"]"
+            headings[1].all_tags,
+            vec![
+                "file".to_string(),
+                "project".to_string(),
+                "parent".to_string()
+            ]
         );
-        assert_eq!(headings[3].all_tags_json, "[\"file\",\"project\"]");
+        assert_eq!(
+            headings[2].all_tags,
+            vec![
+                "file".to_string(),
+                "project".to_string(),
+                "parent".to_string(),
+                "child".to_string()
+            ]
+        );
+        assert_eq!(
+            headings[3].all_tags,
+            vec!["file".to_string(), "project".to_string()]
+        );
 
         let tag_rows: Vec<(i64, String)> = query_rows(
             &connection,
@@ -7420,7 +7420,7 @@ index_body_text = false
     }
 
     #[test]
-    fn duplicate_inherited_tags_are_not_repeated_in_all_tags_json() {
+    fn duplicate_inherited_tags_are_not_repeated_in_effective_tags() {
         let test_dir = TestDir::new("duplicate-inherited-tags");
         let org_path = test_dir.path().join("tags.org");
         let db_path = test_dir.path().join("db.sqlite");
@@ -7452,14 +7452,26 @@ index_body_text = false
             .expect("rebuild should succeed");
 
         let headings = DbReader::list_headings(&connection).expect("headings should load");
-        assert_eq!(headings[1].all_tags_json, "[\"outer\",\"shared\"]");
         assert_eq!(
-            headings[2].all_tags_json,
-            "[\"outer\",\"shared\",\"inner\"]"
+            headings[1].all_tags,
+            vec!["outer".to_string(), "shared".to_string()]
         );
         assert_eq!(
-            headings[3].all_tags_json,
-            "[\"outer\",\"shared\",\"inner\",\"leaf\"]"
+            headings[2].all_tags,
+            vec![
+                "outer".to_string(),
+                "shared".to_string(),
+                "inner".to_string()
+            ]
+        );
+        assert_eq!(
+            headings[3].all_tags,
+            vec![
+                "outer".to_string(),
+                "shared".to_string(),
+                "inner".to_string(),
+                "leaf".to_string()
+            ]
         );
 
         let tag_rows: Vec<String> = query_rows(
@@ -7522,6 +7534,9 @@ index_body_text = false
         let tag_count: i64 = connection
             .query_row("SELECT COUNT(*) FROM tags", [], |row| row.get(0))
             .expect("tag count should load");
+        let effective_tag_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM effective_tags", [], |row| row.get(0))
+            .expect("effective tag count should load");
         let titles: Vec<String> = query_rows(
             &connection,
             "SELECT title FROM headings WHERE level > 0 ORDER BY title",
@@ -7531,11 +7546,18 @@ index_body_text = false
             query_rows(&connection, "SELECT tag FROM tags ORDER BY tag", |row| {
                 row.get(0)
             });
+        let effective_tags: Vec<String> = query_rows(
+            &connection,
+            "SELECT tag FROM effective_tags ORDER BY heading_id, position",
+            |row| row.get(0),
+        );
 
         assert_eq!(heading_count, 2);
         assert_eq!(tag_count, 1);
+        assert_eq!(effective_tag_count, 1);
         assert_eq!(titles, vec!["Second".to_string()]);
         assert_eq!(tags, vec!["new".to_string()]);
+        assert_eq!(effective_tags, vec!["new".to_string()]);
     }
 
     #[test]
@@ -8670,6 +8692,24 @@ index_body_text = false
                     |row| row.get(0),
                 )
                 .expect("effective-property snapshot should load");
+            let effective_tags: String = connection
+                .query_row(
+                    "SELECT COALESCE(group_concat(value, '|'), '')
+                     FROM (
+                        SELECT hex(heading_file.identity) || ':' ||
+                               hex(effective_file.identity) || ':' ||
+                               headings.byte_start || ':' || effective.position || ':' ||
+                               quote(effective.tag) AS value
+                        FROM effective_tags AS effective
+                        INNER JOIN headings ON headings.id = effective.heading_id
+                        INNER JOIN files AS heading_file ON heading_file.id = headings.file_id
+                        INNER JOIN files AS effective_file ON effective_file.id = effective.file_id
+                        ORDER BY headings.byte_start, effective.position
+                     )",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("effective-tag snapshot should load");
             let metadata: String = connection
                 .query_row(
                     "SELECT COALESCE(group_concat(value, '|'), '')
@@ -8692,6 +8732,7 @@ index_body_text = false
                 links,
                 outline,
                 effective_properties,
+                effective_tags,
                 metadata,
             )
         };

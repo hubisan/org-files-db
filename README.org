@@ -136,7 +136,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - Synthetic level-0/root rows exist for file and document roots and are included by default.
 - Passing =--no-root= excludes the synthetic level-0/root rows from the JSON output.
 - =--include-root= is retained only as a compatibility no-op and is not needed for the default behavior.
-- The public JSON contract uses =all_tags= as an array. Internal DB storage may still use =all_tags_json=, but that string is not part of the CLI API.
+- The public CLI JSON contract uses =all_tags= as an array. The database stores effective tag membership in the normalized ~effective_tags~ projection instead of a ~headings.all_tags_json~ cache.
 - For real headings, =title= is the cleaned semantic title, while =title_raw= preserves the source title area after the headline stars, including TODO keywords, priorities, and statistics cookies, but excluding trailing Org tags.
 
 ** Features

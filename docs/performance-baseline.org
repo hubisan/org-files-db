@@ -3,7 +3,7 @@
 
 * Purpose
 
-The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds. Schema version 10 materializes effective property values so inherited property matching avoids reconstructing heading ancestry at query time.
+The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds. Schema version 10 materializes effective property values, and schema version 11 materializes effective tags, so inherited metadata matching avoids reconstructing heading ancestry at query time.
 
 * Run
 
@@ -16,7 +16,7 @@ cargo run --release --bin orgfdb-benchmark -- \
   --output /tmp/orgfdb-benchmark.json
 #+end_src
 
-The corpus generator contract is versioned and its manifest contains the file count, expected heading and link cardinalities, seed, generation duration, and SHA-256 fingerprint. It generates deterministic directory and filename groups, shallow/wide and deep outlines, TODO states, tags, direct properties, planning and generic timestamps, repeaters, resolved and broken links, title/body tokens, and varying body sizes. The fingerprint uses tagged length-prefixed relative native paths and exact file bytes. The runner requires both a new work directory and a new output path, writes JSON only to the requested output path, and does not modify source fixtures or documentation.
+The corpus generator contract is versioned and its manifest contains the file count, expected heading and link cardinalities, seed, generation duration, and SHA-256 fingerprint. It generates deterministic directory and filename groups, shallow/wide and deep outlines, TODO states, tags, direct properties, planning and generic timestamps, repeaters, resolved and broken links, title/body tokens, and varying body sizes. The workload matrix measures direct tag matching separately from inherited tag matching; inherited tag SQL must use ~effective_tags~ and its lookup index. The fingerprint uses tagged length-prefixed relative native paths and exact file bytes. The runner requires both a new work directory and a new output path, writes JSON only to the requested output path, and does not modify source fixtures or documentation.
 
 * Measurement protocol
 
@@ -88,7 +88,7 @@ The deterministic corpus contained 1,000 files, 5,675 headings, and 1,091 links.
 
 The accepted subset has an estimated net database-size increase of 232 KiB on the 1,000-file corpus. Every individual accepted profile preserved result counts and semantic equivalence, and its rebuild and incremental measurements remained close to the matching baseline. The exact accepted subset was not measured as a separate profile; the combined profile cannot stand in for it because that profile also included the rejected resolution-status index.
 
-The authoritative schema is version 9. It adds:
+The measured index decision produced schema version 9. Later derived-projection work advanced the current schema to version 11 without changing the accepted index decision. Version 9 adds:
 
 #+begin_src sql
 CREATE INDEX idx_files_path_lower ON files(LOWER(path));
@@ -97,4 +97,4 @@ CREATE INDEX idx_headings_title_lower ON headings(LOWER(title));
 
 It removes the redundant explicit indexes ~idx_tags_heading~, ~idx_keywords_heading~, and ~idx_timestamp_repeaters_timestamp_id~. It does not add a resolution-status index. Opening a version-8 database performs these index-only changes transactionally and advances ~PRAGMA user_version~ to 9.
 
-The inherited-property workload remains a separate query-shape hotspot. Its effective-value query took several seconds on the 1,000-file corpus, but changing that query or its semantics was outside this index-tuning task.
+The historical schema-version-9 run exposed inherited property resolution as a separate query-shape hotspot: its effective-value query took several seconds on the 1,000-file corpus. Schema version 10 subsequently replaced that recursive query-time resolution with the materialized ~effective_properties~ projection. A post-change benchmark should record the current property and effective-tag latencies without reinterpreting the historical index-tuning measurements.

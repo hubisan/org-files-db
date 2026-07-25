@@ -4,16 +4,19 @@ use std::collections::HashMap;
 
 use rusqlite::{Connection, OptionalExtension};
 
-use crate::db::{DbWriter, EffectivePropertyRecord};
+use crate::db::{DbWriter, EffectivePropertyRecord, EffectiveTagRecord};
 use crate::property::{derive_effective_properties, PropertyRow};
+use crate::tag::derive_effective_tags;
 
 use super::{
     DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 10;
+pub const CURRENT_SCHEMA_VERSION: u32 = 11;
 const EFFECTIVE_PROPERTIES_SCHEMA_VERSION: u32 = 10;
+const EFFECTIVE_TAGS_SCHEMA_VERSION: u32 = 11;
+const EFFECTIVE_TAGS_ORDER_BACKUP_TABLE: &str = "orgfdb_effective_tags_order_backup";
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -179,27 +182,409 @@ impl SchemaDefinition {
         let mut needs_effective_properties_backfill = on_disk_version
             < EFFECTIVE_PROPERTIES_SCHEMA_VERSION
             || !table_exists(connection, "effective_properties")?;
+        let mut needs_effective_tags_backfill = on_disk_version < EFFECTIVE_TAGS_SCHEMA_VERSION
+            || !table_exists(connection, "effective_tags")?;
+        let headings_need_migration = if table_exists(connection, "headings")? {
+            let columns = table_columns(connection, "headings")?;
+            !headings_table_matches_current_contract(connection, &columns)?
+        } else {
+            false
+        };
+        let effective_tags_need_fk_repair = table_exists(connection, "effective_tags")?
+            && table_references(connection, "effective_tags", "headings_legacy")?;
+        let tags_need_migration = if table_exists(connection, "tags")? {
+            let columns = table_columns(connection, "tags")?;
+            !tags_table_uses_direct_facts(&columns)
+        } else {
+            false
+        };
+
+        // Preserve the public effective-tag order only when schema work may
+        // rebuild headings, canonical tags, or effective_tags. Healthy
+        // schema-version-11 opens must not scan and reserialize every tag.
+        if needs_effective_tags_backfill
+            || headings_need_migration
+            || effective_tags_need_fk_repair
+            || tags_need_migration
+        {
+            prepare_effective_tags_order_backup(connection)?;
+        }
+
         migrate_legacy_files_identity(connection)?;
         migrate_legacy_timestamp_repeaters(connection)?;
         migrate_legacy_todo_keywords_table(connection)?;
         migrate_legacy_properties_table(connection)?;
-        migrate_legacy_tags_table(connection)?;
+        if migrate_legacy_tags_table(connection)? {
+            needs_effective_tags_backfill = true;
+        }
         if migrate_legacy_headings_table(connection)? {
             needs_effective_properties_backfill = true;
+            needs_effective_tags_backfill = true;
         }
         migrate_legacy_timestamps_table(connection)?;
         migrate_legacy_links_table(connection)?;
-        if repair_tables_depending_on_headings(connection)? {
-            needs_effective_properties_backfill = true;
-        }
+        let repaired = repair_tables_depending_on_headings(connection)?;
+        needs_effective_properties_backfill |= repaired.effective_properties;
+        needs_effective_tags_backfill |= repaired.effective_tags;
         migrate_v8_index_set(connection)?;
         connection.execute_batch(&self.render_sql(connection))?;
         if needs_effective_properties_backfill {
             connection.execute("DELETE FROM effective_properties", [])?;
             backfill_effective_properties(connection)?;
         }
+        if needs_effective_tags_backfill {
+            connection.execute("DELETE FROM effective_tags", [])?;
+            backfill_effective_tags(connection)?;
+        }
+        connection.execute_batch(&format!(
+            "DROP TABLE IF EXISTS temp.{EFFECTIVE_TAGS_ORDER_BACKUP_TABLE};"
+        ))?;
         Ok(())
     }
+}
+
+fn prepare_effective_tags_order_backup(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(&format!(
+        "DROP TABLE IF EXISTS temp.{EFFECTIVE_TAGS_ORDER_BACKUP_TABLE};
+         CREATE TEMP TABLE {EFFECTIVE_TAGS_ORDER_BACKUP_TABLE} (
+             heading_id INTEGER PRIMARY KEY,
+             all_tags_json TEXT NOT NULL
+         );"
+    ))?;
+
+    if !table_exists(connection, "headings")? {
+        return Ok(());
+    }
+
+    let columns = table_columns(connection, "headings")?;
+    if has_column(&columns, "all_tags_json") {
+        connection.execute_batch(&format!(
+            "INSERT INTO temp.{EFFECTIVE_TAGS_ORDER_BACKUP_TABLE} (heading_id, all_tags_json)
+             SELECT id, all_tags_json FROM headings;"
+        ))?;
+        return Ok(());
+    }
+
+    if !table_exists(connection, "effective_tags")? {
+        return Ok(());
+    }
+
+    let mut statement = connection.prepare(
+        "SELECT effective.heading_id, effective.tag
+         FROM effective_tags AS effective
+         INNER JOIN headings ON headings.id = effective.heading_id
+         ORDER BY effective.heading_id, effective.position",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+
+    let mut current_heading_id = None;
+    let mut current_tags = Vec::<String>::new();
+    for (heading_id, tag) in rows {
+        if let Some(current) = current_heading_id {
+            if current != heading_id {
+                insert_effective_tag_order_backup(connection, current, &current_tags)?;
+                current_tags.clear();
+            }
+        }
+        current_heading_id = Some(heading_id);
+        current_tags.push(tag);
+    }
+    if let Some(heading_id) = current_heading_id {
+        insert_effective_tag_order_backup(connection, heading_id, &current_tags)?;
+    }
+
+    Ok(())
+}
+
+fn insert_effective_tag_order_backup(
+    connection: &Connection,
+    heading_id: i64,
+    tags: &[String],
+) -> rusqlite::Result<()> {
+    let tags_json = serde_json::to_string(tags).map_err(|error| {
+        effective_tags_migration_error(format!(
+            "failed to serialize effective tag order for heading {heading_id}: {error}"
+        ))
+    })?;
+    connection.execute(
+        &format!(
+            "INSERT INTO temp.{EFFECTIVE_TAGS_ORDER_BACKUP_TABLE}
+             (heading_id, all_tags_json) VALUES (?1, ?2)"
+        ),
+        rusqlite::params![heading_id, tags_json],
+    )?;
+    Ok(())
+}
+
+fn backfill_effective_tags(connection: &Connection) -> rusqlite::Result<()> {
+    let mut file_statement =
+        connection.prepare("SELECT DISTINCT file_id FROM headings ORDER BY file_id")?;
+    let file_ids = file_statement
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(file_statement);
+
+    for file_id in file_ids {
+        backfill_effective_tags_for_file(connection, file_id)?;
+    }
+
+    let mismatch_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM effective_tags AS effective
+         INNER JOIN headings ON headings.id = effective.heading_id
+         WHERE effective.file_id != headings.file_id",
+        [],
+        |row| row.get(0),
+    )?;
+    if mismatch_count != 0 {
+        return Err(effective_tags_migration_error(format!(
+            "effective_tags backfill produced {mismatch_count} row(s) whose file_id does not match the owning heading"
+        )));
+    }
+
+    let foreign_key_violations: i64 =
+        connection.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })?;
+    if foreign_key_violations != 0 {
+        return Err(effective_tags_migration_error(format!(
+            "effective_tags backfill left {foreign_key_violations} foreign-key violation(s)"
+        )));
+    }
+
+    Ok(())
+}
+
+fn backfill_effective_tags_for_file(connection: &Connection, file_id: i64) -> rusqlite::Result<()> {
+    let mut heading_statement = connection.prepare(
+        "SELECT id, parent_id, level
+         FROM headings
+         WHERE file_id = ?1
+         ORDER BY id",
+    )?;
+    let heading_rows = heading_statement
+        .query_map([file_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(heading_statement);
+
+    let root_ids = heading_rows
+        .iter()
+        .filter_map(|(heading_id, _, level)| (*level == 0).then_some(*heading_id))
+        .collect::<Vec<_>>();
+    if root_ids.len() != 1 {
+        return Err(effective_tags_migration_error(format!(
+            "file {file_id} must contain exactly one synthetic level-0 root before effective_tags can be backfilled; found {}",
+            root_ids.len()
+        )));
+    }
+    let root_id = root_ids[0];
+    let parent_by_heading = heading_rows
+        .iter()
+        .map(|(heading_id, parent_id, _)| (*heading_id, *parent_id))
+        .collect::<HashMap<_, _>>();
+
+    for (heading_id, parent_id, level) in &heading_rows {
+        if *heading_id == root_id {
+            if parent_id.is_some() {
+                return Err(effective_tags_migration_error(format!(
+                    "file {file_id} root heading {root_id} must not have a parent"
+                )));
+            }
+            continue;
+        }
+        if *level == 0 {
+            return Err(effective_tags_migration_error(format!(
+                "file {file_id} contains more than one synthetic level-0 root"
+            )));
+        }
+        let Some(parent_id) = parent_id else {
+            return Err(effective_tags_migration_error(format!(
+                "file {file_id} heading {heading_id} is not the root but has no parent"
+            )));
+        };
+        if !parent_by_heading.contains_key(parent_id) {
+            let parent_file_id = connection
+                .query_row(
+                    "SELECT file_id FROM headings WHERE id = ?1",
+                    [parent_id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?;
+            let detail = match parent_file_id {
+                Some(parent_file_id) => format!("belongs to file {parent_file_id}"),
+                None => "does not exist".to_string(),
+            };
+            return Err(effective_tags_migration_error(format!(
+                "file {file_id} heading {heading_id} references parent {parent_id}, which {detail}"
+            )));
+        }
+    }
+
+    for heading_id in parent_by_heading.keys().copied() {
+        validate_heading_reaches_root(file_id, heading_id, root_id, &parent_by_heading)?;
+    }
+    validate_all_headings_reachable(file_id, root_id, &parent_by_heading)?;
+
+    let mut tag_statement = connection.prepare(
+        "SELECT tags.heading_id, tags.tag
+         FROM tags
+         INNER JOIN headings ON headings.id = tags.heading_id
+         WHERE headings.file_id = ?1
+         ORDER BY tags.heading_id, tags.tag",
+    )?;
+    let direct_tag_rows = tag_statement
+        .query_map([file_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(tag_statement);
+    let mut direct_tags_by_heading = HashMap::<i64, Vec<String>>::new();
+    for (heading_id, tag) in direct_tag_rows {
+        direct_tags_by_heading
+            .entry(heading_id)
+            .or_default()
+            .push(tag);
+    }
+
+    let derived = derive_effective_tags(&parent_by_heading, &direct_tags_by_heading);
+    let mut derived_by_heading = HashMap::<i64, Vec<String>>::new();
+    for row in derived {
+        derived_by_heading
+            .entry(row.heading_id)
+            .or_default()
+            .push(row.tag);
+    }
+
+    let mut preserved_order_by_heading = HashMap::<i64, Vec<String>>::new();
+    let mut order_statement = connection.prepare(&format!(
+        "SELECT backup.heading_id, backup.all_tags_json
+         FROM temp.{EFFECTIVE_TAGS_ORDER_BACKUP_TABLE} AS backup
+         INNER JOIN headings ON headings.id = backup.heading_id
+         WHERE headings.file_id = ?1
+         ORDER BY backup.heading_id"
+    ))?;
+    let order_rows = order_statement
+        .query_map([file_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(order_statement);
+
+    for (heading_id, all_tags_json) in order_rows {
+        let ordered_tags = serde_json::from_str::<Vec<String>>(&all_tags_json).map_err(|error| {
+            effective_tags_migration_error(format!(
+                "file {file_id} heading {heading_id} has invalid all_tags_json during effective_tags migration: {error}"
+            ))
+        })?;
+        preserved_order_by_heading.insert(heading_id, ordered_tags);
+    }
+
+    let mut projected = Vec::new();
+    for (heading_id, _, _) in &heading_rows {
+        let derived_tags = derived_by_heading.remove(heading_id).unwrap_or_default();
+        let expected = derived_tags
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        if expected.len() != derived_tags.len() {
+            return Err(effective_tags_migration_error(format!(
+                "file {file_id} heading {heading_id} produced duplicate derived effective tags"
+            )));
+        }
+
+        let ordered = if let Some(preserved) = preserved_order_by_heading.remove(heading_id) {
+            let mut preserved_set = std::collections::HashSet::new();
+            for tag in &preserved {
+                if !preserved_set.insert(tag.clone()) {
+                    return Err(effective_tags_migration_error(format!(
+                        "file {file_id} heading {heading_id} has duplicate tag {tag:?} in legacy all_tags_json"
+                    )));
+                }
+            }
+            if preserved_set != expected {
+                let missing = expected
+                    .difference(&preserved_set)
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
+                let unexpected = preserved_set
+                    .difference(&expected)
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
+                return Err(effective_tags_migration_error(format!(
+                    "file {file_id} heading {heading_id} legacy all_tags_json does not match canonical tag inheritance; missing={missing:?}, unexpected={unexpected:?}"
+                )));
+            }
+            preserved
+        } else {
+            derived_tags
+        };
+
+        for (position, tag) in ordered.into_iter().enumerate() {
+            let position = i64::try_from(position).map_err(|_| {
+                effective_tags_migration_error(format!(
+                    "file {file_id} heading {heading_id} has too many effective tags"
+                ))
+            })?;
+            projected.push(EffectiveTagRecord {
+                heading_id: *heading_id,
+                file_id,
+                tag,
+                position,
+            });
+        }
+    }
+
+    if !derived_by_heading.is_empty() || !preserved_order_by_heading.is_empty() {
+        return Err(effective_tags_migration_error(format!(
+            "file {file_id} effective tag backfill contained rows for unknown headings"
+        )));
+    }
+
+    let projected_count = projected.len();
+    DbWriter::insert_effective_tags(connection, &projected).map_err(|error| match error {
+        crate::db::DbWriteError::Write { source, .. } => source,
+        other => effective_tags_migration_error(format!(
+            "failed to insert effective_tags for file {file_id}: {other}"
+        )),
+    })?;
+
+    let stored_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM effective_tags WHERE file_id = ?1",
+        [file_id],
+        |row| row.get(0),
+    )?;
+    if stored_count != projected_count as i64 {
+        return Err(effective_tags_migration_error(format!(
+            "file {file_id} effective_tags backfill stored {stored_count} row(s), expected {projected_count}"
+        )));
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+struct EffectiveTagsMigrationError(String);
+
+impl std::fmt::Display for EffectiveTagsMigrationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for EffectiveTagsMigrationError {}
+
+fn effective_tags_migration_error(message: String) -> rusqlite::Error {
+    rusqlite::Error::UserFunctionError(Box::new(EffectiveTagsMigrationError(message)))
 }
 
 fn backfill_effective_properties(connection: &Connection) -> rusqlite::Result<()> {
@@ -645,6 +1030,293 @@ mod effective_properties_migration_tests {
     }
 }
 
+#[cfg(test)]
+mod effective_tags_migration_tests {
+    use super::{
+        backfill_effective_tags, prepare_effective_tags_order_backup,
+        EFFECTIVE_TAGS_ORDER_BACKUP_TABLE,
+    };
+    use rusqlite::Connection;
+
+    fn migration_fixture() -> Connection {
+        let connection = Connection::open_in_memory().expect("database should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE files (
+                     id INTEGER PRIMARY KEY
+                 );
+                 CREATE TABLE headings (
+                     id INTEGER PRIMARY KEY,
+                     file_id INTEGER NOT NULL,
+                     parent_id INTEGER,
+                     level INTEGER NOT NULL,
+                     all_tags_json TEXT NOT NULL DEFAULT '[]'
+                 );
+                 CREATE TABLE tags (
+                     heading_id INTEGER NOT NULL,
+                     tag TEXT NOT NULL,
+                     PRIMARY KEY (heading_id, tag)
+                 );
+                 CREATE TABLE effective_tags (
+                     heading_id INTEGER NOT NULL,
+                     file_id INTEGER NOT NULL,
+                     tag TEXT NOT NULL,
+                     position INTEGER NOT NULL,
+                     PRIMARY KEY (heading_id, tag),
+                     UNIQUE (heading_id, position)
+                 );",
+            )
+            .expect("migration fixture schema should seed");
+        connection
+    }
+
+    fn run_backfill(connection: &Connection) -> rusqlite::Result<()> {
+        prepare_effective_tags_order_backup(connection)?;
+        backfill_effective_tags(connection)
+    }
+
+    fn error_text(connection: &Connection) -> String {
+        run_backfill(connection)
+            .expect_err("backfill should reject malformed hierarchy")
+            .to_string()
+    }
+
+    #[test]
+    fn order_backup_uses_current_effective_tags_when_heading_json_is_absent() {
+        let connection = Connection::open_in_memory().expect("database should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE headings (
+                     id INTEGER PRIMARY KEY,
+                     file_id INTEGER NOT NULL,
+                     parent_id INTEGER,
+                     level INTEGER NOT NULL
+                 );
+                 CREATE TABLE effective_tags (
+                     heading_id INTEGER NOT NULL,
+                     file_id INTEGER NOT NULL,
+                     tag TEXT NOT NULL,
+                     position INTEGER NOT NULL,
+                     PRIMARY KEY (heading_id, tag),
+                     UNIQUE (heading_id, position)
+                 );
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, 10, 1);
+                 INSERT INTO effective_tags (heading_id, file_id, tag, position) VALUES
+                     (10, 1, 'zeta', 0),
+                     (10, 1, 'alpha', 1),
+                     (11, 1, 'zeta', 0),
+                     (11, 1, 'alpha', 1),
+                     (11, 1, 'child', 2);",
+            )
+            .expect("current effective-tag fixture should seed");
+
+        prepare_effective_tags_order_backup(&connection)
+            .expect("current effective tag order should back up");
+        let child_order: String = connection
+            .query_row(
+                &format!(
+                    "SELECT all_tags_json
+                     FROM temp.{EFFECTIVE_TAGS_ORDER_BACKUP_TABLE}
+                     WHERE heading_id = 11"
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .expect("backed-up order should load");
+        assert_eq!(child_order, r#"["zeta","alpha","child"]"#);
+    }
+
+    #[test]
+    fn file_scoped_backfill_preserves_visible_order_and_deduplicates_tags() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level, all_tags_json) VALUES
+                     (10, 1, NULL, 0, '[\"file\",\"shared\"]'),
+                     (11, 1, 10, 1, '[\"file\",\"shared\",\"parent\"]'),
+                     (12, 1, 11, 2, '[\"file\",\"shared\",\"parent\",\"child\"]');
+                 INSERT INTO tags (heading_id, tag) VALUES
+                     (10, 'file'),
+                     (10, 'shared'),
+                     (11, 'parent'),
+                     (11, 'shared'),
+                     (12, 'child'),
+                     (12, 'file');",
+            )
+            .expect("migration facts should seed");
+
+        run_backfill(&connection).expect("backfill should succeed");
+
+        let mut statement = connection
+            .prepare(
+                "SELECT tag, position
+                 FROM effective_tags
+                 WHERE heading_id = 12
+                 ORDER BY position",
+            )
+            .expect("effective tag query should prepare");
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .expect("effective tag query should run")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("effective tag rows should decode");
+        assert_eq!(
+            rows,
+            vec![
+                ("file".to_string(), 0),
+                ("shared".to_string(), 1),
+                ("parent".to_string(), 2),
+                ("child".to_string(), 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_cross_file_parent() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1), (2);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (20, 2, NULL, 0),
+                     (11, 1, 20, 1);",
+            )
+            .expect("cross-file fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(
+            error.contains("belongs to file 2"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_missing_parent() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, 999, 1);",
+            )
+            .expect("missing-parent fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(
+            error.contains("does not exist"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_parent_cycle() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, 12, 1),
+                     (12, 1, 11, 2);",
+            )
+            .expect("cycle fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(error.contains("parent cycle"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn file_scoped_backfill_rejects_multiple_roots() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level) VALUES
+                     (10, 1, NULL, 0),
+                     (11, 1, NULL, 0);",
+            )
+            .expect("multiple-root fixture should seed");
+
+        let error = error_text(&connection);
+        assert!(error.contains("exactly one"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn invalid_legacy_tag_order_aborts_backfill() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                "INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level, all_tags_json) VALUES
+                     (10, 1, NULL, 0, 'not-json');
+                 INSERT INTO tags (heading_id, tag) VALUES (10, 'file');",
+            )
+            .expect("invalid order fixture should seed");
+
+        let error = run_backfill(&connection)
+            .expect_err("invalid stored tag order must abort migration")
+            .to_string();
+        assert!(
+            error.contains("invalid all_tags_json"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn mismatched_legacy_tag_set_aborts_backfill() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                r#"INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level, all_tags_json) VALUES
+                     (10, 1, NULL, 0, '["unexpected"]');
+                 INSERT INTO tags (heading_id, tag) VALUES (10, 'file');"#,
+            )
+            .expect("mismatched order fixture should seed");
+
+        let error = run_backfill(&connection)
+            .expect_err("mismatched stored tag set must abort migration")
+            .to_string();
+        assert!(
+            error.contains("does not match canonical tag inheritance"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            error.contains("file"),
+            "missing tag should be reported: {error}"
+        );
+        assert!(
+            error.contains("unexpected"),
+            "unexpected tag should be reported: {error}"
+        );
+    }
+
+    #[test]
+    fn duplicate_legacy_tag_order_aborts_backfill() {
+        let connection = migration_fixture();
+        connection
+            .execute_batch(
+                r#"INSERT INTO files (id) VALUES (1);
+                 INSERT INTO headings (id, file_id, parent_id, level, all_tags_json) VALUES
+                     (10, 1, NULL, 0, '["file","file"]');
+                 INSERT INTO tags (heading_id, tag) VALUES (10, 'file');"#,
+            )
+            .expect("duplicate order fixture should seed");
+
+        let error = run_backfill(&connection)
+            .expect_err("duplicate stored tag order must abort migration")
+            .to_string();
+        assert!(error.contains("duplicate tag"), "unexpected error: {error}");
+    }
+}
+
 fn migrate_v8_index_set(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
         r#"
@@ -1035,14 +1707,14 @@ fn properties_table_uses_append_column(columns: &[String]) -> bool {
         && !columns.iter().any(|column| column == "inherited")
 }
 
-fn migrate_legacy_tags_table(connection: &Connection) -> rusqlite::Result<()> {
+fn migrate_legacy_tags_table(connection: &Connection) -> rusqlite::Result<bool> {
     if !table_exists(connection, "tags")? {
-        return Ok(());
+        return Ok(false);
     }
 
     let columns = table_columns(connection, "tags")?;
     if tags_table_uses_direct_facts(&columns) {
-        return Ok(());
+        return Ok(false);
     }
 
     connection.execute_batch(
@@ -1062,7 +1734,7 @@ DROP TABLE tags_legacy;
 "#,
     )?;
 
-    Ok(())
+    Ok(true)
 }
 
 fn tags_table_uses_direct_facts(columns: &[String]) -> bool {
@@ -1081,10 +1753,10 @@ fn migrate_legacy_headings_table(connection: &Connection) -> rusqlite::Result<bo
         return Ok(false);
     }
 
-    // The projection is fully derived from headings and properties. Drop it
-    // before renaming headings so SQLite cannot retarget its foreign key to
-    // headings_legacy and leave a broken reference after that table is removed.
+    // Derived projections must be recreated after a headings-table rebuild so
+    // SQLite cannot retarget their foreign keys to headings_legacy.
     drop_table_if_exists(connection, "effective_properties")?;
+    drop_table_if_exists(connection, "effective_tags")?;
 
     connection.execute_batch(
         r#"
@@ -1135,8 +1807,7 @@ INSERT INTO headings (
     closed_ts,
     closed_has_time,
     archivedp,
-    footnote_section_p,
-    all_tags_json
+    footnote_section_p
 )
 SELECT
     id,
@@ -1164,8 +1835,7 @@ SELECT
     closed_ts,
     {closed_has_time_expr},
     archivedp,
-    footnote_section_p,
-    all_tags_json
+    footnote_section_p
 FROM headings_legacy;
 "#,
     ))?;
@@ -1189,6 +1859,9 @@ fn headings_table_matches_current_contract(
         || !has_column(columns, "deadline_has_time")
         || !has_column(columns, "closed_has_time")
     {
+        return Ok(false);
+    }
+    if has_column(columns, "all_tags_json") {
         return Ok(false);
     }
 
@@ -1366,20 +2039,30 @@ impl HeadingsDependentTable {
     }
 }
 
-fn repair_tables_depending_on_headings(connection: &Connection) -> rusqlite::Result<bool> {
+#[derive(Debug, Default)]
+struct RebuiltDerivedProjections {
+    effective_properties: bool,
+    effective_tags: bool,
+}
+
+fn repair_tables_depending_on_headings(
+    connection: &Connection,
+) -> rusqlite::Result<RebuiltDerivedProjections> {
     let repairs = collect_headings_repair_backups(connection, false)?;
     let rebuild_effective_properties = table_exists(connection, "effective_properties")?
         && table_references(connection, "effective_properties", "headings_legacy")?;
+    let rebuild_effective_tags = table_exists(connection, "effective_tags")?
+        && table_references(connection, "effective_tags", "headings_legacy")?;
 
-    if repairs.is_empty() && !rebuild_effective_properties {
-        return Ok(false);
+    if repairs.is_empty() && !rebuild_effective_properties && !rebuild_effective_tags {
+        return Ok(RebuiltDerivedProjections::default());
     }
 
     if rebuild_effective_properties {
-        // Unlike canonical source tables, this projection is rebuildable. A
-        // table that still references headings_legacy must be recreated rather
-        // than copied forward with the stale foreign key.
         drop_table_if_exists(connection, "effective_properties")?;
+    }
+    if rebuild_effective_tags {
+        drop_table_if_exists(connection, "effective_tags")?;
     }
 
     connection.execute_batch(CORE_SCHEMA_SQL)?;
@@ -1387,7 +2070,10 @@ fn repair_tables_depending_on_headings(connection: &Connection) -> rusqlite::Res
     rebuild_outline_path(connection)?;
     invalidate_search_trust_metadata(connection)?;
     drop_backed_up_tables(connection, &repairs)?;
-    Ok(rebuild_effective_properties)
+    Ok(RebuiltDerivedProjections {
+        effective_properties: rebuild_effective_properties,
+        effective_tags: rebuild_effective_tags,
+    })
 }
 
 fn collect_headings_repair_backups(

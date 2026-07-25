@@ -366,8 +366,7 @@ pub fn compile_sqlite_query(
                 {heading_closed_raw},
                 {heading_closed_ts},
                 {heading_archivedp},
-                {heading_footnote_section_p},
-                {heading_all_tags_json}
+                {heading_footnote_section_p}
              {}
              {}
              ORDER BY {file_path}, {heading_byte_start}, {heading_id}",
@@ -394,7 +393,6 @@ pub fn compile_sqlite_query(
             heading_closed_ts = scope.heading_col("closed_ts"),
             heading_archivedp = scope.heading_col("archivedp"),
             heading_footnote_section_p = scope.heading_col("footnote_section_p"),
-            heading_all_tags_json = scope.heading_col("all_tags_json"),
         ),
         QueryTarget::Links => format!(
             "SELECT
@@ -604,12 +602,60 @@ fn execute_heading_rows_query(
                 closed_ts: row.get(18)?,
                 archivedp: row.get::<_, i64>(19)? != 0,
                 footnote_section_p: row.get::<_, i64>(20)? != 0,
-                all_tags_json: row.get(21)?,
+                all_tags_json: "[]".to_string(),
             })
         })
         .map_err(|source| QueryExecutionError::database(compiled.target, "query", source))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
+    let mut rows = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))?;
+    load_effective_tags_for_heading_rows(connection, compiled.target, &mut rows)?;
+    Ok(rows)
+}
+
+fn load_effective_tags_for_heading_rows(
+    connection: &Connection,
+    target: QueryTarget,
+    rows: &mut [HeadingQueryRow],
+) -> Result<(), QueryExecutionError> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    const TAG_LOAD_CHUNK_SIZE: usize = 900;
+    let ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
+    let mut by_heading = std::collections::HashMap::<i64, Vec<String>>::new();
+    for chunk in ids.chunks(TAG_LOAD_CHUNK_SIZE) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let sql = format!(
+            "SELECT heading_id, tag
+             FROM effective_tags
+             WHERE heading_id IN ({placeholders})
+             ORDER BY heading_id, position"
+        );
+        let mut statement = connection.prepare(&sql).map_err(|source| {
+            QueryExecutionError::database(target, "load_effective_tags.prepare", source)
+        })?;
+        let tag_rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|source| {
+                QueryExecutionError::database(target, "load_effective_tags.query", source)
+            })?;
+        for tag_row in tag_rows {
+            let (heading_id, tag) = tag_row.map_err(|source| {
+                QueryExecutionError::database(target, "load_effective_tags.collect", source)
+            })?;
+            by_heading.entry(heading_id).or_default().push(tag);
+        }
+    }
+    for row in rows {
+        let tags = by_heading.remove(&row.id).unwrap_or_default();
+        row.all_tags_json = serde_json::to_string(&tags)
+            .expect("serializing effective tag strings to JSON cannot fail");
+    }
+    Ok(())
 }
 
 fn execute_links_query(
@@ -1566,13 +1612,12 @@ fn compile_heading_tags_predicate(
         return compile_tags_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
     }
 
-    compile_heading_effective_tags_exists(scope, predicate, true)
+    compile_heading_effective_tags_exists(scope, predicate)
 }
 
 fn compile_heading_effective_tags_exists(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
-    include_root: bool,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let match_all = matches!(
@@ -1593,22 +1638,18 @@ fn compile_heading_effective_tags_exists(
         }
     }
 
+    let heading_id_sql = scope.heading_col("id");
     if match_all {
         let mut parts = Vec::with_capacity(tags.len());
         let mut params = Vec::with_capacity(tags.len());
         for tag in tags {
-            parts.push(heading_lineage_exists_sql(
-                &scope.heading_col("id"),
-                &scope.heading_col("parent_id"),
-                &scope.heading_col("level"),
-                "tags",
-                "matched_tags",
-                if regexp {
-                    "orgfdb_regexp(?, matched_tags.tag) = 1"
-                } else {
-                    "matched_tags.tag = ?"
-                },
-                include_root,
+            let match_sql = if regexp {
+                "orgfdb_regexp(?, effective_tags.tag) = 1"
+            } else {
+                "effective_tags.tag = ?"
+            };
+            parts.push(format!(
+                "{heading_id_sql} IN (SELECT effective_tags.heading_id FROM effective_tags WHERE {match_sql})"
             ));
             params.push(QueryParam::Text(tag));
         }
@@ -1618,22 +1659,16 @@ fn compile_heading_effective_tags_exists(
         });
     }
 
-    let fact_match_sql = if regexp {
-        let parts = vec!["orgfdb_regexp(?, matched_tags.tag) = 1"; tags.len()];
+    let match_sql = if regexp {
+        let parts = vec!["orgfdb_regexp(?, effective_tags.tag) = 1"; tags.len()];
         format!("({})", parts.join(" OR "))
     } else {
         let placeholders = vec!["?"; tags.len()].join(", ");
-        format!("matched_tags.tag IN ({placeholders})")
+        format!("effective_tags.tag IN ({placeholders})")
     };
     Ok(SqlFragment {
-        sql: heading_lineage_exists_sql(
-            &scope.heading_col("id"),
-            &scope.heading_col("parent_id"),
-            &scope.heading_col("level"),
-            "tags",
-            "matched_tags",
-            &fact_match_sql,
-            include_root,
+        sql: format!(
+            "({heading_id_sql} IN (SELECT effective_tags.heading_id FROM effective_tags WHERE {match_sql}))"
         ),
         params: tags.into_iter().map(QueryParam::Text).collect(),
     })
@@ -1710,38 +1745,6 @@ fn compile_tags_exists(
             params,
         })
     }
-}
-
-fn heading_lineage_exists_sql(
-    outer_heading_id_sql: &str,
-    outer_parent_id_sql: &str,
-    outer_level_sql: &str,
-    fact_table: &str,
-    fact_alias: &str,
-    fact_match_sql: &str,
-    include_root: bool,
-) -> String {
-    let lineage_filter = if include_root {
-        String::new()
-    } else {
-        "lineage.level > 0 AND ".to_string()
-    };
-
-    format!(
-        "(EXISTS (
-            WITH RECURSIVE lineage(id, parent_id, level) AS (
-                SELECT {outer_heading_id_sql}, {outer_parent_id_sql}, {outer_level_sql}
-                UNION ALL
-                SELECT ancestor.id, ancestor.parent_id, ancestor.level
-                FROM headings AS ancestor
-                INNER JOIN lineage ON lineage.parent_id = ancestor.id
-            )
-            SELECT 1
-            FROM lineage
-            INNER JOIN {fact_table} AS {fact_alias} ON {fact_alias}.heading_id = lineage.id
-            WHERE {lineage_filter}{fact_match_sql}
-        ))"
-    )
 }
 
 fn compile_heading_property_predicate(
@@ -2561,20 +2564,22 @@ fn target_name(target: QueryTarget) -> &'static str {
 mod tests {
     use super::{
         compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
-        expand_leading_home_path_with_home, sqlite_query_validation_options, FileQueryRow,
-        HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind, QueryParam,
-        QueryRows,
+        expand_leading_home_path_with_home, params_from_iter, sqlite_query_validation_options,
+        FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind,
+        QueryParam, QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord,
-        FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
-        OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
+        EffectiveTagRecord, FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord,
+        LinkRecord, OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord,
+        TimestampRecord,
     };
     use crate::property::{derive_effective_properties, PropertyRow};
     use crate::query::{
         parse_query, resolve_relative_dates, resolve_temporal_bounds, validate_query,
         QueryDateResolutionOptions, QueryExecutionOptions, QueryTarget, QueryValidationOptions,
     };
+    use crate::tag::derive_effective_tags;
     use chrono::NaiveDate;
     use rusqlite::Connection;
     use std::{
@@ -3612,6 +3617,38 @@ mod tests {
     }
 
     #[test]
+    fn compiled_tag_predicates_use_normalized_direct_and_effective_tables() {
+        let inherited = compile_sqlite_query(&validated(r#"(headings (tags "project"))"#))
+            .expect("inherited tag query should compile");
+        assert!(inherited.sql.contains("FROM effective_tags"));
+        assert!(!inherited.sql.contains("WITH RECURSIVE lineage"));
+
+        let local = compile_sqlite_query(&validated(r#"(headings (tags "project" :inherit nil))"#))
+            .expect("local tag query should compile");
+        assert!(local.sql.contains("FROM tags"));
+        assert!(!local.sql.contains("FROM effective_tags"));
+        assert!(!local.sql.contains("WITH RECURSIVE lineage"));
+
+        let connection = seeded_connection();
+        let explain_sql = format!("EXPLAIN QUERY PLAN {}", inherited.sql);
+        let mut statement = connection
+            .prepare(&explain_sql)
+            .expect("inherited tag plan should prepare");
+        let plan = statement
+            .query_map(params_from_iter(inherited.params.iter()), |row| {
+                row.get::<_, String>(3)
+            })
+            .expect("inherited tag plan should query")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("inherited tag plan should decode");
+        assert!(
+            plan.iter()
+                .any(|detail| detail.contains("idx_effective_tags_tag_heading")),
+            "expected effective tag index in plan: {plan:?}"
+        );
+    }
+
+    #[test]
     fn compiled_property_predicates_use_materialized_effective_properties() {
         for query in [
             r#"(headings (property "OWNER" "Alice"))"#,
@@ -3982,6 +4019,24 @@ mod tests {
         )
         .expect("inherited tag query should execute");
         assert_eq!(heading_ids(inherited_rows), vec![12]);
+
+        let explicit_inherited_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags "project" :inherit t)))"#,
+            ),
+        )
+        .expect("explicit inherited tag query should execute");
+        assert_eq!(heading_ids(explicit_inherited_rows), vec![12]);
+
+        let alias_rows = execute_sqlite_query(
+            &connection,
+            &validated(
+                r#"(headings (and (title "Nested Task" :exact t) (tags-all "project" "urgent")))"#,
+            ),
+        )
+        .expect("tags-all alias query should execute");
+        assert_eq!(heading_ids(alias_rows), vec![12]);
 
         let root_rows = execute_sqlite_query(
             &connection,
@@ -5595,6 +5650,55 @@ mod tests {
             .expect("property rows should collect")
     }
 
+    fn seed_effective_tags(connection: &Connection, file_id: i64) {
+        let parents = {
+            let mut statement = connection
+                .prepare("SELECT id, parent_id FROM headings WHERE file_id = ?1 ORDER BY id")
+                .expect("seed heading query should prepare");
+            statement
+                .query_map([file_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                })
+                .expect("seed heading query should run")
+                .collect::<Result<std::collections::HashMap<_, _>, _>>()
+                .expect("seed heading rows should decode")
+        };
+        let direct_tags = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT tags.heading_id, tags.tag
+                     FROM tags
+                     INNER JOIN headings ON headings.id = tags.heading_id
+                     WHERE headings.file_id = ?1
+                     ORDER BY tags.heading_id, tags.tag",
+                )
+                .expect("seed tag query should prepare");
+            let rows = statement
+                .query_map([file_id], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })
+                .expect("seed tag query should run")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("seed tag rows should decode");
+            let mut by_heading = std::collections::HashMap::<i64, Vec<String>>::new();
+            for (heading_id, tag) in rows {
+                by_heading.entry(heading_id).or_default().push(tag);
+            }
+            by_heading
+        };
+        let rows = derive_effective_tags(&parents, &direct_tags)
+            .into_iter()
+            .map(|row| EffectiveTagRecord {
+                heading_id: row.heading_id,
+                file_id,
+                tag: row.tag,
+                position: row.position,
+            })
+            .collect::<Vec<_>>();
+        DbWriter::insert_effective_tags(connection, &rows)
+            .expect("effective tags should seed through the production writer");
+    }
+
     fn seed_effective_properties(connection: &Connection, file_id: i64) {
         let parents = {
             let mut statement = connection
@@ -5706,7 +5810,6 @@ mod tests {
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
 
@@ -6233,7 +6336,6 @@ CREATE TABLE db_metadata (
             closed_has_time: None,
             archivedp: false,
             footnote_section_p: false,
-            all_tags_json: "[]".to_string(),
         }
     }
 
@@ -6357,7 +6459,6 @@ CREATE TABLE db_metadata (
             closed_has_time: None,
             archivedp: false,
             footnote_section_p: false,
-            all_tags_json: "[]".to_string(),
         }
     }
 
@@ -6456,7 +6557,6 @@ CREATE TABLE db_metadata (
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[\"archive\"]".to_string(),
                 },
             )?;
             DbWriter::insert_outline_path(
@@ -6517,7 +6617,6 @@ CREATE TABLE db_metadata (
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[\"filetag\"]".to_string(),
                 },
             )?;
             DbWriter::insert_headings(
@@ -6547,7 +6646,6 @@ CREATE TABLE db_metadata (
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"filetag\",\"project\"]".to_string(),
                     },
                     HeadingRecord {
                         id: Some(12),
@@ -6573,7 +6671,6 @@ CREATE TABLE db_metadata (
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"filetag\",\"project\",\"urgent\"]".to_string(),
                     },
                     HeadingRecord {
                         id: Some(13),
@@ -6599,7 +6696,6 @@ CREATE TABLE db_metadata (
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"filetag\",\"misc\"]".to_string(),
                     },
                     HeadingRecord {
                         id: Some(14),
@@ -6625,7 +6721,6 @@ CREATE TABLE db_metadata (
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"filetag\",\"project\"]".to_string(),
                     },
                     HeadingRecord {
                         id: Some(15),
@@ -6651,7 +6746,6 @@ CREATE TABLE db_metadata (
                         closed_has_time: None,
                         archivedp: false,
                         footnote_section_p: false,
-                        all_tags_json: "[\"filetag\",\"project\"]".to_string(),
                     },
                 ],
             )?;
@@ -6736,6 +6830,7 @@ CREATE TABLE db_metadata (
                     },
                 ],
             )?;
+            seed_effective_tags(tx, file_id);
             DbWriter::insert_keywords(
                 tx,
                 &[KeywordRecord {
@@ -7099,7 +7194,6 @@ CREATE TABLE db_metadata (
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
             DbWriter::insert_headings(
@@ -7128,7 +7222,6 @@ CREATE TABLE db_metadata (
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 }],
             )?;
             DbWriter::insert_outline_path(
@@ -7161,10 +7254,10 @@ CREATE TABLE db_metadata (
                 "INSERT INTO headings
                  (id, file_id, parent_id, level, line_number, byte_start, byte_end, title, title_raw,
                   todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, deadline_raw,
-                  deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p, all_tags_json)
+                  deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p)
                  VALUES
                  (21, ?1, 20, 1, 3, 10, 40, 'Beta Target', 'Beta Target',
-                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, '[\"archive\",\"target\"]')",
+                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0)",
                 rusqlite::params![beta_file_id],
             )
             .expect("beta child heading should insert");
@@ -7188,6 +7281,7 @@ CREATE TABLE db_metadata (
             }],
         )
         .expect("beta child tag should insert");
+        seed_effective_tags(connection, beta_file_id);
 
         DbWriter::set_metadata_flag(
             connection,

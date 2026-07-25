@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= Effective tags are now stored in a normalized projection for inherited matching and deterministic ~all_tags~ output; the internal ~all_tags_json~ heading cache was removed.
+
 - =CHANGED= Property queries now use a transactionally maintained effective-property projection instead of resolving inheritance at query time.
 
 - =CHANGED= Exact case-insensitive file-path and file-title queries now use measured SQLite expression indexes, and redundant explicit indexes were removed.

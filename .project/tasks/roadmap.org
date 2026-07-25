@@ -816,16 +816,16 @@ Acceptance criteria:
 - Complexity and migration impact are documented.
 - Recommendation is based on measured or clearly reasoned trade-offs.
 
-** TODO Evaluate normalized vs cached tag output
+** REVIEW Replace cached tag output with normalized effective tags
 
-Goal: Decide whether ~headings.all_tags_json~ remains as a cache in addition to normalized ~tags~ rows.
+Decision:
 
-Acceptance criteria:
-
-- Query/API needs are listed.
-- Normalized-only and cached-output approaches are compared.
-- Cache invalidation/rebuild behavior is considered.
-- Decision is documented.
+- Keep ~tags~ as canonical direct tag facts.
+- Materialize the ordered, deduplicated tag set visible at each heading in ~effective_tags~.
+- Treat root ~FILETAGS~ as direct tags of the synthetic root and include them in normal inheritance.
+- Use ~tags~ for ~:inherit nil~ and ~effective_tags~ for default or explicit inherited matching.
+- Build the public ~all_tags~ output from ~effective_tags~ and remove ~headings.all_tags_json~.
+- Maintain the projection transactionally during rebuilds and file replacement.
 
 ** TODO Evaluate richer property inheritance model
 

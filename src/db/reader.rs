@@ -26,7 +26,7 @@ pub(crate) struct HeadingListRow {
     pub closed_ts: Option<i64>,
     pub archivedp: bool,
     pub footnote_section_p: bool,
-    pub all_tags_json: String,
+    pub all_tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -93,8 +93,7 @@ impl DbReader {
                     headings.closed_raw,
                     headings.closed_ts,
                     headings.archivedp,
-                    headings.footnote_section_p,
-                    headings.all_tags_json
+                    headings.footnote_section_p
                  FROM headings
                  INNER JOIN files ON files.id = headings.file_id
                  ORDER BY files.path, headings.byte_start, headings.id",
@@ -129,7 +128,7 @@ impl DbReader {
                     closed_ts: row.get(18)?,
                     archivedp: row.get::<_, i64>(19)? != 0,
                     footnote_section_p: row.get::<_, i64>(20)? != 0,
-                    all_tags_json: row.get(21)?,
+                    all_tags: Vec::new(),
                 })
             })
             .map_err(|source| DbReadError::Query {
@@ -137,11 +136,53 @@ impl DbReader {
                 source,
             })?;
 
-        rows.collect::<Result<Vec<_>, _>>()
+        let mut rows =
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|source| DbReadError::Query {
+                    operation: "list_headings.collect",
+                    source,
+                })?;
+        Self::load_effective_tags_for_headings(connection, &mut rows)?;
+        Ok(rows)
+    }
+
+    fn load_effective_tags_for_headings(
+        connection: &Connection,
+        rows: &mut [HeadingListRow],
+    ) -> Result<(), DbReadError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let mut statement = connection
+            .prepare(
+                "SELECT heading_id, tag
+                 FROM effective_tags
+                 ORDER BY heading_id, position",
+            )
             .map_err(|source| DbReadError::Query {
-                operation: "list_headings.collect",
+                operation: "list_headings.effective_tags.prepare",
                 source,
+            })?;
+        let tag_rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })
+            .map_err(|source| DbReadError::Query {
+                operation: "list_headings.effective_tags.query",
+                source,
+            })?;
+        let mut by_heading = std::collections::HashMap::<i64, Vec<String>>::new();
+        for tag_row in tag_rows {
+            let (heading_id, tag) = tag_row.map_err(|source| DbReadError::Query {
+                operation: "list_headings.effective_tags.collect",
+                source,
+            })?;
+            by_heading.entry(heading_id).or_default().push(tag);
+        }
+        for row in rows {
+            row.all_tags = by_heading.remove(&row.id).unwrap_or_default();
+        }
+        Ok(())
     }
 
     pub(crate) fn list_links(connection: &Connection) -> Result<Vec<LinkListRow>, DbReadError> {
@@ -293,8 +334,8 @@ impl std::error::Error for DbReadError {
 mod tests {
     use super::DbReader;
     use crate::db::{
-        open_in_memory_database_with_schema, DbWriter, FileRecordInput, HeadingRecord, LinkRecord,
-        OutlinePathRecord, SchemaDefinition,
+        open_in_memory_database_with_schema, DbWriter, EffectiveTagRecord, FileRecordInput,
+        HeadingRecord, LinkRecord, OutlinePathRecord, SchemaDefinition, TagRecord,
     };
     use std::path::PathBuf;
 
@@ -339,10 +380,9 @@ mod tests {
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
-            DbWriter::insert_headings(
+            let child_id = DbWriter::insert_headings(
                 tx,
                 &[HeadingRecord {
                     id: None,
@@ -368,7 +408,22 @@ mod tests {
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[\"rust\"]".to_string(),
+                }],
+            )?[0];
+            DbWriter::insert_tags(
+                tx,
+                &[TagRecord {
+                    heading_id: child_id,
+                    tag: "rust".to_string(),
+                }],
+            )?;
+            DbWriter::insert_effective_tags(
+                tx,
+                &[EffectiveTagRecord {
+                    heading_id: child_id,
+                    file_id,
+                    tag: "rust".to_string(),
+                    position: 0,
                 }],
             )?;
             Ok(())
@@ -385,7 +440,7 @@ mod tests {
         assert_eq!(rows[1].priority.as_deref(), Some("A"));
         assert_eq!(rows[1].scheduled_raw, None);
         assert_eq!(rows[1].scheduled_ts, None);
-        assert_eq!(rows[1].all_tags_json, "[\"rust\"]");
+        assert_eq!(rows[1].all_tags, vec!["rust".to_string()]);
     }
 
     #[test]
@@ -429,7 +484,6 @@ mod tests {
                     closed_has_time: None,
                     archivedp: false,
                     footnote_section_p: false,
-                    all_tags_json: "[]".to_string(),
                 },
             )?;
             DbWriter::insert_outline_path(
@@ -467,7 +521,6 @@ mod tests {
                 closed_has_time: None,
                 archivedp: false,
                 footnote_section_p: false,
-                all_tags_json: "[]".to_string(),
             };
             DbWriter::insert_headings(tx, &[child])?;
             let child_id = tx.last_insert_rowid();

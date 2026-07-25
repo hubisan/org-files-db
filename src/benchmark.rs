@@ -990,7 +990,7 @@ fn semantic_snapshot(connection: &Connection) -> Result<SemanticSnapshot, String
                       COALESCE(hex(parent_file.identity) || ':' || parent.byte_start, '') || '|' ||
                       heading.level || '|' || quote(heading.title) || '|' || quote(heading.title_raw) || '|' ||
                       quote(heading.todo_keyword) || '|' || quote(heading.todo_type) || '|' ||
-                      quote(heading.priority) || '|' || quote(heading.all_tags_json)
+                      quote(heading.priority)
                FROM headings AS heading
                INNER JOIN files AS file ON file.id = heading.file_id
                LEFT JOIN headings AS parent ON parent.id = heading.parent_id
@@ -1030,6 +1030,16 @@ fn semantic_snapshot(connection: &Connection) -> Result<SemanticSnapshot, String
                FROM tags AS tag
                INNER JOIN headings AS heading ON heading.id = tag.heading_id
                INNER JOIN files AS file ON file.id = heading.file_id
+               ORDER BY 1"#,
+        ),
+        (
+            "effective_tags",
+            r#"SELECT hex(heading_file.identity) || '|' || hex(effective_file.identity) || '|' ||
+                      heading.byte_start || '|' || effective.position || '|' || quote(effective.tag)
+               FROM effective_tags AS effective
+               INNER JOIN headings AS heading ON heading.id = effective.heading_id
+               INNER JOIN files AS heading_file ON heading_file.id = heading.file_id
+               INNER JOIN files AS effective_file ON effective_file.id = effective.file_id
                ORDER BY 1"#,
         ),
         (
@@ -1345,6 +1355,11 @@ fn query_workloads(source_dir: &Path) -> Vec<QueryWorkload> {
         (
             "query.tags.common",
             "(headings (tags \"common\"))".to_owned(),
+            QueryOutputMode::Flat,
+        ),
+        (
+            "query.tags.direct",
+            "(headings (tags \"common\" :inherit nil))".to_owned(),
             QueryOutputMode::Flat,
         ),
         (
@@ -2301,6 +2316,29 @@ mod tests {
             }
             Ok(())
         });
+
+        assert_relationship_corruption_detected("effective-tag", |connection| {
+            let (heading_id, tag): (i64, String) = connection
+                .query_row(
+                    "SELECT heading_id, tag
+                     FROM effective_tags
+                     ORDER BY heading_id, position
+                     LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|error| error.to_string())?;
+            let changed = connection
+                .execute(
+                    "DELETE FROM effective_tags WHERE heading_id = ?1 AND tag = ?2",
+                    rusqlite::params![heading_id, &tag],
+                )
+                .map_err(|error| error.to_string())?;
+            if changed != 1 {
+                return Err(format!("effective-tag corruption changed {changed} rows"));
+            }
+            Ok(())
+        });
     }
 
     #[test]
@@ -2391,6 +2429,8 @@ mod tests {
                 .collect::<Vec<_>>();
             assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
             assert!(ids.contains(&"query.outline.common-tags"));
+            assert!(ids.contains(&"query.tags.common"));
+            assert!(ids.contains(&"query.tags.direct"));
             assert!(workloads.iter().all(|workload| {
                 workload["cold_connection_end_to_end_ns"].is_number()
                     && workload["parse_validate_compile"]["samples"].is_number()
@@ -2405,6 +2445,28 @@ mod tests {
             assert!(variant["dbstat"]["available"].is_boolean());
         }
         let no_fts = &variants[0];
+        let effective_tag_workload = no_fts["workloads"]
+            .as_array()
+            .expect("workloads")
+            .iter()
+            .find(|workload| workload["id"] == "query.tags.common")
+            .expect("effective tag workload");
+        let effective_tag_plan = effective_tag_workload["explain_query_plan"]
+            .as_array()
+            .expect("effective tag plan")
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect::<Vec<_>>();
+        assert!(
+            effective_tag_plan
+                .iter()
+                .any(|detail| detail.contains("idx_effective_tags_tag_heading")),
+            "expected effective tag index in benchmark plan: {effective_tag_plan:?}"
+        );
+        assert!(effective_tag_workload["sql"].as_str().is_some_and(|sql| sql
+            .contains("effective_tags")
+            && !sql.contains("WITH RECURSIVE lineage")));
+
         let connection =
             open_existing_database_read_only(work_dir.join("no-fts-baseline-v8.sqlite"))
                 .expect("read-only database");
