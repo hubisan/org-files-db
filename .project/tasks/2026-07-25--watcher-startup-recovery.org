@@ -1,0 +1,119 @@
+#+TITLE: Watcher startup and recovery reconciliation
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-25 Sat 21:48]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement Phase 7 watcher startup reconciliation and recovery for missed or uncertain filesystem events.
+
+* Planning
+
+** Problem summary
+
+The watcher source, normalized batching, and serialized Phase 6 controller exist independently, but there is no lifecycle layer that registers watches before startup reconciliation, retains events arriving during startup, or turns backend uncertainty into bounded recovery. Temporary source-root loss must fail safely instead of being interpreted as authoritative deletion.
+
+** Goals
+
+- Register the filesystem source before the initial full Phase 6 reconciliation.
+- Drain and retain events that arrive during startup reconciliation.
+- Convert backend failures, rescan requests, and relevant watch-target replacement into one bounded full-reconciliation request.
+- Revalidate watch targets before every Phase 6 execution.
+- Refresh notify registrations after a relevant watched-root replacement.
+- Terminate explicitly on source or Phase 6 recovery failure while preserving the last committed DB state.
+- Add deterministic lifecycle tests and Phase 6 integration coverage for offline changes and rollback.
+
+** Non-goals
+
+- No CLI command, signal handling, daemonization, background thread, automatic infinite retry loop, or service integration.
+- No new discovery, exclusion, parsing, DB mutation, or platform compatibility semantics.
+- No Windows support.
+
+** Architecture
+
+- Add an internal watcher runtime layer over the existing notify source and execution controller.
+- Abstract the message source narrowly so startup and recovery state transitions can be tested without real backend timing.
+- Keep at most one normalized pending reconciliation and bounded diagnostic context for repeated uncertainty.
+- Revalidate all registered watch targets before executing any Phase 6 batch.
+- Rebuild notify registrations before recovery when an event indicates replacement of an exact watched target.
+- Treat execution or source failure as terminal for the current runtime; do not retry invisibly.
+
+** Execution plan
+
+- Add notify-source target validation and registration refresh support.
+- Add startup, source draining, recovery context, execution, and terminal-state handling.
+- Add deterministic fake-source tests for startup event retention, repeated uncertainty, root replacement, and termination.
+- Add Phase 6-backed tests for changed, deleted, created, and unchanged offline states plus recovery rollback.
+- Document the lifecycle contract and update the active task state.
+
+** Risks & assumptions
+
+- Filesystem backend messages can continue to arrive while the synchronous Phase 6 executor runs; the notify channel retains them until the runtime drains it.
+- A root replacement may invalidate a backend registration, so successful recovery refreshes registrations before reconciliation.
+- Automatic repeated retry is intentionally deferred; termination avoids hidden retry loops and lets the later CLI return a non-zero status with context.
+
+** Open questions
+
+- None for this bounded task.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test watcher_runtime~
+- ~cargo test --all-targets --all-features~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+* Results
+
+** Approach
+
+- Added an internal watcher runtime that owns a registered message source and the existing debounce controller.
+- Registered and validated the notify source before the initial full configured-source reconciliation.
+- Drained queued backend messages immediately after startup reconciliation so events received during startup remain pending for a later batch.
+- Collapsed rescan signals, backend failures, and exact watch-target replacement into the existing bounded reconciliation state.
+- Added bounded recovery diagnostics containing only a saturating uncertainty count, the latest watch target, and the latest backend failure.
+- Revalidated every registered target before each Phase 6 execution to prevent temporary root loss from becoming authoritative deletion.
+- Rebuilt the complete notify registration set before recovery after an exact watched-target replacement.
+- Defined source, registration, controller, and Phase 6 execution failures as terminal for the current runtime, without a hidden automatic retry loop.
+- Kept all actual reconciliation in the existing Phase 6 executor and transaction boundary.
+
+** Changed files
+
+- ~src/watcher_runtime.rs~
+- ~src/notify_source.rs~
+- ~src/lib.rs~
+- ~docs/design/incremental-indexing.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-25--watcher-startup-recovery.org~
+
+** Checks performed
+
+- Reviewed startup ordering to confirm source registration precedes full reconciliation.
+- Reviewed event retention across synchronous startup execution and later debounce dispatch.
+- Reviewed all recovery paths for bounded state and serialized Phase 6 execution.
+- Reviewed root validation and refresh ordering to ensure no Phase 6 call occurs while a registered target is unavailable.
+- Compared the complete change set against the uploaded repository and confirmed no CLI, signal, daemon, parser, discovery, DB schema, or Windows work was added.
+- Checked changed files for trailing whitespace, placeholder macros, and balanced Rust delimiters.
+
+** Test results
+
+- Added Phase 6-backed tests for changed, deleted, created, and unchanged files before watcher startup.
+- Added a Phase 6-backed test that creates and reports a file during startup reconciliation and applies it in the following batch.
+- Added deterministic tests for repeated rescan collapse, bounded backend-failure diagnostics, watched-root replacement and registration refresh, source failure, refresh failure, and terminal-state behavior.
+- Added Phase 6-backed safety tests proving an unavailable root does not delete committed indexed state and failed full recovery leaves the previous heading state intact.
+- Extended the real notify backend test to exercise registration refresh and added target-validation coverage for a removed root.
+- Rust compilation, formatting, Clippy, and test execution could not be run because the execution environment has no Rust toolchain and cannot resolve the Rust distribution host.
+- Local verification remains: ~cargo fmt --all~, then ~make ci~.
+
+** Blockers
+
+- The execution environment does not contain ~cargo~, ~rustc~, or ~rustfmt~.
+- The uploaded archive does not contain a ~.git~ directory, so branch creation and native Git diff checks were unavailable.
+
+** Follow-ups
+
+- The next Phase 7 task can build the CLI event loop over ~WatcherRuntime::start_notify~, ~process_available~, and ~next_deadline~, then add Unix signal-driven shutdown.

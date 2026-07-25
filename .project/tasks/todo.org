@@ -279,13 +279,15 @@ Acceptance criteria:
 - Unit tests use synthetic ~notify~ events where possible.
 - A small supported-platform integration test verifies the adapter without depending on exact event counts or ordering.
 
-** TODO [#A] Implement watcher startup and recovery reconciliation
+** REVIEW [#A] Implement watcher startup and recovery reconciliation
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Internal
 :END:
+
+- Task file: [[./2026-07-25--watcher-startup-recovery.org][2026-07-25--watcher-startup-recovery.org]]
 
 Goal:
 

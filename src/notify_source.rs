@@ -64,6 +64,10 @@ pub(crate) struct NotifyBackendFailure {
 }
 
 impl NotifyBackendFailure {
+    pub(crate) fn new(message: String, paths: Vec<PathBuf>) -> Self {
+        Self { message, paths }
+    }
+
     pub(crate) fn message(&self) -> &str {
         &self.message
     }
@@ -178,12 +182,7 @@ impl NotifyWatcherSource {
     pub(crate) fn from_config(config: &Config) -> Result<Self, NotifyWatcherError> {
         let watch_targets = notify_watch_targets(config)?;
         let (sender, receiver) = mpsc::channel();
-        let mut watcher = recommended_watcher(sender)
-            .map_err(|source| NotifyWatcherError::CreateBackend { source })?;
-
-        register_watch_targets(&watch_targets, |target| {
-            watcher.watch(target.path(), target.mode().as_notify_mode())
-        })?;
+        let watcher = create_registered_watcher(sender, &watch_targets)?;
 
         Ok(Self {
             _watcher: watcher,
@@ -194,6 +193,19 @@ impl NotifyWatcherSource {
 
     pub(crate) fn watch_targets(&self) -> &[NotifyWatchTarget] {
         &self.watch_targets
+    }
+
+    pub(crate) fn validate_watch_targets(&self) -> Result<(), NotifyWatcherError> {
+        validate_watch_targets(&self.watch_targets)
+    }
+
+    pub(crate) fn refresh_watches(&mut self) -> Result<(), NotifyWatcherError> {
+        validate_watch_targets(&self.watch_targets)?;
+        let (sender, receiver) = mpsc::channel();
+        let watcher = create_registered_watcher(sender, &self.watch_targets)?;
+        self._watcher = watcher;
+        self.receiver = receiver;
+        Ok(())
     }
 
     pub(crate) fn try_recv(&self) -> Result<Option<NotifySourceMessage>, NotifyWatcherError> {
@@ -283,7 +295,7 @@ fn translate_notify_event(event: Event) -> Option<WatcherInput> {
 fn notify_backend_failure(error: notify::Error) -> NotifyBackendFailure {
     let message = error.to_string();
     let paths = error.paths;
-    NotifyBackendFailure { message, paths }
+    NotifyBackendFailure::new(message, paths)
 }
 
 fn notify_watch_targets(config: &Config) -> Result<Vec<NotifyWatchTarget>, NotifyWatcherError> {
@@ -348,6 +360,25 @@ fn insert_watch_target(targets: &mut Vec<NotifyWatchTarget>, target: NotifyWatch
 
     targets.retain(|existing| !target.covers(existing));
     targets.push(target);
+}
+
+fn create_registered_watcher(
+    sender: mpsc::Sender<notify::Result<Event>>,
+    targets: &[NotifyWatchTarget],
+) -> Result<RecommendedWatcher, NotifyWatcherError> {
+    let mut watcher = recommended_watcher(sender)
+        .map_err(|source| NotifyWatcherError::CreateBackend { source })?;
+    register_watch_targets(targets, |target| {
+        watcher.watch(target.path(), target.mode().as_notify_mode())
+    })?;
+    Ok(watcher)
+}
+
+fn validate_watch_targets(targets: &[NotifyWatchTarget]) -> Result<(), NotifyWatcherError> {
+    for target in targets {
+        validate_watch_directory(target.path())?;
+    }
+    Ok(())
 }
 
 fn register_watch_targets(
@@ -679,6 +710,28 @@ mod tests {
     }
 
     #[test]
+    fn watch_target_validation_reports_a_removed_root() {
+        let test_dir = TestDir::new("removed-watch-root");
+        let root = test_dir.path().join("notes");
+        fs::create_dir_all(&root).expect("notes root");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        fs::remove_dir_all(&root).expect("watch root should be removed");
+
+        let error = source
+            .validate_watch_targets()
+            .expect_err("removed root should fail validation");
+
+        assert!(matches!(
+            error,
+            NotifyWatcherError::InspectWatchPath { path, .. } if path == root
+        ));
+    }
+
+    #[test]
     fn recommended_backend_observes_created_file_below_recursive_root() {
         let test_dir = TestDir::new("real-backend");
         fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
@@ -686,8 +739,11 @@ mod tests {
             &test_dir,
             "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
         );
-        let source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
         assert_eq!(source.watch_targets().len(), 1);
+        source
+            .refresh_watches()
+            .expect("notify registrations should refresh");
         let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
         let note = test_dir.path().join("notes/new.org");
         write_file(&note, "* New\n");
