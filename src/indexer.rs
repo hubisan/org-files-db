@@ -78,7 +78,64 @@ where
         self.rebuild_with_options(connection, config, false)
     }
 
-    #[allow(dead_code)] // Consumed by the next transactional application task.
+    /// Plans and applies one complete configured-source reconciliation through
+    /// the same Phase 6 validation and transactional mutation boundary used by
+    /// all incremental callers.
+    #[allow(dead_code)] // Phase 7 production entry point.
+    pub(crate) fn reconcile_configured_sources(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+    ) -> Result<ChangeApplicationResult, IndexerError> {
+        let planning = self.plan_changes(connection, config)?;
+        self.apply_planning_result(connection, config, planning)
+    }
+
+    /// Plans and applies a bounded reconciliation for already-normalized
+    /// candidate paths. Candidate event kinds are intentionally absent: Phase 6
+    /// reclassifies each path from current filesystem and persisted DB state.
+    #[allow(dead_code)] // Phase 7 production entry point.
+    pub(crate) fn reconcile_candidate_paths<I>(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+        candidates: I,
+    ) -> Result<ChangeApplicationResult, IndexerError>
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        let candidates = candidates.into_iter().collect::<BTreeSet<_>>();
+        if candidates.is_empty() {
+            return Ok(ChangeApplicationResult::Applied(
+                ChangeApplicationReport::default(),
+            ));
+        }
+        let planning = self.plan_changes_for_scope(
+            connection,
+            config,
+            ChangePlanningOptions {
+                allow_empty: true,
+                verify_hashes: false,
+            },
+            PlanningScope::Candidates(candidates),
+        )?;
+        self.apply_planning_result(connection, config, planning)
+    }
+
+    fn apply_planning_result(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+        planning: ChangePlanningResult,
+    ) -> Result<ChangeApplicationResult, IndexerError> {
+        let actionable = match self.actionable_plan(planning) {
+            Ok(actionable) => actionable,
+            Err(rejection) => return Ok(ChangeApplicationResult::Rejected(rejection)),
+        };
+        self.apply_change_plan(connection, config, actionable)
+    }
+
+    #[allow(dead_code)] // Used by the Phase 7 reconciliation entry points.
     pub(crate) fn plan_changes(
         &self,
         connection: &Connection,
@@ -87,12 +144,22 @@ where
         self.plan_changes_with_options(connection, config, ChangePlanningOptions::default())
     }
 
-    #[allow(dead_code)] // Consumed by the next transactional application task.
+    #[allow(dead_code)] // Used by tests and explicit Phase 6 policy callers.
     pub(crate) fn plan_changes_with_options(
         &self,
         connection: &Connection,
         config: &Config,
         options: ChangePlanningOptions,
+    ) -> Result<ChangePlanningResult, IndexerError> {
+        self.plan_changes_for_scope(connection, config, options, PlanningScope::All)
+    }
+
+    fn plan_changes_for_scope(
+        &self,
+        connection: &Connection,
+        config: &Config,
+        options: ChangePlanningOptions,
+        scope: PlanningScope,
     ) -> Result<ChangePlanningResult, IndexerError> {
         let fts_backend_available =
             sqlite_fts5_available_read_only(connection).map_err(|source| {
@@ -119,6 +186,11 @@ where
                 return Ok(ChangePlanningResult::FullRebuildRequired)
             }
         };
+        if matches!(&scope, PlanningScope::Candidates(_))
+            && persisted.iter().any(|file| file.identity.is_none())
+        {
+            return Ok(ChangePlanningResult::FullRebuildRequired);
+        }
         let discovery = discover_org_files(config)?;
         if discovery.files.is_empty() && !discovery.had_exclusion_match && !options.allow_empty {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
@@ -135,6 +207,9 @@ where
             IndexingContextComparison::FullRebuildRequired => unreachable!("handled above"),
         };
         let reparse_all = invalidations.contains(IndexInvalidationSet::REPARSE_ALL_FILES);
+        if reparse_all && matches!(&scope, PlanningScope::Candidates(_)) {
+            return self.plan_changes_for_scope(connection, config, options, PlanningScope::All);
+        }
         let expected_files = persisted.clone();
         let mut by_identity = BTreeMap::new();
         let mut legacy_by_path = BTreeMap::new();
@@ -170,6 +245,13 @@ where
                     .to_str()
                     .and_then(|_| legacy_by_path.remove(&display_path(&discovered.path)))
             });
+            if !scope.includes(&discovered.path, &discovered.identity, persisted.as_ref()) {
+                if let Some(persisted) = persisted.as_ref() {
+                    plan.unchanged
+                        .push(PlannedFile::from_persisted(&discovered, persisted));
+                }
+                continue;
+            }
             match self.plan_discovered_file(discovered, persisted, config, options, reparse_all) {
                 Ok(PlannedCurrentFile::Unchanged(file)) => plan.unchanged.push(file),
                 Ok(PlannedCurrentFile::MetadataOnly(file)) => plan.metadata_only.push(file),
@@ -181,12 +263,18 @@ where
                 }),
             }
         }
-        plan.deleted.extend(
-            by_identity
-                .into_values()
-                .chain(legacy_by_path.into_values())
-                .map(DeletedFile::from),
-        );
+        for persisted in by_identity
+            .into_values()
+            .chain(legacy_by_path.into_values())
+        {
+            if scope.includes_persisted(&persisted) {
+                plan.deleted.push(DeletedFile::from(persisted));
+            } else if let Some(file) = PlannedFile::from_persisted_snapshot(&persisted) {
+                plan.unchanged.push(file);
+            } else {
+                return Ok(ChangePlanningResult::FullRebuildRequired);
+            }
+        }
         plan.deleted
             .sort_by(|left, right| left.sort_key.cmp(&right.sort_key));
         Ok(ChangePlanningResult::Ready(Box::new(plan)))
@@ -630,7 +718,43 @@ struct CapturedSource {
     snapshot: FileSnapshot,
 }
 
-#[allow(dead_code)]
+#[derive(Debug)]
+enum PlanningScope {
+    All,
+    Candidates(BTreeSet<PathBuf>),
+}
+
+impl PlanningScope {
+    fn includes(
+        &self,
+        path: &Path,
+        identity: &FileIdentity,
+        persisted: Option<&PersistedFileSnapshot>,
+    ) -> bool {
+        match self {
+            Self::All => true,
+            Self::Candidates(candidates) => {
+                candidates.contains(path)
+                    || identity
+                        .to_path()
+                        .is_some_and(|identity_path| candidates.contains(&identity_path))
+                    || persisted.is_some_and(|file| self.includes_persisted(file))
+            }
+        }
+    }
+
+    fn includes_persisted(&self, persisted: &PersistedFileSnapshot) -> bool {
+        match self {
+            Self::All => true,
+            Self::Candidates(candidates) => persisted
+                .identity
+                .as_ref()
+                .and_then(FileIdentity::to_path)
+                .is_some_and(|path| candidates.contains(&path)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ChangePlanningOptions {
     pub(crate) allow_empty: bool,
@@ -715,7 +839,7 @@ pub(crate) enum ChangeApplicationResult {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChangeApplicationReport {
     pub(crate) unchanged: usize,
     pub(crate) metadata_only: usize,
@@ -764,6 +888,18 @@ impl PlannedFile {
             },
             expected_file_record: persisted_file_record(persisted, &discovered.path),
         }
+    }
+
+    fn from_persisted_snapshot(persisted: &PersistedFileSnapshot) -> Option<Self> {
+        let identity = persisted.identity.clone()?;
+        let path = identity.to_path()?;
+        Some(Self {
+            existing_file_id: persisted.file_id,
+            path: path.clone(),
+            identity: identity.clone(),
+            file_record: persisted_file_record(persisted, &path),
+            expected_file_record: persisted_file_record(persisted, &path),
+        })
     }
 
     fn from_captured(
@@ -9393,6 +9529,141 @@ index_body_text = false
             IndexerError::ReadFile { .. }
         ));
         assert!(plan.deleted.is_empty());
+    }
+
+    #[test]
+    fn configured_source_reconciliation_uses_the_phase_6_plan_and_apply_boundary() {
+        let test_dir = TestDir::new("configured-source-reconciliation");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_file(&path, "* Original\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild");
+
+        write_file(&path, "* Changed\n");
+        assert!(matches!(
+            indexer.reconcile_configured_sources(&mut connection, &config),
+            Ok(ChangeApplicationResult::Applied(_))
+        ));
+        let title: String = connection
+            .query_row("SELECT title FROM headings WHERE level = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("changed heading should exist");
+        assert_eq!(title, "Changed");
+    }
+
+    #[test]
+    fn candidate_reconciliation_updates_only_the_submitted_existing_path() {
+        let test_dir = TestDir::new("candidate-reconciliation-modified");
+        let first = test_dir.path().join("first.org");
+        let second = test_dir.path().join("second.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![first.clone(), second.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild");
+
+        write_file(&first, "* Changed\n");
+        let candidate = fs::canonicalize(&first).expect("candidate should canonicalize");
+        let result = indexer
+            .reconcile_candidate_paths(&mut connection, &config, [candidate])
+            .expect("candidate reconciliation should execute");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("candidate plan should apply");
+        };
+        assert_eq!(report.modified, 1);
+        assert_eq!(report.created, 0);
+        assert_eq!(report.deleted, 0);
+        let titles = connection
+            .prepare("SELECT title FROM headings WHERE level = 1 ORDER BY title")
+            .expect("query should prepare")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query should execute")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("titles should read");
+        assert_eq!(titles, vec!["Changed", "Second"]);
+    }
+
+    #[test]
+    fn candidate_reconciliation_matches_a_deleted_path_by_persisted_identity() {
+        let test_dir = TestDir::new("candidate-reconciliation-deleted");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_file(&path, "* Original\n");
+        let canonical = fs::canonicalize(&path).expect("path should canonicalize before deletion");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild");
+        fs::remove_file(&path).expect("source should be removed");
+
+        let result = indexer
+            .reconcile_candidate_paths(&mut connection, &config, [canonical])
+            .expect("missing candidate should reconcile");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("deletion plan should apply");
+        };
+        assert_eq!(report.deleted, 1);
+        let file_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("file count should read");
+        assert_eq!(file_count, 0);
     }
 
     #[test]

@@ -1,0 +1,23 @@
+#+TITLE: Phase 6 watcher handoff
+#+TASK_STARTED: [2026-07-25 Sat 19:30]
+#+STARTUP: showall
+
+* Task
+
+Expose the completed Phase 6 reconciliation boundary for Phase 7 without adding watcher-owned indexing semantics.
+
+* Build
+
+- Added ~Indexer::reconcile_configured_sources~ as the complete configured-source plan-and-apply entry point.
+- Added ~Indexer::reconcile_candidate_paths~ for deterministic, already-normalized candidate paths.
+- Refactored the existing planner behind an internal full-or-candidate scope instead of copying discovery, classification, preparation, validation, or DB mutation logic.
+- Candidate planning reuses persisted native identities for deleted paths without requiring filesystem canonicalization after deletion.
+- Non-candidate indexed files remain baseline evidence, so concurrent unsubmitted changes still cause the existing stale-plan rejection rather than a partial commit.
+- Full-reparse invalidations and legacy rows without native identity fall back to the existing full reconciliation requirement.
+- Added focused tests for configured-source reconciliation, selective modification, and deletion by persisted identity.
+
+* Verification
+
+- Automated Rust checks could not be run in the provided execution environment because ~cargo~ and ~rustc~ are not installed.
+- The source was inspected for scope boundaries and no ~notify~, watcher thread, debounce, CLI, or watcher-specific DB mutation code was added.
+- The uploaded archive did not contain a ~.git~ directory, so branch creation and diff-based checks were unavailable.

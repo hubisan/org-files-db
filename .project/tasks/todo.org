@@ -90,13 +90,15 @@ General rules:
 - Each implementation task must leave the repository in a complete and testable state before being marked DONE.
 - Documentation must describe the implementation that actually exists. Do not document speculative behavior as completed.
 
-** TODO [#A] Audit and expose the Phase 6 watcher handoff
+** DONE [#A] Audit and expose the Phase 6 watcher handoff
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Internal
 :END:
+
+Task file: [[./2026-07-25--phase-6-watcher-handoff.org]]
 
 Goal:
 
