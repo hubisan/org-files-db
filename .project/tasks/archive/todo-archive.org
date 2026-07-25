@@ -1968,3 +1968,141 @@ Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-21
 
 - Task file: [[file:phase-5--Query-engine-and-optional-full-text-search/2026-07-23--make-json-the-default-cli-output-format.org]]
 
+* DONE Phase 6: Robust incremental indexer core
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal of this phase:
+
+- Turn the current all-or-nothing rebuild into a deterministic indexing core that can discover, classify, prepare, replace, and remove files without requiring a watcher.
+- Keep full rebuild as a complete recovery path while making the same per-file preparation and DB write primitives reusable by later incremental entry points.
+- Leave Phase 7 responsible for filesystem events and Phase 8 responsible for parallel execution rather than duplicating indexing semantics there.
+
+Existing groundwork:
+
+- ~discover_org_files~ already supports explicit files, per-directory recursive or non-recursive discovery, canonical-path deduplication, and deterministic ordering.
+- The current rebuild reads and parses every discovered file before opening one all-or-nothing DB transaction.
+- The ~files~ table already stores ~mtime_ns~, ~size~, optional ~content_hash~, and ~indexed_at~.
+- ~DbWriter::rebuild_file~ and ~DbWriter::delete_file_data~ exist only as test scaffolding and do not yet maintain production FTS or link-resolution state.
+- The current FTS maintenance and ~LinkResolver::resolve_all~ operations are global. Phase 6 may keep them global initially, but they must run at the correct transaction boundary.
+
+General rules:
+
+- File reading, hashing, TODO keyword resolution, parsing, and normalization happen outside DB write transactions.
+- DB mutation and all required derived-state reconciliation happen inside controlled transactions.
+- Discovery policy, file eligibility, and indexed-universe semantics must be reusable by Phase 7.
+- Full rebuild and incremental reconciliation must use the same normalized per-file write path.
+- A successful indexing operation must not expose stale ~outline_path~, trusted ~heading_fts~, search metadata, or link-resolution snapshots.
+- Full rebuild and incremental reconciliation over the same final source set must produce semantically equivalent stored facts. Any exclusions such as ~indexed_at~ or surrogate row IDs must be explicit and documented.
+- Changes to parser/indexer semantics or parse-affecting configuration must invalidate change-detection decisions safely; unchanged file bytes alone are not sufficient.
+- Targeted link resolution and incremental FTS optimization may be deferred, but correctness may not be deferred. A global reconciliation pass is acceptable initially.
+- Watcher integration, debounce, and parallel parsing remain out of scope for this phase.
+
+** DONE Define file identity and harden reusable discovery
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--define-file-identity-and-harden-reusable-discovery.org]]
+
+** DONE Add configured file and directory exclusions
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--add-configured-file-and-directory-exclusions.org]]
+
+** DONE Extract stable per-file preparation
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--extract-stable-per-file-preparation.org]]
+
+** DONE Persist indexing context and define invalidation rules
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--persist-indexing-context-and-define-invalidation-rules.org]]
+
+** DONE Add deterministic change planning
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-23--add-deterministic-change-planning.org]]
+
+** DONE Implement transactional change application and prove rebuild equivalence
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-24--implement-transactional-change-application-and-prove-rebuild-equivalence.org]]
+
+** DONE Establish SQLite query-performance baseline
+
+- Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-24--establish-sqlite-query-performance-baseline.org]]
+
+** DONE Tune SQLite indexes from measured query plans
+
+Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-24--tune-sqlite-indexes-from-measured-query-plans.org][Tune SQLite Indexes from Measured Query Plans]]
+
+** DONE [#B] Materialize ~effective_properties~ in schema version 10
+
+Task file: [[file:phase-6--robust-incremental-indexer-core/2026-07-25--materialize-effective-properties-schema-10.org][Materialize effective properties in schema version 10]]
+
+** DONE [#B] Replace ~all_tags_json~ with normalized ~effective_tags~
+:PROPERTIES:
+:PRIORITY: High
+:RISK:     High
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: No
+:END:
+
+Task file: [[file:2026-07-25--replace-all-tags-json-with-normalized-effective-tags.org][Replace all_tags_json with normalized effective tags]]
+
+Goal:
+
+- Keep ~tags~ as canonical direct tag facts and store inherited tag membership in the mandatory ~effective_tags~ projection.
+- Remove ~headings.all_tags_json~ so query matching and public output use one normalized effective-tag source.
+- Preserve the existing public query syntax, tag case behaviour, inheritance semantics, and deterministic JSON order.
+
+Final design:
+
+- ~tags~ stores only direct tags, including ~FILETAGS~ on the synthetic root heading.
+- ~effective_tags~ stores one row per visible heading/tag pair with:
+  - ~heading_id~;
+  - ~file_id~;
+  - ~tag~;
+  - zero-based ~position~.
+- The primary key is ~(heading_id, tag)~.
+- ~(heading_id, position)~ is unique.
+- ~idx_effective_tags_tag_heading~ supports inherited membership queries.
+- ~idx_effective_tags_file~ supports file-scoped maintenance and validation.
+- The root always participates in inherited tag semantics. There is no ~:without-root~ option or root-excluding projection.
+
+Semantics:
+
+- ~(tags ... )~ and ~(tags ... :inherit t)~ use ~effective_tags~.
+- ~(tags ... :inherit nil)~ uses direct rows from ~tags~.
+- Effective order is root to leaf; inherited tags keep their position, new local tags are appended, and the first occurrence wins when a tag appears at multiple levels.
+- Tag matching remains case-sensitive.
+- Inheritance never crosses file boundaries.
+
+Migration and maintenance:
+
+- Schema version 10 migrates transactionally to version 11.
+- The migration preserves the existing public tag order from ~all_tags_json~, validates it against canonical direct tags, backfills ~effective_tags~, rebuilds ~headings~ without ~all_tags_json~, and advances the schema version only on commit.
+- Fresh rebuilds and created or modified files derive ~effective_tags~ from the prepared heading tree in the same transaction as canonical tags.
+- Metadata-only changes do not regenerate effective tags.
+- Replacement and deletion remove stale effective rows through the controlled transaction and foreign-key cascades.
+
+Query and output:
+
+- Inherited tag predicates use ~effective_tags~ and no longer reconstruct heading ancestry recursively.
+- Local tag predicates continue to use ~tags~.
+- Flat, outline, hierarchy, relation, CLI, and included result objects load ~all_tags~ from ~effective_tags~ ordered by ~position~.
+- The public JSON field remains ~all_tags~; the internal ~all_tags_json~ column is removed.
+
+Tests and benchmark evidence:
+
+- Cover root, parent, local, duplicate, case-sensitive, any/all, alias, regexp, migration-order, rollback, replacement, deletion, and semantic-equivalence behaviour.
+- Assert that inherited tag SQL uses ~effective_tags~ and its lookup index without the old recursive lineage SQL.
+- The benchmark records separate direct and effective tag workloads and includes ~effective_tags~ in semantic snapshots.
+
+Acceptance criteria:
+
+- Fresh databases use schema version 11.
+- Version-10 databases migrate atomically to version 11 without reparsing Org files.
+- ~effective_tags~ is the only stored effective-tag representation.
+- ~headings.all_tags_json~ is absent from the current schema and runtime SQL.
+- Direct and inherited tag query results remain compatible.
+- Public ~all_tags~ output remains deterministic and compatible.
+- Rebuild, incremental replacement, migration, rollback, and semantic-equivalence checks include the projection.
+- ~make ci~ passes.
+
+

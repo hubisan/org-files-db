@@ -55,138 +55,419 @@ Archived in [[./archive/todo-archive.org]]
 
 Archived in [[./archive/todo-archive.org]]
 
+* DONE Phase 6: Robust incremental indexer core
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Archived in [[./archive/todo-archive.org]]
 
 
-* Phase 6: Robust incremental indexer core
+* Phase 7: Watcher-driven incremental updates
 
 Goal of this phase:
 
-- Turn the current all-or-nothing rebuild into a deterministic indexing core that can discover, classify, prepare, replace, and remove files without requiring a watcher.
-- Keep full rebuild as a complete recovery path while making the same per-file preparation and DB write primitives reusable by later incremental entry points.
-- Leave Phase 7 responsible for filesystem events and Phase 8 responsible for parallel execution rather than duplicating indexing semantics there.
-
-Existing groundwork:
-
-- ~discover_org_files~ already supports explicit files, per-directory recursive or non-recursive discovery, canonical-path deduplication, and deterministic ordering.
-- The current rebuild reads and parses every discovered file before opening one all-or-nothing DB transaction.
-- The ~files~ table already stores ~mtime_ns~, ~size~, optional ~content_hash~, and ~indexed_at~.
-- ~DbWriter::rebuild_file~ and ~DbWriter::delete_file_data~ exist only as test scaffolding and do not yet maintain production FTS or link-resolution state.
-- The current FTS maintenance and ~LinkResolver::resolve_all~ operations are global. Phase 6 may keep them global initially, but they must run at the correct transaction boundary.
+- Translate filesystem changes into bounded Phase 6 reconciliation without duplicating indexing semantics.
+- Keep filesystem observation, event normalization, reconciliation policy, and Phase 6 execution as separate testable layers.
+- Ensure watcher-driven updates converge to the same committed DB state as a normal Phase 6 reconciliation.
 
 General rules:
 
-- File reading, hashing, TODO keyword resolution, parsing, and normalization happen outside DB write transactions.
-- DB mutation and all required derived-state reconciliation happen inside controlled transactions.
-- Discovery policy, file eligibility, and indexed-universe semantics must be reusable by Phase 7.
-- Full rebuild and incremental reconciliation must use the same normalized per-file write path.
-- A successful indexing operation must not expose stale ~outline_path~, trusted ~heading_fts~, search metadata, or link-resolution snapshots.
-- Full rebuild and incremental reconciliation over the same final source set must produce semantically equivalent stored facts. Any exclusions such as ~indexed_at~ or surrogate row IDs must be explicit and documented.
-- Changes to parser/indexer semantics or parse-affecting configuration must invalidate change-detection decisions safely; unchanged file bytes alone are not sufficient.
-- Targeted link resolution and incremental FTS optimization may be deferred, but correctness may not be deferred. A global reconciliation pass is acceptable initially.
-- Watcher integration, debounce, and parallel parsing remain out of scope for this phase.
+- The watcher produces normalized candidate paths and reconciliation requests only.
+- Phase 6 discovery, classification, change planning, preparation, transactional application, and committed-state validation remain the single source of indexing semantics.
+- Raw filesystem event kinds are hints. They must never directly select DB replacement, metadata update, or deletion operations.
+- Filesystem event handling must remain separate from parsing and DB mutation logic.
+- The watcher must not maintain core or derived DB state itself.
+- Watcher-triggered updates inherit the complete Phase 6 source-universe, indexing-context, FTS, link-resolution, trust-metadata, stale-plan, zero-input-safety, and rollback contract.
+- Phase 6 source roots, explicit files, directory exclusions, file exclusions, canonical identity, missing-path identity, and deterministic ordering must be reused.
+- Do not introduce a second discovery, exclusion, canonicalization, or indexed-file identity model.
+- Temporary source-root unavailability must not silently become mass deletion.
+- Backend uncertainty must request full Phase 6 reconciliation rather than guessing individual mutations.
+- DB writes remain serialized. Parallel parsing or event processing belongs to Phase 8 only if later required.
+- The project-wide platform contract applies: Linux and Unix-like systems, including macOS where supported by the selected backend, are supported. Windows is not supported.
+- Do not add Windows-specific watcher backends, path conversion, rename handling, tests, or compatibility abstractions.
+- Preserve the byte-oriented Unix path identity and symlink semantics established by Phase 6.
+- Each implementation task must leave the repository in a complete and testable state before being marked DONE.
+- Documentation must describe the implementation that actually exists. Do not document speculative behavior as completed.
 
-** DONE Define file identity and harden reusable discovery
-
-- Task file: [[file:archive/2026-07-23--define-file-identity-and-harden-reusable-discovery.org]]
-
-** DONE Add configured file and directory exclusions
-
-- Task file: [[file:archive/2026-07-23--add-configured-file-and-directory-exclusions.org]]
-
-** DONE Extract stable per-file preparation
-
-- Task file: [[file:archive/2026-07-23--extract-stable-per-file-preparation.org]]
-
-** DONE Persist indexing context and define invalidation rules
-
-- Task file: [[file:archive/2026-07-23--persist-indexing-context-and-define-invalidation-rules.org]]
-
-** DONE Add deterministic change planning
-
-- Task file: [[file:archive/2026-07-23--add-deterministic-change-planning.org]]
-
-** DONE Implement transactional change application and prove rebuild equivalence
-
-- Task file: [[file:archive/2026-07-24--implement-transactional-change-application-and-prove-rebuild-equivalence.org]]
-
-** DONE Establish SQLite query-performance baseline
-
-- Task file: [[file:archive/2026-07-24--establish-sqlite-query-performance-baseline.org]]
-
-** DONE Tune SQLite indexes from measured query plans
-
-Task file: [[file:archive/2026-07-24--tune-sqlite-indexes-from-measured-query-plans.org][Tune SQLite Indexes from Measured Query Plans]]
-
-** DONE [#B] Materialize ~effective_properties~ in schema version 10
-
-Task file: [[file:archive/2026-07-25--materialize-effective-properties-schema-10.org][Materialize effective properties in schema version 10]]
-
-** REVIEW [#B] Replace ~all_tags_json~ with normalized ~effective_tags~
+** TODO [#A] Audit and expose the Phase 6 watcher handoff
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
-:DB_SCHEMA_CHANGE: Yes
-:API_CONTRACT_CHANGE: No
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Internal
 :END:
-
-Task file: [[file:2026-07-25--replace-all-tags-json-with-normalized-effective-tags.org][Replace all_tags_json with normalized effective tags]]
 
 Goal:
 
-- Keep ~tags~ as canonical direct tag facts and store inherited tag membership in the mandatory ~effective_tags~ projection.
-- Remove ~headings.all_tags_json~ so query matching and public output use one normalized effective-tag source.
-- Preserve the existing public query syntax, tag case behaviour, inheritance semantics, and deterministic JSON order.
+- Establish the exact Phase 6 entry points that Phase 7 will call for startup reconciliation and bounded candidate-path updates.
+- Remove any need for watcher-owned classification, parsing, or DB mutation.
 
-Final design:
+Implementation requirements:
 
-- ~tags~ stores only direct tags, including ~FILETAGS~ on the synthetic root heading.
-- ~effective_tags~ stores one row per visible heading/tag pair with:
-  - ~heading_id~;
-  - ~file_id~;
-  - ~tag~;
-  - zero-based ~position~.
-- The primary key is ~(heading_id, tag)~.
-- ~(heading_id, position)~ is unique.
-- ~idx_effective_tags_tag_heading~ supports inherited membership queries.
-- ~idx_effective_tags_file~ supports file-scoped maintenance and validation.
-- The root always participates in inherited tag semantics. There is no ~:without-root~ option or root-excluding projection.
-
-Semantics:
-
-- ~(tags ... )~ and ~(tags ... :inherit t)~ use ~effective_tags~.
-- ~(tags ... :inherit nil)~ uses direct rows from ~tags~.
-- Effective order is root to leaf; inherited tags keep their position, new local tags are appended, and the first occurrence wins when a tag appears at multiple levels.
-- Tag matching remains case-sensitive.
-- Inheritance never crosses file boundaries.
-
-Migration and maintenance:
-
-- Schema version 10 migrates transactionally to version 11.
-- The migration preserves the existing public tag order from ~all_tags_json~, validates it against canonical direct tags, backfills ~effective_tags~, rebuilds ~headings~ without ~all_tags_json~, and advances the schema version only on commit.
-- Fresh rebuilds and created or modified files derive ~effective_tags~ from the prepared heading tree in the same transaction as canonical tags.
-- Metadata-only changes do not regenerate effective tags.
-- Replacement and deletion remove stale effective rows through the controlled transaction and foreign-key cascades.
-
-Query and output:
-
-- Inherited tag predicates use ~effective_tags~ and no longer reconstruct heading ancestry recursively.
-- Local tag predicates continue to use ~tags~.
-- Flat, outline, hierarchy, relation, CLI, and included result objects load ~all_tags~ from ~effective_tags~ ordered by ~position~.
-- The public JSON field remains ~all_tags~; the internal ~all_tags_json~ column is removed.
-
-Tests and benchmark evidence:
-
-- Cover root, parent, local, duplicate, case-sensitive, any/all, alias, regexp, migration-order, rollback, replacement, deletion, and semantic-equivalence behaviour.
-- Assert that inherited tag SQL uses ~effective_tags~ and its lookup index without the old recursive lineage SQL.
-- The benchmark records separate direct and effective tag workloads and includes ~effective_tags~ in semantic snapshots.
+- Inspect the completed Phase 6 implementation and identify the production APIs for:
+  - full configured-source reconciliation;
+  - bounded reconciliation for normalized candidate paths;
+  - indexed identity lookup for paths that no longer exist;
+  - stale-plan validation and transactional application.
+- Add or minimally refactor internal Phase 6 APIs only where the watcher cannot otherwise reuse the existing semantics.
+- Keep full rebuild and watcher execution on the same preparation and DB-write primitives.
+- Do not add ~notify~, watcher threads, debounce logic, or a CLI command in this task.
+- Do not duplicate Phase 6 discovery, exclusions, hashing, parsing, FTS, link resolution, or deletion logic.
+- Record the ownership boundary in code comments only where it is not already clear from types and module structure.
 
 Acceptance criteria:
 
-- Fresh databases use schema version 11.
-- Version-10 databases migrate atomically to version 11 without reparsing Org files.
-- ~effective_tags~ is the only stored effective-tag representation.
-- ~headings.all_tags_json~ is absent from the current schema and runtime SQL.
-- Direct and inherited tag query results remain compatible.
-- Public ~all_tags~ output remains deterministic and compatible.
-- Rebuild, incremental replacement, migration, rollback, and semantic-equivalence checks include the projection.
-- ~make ci~ passes.
+- A caller can request full configured-source reconciliation through one documented internal entry point.
+- A caller can submit a deterministic set of candidate paths through one documented internal entry point.
+- Missing candidate paths can be matched against already indexed identities without requiring filesystem canonicalization to succeed.
+- Candidate processing still produces ordinary Phase 6 classifications such as unchanged, metadata-only, created, modified, deleted, and failed.
+- Failed and stale plans retain the Phase 6 rejection and rollback behavior.
+- No watcher-specific DB mutation primitive exists.
+- Existing Phase 6 rebuild and incremental tests continue to pass.
+- New focused tests cover any newly exposed handoff API.
+- Repository inspection confirms that no Phase 6 indexing semantics were copied into a watcher module.
+
+** TODO [#A] Implement normalized watcher events and deterministic batching
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Internal
+:END:
+
+Goal:
+
+- Convert backend-specific filesystem event bursts into deterministic candidate-path batches and explicit reconciliation requests without using a live watcher.
+
+Implementation requirements:
+
+- Introduce an internal backend-independent watcher input model.
+- Its output must contain only:
+  - normalized candidate paths;
+  - or a request for full Phase 6 reconciliation.
+- Treat create, modify, remove, rename, metadata, and other raw event kinds only as path hints.
+- Preserve both old and new paths for rename-style events when the backend provides both.
+- Support deleted and renamed-away paths without requiring them to exist.
+- Reuse Phase 6 path and indexed-identity rules where applicable.
+- Coalesce duplicate and redundant paths.
+- Produce deterministic ordering independent of raw event order where the final candidate set is equivalent.
+- A reconciliation request supersedes path-specific candidates in the same batch.
+- Ignore irrelevant paths through Phase 6-compatible source-universe and exclusion classification.
+- Do not add ~notify~, sleeping, threads, channels, filesystem polling, or CLI behavior in this task.
+
+Acceptance criteria:
+
+- Repeated events for one logical path produce one candidate.
+- Create followed by modify produces one candidate.
+- Modify followed by remove retains the path as a candidate for Phase 6 classification.
+- Remove followed by create retains the path as a candidate for Phase 6 classification.
+- Rename with both paths produces old-path and new-path candidates.
+- Rename with incomplete information requests reconciliation when bounded correctness cannot be guaranteed.
+- Backend overflow, dropped-event, rescan, or equivalent uncertainty maps to reconciliation.
+- Candidate ordering is deterministic.
+- Excluded or unrelated paths do not reach Phase 6 execution.
+- Empty batches perform no DB work and cannot bypass Phase 6 safeguards.
+
+Required tests:
+
+- repeated modify events;
+- create plus modify;
+- modify plus remove;
+- remove plus create;
+- rename with old and new paths;
+- incomplete rename;
+- duplicate paths;
+- excluded paths;
+- unrelated paths;
+- reconciliation superseding path candidates;
+- deterministic output under permuted raw event order;
+- non-UTF-8 Unix paths where supported by the test platform.
+
+** TODO [#A] Implement debounce and watcher execution controller
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Internal
+:END:
+
+Goal:
+
+- Collect normalized watcher inputs into bounded batches and execute the appropriate Phase 6 reconciliation path serially.
+
+Implementation requirements:
+
+- Add a controller that accepts backend-independent watcher inputs.
+- Collect quick event bursts during a documented debounce interval.
+- Make the debounce interval configurable through an internal setting or one clearly defined constant suitable for later CLI exposure.
+- Convert each completed batch into either:
+  - bounded Phase 6 candidate reconciliation;
+  - or full configured-source Phase 6 reconciliation.
+- Ensure only one Phase 6 apply operation is active at a time.
+- Events arriving during an active reconciliation must be retained for the next batch or safely collapsed into a pending full reconciliation.
+- Do not lose events after a failed reconciliation.
+- A failed batch must report actionable context and leave the last committed DB state intact.
+- Do not introduce parallel parsing or concurrent DB writes.
+- Use controllable time or an injected batching boundary for deterministic tests.
+- Avoid tests that depend on arbitrary sleeps.
+
+Acceptance criteria:
+
+- Bursts are coalesced into one bounded execution.
+- Events separated by the batching boundary produce separate executions.
+- A pending reconciliation request supersedes pending bounded candidates.
+- Events received while Phase 6 is running are handled in a later execution.
+- Failed execution does not silently discard pending later events.
+- Shutdown can stop intake and deterministically finish or reject the current pending batch according to one documented policy.
+- Tests do not rely on platform watcher timing.
+
+Required tests:
+
+- one event burst produces one Phase 6 call;
+- separate bursts produce separate calls;
+- reconciliation supersedes candidates;
+- events arriving during execution are retained;
+- failed Phase 6 execution preserves later pending work;
+- deterministic shutdown with an empty queue;
+- deterministic shutdown with a pending batch.
+
+** TODO [#A] Integrate ~notify~ as the filesystem event source
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Internal
+:END:
+
+Goal:
+
+- Use ~notify~ as a thin event-source adapter for configured Phase 6 inputs.
+
+Implementation requirements:
+
+- Add a compatible ~notify~ dependency version.
+- Watch configured directory roots and explicit-file inputs sufficiently to observe relevant changes on supported Unix platforms.
+- Translate ~notify~ events and errors into the backend-independent event model.
+- Keep source-universe classification and exclusions outside the ~notify~ adapter.
+- Do not let raw ~notify~ event kinds directly choose Phase 6 operations.
+- Handle explicit files whose parent directory must be watched because the file may be replaced atomically.
+- Detect and report inaccessible watch roots.
+- Translate backend rescan, overflow, dropped-event, or equivalent uncertainty into a full reconciliation request.
+- Avoid feedback loops from the configured DB path and its SQLite sidecar files through the normal Phase 6-compatible ignore path.
+- Do not add Windows-specific branches or abstractions.
+
+Acceptance criteria:
+
+- Changes to configured Org files reach the normalized event layer.
+- Newly created candidate Org files below configured recursive roots can reach Phase 6 discovery.
+- Removed files produce usable candidate paths even though they no longer exist.
+- Rename and atomic-save sequences provide all available paths without watcher-side mutation decisions.
+- Explicit files remain observable after editor-style replacement.
+- Events outside configured inputs are filtered before Phase 6 execution.
+- Excluded paths remain excluded according to Phase 6 rules.
+- Backend uncertainty requests full reconciliation.
+- Watch registration failures identify the affected root or explicit-file parent.
+- Unit tests use synthetic ~notify~ events where possible.
+- A small supported-platform integration test verifies the adapter without depending on exact event counts or ordering.
+
+** TODO [#A] Implement watcher startup and recovery reconciliation
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Internal
+:END:
+
+Goal:
+
+- Cover changes that happened while the watcher was stopped or while filesystem events may have been lost.
+
+Implementation requirements:
+
+- Run full Phase 6 configured-source reconciliation before steady-state event processing.
+- Establish watches early enough that changes during startup cannot be silently lost:
+  - register watches before startup reconciliation and retain events for a following batch;
+  - or use another implementation with equivalent demonstrated correctness.
+- Treat event overflow, dropped events, relevant root replacement, and equivalent uncertainty as reconciliation requests.
+- Distinguish source-root absence or inaccessibility from an authoritative empty source universe.
+- Temporary root unavailability must not become mass deletion unless the Phase 6 configuration and safety contract explicitly establish that deletion is authoritative.
+- Recovery must call the normal Phase 6 planner and application path.
+- Reconciliation failures must preserve the last committed DB state and leave the watcher in a clearly reported retryable or terminated state.
+- Define whether reconciliation requests are retried automatically or cause watcher termination.
+- Keep the policy simple and testable.
+
+Acceptance criteria:
+
+- Startup detects file changes made while the watcher was not running.
+- A no-change startup uses the Phase 6 cheap unchanged path.
+- Events occurring during startup are processed after startup reconciliation or covered by a subsequent reconciliation.
+- Lost-event uncertainty causes full reconciliation.
+- Repeated uncertainty collapses into bounded reconciliation work rather than an unbounded queue.
+- Temporary root unavailability does not silently delete indexed content.
+- Recovery converges to the same DB state as an explicit Phase 6 reconciliation.
+- Failed recovery leaves the previous committed state intact and reports relevant path context.
+
+Required tests:
+
+- changed file before watcher startup;
+- deleted file before watcher startup;
+- file created during startup;
+- event received during startup reconciliation;
+- overflow or rescan request;
+- repeated reconciliation requests;
+- temporarily inaccessible root;
+- reconciliation failure and rollback.
+
+** TODO [#A] Add the watcher CLI and process lifecycle
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Expose watcher-driven indexing as a long-running CLI command with clear startup, failure, and shutdown behavior.
+
+Implementation requirements:
+
+- Add one documented watcher command consistent with the existing CLI structure.
+- Load the same indexing configuration used by Phase 6.
+- Start the watcher, perform startup reconciliation, and then enter steady-state handling.
+- Handle ~SIGINT~ and ~SIGTERM~ on supported Unix platforms.
+- Stop accepting new events during shutdown.
+- Apply the documented pending-batch shutdown policy from the controller task.
+- Report startup reconciliation failures, watch registration failures, backend failures, and Phase 6 apply failures with actionable context.
+- Keep normal machine-readable output conventions where applicable, but do not emit an unbounded stream of incompatible ad hoc JSON.
+- Decide and document whether routine watcher activity is silent, logged to stderr, or emitted as structured events.
+- Do not add daemonization, service installation, background process management, or Windows service support.
+
+Acceptance criteria:
+
+- The command performs startup reconciliation before reporting steady-state readiness.
+- ~Ctrl-C~ exits cleanly without corrupting committed DB state.
+- Termination during an idle period is immediate and deterministic.
+- Termination with pending work follows the documented controller policy.
+- Fatal watcher errors return a non-zero exit status.
+- User-facing errors identify affected paths where available.
+- Existing CLI commands and JSON contracts remain unchanged unless explicitly required.
+- CLI help documents the supported platform scope and high-level behavior.
+
+Required tests:
+
+- CLI argument parsing;
+- startup failure exit status;
+- watch registration failure exit status;
+- clean shutdown;
+- fatal controller failure;
+- unchanged behavior of existing commands.
+
+** TODO [#A] Add end-to-end watcher integration tests
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Verify that real filesystem activity converges to the same indexed state as normal Phase 6 reconciliation.
+
+Implementation requirements:
+
+- Use temporary directories and the real supported-platform watcher backend.
+- Assert eventual DB state rather than exact raw event count, type, or order.
+- Use bounded polling with explicit failure diagnostics instead of fixed sleeps as the primary synchronization mechanism.
+- Keep backend-independent batching and recovery behavior covered mainly by deterministic unit tests.
+- Compare watcher-produced state with state produced by a normal Phase 6 reconciliation where practical.
+- Mark or gate tests only where the backend genuinely cannot run in the test environment.
+- Do not weaken assertions merely to avoid timing failures.
+
+Required scenarios:
+
+- initial no-change startup;
+- create an Org file;
+- modify indexed content;
+- metadata-only filesystem change where reliably reproducible;
+- delete an indexed file;
+- rename an indexed file;
+- replace a file through an atomic editor-style save;
+- several quick writes to one file;
+- several quick writes to multiple files;
+- explicit-file input replacement;
+- recursive directory discovery;
+- non-recursive directory behavior;
+- directory exclusion;
+- file exclusion;
+- unrelated file event;
+- DB and SQLite sidecar activity;
+- invalid or unreadable Org input;
+- watcher restart after offline changes;
+- temporary source-root disruption where safely testable;
+- final state comparison with full Phase 6 reconciliation.
+
+Acceptance criteria:
+
+- Every supported scenario reaches the expected committed DB state within a bounded timeout.
+- No test relies on receiving one particular ~notify~ event sequence.
+- Duplicate, redundant, and out-of-order backend events do not produce duplicate indexed state.
+- Derived FTS and link-resolution state is valid after watcher updates.
+- Failed file preparation or application does not partially commit the batch.
+- Watcher restart repairs missed offline changes.
+- Tests provide useful diagnostics showing the expected and observed DB state on failure.
+
+** TODO [#A] Audit Phase 7 completeness and remove unfinished paths
+:PROPERTIES:
+:PRIORITY: High
+:RISK: Medium
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: No
+:END:
+
+Goal:
+
+- Verify that Phase 7 is complete, internally consistent, and contains no placeholder or duplicate implementation paths.
+
+Implementation requirements:
+
+- Review the complete Phase 7 diff against every phase rule and acceptance criterion.
+- Search for and resolve:
+  - ~TODO~ and ~FIXME~ markers introduced by Phase 7;
+  - ~todo!()~, ~unimplemented!()~, panic-based normal error handling, and dead compatibility code;
+  - ignored, flaky, or overly weak watcher tests;
+  - duplicated Phase 6 discovery, exclusion, canonicalization, parsing, or DB mutation logic;
+  - raw event kinds directly selecting DB operations;
+  - Windows-specific watcher code;
+  - uncontrolled sleeps in deterministic unit tests;
+  - event-loss paths;
+  - unbounded queues;
+  - stale FTS or link-resolution state;
+  - temporary-root mass-deletion risks.
+- Verify that watcher execution converges to a normal Phase 6 reconciliation result.
+- Update task, CLI, and architecture documentation to match only the completed implementation.
+- Move completed Phase 7 tasks to the archive according to the repository workflow only after all checks pass.
+
+Acceptance criteria:
+
+- All Phase 7 tasks and acceptance criteria are either implemented and verified or explicitly removed from the completed scope.
+- No watcher-owned indexing semantics remain.
+- No known event-loss or silent mass-deletion path remains.
+- No placeholder implementation is presented as production behavior.
+- All supported-platform tests pass repeatedly.
+- Existing rebuild and non-watcher incremental behavior remains unchanged.
+- Phase 8 parallelization has not been implemented implicitly.
+- The repository documentation accurately describes startup, steady-state updates, recovery, failure handling, shutdown, and platform support.
+
+Local final verification:
+
+- Run ~git diff --check~.
+- Run ~cargo fmt --check~.
+- Run ~cargo test~.
+- Run ~cargo test~ a second time to expose watcher-test instability.
+- Run ~cargo clippy --all-targets --all-features -- -D warnings~.
+- Search for ~TODO|FIXME|todo!\(|unimplemented!\(|cfg\(any\(\)\)~ in the Phase 7 implementation.
+- Review the complete diff from the last pre-Phase-7 commit.
+- Run a manual Unix smoke test covering startup, modify, create, rename, delete, and clean shutdown.
