@@ -17,6 +17,7 @@ use super::{
     ValidatedExpr, ValidatedOption, ValidatedPredicate, ValidatedQuery,
 };
 use crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY;
+use crate::parser::orgize_adapter::normalize_property_key;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledSqlQuery {
@@ -1772,6 +1773,40 @@ fn compile_resolved_property_predicate(
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(target, "property", message)
     })?;
+    let key = normalize_property_key(&key).0;
+    let value_column = if inherit {
+        "effective_value"
+    } else {
+        "local_value"
+    };
+    let mut sql = format!(
+        "(EXISTS (SELECT 1 FROM effective_properties WHERE heading_id = {heading_id_sql} AND key = ?"
+    );
+    let mut params = vec![QueryParam::Text(key)];
+    if !inherit {
+        sql.push_str(" AND local_value IS NOT NULL");
+    }
+    if let Some(value) = predicate.args.get(1) {
+        let value = arg_as_string(value).map_err(|message| {
+            QueryExecutionError::unsupported_backend_feature(target, "property", message)
+        })?;
+        if regexp {
+            validate_regexp_pattern(target, "property", &value)?;
+            sql.push_str(&format!(" AND orgfdb_regexp(?, {value_column}) = 1"));
+        } else {
+            sql.push_str(&format!(" AND {value_column} = ?"));
+        }
+        params.push(QueryParam::Text(value));
+    }
+    sql.push_str("))");
+    Ok(SqlFragment { sql, params })
+}
+
+/*
+    let regexp = option_bool(&predicate.options, "regexp")?;
+    let key = arg_as_string(&predicate.args[0]).map_err(|message| {
+        QueryExecutionError::unsupported_backend_feature(target, "property", message)
+    })?;
     let mut params = vec![QueryParam::Text(key)];
     let final_select = if inherit {
         if predicate.args.get(1).is_some() {
@@ -2003,6 +2038,7 @@ fn compile_resolved_property_predicate(
     })
 }
 
+*/
 fn compile_keyword_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
@@ -5789,6 +5825,8 @@ mod tests {
             Path::new("/tmp/query-alpha.org"),
             Path::new("/tmp/query-beta.org"),
         );
+        crate::db::schema::backfill_effective_properties(&connection)
+            .expect("effective properties should seed");
         connection
     }
 

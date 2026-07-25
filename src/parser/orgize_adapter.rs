@@ -1516,7 +1516,7 @@ fn parsed_property_from_raw_line(
     })
 }
 
-fn normalize_property_key(raw_key: &str) -> (String, bool) {
+pub(crate) fn normalize_property_key(raw_key: &str) -> (String, bool) {
     let (key, append) = if let Some(key) = raw_key.strip_suffix('+') {
         (key, true)
     } else {

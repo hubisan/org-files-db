@@ -10,9 +10,8 @@ use serde::Serialize;
 
 use super::sqlite::HeadingQueryMatch;
 use super::{
-    execute_sqlite_query_with_options,
-    property::{PropertyResolver, PropertyRow},
-    LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget, ValidatedQuery,
+    execute_sqlite_query_with_options, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
+    ValidatedQuery,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -573,7 +572,6 @@ struct StoredLink {
 
 #[derive(Debug, Clone)]
 struct StoredProperty {
-    id: i64,
     heading_id: i64,
     fact: PropertyFact,
 }
@@ -693,9 +691,7 @@ impl EnrichmentContext {
         let headings = load_headings_for_files(connection, &relevant_file_ids)?;
 
         let mut properties = HashMap::new();
-        let loaded_properties = if include_set.contains(&QueryInclude::Properties)
-            || include_set.contains(&QueryInclude::EffectiveProperties)
-        {
+        let loaded_properties = if include_set.contains(&QueryInclude::Properties) {
             Some(load_properties(
                 connection,
                 &matched_heading_ids,
@@ -716,11 +712,7 @@ impl EnrichmentContext {
         }
 
         let effective_properties = if include_set.contains(&QueryInclude::EffectiveProperties) {
-            build_effective_properties(
-                &files,
-                &headings,
-                loaded_properties.as_deref().unwrap_or(&[]),
-            )
+            load_effective_properties(connection, &matched_heading_ids, &matched_file_ids, &files)?
         } else {
             HashMap::new()
         };
@@ -1610,7 +1602,6 @@ fn load_properties(
     let rows = statement
         .query_map(params_from_iter(params.iter()), |row| {
             Ok(StoredProperty {
-                id: row.get(0)?,
                 heading_id: row.get(1)?,
                 fact: PropertyFact {
                     key: row.get(2)?,
@@ -1626,66 +1617,47 @@ fn load_properties(
         .map_err(|source| QueryShapeError::database("load_properties.collect", source))
 }
 
-fn build_effective_properties(
+fn load_effective_properties(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+    file_ids: &BTreeSet<i64>,
     files: &HashMap<i64, StoredFile>,
-    headings: &HashMap<i64, StoredHeading>,
-    properties: &[StoredProperty],
-) -> HashMap<i64, Vec<EffectivePropertyFact>> {
-    let mut parent_by_heading = HashMap::new();
-    for heading in headings.values() {
-        parent_by_heading.insert(heading.id, heading.parent_id);
-    }
-
-    let mut rows_by_heading = HashMap::<i64, Vec<PropertyRow>>::new();
-    for property in properties {
-        rows_by_heading
-            .entry(property.heading_id)
-            .or_default()
-            .push(PropertyRow {
-                id: property.id,
-                heading_id: property.heading_id,
-                key: property.fact.key.clone(),
-                value: property.fact.value.clone(),
-                append: property.fact.append,
-                line_number: property.fact.line_number,
-            });
-    }
-
-    let mut resolver = PropertyResolver::new(&parent_by_heading, &rows_by_heading);
-    let mut effective = HashMap::new();
-
-    for file in files.values() {
-        effective.insert(
-            file.root_heading_id,
-            resolver
-                .effective_properties(file.root_heading_id, false)
-                .into_iter()
-                .map(|(key, value)| EffectivePropertyFact {
-                    key,
-                    value: Some(value),
-                })
-                .collect(),
-        );
-    }
-
-    for heading in headings.values() {
-        if heading.level == 0 {
-            continue;
+) -> Result<HashMap<i64, Vec<EffectivePropertyFact>>, QueryShapeError> {
+    let mut target_ids = heading_ids.clone();
+    for file_id in file_ids {
+        if let Some(file) = files.get(file_id) {
+            target_ids.insert(file.root_heading_id);
         }
-        effective.insert(
-            heading.id,
-            resolver
-                .effective_properties(heading.id, true)
-                .into_iter()
-                .map(|(key, value)| EffectivePropertyFact {
-                    key,
-                    value: Some(value),
-                })
-                .collect(),
-        );
     }
-
-    effective
+    if target_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let sql = format!("SELECT heading_id, key, effective_value FROM effective_properties WHERE heading_id IN ({}) ORDER BY heading_id, key", placeholders(target_ids.len()));
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|source| QueryShapeError::database("load_effective_properties.prepare", source))?;
+    let rows = statement
+        .query_map(params_from_iter(target_ids.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                EffectivePropertyFact {
+                    key: row.get(1)?,
+                    value: Some(row.get(2)?),
+                },
+            ))
+        })
+        .map_err(|source| QueryShapeError::database("load_effective_properties.query", source))?;
+    let mut effective = HashMap::new();
+    for heading_id in target_ids {
+        effective.insert(heading_id, Vec::new());
+    }
+    for row in rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| QueryShapeError::database("load_effective_properties.collect", source))?
+    {
+        effective.entry(row.0).or_insert_with(Vec::new).push(row.1);
+    }
+    Ok(effective)
 }
 
 fn load_keywords(
@@ -2587,6 +2559,8 @@ mod tests {
             Path::new("/tmp/query-alpha.org"),
             Path::new("/tmp/query-beta.org"),
         );
+        crate::db::schema::backfill_effective_properties(&connection)
+            .expect("effective properties should seed");
         connection
     }
 

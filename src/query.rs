@@ -2,7 +2,7 @@ pub mod ast;
 pub mod error;
 pub mod parser;
 mod priority;
-mod property;
+pub(crate) mod property;
 pub mod resolve;
 pub mod result;
 pub mod sqlite;

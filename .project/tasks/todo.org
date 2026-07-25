@@ -117,7 +117,7 @@ General rules:
 
 Task file: [[file:archive/2026-07-24--tune-sqlite-indexes-from-measured-query-plans.org][Tune SQLite Indexes from Measured Query Plans]]
 
-** TODO [#B] Materialize effective properties in schema version 10
+** CONTINUE [#B] Materialize ~effective_properties~ in schema version 10
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
@@ -125,147 +125,446 @@ Task file: [[file:archive/2026-07-24--tune-sqlite-indexes-from-measured-query-pl
 :API_CONTRACT_CHANGE: No
 :END:
 
-Depends on:
-
-- Complete the measured SQLite index-profile decisions for schema version 9.
-- Existing effective property semantics and regression tests.
+Task file: [[file:2026-07-25--materialize-effective-properties-schema-10.org][Materialize effective properties in schema version 10]]
 
 Goal:
 
-- Replace query-time recursive property resolution with a normalized, materialized ~effective_properties~ projection.
-- Treat the projection as mandatory derived database state analogous to ~outline_path~, not as an optional cache.
-- Preserve all existing property query and output semantics while making direct and inherited property queries suitable for interactive use.
+- Replace recursive query-time property resolution with a normalized and transactionally maintained ~effective_properties~ projection.
+- Treat ~properties~ as the canonical source and ~effective_properties~ as mandatory derived state analogous to ~outline_path~.
+- Preserve the complete existing property semantics and public query contract.
+- Reduce direct and inherited property query latency to an interactive range.
 
-Measured reason:
+Measured motivation:
 
-- The 1,000-file benchmark measured approximately 200 ms for a direct property query and approximately 4.7 seconds median for an inherited property query.
-- The current implementation repeatedly reconstructs heading lineages, local property summaries, and effective values inside correlated subqueries.
-- Property resolution should instead be performed once when a file is indexed or replaced.
+- The 1,000-file benchmark measured approximately 200 ms median for a direct property query.
+- The inherited property query required approximately 4.7 seconds median and approximately 5 seconds p95.
+- The current SQL repeatedly reconstructs heading lineages, local property summaries, and effective values for every candidate heading.
+- The same deterministic values should instead be calculated once when a file is indexed.
 
-Canonical source contract:
+*** Design decisions
 
-- The existing ~properties~ table remains the canonical source of property facts.
-- ~effective_properties~ is derived exclusively from canonical headings and property rows.
-- Property drawer rows and property-like keyword rows already normalized into ~properties~ must use identical resolution rules.
-- Root property sources include supported ~#+PROPERTY~ declarations, ~#+CATEGORY~, and level-0 property drawer rows.
-- Generic keywords such as ~TITLE~ and ~AUTHOR~ must not become properties merely because an effective-property projection exists.
-- The separate ~keywords~ table and ~(keyword ...)~ predicate retain their current root/file-level semantics.
+- Keep ~properties~ as the only canonical property representation.
+- Add ~effective_properties~ as a fully rebuildable derived projection.
+- Create one row per heading and visible property key.
+- Include the synthetic level-0 root heading in the projection.
+- Store local, normally effective, and root-excluding effective values in the same row.
+- Preserve the distinction between:
+  - no local definition;
+  - an explicitly empty local definition;
+  - no effective value without root participation;
+  - an explicitly empty effective value.
+- Do not create effective rows from arbitrary keywords.
+- Property facts already normalized into ~properties~ from ~#+PROPERTY~, ~#+CATEGORY~, or property drawers participate automatically.
+- Keep file-target property queries as direct root-property queries.
+- Do not change the public query syntax or JSON result contract.
 
-Schema:
+*** Schema version 10
 
-- Bump the database schema version from 9 to 10.
-- Add a normalized ~effective_properties~ table with one row per visible property key and heading.
-- Store at least:
-  - ~heading_id~
-  - ~file_id~
-  - normalized ~key~
-  - nullable ~local_value~
-  - ~effective_value~
-  - nullable ~effective_value_without_root~
-- Use ~NULL~ for ~local_value~ when the heading does not define the property locally.
-- Preserve an explicitly defined empty local value as an empty string rather than ~NULL~.
-- Use ~NULL~ for ~effective_value_without_root~ when the key exists only through the file/root context.
-- Enforce uniqueness for ~(heading_id, key)~.
-- Reference headings and files with foreign keys and cascade derived rows when their owning heading or file is deleted.
+Add:
 
-Indexes:
+#+begin_src sql
+CREATE TABLE effective_properties (
+    heading_id                   INTEGER NOT NULL,
+    file_id                      INTEGER NOT NULL,
+    key                          TEXT NOT NULL,
+    local_value                  TEXT,
+    effective_value              TEXT NOT NULL,
+    effective_value_without_root TEXT,
 
-- Add an index supporting exact inherited lookups by ~(key, effective_value, heading_id)~.
-- Add a partial index supporting direct lookups by ~(key, local_value, heading_id)~ where ~local_value IS NOT NULL~.
-- Add a partial index supporting root-excluding lookups by ~(key, effective_value_without_root, heading_id)~ where ~effective_value_without_root IS NOT NULL~.
-- Keep index names and the complete schema inventory deterministic and tested.
+    PRIMARY KEY (heading_id, key),
 
-Resolution semantics:
+    FOREIGN KEY (heading_id)
+        REFERENCES headings(id)
+        ON DELETE CASCADE,
 
-- Preserve the current key normalization rules.
-- Preserve source order where it affects property resolution.
-- The last applicable non-append value at one location wins.
-- Append rows are combined in their defined source order.
-- Append-only local definitions can extend an inherited value.
-- A local non-append definition replaces the inherited base before local appends are applied.
-- Root, ancestor, and current-heading precedence must remain unchanged.
-- Missing values, explicitly empty values, empty bases, and empty append values must remain distinguishable where required by the current semantics.
-- Effective resolution must be deterministic and independent of surrogate row IDs.
+    FOREIGN KEY (file_id)
+        REFERENCES files(id)
+        ON DELETE CASCADE
+);
+#+end_src
 
-Derivation:
+Column semantics:
 
-- Implement property derivation as a pure, testable operation over one prepared file and its heading tree.
-- Resolve local property values once per heading and key.
-- Walk the tree from root to leaves and propagate effective values downward.
-- Calculate both the normal effective value and the effective value with root participation excluded.
-- Map the derived rows to stored heading IDs during transactional application.
-- Do not execute recursive property SQL once per candidate heading during query execution.
+- ~local_value IS NULL~ means that the heading has no local definition for the key.
+- ~local_value = ''~ means that the heading explicitly defines an empty local value.
+- ~effective_value~ contains the resolved value including the level-0 root.
+- ~effective_value_without_root IS NULL~ means that no value exists after excluding the level-0 root.
+- ~effective_value_without_root = ''~ means that a real heading or real ancestor explicitly resolves the property to an empty value.
+- The level-0 root row has ~effective_value_without_root = NULL~.
 
-Transactional maintenance:
+Add indexes:
 
-- Full rebuild and incremental replacement must use the same derivation and insertion path.
-- A created or modified file regenerates all of its ~effective_properties~ rows in the same transaction as its headings and canonical properties.
-- A deleted file removes its derived rows through the controlled file deletion path.
-- A metadata-only change must not regenerate effective properties.
-- Any derivation or insertion failure must roll back the complete affected transaction.
-- No committed database may contain new canonical property rows with stale effective-property rows.
+#+begin_src sql
+CREATE INDEX idx_effective_properties_key_value_heading
+ON effective_properties(key, effective_value, heading_id);
 
-Migration:
+CREATE INDEX idx_effective_properties_key_without_root_value_heading
+ON effective_properties(key, effective_value_without_root, heading_id)
+WHERE effective_value_without_root IS NOT NULL;
 
-- Add a transactional migration from schema version 9 to 10.
-- Create and backfill ~effective_properties~ from existing headings and canonical property rows.
-- Do not require reparsing Org files when the existing database contains all required canonical facts.
-- Advance the stored schema version only after the table, indexes, and backfill complete successfully.
-- Preserve the previous database unchanged when migration fails.
+CREATE INDEX idx_effective_properties_key_local_value_heading
+ON effective_properties(key, local_value, heading_id)
+WHERE local_value IS NOT NULL;
 
-Query compiler:
+CREATE INDEX idx_effective_properties_file
+ON effective_properties(file_id);
+#+end_src
 
-- Compile ~(property KEY VALUE :inherit nil)~ against ~local_value~.
-- Compile the default inherited form against ~effective_value~.
-- Compile ~:inherit t :without-root t~ against ~effective_value_without_root~.
-- Preserve key-only existence queries, exact value matching, regexp matching, root-result behaviour, and bound SQL parameters.
-- Remove the recursive lineage and effective-value CTEs from normal property predicate execution.
-- Ensure nested property predicates in relation queries use the same materialized projection.
+Schema rules:
 
-Output:
+- Bump ~CURRENT_SCHEMA_VERSION~ from 9 to 10.
+- Include the exact table and explicit indexes in fresh-schema inventory tests.
+- Do not depend on SQLite autoindex names.
+- Keep all index names deterministic.
 
-- Preserve the existing public JSON contract for included direct and effective properties.
-- Load included effective properties from ~effective_properties~ rather than recomputing them.
-- Keep direct property output sourced from canonical/local values according to the current include contract.
-- Do not expose internal projection columns unless already required by the public API.
+*** Property derivation
 
-Integrity and equivalence:
+Extract the existing tested property-resolution rules into one pure derivation component.
 
-- Extend semantic database snapshots to include effective properties using stable file paths, heading source positions, keys, and values rather than raw surrogate IDs.
-- Verify that every stored effective row references the correct file and heading.
-- Verify that no stale or orphaned effective rows survive replacement or deletion.
-- Verify that a clean rebuild and an equivalent incremental sequence produce identical effective-property projections.
-- Include ~effective_properties~ in foreign-key and derived-state integrity checks.
+Inputs:
 
-Tests:
+- prepared heading tree for one file;
+- canonical ~properties~ rows;
+- normalized property keys;
+- source ordering;
+- append flags;
+- heading levels and parent relationships.
 
-- Cover a direct drawer property.
-- Cover a root-level property drawer.
-- Cover ~#+PROPERTY~ as a root property source.
-- Cover ~#+CATEGORY~ as a root property source and inherited ~CATEGORY~ lookup.
-- Cover a generic keyword that remains a keyword and does not become a property.
-- Cover root inheritance, parent inheritance, and multiple ancestor levels.
-- Cover local replacement of an inherited value.
-- Cover append-only local values and append onto an inherited value.
-- Cover multiple appends and the last local base definition winning.
-- Cover explicit empty values, missing values, empty base plus append, and empty append rows.
-- Cover ~:inherit nil~, default inheritance, and ~:without-root t~.
-- Cover key-only existence and value matching.
-- Cover file creation, modification, metadata-only change, deletion, migration, rollback, and rebuild equivalence.
-- Assert that representative property query plans use ~effective_properties~ and no longer contain the recursive property-resolution CTE.
-- Run a focused benchmark and record direct and inherited property query latency after the change.
+Outputs:
 
-Acceptance criteria:
+- one derived row per heading and visible key;
+- ~local_value~;
+- ~effective_value~;
+- ~effective_value_without_root~.
+
+Rules:
+
+- Reuse the existing property semantics rather than defining a new approximation.
+- Preserve duplicate handling at one location.
+- Preserve the last applicable non-append definition.
+- Preserve append order.
+- Preserve appends before and after replacement definitions according to the existing contract.
+- Preserve append-only definitions.
+- Preserve appending to inherited values.
+- Preserve explicit empty values and empty append rows.
+- Preserve root, ancestor, and current-heading precedence.
+- Make the result independent of generated database row IDs.
+
+Algorithm shape:
+
+- Collapse canonical property rows into a local resolved state per heading and key.
+- Traverse the heading tree once from root to leaves.
+- Carry the parent effective state into each child.
+- Apply the local resolved state to obtain the normal effective value.
+- Independently carry a state that begins empty below the root to obtain the root-excluding value.
+- Emit derived rows only after the values for the heading are complete.
+- Keep complexity proportional to the number of headings, property rows, and propagated visible keys in the file.
+- Do not perform one upward ancestry traversal per heading.
+
+*** Indexing and transactional maintenance
+
+Use the same effective-property derivation for:
+
+- full rebuild;
+- newly created files;
+- modified-file replacement;
+- schema migration backfill;
+- clean-reference rebuilds used by equivalence tests.
+
+Transactional order for a created or replaced file:
+
+- insert the file and headings;
+- insert canonical property rows;
+- derive effective properties from the prepared file representation;
+- map prepared headings to persisted heading IDs;
+- insert ~effective_properties~;
+- insert or update the remaining derived state;
+- commit the complete file replacement.
+
+Rules:
+
+- Derivation and insertion occur inside the controlled replacement transaction.
+- A failure rolls back canonical and derived changes together.
+- A metadata-only update does not regenerate effective properties.
+- Deleting or replacing headings removes derived rows through foreign-key cascades.
+- No committed database may contain new canonical property facts with stale effective rows.
+- Verifying stale plans must happen before applying any derived state.
+
+*** Migration from schema version 9
+
+Implement a transactional 9-to-10 migration.
+
+Migration steps:
+
+- verify that the database is an expected version-9 database;
+- create ~effective_properties~ and its indexes;
+- read existing headings and canonical property rows grouped by file;
+- reconstruct each file's heading tree from stored parent relationships;
+- run the same derivation component used by normal indexing;
+- insert all derived rows;
+- run foreign-key and projection-integrity checks;
+- update the stored schema version only after successful backfill;
+- roll back the entire migration on any failure.
+
+Migration constraints:
+
+- Do not require reparsing source Org files.
+- Do not silently rebuild the whole database from disk.
+- Do not derive values from old query output or serialized JSON caches.
+- Existing canonical ~properties~ rows must be sufficient.
+- Migration and fresh rebuild must produce identical stable snapshots.
+
+*** Query compiler changes
+
+Heading property queries:
+
+- Default inherited query:
+
+#+begin_src lisp
+(property "OWNER" "Alice")
+#+end_src
+
+uses ~effective_value~.
+
+- Explicit inherited query:
+
+#+begin_src lisp
+(property "OWNER" "Alice" :inherit t)
+#+end_src
+
+uses ~effective_value~.
+
+- Local query:
+
+#+begin_src lisp
+(property "OWNER" "Alice" :inherit nil)
+#+end_src
+
+uses ~local_value~ and requires ~local_value IS NOT NULL~.
+
+- Inherited query excluding the root:
+
+#+begin_src lisp
+(property "OWNER" "Alice" :inherit t :without-root t)
+#+end_src
+
+uses ~effective_value_without_root~ and requires it to be non-null.
+
+- A key-only query uses the same selected value column but checks existence rather than equality.
+- Regexp queries apply the existing regexp function to the selected materialized value.
+- Default value matching remains exact and case behaviour remains unchanged.
+- SQL parameters remain bound.
+- Nested property predicates in hierarchy and link relation queries use the same projection.
+
+Root behavior:
+
+- A root/file result may match a normal inherited property query through its level-0 row.
+- A root/file result must not match ~:without-root t~.
+- ~:inherit nil~ on the root evaluates its direct root property.
+- File-target property queries retain their existing direct-root semantics and reject ~:inherit~.
+
+Remove from normal query execution:
+
+- recursive property lineage CTEs;
+- repeated local property aggregation;
+- per-candidate effective-value folding;
+- repeated temporary ordering for the same property rows.
+
+*** Output and includes
+
+- Preserve the current JSON fields and value semantics.
+- Use canonical property rows for explicitly direct/source-oriented property output.
+- Use ~effective_properties~ whenever output requires effective property values.
+- Do not expose ~local_value~, ~effective_value~, or ~effective_value_without_root~ as new public fields merely because they exist internally.
+- Preserve deterministic property ordering.
+- Do not change output matching through include options.
+
+*** Integrity checks
+
+Add validation for:
+
+- every effective row references an existing heading and file;
+- the referenced heading belongs to the stored ~file_id~;
+- no duplicate ~(heading_id, key)~ rows exist;
+- root rows have no root-excluding value;
+- no effective rows remain after file deletion;
+- no rows from an old file version survive replacement;
+- all property keys use canonical normalization;
+- fresh rebuild and equivalent incremental execution produce identical projections.
+
+Extend semantic snapshots with stable values:
+
+- file path;
+- heading byte position or other stable source identity;
+- property key;
+- local value including null state;
+- effective value;
+- root-excluding effective value.
+
+Do not compare raw surrogate heading IDs across independently built databases.
+
+*** Required semantic tests
+
+Canonical sources:
+
+- heading property drawer;
+- level-0 property drawer;
+- ~#+PROPERTY~ base value;
+- ~#+PROPERTY~ append form;
+- ~#+CATEGORY~ represented as property ~CATEGORY~;
+- generic ~#+AUTHOR~ remaining a keyword and not becoming a property.
+
+Resolution:
+
+- local property;
+- root inheritance;
+- direct-parent inheritance;
+- inheritance across several ancestors;
+- local replacement of an inherited value;
+- append-only local definition;
+- append onto a root value;
+- append onto an ancestor value;
+- several append rows in source order;
+- duplicate base definitions where the last applicable base wins;
+- append rows around replacement definitions;
+- missing property;
+- explicit empty property;
+- empty base plus non-empty append;
+- non-empty base plus empty append;
+- inherited empty value;
+- local empty replacement of a non-empty inherited value.
+
+Query options:
+
+- default ~:inherit t~;
+- explicit ~:inherit t~;
+- ~:inherit nil~;
+- ~:without-root t~;
+- key-only existence;
+- exact value;
+- regexp value;
+- root/file result matching;
+- file-target direct property query;
+- invalid file-target ~:inherit~ option;
+- property predicates inside nested relation queries.
+
+Maintenance:
+
+- fresh database;
+- migration from version 9;
+- created file;
+- modified file;
+- changed root property affecting all descendants;
+- changed ancestor property affecting its subtree;
+- metadata-only update;
+- deleted file;
+- rollback after derivation failure;
+- rollback after insertion failure;
+- deterministic rebuild;
+- incremental versus clean-reference equivalence.
+
+*** Query-plan tests
+
+For representative queries, assert:
+
+- SQL references ~effective_properties~.
+- Exact inherited lookup can use ~idx_effective_properties_key_value_heading~.
+- Local lookup can use ~idx_effective_properties_key_local_value_heading~.
+- Root-excluding lookup can use ~idx_effective_properties_key_without_root_value_heading~.
+- The compiled SQL no longer contains the recursive property-resolution CTE.
+- Result counts remain equal to the pre-change implementation fixtures.
+
+Do not over-specify unrelated planner details or join order.
+
+*** Focused benchmark
+
+Add or run a focused benchmark using the existing deterministic 1,000-file corpus.
+
+Measure:
+
+- local exact property lookup;
+- inherited exact property lookup;
+- inherited lookup excluding root;
+- key-only inherited lookup;
+- regexp inherited lookup;
+- rebuild duration;
+- incremental modified-file application;
+- database-size delta;
+- result counts and semantic equivalence.
+
+Protocol:
+
+- release build;
+- seed 1;
+- same SQLite build and pragmas as the established baseline;
+- 5 warm-ups;
+- 30 measured iterations for query workloads;
+- compare against the recorded schema-version-9 measurements.
+
+Initial performance targets:
+
+- local exact lookup below 50 ms median;
+- inherited exact lookup below 200 ms median;
+- no meaningful regression to rebuild or incremental replacement;
+- identical query result counts;
+- complete semantic equivalence.
+
+The targets are acceptance guidance, not permission to change semantics for speed.
+
+*** Implementation order
+
+- Extract and test the pure property resolver without changing storage or query SQL.
+- Add the schema-version-10 table and fresh-schema tests.
+- Add derivation during fresh indexing and file replacement.
+- Add migration and backfill.
+- Extend integrity checks and semantic snapshots.
+- Switch the query compiler to ~effective_properties~.
+- Switch effective property output to the projection where applicable.
+- Remove obsolete recursive query-time property SQL.
+- Add focused query-plan tests.
+- Run focused benchmarks.
+- Update documentation, changelog, and task status.
+- Run the complete CI suite.
+
+*** Documentation
+
+Update:
+
+- schema documentation;
+- indexing-context and derived-state documentation;
+- migration documentation;
+- query compiler implementation notes;
+- performance baseline;
+- changelog;
+- task and roadmap records.
+
+Document explicitly:
+
+- ~properties~ is canonical;
+- ~effective_properties~ is derived and mandatory;
+- ~#+PROPERTY~ and ~#+CATEGORY~ participate because they are normalized into ~properties~;
+- ordinary keywords remain keywords;
+- property inheritance never crosses file boundaries;
+- a rebuild can reproduce the entire projection.
+
+*** Acceptance criteria
 
 - Fresh databases use schema version 10.
-- Version-9 databases migrate deterministically to version 10.
-- Existing property semantics and public output remain unchanged.
-- ~#+CATEGORY~ and supported ~#+PROPERTY~ facts participate in effective property resolution.
-- Arbitrary root keywords do not silently become properties.
-- Direct and inherited property predicates read the materialized projection.
-- Full rebuild and incremental replacement maintain the projection transactionally.
-- Integrity and semantic-equivalence checks include the new derived table.
-- The focused benchmark shows a substantial reduction from the current approximately 200 ms direct and 4.7 second inherited measurements.
+- Version-9 databases migrate transactionally to version 10.
+- ~properties~ remains canonical.
+- ~effective_properties~ is populated for fresh rebuilds and incremental replacements.
+- Direct, inherited, and root-excluding property semantics remain unchanged.
+- ~#+PROPERTY~, ~#+CATEGORY~, root drawers, ancestor drawers, and heading drawers resolve correctly.
+- Generic keywords do not become properties.
+- Normal property queries no longer perform recursive lineage resolution.
+- Query results and public JSON output remain compatible.
+- Foreign-key, migration, rollback, and rebuild-equivalence tests pass.
+- The focused benchmark shows a substantial improvement over the recorded schema-version-9 property measurements.
+- ~cargo fmt --all --check~ passes.
+- ~cargo clippy --all-targets --all-features -- -D warnings~ passes.
+- ~cargo test~ passes.
+- ~cargo build --all-targets~ passes.
+- ~git diff --check~ passes.
 - ~make ci~ passes.
 
 ** TODO [#B] Replace ~all_tags_json~ with normalized effective tags

@@ -13,9 +13,9 @@ use crate::{
     config::{Config, ConfigError},
     db::{
         open_database_with_schema, sqlite_supports_fts5, DbError, DbWriteError, DbWriter,
-        FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
-        OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord, TimestampRecord,
-        TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
+        EffectivePropertyRecord, FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord,
+        LinkRecord, OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord,
+        TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
         DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
         DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
         FTS_SCHEMA_CONTRACT_VERSION,
@@ -30,6 +30,7 @@ use crate::{
         ParsedLink, ParsedOrgDocument, ParsedTimestamp, ParsedTimestampModifierKind,
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
+    query::property::{derive_effective_properties, PropertyRow},
     todo_keywords::{
         resolve_todo_keywords_with_default_source, ResolvedTodoKeywordEntry, ResolvedTodoKeywords,
         TodoKeywordSourceKind,
@@ -1962,6 +1963,42 @@ fn index_document(
     DbWriter::insert_keywords(connection, &keyword_rows)?;
     DbWriter::insert_tags(connection, &tag_rows)?;
     DbWriter::insert_properties(connection, &property_rows)?;
+    let mut properties_by_heading = std::collections::HashMap::<i64, Vec<PropertyRow>>::new();
+    for (order, property) in property_rows.iter().enumerate() {
+        properties_by_heading
+            .entry(property.heading_id)
+            .or_default()
+            .push(PropertyRow {
+                id: order as i64,
+                heading_id: property.heading_id,
+                key: property.key.clone(),
+                value: property.value.clone(),
+                append: property.append,
+                line_number: property.line_number,
+            });
+    }
+    let parents = document
+        .headings
+        .iter()
+        .enumerate()
+        .map(|(index, heading)| {
+            (
+                heading_ids[index],
+                heading.parent_index.map(|parent| heading_ids[parent]),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let projection = derive_effective_properties(&parents, &properties_by_heading)
+        .into_iter()
+        .map(|row| EffectivePropertyRecord {
+            heading_id: row.heading_id,
+            file_id,
+            key: row.key,
+            local_value: row.local_value,
+            effective_value: row.effective_value,
+        })
+        .collect::<Vec<_>>();
+    DbWriter::insert_effective_properties(connection, &projection)?;
     DbWriter::insert_outline_path(connection, &outline_rows)?;
     DbWriter::insert_heading_bodies(connection, &body_rows)?;
     DbWriter::insert_links(connection, &link_rows)?;

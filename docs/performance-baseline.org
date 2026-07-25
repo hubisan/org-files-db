@@ -3,7 +3,7 @@
 
 * Purpose
 
-The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds.
+The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds. Schema version 10 materializes effective property values so inherited property matching avoids reconstructing heading ancestry at query time.
 
 * Run
 

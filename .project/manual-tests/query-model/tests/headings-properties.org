@@ -28,8 +28,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -48,8 +48,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -68,8 +68,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -101,8 +101,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -121,8 +121,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -141,8 +141,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -174,8 +174,8 @@
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -229,8 +229,8 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -249,8 +249,8 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+RESULTS:
 #+begin_SRC js
 {
-  "kind": "file",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "kind": "root",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Org Property and Keyword Test"
 }
 #+end_SRC
@@ -270,7 +270,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Empty Property"
 }
 #+end_SRC
@@ -290,7 +290,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Local append on the same heading"
 }
 #+end_SRC
@@ -310,7 +310,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Multiple local append rows"
 }
 #+end_SRC
@@ -330,7 +330,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Local append without a base value"
 }
 #+end_SRC
@@ -350,7 +350,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Later local definition replaces the earlier definition"
 }
 #+end_SRC
@@ -433,7 +433,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child with append only"
 }
 #+end_SRC
@@ -451,7 +451,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child with append only"
 }
 #+end_SRC
@@ -484,7 +484,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child without local value"
 }
 #+end_SRC
@@ -504,7 +504,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child with local replacement"
 }
 #+end_SRC
@@ -524,7 +524,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child with local replacement and append"
 }
 #+end_SRC
@@ -544,7 +544,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Parent with appended effective value"
 }
 #+end_SRC
@@ -564,7 +564,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Inheriting child"
 }
 #+end_SRC
@@ -584,7 +584,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child overriding appended parent value"
 }
 #+end_SRC
@@ -604,7 +604,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child appending to appended parent value"
 }
 #+end_SRC
@@ -626,7 +626,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child inheriting root drawer base"
 }
 #+end_SRC
@@ -646,7 +646,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child appending to root drawer base"
 }
 #+end_SRC
@@ -666,7 +666,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child replacing root drawer base"
 }
 #+end_SRC
@@ -688,7 +688,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child inheriting appended keyword"
 }
 #+end_SRC
@@ -708,7 +708,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child appending to file keyword"
 }
 #+end_SRC
@@ -728,7 +728,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child replacing file keyword"
 }
 #+end_SRC
@@ -749,7 +749,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child replacing and appending file keyword"
 }
 #+end_SRC
@@ -809,7 +809,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Duplicate definition followed by append"
 }
 #+end_SRC
@@ -829,7 +829,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Append followed by duplicate replacement"
 }
 #+end_SRC
@@ -849,7 +849,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Append followed by duplicate replacement"
 }
 #+end_SRC
@@ -871,7 +871,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child inheriting duplicate parent value"
 }
 #+end_SRC
@@ -891,7 +891,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child appending to duplicate parent value"
 }
 #+end_SRC
@@ -913,7 +913,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Child with two local definitions"
 }
 #+end_SRC
@@ -933,7 +933,7 @@ This is a deliberate difference to org itself as if using properties a duplicate
 #+begin_SRC js
 {
   "kind": "heading",
-  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/properties.org",
+  "file_path": "/home/hubisan/projects/coding/org-files-db/.project/manual-tests/query-model/org/headings/properties.org",
   "title_raw": "Mixed-case property keys"
 }
 #+end_SRC

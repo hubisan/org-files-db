@@ -17,9 +17,9 @@ pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::DbWriteError;
 pub(crate) use writer::{
-    DbWriter, FileRecordInput, HeadingBodyRecord, HeadingRecord, KeywordRecord, LinkRecord,
-    OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord, TimestampRepeaterRecord,
-    TodoKeywordRecord,
+    DbWriter, EffectivePropertyRecord, FileRecordInput, HeadingBodyRecord, HeadingRecord,
+    KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord, TagRecord, TimestampRecord,
+    TimestampRepeaterRecord, TodoKeywordRecord,
 };
 
 pub const DB_METADATA_BODY_TEXT_AVAILABLE_KEY: &str = "body_text_available";
@@ -412,6 +412,7 @@ mod tests {
     fn expected_current_explicit_indexes() -> Vec<String> {
         [
             "files_identity_unique",
+            "idx_effective_properties_file",
             "idx_files_hash",
             "idx_files_mtime_size",
             "idx_files_path_lower",
@@ -522,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_8_index_set_to_version_9() {
+    fn migrates_version_8_index_set_to_version_10() {
         let test_dir = TestDir::new("version-8-index-set");
         let db_path = test_dir.path().join("db.sqlite");
 
@@ -547,7 +548,7 @@ PRAGMA user_version = 8;
         let version = read_schema_version(&connection).expect("schema version should load");
 
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 10);
         assert_eq!(
             explicit_index_names(&connection),
             expected_current_explicit_indexes()

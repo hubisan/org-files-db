@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
+use crate::parser::orgize_adapter::normalize_property_key;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PropertyRow {
     pub id: i64,
@@ -8,6 +10,82 @@ pub struct PropertyRow {
     pub value: Option<String>,
     pub append: bool,
     pub line_number: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DerivedEffectiveProperty {
+    pub heading_id: i64,
+    pub key: String,
+    pub local_value: Option<String>,
+    pub effective_value: String,
+}
+
+/// Materialize the property view for one file.  The caller supplies the file's
+/// complete heading tree and canonical property facts; no database identity is
+/// used to determine values.
+pub fn derive_effective_properties(
+    parent_by_heading: &HashMap<i64, Option<i64>>,
+    rows_by_heading: &HashMap<i64, Vec<PropertyRow>>,
+) -> Vec<DerivedEffectiveProperty> {
+    let mut children = HashMap::<Option<i64>, Vec<i64>>::new();
+    for (&heading_id, &parent_id) in parent_by_heading {
+        children.entry(parent_id).or_default().push(heading_id);
+    }
+    for ids in children.values_mut() {
+        ids.sort_unstable();
+    }
+
+    fn visit(
+        heading_id: i64,
+        children: &HashMap<Option<i64>, Vec<i64>>,
+        rows_by_heading: &HashMap<i64, Vec<PropertyRow>>,
+        inherited: &BTreeMap<String, String>,
+        output: &mut Vec<DerivedEffectiveProperty>,
+    ) {
+        let local = rows_by_heading
+            .get(&heading_id)
+            .map(|rows| resolve_local_properties_with_flags(rows))
+            .unwrap_or_default();
+        let mut effective = inherited.clone();
+        for (key, value) in &local {
+            apply_local(&mut effective, key, value);
+        }
+        for (key, effective_value) in &effective {
+            output.push(DerivedEffectiveProperty {
+                heading_id,
+                key: key.clone(),
+                local_value: local.get(key).map(|value| value.value.clone()),
+                effective_value: effective_value.clone(),
+            });
+        }
+        for child_id in children.get(&Some(heading_id)).into_iter().flatten() {
+            visit(*child_id, children, rows_by_heading, &effective, output);
+        }
+    }
+
+    let mut output = Vec::new();
+    for root_id in children.get(&None).into_iter().flatten() {
+        visit(
+            *root_id,
+            &children,
+            rows_by_heading,
+            &BTreeMap::new(),
+            &mut output,
+        );
+    }
+    output
+}
+
+fn apply_local(target: &mut BTreeMap<String, String>, key: &str, local: &LocalResolvedProperty) {
+    if local.has_non_append {
+        target.insert(key.to_string(), local.value.clone());
+    } else {
+        let inherited = target.remove(key);
+        target.insert(
+            key.to_string(),
+            combine_property_values(inherited.as_deref(), std::slice::from_ref(&local.value)),
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,83 +100,15 @@ struct OrderedPropertyValues {
     appended: Vec<String>,
 }
 
-pub fn resolve_local_properties(rows: &[PropertyRow]) -> BTreeMap<String, String> {
-    resolve_local_properties_with_flags(rows)
-        .into_iter()
-        .map(|(key, property)| (key, property.value))
-        .collect()
-}
-
-pub struct PropertyResolver<'a> {
-    parent_by_heading: &'a HashMap<i64, Option<i64>>,
-    rows_by_heading: &'a HashMap<i64, Vec<PropertyRow>>,
-    inherited_cache: HashMap<i64, BTreeMap<String, String>>,
-}
-
-impl<'a> PropertyResolver<'a> {
-    pub fn new(
-        parent_by_heading: &'a HashMap<i64, Option<i64>>,
-        rows_by_heading: &'a HashMap<i64, Vec<PropertyRow>>,
-    ) -> Self {
-        Self {
-            parent_by_heading,
-            rows_by_heading,
-            inherited_cache: HashMap::new(),
-        }
-    }
-
-    pub fn effective_properties(
-        &mut self,
-        heading_id: i64,
-        inherit: bool,
-    ) -> BTreeMap<String, String> {
-        if !inherit {
-            return self
-                .rows_by_heading
-                .get(&heading_id)
-                .map(|rows| resolve_local_properties(rows))
-                .unwrap_or_default();
-        }
-
-        if let Some(cached) = self.inherited_cache.get(&heading_id) {
-            return cached.clone();
-        }
-
-        let mut resolved = self
-            .parent_by_heading
-            .get(&heading_id)
-            .and_then(|parent_id| *parent_id)
-            .map(|parent_id| self.effective_properties(parent_id, true))
-            .unwrap_or_default();
-
-        if let Some(rows) = self.rows_by_heading.get(&heading_id) {
-            for (key, local) in resolve_local_properties_with_flags(rows) {
-                if local.has_non_append {
-                    resolved.insert(key, local.value);
-                } else {
-                    let inherited = resolved.remove(&key);
-                    resolved.insert(
-                        key,
-                        combine_property_values(
-                            inherited.as_deref(),
-                            std::slice::from_ref(&local.value),
-                        ),
-                    );
-                }
-            }
-        }
-
-        self.inherited_cache.insert(heading_id, resolved.clone());
-        resolved
-    }
-}
-
 fn resolve_local_properties_with_flags(
     rows: &[PropertyRow],
 ) -> BTreeMap<String, LocalResolvedProperty> {
     let mut grouped = BTreeMap::<String, Vec<&PropertyRow>>::new();
     for row in rows {
-        grouped.entry(row.key.clone()).or_default().push(row);
+        grouped
+            .entry(normalize_property_key(&row.key).0)
+            .or_default()
+            .push(row);
     }
 
     grouped
@@ -160,7 +170,7 @@ fn combine_property_values(base: Option<&str>, appended: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_local_properties, PropertyResolver, PropertyRow};
+    use super::{derive_effective_properties, PropertyRow};
     use std::collections::HashMap;
 
     fn row(
@@ -179,6 +189,18 @@ mod tests {
             append,
             line_number: Some(line_number),
         }
+    }
+
+    fn resolve_local_properties(
+        rows: &[PropertyRow],
+    ) -> std::collections::BTreeMap<String, String> {
+        let parents = HashMap::from([(10, None)]);
+        let rows_by_heading = HashMap::from([(10, rows.to_vec())]);
+        derive_effective_properties(&parents, &rows_by_heading)
+            .into_iter()
+            .filter(|row| row.heading_id == 10)
+            .map(|row| (row.key, row.effective_value))
+            .collect()
     }
 
     #[test]
@@ -274,19 +296,19 @@ mod tests {
         ]);
         let parents = HashMap::from([(10, None), (11, Some(10)), (12, Some(11))]);
 
-        let mut resolver = PropertyResolver::new(&parents, &rows_by_heading);
+        let derived = derive_effective_properties(&parents, &rows_by_heading);
         assert_eq!(
-            resolver
-                .effective_properties(12, true)
-                .get("VALUE")
-                .map(String::as_str),
+            derived
+                .iter()
+                .find(|row| row.heading_id == 12)
+                .map(|row| row.effective_value.as_str()),
             Some("parent child")
         );
         assert_eq!(
-            resolver
-                .effective_properties(12, false)
-                .get("VALUE")
-                .map(String::as_str),
+            derived
+                .iter()
+                .find(|row| row.heading_id == 12)
+                .and_then(|row| row.local_value.as_deref()),
             Some("child")
         );
     }
@@ -306,12 +328,12 @@ mod tests {
         ]);
         let parents = HashMap::from([(11, None), (12, Some(11))]);
 
-        let mut resolver = PropertyResolver::new(&parents, &rows_by_heading);
+        let derived = derive_effective_properties(&parents, &rows_by_heading);
         assert_eq!(
-            resolver
-                .effective_properties(12, true)
-                .get("VALUE")
-                .map(String::as_str),
+            derived
+                .iter()
+                .find(|row| row.heading_id == 12)
+                .map(|row| row.effective_value.as_str()),
             Some("child before after")
         );
     }

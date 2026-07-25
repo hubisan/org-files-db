@@ -1,13 +1,18 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use std::collections::HashMap;
+
 use rusqlite::Connection;
+
+use crate::db::{DbWriter, EffectivePropertyRecord};
+use crate::query::property::{derive_effective_properties, PropertyRow};
 
 use super::{
     DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 9;
+pub const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 const CORE_SCHEMA_SQL: &str = include_str!("../../sql/schema.sql");
 const HEADING_FTS_SQL: &str = r#"
@@ -168,6 +173,8 @@ impl SchemaDefinition {
     }
 
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
+        let needs_effective_properties_backfill =
+            !table_exists(connection, "effective_properties")?;
         migrate_legacy_files_identity(connection)?;
         migrate_legacy_timestamp_repeaters(connection)?;
         migrate_legacy_todo_keywords_table(connection)?;
@@ -178,8 +185,83 @@ impl SchemaDefinition {
         migrate_legacy_links_table(connection)?;
         repair_tables_depending_on_headings(connection)?;
         migrate_v8_index_set(connection)?;
-        connection.execute_batch(&self.render_sql(connection))
+        connection.execute_batch(&self.render_sql(connection))?;
+        if needs_effective_properties_backfill {
+            backfill_effective_properties(connection)?;
+        }
+        Ok(())
     }
+}
+
+pub(crate) fn backfill_effective_properties(connection: &Connection) -> rusqlite::Result<()> {
+    let mut headings =
+        connection.prepare("SELECT id, file_id, parent_id FROM headings ORDER BY id")?;
+    let heading_rows = headings
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut parents = HashMap::new();
+    let mut files = HashMap::new();
+    for (id, file_id, parent_id) in heading_rows {
+        parents.insert(id, parent_id);
+        files.insert(id, file_id);
+    }
+    let mut statement = connection.prepare(
+        "SELECT id, heading_id, key, value, append, line_number FROM properties ORDER BY id",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(PropertyRow {
+                id: row.get(0)?,
+                heading_id: row.get(1)?,
+                key: row.get(2)?,
+                value: row.get(3)?,
+                append: row.get::<_, i64>(4)? != 0,
+                line_number: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut rows_by_heading = HashMap::<i64, Vec<PropertyRow>>::new();
+    for row in rows {
+        rows_by_heading.entry(row.heading_id).or_default().push(row);
+    }
+    let projected = derive_effective_properties(&parents, &rows_by_heading)
+        .into_iter()
+        .map(|row| EffectivePropertyRecord {
+            heading_id: row.heading_id,
+            file_id: files[&row.heading_id],
+            key: row.key,
+            local_value: row.local_value,
+            effective_value: row.effective_value,
+        })
+        .collect::<Vec<_>>();
+    DbWriter::insert_effective_properties(connection, &projected).map_err(|error| match error {
+        crate::db::DbWriteError::Write { source, .. } => source,
+        _ => rusqlite::Error::InvalidQuery,
+    })?;
+    let mismatch_count: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM effective_properties AS effective
+         INNER JOIN headings ON headings.id = effective.heading_id
+         WHERE effective.file_id != headings.file_id",
+        [],
+        |row| row.get(0),
+    )?;
+    if mismatch_count != 0 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    let foreign_key_violations: i64 =
+        connection.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })?;
+    if foreign_key_violations != 0 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(())
 }
 
 fn migrate_v8_index_set(connection: &Connection) -> rusqlite::Result<()> {

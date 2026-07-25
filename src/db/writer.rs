@@ -112,6 +112,15 @@ pub(crate) struct PropertyRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectivePropertyRecord {
+    pub heading_id: i64,
+    pub file_id: i64,
+    pub key: String,
+    pub local_value: Option<String>,
+    pub effective_value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OutlinePathRecord {
     pub heading_id: i64,
     pub file_id: i64,
@@ -596,6 +605,32 @@ impl DbWriter {
                 )
                 .map_err(|source| DbWriteError::Write {
                     operation: "insert_properties",
+                    source,
+                })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn insert_effective_properties(
+        connection: &Connection,
+        rows: &[EffectivePropertyRecord],
+    ) -> Result<(), DbWriteError> {
+        for row in rows {
+            connection
+                .execute(
+                    "INSERT INTO effective_properties
+                 (heading_id, file_id, key, local_value, effective_value)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        row.heading_id,
+                        row.file_id,
+                        row.key,
+                        row.local_value,
+                        row.effective_value
+                    ],
+                )
+                .map_err(|source| DbWriteError::Write {
+                    operation: "insert_effective_properties",
                     source,
                 })?;
         }

@@ -1,0 +1,18 @@
+#+TITLE: Materialize effective properties in schema version 10
+#+TASK_STARTED: [2026-07-25 Saturday 12:00]
+
+* Planning
+
+- Materialize the existing property-resolution contract from canonical rows and the stored heading tree.
+- Add schema version 10, transactional backfill, query projection use, and documentation.
+
+* Build
+
+- Added the ~effective_properties~ derived table with local and inherited values, transactional migration backfill, and projection-backed heading property queries.
+- Kept ~properties~ canonical and reused one Rust derivation for normal property writes and migration.
+- Updated result shaping to load effective property output from the projection.
+
+* Checks
+
+- Focused property query and result tests passed during implementation.
+- ~cargo fmt --all --check~, ~cargo clippy --all-targets --all-features -- -D warnings~, ~cargo test~, ~cargo build --all-targets --all-features~, ~git diff --check~, and ~make ci~ passed.

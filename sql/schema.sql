@@ -567,6 +567,21 @@ CREATE TABLE IF NOT EXISTS properties (
         ON DELETE CASCADE
 );
 
+/*
+  Mandatory, rebuildable projection of the property values visible at each
+  heading.  Canonical source facts remain in properties.
+*/
+CREATE TABLE IF NOT EXISTS effective_properties (
+    heading_id                   INTEGER NOT NULL,
+    file_id                      INTEGER NOT NULL,
+    key                          TEXT NOT NULL,
+    local_value                  TEXT,
+    effective_value              TEXT NOT NULL,
+    PRIMARY KEY (heading_id, key),
+    FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+);
+
 --------------------------------------------------
 -- TAGS
 --------------------------------------------------
@@ -929,6 +944,9 @@ CREATE INDEX IF NOT EXISTS idx_properties_id_lookup
 CREATE INDEX IF NOT EXISTS idx_properties_custom_id_lookup
     ON properties(value)
     WHERE key = 'CUSTOM_ID';
+
+CREATE INDEX IF NOT EXISTS idx_effective_properties_file
+    ON effective_properties(file_id);
 
 --------------------------------------------------
 -- INDEXES: TAGS
