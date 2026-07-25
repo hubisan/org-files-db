@@ -279,7 +279,7 @@ Acceptance criteria:
 - Unit tests use synthetic ~notify~ events where possible.
 - A small supported-platform integration test verifies the adapter without depending on exact event counts or ordering.
 
-** REVIEW [#A] Implement watcher startup and recovery reconciliation
+** DONE [#A] Implement watcher startup and recovery reconciliation
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
@@ -329,7 +329,8 @@ Required tests:
 - temporarily inaccessible root;
 - reconciliation failure and rollback.
 
-** TODO [#A] Add the watcher CLI and process lifecycle
+** DONE [#A] Add the watcher CLI and process lifecycle
+[[./2026-07-25--watcher-cli-lifecycle.org][Task file]]
 :PROPERTIES:
 :PRIORITY: High
 :RISK: Medium

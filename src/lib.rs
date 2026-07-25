@@ -19,5 +19,6 @@ pub(crate) mod tag;
 pub mod todo_keywords;
 #[allow(dead_code)]
 pub(crate) mod watcher;
+pub(crate) mod watcher_cli;
 #[allow(dead_code)]
 pub(crate) mod watcher_runtime;

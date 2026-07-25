@@ -1,0 +1,119 @@
+#+TITLE: Watcher CLI and process lifecycle
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-25 Sat 22:10]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Add the watcher CLI command and Unix process lifecycle over the completed watcher runtime.
+
+* Planning
+
+** Problem summary
+
+The watcher runtime can register filesystem watches, run startup reconciliation, process bounded batches, and terminate on fatal recovery failures, but it has no user-facing command or Unix signal-driven lifecycle. The CLI must start the existing runtime, remain silent during routine activity, flush pending work on shutdown, and return stable non-zero status for fatal failures without changing existing JSON commands.
+
+** Goals
+
+- Add ~orgfdb watch --config PATH~ using the same configuration and database schema selection as Phase 6.
+- Install safe ~SIGINT~ and ~SIGTERM~ handling on supported Unix platforms.
+- Report readiness only after startup reconciliation succeeds.
+- Stop accepting new events on shutdown and flush already pending work through the controller policy.
+- Keep routine activity silent and send lifecycle messages to stderr only.
+- Return exit code ~1~ for signal registration, startup, watch registration, runtime, and Phase 6 execution failures.
+- Add deterministic lifecycle tests without sending real process signals.
+
+** Non-goals
+
+- No daemonization, service files, background process management, structured event stream, configurable debounce flag, automatic restart, Windows support, or end-to-end watcher scenario matrix.
+- No changes to discovery, batching, parsing, DB mutation, FTS, link resolution, or retry semantics.
+
+** Architecture
+
+- Add a small internal ~watcher_cli~ module that owns signal registration and the production event loop.
+- Poll the existing non-blocking watcher runtime with a bounded idle interval and sleep only until the earlier of the debounce deadline or signal-poll boundary.
+- Add runtime wrappers for beginning shutdown and detecting completion; after shutdown starts, source intake is skipped and only already pending work is flushed.
+- Keep the command stdout empty. Readiness, stopping, and stopped messages go to stderr.
+- Use an injectable clock and shutdown request in tests so idle shutdown and pending flush are deterministic without sleeps.
+
+** Execution plan
+
+- Add the Unix signal dependency and module registration.
+- Extend the watcher runtime with shutdown wrappers and no-new-input processing during shutdown.
+- Add the ~watch~ Clap command and error mapping.
+- Implement the production lifecycle loop and deterministic fake-source tests.
+- Update CLI and incremental-indexing documentation.
+- Set the task to ~REVIEW~ after static checks and available test execution.
+
+** Risks & assumptions
+
+- Signal flags are checked at a bounded interval, so idle shutdown latency is limited by the fixed poll interval rather than an unbounded backend wait.
+- A signal received during synchronous startup reconciliation is retained and handled immediately after startup completes.
+- Fatal runtime failures remain terminal and are not retried by the CLI.
+
+** Open questions
+
+- None for this bounded task.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test watcher_cli~
+- ~cargo test --all-targets --all-features~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+* Results
+
+** Approach
+
+- Added ~orgfdb watch --config PATH~ as the user-facing entry point for the completed watcher runtime.
+- Loaded the normal Phase 6 configuration and opened the database with the configured FTS schema setting.
+- Added safe Unix ~SIGINT~ and ~SIGTERM~ flag registration through ~signal-hook~.
+- Added a bounded event loop that checks shutdown at most 25 milliseconds apart and otherwise sleeps only until the current debounce deadline.
+- Reported readiness only after watch registration and startup reconciliation complete.
+- Kept stdout empty and emitted only ~watcher ready~, ~watcher stopping~, and ~watcher stopped~ lifecycle messages to stderr.
+- Added runtime shutdown wrappers. Once shutdown begins, new source messages are not drained and already pending work is flushed immediately through the existing controller policy.
+- Preserved fatal startup, source, controller, and Phase 6 errors as terminal exit-code-1 failures without automatic retry.
+- Added deterministic fake-clock and fake-source tests for idle shutdown, stopped intake, pending flush, fatal execution, and bounded waiting.
+- Added CLI tests for parsing, Unix help text, watch registration failure, startup reconciliation failure, and exit status.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~src/lib.rs~
+- ~src/cli.rs~
+- ~src/watcher_cli.rs~
+- ~src/watcher_runtime.rs~
+- ~docs/cli.org~
+- ~docs/design/incremental-indexing.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-25--watcher-cli-lifecycle.org~
+
+** Checks performed
+
+- Reviewed command dispatch and error mapping for unchanged existing JSON commands.
+- Reviewed startup ordering to ensure readiness follows registration and reconciliation.
+- Reviewed shutdown ordering to ensure input closes before the pending flush.
+- Reviewed the event loop for bounded waiting and absence of a busy loop or hidden retry loop.
+- Checked changed files for trailing whitespace and placeholder macros.
+- Performed a manual syntax and scope review of all changed Rust files.
+
+** Test results
+
+- Added deterministic watcher lifecycle tests without real signals or sleeps.
+- Added CLI parsing and immediate failure tests that do not enter the long-running steady-state loop.
+- Rust formatting, compilation, Clippy, and test execution could not be run because the execution environment does not contain ~cargo~, ~rustc~, or ~rustfmt~ and cannot resolve the Rust distribution host.
+- Local verification remains: run ~cargo fmt --all~, then ~make ci~. Cargo will update ~Cargo.lock~ for the new ~signal-hook~ dependency.
+
+** Blockers
+
+- No Rust toolchain is available in the execution environment.
+- The uploaded archive does not contain a ~.git~ directory, so branch creation and native Git diff checks were unavailable.
+
+** Follow-ups
+
+- The next Phase 7 task adds the full real-filesystem end-to-end watcher scenario matrix over this CLI lifecycle.

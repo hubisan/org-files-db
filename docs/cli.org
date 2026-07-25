@@ -13,6 +13,32 @@ orgfdb query --json '(todo "NEXT")'
 orgfdb query --format json '(todo "NEXT")'
 #+end_src
 
+* ~orgfdb watch~
+
+~orgfdb watch --config PATH~ starts long-running watcher-driven indexing for the configured Org inputs. It is supported on Unix-like systems only.
+
+Startup order is part of the command contract:
+
+1. Load the same configuration and schema options used by Phase 6 indexing.
+2. Open or initialize the configured SQLite database.
+3. Register all configured filesystem watch targets.
+4. Run full configured-source reconciliation.
+5. Print ~watcher ready~ to stderr and enter steady-state event handling.
+
+The command writes no routine activity to stdout and does not emit a JSON event stream. Lifecycle messages are written to stderr:
+
+- ~watcher ready~ after successful startup reconciliation;
+- ~watcher stopping~ after ~SIGINT~ or ~SIGTERM~ is observed;
+- ~watcher stopped~ after pending work has been flushed.
+
+#+begin_src shell
+orgfdb watch --config ./org-files-db.toml
+#+end_src
+
+~SIGINT~ and ~SIGTERM~ stop new event intake and invoke the controller's flush policy. A batch already pending at shutdown becomes immediately eligible without waiting for its debounce deadline. The command exits successfully only after that pending work completes. Fatal source, watch registration, startup reconciliation, controller, or Phase 6 execution failures are reported on stderr and return exit code ~1~. CLI usage errors continue to return exit code ~2~.
+
+The command does not daemonize itself, install a service, restart automatically, or support Windows service semantics.
+
 * ~orgfdb headings~
 
 ~orgfdb headings~ prints stored heading rows from the SQLite database as JSON. It is a database inspection command: it reads persisted facts only and does not analyze the current contents of Org files.

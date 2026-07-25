@@ -25,6 +25,7 @@ use crate::{
         QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryParseError, QueryResponse,
         QueryShapeError, QueryValidationError,
     },
+    watcher_cli::{run_watch_command, WatcherCommandError},
 };
 
 #[derive(Debug, Parser)]
@@ -41,6 +42,14 @@ enum Command {
         config: PathBuf,
         #[arg(long)]
         allow_empty: bool,
+    },
+    #[command(
+        about = "Watch configured Org inputs and apply incremental updates",
+        long_about = "Watch configured Org inputs and apply Phase 6 incremental updates. Supported on Unix-like systems only. Routine activity is silent; lifecycle messages and errors are written to stderr."
+    )]
+    Watch {
+        #[arg(long)]
+        config: PathBuf,
     },
     Headings {
         #[command(flatten)]
@@ -183,6 +192,12 @@ where
             let report = rebuild_with_options(&config, allow_empty)?;
             print_diagnostics(&report);
             Ok(())
+        }
+        Command::Watch { config } => {
+            let config = Config::load_from_file(config).map_err(CliError::Config)?;
+            let stderr = io::stderr();
+            let mut handle = stderr.lock();
+            run_watch_command(&config, &mut handle).map_err(CliError::Watcher)
         }
         Command::Headings {
             format,
@@ -719,6 +734,7 @@ enum CliError {
     Database(DbError),
     DbRead(crate::db::DbReadError),
     Indexer(IndexerError),
+    Watcher(WatcherCommandError),
     QueryParse(QueryParseError),
     QueryValidate(QueryValidationError),
     QueryExecute(QueryExecutionError),
@@ -740,6 +756,7 @@ impl CliError {
             | Self::Database(_)
             | Self::DbRead(_)
             | Self::Indexer(_)
+            | Self::Watcher(_)
             | Self::QueryParse(_)
             | Self::QueryValidate(_)
             | Self::QueryExecute(_)
@@ -761,6 +778,7 @@ impl fmt::Display for CliError {
             Self::Database(source) => write!(f, "{source}"),
             Self::DbRead(source) => write!(f, "{source}"),
             Self::Indexer(source) => write!(f, "{source}"),
+            Self::Watcher(source) => write!(f, "{source}"),
             Self::QueryParse(source) => write!(f, "{source}"),
             Self::QueryValidate(source) => write!(f, "{source}"),
             Self::QueryExecute(source) => write!(f, "{source}"),
@@ -788,6 +806,7 @@ impl Error for CliError {
             Self::Database(source) => Some(source),
             Self::DbRead(source) => Some(source),
             Self::Indexer(source) => Some(source),
+            Self::Watcher(source) => Some(source),
             Self::QueryParse(source) => Some(source),
             Self::QueryValidate(source) => Some(source),
             Self::QueryExecute(source) => Some(source),
@@ -1422,6 +1441,81 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_watcher_arguments_and_documents_unix_scope() {
+        let cli = Cli::try_parse_from(["orgfdb", "watch", "--config", "config.toml"])
+            .expect("watch args should parse");
+
+        match cli.command {
+            super::Command::Watch { config } => {
+                assert_eq!(config, PathBuf::from("config.toml"));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let error = Cli::try_parse_from(["orgfdb", "watch", "--help"])
+            .expect_err("help should stop argument parsing");
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        let help = error.to_string();
+        assert!(help.contains("Unix-like systems only"));
+        assert!(help.contains("--config <CONFIG>"));
+    }
+
+    #[test]
+    fn watcher_registration_failure_returns_exit_code_one_with_path_context() {
+        let test_dir = TestDir::new("watch-registration-failure");
+        let config_path = test_dir.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"db_path = "./db.sqlite"
+files = ["missing/note.org"]
+"#,
+        );
+
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "watch".into(),
+            "--config".into(),
+            config_path.display().to_string(),
+        ])
+        .expect_err("missing explicit-file parent should fail watch registration");
+
+        assert_eq!(error.exit_code(), 1);
+        let message = error.to_string();
+        assert!(message.contains("watcher startup source failed"));
+        assert!(message.contains("missing"));
+    }
+
+    #[test]
+    fn watcher_startup_reconciliation_failure_returns_exit_code_one() {
+        let test_dir = TestDir::new("watch-startup-failure");
+        let config_path = test_dir.path().join("config.toml");
+        let invalid_org = test_dir.path().join("invalid.org");
+        fs::write(&invalid_org, [0xff, 0xfe, 0xfd]).expect("invalid UTF-8 file should be written");
+        write_file(
+            &config_path,
+            r#"db_path = "./db.sqlite"
+files = ["invalid.org"]
+
+[search]
+fts5_enabled = false
+"#,
+        );
+
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "watch".into(),
+            "--config".into(),
+            config_path.display().to_string(),
+        ])
+        .expect_err("failed startup reconciliation should stop the watch command");
+
+        assert_eq!(error.exit_code(), 1);
+        assert!(error
+            .to_string()
+            .contains("watcher startup reconciliation failed"));
     }
 
     #[test]

@@ -314,6 +314,14 @@ where
         &self.recovery
     }
 
+    pub(crate) fn begin_shutdown(&mut self) {
+        self.controller.begin_shutdown();
+    }
+
+    pub(crate) fn is_shutdown_complete(&self) -> bool {
+        self.controller.is_shutdown_complete()
+    }
+
     pub(crate) fn process_available<E>(
         &mut self,
         now: Instant,
@@ -323,7 +331,11 @@ where
         E: WatcherBatchExecutor,
     {
         self.ensure_running::<E::Error>()?;
-        let (source_messages, backend_failures) = self.drain_source::<E::Error>(now)?;
+        let (source_messages, backend_failures) = if self.controller.is_accepting_inputs() {
+            self.drain_source::<E::Error>(now)?
+        } else {
+            (0, 0)
+        };
         let execution_status = self.execute_ready(now, executor)?;
         Ok(WatcherCycleReport {
             source_messages,
