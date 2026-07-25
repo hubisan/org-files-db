@@ -1,0 +1,134 @@
+#+TITLE: Materialize effective properties in schema version 10
+#+TASK_STARTED: [2026-07-25 Saturday 12:00]
+
+* Original Task
+
+** REVIEW [#B] Materialize ~effective_properties~ in schema version 10
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: Yes
+:API_CONTRACT_CHANGE: No
+:END:
+
+Task file: [[file:archive/2026-07-25--materialize-effective-properties-schema-10.org][Materialize effective properties in schema version 10]]
+
+Goal:
+
+- Replace recursive query-time property resolution with a normalized and transactionally maintained ~effective_properties~ projection.
+- Keep ~properties~ as the canonical source and treat ~effective_properties~ as mandatory derived state analogous to ~outline_path~.
+- Preserve the existing public property-query and JSON contracts.
+
+Measured motivation:
+
+- The 1,000-file baseline measured approximately 200 ms median for a direct property query and approximately 4.7 seconds median for an inherited property query.
+- The old SQL reconstructed heading ancestry and property state for every candidate heading.
+
+*** Final schema
+
+#+begin_src sql
+CREATE TABLE effective_properties (
+    heading_id      INTEGER NOT NULL,
+    file_id         INTEGER NOT NULL,
+    key             TEXT NOT NULL,
+    local_value     TEXT,
+    effective_value TEXT NOT NULL,
+    PRIMARY KEY (heading_id, key),
+    FOREIGN KEY (heading_id) REFERENCES headings(id) ON DELETE CASCADE,
+    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_effective_properties_file
+ON effective_properties(file_id);
+#+end_src
+
+Column semantics:
+
+- ~local_value IS NULL~ means the heading has no local definition for the key.
+- An empty string remains an explicitly empty local or effective value.
+- ~effective_value~ contains the value visible at the heading after applying the existing root, ancestor, replacement, and append rules.
+- The synthetic level-0 root is included.
+
+*** Canonical and derived-state contract
+
+- ~properties~ remains the only canonical property representation.
+- ~effective_properties~ is fully rebuildable from headings and canonical property rows.
+- ~#+PROPERTY~, ~#+CATEGORY~, root property drawers, and heading property drawers participate because the parser normalizes them into ~properties~.
+- Ordinary keywords such as ~TITLE~ and ~AUTHOR~ remain keywords.
+- Property inheritance never crosses a file boundary.
+- Property-key normalization is shared by parsing, derivation, migration, and query compilation.
+
+*** Resolution semantics
+
+- Preserve duplicate handling at one location.
+- Preserve the last applicable non-append definition.
+- Preserve append rows in source order.
+- Preserve append-only local definitions and appending to inherited values.
+- Preserve explicit empty values and the distinction between missing and locally empty values.
+- Derive one row per visible heading and property key by traversing each file tree from root to leaves.
+
+*** Indexing and migration
+
+- Full rebuild, file creation, and modified-file replacement derive and insert the projection in the same transaction as canonical file data.
+- File deletion removes derived rows through foreign-key cascades.
+- Metadata-only updates do not regenerate the projection.
+- Schema version 9 migrates to version 10 without reparsing Org files.
+- Migration processes each file independently and validates exactly one root, same-file parents, complete root reachability, and absence of parent cycles.
+- Schema creation, backfill, validation, and schema-version advancement share the database initialization transaction and roll back together on failure.
+
+*** Query and output contract
+
+- Default and explicit ~:inherit t~ heading property predicates use ~effective_value~.
+- ~:inherit nil~ uses ~local_value~ and requires a local definition.
+- Key-only existence, exact value matching, regexp matching, nested predicates, and existing root/file semantics remain unchanged.
+- File-target property predicates retain their direct root semantics.
+- Included effective property output loads from ~effective_properties~.
+- The public query syntax and JSON shape do not change.
+- Normal property query SQL no longer contains recursive property-resolution CTEs.
+
+*** Required verification
+
+- Fresh schema uses version 10 and the exact explicit index inventory.
+- Real version-9 databases backfill effective properties transactionally.
+- Invalid cross-file parents, missing parents, multiple roots, cycles, and unreachable headings fail migration without partial schema advancement.
+- Migration output equals a clean version-10 rebuild using stable identities.
+- Root inheritance, parent inheritance, local replacement, append-only values, inherited append, explicit empty values, ~CATEGORY~, and ordinary keywords remain correct.
+- Replacement removes stale effective rows, deletion cascades rows, and metadata-only updates leave rows unchanged.
+- Query SQL uses ~effective_properties~ and contains no legacy recursive property resolver.
+
+*** Deferred performance verification
+
+- Keep the existing benchmark runner unchanged in this task.
+- After correctness review, run a focused current-schema measurement for direct and inherited property workloads on a smaller deterministic corpus before deciding whether a larger final run is needed.
+
+*** Checks
+
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test~
+- ~cargo build --all-targets --all-features~
+- ~git diff --check~
+- ~make ci~
+
+The final checks remain for the user environment because the review environment does not provide the Rust toolchain.
+
+
+* Planning
+
+- Materialize the existing property-resolution contract from canonical rows and the stored heading tree.
+- Add schema version 10, transactional backfill, query projection use, and documentation.
+
+* Build
+
+- Added the normalized ~effective_properties~ table with local and inherited values.
+- Kept ~properties~ canonical and reused one shared root-to-leaf derivation for normal indexing, test fixtures, and migration backfill.
+- Moved property-key normalization into the neutral shared property module.
+- Made migration backfill file-scoped and validated roots, parent ownership, reachability, and cycles before inserting derived rows.
+- Switched property predicates and included effective-property output to the stored projection.
+- Removed the obsolete recursive query-time resolver and legacy SQL.
+
+* Checks
+
+- The implementation is ready for ~make ci~ in the user environment.
+- The review environment did not provide ~cargo~, ~rustfmt~, or ~rustc~, so Rust checks were not run here.
+- The existing benchmark runner was intentionally left unchanged; performance verification remains a separate run after CI.
