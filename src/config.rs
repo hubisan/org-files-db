@@ -565,7 +565,7 @@ fn expand_home_directory(
     Ok(Some(resolved))
 }
 
-fn normalize_syntactic_path(path: PathBuf) -> PathBuf {
+pub(crate) fn normalize_syntactic_path(path: PathBuf) -> PathBuf {
     let mut normalized = PathBuf::new();
 
     for component in path.components() {

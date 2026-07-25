@@ -58,3 +58,11 @@ Only a failure-free planned result can be converted into a single-use actionable
 ~properties~ are canonical source facts. Schema version 10 materializes their visible per-heading values in the mandatory ~effective_properties~ projection during the same transaction. The projection is rebuilt deterministically from property rows and the stored heading tree, including root-level ~#+PROPERTY~ and ~#+CATEGORY~ facts; ordinary keywords remain keywords. Property inheritance never crosses a file boundary.
 
 ~tags~ are canonical direct tag facts. Schema version 11 materializes the ordered, deduplicated tag set visible at each heading in ~effective_tags~ during the same transaction. Root ~FILETAGS~ participate in normal inheritance, metadata-only changes leave the projection unchanged, and replacement or deletion removes stale rows through the controlled file transaction and foreign-key cascades. The public ~all_tags~ array is built from this normalized projection; ~headings.all_tags_json~ no longer exists.
+
+* Watcher candidate batching
+
+The backend-independent watcher layer accepts raw path-bearing event hints plus explicit backend-uncertainty signals. Create, modify, remove, metadata, and other event kinds do not select database operations. A complete rename contributes both reported paths; an incomplete rename, backend overflow, dropped-event indication, rescan request, or equivalent uncertainty requests full configured-source reconciliation.
+
+Candidate paths are normalized through the Phase 6 source universe captured from discovery. Existing paths use their canonical Unix target identity. Missing or renamed-away paths reuse retained logical-to-canonical source mappings, including explicit files and symlinked sources, without requiring the leaf to remain present. Explicit configured files remain eligible with any extension; directory roots accept only case-insensitive ~.org~ paths and retain their recursive, non-recursive, global-exclusion, and root-local-exclusion semantics.
+
+Equivalent path hints are deduplicated by the version-tagged native Unix file identity and emitted in that identity order. A reconciliation request supersedes all path candidates in the batch. An empty or fully irrelevant batch produces an empty candidate set and performs no indexing work by itself.

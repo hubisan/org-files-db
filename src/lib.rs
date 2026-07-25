@@ -15,3 +15,5 @@ pub(crate) mod property;
 pub mod query;
 pub(crate) mod tag;
 pub mod todo_keywords;
+#[allow(dead_code)]
+pub(crate) mod watcher;

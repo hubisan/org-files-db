@@ -10,7 +10,7 @@ use rusqlite::{types::ValueRef, Connection, OptionalExtension, TransactionBehavi
 use sha2::{Digest, Sha256};
 
 use crate::{
-    config::{Config, ConfigError},
+    config::{normalize_syntactic_path, Config, ConfigError},
     db::{
         open_database_with_schema, sqlite_supports_fts5, DbError, DbWriteError, DbWriter,
         EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput, HeadingBodyRecord,
@@ -37,6 +37,71 @@ use crate::{
         TodoKeywordSourceKind,
     },
 };
+
+#[allow(dead_code)] // Phase 7 production entry point.
+#[derive(Debug)]
+pub(crate) struct CandidatePathNormalizer {
+    indexed_universe: IndexedUniverse,
+}
+
+#[allow(dead_code)] // Phase 7 production result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CandidatePathResolution {
+    Candidate(PathBuf),
+    Ignore,
+    Reconcile,
+}
+
+#[allow(dead_code)] // Used by the Phase 7 watcher pipeline.
+impl CandidatePathNormalizer {
+    pub(crate) fn from_config(config: &Config) -> Result<Self, IndexerError> {
+        let discovery = discover_org_files(config)?;
+        Ok(Self {
+            indexed_universe: discovery.indexed_universe,
+        })
+    }
+
+    pub(crate) fn resolve(&self, path: &Path) -> CandidatePathResolution {
+        let logical_path = normalize_syntactic_path(path.to_path_buf());
+        if !logical_path.is_absolute() {
+            return CandidatePathResolution::Ignore;
+        }
+
+        let existing_canonical_path = match canonicalize_existing_file(&logical_path) {
+            Ok(path) => Some(path),
+            Err(IndexerError::Discover { source, .. })
+                if source.kind() == io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Err(IndexerError::Discover { source, .. })
+                if source.kind() == io::ErrorKind::InvalidInput =>
+            {
+                return CandidatePathResolution::Ignore;
+            }
+            Err(_) => return CandidatePathResolution::Reconcile,
+        };
+
+        let Some(candidate) = self
+            .indexed_universe
+            .normalize_candidate_path(&logical_path, existing_canonical_path.as_deref())
+        else {
+            return CandidatePathResolution::Ignore;
+        };
+
+        if self.indexed_universe.is_known_source(&candidate)
+            || self
+                .indexed_universe
+                .is_explicit_candidate(&logical_path, &candidate)
+            || is_org_source_path(&logical_path)
+            || is_org_source_path(&candidate)
+        {
+            CandidatePathResolution::Candidate(candidate)
+        } else {
+            CandidatePathResolution::Ignore
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Indexer<P> {
@@ -1171,6 +1236,7 @@ fn discover_org_files(config: &Config) -> Result<DiscoveryResult, IndexerError> 
             had_exclusion_match = true;
             continue;
         }
+        indexed_universe.add_explicit_logical_path(file.clone());
         let canonical_file = match canonicalize_existing_file(file) {
             Ok(path) => path,
             Err(IndexerError::Discover { source, .. })
@@ -1185,7 +1251,7 @@ fn discover_org_files(config: &Config) -> Result<DiscoveryResult, IndexerError> 
             .parent()
             .unwrap_or(canonical_file.as_path())
             .to_path_buf();
-        indexed_universe.add_explicit_path(canonical_file.clone());
+        indexed_universe.add_explicit_mapping(file.clone(), canonical_file.clone());
         insert_discovered_path(
             &mut paths,
             canonical_file,
@@ -1310,11 +1376,7 @@ impl DirectoryCollector<'_> {
                 file_type.is_dir() || followed_metadata.as_ref().is_some_and(fs::Metadata::is_dir);
 
             if is_file {
-                if path
-                    .extension()
-                    .and_then(|value| value.to_str())
-                    .is_some_and(|value| value.eq_ignore_ascii_case("org"))
-                {
+                if is_org_source_path(&path) {
                     let canonical_path = canonicalize_existing_file(&path)?;
                     if self.global_exclusions.matches_file(&path) {
                         self.globally_excluded.insert(canonical_path.clone());
@@ -1330,6 +1392,8 @@ impl DirectoryCollector<'_> {
                         *self.had_exclusion_match = true;
                         continue;
                     }
+                    self.indexed_universe
+                        .add_source_mapping(path.clone(), canonical_path.clone());
                     insert_discovered_path(
                         self.output,
                         canonical_path,
@@ -1380,6 +1444,12 @@ fn insert_discovered_path(
 
 fn path_depth(path: &Path) -> usize {
     path.components().count()
+}
+
+fn is_org_source_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("org"))
 }
 
 fn canonicalize_existing_file(path: &Path) -> Result<PathBuf, IndexerError> {

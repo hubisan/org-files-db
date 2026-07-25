@@ -1,0 +1,109 @@
+#+TITLE: Normalized watcher events
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-25 Sat 19:59]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the Phase 7 backend-independent watcher input model and deterministic candidate batching without adding ~notify~, debounce, threads, channels, polling, CLI behavior, parsing, or database mutation.
+
+* Planning
+
+** Problem summary
+
+Filesystem backends emit duplicate, reordered, incomplete, and backend-specific event sequences. Phase 7 needs a deterministic boundary that converts those hints into Phase 6 candidate paths or a full reconciliation request without creating a second source-universe, exclusion, canonicalization, or identity model.
+
+** Goals
+
+- Add a backend-independent raw watcher input model.
+- Normalize eligible paths through the Phase 6 discovery universe.
+- Preserve missing, renamed-away, symlinked, explicit-file, exclusion, and non-UTF-8 path semantics.
+- Deduplicate and order candidates by Phase 6 native Unix identity.
+- Escalate incomplete rename and backend uncertainty to full reconciliation.
+- Cover all required combinations with deterministic unit tests.
+
+** Non-goals
+
+- No ~notify~ dependency or live filesystem watcher.
+- No debounce timing, threads, channels, polling, controller, CLI, parsing, or DB writes.
+- No direct create, modify, or delete decision from an event kind.
+
+** Architecture
+
+- Keep watcher event and batch types in a new internal ~watcher~ module.
+- Expose a narrow Phase 6 candidate-path normalizer backed by the existing discovery-produced ~IndexedUniverse~.
+- Retain logical-to-canonical file mappings in ~IndexedUniverse~ so deleted paths and symlink aliases resolve to the same native identity previously discovered by Phase 6.
+- Represent batch output as either ordered candidate paths or a full reconciliation request.
+
+** Execution plan
+
+- Extend the Phase 6 indexed universe with reusable source-path normalization helpers.
+- Add the watcher input, uncertainty, output, and batch-normalizer types.
+- Add deterministic unit tests for all acceptance scenarios.
+- Document only the implemented batching contract.
+
+** Risks & assumptions
+
+- The normalizer is a source-universe snapshot. Later startup and recovery work must refresh it through the documented Phase 6 reconciliation lifecycle when the configured universe changes or backend uncertainty occurs.
+- Directory replacement and watch-root uncertainty remain recovery concerns for later Phase 7 tasks.
+
+** Open questions
+
+- None for this bounded task.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test watcher~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+* Results
+
+** Approach
+
+- Added a backend-independent watcher input model for path hints and backend uncertainty.
+- Added a deterministic batch result containing either native-identity-ordered candidate paths or a full reconciliation request.
+- Added a Phase 6 candidate-path normalizer backed by the discovery-produced ~IndexedUniverse~ rather than watcher-owned source rules.
+- Extended the indexed universe with retained logical-to-canonical file mappings so deleted, renamed-away, explicit, and symlinked source paths preserve their Phase 6 identity.
+- Reused the existing global exclusions, root-local exclusions, recursive/non-recursive scope rules, explicit-file extension override, canonical Unix identity, and non-UTF-8 path handling.
+- Kept all event kinds as path hints only; no event kind selects a DB replacement, metadata update, or deletion operation.
+- Added deterministic unit coverage for all required event combinations and source-universe cases.
+
+** Changed files
+
+- ~src/watcher.rs~
+- ~src/indexer.rs~
+- ~src/link_resolver.rs~
+- ~src/config.rs~
+- ~src/lib.rs~
+- ~docs/design/incremental-indexing.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-25--normalized-watcher-events.org~
+
+** Checks performed
+
+- Reviewed the complete diff against the task scope and acceptance criteria.
+- Verified balanced Rust delimiters for every changed Rust file with a lexical source scan.
+- Checked changed implementation files for accidental ~notify~, thread, channel, sleep, polling, ~todo!()~, and ~unimplemented!()~ additions.
+- Checked changed files for newly introduced trailing whitespace.
+- Confirmed no dependency, CLI, DB schema, parser, debounce, controller, or live watcher changes were added.
+
+** Test results
+
+- Added deterministic unit tests for repeated events, create/modify, modify/remove, remove/create, complete and incomplete rename, duplicate paths, exclusions, unrelated paths, non-recursive roots, reconciliation supersession, event-order permutations, empty batches, explicit non-Org files, deleted symlink sources, and non-UTF-8 Unix paths.
+- Rust compilation, formatting, Clippy, and test execution could not be run in the provided execution environment because ~cargo~, ~rustc~, and ~rustfmt~ are not installed.
+- Local verification remains: ~cargo fmt --all~, then ~make ci~.
+
+** Blockers
+
+- The execution environment does not contain a Rust toolchain.
+- The uploaded archive does not contain a ~.git~ directory, so branch creation and ~git diff --check~ were unavailable.
+
+** Follow-ups
+
+- The next Phase 7 task will add debounce and serialized execution over this normalized batch boundary.

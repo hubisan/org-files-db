@@ -29,6 +29,8 @@ pub(crate) struct IndexedUniverse {
     global_exclusions: ExclusionMatcher,
     globally_excluded_paths: BTreeSet<PathBuf>,
     explicit_inclusions: BTreeSet<PathBuf>,
+    explicit_logical_paths: BTreeSet<PathBuf>,
+    file_mappings: Vec<(PathBuf, PathBuf)>,
     root_scopes: Vec<IndexedRootScope>,
 }
 
@@ -1138,6 +1140,8 @@ impl Default for IndexedUniverse {
             global_exclusions: ExclusionMatcher::empty(),
             globally_excluded_paths: BTreeSet::new(),
             explicit_inclusions: BTreeSet::new(),
+            explicit_logical_paths: BTreeSet::new(),
+            file_mappings: Vec::new(),
             root_scopes: Vec::new(),
         }
     }
@@ -1183,11 +1187,29 @@ impl IndexedUniverse {
         }
     }
 
-    pub(crate) fn add_explicit_path(&mut self, path: PathBuf) {
-        self.explicit_inclusions.insert(path);
+    pub(crate) fn add_explicit_logical_path(&mut self, path: PathBuf) {
+        self.explicit_logical_paths.insert(path);
+    }
+
+    pub(crate) fn add_explicit_mapping(&mut self, logical_path: PathBuf, canonical_path: PathBuf) {
+        self.add_explicit_logical_path(logical_path.clone());
+        self.explicit_inclusions.insert(canonical_path.clone());
+        self.add_source_mapping(logical_path, canonical_path);
+    }
+
+    pub(crate) fn add_source_mapping(&mut self, logical_path: PathBuf, canonical_path: PathBuf) {
+        if !self
+            .file_mappings
+            .iter()
+            .any(|mapping| mapping == &(logical_path.clone(), canonical_path.clone()))
+        {
+            self.file_mappings.push((logical_path, canonical_path));
+        }
     }
 
     pub(crate) fn add_globally_excluded_path(&mut self, path: PathBuf) {
+        self.file_mappings
+            .retain(|(_, mapped_path)| mapped_path != &path);
         self.globally_excluded_paths.insert(path);
     }
 
@@ -1211,7 +1233,7 @@ impl IndexedUniverse {
 
     #[cfg(test)]
     pub(crate) fn add_exact_path(&mut self, path: PathBuf) {
-        self.add_explicit_path(path);
+        self.add_explicit_mapping(path.clone(), path);
     }
 
     pub(crate) fn contains(&self, path: &Path) -> bool {
@@ -1228,9 +1250,96 @@ impl IndexedUniverse {
         self.explicit_inclusions.contains(path)
             || self.root_scopes.iter().any(|scope| scope.includes(path))
     }
+
+    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
+    pub(crate) fn is_explicit_candidate(&self, logical_path: &Path, canonical_path: &Path) -> bool {
+        self.explicit_logical_paths.contains(logical_path)
+            || self.explicit_inclusions.contains(canonical_path)
+    }
+
+    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
+    pub(crate) fn is_known_source(&self, canonical_path: &Path) -> bool {
+        self.file_mappings
+            .iter()
+            .any(|(_, mapped_path)| mapped_path.as_path() == canonical_path)
+    }
+
+    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
+    pub(crate) fn normalize_candidate_path(
+        &self,
+        path: &Path,
+        existing_canonical_path: Option<&Path>,
+    ) -> Option<PathBuf> {
+        if !path.is_absolute() || self.globally_excluded_paths.contains(path) {
+            return None;
+        }
+
+        if let Some((_, canonical_path)) =
+            self.file_mappings
+                .iter()
+                .find(|(logical_path, canonical_path)| {
+                    path == logical_path.as_path() || path == canonical_path.as_path()
+                })
+        {
+            if self.globally_excluded_paths.contains(canonical_path) {
+                return None;
+            }
+            return Some(canonical_path.clone());
+        }
+
+        if let Some(canonical_path) = existing_canonical_path {
+            if self.globally_excluded_paths.contains(canonical_path) {
+                return None;
+            }
+            if self.contains(canonical_path) || self.includes_logical(path) {
+                return Some(canonical_path.to_path_buf());
+            }
+        }
+
+        if self.contains(path) {
+            return Some(path.to_path_buf());
+        }
+
+        let mut candidates = self
+            .root_scopes
+            .iter()
+            .flat_map(|scope| scope.canonical_candidates(path))
+            .filter(|(_, candidate)| self.contains(candidate))
+            .collect::<Vec<_>>();
+        candidates.sort_by(|(left_depth, left), (right_depth, right)| {
+            right_depth
+                .cmp(left_depth)
+                .then_with(|| left.as_os_str().cmp(right.as_os_str()))
+        });
+        candidates.into_iter().next().map(|(_, path)| path)
+    }
+
+    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
+    fn includes_logical(&self, path: &Path) -> bool {
+        if self.global_exclusions.matches_file(path) {
+            return false;
+        }
+
+        self.explicit_logical_paths.contains(path)
+            || self
+                .root_scopes
+                .iter()
+                .any(|scope| scope.includes_logical(path))
+    }
 }
 
 impl IndexedRootScope {
+    fn canonical_candidates(&self, path: &Path) -> Vec<(usize, PathBuf)> {
+        self.directory_mappings
+            .iter()
+            .filter_map(|(logical, canonical)| {
+                path.strip_prefix(logical)
+                    .ok()
+                    .map(|suffix| (logical.components().count(), canonical.join(suffix)))
+            })
+            .collect()
+    }
+
     fn logical_candidates<'a>(&'a self, path: &'a Path) -> impl Iterator<Item = PathBuf> + 'a {
         self.directory_mappings
             .iter()
@@ -1242,16 +1351,19 @@ impl IndexedRootScope {
     }
 
     fn includes(&self, path: &Path) -> bool {
-        self.logical_candidates(path).any(|logical_path| {
-            let relative = logical_path
-                .strip_prefix(&self.logical_root)
-                .expect("logical candidate is rooted in its scope");
-            let direct_child = relative.components().count() <= 1;
-            (self.recursive || direct_child)
-                && !self
-                    .local_exclusions
-                    .matches_path_or_excluded_ancestor(&logical_path, &self.logical_root)
-        })
+        self.logical_candidates(path)
+            .any(|logical_path| self.includes_logical(&logical_path))
+    }
+
+    fn includes_logical(&self, path: &Path) -> bool {
+        let Ok(relative) = path.strip_prefix(&self.logical_root) else {
+            return false;
+        };
+        let direct_child = relative.components().count() <= 1;
+        (self.recursive || direct_child)
+            && !self
+                .local_exclusions
+                .matches_path_or_excluded_ancestor(path, &self.logical_root)
     }
 }
 

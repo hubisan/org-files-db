@@ -130,13 +130,15 @@ Acceptance criteria:
 - New focused tests cover any newly exposed handoff API.
 - Repository inspection confirms that no Phase 6 indexing semantics were copied into a watcher module.
 
-** TODO [#A] Implement normalized watcher events and deterministic batching
+** DONE [#A] Implement normalized watcher events and deterministic batching
 :PROPERTIES:
 :PRIORITY: High
 :RISK: Medium
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Internal
 :END:
+
+Task file: [[./2026-07-25--normalized-watcher-events.org]]
 
 Goal:
 
