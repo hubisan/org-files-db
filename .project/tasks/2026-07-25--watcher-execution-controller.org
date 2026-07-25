@@ -1,0 +1,112 @@
+#+TITLE: Watcher execution controller
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-25 Sat 20:33]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the Phase 7 debounce and watcher execution controller over the completed backend-independent watcher event model and Phase 6 reconciliation handoff.
+
+* Planning
+
+** Problem summary
+
+Normalized watcher inputs need bounded, deterministic batching before they call Phase 6. The controller must serialize reconciliation, retain work that arrives during execution, preserve failed batches, and define a deterministic shutdown policy without introducing a live watcher, threads, channels, or timing-dependent tests.
+
+** Goals
+
+- Add a configurable internal debounce interval with a documented default.
+- Merge normalized watcher inputs without retaining an unbounded raw event queue.
+- Dispatch completed batches to bounded or full Phase 6 reconciliation.
+- Permit only one active Phase 6 execution.
+- Retain inputs received while an execution is active.
+- Requeue failed executions together with later pending work.
+- Define and test a deterministic shutdown policy.
+
+** Non-goals
+
+- No ~notify~ dependency or filesystem watcher backend.
+- No threads, channels, polling loop, CLI command, signals, daemonization, or parallel parsing.
+- No watcher-owned classification, parsing, or DB mutation logic.
+- No automatic long-running retry policy beyond preserving the failed batch for the next controller execution.
+
+** Architecture
+
+- Keep the controller in the internal ~watcher~ module.
+- Pass monotonic ~Instant~ values into controller operations so tests control time without sleeping.
+- Store at most one normalized pending batch and one normalized active batch.
+- Merge candidates by Phase 6 native identity and let reconciliation supersede candidates.
+- Use a narrow executor trait for deterministic tests and a production adapter that calls the existing Phase 6 reconciliation entry points.
+- Flush pending work during shutdown after closing input intake.
+
+** Execution plan
+
+- Add normalized-batch merge behavior.
+- Add controller state, debounce deadline, active execution, retry, and shutdown handling.
+- Add a Phase 6 executor adapter and actionable execution errors.
+- Add deterministic unit tests for all required controller scenarios.
+- Document the completed controller contract.
+
+** Risks & assumptions
+
+- The future backend event loop remains responsible for feeding events into the controller and invoking ready executions.
+- A failed batch is retained but not retried in a hidden background loop; the caller controls subsequent polling and termination policy.
+- Startup reconciliation and recovery policy remain separate later Phase 7 tasks.
+
+** Open questions
+
+- None for this bounded task.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test watcher~
+- ~cargo test~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+
+* Results
+
+** Approach
+
+- Added a monotonic-time debounce controller with a 250 ms default and an internal configurable interval.
+- Aggregated only normalized pending state, avoiding an unbounded raw event queue.
+- Added single-active-execution state with separate start and completion operations so later inputs can be retained for the following batch.
+- Added a production executor adapter that routes candidate batches to ~reconcile_candidate_paths~ and reconciliation batches to ~reconcile_configured_sources~.
+- Added explicit watcher execution errors for Phase 6 failures and plan rejections.
+- Requeued failed active batches and merged them with later pending work, with one debounce interval before retry.
+- Defined shutdown as close-input-and-flush: pending work becomes immediately eligible and shutdown completes only after active and pending work are empty.
+- Added deterministic tests driven by supplied ~Instant~ values without sleeps.
+
+** Changed files
+
+- ~src/watcher.rs~
+- ~docs/design/incremental-indexing.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-25--watcher-execution-controller.org~
+
+** Checks performed
+
+- Reviewed controller state transitions for idle, pending, active, failed, retry, and shutdown states.
+- Checked that raw event kinds still do not select Phase 6 mutations.
+- Checked that only the existing Phase 6 handoff performs planning and transactional application.
+- Verified balanced Rust delimiters with a lexical source scan.
+- Checked changed files for trailing whitespace and forbidden placeholder macros.
+
+** Test results
+
+- Added deterministic tests for one coalesced burst, separate bursts, reconciliation supersession, inputs during execution, failed execution with later pending work, executor retry timing, empty shutdown, pending shutdown flush, default debounce, and invalid completion.
+- Rust compilation, formatting, Clippy, and test execution could not be run in the provided execution environment because ~cargo~, ~rustc~, and ~rustfmt~ are not installed.
+- Local verification remains: ~cargo fmt --all~, then ~make ci~.
+
+** Blockers
+
+- The execution environment does not contain a Rust toolchain.
+- The uploaded archive does not contain a ~.git~ directory, so branch creation and Git diff checks were unavailable.
+
+** Follow-ups
+
+- The next Phase 7 task can connect ~notify~ events to this controller without changing debounce, serialization, failure retention, or shutdown semantics.

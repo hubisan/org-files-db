@@ -1,9 +1,21 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    fmt,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
+
+use rusqlite::Connection;
 
 use crate::{
     config::Config,
     file_identity::FileIdentity,
-    indexer::{CandidatePathNormalizer, CandidatePathResolution, IndexerError},
+    indexer::{
+        CandidatePathNormalizer, CandidatePathResolution, ChangeApplicationRejection,
+        ChangeApplicationResult, Indexer, IndexerError,
+    },
+    parser::OrgParserCore,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,11 +96,312 @@ impl WatcherBatchNormalizer {
     }
 }
 
+pub(crate) const DEFAULT_WATCHER_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(250);
+
+impl NormalizedWatcherBatch {
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Candidates(paths) if paths.is_empty())
+    }
+
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Reconcile, _) | (_, Self::Reconcile) => Self::Reconcile,
+            (Self::Candidates(left), Self::Candidates(right)) => {
+                let mut candidates = BTreeMap::new();
+                for path in left.into_iter().chain(right) {
+                    candidates.insert(FileIdentity::from_canonical_path(&path), path);
+                }
+                Self::Candidates(candidates.into_values().collect())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WatcherControllerError {
+    InputClosed,
+    NoActiveExecution,
+}
+
+impl fmt::Display for WatcherControllerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InputClosed => write!(f, "watcher controller is no longer accepting input"),
+            Self::NoActiveExecution => write!(f, "watcher controller has no active execution"),
+        }
+    }
+}
+
+impl Error for WatcherControllerError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WatcherExecutionStatus {
+    Idle,
+    Executed,
+}
+
+pub(crate) trait WatcherBatchExecutor {
+    type Error;
+
+    fn execute(&mut self, batch: NormalizedWatcherBatch) -> Result<(), Self::Error>;
+}
+
+#[derive(Debug)]
+pub(crate) enum WatcherExecutionError {
+    Indexer(IndexerError),
+    Rejected(ChangeApplicationRejection),
+}
+
+impl fmt::Display for WatcherExecutionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Indexer(source) => write!(f, "watcher reconciliation failed: {source}"),
+            Self::Rejected(ChangeApplicationRejection::FullRebuildRequired) => write!(
+                f,
+                "watcher reconciliation was rejected because a full rebuild is required"
+            ),
+            Self::Rejected(ChangeApplicationRejection::FailedSources) => write!(
+                f,
+                "watcher reconciliation was rejected because one or more sources failed preparation"
+            ),
+            Self::Rejected(ChangeApplicationRejection::InvalidPlan) => write!(
+                f,
+                "watcher reconciliation was rejected because the Phase 6 plan was invalid"
+            ),
+            Self::Rejected(ChangeApplicationRejection::Stale) => write!(
+                f,
+                "watcher reconciliation was rejected because the Phase 6 plan became stale"
+            ),
+        }
+    }
+}
+
+impl Error for WatcherExecutionError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Indexer(source) => Some(source),
+            Self::Rejected(_) => None,
+        }
+    }
+}
+
+pub(crate) struct Phase6WatcherExecutor<'a, P> {
+    indexer: &'a Indexer<P>,
+    connection: &'a mut Connection,
+    config: &'a Config,
+}
+
+impl<'a, P> Phase6WatcherExecutor<'a, P> {
+    pub(crate) fn new(
+        indexer: &'a Indexer<P>,
+        connection: &'a mut Connection,
+        config: &'a Config,
+    ) -> Self {
+        Self {
+            indexer,
+            connection,
+            config,
+        }
+    }
+}
+
+impl<P> WatcherBatchExecutor for Phase6WatcherExecutor<'_, P>
+where
+    P: OrgParserCore,
+{
+    type Error = WatcherExecutionError;
+
+    fn execute(&mut self, batch: NormalizedWatcherBatch) -> Result<(), Self::Error> {
+        let result = match batch {
+            NormalizedWatcherBatch::Candidates(paths) => {
+                self.indexer
+                    .reconcile_candidate_paths(self.connection, self.config, paths)
+            }
+            NormalizedWatcherBatch::Reconcile => self
+                .indexer
+                .reconcile_configured_sources(self.connection, self.config),
+        }
+        .map_err(WatcherExecutionError::Indexer)?;
+
+        match result {
+            ChangeApplicationResult::Applied(_) => Ok(()),
+            ChangeApplicationResult::Rejected(rejection) => {
+                Err(WatcherExecutionError::Rejected(rejection))
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct WatcherExecutionController {
+    normalizer: WatcherBatchNormalizer,
+    debounce_interval: Duration,
+    pending: Option<NormalizedWatcherBatch>,
+    pending_deadline: Option<Instant>,
+    active: Option<NormalizedWatcherBatch>,
+    accepting_inputs: bool,
+}
+
+impl WatcherExecutionController {
+    pub(crate) fn from_config(config: &Config) -> Result<Self, IndexerError> {
+        Self::with_debounce_interval(config, DEFAULT_WATCHER_DEBOUNCE_INTERVAL)
+    }
+
+    pub(crate) fn with_debounce_interval(
+        config: &Config,
+        debounce_interval: Duration,
+    ) -> Result<Self, IndexerError> {
+        Ok(Self {
+            normalizer: WatcherBatchNormalizer::from_config(config)?,
+            debounce_interval,
+            pending: None,
+            pending_deadline: None,
+            active: None,
+            accepting_inputs: true,
+        })
+    }
+
+    pub(crate) fn debounce_interval(&self) -> Duration {
+        self.debounce_interval
+    }
+
+    pub(crate) fn push_input(
+        &mut self,
+        input: WatcherInput,
+        now: Instant,
+    ) -> Result<(), WatcherControllerError> {
+        self.push_inputs([input], now)
+    }
+
+    pub(crate) fn push_inputs<I>(
+        &mut self,
+        inputs: I,
+        now: Instant,
+    ) -> Result<(), WatcherControllerError>
+    where
+        I: IntoIterator<Item = WatcherInput>,
+    {
+        if !self.accepting_inputs {
+            return Err(WatcherControllerError::InputClosed);
+        }
+
+        let batch = self.normalizer.normalize(inputs);
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        self.merge_pending(batch);
+        self.pending_deadline = Some(now.checked_add(self.debounce_interval).unwrap_or(now));
+        Ok(())
+    }
+
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        self.pending_deadline
+    }
+
+    pub(crate) fn start_ready_execution(&mut self, now: Instant) -> Option<NormalizedWatcherBatch> {
+        if self.active.is_some() {
+            return None;
+        }
+
+        let ready = !self.accepting_inputs
+            || self
+                .pending_deadline
+                .is_some_and(|deadline| now >= deadline);
+        if !ready {
+            return None;
+        }
+
+        let batch = self.pending.take()?;
+        self.pending_deadline = None;
+        self.active = Some(batch.clone());
+        Some(batch)
+    }
+
+    pub(crate) fn finish_execution_success(&mut self) -> Result<(), WatcherControllerError> {
+        self.take_active()?;
+        Ok(())
+    }
+
+    pub(crate) fn finish_execution_failure(
+        &mut self,
+        now: Instant,
+    ) -> Result<(), WatcherControllerError> {
+        let failed = self.take_active()?;
+        self.requeue_failed_batch(failed, now);
+        Ok(())
+    }
+
+    pub(crate) fn execute_ready<E>(
+        &mut self,
+        now: Instant,
+        executor: &mut E,
+    ) -> Result<WatcherExecutionStatus, E::Error>
+    where
+        E: WatcherBatchExecutor,
+    {
+        let Some(batch) = self.start_ready_execution(now) else {
+            return Ok(WatcherExecutionStatus::Idle);
+        };
+
+        let retry_batch = batch.clone();
+        match executor.execute(batch) {
+            Ok(()) => {
+                self.active = None;
+                Ok(WatcherExecutionStatus::Executed)
+            }
+            Err(error) => {
+                self.active = None;
+                self.requeue_failed_batch(retry_batch, now);
+                Err(error)
+            }
+        }
+    }
+
+    /// Stops accepting new inputs and flushes all pending work without waiting
+    /// for the debounce deadline. An active execution finishes first; any batch
+    /// accumulated during it is then eligible immediately.
+    pub(crate) fn begin_shutdown(&mut self) {
+        self.accepting_inputs = false;
+    }
+
+    pub(crate) fn is_accepting_inputs(&self) -> bool {
+        self.accepting_inputs
+    }
+
+    pub(crate) fn is_shutdown_complete(&self) -> bool {
+        !self.accepting_inputs && self.pending.is_none() && self.active.is_none()
+    }
+
+    fn merge_pending(&mut self, batch: NormalizedWatcherBatch) {
+        self.pending = Some(match self.pending.take() {
+            Some(pending) => pending.merge(batch),
+            None => batch,
+        });
+    }
+
+    fn requeue_failed_batch(&mut self, batch: NormalizedWatcherBatch, now: Instant) {
+        self.merge_pending(batch);
+        self.pending_deadline = Some(if self.accepting_inputs {
+            now.checked_add(self.debounce_interval).unwrap_or(now)
+        } else {
+            now
+        });
+    }
+
+    fn take_active(&mut self) -> Result<NormalizedWatcherBatch, WatcherControllerError> {
+        self.active
+            .take()
+            .ok_or(WatcherControllerError::NoActiveExecution)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        NormalizedWatcherBatch, WatcherBatchNormalizer, WatcherInput, WatcherPathEventKind,
-        WatcherUncertainty,
+        NormalizedWatcherBatch, WatcherBatchExecutor, WatcherBatchNormalizer,
+        WatcherControllerError, WatcherExecutionController, WatcherExecutionStatus, WatcherInput,
+        WatcherPathEventKind, WatcherUncertainty, DEFAULT_WATCHER_DEBOUNCE_INTERVAL,
     };
     use crate::config::Config;
     use std::{
@@ -96,7 +409,7 @@ mod tests {
         fs,
         os::unix::ffi::OsStrExt,
         path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     struct TestDir {
@@ -163,6 +476,31 @@ mod tests {
             NormalizedWatcherBatch::Candidates(paths) => paths,
             NormalizedWatcherBatch::Reconcile => panic!("expected candidate batch"),
         }
+    }
+
+    #[derive(Default)]
+    struct RecordingExecutor {
+        batches: Vec<NormalizedWatcherBatch>,
+        fail_next: bool,
+    }
+
+    impl WatcherBatchExecutor for RecordingExecutor {
+        type Error = &'static str;
+
+        fn execute(&mut self, batch: NormalizedWatcherBatch) -> Result<(), Self::Error> {
+            self.batches.push(batch);
+            if self.fail_next {
+                self.fail_next = false;
+                Err("planned watcher execution failure")
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn controller(config: &Config, debounce_interval: Duration) -> WatcherExecutionController {
+        WatcherExecutionController::with_debounce_interval(config, debounce_interval)
+            .expect("controller")
     }
 
     #[test]
@@ -490,5 +828,306 @@ mod tests {
         let batch = normalizer.normalize([paths(WatcherPathEventKind::Modify, [note])]);
 
         assert_eq!(candidates(batch), vec![canonical]);
+    }
+
+    #[test]
+    fn default_controller_uses_the_documented_debounce_interval() {
+        let test_dir = TestDir::new("default-debounce");
+        let config = recursive_config(&test_dir);
+        let controller = WatcherExecutionController::from_config(&config).expect("controller");
+
+        assert_eq!(
+            controller.debounce_interval(),
+            DEFAULT_WATCHER_DEBOUNCE_INTERVAL
+        );
+    }
+
+    #[test]
+    fn one_event_burst_produces_one_execution() {
+        let test_dir = TestDir::new("one-burst");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Note\n");
+        let canonical = fs::canonicalize(&note).unwrap();
+        let debounce = Duration::from_millis(100);
+        let mut controller = controller(&config, debounce);
+        let mut executor = RecordingExecutor::default();
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Create, [note.clone()]), start)
+            .unwrap();
+        controller
+            .push_input(
+                paths(WatcherPathEventKind::Modify, [note.clone()]),
+                start + Duration::from_millis(10),
+            )
+            .unwrap();
+        controller
+            .push_input(
+                paths(WatcherPathEventKind::Metadata, [note]),
+                start + Duration::from_millis(20),
+            )
+            .unwrap();
+
+        assert_eq!(
+            controller
+                .execute_ready(start + Duration::from_millis(119), &mut executor)
+                .unwrap(),
+            WatcherExecutionStatus::Idle
+        );
+        assert_eq!(
+            controller
+                .execute_ready(start + Duration::from_millis(120), &mut executor)
+                .unwrap(),
+            WatcherExecutionStatus::Executed
+        );
+        assert_eq!(executor.batches.len(), 1);
+        assert_eq!(
+            executor.batches[0],
+            NormalizedWatcherBatch::Candidates(vec![canonical])
+        );
+    }
+
+    #[test]
+    fn separate_bursts_produce_separate_executions() {
+        let test_dir = TestDir::new("separate-bursts");
+        let config = recursive_config(&test_dir);
+        let alpha = test_dir.path().join("notes/alpha.org");
+        let beta = test_dir.path().join("notes/beta.org");
+        write_file(&alpha, "* Alpha\n");
+        write_file(&beta, "* Beta\n");
+        let mut controller = controller(&config, Duration::from_millis(50));
+        let mut executor = RecordingExecutor::default();
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [alpha]), start)
+            .unwrap();
+        assert_eq!(
+            controller
+                .execute_ready(start + Duration::from_millis(50), &mut executor)
+                .unwrap(),
+            WatcherExecutionStatus::Executed
+        );
+
+        controller
+            .push_input(
+                paths(WatcherPathEventKind::Modify, [beta]),
+                start + Duration::from_millis(100),
+            )
+            .unwrap();
+        assert_eq!(
+            controller
+                .execute_ready(start + Duration::from_millis(150), &mut executor)
+                .unwrap(),
+            WatcherExecutionStatus::Executed
+        );
+
+        assert_eq!(executor.batches.len(), 2);
+    }
+
+    #[test]
+    fn pending_reconciliation_supersedes_candidates() {
+        let test_dir = TestDir::new("controller-reconciliation");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Note\n");
+        let mut controller = controller(&config, Duration::from_millis(10));
+        let mut executor = RecordingExecutor::default();
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [note]), start)
+            .unwrap();
+        controller
+            .push_input(
+                WatcherInput::Uncertain(WatcherUncertainty::Overflow),
+                start + Duration::from_millis(1),
+            )
+            .unwrap();
+        controller
+            .execute_ready(start + Duration::from_millis(11), &mut executor)
+            .unwrap();
+
+        assert_eq!(executor.batches, vec![NormalizedWatcherBatch::Reconcile]);
+    }
+
+    #[test]
+    fn events_arriving_during_execution_are_retained_for_the_next_batch() {
+        let test_dir = TestDir::new("events-during-execution");
+        let config = recursive_config(&test_dir);
+        let alpha = test_dir.path().join("notes/alpha.org");
+        let beta = test_dir.path().join("notes/beta.org");
+        write_file(&alpha, "* Alpha\n");
+        write_file(&beta, "* Beta\n");
+        let alpha = fs::canonicalize(alpha).unwrap();
+        let beta = fs::canonicalize(beta).unwrap();
+        let mut controller = controller(&config, Duration::from_millis(100));
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [alpha.clone()]), start)
+            .unwrap();
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_millis(100)),
+            Some(NormalizedWatcherBatch::Candidates(vec![alpha]))
+        );
+
+        controller
+            .push_input(
+                paths(WatcherPathEventKind::Modify, [beta.clone()]),
+                start + Duration::from_millis(110),
+            )
+            .unwrap();
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_secs(1)),
+            None
+        );
+        controller.finish_execution_success().unwrap();
+
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_millis(209)),
+            None
+        );
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_millis(210)),
+            Some(NormalizedWatcherBatch::Candidates(vec![beta]))
+        );
+        controller.finish_execution_success().unwrap();
+    }
+
+    #[test]
+    fn failed_execution_preserves_active_and_later_pending_work() {
+        let test_dir = TestDir::new("failed-execution");
+        let config = recursive_config(&test_dir);
+        let alpha = test_dir.path().join("notes/alpha.org");
+        let beta = test_dir.path().join("notes/beta.org");
+        write_file(&alpha, "* Alpha\n");
+        write_file(&beta, "* Beta\n");
+        let alpha = fs::canonicalize(alpha).unwrap();
+        let beta = fs::canonicalize(beta).unwrap();
+        let mut controller = controller(&config, Duration::from_millis(100));
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [alpha.clone()]), start)
+            .unwrap();
+        assert!(controller
+            .start_ready_execution(start + Duration::from_millis(100))
+            .is_some());
+        controller
+            .push_input(
+                paths(WatcherPathEventKind::Modify, [beta.clone()]),
+                start + Duration::from_millis(110),
+            )
+            .unwrap();
+        controller
+            .finish_execution_failure(start + Duration::from_millis(120))
+            .unwrap();
+
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_millis(219)),
+            None
+        );
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_millis(220)),
+            Some(NormalizedWatcherBatch::Candidates(vec![alpha, beta]))
+        );
+        controller.finish_execution_success().unwrap();
+    }
+
+    #[test]
+    fn executor_failure_requeues_the_batch_after_the_debounce_interval() {
+        let test_dir = TestDir::new("executor-failure");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Note\n");
+        let mut controller = controller(&config, Duration::from_millis(25));
+        let mut executor = RecordingExecutor {
+            batches: Vec::new(),
+            fail_next: true,
+        };
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [note]), start)
+            .unwrap();
+        assert_eq!(
+            controller.execute_ready(start + Duration::from_millis(25), &mut executor),
+            Err("planned watcher execution failure")
+        );
+        assert_eq!(
+            controller
+                .execute_ready(start + Duration::from_millis(49), &mut executor)
+                .unwrap(),
+            WatcherExecutionStatus::Idle
+        );
+        assert_eq!(
+            controller
+                .execute_ready(start + Duration::from_millis(50), &mut executor)
+                .unwrap(),
+            WatcherExecutionStatus::Executed
+        );
+        assert_eq!(executor.batches.len(), 2);
+        assert_eq!(executor.batches[0], executor.batches[1]);
+    }
+
+    #[test]
+    fn shutdown_with_an_empty_queue_is_immediately_complete() {
+        let test_dir = TestDir::new("empty-shutdown");
+        let config = recursive_config(&test_dir);
+        let mut controller = controller(&config, Duration::from_millis(100));
+        let start = Instant::now();
+
+        controller.begin_shutdown();
+
+        assert!(!controller.is_accepting_inputs());
+        assert!(controller.is_shutdown_complete());
+        assert_eq!(controller.start_ready_execution(start), None);
+        assert_eq!(
+            controller.push_input(WatcherInput::Uncertain(WatcherUncertainty::Rescan), start),
+            Err(WatcherControllerError::InputClosed)
+        );
+    }
+
+    #[test]
+    fn shutdown_flushes_a_pending_batch_without_waiting_for_debounce() {
+        let test_dir = TestDir::new("pending-shutdown");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Note\n");
+        let canonical = fs::canonicalize(&note).unwrap();
+        let mut controller = controller(&config, Duration::from_secs(30));
+        let start = Instant::now();
+
+        controller
+            .push_input(paths(WatcherPathEventKind::Modify, [note]), start)
+            .unwrap();
+        assert_eq!(
+            controller.next_deadline(),
+            Some(start + Duration::from_secs(30))
+        );
+        controller.begin_shutdown();
+
+        assert_eq!(
+            controller.start_ready_execution(start + Duration::from_millis(1)),
+            Some(NormalizedWatcherBatch::Candidates(vec![canonical]))
+        );
+        assert!(!controller.is_shutdown_complete());
+        controller.finish_execution_success().unwrap();
+        assert!(controller.is_shutdown_complete());
+    }
+
+    #[test]
+    fn completion_without_an_active_execution_is_rejected() {
+        let test_dir = TestDir::new("completion-without-execution");
+        let config = recursive_config(&test_dir);
+        let mut controller = controller(&config, Duration::from_millis(10));
+
+        assert_eq!(
+            controller.finish_execution_success(),
+            Err(WatcherControllerError::NoActiveExecution)
+        );
     }
 }

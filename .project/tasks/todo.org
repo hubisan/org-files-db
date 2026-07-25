@@ -188,13 +188,15 @@ Required tests:
 - deterministic output under permuted raw event order;
 - non-UTF-8 Unix paths where supported by the test platform.
 
-** TODO [#A] Implement debounce and watcher execution controller
+** REVIEW [#A] Implement debounce and watcher execution controller
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: Internal
 :END:
+
+Task file: [[./2026-07-25--watcher-execution-controller.org]]
 
 Goal:
 

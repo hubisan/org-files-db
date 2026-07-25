@@ -66,3 +66,13 @@ The backend-independent watcher layer accepts raw path-bearing event hints plus 
 Candidate paths are normalized through the Phase 6 source universe captured from discovery. Existing paths use their canonical Unix target identity. Missing or renamed-away paths reuse retained logical-to-canonical source mappings, including explicit files and symlinked sources, without requiring the leaf to remain present. Explicit configured files remain eligible with any extension; directory roots accept only case-insensitive ~.org~ paths and retain their recursive, non-recursive, global-exclusion, and root-local-exclusion semantics.
 
 Equivalent path hints are deduplicated by the version-tagged native Unix file identity and emitted in that identity order. A reconciliation request supersedes all path candidates in the batch. An empty or fully irrelevant batch produces an empty candidate set and performs no indexing work by itself.
+
+* Watcher execution controller
+
+The watcher execution controller uses a monotonic caller-provided timestamp and a default debounce interval of 250 milliseconds. Each relevant input resets the pending deadline. The interval is an internal setting so later CLI integration can expose or replace it without changing batching semantics. Tests advance timestamps directly and do not sleep.
+
+Pending inputs are stored only as their normalized result, not as an unbounded raw event queue. Candidate batches merge by native Unix file identity, while a full reconciliation request supersedes all candidates. Once the deadline is reached, the controller starts exactly one execution and dispatches either bounded candidate reconciliation or complete configured-source reconciliation through the Phase 6 handoff.
+
+An active execution blocks a second execution but does not block collection of the next pending batch. Inputs accepted while Phase 6 is running remain pending for a later execution. A failed execution is returned to the pending state and merged with later work; its retry becomes eligible after one debounce interval, avoiding both silent event loss and an immediate tight retry loop. Phase 6 errors retain their path context, and Phase 6 plan rejections are reported as watcher execution failures.
+
+Shutdown uses a flush policy. The controller stops accepting new inputs, allows an active execution to finish, and makes any pending batch immediately eligible without waiting for its debounce deadline. Shutdown is complete only when no active or pending batch remains.
