@@ -1251,20 +1251,17 @@ impl IndexedUniverse {
             || self.root_scopes.iter().any(|scope| scope.includes(path))
     }
 
-    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
     pub(crate) fn is_explicit_candidate(&self, logical_path: &Path, canonical_path: &Path) -> bool {
         self.explicit_logical_paths.contains(logical_path)
             || self.explicit_inclusions.contains(canonical_path)
     }
 
-    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
     pub(crate) fn is_known_source(&self, canonical_path: &Path) -> bool {
         self.file_mappings
             .iter()
             .any(|(_, mapped_path)| mapped_path.as_path() == canonical_path)
     }
 
-    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
     pub(crate) fn normalize_candidate_path(
         &self,
         path: &Path,
@@ -1314,7 +1311,6 @@ impl IndexedUniverse {
         candidates.into_iter().next().map(|(_, path)| path)
     }
 
-    #[allow(dead_code)] // Used by the Phase 7 watcher path normalizer.
     fn includes_logical(&self, path: &Path) -> bool {
         if self.global_exclusions.matches_file(path) {
             return false;

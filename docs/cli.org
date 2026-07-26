@@ -37,6 +37,8 @@ orgfdb watch --config ./org-files-db.toml
 
 ~SIGINT~ and ~SIGTERM~ stop new event intake and invoke the controller's flush policy. A batch already pending at shutdown becomes immediately eligible without waiting for its debounce deadline. The command exits successfully only after that pending work completes. Fatal source, watch registration, startup reconciliation, controller, or Phase 6 execution failures are reported on stderr and return exit code ~1~. CLI usage errors continue to return exit code ~2~.
 
+Backend uncertainty, including a native rescan request, a backend error, or overflow of the bounded 1,024-event input buffer, requests full Phase 6 reconciliation instead of guessing individual mutations. Before that reconciliation, the runtime re-registers all configured watches because lost events may have hidden a watch-root replacement. Repeated overflow is represented by one bounded marker until the runtime consumes it.
+
 The command does not daemonize itself, install a service, restart automatically, or support Windows service semantics.
 
 * ~orgfdb headings~

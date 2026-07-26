@@ -15,7 +15,8 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - =src/indexer.rs= orchestrates parsing, normalization, and DB writes
 - =src/db/= owns the SQLite schema, reader, and writer layers
 - =src/query.rs= contains query-side helpers used by the CLI and tests
-- =src/cli.rs= exposes the supported rebuild, headings, and links commands
+- =src/watcher.rs=, =src/notify_source.rs=, and =src/watcher_runtime.rs= translate filesystem events into bounded Phase 6 reconciliation
+- =src/cli.rs= exposes the supported rebuild, watch, headings, links, query, and search commands
 - =main.rs= remains thin and delegates directly to the CLI module
 - org-files-db supports Linux and Unix-like systems, including macOS. Windows is unsupported.
 
@@ -161,6 +162,21 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 :PROPERTIES:
 :CUSTOM_ID: usage
 :END:
+
+Build the project and start watcher-driven incremental indexing with the same configuration used for rebuilds:
+
+#+begin_src shell
+cargo run --bin orgfdb -- watch --config ./org-files-db.toml
+#+end_src
+
+For a release build:
+
+#+begin_src shell
+cargo build --release
+./target/release/orgfdb watch --config ./org-files-db.toml
+#+end_src
+
+During startup the watcher registers the configured inputs and runs a full Phase 6 reconciliation. After ~watcher ready~ appears on stderr, create, modify, rename, replace, and delete operations are applied incrementally. Stop the foreground process with ~Ctrl-C~. The watcher is supported on Unix-like systems only; see [[./docs/cli.org][docs/cli.org]] for lifecycle and failure behavior.
 
 ** Customization
 :PROPERTIES:

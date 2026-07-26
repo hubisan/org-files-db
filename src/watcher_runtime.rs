@@ -378,6 +378,7 @@ where
                     backend_failures += 1;
                     let input = failure.recovery_input();
                     self.recovery.record_backend_failure(failure);
+                    self.refresh_required = true;
                     input
                 }
             };
@@ -400,6 +401,7 @@ where
 
         if matches!(&input, WatcherInput::Uncertain(_)) {
             self.recovery.record_uncertainty();
+            self.refresh_required = true;
         }
         input
     }
@@ -1001,6 +1003,7 @@ mod tests {
         assert_eq!(report.execution_status, WatcherExecutionStatus::Executed);
         assert_eq!(executor.batches.len(), 2);
         assert_eq!(executor.batches[1], NormalizedWatcherBatch::Reconcile);
+        assert_eq!(handle.refresh_count(), 1);
         assert_eq!(runtime.recovery_context().uncertainty_count(), 0);
     }
 
@@ -1199,6 +1202,16 @@ mod tests {
         assert_eq!(report.source_messages, 1);
         assert_eq!(report.backend_failures, 1);
         assert_eq!(report.execution_status, WatcherExecutionStatus::Idle);
+
+        let deadline = runtime
+            .next_deadline()
+            .expect("backend recovery should be pending");
+        let recovery = runtime
+            .process_available(deadline, &mut executor)
+            .expect("backend recovery should execute");
+        assert_eq!(recovery.execution_status, WatcherExecutionStatus::Executed);
+        assert_eq!(handle.refresh_count(), 1);
+        assert_eq!(executor.batches[1], NormalizedWatcherBatch::Reconcile);
     }
 
     #[test]

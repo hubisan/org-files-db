@@ -38,13 +38,11 @@ use crate::{
     },
 };
 
-#[allow(dead_code)] // Phase 7 production entry point.
 #[derive(Debug)]
 pub(crate) struct CandidatePathNormalizer {
     indexed_universe: IndexedUniverse,
 }
 
-#[allow(dead_code)] // Phase 7 production result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CandidatePathResolution {
     Candidate(PathBuf),
@@ -52,7 +50,6 @@ pub(crate) enum CandidatePathResolution {
     Reconcile,
 }
 
-#[allow(dead_code)] // Used by the Phase 7 watcher pipeline.
 impl CandidatePathNormalizer {
     pub(crate) fn from_config(config: &Config) -> Result<Self, IndexerError> {
         let discovery = discover_org_files(config)?;
@@ -146,7 +143,6 @@ where
     /// Plans and applies one complete configured-source reconciliation through
     /// the same Phase 6 validation and transactional mutation boundary used by
     /// all incremental callers.
-    #[allow(dead_code)] // Phase 7 production entry point.
     pub(crate) fn reconcile_configured_sources(
         &self,
         connection: &mut Connection,
@@ -159,7 +155,6 @@ where
     /// Plans and applies a bounded reconciliation for already-normalized
     /// candidate paths. Candidate event kinds are intentionally absent: Phase 6
     /// reclassifies each path from current filesystem and persisted DB state.
-    #[allow(dead_code)] // Phase 7 production entry point.
     pub(crate) fn reconcile_candidate_paths<I>(
         &self,
         connection: &mut Connection,
@@ -200,7 +195,6 @@ where
         self.apply_change_plan(connection, config, actionable)
     }
 
-    #[allow(dead_code)] // Used by the Phase 7 reconciliation entry points.
     pub(crate) fn plan_changes(
         &self,
         connection: &Connection,
@@ -209,7 +203,6 @@ where
         self.plan_changes_with_options(connection, config, ChangePlanningOptions::default())
     }
 
-    #[allow(dead_code)] // Used by tests and explicit Phase 6 policy callers.
     pub(crate) fn plan_changes_with_options(
         &self,
         connection: &Connection,
@@ -506,7 +499,6 @@ where
         ))
     }
 
-    #[allow(dead_code)] // Reached through the planner entry points above.
     fn plan_discovered_file(
         &self,
         discovered: DiscoveredOrgFile,

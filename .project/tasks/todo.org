@@ -432,13 +432,15 @@ Acceptance criteria:
 - Watcher restart repairs missed offline changes.
 - Tests provide useful diagnostics showing the expected and observed DB state on failure.
 
-** TODO [#A] Audit Phase 7 completeness and remove unfinished paths
+** DONE [#A] Audit Phase 7 completeness and remove unfinished paths
 :PROPERTIES:
 :PRIORITY: High
 :RISK: Medium
 :DB_SCHEMA_CHANGE: No
 :API_CONTRACT_CHANGE: No
 :END:
+
+Task file: [[./2026-07-26--phase-7-completeness-audit.org][2026-07-26--phase-7-completeness-audit.org]]
 
 Goal:
 
@@ -477,7 +479,7 @@ Acceptance criteria:
 Local final verification:
 
 - Run ~git diff --check~.
-- Run ~cargo fmt --check~.
+- Run ~cargo fmt --all --check~.
 - Run ~cargo test~.
 - Run ~cargo test~ a second time to expose watcher-test instability.
 - Run ~cargo clippy --all-targets --all-features -- -D warnings~.

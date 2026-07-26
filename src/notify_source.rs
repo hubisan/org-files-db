@@ -2,7 +2,16 @@ use std::{
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError},
+        Arc,
+    },
+};
+
+#[cfg(test)]
+use std::{
+    sync::mpsc::RecvTimeoutError,
     time::{Duration, Instant},
 };
 
@@ -16,6 +25,9 @@ use crate::{
     file_identity::FileIdentity,
     watcher::{WatcherInput, WatcherPathEventKind, WatcherUncertainty},
 };
+
+const NOTIFY_EVENT_BUFFER_CAPACITY: usize = 1024;
+type NotifyEventResult = notify::Result<Event>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NotifyWatchMode {
@@ -61,11 +73,26 @@ impl NotifyWatchTarget {
 pub(crate) struct NotifyBackendFailure {
     message: String,
     paths: Vec<PathBuf>,
+    uncertainty: WatcherUncertainty,
 }
 
 impl NotifyBackendFailure {
     pub(crate) fn new(message: String, paths: Vec<PathBuf>) -> Self {
-        Self { message, paths }
+        Self {
+            message,
+            paths,
+            uncertainty: WatcherUncertainty::DroppedEvents,
+        }
+    }
+
+    fn event_buffer_overflow() -> Self {
+        Self {
+            message: format!(
+                "notify event buffer exceeded its capacity of {NOTIFY_EVENT_BUFFER_CAPACITY}; one or more filesystem events were dropped"
+            ),
+            paths: Vec::new(),
+            uncertainty: WatcherUncertainty::Overflow,
+        }
     }
 
     pub(crate) fn message(&self) -> &str {
@@ -77,7 +104,7 @@ impl NotifyBackendFailure {
     }
 
     pub(crate) fn recovery_input(&self) -> WatcherInput {
-        WatcherInput::Uncertain(WatcherUncertainty::DroppedEvents)
+        WatcherInput::Uncertain(self.uncertainty)
     }
 }
 
@@ -174,19 +201,25 @@ impl Error for NotifyWatcherError {
 
 pub(crate) struct NotifyWatcherSource {
     _watcher: RecommendedWatcher,
-    receiver: Receiver<notify::Result<Event>>,
+    receiver: Receiver<NotifyEventResult>,
+    event_buffer_overflowed: Arc<AtomicBool>,
     watch_targets: Vec<NotifyWatchTarget>,
 }
 
 impl NotifyWatcherSource {
     pub(crate) fn from_config(config: &Config) -> Result<Self, NotifyWatcherError> {
         let watch_targets = notify_watch_targets(config)?;
-        let (sender, receiver) = mpsc::channel();
-        let watcher = create_registered_watcher(sender, &watch_targets)?;
+        let (sender, receiver, event_buffer_overflowed) = notify_event_buffer();
+        let watcher = create_registered_watcher(
+            sender,
+            Arc::clone(&event_buffer_overflowed),
+            &watch_targets,
+        )?;
 
         Ok(Self {
             _watcher: watcher,
             receiver,
+            event_buffer_overflowed,
             watch_targets,
         })
     }
@@ -201,15 +234,24 @@ impl NotifyWatcherSource {
 
     pub(crate) fn refresh_watches(&mut self) -> Result<(), NotifyWatcherError> {
         validate_watch_targets(&self.watch_targets)?;
-        let (sender, receiver) = mpsc::channel();
-        let watcher = create_registered_watcher(sender, &self.watch_targets)?;
+        let (sender, receiver, event_buffer_overflowed) = notify_event_buffer();
+        let watcher = create_registered_watcher(
+            sender,
+            Arc::clone(&event_buffer_overflowed),
+            &self.watch_targets,
+        )?;
         self._watcher = watcher;
         self.receiver = receiver;
+        self.event_buffer_overflowed = event_buffer_overflowed;
         Ok(())
     }
 
     pub(crate) fn try_recv(&self) -> Result<Option<NotifySourceMessage>, NotifyWatcherError> {
         loop {
+            if let Some(message) = take_event_buffer_overflow(&self.event_buffer_overflowed) {
+                return Ok(Some(message));
+            }
+
             match self.receiver.try_recv() {
                 Ok(result) => {
                     if let Some(message) = translate_notify_result(result) {
@@ -224,6 +266,7 @@ impl NotifyWatcherSource {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn recv_timeout(
         &self,
         timeout: Duration,
@@ -232,6 +275,10 @@ impl NotifyWatcherSource {
         let mut remaining = timeout;
 
         loop {
+            if let Some(message) = take_event_buffer_overflow(&self.event_buffer_overflowed) {
+                return Ok(Some(message));
+            }
+
             match self.receiver.recv_timeout(remaining) {
                 Ok(result) => {
                     if let Some(message) = translate_notify_result(result) {
@@ -362,12 +409,48 @@ fn insert_watch_target(targets: &mut Vec<NotifyWatchTarget>, target: NotifyWatch
     targets.push(target);
 }
 
+fn notify_event_buffer() -> (
+    SyncSender<NotifyEventResult>,
+    Receiver<NotifyEventResult>,
+    Arc<AtomicBool>,
+) {
+    let (sender, receiver) = mpsc::sync_channel(NOTIFY_EVENT_BUFFER_CAPACITY);
+    (sender, receiver, Arc::new(AtomicBool::new(false)))
+}
+
+fn enqueue_notify_result(
+    sender: &SyncSender<NotifyEventResult>,
+    event_buffer_overflowed: &AtomicBool,
+    result: NotifyEventResult,
+) {
+    match sender.try_send(result) {
+        Ok(()) => {}
+        Err(TrySendError::Full(_)) => {
+            event_buffer_overflowed.store(true, Ordering::Release);
+        }
+        Err(TrySendError::Disconnected(_)) => {}
+    }
+}
+
+fn take_event_buffer_overflow(event_buffer_overflowed: &AtomicBool) -> Option<NotifySourceMessage> {
+    if event_buffer_overflowed.swap(false, Ordering::AcqRel) {
+        Some(NotifySourceMessage::BackendFailure(
+            NotifyBackendFailure::event_buffer_overflow(),
+        ))
+    } else {
+        None
+    }
+}
+
 fn create_registered_watcher(
-    sender: mpsc::Sender<notify::Result<Event>>,
+    sender: SyncSender<NotifyEventResult>,
+    event_buffer_overflowed: Arc<AtomicBool>,
     targets: &[NotifyWatchTarget],
 ) -> Result<RecommendedWatcher, NotifyWatcherError> {
-    let mut watcher = recommended_watcher(sender)
-        .map_err(|source| NotifyWatcherError::CreateBackend { source })?;
+    let mut watcher = recommended_watcher(move |result: NotifyEventResult| {
+        enqueue_notify_result(&sender, &event_buffer_overflowed, result);
+    })
+    .map_err(|source| NotifyWatcherError::CreateBackend { source })?;
     register_watch_targets(targets, |target| {
         watcher.watch(target.path(), target.mode().as_notify_mode())
     })?;
@@ -398,8 +481,9 @@ fn register_watch_targets(
 #[cfg(test)]
 mod tests {
     use super::{
-        notify_watch_targets, register_watch_targets, translate_notify_result, NotifySourceMessage,
-        NotifyWatchMode, NotifyWatcherError, NotifyWatcherSource,
+        enqueue_notify_result, notify_watch_targets, register_watch_targets,
+        take_event_buffer_overflow, translate_notify_result, NotifySourceMessage, NotifyWatchMode,
+        NotifyWatcherError, NotifyWatcherSource,
     };
     use crate::{
         config::Config,
@@ -418,6 +502,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        sync::{atomic::AtomicBool, mpsc},
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
@@ -586,6 +671,37 @@ mod tests {
             WatcherInput::Uncertain(WatcherUncertainty::DroppedEvents)
         );
         assert!(failure.to_string().contains("full reconciliation"));
+    }
+
+    #[test]
+    fn bounded_event_buffer_reports_overflow_and_requests_reconciliation() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let overflowed = AtomicBool::new(false);
+
+        enqueue_notify_result(
+            &sender,
+            &overflowed,
+            Ok(Event::new(EventKind::Any).add_path(PathBuf::from("/tmp/first.org"))),
+        );
+        enqueue_notify_result(
+            &sender,
+            &overflowed,
+            Ok(Event::new(EventKind::Any).add_path(PathBuf::from("/tmp/second.org"))),
+        );
+
+        let Some(NotifySourceMessage::BackendFailure(failure)) =
+            take_event_buffer_overflow(&overflowed)
+        else {
+            panic!("expected bounded event-buffer overflow");
+        };
+        assert!(failure.message().contains("event buffer"));
+        assert_eq!(
+            failure.recovery_input(),
+            WatcherInput::Uncertain(WatcherUncertainty::Overflow)
+        );
+        assert!(failure.to_string().contains("full reconciliation"));
+        assert!(receiver.try_recv().is_ok());
+        assert!(take_event_buffer_overflow(&overflowed).is_none());
     }
 
     #[test]

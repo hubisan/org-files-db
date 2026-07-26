@@ -1,0 +1,127 @@
+#+TITLE: Phase 7 completeness audit
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-26 Sun 10:05]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Audit Phase 7 completeness, remove unfinished paths, and verify the watcher implementation against the completed task contract.
+
+* Planning
+
+** Problem summary
+
+Phase 7 is functionally implemented and its real-backend integration suite has passed twice, but the complete watcher stack still needs a final cross-layer review for duplicated indexing semantics, unbounded state, placeholder behavior, documentation drift, platform leakage, and recovery gaps.
+
+** Goals
+
+- Review the complete Phase 7 implementation against the active phase rules and all completed task acceptance criteria.
+- Remove stale Phase 7 dead-code suppressions that no longer describe the production call graph.
+- Ensure every production event queue or retained diagnostic structure is explicitly bounded.
+- Verify raw event kinds never select database mutations and all writes remain behind the Phase 6 handoff.
+- Update user-facing and architecture documentation to match the completed watcher lifecycle.
+- Add focused coverage for any defect found by the audit.
+
+** Non-goals
+
+- No Phase 8 parallelism.
+- No new watcher features, daemonization, service integration, automatic restart, configurable CLI debounce, or Windows support.
+- No DB schema, parser, query, or source-discovery redesign.
+- No archive move before local formatting, Clippy, repeated tests, and manual smoke verification pass.
+
+** Architecture
+
+- Keep ~notify~ as a thin event source.
+- Keep the normalized controller state bounded to one active and one pending batch.
+- Bound the raw backend event handoff independently so a producer burst cannot grow process memory without limit.
+- Represent raw-buffer overflow as explicit backend uncertainty and converge through full Phase 6 reconciliation.
+
+** Execution plan
+
+- Inspect all Phase 7 modules, task files, CLI wiring, documentation, dependencies, and integration tests.
+- Search for placeholders, normal-path panics, ignored tests, sleeps in deterministic unit tests, Windows branches, direct DB mutation, duplicated source-universe rules, and unbounded queues.
+- Replace the unbounded ~notify~ channel with a bounded non-blocking buffer and a single atomic overflow marker.
+- Add deterministic overflow coverage.
+- Remove obsolete Phase 7 ~dead_code~ suppressions.
+- Update README, CLI, design, changelog, and active task documentation.
+- Leave the task in ~REVIEW~ for local CI and manual smoke testing.
+
+** Risks & assumptions
+
+- The callback must not block the filesystem backend when the consumer falls behind.
+- Dropping an event is safe only when a retained overflow marker forces complete reconciliation.
+- The fixed buffer size is an internal safety bound, not a public tuning contract.
+- The uploaded archive has no Git history, so the pre-Phase-7 diff cannot be reconstructed in this environment.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~git diff --check~
+- ~cargo fmt --all --check~
+- ~cargo test~ twice
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- targeted ~notify_source~ and watcher integration tests
+- manual Unix watcher smoke test
+
+* Results
+
+** Approach
+
+- Reviewed the watcher handoff, event normalization, controller, ~notify~ adapter, startup/recovery runtime, CLI lifecycle, and real-backend test suite as one execution path.
+- Confirmed watcher modules do not parse Org data or mutate SQLite directly; all bounded and full updates still enter through the Phase 6 reconciliation methods.
+- Found and fixed two production completeness defects: the raw ~notify~ callback used an unbounded standard channel, and generic backend uncertainty reconciled sources without refreshing native watch registrations.
+- Replaced that channel with a non-blocking 1,024-event buffer and one atomic overflow marker.
+- An overflowing event is dropped, but the marker is retained and emitted as an explicit backend failure whose recovery input is ~WatcherUncertainty::Overflow~. Normal runtime handling therefore requests full Phase 6 reconciliation.
+- Repeated overflow before consumption remains one bounded marker rather than an unbounded error queue.
+- Any backend uncertainty now marks registrations for refresh before reconciliation, covering the case where a dropped event hid replacement of a watched root.
+- Removed Phase 7-specific ~dead_code~ suppressions from production-used handoff and candidate-normalization APIs.
+- Updated user and design documentation to describe the completed CLI, bounded buffering, recovery, shutdown, and supported platform scope.
+
+** Changed files
+
+- ~src/notify_source.rs~
+- ~src/watcher_runtime.rs~
+- ~src/indexer.rs~
+- ~src/link_resolver.rs~
+- ~README.org~
+- ~CHANGELOG.org~
+- ~docs/cli.org~
+- ~docs/design/incremental-indexing.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-07-26--phase-7-completeness-audit.org~
+
+** Checks performed
+
+- Searched Phase 7 production code for ~TODO~, ~FIXME~, ~todo!()~, ~unimplemented!()~, ~cfg(any())~, Windows-specific branches, direct SQL/DB mutation, and production panic paths.
+- Distinguished test-only ~expect~, ~unwrap~, fake queues, and bounded polling sleeps from production normal error handling.
+- Confirmed the only production filesystem-event channel is now bounded.
+- Confirmed controller state remains one active batch plus one merged pending batch.
+- Confirmed backend diagnostic state remains a saturating count plus latest target and latest failure.
+- Confirmed all uncertainty-driven reconciliations refresh native watch registrations first.
+- Confirmed raw event kinds still produce path hints only and Phase 6 performs final unchanged, metadata-only, create, modify, delete, failed, stale, FTS, and link-resolution decisions.
+- Confirmed watcher code contains no Windows backend or compatibility branch and no Phase 8 concurrency.
+- Confirmed the real-backend integration suite compares watcher state with fresh Phase 6 state, including links and available FTS state.
+- Checked changed files for conflict markers, trailing whitespace, and balanced delimiters with static source inspection.
+
+** Test results
+
+- Added deterministic coverage proving a full bounded buffer records overflow, reports full-reconciliation context, retains only one marker, and preserves already-buffered input.
+- Extended repeated-rescan and backend-failure coverage to require exactly one watch refresh before the collapsed reconciliation.
+- The user previously ran the seven real-backend watcher integration tests twice successfully after the final warning correction.
+- Rust formatting, Clippy, the complete test suite, and the new overflow test could not be executed in this environment because ~cargo~, ~rustc~, and ~rustfmt~ are unavailable.
+
+** Blockers
+
+- Local ~make ci~ and manual Unix smoke verification remain required before this task can be marked ~DONE~ and Phase 7 can be archived.
+- The uploaded archive contains no ~.git~ directory, so ~git diff --check~ and review from the last pre-Phase-7 commit are unavailable here.
+
+** Follow-ups
+
+- After local checks pass, mark this task ~DONE~, mark Phase 7 ~DONE~, and archive the Phase 7 section and task files according to the repository workflow.

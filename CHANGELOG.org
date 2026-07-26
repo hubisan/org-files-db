@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =ADDED= Added ~orgfdb watch --config PATH~ for safe watcher-driven incremental indexing and recovery on supported Unix-like systems.
+
 - =CHANGED= Effective tags are now stored in a normalized projection for inherited matching and deterministic ~all_tags~ output; the internal ~all_tags_json~ heading cache was removed.
 
 - =CHANGED= Property queries now use a transactionally maintained effective-property projection instead of resolving inheritance at query time.
