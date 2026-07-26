@@ -58,39 +58,116 @@ impl CandidatePathNormalizer {
         })
     }
 
+    pub(crate) fn watcher_directory_hints(&self) -> Vec<(PathBuf, bool)> {
+        self.indexed_universe.watcher_directory_hints()
+    }
+
     pub(crate) fn resolve(&self, path: &Path) -> CandidatePathResolution {
         let logical_path = normalize_syntactic_path(path.to_path_buf());
         if !logical_path.is_absolute() {
             return CandidatePathResolution::Ignore;
         }
 
-        let existing_canonical_path = match canonicalize_existing_file(&logical_path) {
-            Ok(path) => Some(path),
-            Err(IndexerError::Discover { source, .. })
-                if source.kind() == io::ErrorKind::NotFound =>
-            {
-                None
-            }
-            Err(IndexerError::Discover { source, .. })
-                if source.kind() == io::ErrorKind::InvalidInput =>
-            {
+        let symlink_metadata = match fs::symlink_metadata(&logical_path) {
+            Ok(metadata) => Some(metadata),
+            Err(source) if source.kind() == io::ErrorKind::NotFound => None,
+            Err(source) if source.kind() == io::ErrorKind::InvalidInput => {
                 return CandidatePathResolution::Ignore;
             }
             Err(_) => return CandidatePathResolution::Reconcile,
         };
 
-        let Some(candidate) = self
+        let Some(symlink_metadata) = symlink_metadata else {
+            if self.indexed_universe.is_configured_root_path(&logical_path) {
+                return CandidatePathResolution::Reconcile;
+            }
+            if let Some(canonical_directory) = self
+                .indexed_universe
+                .canonical_directory_for_known_path(&logical_path)
+            {
+                return CandidatePathResolution::Candidate(canonical_directory.to_path_buf());
+            }
+
+            let candidate = self
+                .indexed_universe
+                .normalize_candidate_path(&logical_path, None)
+                .or_else(|| {
+                    self.indexed_universe
+                        .is_explicit_logical_path(&logical_path)
+                        .then(|| logical_path.clone())
+                });
+            return self.classify_file_candidate(&logical_path, candidate);
+        };
+
+        let existing_is_symlink = symlink_metadata.file_type().is_symlink();
+        let canonical_path = match fs::canonicalize(&logical_path) {
+            Ok(path) => path,
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                return CandidatePathResolution::Reconcile;
+            }
+            Err(source) if source.kind() == io::ErrorKind::InvalidInput => {
+                return CandidatePathResolution::Ignore;
+            }
+            Err(_) => return CandidatePathResolution::Reconcile,
+        };
+        let metadata = match fs::metadata(&canonical_path) {
+            Ok(metadata) => metadata,
+            Err(source) if source.kind() == io::ErrorKind::InvalidInput => {
+                return CandidatePathResolution::Ignore;
+            }
+            Err(_) => return CandidatePathResolution::Reconcile,
+        };
+
+        if metadata.is_dir() {
+            return if self.indexed_universe.is_known_directory_path(&logical_path)
+                || self
+                    .indexed_universe
+                    .is_known_directory_path(&canonical_path)
+                || self.indexed_universe.includes_logical_file(&logical_path)
+                || self.indexed_universe.contains(&canonical_path)
+            {
+                CandidatePathResolution::Reconcile
+            } else {
+                CandidatePathResolution::Ignore
+            };
+        }
+        if !metadata.is_file() {
+            return CandidatePathResolution::Ignore;
+        }
+
+        if let Some(previous_canonical) = self
             .indexed_universe
-            .normalize_candidate_path(&logical_path, existing_canonical_path.as_deref())
-        else {
+            .source_mapping_for_logical_path(&logical_path)
+        {
+            if previous_canonical != canonical_path {
+                return CandidatePathResolution::Reconcile;
+            }
+        }
+
+        let candidate = self
+            .indexed_universe
+            .normalize_candidate_path(&logical_path, Some(&canonical_path));
+        if existing_is_symlink && candidate.is_some() {
+            return CandidatePathResolution::Reconcile;
+        }
+
+        self.classify_file_candidate(&logical_path, candidate)
+    }
+
+    fn classify_file_candidate(
+        &self,
+        logical_path: &Path,
+        candidate: Option<PathBuf>,
+    ) -> CandidatePathResolution {
+        let Some(candidate) = candidate else {
             return CandidatePathResolution::Ignore;
         };
 
         if self.indexed_universe.is_known_source(&candidate)
             || self
                 .indexed_universe
-                .is_explicit_candidate(&logical_path, &candidate)
-            || is_org_source_path(&logical_path)
+                .is_explicit_candidate(logical_path, &candidate)
+            || is_org_source_path(logical_path)
             || is_org_source_path(&candidate)
         {
             CandidatePathResolution::Candidate(candidate)
@@ -807,7 +884,11 @@ impl PlanningScope {
                 .identity
                 .as_ref()
                 .and_then(FileIdentity::to_path)
-                .is_some_and(|path| candidates.contains(&path)),
+                .is_some_and(|path| {
+                    candidates.iter().any(|candidate| {
+                        path.as_path() == candidate.as_path() || path.starts_with(candidate)
+                    })
+                }),
         }
     }
 }
@@ -2536,7 +2617,7 @@ mod tests {
         PersistedFileSnapshot, PlannedCurrentFile,
     };
     use crate::{
-        config::{Config, SearchConfig},
+        config::{Config, ConfiguredDir, SearchConfig},
         db::{
             open_in_memory_database_with_schema, sqlite_supports_fts5, DbReader, DbWriter,
             FileRecordInput, HeadingRecord, SchemaDefinition, CURRENT_SCHEMA_VERSION,
@@ -9726,6 +9807,65 @@ index_body_text = false
             .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
             .expect("file count should read");
         assert_eq!(file_count, 0);
+    }
+
+    #[test]
+    fn candidate_reconciliation_deletes_persisted_descendants_of_a_removed_directory() {
+        let test_dir = TestDir::new("candidate-reconciliation-removed-directory");
+        let notes = test_dir.path().join("notes");
+        let removed = notes.join("removed");
+        let first = removed.join("first.org");
+        let second = removed.join("deeper/second.org");
+        let kept = notes.join("kept.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: Vec::new(),
+            dirs: vec![ConfiguredDir {
+                path: notes,
+                recursive: true,
+                exclude: Vec::new(),
+            }],
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        write_file(&kept, "* Kept\n");
+        let removed_canonical =
+            fs::canonicalize(&removed).expect("directory should canonicalize before deletion");
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild");
+        fs::remove_dir_all(&removed).expect("directory should be removed");
+
+        let result = indexer
+            .reconcile_candidate_paths(&mut connection, &config, [removed_canonical])
+            .expect("removed directory should reconcile through persisted descendants");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("directory deletion plan should apply");
+        };
+        assert_eq!(report.deleted, 2);
+        assert_eq!(report.unchanged, 1);
+        let paths = connection
+            .prepare("SELECT path FROM files ORDER BY path")
+            .expect("query should prepare")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("query should execute")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("paths should read");
+        assert_eq!(paths, vec![kept.display().to_string()]);
     }
 
     #[test]

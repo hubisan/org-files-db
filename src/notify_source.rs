@@ -1,6 +1,8 @@
 use std::{
+    collections::VecDeque,
     error::Error,
-    fmt, fs, io,
+    fmt, fs, io, mem,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -9,11 +11,11 @@ use std::{
     },
 };
 
+#[cfg(target_os = "linux")]
+use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
 #[cfg(test)]
-use std::{
-    sync::mpsc::RecvTimeoutError,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use notify::{
     event::ModifyKind, recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode,
@@ -23,11 +25,17 @@ use notify::{
 use crate::{
     config::{normalize_syntactic_path, Config},
     file_identity::FileIdentity,
+    indexer::{CandidatePathNormalizer, IndexerError},
     watcher::{WatcherInput, WatcherPathEventKind, WatcherUncertainty},
 };
 
-const NOTIFY_EVENT_BUFFER_CAPACITY: usize = 1024;
-type NotifyEventResult = notify::Result<Event>;
+pub(crate) const NOTIFY_EVENT_BUFFER_CAPACITY: usize = 1024;
+const MAX_RETIRED_NOTIFY_BUFFERS: usize = 2;
+const MAX_NOTIFY_PATHS_PER_EVENT: usize = 64;
+const MAX_NOTIFY_BACKEND_ERROR_PATHS: usize = 16;
+const MAX_NOTIFY_BACKEND_MESSAGE_BYTES: usize = 1024;
+
+type NotifyBufferedMessage = NotifySourceMessage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NotifyWatchMode {
@@ -44,10 +52,87 @@ impl NotifyWatchMode {
     }
 }
 
+#[derive(Debug, Clone)]
+struct NotifyFilesystemSnapshot {
+    #[cfg(target_os = "linux")]
+    mount_table: Vec<u8>,
+}
+
+impl NotifyFilesystemSnapshot {
+    fn capture() -> Result<Self, NotifyWatcherError> {
+        #[cfg(target_os = "linux")]
+        {
+            let mount_table_path = PathBuf::from("/proc/self/mountinfo");
+            let mount_table = fs::read(&mount_table_path).map_err(|source| {
+                NotifyWatcherError::InspectMountTable {
+                    path: mount_table_path,
+                    source,
+                }
+            })?;
+            Ok(Self { mount_table })
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            Ok(Self {})
+        }
+    }
+
+    fn guard(&self, path: &Path) -> Result<NotifyFilesystemGuard, NotifyWatcherError> {
+        let canonical_path =
+            fs::canonicalize(path).map_err(|source| NotifyWatcherError::InspectWatchPath {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        let metadata = fs::metadata(&canonical_path).map_err(|source| {
+            NotifyWatcherError::InspectWatchPath {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+        if !metadata.is_dir() {
+            return Err(NotifyWatcherError::WatchPathNotDirectory {
+                path: path.to_path_buf(),
+            });
+        }
+
+        Ok(NotifyFilesystemGuard {
+            device: metadata.dev(),
+            #[cfg(target_os = "linux")]
+            mount: parse_linux_mount_identity(&self.mount_table, &canonical_path).ok_or_else(
+                || NotifyWatcherError::InspectMountTable {
+                    path: canonical_path,
+                    source: io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "no containing mount was found in /proc/self/mountinfo",
+                    ),
+                },
+            )?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NotifyFilesystemGuard {
+    device: u64,
+    #[cfg(target_os = "linux")]
+    mount: LinuxMountIdentity,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinuxMountIdentity {
+    mount_id: u64,
+    major_minor: Vec<u8>,
+    root: PathBuf,
+    mount_point: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NotifyWatchTarget {
     path: PathBuf,
     mode: NotifyWatchMode,
+    filesystem_guard: NotifyFilesystemGuard,
 }
 
 impl NotifyWatchTarget {
@@ -57,15 +142,6 @@ impl NotifyWatchTarget {
 
     pub(crate) fn mode(&self) -> NotifyWatchMode {
         self.mode
-    }
-
-    fn covers(&self, other: &Self) -> bool {
-        if self.path == other.path {
-            return self.mode == NotifyWatchMode::Recursive
-                || other.mode == NotifyWatchMode::NonRecursive;
-        }
-
-        self.mode == NotifyWatchMode::Recursive && other.path.starts_with(&self.path)
     }
 }
 
@@ -79,8 +155,11 @@ pub(crate) struct NotifyBackendFailure {
 impl NotifyBackendFailure {
     pub(crate) fn new(message: String, paths: Vec<PathBuf>) -> Self {
         Self {
-            message,
-            paths,
+            message: bounded_message(message),
+            paths: paths
+                .into_iter()
+                .take(MAX_NOTIFY_BACKEND_ERROR_PATHS)
+                .collect(),
             uncertainty: WatcherUncertainty::DroppedEvents,
         }
     }
@@ -92,6 +171,16 @@ impl NotifyBackendFailure {
             ),
             paths: Vec::new(),
             uncertainty: WatcherUncertainty::Overflow,
+        }
+    }
+
+    fn refresh_overlap_overflow() -> Self {
+        Self {
+            message: format!(
+                "notify watch refresh exceeded {MAX_RETIRED_NOTIFY_BUFFERS} retained event buffers; one or more queued filesystem events may have been dropped"
+            ),
+            paths: Vec::new(),
+            uncertainty: WatcherUncertainty::DroppedEvents,
         }
     }
 
@@ -110,10 +199,10 @@ impl NotifyBackendFailure {
 
 impl fmt::Display for NotifyBackendFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "notify backend error: {}", self.message)?;
-        if !self.paths.is_empty() {
+        write!(f, "notify backend error: {}", self.message())?;
+        if !self.paths().is_empty() {
             write!(f, " (paths:")?;
-            for path in &self.paths {
+            for path in self.paths() {
                 write!(f, " {}", path.display())?;
             }
             write!(f, ")")?;
@@ -130,14 +219,24 @@ pub(crate) enum NotifySourceMessage {
 
 #[derive(Debug)]
 pub(crate) enum NotifyWatcherError {
+    SourceUniverse {
+        source: IndexerError,
+    },
     InspectWatchPath {
+        path: PathBuf,
+        source: io::Error,
+    },
+    InspectMountTable {
         path: PathBuf,
         source: io::Error,
     },
     WatchPathNotDirectory {
         path: PathBuf,
     },
-    MissingExplicitParent {
+    WatchFilesystemChanged {
+        path: PathBuf,
+    },
+    MissingSourceParent {
         path: PathBuf,
     },
     CreateBackend {
@@ -154,9 +253,18 @@ pub(crate) enum NotifyWatcherError {
 impl fmt::Display for NotifyWatcherError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::SourceUniverse { source } => {
+                write!(f, "failed to derive notify watches from the Phase 6 source universe: {source}")
+            }
             Self::InspectWatchPath { path, source } => write!(
                 f,
                 "failed to inspect notify watch path {}: {}",
+                path.display(),
+                source
+            ),
+            Self::InspectMountTable { path, source } => write!(
+                f,
+                "failed to inspect filesystem mount identity for {}: {}",
                 path.display(),
                 source
             ),
@@ -165,9 +273,14 @@ impl fmt::Display for NotifyWatcherError {
                 "notify watch path is not a directory: {}",
                 path.display()
             ),
-            Self::MissingExplicitParent { path } => write!(
+            Self::WatchFilesystemChanged { path } => write!(
                 f,
-                "configured explicit file has no parent directory to watch: {}",
+                "filesystem identity changed below protected notify watch path {}; refusing reconciliation to preserve the last committed database state",
+                path.display()
+            ),
+            Self::MissingSourceParent { path } => write!(
+                f,
+                "configured source has no parent directory to watch: {}",
                 path.display()
             ),
             Self::CreateBackend { source } => {
@@ -190,19 +303,31 @@ impl fmt::Display for NotifyWatcherError {
 impl Error for NotifyWatcherError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InspectWatchPath { source, .. } => Some(source),
+            Self::SourceUniverse { source } => Some(source),
+            Self::InspectWatchPath { source, .. } | Self::InspectMountTable { source, .. } => {
+                Some(source)
+            }
             Self::CreateBackend { source } | Self::RegisterWatch { source, .. } => Some(source),
             Self::WatchPathNotDirectory { .. }
-            | Self::MissingExplicitParent { .. }
+            | Self::WatchFilesystemChanged { .. }
+            | Self::MissingSourceParent { .. }
             | Self::EventChannelDisconnected => None,
         }
     }
 }
 
+struct RetiredNotifyBuffer {
+    receiver: Receiver<NotifyBufferedMessage>,
+    overflowed: Arc<AtomicBool>,
+}
+
 pub(crate) struct NotifyWatcherSource {
-    _watcher: RecommendedWatcher,
-    receiver: Receiver<NotifyEventResult>,
+    config: Config,
+    watcher: RecommendedWatcher,
+    receiver: Receiver<NotifyBufferedMessage>,
     event_buffer_overflowed: Arc<AtomicBool>,
+    retired_buffers: VecDeque<RetiredNotifyBuffer>,
+    refresh_overlap_overflowed: bool,
     watch_targets: Vec<NotifyWatchTarget>,
 }
 
@@ -217,9 +342,12 @@ impl NotifyWatcherSource {
         )?;
 
         Ok(Self {
-            _watcher: watcher,
+            config: config.clone(),
+            watcher,
             receiver,
             event_buffer_overflowed,
+            retired_buffers: VecDeque::new(),
+            refresh_overlap_overflowed: false,
             watch_targets,
         })
     }
@@ -233,72 +361,95 @@ impl NotifyWatcherSource {
     }
 
     pub(crate) fn refresh_watches(&mut self) -> Result<(), NotifyWatcherError> {
-        validate_watch_targets(&self.watch_targets)?;
+        let watch_targets = notify_watch_targets(&self.config)?;
+        validate_retained_watch_targets(&self.watch_targets, &watch_targets)?;
         let (sender, receiver, event_buffer_overflowed) = notify_event_buffer();
         let watcher = create_registered_watcher(
             sender,
             Arc::clone(&event_buffer_overflowed),
-            &self.watch_targets,
+            &watch_targets,
         )?;
-        self._watcher = watcher;
-        self.receiver = receiver;
-        self.event_buffer_overflowed = event_buffer_overflowed;
+        validate_watch_targets(&watch_targets)?;
+
+        let old_watcher = mem::replace(&mut self.watcher, watcher);
+        let old_receiver = mem::replace(&mut self.receiver, receiver);
+        let old_overflowed =
+            mem::replace(&mut self.event_buffer_overflowed, event_buffer_overflowed);
+        self.watch_targets = watch_targets;
+        drop(old_watcher);
+        self.retire_buffer(old_receiver, old_overflowed);
         Ok(())
     }
 
-    pub(crate) fn try_recv(&self) -> Result<Option<NotifySourceMessage>, NotifyWatcherError> {
-        loop {
-            if let Some(message) = take_event_buffer_overflow(&self.event_buffer_overflowed) {
+    fn retire_buffer(
+        &mut self,
+        receiver: Receiver<NotifyBufferedMessage>,
+        overflowed: Arc<AtomicBool>,
+    ) {
+        if self.retired_buffers.len() == MAX_RETIRED_NOTIFY_BUFFERS {
+            self.retired_buffers.pop_front();
+            self.refresh_overlap_overflowed = true;
+        }
+        self.retired_buffers.push_back(RetiredNotifyBuffer {
+            receiver,
+            overflowed,
+        });
+    }
+
+    pub(crate) fn try_recv(&mut self) -> Result<Option<NotifySourceMessage>, NotifyWatcherError> {
+        if mem::take(&mut self.refresh_overlap_overflowed) {
+            return Ok(Some(NotifySourceMessage::BackendFailure(
+                NotifyBackendFailure::refresh_overlap_overflow(),
+            )));
+        }
+
+        let mut index = 0;
+        while index < self.retired_buffers.len() {
+            if let Some(message) =
+                take_event_buffer_overflow(&self.retired_buffers[index].overflowed)
+            {
                 return Ok(Some(message));
             }
-
-            match self.receiver.try_recv() {
-                Ok(result) => {
-                    if let Some(message) = translate_notify_result(result) {
-                        return Ok(Some(message));
-                    }
+            let result = self.retired_buffers[index].receiver.try_recv();
+            match result {
+                Ok(message) => return Ok(Some(message)),
+                Err(TryRecvError::Empty) => {
+                    index += 1;
                 }
-                Err(TryRecvError::Empty) => return Ok(None),
                 Err(TryRecvError::Disconnected) => {
-                    return Err(NotifyWatcherError::EventChannelDisconnected);
+                    self.retired_buffers.remove(index);
                 }
             }
+        }
+
+        if let Some(message) = take_event_buffer_overflow(&self.event_buffer_overflowed) {
+            return Ok(Some(message));
+        }
+        match self.receiver.try_recv() {
+            Ok(message) => Ok(Some(message)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Err(NotifyWatcherError::EventChannelDisconnected),
         }
     }
 
     #[cfg(test)]
     pub(crate) fn recv_timeout(
-        &self,
+        &mut self,
         timeout: Duration,
     ) -> Result<Option<NotifySourceMessage>, NotifyWatcherError> {
         let started = Instant::now();
-        let mut remaining = timeout;
-
         loop {
-            if let Some(message) = take_event_buffer_overflow(&self.event_buffer_overflowed) {
+            if let Some(message) = self.try_recv()? {
                 return Ok(Some(message));
             }
-
-            match self.receiver.recv_timeout(remaining) {
-                Ok(result) => {
-                    if let Some(message) = translate_notify_result(result) {
-                        return Ok(Some(message));
-                    }
-                }
-                Err(RecvTimeoutError::Timeout) => return Ok(None),
-                Err(RecvTimeoutError::Disconnected) => {
-                    return Err(NotifyWatcherError::EventChannelDisconnected);
-                }
-            }
-
             let elapsed = started.elapsed();
-            let Some(next_remaining) = timeout.checked_sub(elapsed) else {
+            let Some(remaining) = timeout.checked_sub(elapsed) else {
                 return Ok(None);
             };
-            if next_remaining.is_zero() {
+            if remaining.is_zero() {
                 return Ok(None);
             }
-            remaining = next_remaining;
+            std::thread::sleep(remaining.min(Duration::from_millis(10)));
         }
     }
 }
@@ -329,7 +480,7 @@ fn translate_notify_event(event: Event) -> Option<WatcherInput> {
         EventKind::Any | EventKind::Other => WatcherPathEventKind::Other,
     };
 
-    if event.paths.is_empty() {
+    if event.paths.is_empty() || event.paths.len() > MAX_NOTIFY_PATHS_PER_EVENT {
         return Some(WatcherInput::Uncertain(WatcherUncertainty::Other));
     }
 
@@ -340,46 +491,66 @@ fn translate_notify_event(event: Event) -> Option<WatcherInput> {
 }
 
 fn notify_backend_failure(error: notify::Error) -> NotifyBackendFailure {
-    let message = error.to_string();
-    let paths = error.paths;
-    NotifyBackendFailure::new(message, paths)
+    NotifyBackendFailure::new(error.to_string(), error.paths)
+}
+
+fn bounded_message(mut message: String) -> String {
+    if message.len() <= MAX_NOTIFY_BACKEND_MESSAGE_BYTES {
+        return message;
+    }
+    const ELLIPSIS: &str = "...";
+    let max_prefix_bytes = MAX_NOTIFY_BACKEND_MESSAGE_BYTES.saturating_sub(ELLIPSIS.len());
+    let truncate_at = message
+        .char_indices()
+        .map(|(index, _)| index)
+        .take_while(|index| *index <= max_prefix_bytes)
+        .last()
+        .unwrap_or(0);
+    message.truncate(truncate_at);
+    message.push_str(ELLIPSIS);
+    message
 }
 
 fn notify_watch_targets(config: &Config) -> Result<Vec<NotifyWatchTarget>, NotifyWatcherError> {
+    let normalizer = CandidatePathNormalizer::from_config(config)
+        .map_err(|source| NotifyWatcherError::SourceUniverse { source })?;
+    let filesystem = NotifyFilesystemSnapshot::capture()?;
     let mut targets = Vec::new();
 
     for configured_dir in &config.dirs {
         let path = normalize_syntactic_path(configured_dir.path.clone());
-        validate_watch_directory(&path)?;
         insert_watch_target(
             &mut targets,
-            NotifyWatchTarget {
-                path,
-                mode: if configured_dir.recursive {
+            make_watch_target(
+                &filesystem,
+                path.clone(),
+                if configured_dir.recursive {
                     NotifyWatchMode::Recursive
                 } else {
                     NotifyWatchMode::NonRecursive
                 },
-            },
+            )?,
         );
+        insert_parent_watch_target(&filesystem, &mut targets, &path)?;
     }
 
     for explicit_file in &config.files {
         let logical_file = normalize_syntactic_path(explicit_file.clone());
-        let parent =
-            logical_file
-                .parent()
-                .ok_or_else(|| NotifyWatcherError::MissingExplicitParent {
-                    path: logical_file.clone(),
-                })?;
-        let parent = normalize_syntactic_path(parent.to_path_buf());
-        validate_watch_directory(&parent)?;
+        insert_parent_watch_target(&filesystem, &mut targets, &logical_file)?;
+    }
+
+    for (path, recursive) in normalizer.watcher_directory_hints() {
         insert_watch_target(
             &mut targets,
-            NotifyWatchTarget {
-                path: parent,
-                mode: NotifyWatchMode::NonRecursive,
-            },
+            make_watch_target(
+                &filesystem,
+                path,
+                if recursive {
+                    NotifyWatchMode::Recursive
+                } else {
+                    NotifyWatchMode::NonRecursive
+                },
+            )?,
         );
     }
 
@@ -387,48 +558,103 @@ fn notify_watch_targets(config: &Config) -> Result<Vec<NotifyWatchTarget>, Notif
     Ok(targets)
 }
 
-fn validate_watch_directory(path: &Path) -> Result<(), NotifyWatcherError> {
-    let metadata = fs::metadata(path).map_err(|source| NotifyWatcherError::InspectWatchPath {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    if !metadata.is_dir() {
-        return Err(NotifyWatcherError::WatchPathNotDirectory {
-            path: path.to_path_buf(),
+fn insert_parent_watch_target(
+    filesystem: &NotifyFilesystemSnapshot,
+    targets: &mut Vec<NotifyWatchTarget>,
+    source_path: &Path,
+) -> Result<(), NotifyWatcherError> {
+    let Some(parent) = source_path.parent() else {
+        if source_path.is_absolute() {
+            return Ok(());
+        }
+        return Err(NotifyWatcherError::MissingSourceParent {
+            path: source_path.to_path_buf(),
         });
+    };
+    if parent == source_path {
+        return Ok(());
     }
+    insert_watch_target(
+        targets,
+        make_watch_target(
+            filesystem,
+            normalize_syntactic_path(parent.to_path_buf()),
+            NotifyWatchMode::NonRecursive,
+        )?,
+    );
     Ok(())
 }
 
+fn make_watch_target(
+    filesystem: &NotifyFilesystemSnapshot,
+    path: PathBuf,
+    mode: NotifyWatchMode,
+) -> Result<NotifyWatchTarget, NotifyWatcherError> {
+    let filesystem_guard = filesystem.guard(&path)?;
+    Ok(NotifyWatchTarget {
+        path,
+        mode,
+        filesystem_guard,
+    })
+}
+
 fn insert_watch_target(targets: &mut Vec<NotifyWatchTarget>, target: NotifyWatchTarget) {
-    if targets.iter().any(|existing| existing.covers(&target)) {
+    if let Some(existing) = targets
+        .iter_mut()
+        .find(|existing| existing.path == target.path)
+    {
+        if target.mode == NotifyWatchMode::Recursive {
+            existing.mode = NotifyWatchMode::Recursive;
+        }
         return;
     }
 
-    targets.retain(|existing| !target.covers(existing));
+    if targets.iter().any(|existing| {
+        existing.mode == NotifyWatchMode::Recursive
+            && target.path.starts_with(&existing.path)
+            && target.filesystem_guard == existing.filesystem_guard
+    }) {
+        return;
+    }
+
+    targets.retain(|existing| {
+        !(target.mode == NotifyWatchMode::Recursive
+            && existing.path.starts_with(&target.path)
+            && existing.filesystem_guard == target.filesystem_guard)
+    });
     targets.push(target);
 }
 
 fn notify_event_buffer() -> (
-    SyncSender<NotifyEventResult>,
-    Receiver<NotifyEventResult>,
+    SyncSender<NotifyBufferedMessage>,
+    Receiver<NotifyBufferedMessage>,
     Arc<AtomicBool>,
 ) {
     let (sender, receiver) = mpsc::sync_channel(NOTIFY_EVENT_BUFFER_CAPACITY);
     (sender, receiver, Arc::new(AtomicBool::new(false)))
 }
 
-fn enqueue_notify_result(
-    sender: &SyncSender<NotifyEventResult>,
+fn enqueue_notify_message(
+    sender: &SyncSender<NotifyBufferedMessage>,
     event_buffer_overflowed: &AtomicBool,
-    result: NotifyEventResult,
+    message: NotifyBufferedMessage,
 ) {
-    match sender.try_send(result) {
+    match sender.try_send(message) {
         Ok(()) => {}
         Err(TrySendError::Full(_)) => {
             event_buffer_overflowed.store(true, Ordering::Release);
         }
         Err(TrySendError::Disconnected(_)) => {}
+    }
+}
+
+fn enqueue_notify_result(
+    sender: &SyncSender<NotifyBufferedMessage>,
+    event_buffer_overflowed: &AtomicBool,
+    result: notify::Result<Event>,
+) {
+    if let Some(message) = translate_notify_result(result) {
+        enqueue_notify_message(sender, event_buffer_overflowed, message);
     }
 }
 
@@ -443,11 +669,11 @@ fn take_event_buffer_overflow(event_buffer_overflowed: &AtomicBool) -> Option<No
 }
 
 fn create_registered_watcher(
-    sender: SyncSender<NotifyEventResult>,
+    sender: SyncSender<NotifyBufferedMessage>,
     event_buffer_overflowed: Arc<AtomicBool>,
     targets: &[NotifyWatchTarget],
 ) -> Result<RecommendedWatcher, NotifyWatcherError> {
-    let mut watcher = recommended_watcher(move |result: NotifyEventResult| {
+    let mut watcher = recommended_watcher(move |result: notify::Result<Event>| {
         enqueue_notify_result(&sender, &event_buffer_overflowed, result);
     })
     .map_err(|source| NotifyWatcherError::CreateBackend { source })?;
@@ -458,8 +684,48 @@ fn create_registered_watcher(
 }
 
 fn validate_watch_targets(targets: &[NotifyWatchTarget]) -> Result<(), NotifyWatcherError> {
+    let filesystem = NotifyFilesystemSnapshot::capture()?;
     for target in targets {
-        validate_watch_directory(target.path())?;
+        validate_watch_target_with_snapshot(&filesystem, target)?;
+    }
+    Ok(())
+}
+
+fn validate_retained_watch_targets(
+    previous: &[NotifyWatchTarget],
+    replacement: &[NotifyWatchTarget],
+) -> Result<(), NotifyWatcherError> {
+    for previous_target in previous {
+        let Some(replacement_target) = replacement
+            .iter()
+            .find(|target| target.path == previous_target.path)
+        else {
+            continue;
+        };
+        if replacement_target.filesystem_guard != previous_target.filesystem_guard {
+            return Err(NotifyWatcherError::WatchFilesystemChanged {
+                path: previous_target.path.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn validate_watch_target(target: &NotifyWatchTarget) -> Result<(), NotifyWatcherError> {
+    let filesystem = NotifyFilesystemSnapshot::capture()?;
+    validate_watch_target_with_snapshot(&filesystem, target)
+}
+
+fn validate_watch_target_with_snapshot(
+    filesystem: &NotifyFilesystemSnapshot,
+    target: &NotifyWatchTarget,
+) -> Result<(), NotifyWatcherError> {
+    let current = filesystem.guard(target.path())?;
+    if current != target.filesystem_guard {
+        return Err(NotifyWatcherError::WatchFilesystemChanged {
+            path: target.path.clone(),
+        });
     }
     Ok(())
 }
@@ -476,6 +742,53 @@ fn register_watch_targets(
         })?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_mount_identity(content: &[u8], path: &Path) -> Option<LinuxMountIdentity> {
+    content
+        .split(|byte| *byte == b'\n')
+        .filter_map(parse_linux_mount_line)
+        .filter(|identity| path.starts_with(&identity.mount_point))
+        .max_by_key(|identity| identity.mount_point.components().count())
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_mount_line(line: &[u8]) -> Option<LinuxMountIdentity> {
+    let separator = line.windows(3).position(|window| window == b" - ")?;
+    let fields = line[..separator]
+        .split(|byte| (*byte).is_ascii_whitespace())
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
+    if fields.len() < 5 {
+        return None;
+    }
+    let mount_id = std::str::from_utf8(fields[0]).ok()?.parse().ok()?;
+    Some(LinuxMountIdentity {
+        mount_id,
+        major_minor: fields[2].to_vec(),
+        root: PathBuf::from(OsString::from_vec(decode_mount_field(fields[3]))),
+        mount_point: PathBuf::from(OsString::from_vec(decode_mount_field(fields[4]))),
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn decode_mount_field(field: &[u8]) -> Vec<u8> {
+    let mut decoded = Vec::with_capacity(field.len());
+    let mut index = 0;
+    while index < field.len() {
+        if field[index] == b'\\' && index + 3 < field.len() {
+            let octal = &field[index + 1..index + 4];
+            if octal.iter().all(|byte| (b'0'..=b'7').contains(byte)) {
+                decoded.push((octal[0] - b'0') * 64 + (octal[1] - b'0') * 8 + (octal[2] - b'0'));
+                index += 4;
+                continue;
+            }
+        }
+        decoded.push(field[index]);
+        index += 1;
+    }
+    decoded
 }
 
 #[cfg(test)]
@@ -502,7 +815,7 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
-        sync::{atomic::AtomicBool, mpsc},
+        sync::{atomic::AtomicBool, mpsc, Arc},
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
@@ -705,6 +1018,42 @@ mod tests {
     }
 
     #[test]
+    fn event_path_payload_is_bounded_before_buffering() {
+        let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
+        for index in 0..=super::MAX_NOTIFY_PATHS_PER_EVENT {
+            event = event.add_path(PathBuf::from(format!("/tmp/note-{index}.org")));
+        }
+
+        assert_eq!(
+            input(translate_notify_result(Ok(event))),
+            WatcherInput::Uncertain(WatcherUncertainty::Other)
+        );
+    }
+
+    #[test]
+    fn backend_failure_context_is_bounded() {
+        let message = "x".repeat(super::MAX_NOTIFY_BACKEND_MESSAGE_BYTES * 2);
+        let paths = (0..(super::MAX_NOTIFY_BACKEND_ERROR_PATHS + 5))
+            .map(|index| PathBuf::from(format!("/tmp/path-{index}")))
+            .collect();
+        let failure = super::NotifyBackendFailure::new(message, paths);
+
+        assert!(failure.message().len() <= super::MAX_NOTIFY_BACKEND_MESSAGE_BYTES);
+        assert_eq!(failure.paths().len(), super::MAX_NOTIFY_BACKEND_ERROR_PATHS);
+    }
+
+    #[test]
+    fn filesystem_root_needs_no_parent_watch() {
+        let filesystem = super::NotifyFilesystemSnapshot::capture().expect("filesystem snapshot");
+        let mut targets = Vec::new();
+
+        super::insert_parent_watch_target(&filesystem, &mut targets, Path::new("/"))
+            .expect("filesystem root should not require a parent watch");
+
+        assert!(targets.is_empty());
+    }
+
+    #[test]
     fn plans_recursive_roots_and_explicit_file_parents_without_duplicate_watches() {
         let test_dir = TestDir::new("targets");
         fs::create_dir_all(test_dir.path().join("notes/nested")).expect("notes root");
@@ -723,7 +1072,10 @@ mod tests {
         );
 
         let targets = notify_watch_targets(&config).expect("watch targets");
-        assert_eq!(targets.len(), 2);
+        assert_eq!(targets.len(), 3);
+        assert!(targets.iter().any(|target| {
+            target.path() == test_dir.path() && target.mode() == NotifyWatchMode::NonRecursive
+        }));
         assert!(targets.iter().any(|target| {
             target.path() == test_dir.path().join("notes")
                 && target.mode() == NotifyWatchMode::Recursive
@@ -748,9 +1100,106 @@ mod tests {
         );
 
         let targets = notify_watch_targets(&config).expect("watch targets");
-        assert_eq!(targets.len(), 1);
-        assert_eq!(targets[0].path(), test_dir.path().join("notes"));
-        assert_eq!(targets[0].mode(), NotifyWatchMode::Recursive);
+        assert_eq!(targets.len(), 2);
+        assert!(targets.iter().any(|target| {
+            target.path() == test_dir.path().join("notes")
+                && target.mode() == NotifyWatchMode::Recursive
+        }));
+        assert!(targets.iter().any(|target| {
+            target.path() == test_dir.path() && target.mode() == NotifyWatchMode::NonRecursive
+        }));
+    }
+
+    #[test]
+    fn recursive_directory_symlink_adds_a_watch_for_the_canonical_target() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("directory-symlink-target");
+        fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
+        fs::create_dir_all(test_dir.path().join("outside")).expect("outside root");
+        write_file(&test_dir.path().join("outside/target.org"), "* Target\n");
+        symlink(
+            test_dir.path().join("outside"),
+            test_dir.path().join("notes/linked"),
+        )
+        .expect("directory symlink should be created");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+
+        let targets = notify_watch_targets(&config).expect("watch targets");
+
+        assert!(targets.iter().any(|target| {
+            target.path() == test_dir.path().join("outside")
+                && target.mode() == NotifyWatchMode::Recursive
+        }));
+    }
+
+    #[test]
+    fn explicit_file_symlink_adds_a_watch_for_the_canonical_parent() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("explicit-symlink-target");
+        fs::create_dir_all(test_dir.path().join("links")).expect("links directory");
+        fs::create_dir_all(test_dir.path().join("outside")).expect("outside directory");
+        let target = test_dir.path().join("outside/target.org");
+        let alias = test_dir.path().join("links/alias.org");
+        write_file(&target, "* Target\n");
+        symlink(&target, &alias).expect("file symlink should be created");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\nfiles = [\"links/alias.org\"]\n[search]\nfts5_enabled = false\n",
+        );
+
+        let targets = notify_watch_targets(&config).expect("watch targets");
+
+        assert!(targets.iter().any(|watch| {
+            watch.path() == test_dir.path().join("outside")
+                && watch.mode() == NotifyWatchMode::NonRecursive
+        }));
+    }
+
+    #[test]
+    fn refresh_drops_an_obsolete_external_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("obsolete-symlink-target");
+        let notes = test_dir.path().join("notes");
+        let first_parent = test_dir.path().join("first-parent");
+        let second_parent = test_dir.path().join("second-parent");
+        let alias = notes.join("alias.org");
+        let first = first_parent.join("first.org");
+        let second = second_parent.join("second.org");
+        fs::create_dir_all(&notes).expect("notes directory");
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        symlink(&first, &alias).expect("initial symlink");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        assert!(source
+            .watch_targets()
+            .iter()
+            .any(|target| target.path() == first_parent));
+
+        fs::remove_file(&alias).expect("old symlink removal");
+        symlink(&second, &alias).expect("replacement symlink");
+        fs::remove_dir_all(&first_parent).expect("obsolete target removal");
+        source
+            .refresh_watches()
+            .expect("obsolete external target must not block refresh");
+
+        assert!(!source
+            .watch_targets()
+            .iter()
+            .any(|target| target.path() == first_parent));
+        assert!(source
+            .watch_targets()
+            .iter()
+            .any(|target| target.path() == second_parent));
     }
 
     #[test]
@@ -762,11 +1211,7 @@ mod tests {
         );
 
         let error = notify_watch_targets(&config).expect_err("missing root should fail");
-        assert!(matches!(
-            error,
-            NotifyWatcherError::InspectWatchPath { ref path, .. }
-                if path == &test_dir.path().join("missing")
-        ));
+        assert!(matches!(error, NotifyWatcherError::SourceUniverse { .. }));
         assert!(error.to_string().contains("missing"));
     }
 
@@ -780,8 +1225,13 @@ mod tests {
         );
         let targets = notify_watch_targets(&config).expect("watch targets");
 
-        let error = register_watch_targets(&targets, |_target| {
-            Err(notify::Error::generic("planned registration failure"))
+        let notes = test_dir.path().join("notes");
+        let error = register_watch_targets(&targets, |target| {
+            if target.path() == notes {
+                Err(notify::Error::generic("planned registration failure"))
+            } else {
+                Ok(())
+            }
         })
         .expect_err("registration should fail");
 
@@ -848,6 +1298,133 @@ mod tests {
     }
 
     #[test]
+    fn refresh_retains_queued_messages_from_the_previous_buffer() {
+        let test_dir = TestDir::new("retired-buffer");
+        fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender
+            .send(NotifySourceMessage::Input(WatcherInput::Uncertain(
+                WatcherUncertainty::Rescan,
+            )))
+            .expect("message should queue");
+        source.retire_buffer(receiver, Arc::new(AtomicBool::new(false)));
+        drop(sender);
+
+        assert_eq!(
+            source.try_recv().expect("retired buffer should read"),
+            Some(NotifySourceMessage::Input(WatcherInput::Uncertain(
+                WatcherUncertainty::Rescan
+            )))
+        );
+    }
+
+    #[test]
+    fn empty_retired_buffer_does_not_hide_later_buffered_messages() {
+        let test_dir = TestDir::new("retired-buffer-order");
+        fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        let (empty_sender, empty_receiver) = mpsc::sync_channel(1);
+        let (message_sender, message_receiver) = mpsc::sync_channel(1);
+        message_sender
+            .send(NotifySourceMessage::Input(WatcherInput::Uncertain(
+                WatcherUncertainty::Rescan,
+            )))
+            .expect("message should queue");
+        source.retire_buffer(empty_receiver, Arc::new(AtomicBool::new(false)));
+        source.retire_buffer(message_receiver, Arc::new(AtomicBool::new(false)));
+
+        assert_eq!(
+            source.try_recv().expect("later retired buffer should read"),
+            Some(NotifySourceMessage::Input(WatcherInput::Uncertain(
+                WatcherUncertainty::Rescan
+            )))
+        );
+        drop(empty_sender);
+        drop(message_sender);
+    }
+
+    #[test]
+    fn refresh_overlap_buffers_remain_bounded_and_report_uncertainty() {
+        let test_dir = TestDir::new("retired-buffer-bound");
+        fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
+        let mut senders = Vec::new();
+        for _ in 0..=super::MAX_RETIRED_NOTIFY_BUFFERS {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            senders.push(sender);
+            source.retire_buffer(receiver, Arc::new(AtomicBool::new(false)));
+        }
+
+        assert_eq!(
+            source.retired_buffers.len(),
+            super::MAX_RETIRED_NOTIFY_BUFFERS
+        );
+        let Some(NotifySourceMessage::BackendFailure(failure)) =
+            source.try_recv().expect("overflow should be reported")
+        else {
+            panic!("expected refresh-overlap uncertainty");
+        };
+        assert_eq!(
+            failure.recovery_input(),
+            WatcherInput::Uncertain(WatcherUncertainty::DroppedEvents)
+        );
+        drop(senders);
+    }
+
+    #[test]
+    fn changed_filesystem_guard_is_rejected_before_reconciliation() {
+        let test_dir = TestDir::new("filesystem-guard");
+        fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
+        let config = load_config(
+            &test_dir,
+            "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
+        );
+        let mut target = notify_watch_targets(&config)
+            .expect("watch targets")
+            .into_iter()
+            .find(|target| target.path() == test_dir.path().join("notes"))
+            .expect("configured root target");
+        target.filesystem_guard.device = target.filesystem_guard.device.wrapping_add(1);
+
+        let error = super::validate_watch_target(&target)
+            .expect_err("changed filesystem identity should be rejected");
+
+        assert!(matches!(
+            error,
+            NotifyWatcherError::WatchFilesystemChanged { path }
+                if path == test_dir.path().join("notes")
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_mountinfo_parser_uses_the_deepest_mount_and_decodes_paths() {
+        let content = b"10 1 8:1 / / rw - ext4 /dev/root rw\n11 10 8:2 /sub\\040root /tmp/mounted\\040notes rw - ext4 /dev/data rw\n";
+        let path = Path::new("/tmp/mounted notes/project");
+
+        let identity =
+            super::parse_linux_mount_identity(content, path).expect("deepest mount should parse");
+
+        assert_eq!(identity.mount_id, 11);
+        assert_eq!(identity.major_minor, b"8:2");
+        assert_eq!(identity.root, PathBuf::from("/sub root"));
+        assert_eq!(identity.mount_point, PathBuf::from("/tmp/mounted notes"));
+    }
+
+    #[test]
     fn recommended_backend_observes_created_file_below_recursive_root() {
         let test_dir = TestDir::new("real-backend");
         fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
@@ -856,7 +1433,7 @@ mod tests {
             "db_path = \"db.sqlite\"\n[[dirs]]\npath = \"notes\"\nrecursive = true\n[search]\nfts5_enabled = false\n",
         );
         let mut source = NotifyWatcherSource::from_config(&config).expect("notify source");
-        assert_eq!(source.watch_targets().len(), 1);
+        assert_eq!(source.watch_targets().len(), 2);
         source
             .refresh_watches()
             .expect("notify registrations should refresh");

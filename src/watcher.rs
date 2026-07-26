@@ -82,7 +82,9 @@ impl WatcherBatchNormalizer {
             for path in paths {
                 match self.candidate_paths.resolve(&path) {
                     CandidatePathResolution::Candidate(path) => {
-                        candidates.insert(FileIdentity::from_canonical_path(&path), path);
+                        if !insert_bounded_candidate(&mut candidates, path) {
+                            return NormalizedWatcherBatch::Reconcile;
+                        }
                     }
                     CandidatePathResolution::Ignore => {}
                     CandidatePathResolution::Reconcile => {
@@ -97,6 +99,15 @@ impl WatcherBatchNormalizer {
 }
 
 pub(crate) const DEFAULT_WATCHER_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(250);
+pub(crate) const MAX_WATCHER_CANDIDATES_PER_BATCH: usize = 1024;
+
+fn insert_bounded_candidate(
+    candidates: &mut BTreeMap<FileIdentity, PathBuf>,
+    path: PathBuf,
+) -> bool {
+    candidates.insert(FileIdentity::from_canonical_path(&path), path);
+    candidates.len() <= MAX_WATCHER_CANDIDATES_PER_BATCH
+}
 
 impl NormalizedWatcherBatch {
     fn is_empty(&self) -> bool {
@@ -109,7 +120,9 @@ impl NormalizedWatcherBatch {
             (Self::Candidates(left), Self::Candidates(right)) => {
                 let mut candidates = BTreeMap::new();
                 for path in left.into_iter().chain(right) {
-                    candidates.insert(FileIdentity::from_canonical_path(&path), path);
+                    if !insert_bounded_candidate(&mut candidates, path) {
+                        return Self::Reconcile;
+                    }
                 }
                 Self::Candidates(candidates.into_values().collect())
             }
@@ -261,8 +274,13 @@ impl WatcherExecutionController {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn debounce_interval(&self) -> Duration {
         self.debounce_interval
+    }
+
+    pub(crate) fn replace_normalizer(&mut self, normalizer: WatcherBatchNormalizer) {
+        self.normalizer = normalizer;
     }
 
     pub(crate) fn push_input(
@@ -332,6 +350,7 @@ impl WatcherExecutionController {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn execute_ready<E>(
         &mut self,
         now: Instant,
@@ -402,6 +421,7 @@ mod tests {
         NormalizedWatcherBatch, WatcherBatchExecutor, WatcherBatchNormalizer,
         WatcherControllerError, WatcherExecutionController, WatcherExecutionStatus, WatcherInput,
         WatcherPathEventKind, WatcherUncertainty, DEFAULT_WATCHER_DEBOUNCE_INTERVAL,
+        MAX_WATCHER_CANDIDATES_PER_BATCH,
     };
     use crate::config::Config;
     use std::{
@@ -592,6 +612,69 @@ mod tests {
     }
 
     #[test]
+    fn created_directory_inside_recursive_root_requests_reconciliation() {
+        let test_dir = TestDir::new("created-directory");
+        let config = recursive_config(&test_dir);
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        let directory = test_dir.path().join("notes/new-directory");
+        fs::create_dir_all(&directory).expect("directory should be created");
+
+        let batch = normalizer.normalize([paths(WatcherPathEventKind::Create, [directory])]);
+
+        assert_eq!(batch, NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
+    fn removed_known_directory_keeps_a_bounded_phase_6_candidate() {
+        let test_dir = TestDir::new("removed-directory");
+        let directory = test_dir.path().join("notes/nested");
+        fs::create_dir_all(&directory).expect("directory should be created");
+        write_file(&directory.join("note.org"), "* Note\n");
+        let config = recursive_config(&test_dir);
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        let canonical = fs::canonicalize(&directory).expect("directory should canonicalize");
+        fs::remove_dir_all(&directory).expect("directory should be removed");
+
+        let batch = normalizer.normalize([paths(WatcherPathEventKind::Remove, [directory])]);
+
+        assert_eq!(candidates(batch), vec![canonical]);
+    }
+
+    #[test]
+    fn removed_configured_root_still_requests_reconciliation() {
+        let test_dir = TestDir::new("removed-root");
+        let notes = test_dir.path().join("notes");
+        let config = recursive_config(&test_dir);
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        fs::remove_dir_all(&notes).expect("configured root should be removed");
+
+        let batch = normalizer.normalize([paths(WatcherPathEventKind::Remove, [notes])]);
+
+        assert_eq!(batch, NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
+    fn retargeted_file_symlink_requests_reconciliation() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("retargeted-file-symlink");
+        let config = recursive_config(&test_dir);
+        let first = test_dir.path().join("first.org");
+        let second = test_dir.path().join("second.org");
+        let alias = test_dir.path().join("notes/alias.org");
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        symlink(&first, &alias).expect("initial symlink should be created");
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+        fs::remove_file(&alias).expect("initial symlink should be removed");
+        symlink(&second, &alias).expect("replacement symlink should be created");
+
+        let batch = normalizer.normalize([paths(WatcherPathEventKind::Create, [alias])]);
+
+        assert_eq!(batch, NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
     fn incomplete_rename_requests_reconciliation() {
         let test_dir = TestDir::new("incomplete-rename");
         let config = recursive_config(&test_dir);
@@ -616,7 +699,7 @@ mod tests {
         let redundant = test_dir.path().join("notes/./note.org");
 
         let batch = normalizer.normalize([paths(
-            WatcherPathEventKind::Other,
+            WatcherPathEventKind::Modify,
             [note.clone(), redundant, note.clone()],
         )]);
 
@@ -642,7 +725,7 @@ mod tests {
         }
 
         let batch = normalizer.normalize([paths(
-            WatcherPathEventKind::Create,
+            WatcherPathEventKind::Modify,
             [kept.clone(), global, local, archived, unrelated],
         )]);
 
@@ -688,7 +771,7 @@ mod tests {
         write_file(&nested, "* Nested\n");
 
         let batch = normalizer.normalize([paths(
-            WatcherPathEventKind::Create,
+            WatcherPathEventKind::Modify,
             [nested, direct.clone()],
         )]);
 
@@ -731,10 +814,10 @@ mod tests {
 
         let first = normalizer.normalize([
             paths(WatcherPathEventKind::Metadata, [beta.clone()]),
-            paths(WatcherPathEventKind::Create, [alpha.clone()]),
+            paths(WatcherPathEventKind::Modify, [alpha.clone()]),
         ]);
         let second = normalizer.normalize([
-            paths(WatcherPathEventKind::Create, [alpha]),
+            paths(WatcherPathEventKind::Modify, [alpha]),
             paths(WatcherPathEventKind::Metadata, [beta]),
         ]);
 
@@ -781,11 +864,11 @@ mod tests {
         let test_dir = TestDir::new("deleted-explicit");
         let explicit = test_dir.path().join("explicit.org");
         write_file(&explicit, "* Note\n");
-        let canonical = fs::canonicalize(&explicit).unwrap();
         let config = load_config(
             &test_dir,
             "db_path = \"db.sqlite\"\nfiles = [\"explicit.org\"]\n[search]\nfts5_enabled = false\n",
         );
+        let canonical = fs::canonicalize(&explicit).unwrap();
         let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
         fs::remove_file(&explicit).expect("explicit file should be removed");
 
@@ -828,6 +911,38 @@ mod tests {
         let batch = normalizer.normalize([paths(WatcherPathEventKind::Modify, [note])]);
 
         assert_eq!(candidates(batch), vec![canonical]);
+    }
+
+    #[test]
+    fn oversized_candidate_burst_collapses_to_reconciliation() {
+        let test_dir = TestDir::new("bounded-candidates");
+        let config = recursive_config(&test_dir);
+        let mut notes = Vec::new();
+        for index in 0..=MAX_WATCHER_CANDIDATES_PER_BATCH {
+            let note = test_dir
+                .path()
+                .join("notes")
+                .join(format!("note-{index:04}.org"));
+            write_file(&note, "* Note\n");
+            notes.push(note);
+        }
+        let normalizer = WatcherBatchNormalizer::from_config(&config).expect("normalizer");
+
+        let batch = normalizer.normalize([paths(WatcherPathEventKind::Modify, notes)]);
+
+        assert_eq!(batch, NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
+    fn merging_candidate_batches_cannot_exceed_the_bound() {
+        let left = NormalizedWatcherBatch::Candidates(
+            (0..MAX_WATCHER_CANDIDATES_PER_BATCH)
+                .map(|index| PathBuf::from(format!("/tmp/left-{index:04}.org")))
+                .collect(),
+        );
+        let right = NormalizedWatcherBatch::Candidates(vec![PathBuf::from("/tmp/overflow.org")]);
+
+        assert_eq!(left.merge(right), NormalizedWatcherBatch::Reconcile);
     }
 
     #[test]

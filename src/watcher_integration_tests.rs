@@ -739,6 +739,69 @@ fn real_backend_converges_for_recursive_changes_and_event_bursts() {
 }
 
 #[test]
+fn real_backend_reconciles_recursive_directory_rename_and_delete() {
+    let test_dir = TestDir::new("directory-topology");
+    let notes = test_dir.path().join("notes");
+    let nested = notes.join("nested");
+    let renamed = notes.join("renamed");
+    let alpha = nested.join("alpha.org");
+    let beta = nested.join("deeper/beta.org");
+    fs::create_dir_all(&notes).expect("notes directory should exist");
+    write_file(&alpha, "* Alpha\n");
+    write_file(&beta, "* Beta\n");
+    let config = recursive_config(&test_dir, &notes, test_dir.path().join("db.sqlite"));
+    let mut harness = RealWatcherHarness::new_started(config);
+
+    fs::rename(&nested, &renamed).expect("nested directory rename should succeed");
+    let renamed_alpha = renamed.join("alpha.org");
+    let renamed_beta = renamed.join("deeper/beta.org");
+    harness.wait_until("recursive directory rename", |connection| {
+        let paths = indexed_paths(connection);
+        paths.contains(&renamed_alpha.display().to_string())
+            && paths.contains(&renamed_beta.display().to_string())
+            && !paths.contains(&alpha.display().to_string())
+            && !paths.contains(&beta.display().to_string())
+            && heading_titles(connection) == vec!["Alpha", "Beta"]
+    });
+
+    fs::remove_dir_all(&renamed).expect("renamed directory should be deleted");
+    harness.wait_until("recursive directory deletion", |connection| {
+        indexed_paths(connection).is_empty() && heading_titles(connection).is_empty()
+    });
+}
+
+#[test]
+fn real_backend_refreshes_symlink_identity_and_external_target_watches() {
+    use std::os::unix::fs::symlink;
+
+    let test_dir = TestDir::new("symlink-retarget");
+    let notes = test_dir.path().join("notes");
+    let outside = test_dir.path().join("outside");
+    let first = outside.join("first.org");
+    let second = outside.join("second.org");
+    let alias = notes.join("alias.org");
+    fs::create_dir_all(&notes).expect("notes directory should exist");
+    write_file(&first, "* First\n");
+    write_file(&second, "* Second\n");
+    symlink(&first, &alias).expect("initial symlink should be created");
+    let config = recursive_config(&test_dir, &notes, test_dir.path().join("db.sqlite"));
+    let mut harness = RealWatcherHarness::new_started(config);
+
+    assert_eq!(heading_titles(&harness.connection), vec!["First"]);
+    fs::remove_file(&alias).expect("old symlink should be removed");
+    symlink(&second, &alias).expect("replacement symlink should be created");
+    harness.wait_until("file symlink retarget", |connection| {
+        heading_titles(connection) == vec!["Second"]
+            && indexed_paths(connection) == vec![second.display().to_string()]
+    });
+
+    write_file(&second, "* Second Updated\n");
+    harness.wait_until("external symlink target modification", |connection| {
+        heading_titles(connection) == vec!["Second Updated"]
+    });
+}
+
+#[test]
 fn real_backend_respects_scope_exclusions_and_database_activity() {
     let test_dir = TestDir::new("scope-and-exclusions");
     let recursive = test_dir.path().join("recursive");
