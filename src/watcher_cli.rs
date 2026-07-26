@@ -42,7 +42,9 @@ pub(crate) fn run_watch_command(
     let mut runtime = WatcherRuntime::start_notify(config, Instant::now(), &mut executor)
         .map_err(|source| WatcherCommandError::Startup(Box::new(source)))?;
 
-    writeln!(stderr, "watcher ready").map_err(WatcherCommandError::Io)?;
+    if !shutdown.requested() {
+        writeln!(stderr, "watcher ready").map_err(WatcherCommandError::Io)?;
+    }
     let mut clock = SystemLoopClock;
     drive_watcher_loop(&mut runtime, &mut executor, &shutdown, &mut clock, stderr)?;
     Ok(())
@@ -145,7 +147,7 @@ where
         }
 
         let now = clock.now();
-        runtime
+        let report = runtime
             .process_available(now, executor)
             .map_err(|source| WatcherCommandError::Runtime(Box::new(source)))?;
 
@@ -154,7 +156,11 @@ where
             return Ok(());
         }
 
-        let wait = next_wait_duration(now, runtime.next_deadline());
+        let wait = if report.had_activity() {
+            Duration::ZERO
+        } else {
+            next_wait_duration(now, runtime.next_deadline())
+        };
         if !wait.is_zero() {
             clock.wait(wait);
         }

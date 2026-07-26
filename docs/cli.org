@@ -21,9 +21,10 @@ Startup order is part of the command contract:
 
 1. Load the same configuration and schema options used by Phase 6 indexing.
 2. Open or initialize the configured SQLite database.
-3. Register all configured filesystem watch targets.
-4. Run full configured-source reconciliation.
-5. Print ~watcher ready~ to stderr and enter steady-state event handling.
+3. Derive and register configured roots, source parents, and Phase 6 canonical target watches.
+4. Refresh those registrations with an overlapping hand-off.
+5. Run full configured-source reconciliation.
+6. Print ~watcher ready~ to stderr unless shutdown was already requested, then enter steady-state handling.
 
 The command writes no routine activity to stdout and does not emit a JSON event stream. Lifecycle messages are written to stderr:
 
@@ -37,7 +38,7 @@ orgfdb watch --config ./org-files-db.toml
 
 ~SIGINT~ and ~SIGTERM~ stop new event intake and invoke the controller's flush policy. A batch already pending at shutdown becomes immediately eligible without waiting for its debounce deadline. The command exits successfully only after that pending work completes. Fatal source, watch registration, startup reconciliation, controller, or Phase 6 execution failures are reported on stderr and return exit code ~1~. CLI usage errors continue to return exit code ~2~.
 
-Backend uncertainty, including a native rescan request, a backend error, or overflow of the bounded 1,024-event input buffer, requests full Phase 6 reconciliation instead of guessing individual mutations. Before that reconciliation, the runtime re-registers all configured watches because lost events may have hidden a watch-root replacement. Repeated overflow is represented by one bounded marker until the runtime consumes it.
+Backend uncertainty, including a native rescan request, a backend error, or overflow of the bounded 1,024-message input buffer, requests full Phase 6 reconciliation instead of guessing individual mutations. The callback stores only bounded translated messages; oversized path sets also become uncertainty. Before full reconciliation, the runtime validates retained old target identities and the newly derived targets, registers the new targets with an overlapping hand-off, and prepares a fresh Phase 6 source-universe normalizer. Repeated overflow is represented by one bounded marker until the runtime consumes it.
 
 The command does not daemonize itself, install a service, restart automatically, or support Windows service semantics.
 

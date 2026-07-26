@@ -1085,10 +1085,9 @@ fn parse_repeater_modifier_token(token: &str) -> Option<ParsedTimestampModifier>
         (ParsedTimestampModifierType::CatchUp, remainder)
     } else if let Some(remainder) = token.strip_prefix(".+") {
         (ParsedTimestampModifierType::Restart, remainder)
-    } else if let Some(remainder) = token.strip_prefix('+') {
-        (ParsedTimestampModifierType::Cumulate, remainder)
     } else {
-        return None;
+        let remainder = token.strip_prefix('+')?;
+        (ParsedTimestampModifierType::Cumulate, remainder)
     };
 
     let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;
@@ -1119,10 +1118,9 @@ fn parse_repeater_modifier_token(token: &str) -> Option<ParsedTimestampModifier>
 fn parse_warning_modifier_token(token: &str) -> Option<ParsedTimestampModifier> {
     let (modifier_type, remainder) = if let Some(remainder) = token.strip_prefix("--") {
         (ParsedTimestampModifierType::First, remainder)
-    } else if let Some(remainder) = token.strip_prefix('-') {
-        (ParsedTimestampModifierType::All, remainder)
     } else {
-        return None;
+        let remainder = token.strip_prefix('-')?;
+        (ParsedTimestampModifierType::All, remainder)
     };
 
     let (value, unit, remainder) = parse_modifier_value_unit(remainder)?;

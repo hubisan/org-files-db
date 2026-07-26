@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Component, Path, PathBuf},
 };
 
@@ -1262,6 +1262,74 @@ impl IndexedUniverse {
             .any(|(_, mapped_path)| mapped_path.as_path() == canonical_path)
     }
 
+    pub(crate) fn source_mapping_for_logical_path(&self, logical_path: &Path) -> Option<&Path> {
+        self.file_mappings
+            .iter()
+            .find(|(logical, _)| logical.as_path() == logical_path)
+            .map(|(_, canonical)| canonical.as_path())
+    }
+
+    pub(crate) fn is_known_directory_path(&self, path: &Path) -> bool {
+        self.canonical_directory_for_known_path(path).is_some()
+    }
+
+    pub(crate) fn is_configured_root_path(&self, path: &Path) -> bool {
+        self.root_scopes.iter().any(|scope| {
+            let canonical_root = scope
+                .directory_mappings
+                .first()
+                .map(|(_, canonical)| canonical.as_path());
+            scope.logical_root.as_path() == path || canonical_root == Some(path)
+        })
+    }
+
+    pub(crate) fn canonical_directory_for_known_path(&self, path: &Path) -> Option<&Path> {
+        self.root_scopes.iter().find_map(|scope| {
+            scope
+                .directory_mappings
+                .iter()
+                .find(|(logical, canonical)| {
+                    logical.as_path() == path || canonical.as_path() == path
+                })
+                .map(|(_, canonical)| canonical.as_path())
+        })
+    }
+
+    pub(crate) fn is_explicit_logical_path(&self, path: &Path) -> bool {
+        self.explicit_logical_paths.contains(path)
+    }
+
+    pub(crate) fn includes_logical_file(&self, path: &Path) -> bool {
+        if self.global_exclusions.matches_file(path) {
+            return false;
+        }
+
+        self.explicit_logical_paths.contains(path)
+            || self
+                .root_scopes
+                .iter()
+                .any(|scope| scope.includes_logical(path))
+    }
+
+    pub(crate) fn watcher_directory_hints(&self) -> Vec<(PathBuf, bool)> {
+        let mut hints = BTreeMap::<PathBuf, bool>::new();
+
+        for scope in &self.root_scopes {
+            for (_, canonical) in &scope.directory_mappings {
+                let recursive = hints.entry(canonical.clone()).or_insert(false);
+                *recursive |= scope.recursive;
+            }
+        }
+
+        for (_, canonical_file) in &self.file_mappings {
+            if let Some(parent) = canonical_file.parent() {
+                hints.entry(parent.to_path_buf()).or_insert(false);
+            }
+        }
+
+        hints.into_iter().collect()
+    }
+
     pub(crate) fn normalize_candidate_path(
         &self,
         path: &Path,
@@ -1312,15 +1380,7 @@ impl IndexedUniverse {
     }
 
     fn includes_logical(&self, path: &Path) -> bool {
-        if self.global_exclusions.matches_file(path) {
-            return false;
-        }
-
-        self.explicit_logical_paths.contains(path)
-            || self
-                .root_scopes
-                .iter()
-                .any(|scope| scope.includes_logical(path))
+        self.includes_logical_file(path)
     }
 }
 

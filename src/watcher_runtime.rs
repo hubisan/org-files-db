@@ -1,22 +1,23 @@
-use std::{
-    error::Error,
-    fmt,
-    path::{Path, PathBuf},
-    time::Instant,
-};
+use std::{error::Error, fmt, path::PathBuf, time::Instant};
+
+#[cfg(test)]
+use std::path::Path;
 
 use crate::{
     config::Config,
     indexer::IndexerError,
     notify_source::{
         NotifyBackendFailure, NotifySourceMessage, NotifyWatcherError, NotifyWatcherSource,
+        NOTIFY_EVENT_BUFFER_CAPACITY,
     },
     watcher::{
-        NormalizedWatcherBatch, WatcherBatchExecutor, WatcherControllerError,
-        WatcherExecutionController, WatcherExecutionStatus, WatcherInput, WatcherPathEventKind,
-        WatcherUncertainty,
+        NormalizedWatcherBatch, WatcherBatchExecutor, WatcherBatchNormalizer,
+        WatcherControllerError, WatcherExecutionController, WatcherExecutionStatus, WatcherInput,
+        WatcherPathEventKind, WatcherUncertainty,
     },
 };
+
+const MAX_SOURCE_MESSAGES_PER_CYCLE: usize = NOTIFY_EVENT_BUFFER_CAPACITY + 1;
 
 pub(crate) trait WatcherMessageSource {
     type Error;
@@ -64,14 +65,17 @@ pub(crate) struct WatcherRecoveryContext {
 }
 
 impl WatcherRecoveryContext {
+    #[cfg(test)]
     pub(crate) fn uncertainty_count(&self) -> usize {
         self.uncertainty_count
     }
 
+    #[cfg(test)]
     pub(crate) fn latest_watch_target(&self) -> Option<&Path> {
         self.latest_watch_target.as_deref()
     }
 
+    #[cfg(test)]
     pub(crate) fn latest_backend_failure(&self) -> Option<&NotifyBackendFailure> {
         self.latest_backend_failure.as_ref()
     }
@@ -170,6 +174,7 @@ where
 pub(crate) enum WatcherRuntimeError<SourceError, ExecutionError> {
     Terminated,
     Source(SourceError),
+    Normalizer(IndexerError),
     Controller(WatcherControllerError),
     Execution {
         batch: NormalizedWatcherBatch,
@@ -192,6 +197,10 @@ where
                     "watcher source failed; watcher runtime terminated: {source}"
                 )
             }
+            Self::Normalizer(source) => write!(
+                f,
+                "watcher source-universe preparation failed before full reconciliation; watcher runtime terminated: {source}"
+            ),
             Self::Controller(source) => {
                 write!(
                     f,
@@ -220,6 +229,7 @@ where
         match self {
             Self::Terminated => None,
             Self::Source(source) => Some(source),
+            Self::Normalizer(source) => Some(source),
             Self::Controller(source) => Some(source),
             Self::Execution { source, .. } => Some(source),
         }
@@ -233,13 +243,21 @@ pub(crate) struct WatcherCycleReport {
     pub(crate) execution_status: WatcherExecutionStatus,
 }
 
+impl WatcherCycleReport {
+    pub(crate) fn had_activity(&self) -> bool {
+        self.source_messages > 0
+            || self.backend_failures > 0
+            || self.execution_status == WatcherExecutionStatus::Executed
+    }
+}
+
 pub(crate) struct WatcherRuntime<S> {
     source: S,
     controller: WatcherExecutionController,
+    config: Config,
     state: WatcherRuntimeState,
     recovery: WatcherRecoveryContext,
     watch_targets: Vec<PathBuf>,
-    refresh_required: bool,
 }
 
 impl WatcherRuntime<NotifyWatcherSource> {
@@ -262,7 +280,7 @@ where
     S: WatcherMessageSource,
 {
     pub(crate) fn start_registered<E>(
-        source: S,
+        mut source: S,
         config: &Config,
         now: Instant,
         executor: &mut E,
@@ -273,16 +291,19 @@ where
         source
             .validate_watch_targets()
             .map_err(WatcherStartupError::Source)?;
+        source
+            .refresh_watches()
+            .map_err(WatcherStartupError::Source)?;
         let controller = WatcherExecutionController::from_config(config)
             .map_err(WatcherStartupError::Controller)?;
         let watch_targets = source.watch_target_paths();
         let mut runtime = Self {
             source,
             controller,
+            config: config.clone(),
             state: WatcherRuntimeState::Running,
             recovery: WatcherRecoveryContext::default(),
             watch_targets,
-            refresh_required: false,
         };
 
         executor
@@ -295,13 +316,16 @@ where
                 WatcherRuntimeError::Controller(source) => {
                     WatcherStartupError::ControllerState(source)
                 }
-                WatcherRuntimeError::Terminated | WatcherRuntimeError::Execution { .. } => {
+                WatcherRuntimeError::Terminated
+                | WatcherRuntimeError::Normalizer(_)
+                | WatcherRuntimeError::Execution { .. } => {
                     unreachable!("startup source drain cannot execute a Phase 6 batch")
                 }
             })?;
         Ok(runtime)
     }
 
+    #[cfg(test)]
     pub(crate) fn state(&self) -> WatcherRuntimeState {
         self.state
     }
@@ -310,6 +334,7 @@ where
         self.controller.next_deadline()
     }
 
+    #[cfg(test)]
     pub(crate) fn recovery_context(&self) -> &WatcherRecoveryContext {
         &self.recovery
     }
@@ -361,7 +386,7 @@ where
         let mut source_messages = 0;
         let mut backend_failures = 0;
 
-        loop {
+        while source_messages < MAX_SOURCE_MESSAGES_PER_CYCLE {
             let message = match self.source.try_recv_message() {
                 Ok(Some(message)) => message,
                 Ok(None) => break,
@@ -378,7 +403,6 @@ where
                     backend_failures += 1;
                     let input = failure.recovery_input();
                     self.recovery.record_backend_failure(failure);
-                    self.refresh_required = true;
                     input
                 }
             };
@@ -395,13 +419,11 @@ where
     fn prepare_input(&mut self, input: WatcherInput) -> WatcherInput {
         if let Some(path) = affected_watch_target(&input, &self.watch_targets) {
             self.recovery.record_watch_target(path);
-            self.refresh_required = true;
             return WatcherInput::Uncertain(WatcherUncertainty::Other);
         }
 
         if matches!(&input, WatcherInput::Uncertain(_)) {
             self.recovery.record_uncertainty();
-            self.refresh_required = true;
         }
         input
     }
@@ -418,15 +440,7 @@ where
             return Ok(WatcherExecutionStatus::Idle);
         };
 
-        if let Err(source) = self.source.validate_watch_targets() {
-            self.state = WatcherRuntimeState::Terminated;
-            self.controller
-                .finish_execution_failure(now)
-                .map_err(WatcherRuntimeError::Controller)?;
-            return Err(WatcherRuntimeError::Source(source));
-        }
-
-        if matches!(&batch, NormalizedWatcherBatch::Reconcile) && self.refresh_required {
+        let replacement_normalizer = if matches!(&batch, NormalizedWatcherBatch::Reconcile) {
             if let Err(source) = self.source.refresh_watches() {
                 self.state = WatcherRuntimeState::Terminated;
                 self.controller
@@ -434,7 +448,20 @@ where
                     .map_err(WatcherRuntimeError::Controller)?;
                 return Err(WatcherRuntimeError::Source(source));
             }
-        }
+            self.watch_targets = self.source.watch_target_paths();
+            match WatcherBatchNormalizer::from_config(&self.config) {
+                Ok(normalizer) => Some(normalizer),
+                Err(source) => {
+                    self.state = WatcherRuntimeState::Terminated;
+                    self.controller
+                        .finish_execution_failure(now)
+                        .map_err(WatcherRuntimeError::Controller)?;
+                    return Err(WatcherRuntimeError::Normalizer(source));
+                }
+            }
+        } else {
+            None
+        };
 
         match executor.execute(batch.clone()) {
             Ok(()) => {
@@ -442,9 +469,9 @@ where
                     self.state = WatcherRuntimeState::Terminated;
                     return Err(WatcherRuntimeError::Controller(source));
                 }
-                if matches!(&batch, NormalizedWatcherBatch::Reconcile) {
+                if let Some(normalizer) = replacement_normalizer {
+                    self.controller.replace_normalizer(normalizer);
                     self.recovery.clear();
-                    self.refresh_required = false;
                 }
                 Ok(WatcherExecutionStatus::Executed)
             }
@@ -492,7 +519,7 @@ fn affected_watch_target(input: &WatcherInput, watch_targets: &[PathBuf]) -> Opt
 mod tests {
     use super::{
         WatcherCycleReport, WatcherMessageSource, WatcherRuntime, WatcherRuntimeError,
-        WatcherRuntimeState,
+        WatcherRuntimeState, MAX_SOURCE_MESSAGES_PER_CYCLE,
     };
     use crate::{
         config::{Config, SearchConfig},
@@ -660,6 +687,10 @@ mod tests {
 
         fn fail_refresh(&self) {
             self.fail_refresh.set(true);
+        }
+
+        fn queued_messages(&self) -> usize {
+            self.queue.borrow().len()
         }
     }
 
@@ -1003,7 +1034,7 @@ mod tests {
         assert_eq!(report.execution_status, WatcherExecutionStatus::Executed);
         assert_eq!(executor.batches.len(), 2);
         assert_eq!(executor.batches[1], NormalizedWatcherBatch::Reconcile);
-        assert_eq!(handle.refresh_count(), 1);
+        assert_eq!(handle.refresh_count(), 2);
         assert_eq!(runtime.recovery_context().uncertainty_count(), 0);
     }
 
@@ -1059,7 +1090,7 @@ mod tests {
             .process_available(deadline, &mut executor)
             .expect("root recovery should execute");
 
-        assert_eq!(handle.refresh_count(), 1);
+        assert_eq!(handle.refresh_count(), 2);
         assert_eq!(executor.batches[1], NormalizedWatcherBatch::Reconcile);
     }
 
@@ -1210,8 +1241,122 @@ mod tests {
             .process_available(deadline, &mut executor)
             .expect("backend recovery should execute");
         assert_eq!(recovery.execution_status, WatcherExecutionStatus::Executed);
-        assert_eq!(handle.refresh_count(), 1);
+        assert_eq!(handle.refresh_count(), 2);
         assert_eq!(executor.batches[1], NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
+    fn startup_refreshes_watches_before_the_initial_reconciliation() {
+        let test_dir = TestDir::new("startup-refresh");
+        let config = recursive_config(&test_dir);
+        let root = config.dirs[0].path.clone();
+        let (source, handle) = TestSource::new(vec![root]);
+        let mut executor = RecordingExecutor::default();
+
+        WatcherRuntime::start_registered(source, &config, Instant::now(), &mut executor)
+            .expect("startup should succeed");
+
+        assert_eq!(handle.refresh_count(), 1);
+        assert_eq!(executor.batches, vec![NormalizedWatcherBatch::Reconcile]);
+    }
+
+    #[test]
+    fn source_drain_is_bounded_per_cycle() {
+        let test_dir = TestDir::new("bounded-source-drain");
+        let config = recursive_config(&test_dir);
+        let root = config.dirs[0].path.clone();
+        let note = root.join("note.org");
+        write_file(&note, "* Note\n");
+        let (source, handle) = TestSource::new(vec![root]);
+        for _ in 0..(MAX_SOURCE_MESSAGES_PER_CYCLE + 5) {
+            handle.push(path_input(WatcherPathEventKind::Modify, note.clone()));
+        }
+        let now = Instant::now();
+        let mut executor = RecordingExecutor::default();
+
+        let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
+            .expect("startup should succeed");
+
+        assert_eq!(handle.queued_messages(), 5);
+        let report = runtime
+            .process_available(now, &mut executor)
+            .expect("remaining messages should drain in a later cycle");
+        assert_eq!(report.source_messages, 5);
+        assert_eq!(handle.queued_messages(), 0);
+    }
+
+    #[test]
+    fn candidate_execution_does_not_refresh_watches() {
+        let test_dir = TestDir::new("candidate-no-refresh");
+        let config = recursive_config(&test_dir);
+        let root = config.dirs[0].path.clone();
+        let note = root.join("note.org");
+        write_file(&note, "* Note\n");
+        let (source, handle) = TestSource::new(vec![root]);
+        let now = Instant::now();
+        let mut executor = RecordingExecutor::default();
+        let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
+            .expect("startup should succeed");
+        handle.push(path_input(WatcherPathEventKind::Modify, note));
+
+        runtime
+            .process_available(now, &mut executor)
+            .expect("candidate should queue");
+        let deadline = runtime.next_deadline().expect("candidate deadline");
+        runtime
+            .process_available(deadline, &mut executor)
+            .expect("candidate should execute");
+
+        assert_eq!(handle.refresh_count(), 1);
+        assert!(matches!(
+            executor.batches[1],
+            NormalizedWatcherBatch::Candidates(_)
+        ));
+    }
+
+    #[test]
+    fn successful_full_reconciliation_replaces_stale_symlink_mappings() {
+        use std::os::unix::fs::symlink;
+
+        let test_dir = TestDir::new("refresh-symlink-mapping");
+        let config = recursive_config(&test_dir);
+        let root = config.dirs[0].path.clone();
+        let first = test_dir.path().join("first.org");
+        let second = test_dir.path().join("second.org");
+        let alias = root.join("alias.org");
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        symlink(&first, &alias).expect("initial symlink should be created");
+        let (source, handle) = TestSource::new(vec![root]);
+        let now = Instant::now();
+        let mut executor = RecordingExecutor::default();
+        let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
+            .expect("startup should succeed");
+
+        fs::remove_file(&alias).expect("old symlink should be removed");
+        symlink(&second, &alias).expect("replacement symlink should be created");
+        handle.push(path_input(WatcherPathEventKind::Create, alias));
+        runtime
+            .process_available(now, &mut executor)
+            .expect("topology change should queue reconciliation");
+        let recovery_deadline = runtime.next_deadline().expect("recovery deadline");
+        runtime
+            .process_available(recovery_deadline, &mut executor)
+            .expect("full reconciliation should execute");
+
+        handle.push(path_input(WatcherPathEventKind::Modify, second.clone()));
+        runtime
+            .process_available(recovery_deadline, &mut executor)
+            .expect("new target modification should queue");
+        let candidate_deadline = runtime.next_deadline().expect("candidate deadline");
+        runtime
+            .process_available(candidate_deadline, &mut executor)
+            .expect("new target candidate should execute");
+
+        assert_eq!(
+            executor.batches[2],
+            NormalizedWatcherBatch::Candidates(vec![fs::canonicalize(second).unwrap()])
+        );
     }
 
     #[test]
