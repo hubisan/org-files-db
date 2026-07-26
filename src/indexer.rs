@@ -31,7 +31,9 @@ use crate::{
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
     property::{derive_effective_properties, PropertyRow},
-    source_root_evidence::{SourceRootEvidencePolicy, SourceRootEvidenceSet},
+    source_root_evidence::{
+        SourceRootEvidenceError, SourceRootEvidencePolicy, SourceRootEvidenceSet,
+    },
     tag::derive_effective_tags,
     todo_keywords::{
         resolve_todo_keywords_with_default_source, ResolvedTodoKeywordEntry, ResolvedTodoKeywords,
@@ -328,7 +330,7 @@ where
     {
         let planned_root_evidence = if scope.is_all() {
             let evidence = SourceRootEvidenceSet::capture(config)
-                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+                .map_err(map_initial_source_root_capture_error)?;
             evidence
                 .validate_committed(
                     connection,
@@ -772,7 +774,7 @@ where
         options: RebuildOptions,
     ) -> Result<RebuildReport, IndexerError> {
         let source_root_evidence = SourceRootEvidenceSet::capture(config)
-            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            .map_err(map_initial_source_root_capture_error)?;
         source_root_evidence
             .validate_committed(
                 connection,
@@ -1384,6 +1386,22 @@ pub enum IndexerError {
     },
     SourceRootEvidence(Box<dyn Error + Send + Sync>),
     Write(DbWriteError),
+}
+
+fn map_initial_source_root_capture_error(source: SourceRootEvidenceError) -> IndexerError {
+    match source {
+        SourceRootEvidenceError::Inspect { path, source } => {
+            IndexerError::Discover { path, source }
+        }
+        SourceRootEvidenceError::NotDirectory { path } => IndexerError::Discover {
+            path,
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "configured path is not a directory",
+            ),
+        },
+        source => IndexerError::SourceRootEvidence(Box::new(source)),
+    }
 }
 
 impl fmt::Display for IndexerError {
