@@ -486,3 +486,100 @@ Local final verification:
 - Search for ~TODO|FIXME|todo!\(|unimplemented!\(|cfg\(any\(\)\)~ in the Phase 7 implementation.
 - Review the complete diff from the last pre-Phase-7 commit.
 - Run a manual Unix smoke test covering startup, modify, create, rename, delete, and clean shutdown.
+
+** TODO [#A] Persist and validate configured source-root identity
+:PROPERTIES:
+:PRIORITY: High
+:RISK: High
+:DB_SCHEMA_CHANGE: Metadata
+:API_CONTRACT_CHANGE: Yes
+:END:
+
+Goal:
+
+- Prevent an automatically started full reconciliation from treating a replaced configured directory root as the authoritative continuation of the previously indexed root.
+
+Scope:
+
+- Apply only to configured directory roots.
+- Explicit-file inputs remain unchanged.
+- Individual files and discovered subdirectories do not receive persistent filesystem identities.
+- The watcher must reuse this Phase 6 safety contract and must not persist or validate root identity independently.
+
+Implementation requirements:
+
+- Introduce one Phase 6 root-evidence model for configured directory roots.
+- For every configured directory root, record:
+  - the configured logical path using the existing native Unix path representation;
+  - the canonical root path where available;
+  - the native root identity required to detect replacement;
+  - the configured recursive or non-recursive mode.
+- Reuse existing Phase 6 or Unix filesystem-identity primitives where possible.
+- Do not introduce a second watcher-specific root-identity model.
+- Persist the complete deterministic root-evidence set as part of the committed Phase 6 indexing state.
+- Prefer the existing metadata infrastructure unless repository inspection proves that a separate schema object is required.
+
+Reconciliation contract:
+
+- At the beginning of a full reconciliation:
+  - capture current evidence for all configured directory roots;
+  - compare it with the evidence from the last successful commit.
+- Reject automatic reconciliation when a previously recorded root:
+  - is missing;
+  - is inaccessible;
+  - resolves to a different canonical root;
+  - has a different native root identity;
+  - or no longer has the expected directory type.
+- Carry the captured root evidence in the Phase 6 reconciliation plan.
+- Capture the evidence again after discovery and during stale-plan validation.
+- Capture it once more immediately before committing the transaction.
+- Reject the plan as stale if the evidence differs at any validation point.
+- A rejected plan must leave all previously committed DB and metadata state unchanged.
+- Persist updated evidence in the same transaction as the successfully applied reconciliation.
+
+Initialisation and migration:
+
+- When the database contains no indexed files, initialise root evidence automatically on the first successful reconciliation.
+- When indexed files exist but committed root evidence is missing, automatic watcher reconciliation must refuse to proceed.
+- Existing indexed state without evidence may be adopted only through the explicit manual acceptance path.
+
+Intentional root replacement:
+
+- Add an explicit manual option for accepting changed configured root identities.
+- The option must be available only through the normal manual rebuild or reconciliation command, not enabled automatically by the watcher.
+- Acceptance permits replacement of the previously persisted identity but does not disable stability checks during the current reconciliation.
+- Acceptance of a new root identity must not imply ~allow-empty~.
+- Existing zero-input safety remains independent and unchanged.
+- The new evidence becomes authoritative only after a successful commit.
+
+Acceptance criteria:
+
+- An unchanged configured root continues through normal no-change reconciliation.
+- A root replaced at the same logical path while the watcher was stopped is rejected before indexed data can be removed.
+- A partially populated replacement root is also rejected.
+- A same-device root inode replacement is detected where supported by the existing Unix identity contract.
+- A root changed between initial capture and discovery is rejected as stale.
+- A root changed after planning but before commit causes transaction rollback.
+- Failure for one configured root rejects the complete reconciliation.
+- Normal creation, modification, rename, and deletion of files within an unchanged root continue to work.
+- Legitimate deletion of all files within the same unchanged root remains possible under the existing zero-input rules.
+- Intentional root replacement succeeds only through the explicit manual acceptance option.
+- The watcher never accepts changed root identity automatically.
+- Rejection preserves files, headings, bodies, links, FTS state, indexing context, trust metadata, and prior root evidence.
+- No Phase 8 parallelism is introduced.
+
+Required tests:
+
+- first reconciliation initialises evidence for an empty database;
+- unchanged-root startup uses the normal unchanged path;
+- reachable but empty replacement root before startup is rejected;
+- partially populated replacement root before startup is rejected;
+- same-path and same-device root replacement is rejected;
+- one replaced root among multiple configured roots rejects the complete plan;
+- root replacement during discovery is rejected;
+- root replacement immediately before commit rolls back all DB changes;
+- indexed database without root evidence requires explicit adoption;
+- explicit acceptance commits the new root evidence;
+- explicit acceptance without ~allow-empty~ still respects zero-input safety;
+- normal deletion inside an unchanged root continues to work;
+- watcher startup reports the root-identity error without modifying the database.
