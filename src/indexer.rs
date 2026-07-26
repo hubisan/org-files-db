@@ -31,6 +31,7 @@ use crate::{
         ParsedTimestampModifierType, ParsedTimestampRole, ParsedTimestampUnit, TodoType,
     },
     property::{derive_effective_properties, PropertyRow},
+    source_root_evidence::{SourceRootEvidencePolicy, SourceRootEvidenceSet},
     tag::derive_effective_tags,
     todo_keywords::{
         resolve_todo_keywords_with_default_source, ResolvedTodoKeywordEntry, ResolvedTodoKeywords,
@@ -202,11 +203,25 @@ where
         config_path: impl AsRef<Path>,
         allow_empty: bool,
     ) -> Result<RebuildReport, IndexerError> {
+        self.rebuild_from_config_path_with_rebuild_options(
+            config_path,
+            RebuildOptions {
+                allow_empty,
+                accept_source_root_changes: false,
+            },
+        )
+    }
+
+    pub(crate) fn rebuild_from_config_path_with_rebuild_options(
+        &self,
+        config_path: impl AsRef<Path>,
+        options: RebuildOptions,
+    ) -> Result<RebuildReport, IndexerError> {
         let config = Config::load_from_file(config_path).map_err(IndexerError::Config)?;
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, config.search.fts5_enabled);
         let mut connection =
             open_database_with_schema(&config.db_path, &schema).map_err(IndexerError::Database)?;
-        self.rebuild_with_options(&mut connection, &config, allow_empty)
+        self.rebuild_with_rebuild_options(&mut connection, &config, options)
     }
 
     pub fn rebuild(
@@ -253,6 +268,7 @@ where
             ChangePlanningOptions {
                 allow_empty: true,
                 verify_hashes: false,
+                accept_source_root_changes: false,
             },
             PlanningScope::Candidates(candidates),
         )?;
@@ -296,6 +312,39 @@ where
         options: ChangePlanningOptions,
         scope: PlanningScope,
     ) -> Result<ChangePlanningResult, IndexerError> {
+        self.plan_changes_for_scope_with_hook(connection, config, options, scope, || {})
+    }
+
+    fn plan_changes_for_scope_with_hook<H>(
+        &self,
+        connection: &Connection,
+        config: &Config,
+        options: ChangePlanningOptions,
+        scope: PlanningScope,
+        after_initial_root_capture: H,
+    ) -> Result<ChangePlanningResult, IndexerError>
+    where
+        H: FnOnce(),
+    {
+        let planned_root_evidence = if scope.is_all() {
+            let evidence = SourceRootEvidenceSet::capture(config)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            evidence
+                .validate_committed(
+                    connection,
+                    if options.accept_source_root_changes {
+                        SourceRootEvidencePolicy::AcceptChanges
+                    } else {
+                        SourceRootEvidencePolicy::Automatic
+                    },
+                )
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            Some(evidence)
+        } else {
+            None
+        };
+        after_initial_root_capture();
+
         let fts_backend_available =
             sqlite_fts5_available_read_only(connection).map_err(|source| {
                 IndexerError::Database(DbError::Inspect {
@@ -327,6 +376,13 @@ where
             return Ok(ChangePlanningResult::FullRebuildRequired);
         }
         let discovery = discover_org_files(config)?;
+        if let Some(expected) = planned_root_evidence.as_ref() {
+            let current = SourceRootEvidenceSet::capture(config)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            expected
+                .ensure_unchanged(&current)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        }
         if discovery.files.is_empty() && !discovery.had_exclusion_match && !options.allow_empty {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
             if existing_indexed_files > 0 {
@@ -365,6 +421,7 @@ where
             planning_context: context,
             fts_backend_available,
             verification_policy: options,
+            source_root_evidence: planned_root_evidence,
             expected_files,
             unchanged: Vec::new(),
             metadata_only: Vec::new(),
@@ -441,6 +498,19 @@ where
         config: &Config,
         actionable: ActionableChangePlan,
     ) -> Result<ChangeApplicationResult, IndexerError> {
+        self.apply_change_plan_with_hook(connection, config, actionable, || {})
+    }
+
+    fn apply_change_plan_with_hook<H>(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+        actionable: ActionableChangePlan,
+        before_final_root_validation: H,
+    ) -> Result<ChangeApplicationResult, IndexerError>
+    where
+        H: FnOnce(),
+    {
         let ActionableChangePlan {
             plan,
             indexed_universe,
@@ -449,6 +519,13 @@ where
             return Ok(ChangeApplicationResult::Rejected(
                 ChangeApplicationRejection::FailedSources,
             ));
+        }
+        if let Some(expected) = plan.source_root_evidence.as_ref() {
+            let current = SourceRootEvidenceSet::capture(config)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            expected
+                .ensure_unchanged(&current)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
         }
         // Revalidate every current source before a write transaction. This also
         // rejects plans whose prepared evidence is no longer current.
@@ -499,6 +576,13 @@ where
             ));
         }
         let rediscovery = discover_org_files(config)?;
+        if let Some(expected) = plan.source_root_evidence.as_ref() {
+            let current = SourceRootEvidenceSet::capture(config)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            expected
+                .ensure_unchanged(&current)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        }
         let mut observed = rediscovery
             .files
             .iter()
@@ -569,6 +653,17 @@ where
         IndexingContext::from_config(config, fts_available)
             .persist(&tx)
             .map_err(IndexerError::Write)?;
+        before_final_root_validation();
+        if let Some(expected) = plan.source_root_evidence.as_ref() {
+            let current = SourceRootEvidenceSet::capture(config)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            expected
+                .ensure_unchanged(&current)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+            expected
+                .persist(&tx)
+                .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        }
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
         Ok(ChangeApplicationResult::Applied(
@@ -660,6 +755,35 @@ where
         config: &Config,
         allow_empty: bool,
     ) -> Result<RebuildReport, IndexerError> {
+        self.rebuild_with_rebuild_options(
+            connection,
+            config,
+            RebuildOptions {
+                allow_empty,
+                accept_source_root_changes: false,
+            },
+        )
+    }
+
+    pub(crate) fn rebuild_with_rebuild_options(
+        &self,
+        connection: &mut Connection,
+        config: &Config,
+        options: RebuildOptions,
+    ) -> Result<RebuildReport, IndexerError> {
+        let source_root_evidence = SourceRootEvidenceSet::capture(config)
+            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        source_root_evidence
+            .validate_committed(
+                connection,
+                if options.accept_source_root_changes {
+                    SourceRootEvidencePolicy::AcceptChanges
+                } else {
+                    SourceRootEvidencePolicy::Automatic
+                },
+            )
+            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+
         let fts_backend_available = sqlite_supports_fts5(connection).map_err(|source| {
             IndexerError::Database(DbError::Inspect {
                 target: config.db_path.display().to_string(),
@@ -677,9 +801,15 @@ where
         let indexing_context = IndexingContext::from_config(config, fts_backend_available);
 
         let discovery = discover_org_files(config)?;
+        source_root_evidence
+            .ensure_unchanged(
+                &SourceRootEvidenceSet::capture(config)
+                    .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?,
+            )
+            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
         if discovery.files.is_empty() && !discovery.had_exclusion_match {
             let existing_indexed_files = existing_indexed_file_count(connection)?;
-            if existing_indexed_files > 0 && !allow_empty {
+            if existing_indexed_files > 0 && !options.allow_empty {
                 return Err(IndexerError::RefusedEmptyRebuild {
                     existing_indexed_files,
                 });
@@ -691,6 +821,12 @@ where
         for discovered in discovery.files {
             pending.push(self.prepare_discovered_file(discovered, config)?);
         }
+        source_root_evidence
+            .ensure_unchanged(
+                &SourceRootEvidenceSet::capture(config)
+                    .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?,
+            )
+            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
 
         let tx = connection
             .transaction()
@@ -750,6 +886,15 @@ where
 
         LinkResolver::resolve_all(&tx, &discovery.indexed_universe).map_err(IndexerError::Write)?;
         indexing_context.persist(&tx).map_err(IndexerError::Write)?;
+        source_root_evidence
+            .ensure_unchanged(
+                &SourceRootEvidenceSet::capture(config)
+                    .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?,
+            )
+            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        source_root_evidence
+            .persist(&tx)
+            .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -859,6 +1004,10 @@ enum PlanningScope {
 }
 
 impl PlanningScope {
+    fn is_all(&self) -> bool {
+        matches!(self, Self::All)
+    }
+
     fn includes(
         &self,
         path: &Path,
@@ -894,9 +1043,16 @@ impl PlanningScope {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RebuildOptions {
+    pub(crate) allow_empty: bool,
+    pub(crate) accept_source_root_changes: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ChangePlanningOptions {
     pub(crate) allow_empty: bool,
     pub(crate) verify_hashes: bool,
+    pub(crate) accept_source_root_changes: bool,
 }
 
 #[allow(dead_code)]
@@ -914,6 +1070,7 @@ pub(crate) struct ChangePlan {
     planning_context: IndexingContext,
     fts_backend_available: bool,
     verification_policy: ChangePlanningOptions,
+    source_root_evidence: Option<SourceRootEvidenceSet>,
     expected_files: Vec<PersistedFileSnapshot>,
     pub(crate) unchanged: Vec<PlannedFile>,
     pub(crate) metadata_only: Vec<PlannedFile>,
@@ -1225,6 +1382,7 @@ pub enum IndexerError {
     RefusedEmptyRebuild {
         existing_indexed_files: usize,
     },
+    SourceRootEvidence(Box<dyn Error + Send + Sync>),
     Write(DbWriteError),
 }
 
@@ -1272,6 +1430,7 @@ impl fmt::Display for IndexerError {
                 f,
                 "rebuild found zero input Org files and was refused to avoid deleting {existing_indexed_files} indexed file(s); rerun with --allow-empty if this is intentional"
             ),
+            Self::SourceRootEvidence(source) => write!(f, "{source}"),
             Self::Write(source) => write!(f, "{source}"),
         }
     }
@@ -1290,6 +1449,7 @@ impl Error for IndexerError {
             Self::ReadFile { source, .. } => Some(source),
             Self::Serialize { source, .. } => Some(source),
             Self::RefusedEmptyRebuild { .. } => None,
+            Self::SourceRootEvidence(source) => Some(source.as_ref()),
             Self::Write(source) => Some(source),
         }
     }
@@ -2614,7 +2774,7 @@ mod tests {
         capture_stable_source_with, discover_org_files, ChangeApplicationRejection,
         ChangeApplicationResult, ChangePlanningOptions, ChangePlanningResult, DiscoveredOrgFile,
         FileMetadata, FileSnapshotReader, IndexInvalidationSet, IndexedFile, Indexer, IndexerError,
-        PersistedFileSnapshot, PlannedCurrentFile,
+        PersistedFileSnapshot, PlannedCurrentFile, PlanningScope, RebuildOptions,
     };
     use crate::{
         config::{Config, ConfiguredDir, SearchConfig},
@@ -2625,7 +2785,8 @@ mod tests {
             DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY,
             DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY,
             DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY,
-            DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY,
+            DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY, DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY,
+            DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY,
         },
         file_identity::FileIdentity,
         link_resolver::{
@@ -2644,6 +2805,7 @@ mod tests {
     use std::{
         collections::VecDeque,
         fs,
+        os::unix::fs::MetadataExt,
         path::{Path, PathBuf},
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -2798,6 +2960,59 @@ mod tests {
 
     fn write_config(path: &Path, body: &str) {
         write_file(path, body);
+    }
+
+    fn recursive_root_config(test_dir: &TestDir, roots: Vec<PathBuf>) -> Config {
+        Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: Vec::new(),
+            dirs: roots
+                .into_iter()
+                .map(|path| ConfiguredDir {
+                    path,
+                    recursive: true,
+                    exclude: Vec::new(),
+                })
+                .collect(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        }
+    }
+
+    fn replace_directory_root(root: &Path, files: &[(&str, &str)]) -> PathBuf {
+        let previous = root.with_extension("previous");
+        fs::rename(root, &previous).expect("original root should move aside");
+        fs::create_dir_all(root).expect("replacement root should be created");
+        for (relative, content) in files {
+            write_file(&root.join(relative), content);
+        }
+        previous
+    }
+
+    fn indexed_titles(connection: &Connection) -> Vec<String> {
+        connection
+            .prepare("SELECT title FROM headings WHERE level = 1 ORDER BY title")
+            .expect("title query should prepare")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("title query should execute")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("titles should read")
+    }
+
+    fn metadata_rows(connection: &Connection) -> Vec<(String, String)> {
+        connection
+            .prepare("SELECT key, value FROM db_metadata ORDER BY key")
+            .expect("metadata query should prepare")
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("metadata query should execute")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("metadata rows should read")
     }
 
     fn seed_indexed_file(connection: &Connection) {
@@ -9563,6 +9778,7 @@ index_body_text = false
                 ChangePlanningOptions {
                     allow_empty: false,
                     verify_hashes: true,
+                    accept_source_root_changes: false,
                 },
                 false,
                 &mut reader,
@@ -10009,6 +10225,424 @@ index_body_text = false
             })
             .expect("previous heading should remain");
         assert_eq!(title, "Original");
+    }
+
+    #[test]
+    fn first_rebuild_persists_configured_root_evidence_for_an_empty_database() {
+        let test_dir = TestDir::new("root-evidence-first-rebuild");
+        let root = test_dir.path().join("notes");
+        fs::create_dir_all(&root).expect("source root should exist");
+        let config = recursive_root_config(&test_dir, vec![root]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("first rebuild should initialise root evidence");
+
+        let version: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY],
+                |row| row.get(0),
+            )
+            .expect("root evidence version should exist");
+        let evidence: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY],
+                |row| row.get(0),
+            )
+            .expect("root evidence should exist");
+        assert_eq!(version, "1");
+        assert!(evidence.contains("logical_path"));
+    }
+
+    #[test]
+    fn unchanged_root_reconciliation_uses_the_normal_unchanged_path() {
+        let test_dir = TestDir::new("root-evidence-unchanged");
+        let root = test_dir.path().join("notes");
+        let note = root.join("note.org");
+        write_file(&note, "* Stable\n");
+        let config = recursive_root_config(&test_dir, vec![root]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("unchanged root should reconcile");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("unchanged reconciliation should apply");
+        };
+        assert_eq!(report.unchanged, 1);
+        assert_eq!(indexed_titles(&connection), vec!["Stable"]);
+    }
+
+    #[test]
+    fn reachable_empty_replacement_root_is_rejected_before_deletion() {
+        let test_dir = TestDir::new("root-evidence-empty-replacement");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("note.org"), "* Original\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let _previous = replace_directory_root(&root, &[]);
+
+        let error = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect_err("automatic reconciliation must reject a replacement root");
+        assert!(matches!(&error, IndexerError::SourceRootEvidence(_)));
+        assert!(error.to_string().contains("no longer matches"));
+        assert_eq!(indexed_titles(&connection), vec!["Original"]);
+    }
+
+    #[test]
+    fn partially_populated_replacement_root_is_rejected_before_deletion() {
+        let test_dir = TestDir::new("root-evidence-partial-replacement");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("first.org"), "* First\n");
+        write_file(&root.join("second.org"), "* Second\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let _previous = replace_directory_root(&root, &[("replacement.org", "* Replacement\n")]);
+
+        let error = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect_err("partial replacement must be rejected");
+        assert!(matches!(error, IndexerError::SourceRootEvidence(_)));
+        assert_eq!(indexed_titles(&connection), vec!["First", "Second"]);
+    }
+
+    #[test]
+    fn same_device_root_inode_replacement_is_rejected() {
+        let test_dir = TestDir::new("root-evidence-same-device-replacement");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("note.org"), "* Original\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let original_metadata = fs::metadata(&root).expect("original root metadata should load");
+        let _previous = replace_directory_root(&root, &[("new.org", "* New\n")]);
+        let replacement_metadata =
+            fs::metadata(&root).expect("replacement root metadata should load");
+        assert_eq!(original_metadata.dev(), replacement_metadata.dev());
+        assert_ne!(original_metadata.ino(), replacement_metadata.ino());
+
+        let error = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect_err("same-device inode replacement must be rejected");
+        assert!(matches!(error, IndexerError::SourceRootEvidence(_)));
+        assert_eq!(indexed_titles(&connection), vec!["Original"]);
+    }
+
+    #[test]
+    fn one_replaced_root_rejects_a_multi_root_reconciliation() {
+        let test_dir = TestDir::new("root-evidence-multiple-roots");
+        let first_root = test_dir.path().join("first");
+        let second_root = test_dir.path().join("second");
+        write_file(&first_root.join("first.org"), "* First\n");
+        write_file(&second_root.join("second.org"), "* Second\n");
+        let config =
+            recursive_root_config(&test_dir, vec![first_root.clone(), second_root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let _previous = replace_directory_root(&second_root, &[("new.org", "* New\n")]);
+
+        let error = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect_err("one changed root must reject the complete reconciliation");
+        assert!(matches!(error, IndexerError::SourceRootEvidence(_)));
+        assert_eq!(indexed_titles(&connection), vec!["First", "Second"]);
+    }
+
+    #[test]
+    fn root_replacement_during_discovery_is_rejected_as_stale() {
+        let test_dir = TestDir::new("root-evidence-during-discovery");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("note.org"), "* Original\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+
+        let error = indexer
+            .plan_changes_for_scope_with_hook(
+                &connection,
+                &config,
+                ChangePlanningOptions::default(),
+                PlanningScope::All,
+                || {
+                    let _previous = replace_directory_root(&root, &[("new.org", "* New\n")]);
+                },
+            )
+            .expect_err("root replacement during discovery must be rejected");
+        assert!(matches!(&error, IndexerError::SourceRootEvidence(_)));
+        assert!(error.to_string().contains("stale reconciliation"));
+        assert_eq!(indexed_titles(&connection), vec!["Original"]);
+    }
+
+    #[test]
+    fn root_replacement_before_commit_rolls_back_all_database_changes() {
+        let test_dir = TestDir::new("root-evidence-before-commit");
+        let root = test_dir.path().join("notes");
+        let note = root.join("note.org");
+        write_file(&note, "* Original\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let metadata_before = metadata_rows(&connection);
+        write_file(&note, "* Changed\n");
+        let actionable = indexer
+            .actionable_plan(indexer.plan_changes(&connection, &config).expect("plan"))
+            .expect("plan should be actionable");
+
+        let error = indexer
+            .apply_change_plan_with_hook(&mut connection, &config, actionable, || {
+                let _previous =
+                    replace_directory_root(&root, &[("replacement.org", "* Replacement\n")]);
+            })
+            .expect_err("final root validation must reject the transaction");
+        assert!(matches!(error, IndexerError::SourceRootEvidence(_)));
+        assert_eq!(indexed_titles(&connection), vec!["Original"]);
+        assert_eq!(metadata_rows(&connection), metadata_before);
+    }
+
+    #[test]
+    fn indexed_database_without_root_evidence_requires_explicit_adoption() {
+        let test_dir = TestDir::new("root-evidence-adoption");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("note.org"), "* Original\n");
+        let config = recursive_root_config(&test_dir, vec![root]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        connection
+            .execute(
+                "DELETE FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY],
+            )
+            .expect("version evidence should delete");
+        connection
+            .execute(
+                "DELETE FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY],
+            )
+            .expect("root evidence should delete");
+
+        let error = indexer
+            .rebuild(&mut connection, &config)
+            .expect_err("legacy indexed state must require adoption");
+        assert!(matches!(error, IndexerError::SourceRootEvidence(_)));
+        indexer
+            .rebuild_with_rebuild_options(
+                &mut connection,
+                &config,
+                RebuildOptions {
+                    allow_empty: false,
+                    accept_source_root_changes: true,
+                },
+            )
+            .expect("explicit adoption should succeed");
+        let version: String = connection
+            .query_row(
+                "SELECT value FROM db_metadata WHERE key = ?1",
+                [DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY],
+                |row| row.get(0),
+            )
+            .expect("adopted evidence should exist");
+        assert_eq!(version, "1");
+    }
+
+    #[test]
+    fn invalid_committed_root_evidence_requires_and_allows_explicit_adoption() {
+        let test_dir = TestDir::new("root-evidence-invalid-adoption");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("note.org"), "* Original\n");
+        let config = recursive_root_config(&test_dir, vec![root]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        connection
+            .execute(
+                "UPDATE db_metadata SET value = CAST(x'0102' AS BLOB) WHERE key = ?1",
+                [DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY],
+            )
+            .expect("invalid evidence should store");
+
+        let error = indexer
+            .rebuild(&mut connection, &config)
+            .expect_err("invalid committed evidence must require adoption");
+        assert!(matches!(error, IndexerError::SourceRootEvidence(_)));
+        indexer
+            .rebuild_with_rebuild_options(
+                &mut connection,
+                &config,
+                RebuildOptions {
+                    allow_empty: false,
+                    accept_source_root_changes: true,
+                },
+            )
+            .expect("manual adoption should replace invalid evidence");
+        assert_eq!(indexed_titles(&connection), vec!["Original"]);
+    }
+
+    #[test]
+    fn explicit_acceptance_commits_replacement_root_evidence() {
+        let test_dir = TestDir::new("root-evidence-accept-replacement");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("old.org"), "* Old\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let _previous = replace_directory_root(&root, &[("new.org", "* New\n")]);
+
+        indexer
+            .rebuild_with_rebuild_options(
+                &mut connection,
+                &config,
+                RebuildOptions {
+                    allow_empty: false,
+                    accept_source_root_changes: true,
+                },
+            )
+            .expect("manual acceptance should rebuild the replacement root");
+        assert_eq!(indexed_titles(&connection), vec!["New"]);
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("accepted root should become the committed identity");
+    }
+
+    #[test]
+    fn accepting_root_changes_does_not_imply_allow_empty() {
+        let test_dir = TestDir::new("root-evidence-accept-empty");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("old.org"), "* Old\n");
+        let config = recursive_root_config(&test_dir, vec![root.clone()]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let _previous = replace_directory_root(&root, &[]);
+
+        let error = indexer
+            .rebuild_with_rebuild_options(
+                &mut connection,
+                &config,
+                RebuildOptions {
+                    allow_empty: false,
+                    accept_source_root_changes: true,
+                },
+            )
+            .expect_err("root acceptance must not bypass zero-input safety");
+        assert!(matches!(error, IndexerError::RefusedEmptyRebuild { .. }));
+        assert_eq!(indexed_titles(&connection), vec!["Old"]);
+    }
+
+    #[test]
+    fn normal_file_deletion_inside_an_unchanged_root_still_reconciles() {
+        let test_dir = TestDir::new("root-evidence-normal-deletion");
+        let root = test_dir.path().join("notes");
+        let first = root.join("first.org");
+        let second = root.join("second.org");
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        let config = recursive_root_config(&test_dir, vec![root]);
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        fs::remove_file(&second).expect("second file should be removed");
+
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("ordinary deletion should reconcile");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("ordinary deletion should apply");
+        };
+        assert_eq!(report.deleted, 1);
+        assert_eq!(indexed_titles(&connection), vec!["First"]);
     }
 
     fn query_rows<T, F>(connection: &Connection, sql: &str, mut map: F) -> Vec<T>

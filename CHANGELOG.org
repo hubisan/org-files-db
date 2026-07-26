@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =ADDED= Full rebuild and full configured-source reconciliation now persist and revalidate configured directory-root identity; intentional replacement requires the manual =--accept-source-root-changes= rebuild flag.
+
 - =ADDED= Added ~orgfdb watch --config PATH~ for safe watcher-driven incremental indexing and recovery on supported Unix-like systems.
 
 - =CHANGED= Effective tags are now stored in a normalized projection for inherited matching and deterministic ~all_tags~ output; the internal ~all_tags_json~ heading cache was removed.

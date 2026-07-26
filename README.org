@@ -13,6 +13,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 
 - =src/parser/= owns the internal parser trait, data model, diagnostics, and the Orgize implementation adapter
 - =src/indexer.rs= orchestrates parsing, normalization, and DB writes
+- =src/source_root_evidence.rs= persists and validates configured directory-root identity inside the Phase 6 transaction contract
 - =src/db/= owns the SQLite schema, reader, and writer layers
 - =src/query.rs= contains query-side helpers used by the CLI and tests
 - =src/watcher.rs=, =src/notify_source.rs=, and =src/watcher_runtime.rs= translate filesystem events into bounded Phase 6 reconciliation
@@ -106,6 +107,7 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 - Missing explicit files are absent configured sources for later reconciliation; missing configured directory roots remain discovery failures and cannot trigger mass deletion.
 - Version-8 migration leaves legacy TEXT-only file rows with a null identity. A later successful rebuild or reconciliation upgrades them only after observing the canonical Unix path.
 - Rebuild refuses to wipe an existing indexed database when discovery finds zero input files unless =--allow-empty= is passed explicitly.
+- Successful full indexing persists configured directory-root identities. Automatic reconciliation rejects a replaced root; intentional replacements require one manual rebuild with =--accept-source-root-changes=. This flag is independent from =--allow-empty=.
 - Read-only commands such as =headings= load the config without requiring configured source paths to exist.
 
 ** headings JSON Contract
@@ -163,7 +165,21 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 :CUSTOM_ID: usage
 :END:
 
-Build the project and start watcher-driven incremental indexing with the same configuration used for rebuilds:
+Build the project and initialise or rebuild the database with the configured sources:
+
+#+begin_src shell
+cargo run --bin orgfdb -- rebuild --config ./org-files-db.toml
+#+end_src
+
+When adopting an existing indexed database with configured directory roots that predates root-identity evidence, or after intentionally replacing a configured directory root, verify the new root and run:
+
+#+begin_src shell
+cargo run --bin orgfdb -- rebuild --config ./org-files-db.toml --accept-source-root-changes
+#+end_src
+
+The acceptance flag does not imply =--allow-empty=.
+
+Then start watcher-driven incremental indexing with the same configuration:
 
 #+begin_src shell
 cargo run --bin orgfdb -- watch --config ./org-files-db.toml
@@ -176,7 +192,7 @@ cargo build --release
 ./target/release/orgfdb watch --config ./org-files-db.toml
 #+end_src
 
-During startup the watcher registers the configured inputs and runs a full Phase 6 reconciliation. After ~watcher ready~ appears on stderr, create, modify, rename, replace, and delete operations are applied incrementally. Stop the foreground process with ~Ctrl-C~. The watcher is supported on Unix-like systems only; see [[./docs/cli.org][docs/cli.org]] for lifecycle and failure behavior.
+During startup the watcher registers the configured inputs and runs a full Phase 6 reconciliation, including persisted configured-root identity validation. After ~watcher ready~ appears on stderr, create, modify, rename, replace, and delete operations are applied incrementally. Stop the foreground process with ~Ctrl-C~. The watcher is supported on Unix-like systems only; see [[./docs/cli.org][docs/cli.org]] for lifecycle and failure behavior.
 
 ** Customization
 :PROPERTIES:

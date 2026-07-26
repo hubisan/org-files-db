@@ -17,7 +17,7 @@ use crate::{
         LinkListRow, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
         DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     },
-    indexer::{Indexer, IndexerError, RebuildReport},
+    indexer::{Indexer, IndexerError, RebuildOptions, RebuildReport},
     parser::OrgizeAdapter,
     query::{
         execute_and_shape_query, parse_query, shape_matched_heading_nodes,
@@ -42,6 +42,11 @@ enum Command {
         config: PathBuf,
         #[arg(long)]
         allow_empty: bool,
+        #[arg(
+            long,
+            help = "Accept changed configured directory-root identities for this manual rebuild"
+        )]
+        accept_source_root_changes: bool,
     },
     #[command(
         about = "Watch configured Org inputs and apply incremental updates",
@@ -188,8 +193,9 @@ where
         Command::Rebuild {
             config,
             allow_empty,
+            accept_source_root_changes,
         } => {
-            let report = rebuild_with_options(&config, allow_empty)?;
+            let report = rebuild_with_options(&config, allow_empty, accept_source_root_changes)?;
             print_diagnostics(&report);
             Ok(())
         }
@@ -246,15 +252,22 @@ where
 
 #[cfg(test)]
 fn rebuild(config_path: impl AsRef<std::path::Path>) -> Result<RebuildReport, CliError> {
-    rebuild_with_options(config_path, false)
+    rebuild_with_options(config_path, false, false)
 }
 
 fn rebuild_with_options(
     config_path: impl AsRef<std::path::Path>,
     allow_empty: bool,
+    accept_source_root_changes: bool,
 ) -> Result<RebuildReport, CliError> {
     Indexer::new(OrgizeAdapter::new())
-        .rebuild_from_config_path_with_options(config_path, allow_empty)
+        .rebuild_from_config_path_with_rebuild_options(
+            config_path,
+            RebuildOptions {
+                allow_empty,
+                accept_source_root_changes,
+            },
+        )
         .map_err(CliError::Indexer)
 }
 
@@ -1240,9 +1253,11 @@ mod tests {
             super::Command::Rebuild {
                 config,
                 allow_empty,
+                accept_source_root_changes,
             } => {
                 assert_eq!(config, PathBuf::from("config.toml"));
                 assert!(!allow_empty);
+                assert!(!accept_source_root_changes);
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -1260,9 +1275,33 @@ mod tests {
             super::Command::Rebuild {
                 config,
                 allow_empty,
+                accept_source_root_changes,
             } => {
                 assert_eq!(config, PathBuf::from("config.toml"));
                 assert!(allow_empty);
+                assert!(!accept_source_root_changes);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "rebuild",
+            "--config",
+            "config.toml",
+            "--accept-source-root-changes",
+        ])
+        .expect("rebuild root-acceptance args should parse");
+
+        match cli.command {
+            super::Command::Rebuild {
+                config,
+                allow_empty,
+                accept_source_root_changes,
+            } => {
+                assert_eq!(config, PathBuf::from("config.toml"));
+                assert!(!allow_empty);
+                assert!(accept_source_root_changes);
             }
             other => panic!("unexpected command: {other:?}"),
         }
@@ -1441,6 +1480,65 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn manual_rebuild_flag_accepts_an_intentional_root_replacement() {
+        let test_dir = TestDir::new("rebuild-accept-root-change");
+        let config_path = test_dir.path().join("config.toml");
+        let root = test_dir.path().join("notes");
+        write_file(&root.join("old.org"), "* Old\n");
+        write_file(
+            &config_path,
+            r#"db_path = "./db.sqlite"
+
+[[dirs]]
+path = "./notes"
+recursive = true
+
+[search]
+fts5_enabled = false
+"#,
+        );
+        let config_arg = config_path.to_string_lossy().into_owned();
+        run_cli_output(vec![
+            "orgfdb".to_string(),
+            "rebuild".to_string(),
+            "--config".to_string(),
+            config_arg.clone(),
+        ])
+        .expect("initial rebuild should succeed");
+        let _previous = test_dir.path().join("notes-previous");
+        fs::rename(&root, &_previous).expect("original root should move aside");
+        write_file(&root.join("new.org"), "* New\n");
+
+        let error = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "rebuild".to_string(),
+            "--config".to_string(),
+            config_arg.clone(),
+        ])
+        .expect_err("automatic rebuild must reject the replacement root");
+        assert!(error.to_string().contains("--accept-source-root-changes"));
+
+        run_cli_output(vec![
+            "orgfdb".to_string(),
+            "rebuild".to_string(),
+            "--config".to_string(),
+            config_arg,
+            "--accept-source-root-changes".to_string(),
+        ])
+        .expect("manual acceptance should rebuild the replacement root");
+        let connection =
+            Connection::open(test_dir.path().join("db.sqlite")).expect("database should open");
+        let titles = connection
+            .prepare("SELECT title FROM headings WHERE level = 1 ORDER BY title")
+            .expect("title query should prepare")
+            .query_map([], |row| row.get::<_, String>(0))
+            .expect("title query should execute")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("titles should collect");
+        assert_eq!(titles, vec!["New"]);
     }
 
     #[test]

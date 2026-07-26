@@ -519,12 +519,12 @@ fn affected_watch_target(input: &WatcherInput, watch_targets: &[PathBuf]) -> Opt
 mod tests {
     use super::{
         WatcherCycleReport, WatcherMessageSource, WatcherRuntime, WatcherRuntimeError,
-        WatcherRuntimeState, MAX_SOURCE_MESSAGES_PER_CYCLE,
+        WatcherRuntimeState, WatcherStartupError, MAX_SOURCE_MESSAGES_PER_CYCLE,
     };
     use crate::{
         config::{Config, SearchConfig},
         db::{open_database_with_schema, SchemaDefinition, CURRENT_SCHEMA_VERSION},
-        indexer::{ChangeApplicationReport, ChangeApplicationResult, Indexer},
+        indexer::{ChangeApplicationReport, ChangeApplicationResult, Indexer, IndexerError},
         notify_source::{NotifyBackendFailure, NotifySourceMessage},
         parser::OrgizeAdapter,
         watcher::{
@@ -1092,6 +1092,40 @@ mod tests {
 
         assert_eq!(handle.refresh_count(), 2);
         assert_eq!(executor.batches[1], NormalizedWatcherBatch::Reconcile);
+    }
+
+    #[test]
+    fn watcher_startup_rejects_a_replaced_root_without_modifying_the_database() {
+        let test_dir = TestDir::new("replaced-root-before-startup");
+        let config = recursive_config(&test_dir);
+        let root = config.dirs[0].path.clone();
+        let note = root.join("note.org");
+        write_file(&note, "* Original\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = open_database(&config);
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let previous = root.with_extension("previous");
+        fs::rename(&root, &previous).expect("original root should move aside");
+        fs::create_dir_all(&root).expect("replacement root should exist");
+        write_file(&root.join("replacement.org"), "* Replacement\n");
+        let (source, _) = TestSource::new(vec![root]);
+        let error = {
+            let mut executor = Phase6WatcherExecutor::new(&indexer, &mut connection, &config);
+            match WatcherRuntime::start_registered(source, &config, Instant::now(), &mut executor) {
+                Ok(_) => panic!("watcher startup must reject the replaced root"),
+                Err(error) => error,
+            }
+        };
+
+        assert!(matches!(
+            error,
+            WatcherStartupError::Reconciliation(WatcherExecutionError::Indexer(
+                IndexerError::SourceRootEvidence(_)
+            ))
+        ));
+        assert_eq!(heading_titles(&connection), vec!["Original"]);
     }
 
     #[test]

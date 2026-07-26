@@ -487,13 +487,15 @@ Local final verification:
 - Review the complete diff from the last pre-Phase-7 commit.
 - Run a manual Unix smoke test covering startup, modify, create, rename, delete, and clean shutdown.
 
-** TODO [#A] Persist and validate configured source-root identity
+** REVIEW [#A] Persist and validate configured source-root identity
 :PROPERTIES:
 :PRIORITY: High
 :RISK: High
 :DB_SCHEMA_CHANGE: Metadata
 :API_CONTRACT_CHANGE: Yes
 :END:
+
+Task file: [[./2026-07-26--source-root-identity.org][2026-07-26--source-root-identity.org]]
 
 Goal:
 

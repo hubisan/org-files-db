@@ -33,6 +33,8 @@ pub const DB_METADATA_INDEXING_DISCOVERY_FINGERPRINT_KEY: &str = "indexing_disco
 pub const DB_METADATA_INDEXING_DERIVED_SEARCH_VERSION_KEY: &str = "indexing_derived_search_version";
 pub const DB_METADATA_INDEXING_DERIVED_SEARCH_FINGERPRINT_KEY: &str =
     "indexing_derived_search_fingerprint";
+pub const DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY: &str = "source_root_evidence_version";
+pub const DB_METADATA_SOURCE_ROOT_EVIDENCE_KEY: &str = "source_root_evidence";
 pub const FTS_SCHEMA_CONTRACT_VERSION: &str = "3";
 
 #[cfg(test)]

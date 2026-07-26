@@ -1,0 +1,121 @@
+#+TITLE: Persist and validate configured source-root identity
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-26 Sun 19:36]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement the approved task from ~todo.org~ that persists and validates configured source-root identity so automatic reconciliation cannot treat a replaced directory root as the continuation of the previously indexed root.
+
+* Planning
+
+** Problem summary
+
+Phase 6 currently validates configured directory roots only within one watcher process. After restart, a reachable replacement directory at the same configured path can be interpreted as authoritative and can cause existing indexed state to be removed. Root identity also needs to remain stable from discovery through the transaction commit.
+
+** Goals
+
+- Persist deterministic evidence for configured directory roots in ~db_metadata~.
+- Reject automatic full reconciliation when a previously committed root changes identity.
+- Revalidate root evidence after discovery, before mutation, and immediately before commit.
+- Add an explicit manual rebuild option for intentional root replacement.
+- Keep zero-input safety independent from root-identity acceptance.
+- Reuse the Phase 6 contract from the watcher without adding watcher-owned persistence.
+
+** Non-goals
+
+- Persist identities for individual files or discovered subdirectories.
+- Change explicit-file input semantics.
+- Implement mount management or Phase 8 parallelism.
+- Add watcher-specific root-evidence storage.
+
+** Architecture
+
+- Add one internal source-root evidence module using native Unix path bytes plus device and inode identity.
+- Store a versioned deterministic JSON representation in existing ~db_metadata~ entries.
+- Capture and compare evidence only for full configured-source reconciliation and full rebuild.
+- Carry the captured evidence in a full Phase 6 change plan and persist it in the same transaction as indexed state.
+- Keep bounded candidate reconciliation unchanged.
+
+** Execution plan
+
+1. Add the evidence model, persistence, loading, comparison, and errors.
+2. Integrate evidence into full change planning, stale validation, rebuild, and commit.
+3. Add the manual ~--accept-source-root-changes~ rebuild option.
+4. Add deterministic tests for replacement, missing legacy evidence, acceptance, stale races, rollback, and watcher startup failure.
+5. Update CLI and incremental-indexing documentation.
+6. Run all available checks and record any environment limitation.
+
+** Risks & assumptions
+
+- The existing Unix-only platform contract permits use of device and inode metadata.
+- Configuration changes that add or remove logical roots are intentional; identity continuity is checked for logical roots present in both committed and current evidence.
+- Recursive-mode changes do not by themselves represent root replacement.
+
+** Open questions
+
+- None. The user approved the narrowed scope and requested implementation.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test~
+- ~cargo test watcher_runtime~
+- ~cargo test watcher_integration_tests -- --test-threads=1~ twice
+- ~make ci~
+- ~git diff --check~ where a Git worktree is available
+
+* Results
+
+** Approach
+
+- Added a single Phase 6 source-root evidence model for configured directory roots.
+- Stored deterministic versioned evidence in the existing ~db_metadata~ table using native Unix path bytes, canonical target path, device, inode, and recursive mode.
+- Validated committed evidence before automatic full reconciliation and carried the initial evidence through planning, stale validation, and the final transaction boundary.
+- Persisted new evidence only in the same successful transaction as files, headings, links, FTS/search trust metadata, and indexing context.
+- Added the manual rebuild option ~--accept-source-root-changes~ for intentional adoption while keeping ~--allow-empty~ independent.
+- Kept candidate reconciliation and explicit-file semantics unchanged.
+- Added deterministic test hooks only at the initial-capture and pre-commit boundaries.
+
+** Changed files
+
+- ~src/source_root_evidence.rs~: evidence capture, deterministic serialization, persistence, validation, and errors.
+- ~src/indexer.rs~: full-plan and rebuild integration, stale checks, transactional persistence, options, and regression tests.
+- ~src/cli.rs~: manual root-adoption flag and CLI tests.
+- ~src/watcher_runtime.rs~: watcher-startup regression test for a replaced root.
+- ~src/db.rs~ and ~src/lib.rs~: metadata keys and module registration.
+- ~README.org~, ~CHANGELOG.org~, ~docs/cli.org~, and ~docs/design/incremental-indexing.org~: completed behavior and migration contract.
+- ~.project/tasks/todo.org~ and this task file: task workflow and implementation record.
+
+** Checks performed
+
+- Reviewed all changed Phase 6, watcher, CLI, metadata, and documentation paths against the approved narrow scope.
+- Ran a delimiter, string, and comment structure scan across all Rust source files successfully.
+- Searched changed implementation paths for placeholders and accidental watcher-owned persistence or acceptance behavior.
+- Checked the complete original-to-working-tree diff for whitespace errors; no diagnostics were produced.
+- Corrected two test assertions that would otherwise reuse an error after a consuming ~matches!~ expression.
+- Removed an unused import and avoided unit-error decoding helpers that could fail strict Clippy.
+
+** Test results
+
+- ~cargo fmt --all --check~: not executed; ~cargo~ is unavailable in the environment.
+- ~cargo clippy --all-targets --all-features -- -D warnings~: not executed; ~cargo~ is unavailable.
+- ~cargo test~: not executed; ~cargo~ is unavailable.
+- ~cargo test watcher_runtime~: not executed; ~cargo~ is unavailable.
+- ~cargo test watcher_integration_tests -- --test-threads=1~: not executed; ~cargo~ is unavailable.
+- ~make ci~: stopped because the Makefile could not invoke ~cargo~.
+
+** Blockers
+
+- The execution environment contains no ~cargo~, ~rustc~, or ~rustfmt~, so compilation, formatting, Clippy, and runtime tests require local verification before the task can be marked DONE.
+
+** Follow-ups
+
+- Run formatting and the full CI suite locally.
+- Run the watcher integration suite twice with one test thread.
+- Review any compiler or Clippy diagnostics before marking the task DONE.

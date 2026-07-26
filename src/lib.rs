@@ -14,6 +14,7 @@ pub(crate) mod notify_source;
 pub mod parser;
 pub(crate) mod property;
 pub mod query;
+mod source_root_evidence;
 pub(crate) mod tag;
 pub mod todo_keywords;
 pub(crate) mod watcher;
