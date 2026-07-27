@@ -63,545 +63,212 @@ Archived in [[./archive/todo-archive.org]]
 Archived in [[./archive/todo-archive.org]]
 
 
-* Phase 7: Watcher-driven incremental updates
+* DONE Phase 7: Watcher-driven incremental updates
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Archived in [[./archive/todo-archive.org]]
+
+* Phase 8: Evaluate and optionally implement parallel parsing and preparation
 
 Goal of this phase:
 
-- Translate filesystem changes into bounded Phase 6 reconciliation without duplicating indexing semantics.
-- Keep filesystem observation, event normalization, reconciliation policy, and Phase 6 execution as separate testable layers.
-- Ensure watcher-driven updates converge to the same committed DB state as a normal Phase 6 reconciliation.
+- Determine whether parallel parsing and preparation of independent changed Org files materially improves realistic rebuild and reconciliation workloads.
+- Implement bounded parallel parsing and preparation only if measurements justify the added complexity.
+- Preserve the Phase 6 indexing semantics and the Phase 7 watcher execution model unchanged.
+
+Scope:
+
+- Parallel execution is considered only for independent per-file parsing and preparation.
+- A preparation job may parse already loaded file content and convert parser output into complete owned model-ready file data.
+- File discovery remains sequential.
+- Source-universe construction remains sequential.
+- File metadata reads, content reads, and content hashing remain sequential.
+- Change planning remains sequential.
+- Processing inside one individual file remains sequential.
+- DB writes remain sequential and transactionally controlled.
+- FTS maintenance, link resolution, effective-state refresh, metadata updates, and other derived-state maintenance remain sequential.
+- Watcher event collection, debouncing, reconciliation, and batch execution remain sequential.
+- Multiple watcher reconciliation or application cycles must not run concurrently.
+
+Reason for separate phase:
+
+- Phase 6 already separates deterministic discovery, change planning, per-file preparation, ordered DB application, and full-rebuild recovery.
+- Phase 7 reuses that pipeline and adds filesystem event collection, debouncing, recovery, and lifecycle handling without changing indexing semantics.
+- Parsing is the only Phase 6 preparation step considered for parallel execution in this phase.
+- Parallel parsing affects scheduling, memory use, error aggregation, cancellation behavior, and deterministic result ordering even though all surrounding stages remain sequential.
 
 General rules:
 
-- The watcher produces normalized candidate paths and reconciliation requests only.
-- Phase 6 discovery, classification, change planning, preparation, transactional application, and committed-state validation remain the single source of indexing semantics.
-- Raw filesystem event kinds are hints. They must never directly select DB replacement, metadata update, or deletion operations.
-- Filesystem event handling must remain separate from parsing and DB mutation logic.
-- The watcher must not maintain core or derived DB state itself.
-- Watcher-triggered updates inherit the complete Phase 6 source-universe, indexing-context, FTS, link-resolution, trust-metadata, stale-plan, zero-input-safety, and rollback contract.
-- Phase 6 source roots, explicit files, directory exclusions, file exclusions, canonical identity, missing-path identity, and deterministic ordering must be reused.
-- Do not introduce a second discovery, exclusion, canonicalization, or indexed-file identity model.
-- Temporary source-root unavailability must not silently become mass deletion.
-- Backend uncertainty must request full Phase 6 reconciliation rather than guessing individual mutations.
-- DB writes remain serialized. Parallel parsing or event processing belongs to Phase 8 only if later required.
-- The project-wide platform contract applies: Linux and Unix-like systems, including macOS where supported by the selected backend, are supported. Windows is not supported.
-- Do not add Windows-specific watcher backends, path conversion, rename handling, tests, or compatibility abstractions.
-- Preserve the byte-oriented Unix path identity and symlink semantics established by Phase 6.
-- Each implementation task must leave the repository in a complete and testable state before being marked DONE.
-- Documentation must describe the implementation that actually exists. Do not document speculative behavior as completed.
+- Keep the sequential Phase 6 parsing and preparation path as the reference behavior and fallback.
+- Phase 6 discovery and change planning remain the single source of ordered preparation jobs.
+- Do not add a separate parallel rebuild or watcher pipeline.
+- Do not parallelize file discovery, metadata inspection, file reading, hashing, change planning, DB mutation, FTS maintenance, link resolution, derived-state maintenance, metadata updates, transaction management, or watcher control flow.
+- File contents required for parsing are loaded before parallel execution begins.
+- Worker jobs receive owned, independent parse inputs and return owned preparation results.
+- Do not share mutable parser state across workers.
+- Do not perform worker-side filesystem traversal, file reads, hashing, DB lookups, or DB writes.
+- Parse completion order must not affect:
+  - DB mutation order
+  - semantic DB contents
+  - FTS state
+  - link-resolution state
+  - source-universe metadata
+  - indexing-context fingerprints
+  - error ordering
+- Completed preparation results are restored to deterministic change-plan order before DB application.
+- One parse or preparation failure prevents the complete planned change set from being applied.
+- Parallel behavior must be bounded, configurable, and disableable.
+- Do not introduce a thread-pool dependency before the benchmark decision.
+- A worker-count default or activation threshold may be introduced only from measured results.
+- The parallel pipeline follows the project-wide platform contract: Linux and Unix-like systems, including macOS, are supported; Windows is not supported.
+- Do not introduce Windows-specific path, filesystem, thread-pool, or watcher compatibility abstractions.
+- Worker inputs and results preserve the byte-oriented Unix file identity defined in Phase 6.
 
-** DONE [#A] Audit and expose the Phase 6 watcher handoff
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
-
-Task file: [[./2026-07-25--phase-6-watcher-handoff.org]]
+** TODO Establish the Phase 8 measurement baseline
 
 Goal:
 
-- Establish the exact Phase 6 entry points that Phase 7 will call for startup reconciliation and bounded candidate-path updates.
-- Remove any need for watcher-owned classification, parsing, or DB mutation.
-
-Implementation requirements:
-
-- Inspect the completed Phase 6 implementation and identify the production APIs for:
-  - full configured-source reconciliation;
-  - bounded reconciliation for normalized candidate paths;
-  - indexed identity lookup for paths that no longer exist;
-  - stale-plan validation and transactional application.
-- Add or minimally refactor internal Phase 6 APIs only where the watcher cannot otherwise reuse the existing semantics.
-- Keep full rebuild and watcher execution on the same preparation and DB-write primitives.
-- Do not add ~notify~, watcher threads, debounce logic, or a CLI command in this task.
-- Do not duplicate Phase 6 discovery, exclusions, hashing, parsing, FTS, link resolution, or deletion logic.
-- Record the ownership boundary in code comments only where it is not already clear from types and module structure.
+- Extend the existing deterministic benchmark harness just enough to determine whether parsing and per-file model preparation are meaningful rebuild bottlenecks before implementing parallel execution.
 
 Acceptance criteria:
 
-- A caller can request full configured-source reconciliation through one documented internal entry point.
-- A caller can submit a deterministic set of candidate paths through one documented internal entry point.
-- Missing candidate paths can be matched against already indexed identities without requiring filesystem canonicalization to succeed.
-- Candidate processing still produces ordinary Phase 6 classifications such as unchanged, metadata-only, created, modified, deleted, and failed.
-- Failed and stale plans retain the Phase 6 rejection and rollback behavior.
-- No watcher-specific DB mutation primitive exists.
-- Existing Phase 6 rebuild and incremental tests continue to pass.
-- New focused tests cover any newly exposed handoff API.
-- Repository inspection confirms that no Phase 6 indexing semantics were copied into a watcher module.
+- Existing corpus generation, fixed-width paths, canonical absolute paths, profiles, FTS modes, seed handling, and JSON result format remain unchanged.
+- Measurements cover representative small and large collections.
+- At minimum, timing distinguishes:
+  - discovery and change planning
+  - sequential file metadata inspection, reading, and hashing
+  - parsing and per-file model preparation
+  - ordered DB and derived-state application
+- Sequential end-to-end wall-clock time remains the primary baseline.
+- CPU use and peak memory are captured where practical and reproducibly available.
+- The measurement identifies whether parsing and model preparation are sufficiently CPU-bound to benefit from parallel execution.
+- File reading and hashing are measured but are not candidates for parallel implementation in this phase.
+- Watcher event collection, debounce latency, and idle runtime are outside this benchmark.
+- A watcher-like selective reconciliation workload may be included only to determine whether parallel parser startup overhead would dominate small changed-file batches.
+- Decision criteria are documented before implementation without inventing unsupported performance targets.
 
-** DONE [#A] Implement normalized watcher events and deterministic batching
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
-
-Task file: [[./2026-07-25--normalized-watcher-events.org]]
+** TODO Decide whether parallel parsing and preparation are justified
 
 Goal:
 
-- Convert backend-specific filesystem event bursts into deterministic candidate-path batches and explicit reconciliation requests without using a live watcher.
+- Make an explicit evidence-based decision before adding a thread pool or parallel scheduler.
 
-Implementation requirements:
+Possible decisions:
 
-- Introduce an internal backend-independent watcher input model.
-- Its output must contain only:
-  - normalized candidate paths;
-  - or a request for full Phase 6 reconciliation.
-- Treat create, modify, remove, rename, metadata, and other raw event kinds only as path hints.
-- Preserve both old and new paths for rename-style events when the backend provides both.
-- Support deleted and renamed-away paths without requiring them to exist.
-- Reuse Phase 6 path and indexed-identity rules where applicable.
-- Coalesce duplicate and redundant paths.
-- Produce deterministic ordering independent of raw event order where the final candidate set is equivalent.
-- A reconciliation request supersedes path-specific candidates in the same batch.
-- Ignore irrelevant paths through Phase 6-compatible source-universe and exclusion classification.
-- Do not add ~notify~, sleeping, threads, channels, filesystem polling, or CLI behavior in this task.
+- keep parsing and preparation sequential
+- provide opt-in parallel parsing and preparation
+- enable parallel parsing and preparation automatically above a measured changed-file threshold
 
 Acceptance criteria:
 
-- Repeated events for one logical path produce one candidate.
-- Create followed by modify produces one candidate.
-- Modify followed by remove retains the path as a candidate for Phase 6 classification.
-- Remove followed by create retains the path as a candidate for Phase 6 classification.
-- Rename with both paths produces old-path and new-path candidates.
-- Rename with incomplete information requests reconciliation when bounded correctness cannot be guaranteed.
-- Backend overflow, dropped-event, rescan, or equivalent uncertainty maps to reconciliation.
-- Candidate ordering is deterministic.
-- Excluded or unrelated paths do not reach Phase 6 execution.
-- Empty batches perform no DB work and cannot bypass Phase 6 safeguards.
+- The decision considers:
+  - small collections
+  - large collections
+  - changed-file count rather than only total indexed-file count
+  - parser-heavy and body-heavy files
+  - FTS-enabled and FTS-disabled application cost
+  - CPU use
+  - peak memory
+  - variance
+  - deterministic behavior
+  - implementation and maintenance complexity
+- The decision explicitly confirms that discovery, reading, hashing, DB application, and watcher execution remain sequential.
+- Rayon or another scheduler is not made mandatory before this decision.
+- If measurements show no meaningful end-to-end benefit, Phase 8 closes without implementing parallel execution.
+- If benefit exists only for unusually large parse job sets, the feature remains opt-in or threshold-based.
 
-Required tests:
+** TODO Define owned parse jobs and preparation results
 
-- repeated modify events;
-- create plus modify;
-- modify plus remove;
-- remove plus create;
-- rename with old and new paths;
-- incomplete rename;
-- duplicate paths;
-- excluded paths;
-- unrelated paths;
-- reconciliation superseding path candidates;
-- deterministic output under permuted raw event order;
-- non-UTF-8 Unix paths where supported by the test platform.
+Condition:
 
-** DONE [#A] Implement debounce and watcher execution controller
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
-
-Task file: [[./2026-07-25--watcher-execution-controller.org]]
+- Perform this task only if parallel parsing and preparation are accepted.
 
 Goal:
 
-- Collect normalized watcher inputs into bounded batches and execute the appropriate Phase 6 reconciliation path serially.
-
-Implementation requirements:
-
-- Add a controller that accepts backend-independent watcher inputs.
-- Collect quick event bursts during a documented debounce interval.
-- Make the debounce interval configurable through an internal setting or one clearly defined constant suitable for later CLI exposure.
-- Convert each completed batch into either:
-  - bounded Phase 6 candidate reconciliation;
-  - or full configured-source Phase 6 reconciliation.
-- Ensure only one Phase 6 apply operation is active at a time.
-- Events arriving during an active reconciliation must be retained for the next batch or safely collapsed into a pending full reconciliation.
-- Do not lose events after a failed reconciliation.
-- A failed batch must report actionable context and leave the last committed DB state intact.
-- Do not introduce parallel parsing or concurrent DB writes.
-- Use controllable time or an injected batching boundary for deterministic tests.
-- Avoid tests that depend on arbitrary sleeps.
+- Make the existing Phase 6 parsing boundary suitable for either sequential or parallel execution without duplicating parsing or model-conversion logic.
 
 Acceptance criteria:
 
-- Bursts are coalesced into one bounded execution.
-- Events separated by the batching boundary produce separate executions.
-- A pending reconciliation request supersedes pending bounded candidates.
-- Events received while Phase 6 is running are handled in a later execution.
-- Failed execution does not silently discard pending later events.
-- Shutdown can stop intake and deterministically finish or reject the current pending batch according to one documented policy.
-- Tests do not rely on platform watcher timing.
+- One parse-job type contains the canonical file identity, already loaded content, and all immutable parser configuration required to parse one file.
+- One preparation-result type contains the complete owned result needed by the existing ordered DB application stage.
+- Worker execution does not borrow mutable DB, indexer, watcher, parser, filesystem, or configuration state.
+- Shared configuration is immutable.
+- File-specific errors retain canonical path and parse or preparation context.
+- Existing sequential execution uses the same job and result types.
+- No worker-side filesystem access, hashing, DB lookup, or DB mutation is introduced.
+- Tests verify that preparation results are independent of execution order.
 
-Required tests:
+** TODO Implement bounded parallel parsing and preparation
 
-- one event burst produces one Phase 6 call;
-- separate bursts produce separate calls;
-- reconciliation supersedes candidates;
-- events arriving during execution are retained;
-- failed Phase 6 execution preserves later pending work;
-- deterministic shutdown with an empty queue;
-- deterministic shutdown with a pending batch.
+Condition:
 
-** DONE [#A] Integrate ~notify~ as the filesystem event source
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
-
-Task file: [[./2026-07-25--notify-event-source.org]]
+- Perform this task only if parallel parsing and preparation are accepted.
 
 Goal:
 
-- Use ~notify~ as a thin event-source adapter for configured Phase 6 inputs.
-
-Implementation requirements:
-
-- Add a compatible ~notify~ dependency version.
-- Watch configured directory roots and explicit-file inputs sufficiently to observe relevant changes on supported Unix platforms.
-- Translate ~notify~ events and errors into the backend-independent event model.
-- Keep source-universe classification and exclusions outside the ~notify~ adapter.
-- Do not let raw ~notify~ event kinds directly choose Phase 6 operations.
-- Handle explicit files whose parent directory must be watched because the file may be replaced atomically.
-- Detect and report inaccessible watch roots.
-- Translate backend rescan, overflow, dropped-event, or equivalent uncertainty into a full reconciliation request.
-- Avoid feedback loops from the configured DB path and its SQLite sidecar files through the normal Phase 6-compatible ignore path.
-- Do not add Windows-specific branches or abstractions.
+- Parse and prepare independent Phase 6 file jobs concurrently while preserving exact sequential application semantics.
 
 Acceptance criteria:
 
-- Changes to configured Org files reach the normalized event layer.
-- Newly created candidate Org files below configured recursive roots can reach Phase 6 discovery.
-- Removed files produce usable candidate paths even though they no longer exist.
-- Rename and atomic-save sequences provide all available paths without watcher-side mutation decisions.
-- Explicit files remain observable after editor-style replacement.
-- Events outside configured inputs are filtered before Phase 6 execution.
-- Excluded paths remain excluded according to Phase 6 rules.
-- Backend uncertainty requests full reconciliation.
-- Watch registration failures identify the affected root or explicit-file parent.
-- Unit tests use synthetic ~notify~ events where possible.
-- A small supported-platform integration test verifies the adapter without depending on exact event counts or ordering.
+- Phase 6 discovery, file reading, hashing, and change planning produce the complete ordered parse job set before parallel execution begins.
+- The same parsing and preparation function is usable by both sequential and parallel executors.
+- Worker count is configurable and bounded.
+- Worker count ~1~ behaves equivalently to the sequential reference path.
+- Completed results are reordered into deterministic change-plan order before any DB mutation.
+- SQLite writes remain sequential.
+- FTS maintenance, link resolution, effective-state refresh, metadata updates, and other derived-state maintenance remain sequential inside the existing controlled application path.
+- A parse or preparation failure prevents application of the complete planned change set.
+- Error reporting distinguishes:
+  - sequential file read or hash failures
+  - parse failures
+  - model-preparation failures
+  - ordered application failures
+- Error output is deterministic even when workers finish in a different order.
+- Sequential parsing and preparation remain available as the reference behavior and fallback.
+- The watcher does not execute multiple reconciliation batches concurrently.
+- Tests compare sequential and parallel results for:
+  - prepared per-file model data
+  - core DB state
+  - FTS state
+  - link-resolution state
+  - indexing metadata
+  - source-universe fingerprints
+  - failure rollback
+  - deterministic error ordering
+  - different worker counts
+  - deliberately varied completion order
+- ~make ci~ passes.
 
-** DONE [#A] Implement watcher startup and recovery reconciliation
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
+** TODO Measure the accepted implementation and choose defaults
 
-- Task file: [[./2026-07-25--watcher-startup-recovery.org][2026-07-25--watcher-startup-recovery.org]]
+Condition:
+
+- Perform this task only if parallel parsing and preparation are implemented.
 
 Goal:
 
-- Cover changes that happened while the watcher was stopped or while filesystem events may have been lost.
-
-Implementation requirements:
-
-- Run full Phase 6 configured-source reconciliation before steady-state event processing.
-- Establish watches early enough that changes during startup cannot be silently lost:
-  - register watches before startup reconciliation and retain events for a following batch;
-  - or use another implementation with equivalent demonstrated correctness.
-- Treat event overflow, dropped events, relevant root replacement, and equivalent uncertainty as reconciliation requests.
-- Distinguish source-root absence or inaccessibility from an authoritative empty source universe.
-- Temporary root unavailability must not become mass deletion unless the Phase 6 configuration and safety contract explicitly establish that deletion is authoritative.
-- Recovery must call the normal Phase 6 planner and application path.
-- Reconciliation failures must preserve the last committed DB state and leave the watcher in a clearly reported retryable or terminated state.
-- Define whether reconciliation requests are retried automatically or cause watcher termination.
-- Keep the policy simple and testable.
+- Verify the real benefit of the completed implementation and choose conservative activation rules.
 
 Acceptance criteria:
 
-- Startup detects file changes made while the watcher was not running.
-- A no-change startup uses the Phase 6 cheap unchanged path.
-- Events occurring during startup are processed after startup reconciliation or covered by a subsequent reconciliation.
-- Lost-event uncertainty causes full reconciliation.
-- Repeated uncertainty collapses into bounded reconciliation work rather than an unbounded queue.
-- Temporary root unavailability does not silently delete indexed content.
-- Recovery converges to the same DB state as an explicit Phase 6 reconciliation.
-- Failed recovery leaves the previous committed state intact and reports relevant path context.
+- Sequential and parallel runs use identical benchmark inputs, profiles, seeds, and environment metadata.
+- Measurements cover representative:
+  - small rebuilds
+  - large rebuilds
+  - small changed-file reconciliations
+  - large changed-file reconciliations
+- Results record:
+  - parsing and preparation speed-up
+  - end-to-end speed-up
+  - CPU cost
+  - peak memory
+  - variance
+- Worker counts include at least ~1~ and the proposed default.
+- The selected default worker count is bounded.
+- Any automatic activation threshold is based on the number and expected parse cost of changed-file jobs, not merely the total number of indexed files.
+- Parallel execution remains disableable.
+- Discovery, reading, hashing, DB application, and watcher execution remain sequential regardless of the selected default.
+- If measured end-to-end benefit does not justify the complexity, the implementation is removed or retained only as an explicit opt-in feature.
 
-Required tests:
-
-- changed file before watcher startup;
-- deleted file before watcher startup;
-- file created during startup;
-- event received during startup reconciliation;
-- overflow or rescan request;
-- repeated reconciliation requests;
-- temporarily inaccessible root;
-- reconciliation failure and rollback.
-
-** DONE [#A] Add the watcher CLI and process lifecycle
-[[./2026-07-25--watcher-cli-lifecycle.org][Task file]]
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Goal:
-
-- Expose watcher-driven indexing as a long-running CLI command with clear startup, failure, and shutdown behavior.
-
-Implementation requirements:
-
-- Add one documented watcher command consistent with the existing CLI structure.
-- Load the same indexing configuration used by Phase 6.
-- Start the watcher, perform startup reconciliation, and then enter steady-state handling.
-- Handle ~SIGINT~ and ~SIGTERM~ on supported Unix platforms.
-- Stop accepting new events during shutdown.
-- Apply the documented pending-batch shutdown policy from the controller task.
-- Report startup reconciliation failures, watch registration failures, backend failures, and Phase 6 apply failures with actionable context.
-- Keep normal machine-readable output conventions where applicable, but do not emit an unbounded stream of incompatible ad hoc JSON.
-- Decide and document whether routine watcher activity is silent, logged to stderr, or emitted as structured events.
-- Do not add daemonization, service installation, background process management, or Windows service support.
-
-Acceptance criteria:
-
-- The command performs startup reconciliation before reporting steady-state readiness.
-- ~Ctrl-C~ exits cleanly without corrupting committed DB state.
-- Termination during an idle period is immediate and deterministic.
-- Termination with pending work follows the documented controller policy.
-- Fatal watcher errors return a non-zero exit status.
-- User-facing errors identify affected paths where available.
-- Existing CLI commands and JSON contracts remain unchanged unless explicitly required.
-- CLI help documents the supported platform scope and high-level behavior.
-
-Required tests:
-
-- CLI argument parsing;
-- startup failure exit status;
-- watch registration failure exit status;
-- clean shutdown;
-- fatal controller failure;
-- unchanged behavior of existing commands.
-
-** DONE [#A] Add end-to-end watcher integration tests
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-[[./2026-07-25--watcher-e2e-integration-tests.org][Task file]]
-
-Goal:
-
-- Verify that real filesystem activity converges to the same indexed state as normal Phase 6 reconciliation.
-
-Implementation requirements:
-
-- Use temporary directories and the real supported-platform watcher backend.
-- Assert eventual DB state rather than exact raw event count, type, or order.
-- Use bounded polling with explicit failure diagnostics instead of fixed sleeps as the primary synchronization mechanism.
-- Keep backend-independent batching and recovery behavior covered mainly by deterministic unit tests.
-- Compare watcher-produced state with state produced by a normal Phase 6 reconciliation where practical.
-- Mark or gate tests only where the backend genuinely cannot run in the test environment.
-- Do not weaken assertions merely to avoid timing failures.
-
-Required scenarios:
-
-- initial no-change startup;
-- create an Org file;
-- modify indexed content;
-- metadata-only filesystem change where reliably reproducible;
-- delete an indexed file;
-- rename an indexed file;
-- replace a file through an atomic editor-style save;
-- several quick writes to one file;
-- several quick writes to multiple files;
-- explicit-file input replacement;
-- recursive directory discovery;
-- non-recursive directory behavior;
-- directory exclusion;
-- file exclusion;
-- unrelated file event;
-- DB and SQLite sidecar activity;
-- invalid or unreadable Org input;
-- watcher restart after offline changes;
-- temporary source-root disruption where safely testable;
-- final state comparison with full Phase 6 reconciliation.
-
-Acceptance criteria:
-
-- Every supported scenario reaches the expected committed DB state within a bounded timeout.
-- No test relies on receiving one particular ~notify~ event sequence.
-- Duplicate, redundant, and out-of-order backend events do not produce duplicate indexed state.
-- Derived FTS and link-resolution state is valid after watcher updates.
-- Failed file preparation or application does not partially commit the batch.
-- Watcher restart repairs missed offline changes.
-- Tests provide useful diagnostics showing the expected and observed DB state on failure.
-
-** DONE [#A] Audit Phase 7 completeness and remove unfinished paths
-:PROPERTIES:
-:PRIORITY: High
-:RISK: Medium
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: No
-:END:
-
-Task file: [[./2026-07-26--phase-7-completeness-audit.org][2026-07-26--phase-7-completeness-audit.org]]
-
-Goal:
-
-- Verify that Phase 7 is complete, internally consistent, and contains no placeholder or duplicate implementation paths.
-
-Implementation requirements:
-
-- Review the complete Phase 7 diff against every phase rule and acceptance criterion.
-- Search for and resolve:
-  - ~TODO~ and ~FIXME~ markers introduced by Phase 7;
-  - ~todo!()~, ~unimplemented!()~, panic-based normal error handling, and dead compatibility code;
-  - ignored, flaky, or overly weak watcher tests;
-  - duplicated Phase 6 discovery, exclusion, canonicalization, parsing, or DB mutation logic;
-  - raw event kinds directly selecting DB operations;
-  - Windows-specific watcher code;
-  - uncontrolled sleeps in deterministic unit tests;
-  - event-loss paths;
-  - unbounded queues;
-  - stale FTS or link-resolution state;
-  - temporary-root mass-deletion risks.
-- Verify that watcher execution converges to a normal Phase 6 reconciliation result.
-- Update task, CLI, and architecture documentation to match only the completed implementation.
-- Move completed Phase 7 tasks to the archive according to the repository workflow only after all checks pass.
-
-Acceptance criteria:
-
-- All Phase 7 tasks and acceptance criteria are either implemented and verified or explicitly removed from the completed scope.
-- No watcher-owned indexing semantics remain.
-- No known event-loss or silent mass-deletion path remains.
-- No placeholder implementation is presented as production behavior.
-- All supported-platform tests pass repeatedly.
-- Existing rebuild and non-watcher incremental behavior remains unchanged.
-- Phase 8 parallelization has not been implemented implicitly.
-- The repository documentation accurately describes startup, steady-state updates, recovery, failure handling, shutdown, and platform support.
-
-Local final verification:
-
-- Run ~git diff --check~.
-- Run ~cargo fmt --all --check~.
-- Run ~cargo test~.
-- Run ~cargo test~ a second time to expose watcher-test instability.
-- Run ~cargo clippy --all-targets --all-features -- -D warnings~.
-- Search for ~TODO|FIXME|todo!\(|unimplemented!\(|cfg\(any\(\)\)~ in the Phase 7 implementation.
-- Review the complete diff from the last pre-Phase-7 commit.
-- Run a manual Unix smoke test covering startup, modify, create, rename, delete, and clean shutdown.
-
-** DONE [#A] Persist and validate configured source-root identity
-:PROPERTIES:
-:PRIORITY: High
-:RISK: High
-:DB_SCHEMA_CHANGE: Metadata
-:API_CONTRACT_CHANGE: Yes
-:END:
-
-Task file: [[./2026-07-26--source-root-identity.org][2026-07-26--source-root-identity.org]]
-
-Goal:
-
-- Prevent an automatically started full reconciliation from treating a replaced configured directory root as the authoritative continuation of the previously indexed root.
-
-Scope:
-
-- Apply only to configured directory roots.
-- Explicit-file inputs remain unchanged.
-- Individual files and discovered subdirectories do not receive persistent filesystem identities.
-- The watcher must reuse this Phase 6 safety contract and must not persist or validate root identity independently.
-
-Implementation requirements:
-
-- Introduce one Phase 6 root-evidence model for configured directory roots.
-- For every configured directory root, record:
-  - the configured logical path using the existing native Unix path representation;
-  - the canonical root path where available;
-  - the native root identity required to detect replacement;
-  - the configured recursive or non-recursive mode.
-- Reuse existing Phase 6 or Unix filesystem-identity primitives where possible.
-- Do not introduce a second watcher-specific root-identity model.
-- Persist the complete deterministic root-evidence set as part of the committed Phase 6 indexing state.
-- Prefer the existing metadata infrastructure unless repository inspection proves that a separate schema object is required.
-
-Reconciliation contract:
-
-- At the beginning of a full reconciliation:
-  - capture current evidence for all configured directory roots;
-  - compare it with the evidence from the last successful commit.
-- Reject automatic reconciliation when a previously recorded root:
-  - is missing;
-  - is inaccessible;
-  - resolves to a different canonical root;
-  - has a different native root identity;
-  - or no longer has the expected directory type.
-- Carry the captured root evidence in the Phase 6 reconciliation plan.
-- Capture the evidence again after discovery and during stale-plan validation.
-- Capture it once more immediately before committing the transaction.
-- Reject the plan as stale if the evidence differs at any validation point.
-- A rejected plan must leave all previously committed DB and metadata state unchanged.
-- Persist updated evidence in the same transaction as the successfully applied reconciliation.
-
-Initialisation and migration:
-
-- When the database contains no indexed files, initialise root evidence automatically on the first successful reconciliation.
-- When indexed files exist but committed root evidence is missing, automatic watcher reconciliation must refuse to proceed.
-- Existing indexed state without evidence may be adopted only through the explicit manual acceptance path.
-
-Intentional root replacement:
-
-- Add an explicit manual option for accepting changed configured root identities.
-- The option must be available only through the normal manual rebuild or reconciliation command, not enabled automatically by the watcher.
-- Acceptance permits replacement of the previously persisted identity but does not disable stability checks during the current reconciliation.
-- Acceptance of a new root identity must not imply ~allow-empty~.
-- Existing zero-input safety remains independent and unchanged.
-- The new evidence becomes authoritative only after a successful commit.
-
-Acceptance criteria:
-
-- An unchanged configured root continues through normal no-change reconciliation.
-- A root replaced at the same logical path while the watcher was stopped is rejected before indexed data can be removed.
-- A partially populated replacement root is also rejected.
-- A same-device root inode replacement is detected where supported by the existing Unix identity contract.
-- A root changed between initial capture and discovery is rejected as stale.
-- A root changed after planning but before commit causes transaction rollback.
-- Failure for one configured root rejects the complete reconciliation.
-- Normal creation, modification, rename, and deletion of files within an unchanged root continue to work.
-- Legitimate deletion of all files within the same unchanged root remains possible under the existing zero-input rules.
-- Intentional root replacement succeeds only through the explicit manual acceptance option.
-- The watcher never accepts changed root identity automatically.
-- Rejection preserves files, headings, bodies, links, FTS state, indexing context, trust metadata, and prior root evidence.
-- No Phase 8 parallelism is introduced.
-
-Required tests:
-
-- first reconciliation initialises evidence for an empty database;
-- unchanged-root startup uses the normal unchanged path;
-- reachable but empty replacement root before startup is rejected;
-- partially populated replacement root before startup is rejected;
-- same-path and same-device root replacement is rejected;
-- one replaced root among multiple configured roots rejects the complete plan;
-- root replacement during discovery is rejected;
-- root replacement immediately before commit rolls back all DB changes;
-- indexed database without root evidence requires explicit adoption;
-- explicit acceptance commits the new root evidence;
-- explicit acceptance without ~allow-empty~ still respects zero-input safety;
-- normal deletion inside an unchanged root continues to work;
-- watcher startup reports the root-identity error without modifying the database.
-
-** REVIEW [#B] Make watcher language phase-neutral
-:PROPERTIES:
-:PRIORITY: Medium
-:RISK: Low
-:DB_SCHEMA_CHANGE: No
-:API_CONTRACT_CHANGE: Internal
-:END:
-
-Task file: [[./2026-07-27--phase-neutral-watcher-language.org][2026-07-27--phase-neutral-watcher-language.org]]
-
-Goal:
-
-- Replace temporary phase-number terminology in watcher code and maintained user-facing documentation with stable indexing and reconciliation language.
-- Report a missing configured directory as an actionable watcher startup error rather than exposing internal source-universe derivation details.
-
-Scope:
-
-- Production Rust identifiers, comments, help text, runtime errors, tests, README, CLI documentation, and incremental-indexing design documentation.
-- Historical task files and roadmap phase descriptions remain unchanged.
