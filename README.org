@@ -13,10 +13,10 @@ The codebase now implements the end-to-end indexing flow described in =.project/
 
 - =src/parser/= owns the internal parser trait, data model, diagnostics, and the Orgize implementation adapter
 - =src/indexer.rs= orchestrates parsing, normalization, and DB writes
-- =src/source_root_evidence.rs= persists and validates configured directory-root identity inside the Phase 6 transaction contract
+- =src/source_root_evidence.rs= persists and validates configured directory-root identity inside the indexer transaction contract
 - =src/db/= owns the SQLite schema, reader, and writer layers
 - =src/query.rs= contains query-side helpers used by the CLI and tests
-- =src/watcher.rs=, =src/notify_source.rs=, and =src/watcher_runtime.rs= translate filesystem events into bounded Phase 6 reconciliation
+- =src/watcher.rs=, =src/notify_source.rs=, and =src/watcher_runtime.rs= translate filesystem events into bounded indexer reconciliation
 - =src/cli.rs= exposes the supported rebuild, watch, headings, links, query, and search commands
 - =main.rs= remains thin and delegates directly to the CLI module
 - org-files-db supports Linux and Unix-like systems, including macOS. Windows is unsupported.
@@ -192,7 +192,7 @@ cargo build --release
 ./target/release/orgfdb watch --config ./org-files-db.toml
 #+end_src
 
-During startup the watcher registers the configured inputs and runs a full Phase 6 reconciliation, including persisted configured-root identity validation. After ~watcher ready~ appears on stderr, create, modify, rename, replace, and delete operations are applied incrementally. Stop the foreground process with ~Ctrl-C~. The watcher is supported on Unix-like systems only; see [[./docs/cli.org][docs/cli.org]] for lifecycle and failure behavior.
+During startup the watcher registers the configured inputs and runs a full configured-source reconciliation, including persisted configured-root identity validation. After ~watcher ready~ appears on stderr, create, modify, rename, replace, and delete operations are applied incrementally. Stop the foreground process with ~Ctrl-C~. The watcher is supported on Unix-like systems only; see [[./docs/cli.org][docs/cli.org]] for lifecycle and failure behavior.
 
 ** Customization
 :PROPERTIES:

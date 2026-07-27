@@ -137,7 +137,7 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Source(source) => write!(f, "watcher startup source failed: {source}"),
+            Self::Source(source) => write!(f, "watcher startup failed: {source}"),
             Self::Controller(source) => {
                 write!(
                     f,
@@ -319,7 +319,7 @@ where
                 WatcherRuntimeError::Terminated
                 | WatcherRuntimeError::Normalizer(_)
                 | WatcherRuntimeError::Execution { .. } => {
-                    unreachable!("startup source drain cannot execute a Phase 6 batch")
+                    unreachable!("startup source drain cannot execute a watcher batch")
                 }
             })?;
         Ok(runtime)
@@ -528,7 +528,7 @@ mod tests {
         notify_source::{NotifyBackendFailure, NotifySourceMessage},
         parser::OrgizeAdapter,
         watcher::{
-            NormalizedWatcherBatch, Phase6WatcherExecutor, WatcherBatchExecutor,
+            IndexerWatcherExecutor, NormalizedWatcherBatch, WatcherBatchExecutor,
             WatcherExecutionError, WatcherExecutionStatus, WatcherInput, WatcherPathEventKind,
             WatcherUncertainty,
         },
@@ -786,14 +786,14 @@ mod tests {
         }
     }
 
-    struct ReportingPhase6Executor<'a> {
+    struct ReportingIndexerExecutor<'a> {
         indexer: &'a Indexer<OrgizeAdapter>,
         connection: &'a mut Connection,
         config: &'a Config,
         reports: Vec<ReportCounts>,
     }
 
-    impl WatcherBatchExecutor for ReportingPhase6Executor<'_> {
+    impl WatcherBatchExecutor for ReportingIndexerExecutor<'_> {
         type Error = WatcherExecutionError;
 
         fn execute(&mut self, batch: NormalizedWatcherBatch) -> Result<(), Self::Error> {
@@ -820,7 +820,7 @@ mod tests {
     }
 
     struct CreateDuringStartupExecutor<'a> {
-        inner: ReportingPhase6Executor<'a>,
+        inner: ReportingIndexerExecutor<'a>,
         create_path: PathBuf,
         source: TestSourceHandle,
         created: bool,
@@ -863,7 +863,7 @@ mod tests {
             .expect("initial rebuild should succeed");
         write_file(&note, "* Changed\n");
         let (source, _) = TestSource::new(vec![test_dir.path().to_path_buf()]);
-        let mut executor = ReportingPhase6Executor {
+        let mut executor = ReportingIndexerExecutor {
             indexer: &indexer,
             connection: &mut connection,
             config: &config,
@@ -894,7 +894,7 @@ mod tests {
             .expect("initial rebuild should succeed");
         fs::remove_file(&second).expect("second file should be removed");
         let (source, _) = TestSource::new(vec![test_dir.path().to_path_buf()]);
-        let mut executor = ReportingPhase6Executor {
+        let mut executor = ReportingIndexerExecutor {
             indexer: &indexer,
             connection: &mut connection,
             config: &config,
@@ -922,7 +922,7 @@ mod tests {
             .expect("initial rebuild should succeed");
         write_file(&second, "* Second\n");
         let (source, _) = TestSource::new(vec![test_dir.path().to_path_buf()]);
-        let mut executor = ReportingPhase6Executor {
+        let mut executor = ReportingIndexerExecutor {
             indexer: &indexer,
             connection: &mut connection,
             config: &config,
@@ -937,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn no_change_startup_uses_the_phase_6_unchanged_path() {
+    fn no_change_startup_uses_the_unchanged_reconciliation_path() {
         let test_dir = TestDir::new("unchanged-startup");
         let note = test_dir.path().join("note.org");
         let config = explicit_config(&test_dir, vec![note.clone()]);
@@ -948,7 +948,7 @@ mod tests {
             .rebuild(&mut connection, &config)
             .expect("initial rebuild should succeed");
         let (source, _) = TestSource::new(vec![test_dir.path().to_path_buf()]);
-        let mut executor = ReportingPhase6Executor {
+        let mut executor = ReportingIndexerExecutor {
             indexer: &indexer,
             connection: &mut connection,
             config: &config,
@@ -980,7 +980,7 @@ mod tests {
         let (source, handle) = TestSource::new(vec![root]);
         let now = Instant::now();
         let mut executor = CreateDuringStartupExecutor {
-            inner: ReportingPhase6Executor {
+            inner: ReportingIndexerExecutor {
                 indexer: &indexer,
                 connection: &mut connection,
                 config: &config,
@@ -1112,7 +1112,7 @@ mod tests {
         write_file(&root.join("replacement.org"), "* Replacement\n");
         let (source, _) = TestSource::new(vec![root]);
         let error = {
-            let mut executor = Phase6WatcherExecutor::new(&indexer, &mut connection, &config);
+            let mut executor = IndexerWatcherExecutor::new(&indexer, &mut connection, &config);
             match WatcherRuntime::start_registered(source, &config, Instant::now(), &mut executor) {
                 Ok(_) => panic!("watcher startup must reject the replaced root"),
                 Err(error) => error,
@@ -1129,7 +1129,7 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_watch_root_terminates_before_phase_6_can_delete_state() {
+    fn unavailable_watch_root_terminates_before_reconciliation_can_delete_state() {
         let test_dir = TestDir::new("unavailable-root");
         let config = recursive_config(&test_dir);
         let root = config.dirs[0].path.clone();
@@ -1143,7 +1143,7 @@ mod tests {
         let (source, handle) = TestSource::new(vec![root.clone()]);
         let now = Instant::now();
         {
-            let mut executor = Phase6WatcherExecutor::new(&indexer, &mut connection, &config);
+            let mut executor = IndexerWatcherExecutor::new(&indexer, &mut connection, &config);
             let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
                 .expect("startup should succeed");
             fs::remove_dir_all(&root).expect("watch root should become unavailable");
@@ -1179,7 +1179,7 @@ mod tests {
         let (source, handle) = TestSource::new(vec![test_dir.path().to_path_buf()]);
         let now = Instant::now();
         {
-            let mut executor = Phase6WatcherExecutor::new(&indexer, &mut connection, &config);
+            let mut executor = IndexerWatcherExecutor::new(&indexer, &mut connection, &config);
             let mut runtime = WatcherRuntime::start_registered(source, &config, now, &mut executor)
                 .expect("startup should succeed");
             fs::write(&note, b"* Invalid\n\xff").expect("invalid source should be written");
@@ -1192,7 +1192,7 @@ mod tests {
             let deadline = runtime.next_deadline().expect("recovery should be pending");
             let error = runtime
                 .process_available(deadline, &mut executor)
-                .expect_err("failed Phase 6 recovery should terminate");
+                .expect_err("failed reconciliation recovery should terminate");
             assert!(matches!(error, WatcherRuntimeError::Execution { .. }));
             assert_eq!(runtime.state(), WatcherRuntimeState::Terminated);
         }

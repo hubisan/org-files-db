@@ -585,3 +585,23 @@ Required tests:
 - explicit acceptance without ~allow-empty~ still respects zero-input safety;
 - normal deletion inside an unchanged root continues to work;
 - watcher startup reports the root-identity error without modifying the database.
+
+** REVIEW [#B] Make watcher language phase-neutral
+:PROPERTIES:
+:PRIORITY: Medium
+:RISK: Low
+:DB_SCHEMA_CHANGE: No
+:API_CONTRACT_CHANGE: Internal
+:END:
+
+Task file: [[./2026-07-27--phase-neutral-watcher-language.org][2026-07-27--phase-neutral-watcher-language.org]]
+
+Goal:
+
+- Replace temporary phase-number terminology in watcher code and maintained user-facing documentation with stable indexing and reconciliation language.
+- Report a missing configured directory as an actionable watcher startup error rather than exposing internal source-universe derivation details.
+
+Scope:
+
+- Production Rust identifiers, comments, help text, runtime errors, tests, README, CLI documentation, and incremental-indexing design documentation.
+- Historical task files and roadmap phase descriptions remain unchanged.

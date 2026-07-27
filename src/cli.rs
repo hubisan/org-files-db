@@ -50,7 +50,7 @@ enum Command {
     },
     #[command(
         about = "Watch configured Org inputs and apply incremental updates",
-        long_about = "Watch configured Org inputs and apply Phase 6 incremental updates. Supported on Unix-like systems only. Routine activity is silent; lifecycle messages and errors are written to stderr."
+        long_about = "Watch configured Org inputs and apply incremental reconciliations. Supported on Unix-like systems only. Routine activity is silent; lifecycle messages and errors are written to stderr."
     )]
     Watch {
         #[arg(long)]
@@ -1558,6 +1558,7 @@ fts5_enabled = false
         assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
         let help = error.to_string();
         assert!(help.contains("Unix-like systems only"));
+        assert!(help.contains("incremental reconciliations"));
         assert!(help.contains("--config <CONFIG>"));
     }
 
@@ -1582,8 +1583,38 @@ files = ["missing/note.org"]
 
         assert_eq!(error.exit_code(), 1);
         let message = error.to_string();
-        assert!(message.contains("watcher startup source failed"));
+        assert!(message.contains("watcher startup failed"));
         assert!(message.contains("missing"));
+    }
+
+    #[test]
+    fn missing_configured_directory_returns_actionable_watcher_error() {
+        let test_dir = TestDir::new("watch-missing-configured-directory");
+        let config_path = test_dir.path().join("config.toml");
+        write_file(
+            &config_path,
+            r#"db_path = "./db.sqlite"
+
+[[dirs]]
+path = "missing"
+recursive = true
+"#,
+        );
+
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "watch".into(),
+            "--config".into(),
+            config_path.display().to_string(),
+        ])
+        .expect_err("missing configured directory should prevent watcher startup");
+
+        assert_eq!(error.exit_code(), 1);
+        let message = error.to_string();
+        assert!(message.contains("watcher startup failed"));
+        assert!(message.contains("configured source directory does not exist"));
+        assert!(message.contains(&test_dir.path().join("missing").display().to_string()));
+        assert!(message.contains("restore the directory or update the configured path"));
     }
 
     #[test]

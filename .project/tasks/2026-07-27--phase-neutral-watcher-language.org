@@ -1,0 +1,110 @@
+#+TITLE: Make watcher language phase-neutral
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-07-27 Mon 22:42]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Remove phase-number terminology from watcher production code, tests, and user-facing documentation where it no longer carries durable architectural meaning. Keep phase references in historical planning and roadmap material where they remain useful. Improve the missing configured-root startup error.
+
+* Planning
+
+** Problem summary
+
+The watcher implementation and public documentation still expose the temporary project label "Phase 6" in type names, test names, comments, help text, and runtime errors. One startup error also describes internal source-universe derivation instead of explaining that a configured directory is missing.
+
+** Goals
+
+- Replace phase-number terminology in production Rust code with domain-oriented indexing and reconciliation language.
+- Rename watcher executor and test helpers so their names describe their roles rather than the implementation phase that introduced them.
+- Make missing configured directory errors actionable and user-facing.
+- Update public README, CLI, and design documentation to use stable terminology.
+- Retain phase references in task history and roadmap documents where they describe project sequencing.
+
+** Non-goals
+
+- Change watcher behavior, indexing semantics, error variants outside the known missing-root mapping, or public CLI options.
+- Rewrite archived task history or roadmap phase descriptions.
+- Add debug logging or new watcher features.
+
+** Architecture
+
+- Rename the watcher adapter around ~Indexer~ to ~IndexerWatcherExecutor~.
+- Map an initial source-universe discovery ~NotFound~ error to a dedicated notify-source error for a missing configured directory.
+- Keep all other source-universe errors wrapped with phase-neutral watcher-registration context.
+- Replace remaining phase language in production comments, tests, help text, README, and maintained design documentation.
+
+** Execution plan
+
+1. Rename production identifiers and all direct test helpers.
+2. Add the missing configured-directory error variant and focused assertions.
+3. Replace phase-specific runtime messages, comments, test names, fixtures, and expectations.
+4. Update maintained public documentation.
+5. Run formatting, focused tests, full CI, and a final source scan.
+
+** Risks & assumptions
+
+- The initial candidate normalizer reports a missing configured directory as ~IndexerError::Discover~ with ~ErrorKind::NotFound~.
+- Historical task and roadmap references remain untouched because phase numbers are meaningful there.
+
+** Open questions
+
+- None.
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo test notify_source::tests::missing_configured_directory_reports_actionable_error -- --exact~
+- ~cargo test watcher~
+- ~cargo test watcher_runtime~
+- ~cargo test watcher_integration_tests -- --test-threads=1~
+- ~make ci~
+- ~rg 'Phase 6|phase6|phase_6' src README.org docs~
+
+* Results
+
+** Approach
+
+- Renamed the watcher executor adapter from ~Phase6WatcherExecutor~ to ~IndexerWatcherExecutor~ and renamed phase-labelled test helpers, test names, fixture paths, comments, and diagnostics with domain-oriented indexing and reconciliation terminology.
+- Replaced phase-labelled user-facing help and reconciliation rejection messages.
+- Added ~NotifyWatcherError::ConfiguredSourceDirectoryMissing~ and map only a ~NotFound~ discovery error for an actual configured directory root to the actionable startup message.
+- Kept other source-universe failures under a phase-neutral watcher-registration error with their original source chain.
+- Simplified the generic watcher startup source prefix to ~watcher startup failed~.
+- Removed phase-number terminology from maintained production code, README, CLI reference, and incremental-indexing design documentation.
+- Retained phase references in task history and roadmap material where they describe project sequencing.
+
+** Changed files
+
+- ~src/watcher.rs~: phase-neutral executor name, rejection messages, and test names.
+- ~src/watcher_cli.rs~, ~src/watcher_runtime.rs~, and ~src/watcher_integration_tests.rs~: renamed executor use, helpers, diagnostics, and test fixtures.
+- ~src/notify_source.rs~: actionable missing configured-directory error and phase-neutral registration context.
+- ~src/indexer.rs~ and ~src/cli.rs~: phase-neutral handoff comments, CLI help, and focused CLI coverage.
+- ~README.org~, ~docs/cli.org~, and ~docs/design/incremental-indexing.org~: stable indexing and reconciliation terminology.
+- ~.project/tasks/todo.org~ and this task file: workflow record.
+
+** Checks performed
+
+- Scanned ~src~, ~README.org~, and ~docs~ for ~Phase 6~, ~phase6~, and ~phase_6~; no matches remain.
+- Confirmed the removed executor and helper identifiers have no remaining references.
+- Ran a lexical delimiter, string, raw-string, and comment balance scan over every changed Rust file successfully.
+- Ran ~git diff --no-index --check~ against the uploaded baseline; it produced no whitespace diagnostics.
+- Reviewed the complete changed-file diff for scope and public wording.
+
+** Test results
+
+- ~cargo fmt --all --check~: not executed; ~cargo~ and ~rustfmt~ are unavailable in the environment.
+- Focused Rust tests: not executed; the Rust toolchain is unavailable.
+- ~make ci~: not executed; the Rust toolchain is unavailable.
+
+** Blockers
+
+- Local formatting, compilation, Clippy, and test execution are required before approval.
+
+** Follow-ups
+
+- Run ~cargo fmt --all~ and ~make ci~ locally.
+- Run the watcher integration suite once with one test thread after CI passes.

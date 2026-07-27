@@ -235,7 +235,7 @@ where
     }
 
     /// Plans and applies one complete configured-source reconciliation through
-    /// the same Phase 6 validation and transactional mutation boundary used by
+    /// the same indexer validation and transactional mutation boundary used by
     /// all incremental callers.
     pub(crate) fn reconcile_configured_sources(
         &self,
@@ -247,8 +247,9 @@ where
     }
 
     /// Plans and applies a bounded reconciliation for already-normalized
-    /// candidate paths. Candidate event kinds are intentionally absent: Phase 6
-    /// reclassifies each path from current filesystem and persisted DB state.
+    /// candidate paths. Candidate event kinds are intentionally absent: the
+    /// indexer reclassifies each path from current filesystem and persisted DB
+    /// state.
     pub(crate) fn reconcile_candidate_paths<I>(
         &self,
         connection: &mut Connection,
@@ -9909,7 +9910,7 @@ index_body_text = false
     }
 
     #[test]
-    fn configured_source_reconciliation_uses_the_phase_6_plan_and_apply_boundary() {
+    fn configured_source_reconciliation_uses_the_indexer_plan_and_apply_boundary() {
         let test_dir = TestDir::new("configured-source-reconciliation");
         let path = test_dir.path().join("notes.org");
         let config = Config {

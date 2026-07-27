@@ -21,7 +21,7 @@ use crate::{
     indexer::Indexer,
     notify_source::NotifyWatcherError,
     parser::OrgizeAdapter,
-    watcher::{Phase6WatcherExecutor, WatcherBatchExecutor, WatcherExecutionError},
+    watcher::{IndexerWatcherExecutor, WatcherBatchExecutor, WatcherExecutionError},
     watcher_runtime::{
         WatcherMessageSource, WatcherRuntime, WatcherRuntimeError, WatcherStartupError,
     },
@@ -38,7 +38,7 @@ pub(crate) fn run_watch_command(
     let mut connection = open_database_with_schema(&config.db_path, &schema)
         .map_err(WatcherCommandError::Database)?;
     let indexer = Indexer::new(OrgizeAdapter::new());
-    let mut executor = Phase6WatcherExecutor::new(&indexer, &mut connection, config);
+    let mut executor = IndexerWatcherExecutor::new(&indexer, &mut connection, config);
     let mut runtime = WatcherRuntime::start_notify(config, Instant::now(), &mut executor)
         .map_err(|source| WatcherCommandError::Startup(Box::new(source)))?;
 

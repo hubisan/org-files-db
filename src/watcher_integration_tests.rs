@@ -16,7 +16,7 @@ use crate::{
     indexer::{ChangeApplicationResult, Indexer},
     notify_source::{NotifyWatcherError, NotifyWatcherSource},
     parser::OrgizeAdapter,
-    watcher::{Phase6WatcherExecutor, WatcherExecutionError, WatcherExecutionStatus},
+    watcher::{IndexerWatcherExecutor, WatcherExecutionError, WatcherExecutionStatus},
     watcher_runtime::{
         WatcherCycleReport, WatcherRuntime, WatcherRuntimeError, WatcherRuntimeState,
     },
@@ -89,13 +89,13 @@ impl RealWatcherHarness {
     fn rebuild_without_watcher(&mut self) {
         self.indexer
             .rebuild(&mut self.connection, &self.config)
-            .expect("Phase 6 rebuild should succeed");
+            .expect("initial rebuild should succeed");
     }
 
     fn start(&mut self) {
         assert!(self.runtime.is_none(), "watcher runtime is already running");
         let mut executor =
-            Phase6WatcherExecutor::new(&self.indexer, &mut self.connection, &self.config);
+            IndexerWatcherExecutor::new(&self.indexer, &mut self.connection, &self.config);
         let runtime = WatcherRuntime::start_notify(&self.config, Instant::now(), &mut executor)
             .unwrap_or_else(|error| panic!("real watcher startup failed: {error}"));
         self.runtime = Some(runtime);
@@ -113,7 +113,7 @@ impl RealWatcherHarness {
     fn tick(&mut self) -> Result<WatcherCycleReport, Box<RealRuntimeError>> {
         let runtime = self.runtime.as_mut().expect("watcher runtime should run");
         let mut executor =
-            Phase6WatcherExecutor::new(&self.indexer, &mut self.connection, &self.config);
+            IndexerWatcherExecutor::new(&self.indexer, &mut self.connection, &self.config);
         runtime
             .process_available(Instant::now(), &mut executor)
             .map_err(Box::new)
@@ -951,7 +951,7 @@ fn real_backend_invalid_input_leaves_the_last_committed_state_intact() {
 
     assert!(
         matches!(error.as_ref(), WatcherRuntimeError::Execution { .. }),
-        "invalid input should fail Phase 6 execution, got {error}"
+        "invalid input should fail indexer execution, got {error}"
     );
     assert_eq!(indexed_paths(&harness.connection), committed_paths);
     assert_eq!(heading_titles(&harness.connection), committed_titles);
@@ -992,8 +992,8 @@ fn real_backend_root_disruption_does_not_become_mass_deletion() {
 }
 
 #[test]
-fn real_backend_state_matches_fresh_phase6_reconciliation_with_derived_state() {
-    let test_dir = TestDir::new("phase6-comparison");
+fn real_backend_state_matches_fresh_configured_source_reconciliation_with_derived_state() {
+    let test_dir = TestDir::new("reconciliation-comparison");
     let notes = test_dir.path().join("notes");
     let source = notes.join("source.org");
     let target = notes.join("target.org");
@@ -1038,21 +1038,21 @@ fn real_backend_state_matches_fresh_phase6_reconciliation_with_derived_state() {
 
     let watcher_snapshot = semantic_snapshot(&harness.connection, fts_enabled);
     let mut fresh_config = config;
-    fresh_config.db_path = test_dir.path().join("fresh-phase6.sqlite");
+    fresh_config.db_path = test_dir.path().join("fresh-reconciliation.sqlite");
     let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, fts_enabled);
     let mut fresh_connection = open_database_with_schema(&fresh_config.db_path, &schema)
         .expect("fresh comparison database should open");
     let fresh_indexer = Indexer::new(OrgizeAdapter::new());
     fresh_indexer
         .rebuild(&mut fresh_connection, &fresh_config)
-        .expect("fresh Phase 6 rebuild should succeed");
+        .expect("fresh rebuild should succeed");
     match fresh_indexer
         .reconcile_configured_sources(&mut fresh_connection, &fresh_config)
-        .expect("fresh Phase 6 reconciliation should run")
+        .expect("fresh configured-source reconciliation should run")
     {
         ChangeApplicationResult::Applied(_) => {}
         ChangeApplicationResult::Rejected(rejection) => {
-            panic!("fresh Phase 6 reconciliation was rejected: {rejection:?}")
+            panic!("fresh configured-source reconciliation was rejected: {rejection:?}")
         }
     }
     let fresh_snapshot = semantic_snapshot(&fresh_connection, fts_enabled);

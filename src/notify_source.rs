@@ -222,6 +222,9 @@ pub(crate) enum NotifyWatcherError {
     SourceUniverse {
         source: IndexerError,
     },
+    ConfiguredSourceDirectoryMissing {
+        path: PathBuf,
+    },
     InspectWatchPath {
         path: PathBuf,
         source: io::Error,
@@ -254,7 +257,17 @@ impl fmt::Display for NotifyWatcherError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SourceUniverse { source } => {
-                write!(f, "failed to derive notify watches from the Phase 6 source universe: {source}")
+                write!(
+                    f,
+                    "failed to derive watcher registrations from configured sources: {source}"
+                )
+            }
+            Self::ConfiguredSourceDirectoryMissing { path } => {
+                write!(
+                    f,
+                    "configured source directory does not exist: {}; restore the directory or update the configured path, then restart the watcher",
+                    path.display()
+                )
             }
             Self::InspectWatchPath { path, source } => write!(
                 f,
@@ -310,6 +323,7 @@ impl Error for NotifyWatcherError {
             Self::CreateBackend { source } | Self::RegisterWatch { source, .. } => Some(source),
             Self::WatchPathNotDirectory { .. }
             | Self::WatchFilesystemChanged { .. }
+            | Self::ConfiguredSourceDirectoryMissing { .. }
             | Self::MissingSourceParent { .. }
             | Self::EventChannelDisconnected => None,
         }
@@ -513,7 +527,7 @@ fn bounded_message(mut message: String) -> String {
 
 fn notify_watch_targets(config: &Config) -> Result<Vec<NotifyWatchTarget>, NotifyWatcherError> {
     let normalizer = CandidatePathNormalizer::from_config(config)
-        .map_err(|source| NotifyWatcherError::SourceUniverse { source })?;
+        .map_err(|source| map_source_universe_error(config, source))?;
     let filesystem = NotifyFilesystemSnapshot::capture()?;
     let mut targets = Vec::new();
 
@@ -556,6 +570,26 @@ fn notify_watch_targets(config: &Config) -> Result<Vec<NotifyWatchTarget>, Notif
 
     targets.sort_by_key(|target| FileIdentity::from_canonical_path(target.path()));
     Ok(targets)
+}
+
+fn map_source_universe_error(config: &Config, source: IndexerError) -> NotifyWatcherError {
+    match source {
+        IndexerError::Discover { path, source }
+            if source.kind() == io::ErrorKind::NotFound
+                && is_configured_directory_path(config, &path) =>
+        {
+            NotifyWatcherError::ConfiguredSourceDirectoryMissing { path }
+        }
+        source => NotifyWatcherError::SourceUniverse { source },
+    }
+}
+
+fn is_configured_directory_path(config: &Config, path: &Path) -> bool {
+    let path = normalize_syntactic_path(path.to_path_buf());
+    config
+        .dirs
+        .iter()
+        .any(|configured| normalize_syntactic_path(configured.path.clone()) == path)
 }
 
 fn insert_parent_watch_target(
@@ -1203,7 +1237,7 @@ mod tests {
     }
 
     #[test]
-    fn inaccessible_watch_root_reports_affected_path() {
+    fn missing_configured_directory_reports_actionable_error() {
         let test_dir = TestDir::new("missing-root");
         let config = load_config(
             &test_dir,
@@ -1211,8 +1245,18 @@ mod tests {
         );
 
         let error = notify_watch_targets(&config).expect_err("missing root should fail");
-        assert!(matches!(error, NotifyWatcherError::SourceUniverse { .. }));
-        assert!(error.to_string().contains("missing"));
+        assert!(matches!(
+            &error,
+            NotifyWatcherError::ConfiguredSourceDirectoryMissing { path }
+                if path == &test_dir.path().join("missing")
+        ));
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "configured source directory does not exist: {}; restore the directory or update the configured path, then restart the watcher",
+                test_dir.path().join("missing").display()
+            )
+        );
     }
 
     #[test]
@@ -1246,8 +1290,8 @@ mod tests {
     }
 
     #[test]
-    fn translated_unrelated_and_sqlite_events_are_filtered_by_phase_6_normalizer() {
-        let test_dir = TestDir::new("phase6-filter");
+    fn translated_unrelated_and_sqlite_events_are_filtered_by_candidate_normalizer() {
+        let test_dir = TestDir::new("candidate-filter");
         fs::create_dir_all(test_dir.path().join("notes")).expect("notes root");
         let config = load_config(
             &test_dir,

@@ -179,11 +179,11 @@ impl fmt::Display for WatcherExecutionError {
             ),
             Self::Rejected(ChangeApplicationRejection::InvalidPlan) => write!(
                 f,
-                "watcher reconciliation was rejected because the Phase 6 plan was invalid"
+                "watcher reconciliation was rejected because the indexing plan was invalid"
             ),
             Self::Rejected(ChangeApplicationRejection::Stale) => write!(
                 f,
-                "watcher reconciliation was rejected because the Phase 6 plan became stale"
+                "watcher reconciliation was rejected because the indexing plan became stale"
             ),
         }
     }
@@ -198,13 +198,13 @@ impl Error for WatcherExecutionError {
     }
 }
 
-pub(crate) struct Phase6WatcherExecutor<'a, P> {
+pub(crate) struct IndexerWatcherExecutor<'a, P> {
     indexer: &'a Indexer<P>,
     connection: &'a mut Connection,
     config: &'a Config,
 }
 
-impl<'a, P> Phase6WatcherExecutor<'a, P> {
+impl<'a, P> IndexerWatcherExecutor<'a, P> {
     pub(crate) fn new(
         indexer: &'a Indexer<P>,
         connection: &'a mut Connection,
@@ -218,7 +218,7 @@ impl<'a, P> Phase6WatcherExecutor<'a, P> {
     }
 }
 
-impl<P> WatcherBatchExecutor for Phase6WatcherExecutor<'_, P>
+impl<P> WatcherBatchExecutor for IndexerWatcherExecutor<'_, P>
 where
     P: OrgParserCore,
 {
@@ -625,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn removed_known_directory_keeps_a_bounded_phase_6_candidate() {
+    fn removed_known_directory_keeps_a_bounded_reconciliation_candidate() {
         let test_dir = TestDir::new("removed-directory");
         let directory = test_dir.path().join("notes/nested");
         fs::create_dir_all(&directory).expect("directory should be created");
@@ -860,7 +860,7 @@ mod tests {
     }
 
     #[test]
-    fn deleted_explicit_files_use_the_retained_phase_6_identity() {
+    fn deleted_explicit_files_use_the_retained_indexed_identity() {
         let test_dir = TestDir::new("deleted-explicit");
         let explicit = test_dir.path().join("explicit.org");
         write_file(&explicit, "* Note\n");
@@ -878,7 +878,7 @@ mod tests {
     }
 
     #[test]
-    fn deleted_symlink_sources_keep_their_canonical_phase_6_identity() {
+    fn deleted_symlink_sources_keep_their_canonical_indexed_identity() {
         use std::os::unix::fs::symlink;
 
         let test_dir = TestDir::new("deleted-symlink");
