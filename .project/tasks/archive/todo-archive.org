@@ -2651,3 +2651,220 @@ Scope:
 - Production Rust identifiers, comments, help text, runtime errors, tests, README, CLI documentation, and incremental-indexing design documentation.
 - Historical task files and roadmap phase descriptions remain unchanged.
 
+* DONE Phase 8: Evaluate parallel parsing and preparation
+
+Goal of this phase:
+
+- Determine whether parallel parsing and preparation of independent changed Org files would materially improve realistic rebuild and reconciliation workloads.
+- Implement parallel execution only if the measured end-to-end benefit justifies the additional scheduling, memory, testing, and maintenance complexity.
+- Preserve the Phase 6 indexing semantics and the Phase 7 watcher execution model unchanged.
+
+Decision:
+
+- Keep parsing and preparation sequential.
+- Do not add a thread pool, Rayon dependency, worker scheduler, worker-count configuration, or automatic activation threshold.
+- Do not change the existing rebuild, reconciliation, or watcher pipeline.
+- Retain the measurement experiment only in project history or a separate archive branch.
+- Continue production development from the completed Phase 7 implementation.
+
+Reason:
+
+- Parsing and per-file model preparation account for only approximately 10–12% of full rebuild time in the measured corpora.
+- Approximately 80% of rebuild time is spent in the serial ordered application stage, including SQLite writes, FTS maintenance, link resolution, effective-state refresh, indexing metadata, and transaction commit.
+- Only parsing and preparation were candidates for parallel execution. The dominant ordered application stage would remain serial.
+- Even ideal parallel parsing therefore has a low end-to-end speed-up ceiling.
+- Realistic gains are too small to justify the required concurrency architecture and its permanent maintenance burden.
+- Incremental operations and watcher-like small change sets contain almost no parallelizable parsing work.
+
+** DONE Establish the Phase 8 measurement baseline
+
+Approach:
+
+- Extended the benchmark experiment to distinguish:
+  - discovery and change planning
+  - file metadata inspection, reading, hashing, and decoding
+  - parsing and per-file model preparation
+  - ordered DB and derived-state application
+  - unclassified measurement overhead
+  - complete end-to-end rebuild time
+- Used the existing deterministic corpus generator, production rebuild path, baseline schema profile, FTS modes, canonical paths, and semantic-equivalence checks.
+- Kept all measured stages sequential.
+- Used a fresh isolated database for each measured rebuild.
+- Captured best-effort Linux process CPU counters and high-water RSS evidence.
+- Verified internal timing sums, percentile ordering, positive path-query results, and incremental semantic equivalence.
+- ~make ci~ passed after correcting the measurement implementation.
+
+Environment:
+
+- Release build
+- Linux x86-64
+- 8 available CPUs
+- SQLite 3.40.1
+- Identical corpus seed ~1~
+
+*** 50-file result
+
+Protocol:
+
+- 5 warm-up iterations
+- 30 measured iterations
+- 292 expected headings
+- 55 expected links
+
+Median full-rebuild results:
+
+| Mode      | Total     | Parse and prepare | Parse share | Ordered application |
+|-----------+-----------+-------------------+-------------+---------------------|
+| no FTS    | 32.83 ms  | 3.90 ms           | 11.87%      | 27.31 ms            |
+| FTS title | 34.84 ms  | 3.98 ms           | 11.43%      | 29.32 ms            |
+| FTS body  | 35.55 ms  | 4.03 ms           | 11.34%      | 29.95 ms            |
+
+Interpretation:
+
+- The measurement was stable enough for the decision.
+- Parsing represented only around one ninth of total rebuild time.
+- The serial ordered application stage already dominated at this collection size.
+- The small incremental operations contained only negligible parse work.
+
+*** 1,000-file result
+
+Protocol:
+
+- 3 warm-up iterations
+- 10 measured iterations
+- 5,675 expected headings
+- 1,091 expected links
+
+Median full-rebuild results:
+
+| Mode      | Total   | Parse and prepare | Parse share | Ordered application |
+|-----------+---------+-------------------+-------------+---------------------|
+| no FTS    | 0.802 s | 0.086 s           | 10.78%      | 0.641 s             |
+| FTS title | 0.797 s | 0.084 s           | 10.50%      | 0.641 s             |
+| FTS body  | 0.817 s | 0.084 s           | 10.25%      | 0.659 s             |
+
+Interpretation:
+
+- The parse share did not increase with the larger collection.
+- It decreased slightly from approximately 11–12% to approximately 10–11%.
+- Parsing scaled approximately linearly.
+- Discovery, planning, and especially serial DB and derived-state application remained the dominant costs.
+- One ~no-fts~ outlier occurred entirely in ordered application and did not indicate parser instability.
+- All incremental benchmark sequences remained semantically equivalent to a fresh rebuild.
+
+*** Incremental and watcher-like workloads
+
+Measured examples included:
+
+- metadata-only update
+- one modified file
+- one created file
+- one deleted file
+- mixed create, modify, and delete change set
+
+Results:
+
+- Metadata-only and delete operations contained no parse work.
+- Single-file create and modify operations spent far below 1% of their end-to-end time in parsing.
+- The mixed three-file change set also spent far below 1% in parsing.
+- Discovery, planning, SQLite application, and derived-state maintenance dominated these operations.
+- Starting or coordinating parser workers for these batches would likely cost more than the parsing work being parallelized.
+
+Conclusion:
+
+- Watcher execution must remain sequential.
+- Small reconciliation batches must remain sequential.
+- Parallel parsing would provide no meaningful benefit for normal incremental operation.
+
+** DONE Decide whether parallel parsing and preparation are justified
+
+Decision:
+
+- Parallel parsing and preparation are not justified by the measurements.
+- The sequential Phase 6 path remains the production implementation.
+- Phase 8 closes without adding parallel execution.
+
+Theoretical upper bound:
+
+- At 1,000 files, only approximately ~0.084–0.086 s~ of an approximately ~0.80 s~ rebuild is parallelizable.
+- With eight perfectly utilized workers and zero scheduling overhead, the mathematical maximum saving would be approximately ~0.073–0.076 s~.
+- This corresponds to an ideal end-to-end improvement of only approximately ~9%~.
+- Unlimited perfect parallelism could not remove more than the measured parse share of approximately ~10–11%~.
+
+Realistic expectation:
+
+- Worker scheduling, result collection, deterministic reordering, synchronization, memory allocation, and uneven file sizes would reduce the theoretical benefit.
+- A realistic 1,000-file saving was estimated at approximately ~0.04–0.065 s~.
+- The rebuild would likely improve only from approximately ~0.80 s~ to approximately ~0.74–0.76 s~.
+- This difference is measurable but not operationally significant.
+
+10,000-file projection:
+
+- No 10,000-file benchmark was executed.
+- A projection from the measured corpora suggests a complete rebuild of approximately ~8–9.5 s~ for files of similar average size and structure.
+- The parallelizable parse portion would be approximately ~0.8–0.9 s~.
+- A realistic eight-worker saving would likely be approximately ~0.4–0.65 s~.
+- This projection is not treated as measured acceptance evidence.
+- Even at this scale, the expected saving does not justify adding permanent concurrency complexity before a real user workload demonstrates a higher parse share or unacceptable rebuild latency.
+
+Complexity considered:
+
+- Define complete owned parse-job inputs.
+- Define complete owned preparation-result values.
+- Ensure parser configuration and all worker inputs are immutable and ~Send~ compatible.
+- Add a bounded worker scheduler or dependency.
+- Restore results to deterministic change-plan order.
+- Preserve deterministic error ordering regardless of worker completion order.
+- Aggregate worker failures without allowing partial application.
+- Bound queued prepared data and resulting memory growth.
+- Preserve a sequential fallback.
+- Define worker-count and activation-threshold configuration.
+- Test worker counts, completion-order variations, cancellation, rollback, error ordering, FTS state, link state, indexing metadata, and source-universe fingerprints.
+- Maintain concurrency-specific code indefinitely despite the small expected gain.
+
+Final rationale:
+
+- The likely benefit is a few percent of end-to-end rebuild time.
+- The dominant stage cannot be parallelized within the accepted Phase 8 scope.
+- Normal watcher and incremental workloads would not benefit.
+- The implementation would add substantially more complexity than the user-visible performance improvement warrants.
+- Avoiding the feature keeps the indexer simpler, deterministic, easier to test, and easier to maintain.
+
+** DONE Define owned parse jobs and preparation results
+
+Outcome:
+
+- Not performed.
+- This task was conditional on accepting parallel parsing and preparation.
+- The decision task rejected parallel execution, so introducing worker-specific job and result abstractions would add unused architecture.
+- The existing sequential preparation boundary remains unchanged.
+
+** DONE Implement bounded parallel parsing and preparation
+
+Outcome:
+
+- Not performed.
+- No thread pool, scheduler, worker channel, work queue, result reordering layer, or parallel configuration was introduced.
+- SQLite writes, FTS maintenance, link resolution, effective-state maintenance, metadata updates, transaction handling, and watcher execution remain sequential.
+- The Phase 6 and Phase 7 semantic and lifecycle contracts remain unchanged.
+
+** DONE Measure the accepted implementation and choose defaults
+
+Outcome:
+
+- Not performed because no parallel implementation was accepted.
+- No worker-count default or activation threshold is required.
+- Parallel execution does not need a disable switch because it is not present.
+- The sequential implementation remains the only production path.
+
+** Reconsideration criteria
+
+Reopen parallel parsing only if at least one of the following becomes true:
+
+- Measurements from a real production corpus show that ~parse_and_prepare~ is a substantially larger share of end-to-end rebuild time.
+- Full rebuild latency becomes operationally disruptive.
+- Individual Org files become substantially larger or more parser-heavy than the benchmark corpus.
+- A future architecture change removes or significantly reduces the serial ordered-application bottleneck.
+- A simpler concurrency implementation becomes available without compromising deterministic ordering, rollback, memory bounds, or maintainability.
+
+Until then, the measured sequential implementation is considered sufficient.

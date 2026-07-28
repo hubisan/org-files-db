@@ -70,205 +70,22 @@ Archived in [[./archive/todo-archive.org]]
 
 Archived in [[./archive/todo-archive.org]]
 
-* Phase 8: Evaluate and optionally implement parallel parsing and preparation
+* DONE Phase 8: Evaluate and optionally implement parallel parsing and preparation
 
-Goal of this phase:
+Deciscion after some tests: this is not needed. Having organized my life with Org for a long time now and still only have 570 small to medium sized files.
 
-- Determine whether parallel parsing and preparation of independent changed Org files materially improves realistic rebuild and reconciliation workloads.
-- Implement bounded parallel parsing and preparation only if measurements justify the added complexity.
-- Preserve the Phase 6 indexing semantics and the Phase 7 watcher execution model unchanged.
+Real-world validation:
 
-Scope:
+- The indexer was tested against the user's long-established personal Org corpus.
+- The corpus contains approximately 570 Org files accumulated through many years of using Org to organize personal information, tasks, projects, and other areas of life.
+- A complete rebuild finished subjectively almost instantly.
+- The current sequential implementation therefore already satisfies the practical performance requirement for the primary real-world workload.
+- Additional synthetic parser-heavy benchmarks would not address an observed user problem and are not required before closing the phase.
 
-- Parallel execution is considered only for independent per-file parsing and preparation.
-- A preparation job may parse already loaded file content and convert parser output into complete owned model-ready file data.
-- File discovery remains sequential.
-- Source-universe construction remains sequential.
-- File metadata reads, content reads, and content hashing remain sequential.
-- Change planning remains sequential.
-- Processing inside one individual file remains sequential.
-- DB writes remain sequential and transactionally controlled.
-- FTS maintenance, link resolution, effective-state refresh, metadata updates, and other derived-state maintenance remain sequential.
-- Watcher event collection, debouncing, reconciliation, and batch execution remain sequential.
-- Multiple watcher reconciliation or application cycles must not run concurrently.
+Operational context:
 
-Reason for separate phase:
-
-- Phase 6 already separates deterministic discovery, change planning, per-file preparation, ordered DB application, and full-rebuild recovery.
-- Phase 7 reuses that pipeline and adds filesystem event collection, debouncing, recovery, and lifecycle handling without changing indexing semantics.
-- Parsing is the only Phase 6 preparation step considered for parallel execution in this phase.
-- Parallel parsing affects scheduling, memory use, error aggregation, cancellation behavior, and deterministic result ordering even though all surrounding stages remain sequential.
-
-General rules:
-
-- Keep the sequential Phase 6 parsing and preparation path as the reference behavior and fallback.
-- Phase 6 discovery and change planning remain the single source of ordered preparation jobs.
-- Do not add a separate parallel rebuild or watcher pipeline.
-- Do not parallelize file discovery, metadata inspection, file reading, hashing, change planning, DB mutation, FTS maintenance, link resolution, derived-state maintenance, metadata updates, transaction management, or watcher control flow.
-- File contents required for parsing are loaded before parallel execution begins.
-- Worker jobs receive owned, independent parse inputs and return owned preparation results.
-- Do not share mutable parser state across workers.
-- Do not perform worker-side filesystem traversal, file reads, hashing, DB lookups, or DB writes.
-- Parse completion order must not affect:
-  - DB mutation order
-  - semantic DB contents
-  - FTS state
-  - link-resolution state
-  - source-universe metadata
-  - indexing-context fingerprints
-  - error ordering
-- Completed preparation results are restored to deterministic change-plan order before DB application.
-- One parse or preparation failure prevents the complete planned change set from being applied.
-- Parallel behavior must be bounded, configurable, and disableable.
-- Do not introduce a thread-pool dependency before the benchmark decision.
-- A worker-count default or activation threshold may be introduced only from measured results.
-- The parallel pipeline follows the project-wide platform contract: Linux and Unix-like systems, including macOS, are supported; Windows is not supported.
-- Do not introduce Windows-specific path, filesystem, thread-pool, or watcher compatibility abstractions.
-- Worker inputs and results preserve the byte-oriented Unix file identity defined in Phase 6.
-
-** TODO Establish the Phase 8 measurement baseline
-
-Goal:
-
-- Extend the existing deterministic benchmark harness just enough to determine whether parsing and per-file model preparation are meaningful rebuild bottlenecks before implementing parallel execution.
-
-Acceptance criteria:
-
-- Existing corpus generation, fixed-width paths, canonical absolute paths, profiles, FTS modes, seed handling, and JSON result format remain unchanged.
-- Measurements cover representative small and large collections.
-- At minimum, timing distinguishes:
-  - discovery and change planning
-  - sequential file metadata inspection, reading, and hashing
-  - parsing and per-file model preparation
-  - ordered DB and derived-state application
-- Sequential end-to-end wall-clock time remains the primary baseline.
-- CPU use and peak memory are captured where practical and reproducibly available.
-- The measurement identifies whether parsing and model preparation are sufficiently CPU-bound to benefit from parallel execution.
-- File reading and hashing are measured but are not candidates for parallel implementation in this phase.
-- Watcher event collection, debounce latency, and idle runtime are outside this benchmark.
-- A watcher-like selective reconciliation workload may be included only to determine whether parallel parser startup overhead would dominate small changed-file batches.
-- Decision criteria are documented before implementation without inventing unsupported performance targets.
-
-** TODO Decide whether parallel parsing and preparation are justified
-
-Goal:
-
-- Make an explicit evidence-based decision before adding a thread pool or parallel scheduler.
-
-Possible decisions:
-
-- keep parsing and preparation sequential
-- provide opt-in parallel parsing and preparation
-- enable parallel parsing and preparation automatically above a measured changed-file threshold
-
-Acceptance criteria:
-
-- The decision considers:
-  - small collections
-  - large collections
-  - changed-file count rather than only total indexed-file count
-  - parser-heavy and body-heavy files
-  - FTS-enabled and FTS-disabled application cost
-  - CPU use
-  - peak memory
-  - variance
-  - deterministic behavior
-  - implementation and maintenance complexity
-- The decision explicitly confirms that discovery, reading, hashing, DB application, and watcher execution remain sequential.
-- Rayon or another scheduler is not made mandatory before this decision.
-- If measurements show no meaningful end-to-end benefit, Phase 8 closes without implementing parallel execution.
-- If benefit exists only for unusually large parse job sets, the feature remains opt-in or threshold-based.
-
-** TODO Define owned parse jobs and preparation results
-
-Condition:
-
-- Perform this task only if parallel parsing and preparation are accepted.
-
-Goal:
-
-- Make the existing Phase 6 parsing boundary suitable for either sequential or parallel execution without duplicating parsing or model-conversion logic.
-
-Acceptance criteria:
-
-- One parse-job type contains the canonical file identity, already loaded content, and all immutable parser configuration required to parse one file.
-- One preparation-result type contains the complete owned result needed by the existing ordered DB application stage.
-- Worker execution does not borrow mutable DB, indexer, watcher, parser, filesystem, or configuration state.
-- Shared configuration is immutable.
-- File-specific errors retain canonical path and parse or preparation context.
-- Existing sequential execution uses the same job and result types.
-- No worker-side filesystem access, hashing, DB lookup, or DB mutation is introduced.
-- Tests verify that preparation results are independent of execution order.
-
-** TODO Implement bounded parallel parsing and preparation
-
-Condition:
-
-- Perform this task only if parallel parsing and preparation are accepted.
-
-Goal:
-
-- Parse and prepare independent Phase 6 file jobs concurrently while preserving exact sequential application semantics.
-
-Acceptance criteria:
-
-- Phase 6 discovery, file reading, hashing, and change planning produce the complete ordered parse job set before parallel execution begins.
-- The same parsing and preparation function is usable by both sequential and parallel executors.
-- Worker count is configurable and bounded.
-- Worker count ~1~ behaves equivalently to the sequential reference path.
-- Completed results are reordered into deterministic change-plan order before any DB mutation.
-- SQLite writes remain sequential.
-- FTS maintenance, link resolution, effective-state refresh, metadata updates, and other derived-state maintenance remain sequential inside the existing controlled application path.
-- A parse or preparation failure prevents application of the complete planned change set.
-- Error reporting distinguishes:
-  - sequential file read or hash failures
-  - parse failures
-  - model-preparation failures
-  - ordered application failures
-- Error output is deterministic even when workers finish in a different order.
-- Sequential parsing and preparation remain available as the reference behavior and fallback.
-- The watcher does not execute multiple reconciliation batches concurrently.
-- Tests compare sequential and parallel results for:
-  - prepared per-file model data
-  - core DB state
-  - FTS state
-  - link-resolution state
-  - indexing metadata
-  - source-universe fingerprints
-  - failure rollback
-  - deterministic error ordering
-  - different worker counts
-  - deliberately varied completion order
-- ~make ci~ passes.
-
-** TODO Measure the accepted implementation and choose defaults
-
-Condition:
-
-- Perform this task only if parallel parsing and preparation are implemented.
-
-Goal:
-
-- Verify the real benefit of the completed implementation and choose conservative activation rules.
-
-Acceptance criteria:
-
-- Sequential and parallel runs use identical benchmark inputs, profiles, seeds, and environment metadata.
-- Measurements cover representative:
-  - small rebuilds
-  - large rebuilds
-  - small changed-file reconciliations
-  - large changed-file reconciliations
-- Results record:
-  - parsing and preparation speed-up
-  - end-to-end speed-up
-  - CPU cost
-  - peak memory
-  - variance
-- Worker counts include at least ~1~ and the proposed default.
-- The selected default worker count is bounded.
-- Any automatic activation threshold is based on the number and expected parse cost of changed-file jobs, not merely the total number of indexed files.
-- Parallel execution remains disableable.
-- Discovery, reading, hashing, DB application, and watcher execution remain sequential regardless of the selected default.
-- If measured end-to-end benefit does not justify the complexity, the implementation is removed or retained only as an explicit opt-in feature.
-
+- A complete rebuild is required only for initial database creation, recovery, or indexing-context changes.
+- After the initial rebuild, the Phase 7 watcher processes only changed files through the existing incremental reconciliation pipeline.
+- Typical watcher batches contain one or only a few changed files and complete effectively instantly for the real-world corpus.
+- Parallel parsing would therefore not improve the normal operating path.
+- The only potentially affected operation would be an already fast and infrequent full rebuild.

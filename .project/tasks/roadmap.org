@@ -15,12 +15,6 @@ General rules:
 - Results should include file path and byte offsets for editor jumps.
 - UTF-8 byte offset behavior must be documented and tested.
 
-** TODO Have a look at Vulpea, the extensions for inspiration
-
-https://github.com/d12frosted/vulpea/tree/master
-
-Can't use vulpea unfortunately, it only scans entries with IDs and I don't want to use IDs as it makes link implicit [[id:8e4b081a-6bdf-4167-a10d-02caa611b557]] and has no more file name. Imo it is better to use the filename for normal links and custom-id for headings, as in that case, the filename is shown: [[file:template.org::#8e4b081a-6bdf-4167-a10d-02caa611b557]]. This requires a way to rename files without breaking links and a broken link check and a way to fix it. 
-
 ** TODO Write Elisp wrapper for CLI communication
 
 Acceptance criteria:
@@ -377,7 +371,7 @@ Acceptance criteria:
 - User-visible changes are added after review.
 - Internal-only changes are not overdocumented.
 - Breaking changes are clearly marked.
-
+  
 * Backlog
 
 ** TODO Add clocking?
@@ -405,50 +399,12 @@ Acceptance criteria:
 - If supported, a clock model and table are proposed.
 - Tests cover open and closed clock ranges if implemented.
 
-** TODO Extended org-ql query language
+** TODO Compare Orgize, orgfdb and org-element-parse-buffer
+:PROPERTIES:
+:CUSTOM_ID: 87f46800-bf21-48f9-a3f2-31e7400adfb2
+:END:
 
-Possible operators:
-
-#+begin_src lisp
-(and ...)
-(or ...)
-(not ...)
-(priority "A")
-(property "KEY" "VALUE")
-(deadline ...)
-(scheduled ...)
-(closed ...)
-(ancestor ...)
-(descendant ...)
-(has-link ...)
-(link-target ...)
-(text ...)
-#+end_src
-
-Goal: Evaluate how far the query language should follow org-ql and where project-specific extensions are useful.
-
-Acceptance criteria:
-
-- Supported v0 operators are distinguished from later operators.
-- Unsupported operators fail clearly.
-- Potential org-ql compatibility is documented.
-
-** TODO Make parser backend exchangeable
-
-Possible backends:
-
-- Orgize
-- custom parser
-- Tree-sitter
-- Emacs-based import
-
-Goal: Keep the internal parser model independent enough that Orgize can be replaced or supplemented later if needed.
-
-Acceptance criteria:
-
-- Parser adapter boundary is documented.
-- Internal data model does not expose Orgize types.
-- Known backend-specific assumptions are documented.
+With my ~/memento to have a real example.
 
 ** TODO Prepare upstream issues for Orgize
 
@@ -677,79 +633,6 @@ Thanks for maintaining Orgize!
 
   Thanks for maintaining Orgize!
 #+END_SRC
-
-** TODO Extend benchmark coverage
-
-Context: Phase 6 already provides the deterministic rebuild benchmark harness and corpus rules. This backlog item extends that baseline instead of defining a competing benchmark model.
-
-Possible additions:
-
-- larger corpus variants such as 5,000 files
-- incremental no-op planning
-- metadata-only updates
-- single-file create, modify, and delete
-- hash-verification cost
-- query latency
-- FTS search latency when FTS5 is enabled
-- subtree and relationship query latency
-- watcher batch and reconciliation overhead after Phase 7
-
-Acceptance criteria:
-
-- New workloads reuse the existing corpus generator, fixed-width path rules, canonical absolute paths, seed handling, profiles, and JSON result format.
-- Measurement commands and environment metadata are documented.
-- Results are reproducible enough for before/after comparisons.
-- Rebuild, incremental, query, and FTS measurements remain distinguishable.
-- Performance targets are based on measurements, not guesses.
-- Phase 8 parallelization measurements reuse this benchmark infrastructure rather than creating a separate harness.
-
-** TODO Evaluate external-content FTS5
-
-Goal: Check whether SQLite FTS5 external-content tables are worth using instead of manually maintained FTS rows.
-
-Note: Manual FTS maintenance is preferred initially because the indexer already controls full rebuilds per file.
-
-Acceptance criteria:
-
-- External-content FTS5 behavior is compared with manually maintained FTS rows.
-- Complexity and migration impact are documented.
-- Recommendation is based on measured or clearly reasoned trade-offs.
-
-** REVIEW Replace cached tag output with normalized effective tags
-
-Decision:
-
-- Keep ~tags~ as canonical direct tag facts.
-- Materialize the ordered, deduplicated tag set visible at each heading in ~effective_tags~.
-- Treat root ~FILETAGS~ as direct tags of the synthetic root and include them in normal inheritance.
-- Use ~tags~ for ~:inherit nil~ and ~effective_tags~ for default or explicit inherited matching.
-- Build the public ~all_tags~ output from ~effective_tags~ and remove ~headings.all_tags_json~.
-- Maintain the projection transactionally during rebuilds and file replacement.
-
-** TODO Evaluate further effective-property diagnostics and performance
-
-Goal: Decide whether the implemented direct and materialized effective-property model needs additional diagnostics, indexes, or API support after real usage and measurements.
-
-Context:
-
-- Direct rows in ~properties~ remain the source of truth.
-- ~effective_properties~ is the existing transactional projection for inherited matching.
-- This backlog task must not introduce a second effective-property model or revive removed root-excluding semantics.
-
-Possible topics:
-
-- performance of effective-property refresh and queries on large files
-- additional indexes justified by measured workloads
-- diagnostics for duplicate direct keys or surprising override chains
-- API output that explains where an effective value originated
-- maintenance and migration checks for the existing projection
-
-Acceptance criteria:
-
-- Real query and diagnostic needs are reviewed.
-- Existing direct and effective semantics remain unchanged unless a separate contract task approves a change.
-- Additional indexes or diagnostics are based on measurements or concrete UX needs.
-- Direct property rows remain the source of truth and ~effective_properties~ remains the single materialized projection.
 
 ** TODO [#C] Model attachment link resolution?
 :PROPERTIES:
