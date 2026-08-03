@@ -71,6 +71,9 @@ Archived in [[./archive/todo-archive.org]]
 Archived in [[./archive/todo-archive.org]]
 
 * DONE Phase 8: Evaluate and optionally implement parallel parsing and preparation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
 Deciscion after some tests: this is not needed. Having organized my life with Org for a long time now and still only have 570 small to medium sized files.
 
@@ -89,3 +92,614 @@ Operational context:
 - Typical watcher batches contain one or only a few changed files and complete effectively instantly for the real-world corpus.
 - Parallel parsing would therefore not improve the normal operating path.
 - The only potentially affected operation would be an already fast and infrequent full rebuild.
+
+  
+
+* TODO Add index generation tracking for reliable external cache invalidation
+
+Goal: Expose a stable database generation that changes only after a successful index update has been committed.
+
+External clients such as ~org-files-db.el~ must be able to determine whether cached query results still represent the current database state without relying only on SQLite file modification times.
+
+The generation is a database-wide monotonic integer.
+
+It changes when a successful indexing operation commits a logical database change.
+
+It does not change when an operation:
+
+- only inspects the database
+- finds that no indexed data changed
+- starts but fails
+- rolls back
+- receives a filesystem event before reconciliation
+- performs SQLite maintenance without changing the logical index state
+
+** Database schema
+
+Add persistent index-state metadata.
+
+Prefer one dedicated singleton table:
+
+#+begin_src sql
+CREATE TABLE index_state (
+    singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
+    generation      INTEGER NOT NULL,
+    last_indexed_at TEXT NOT NULL
+);
+#+end_src
+
+Initialize it during schema creation or migration:
+
+#+begin_src sql
+INSERT INTO index_state (
+    singleton,
+    generation,
+    last_indexed_at
+)
+VALUES (
+    1,
+    0,
+    CURRENT_TIMESTAMP
+);
+#+end_src
+
+The exact timestamp storage format must follow the existing database timestamp conventions.
+
+Do not use a process-local counter.
+
+The value must survive:
+
+- process restarts
+- watcher restarts
+- rebuilds
+- incremental indexing
+- opening the database from another client
+
+** Generation semantics
+
+Increment ~generation~ only when the logical indexed state changes successfully.
+
+Examples that increment the generation:
+
+- one or more files are added
+- one or more files are replaced after content changes
+- one or more indexed files are deleted
+- derived link-resolution state changes
+- a full rebuild commits a changed index
+- an incremental reconciliation commits changes
+
+Examples that do not increment the generation:
+
+- a query
+- a search
+- a status request
+- a watcher batch containing no effective changes
+- a rebuild producing the same persisted logical state, where this can be determined
+- a failed parse
+- a failed database write
+- a rolled-back transaction
+- an ignored filesystem event
+- a watcher debounce cycle before reconciliation
+- a SQLite WAL checkpoint
+
+The generation represents committed query-visible database state, not filesystem activity.
+
+** Transactional update
+
+Update the index generation inside the same database transaction as the corresponding index mutation.
+
+Conceptually:
+
+#+begin_src sql
+BEGIN;
+
+-- Add, replace, or delete indexed data.
+-- Update derived state required by queries.
+
+UPDATE index_state
+SET generation = generation + 1,
+    last_indexed_at = CURRENT_TIMESTAMP
+WHERE singleton = 1;
+
+COMMIT;
+#+end_src
+
+The new generation must become visible only when the complete indexing transaction commits.
+
+If any part of the transaction fails:
+
+- roll back all index changes
+- do not publish a new generation
+- do not update ~last_indexed_at~
+
+A client observing a new generation must be able to assume that the corresponding database state is completely committed and queryable.
+
+** Define logical change detection
+
+Before incrementing the generation, determine whether the operation produced an effective logical change.
+
+Reuse existing change-planning information where possible.
+
+For incremental indexing, a generation change may be based on a non-empty committed plan containing operations such as:
+
+- add
+- replace
+- delete
+
+If global derived-state maintenance changes persisted query-visible data, that also counts as a logical change.
+
+Do not increment once per file.
+
+Increment once per successfully committed logical batch or operation.
+
+Examples:
+
+#+begin_example
+watcher batch modifies 12 files
+→ generation increases by 1
+
+full rebuild changes 5,000 rows
+→ generation increases by 1
+
+incremental command finds all files unchanged
+→ generation remains unchanged
+#+end_example
+
+Document the chosen batch boundary.
+
+** Full rebuild behaviour
+
+A full rebuild must preserve monotonic generation semantics.
+
+Do not reset the generation to zero when rebuilding the database contents.
+
+When rebuilding in the existing database:
+
+- retain the current generation
+- increment it once after the changed rebuilt state commits
+
+If rebuild creates a completely new database file:
+
+- initialize its generation deterministically
+- document that replacing the database file creates a new database identity
+- expose enough information for clients to distinguish the replacement from an unchanged older database
+
+Prefer also exposing a persistent database identity.
+
+** Database identity
+
+Add a stable database identifier so clients can distinguish:
+
+- the same database at a newer generation
+- a different database that happens to have the same generation
+- a newly recreated database file
+
+Conceptually:
+
+#+begin_src sql
+ALTER TABLE index_state
+ADD COLUMN database_id TEXT NOT NULL;
+#+end_src
+
+Or include it in the initial schema:
+
+#+begin_src sql
+CREATE TABLE index_state (
+    singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
+    database_id     TEXT NOT NULL,
+    generation      INTEGER NOT NULL,
+    last_indexed_at TEXT NOT NULL
+);
+#+end_src
+
+Generate ~database_id~ once when the database is first initialized.
+
+Use a stable unique value such as a UUID.
+
+Do not change it for ordinary indexing, watcher runs, or rebuilds that preserve the same database.
+
+When a database is recreated from scratch, a new identifier is expected.
+
+External cache keys may then use:
+
+#+begin_example
+database_id + generation
+#+end_example
+
+** Public status command
+
+Provide a lightweight read-only CLI command for retrieving index state.
+
+Preferred interface:
+
+#+begin_src sh
+orgfdb status --format json
+#+end_src
+
+Example output:
+
+#+begin_src json
+{
+  "schema_version": 1,
+  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
+  "generation": 1842,
+  "last_indexed_at": "2026-08-03T14:58:12Z"
+}
+#+end_src
+
+The exact command name may follow existing CLI conventions, but it must:
+
+- open the configured database
+- perform no indexing
+- perform no query planning
+- return quickly
+- not modify the database
+- support structured JSON output
+- return the current database identity and generation
+
+Support the normal configuration resolution:
+
+#+begin_src sh
+orgfdb status \
+  --config ~/memento/orgfdb-config.toml \
+  --format json
+#+end_src
+
+If the CLI already has a general database-information or diagnostics command, extend that command rather than adding an overlapping implementation.
+
+** Text output
+
+A human-readable format may also be provided:
+
+#+begin_example
+Database ID:     74f470e2-0354-4ed8-b2e0-e0647e0c706a
+Generation:      1842
+Last indexed:    2026-08-03T14:58:12Z
+Schema version:  1
+#+end_example
+
+JSON is the required machine-readable interface.
+
+Field names and meanings must be documented and kept stable.
+
+** Watcher output
+
+Optionally allow the watcher to emit a structured event after a successful committed batch:
+
+#+begin_src json
+{
+  "event": "index-committed",
+  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
+  "generation": 1842,
+  "changed_files": 3
+}
+#+end_src
+
+This event must be emitted:
+
+- only after the database transaction commits
+- once per committed watcher batch
+- only when the generation changed
+
+Do not emit it merely because filesystem events were received.
+
+Do not make watcher-event consumption the only way to retrieve the generation.
+
+The status command remains the authoritative polling interface for clients that do not own the watcher process.
+
+If structured watcher events do not fit the current watcher output contract, leave them for a separate task.
+
+** SQLite file monitoring compatibility
+
+External clients may monitor the SQLite database directory for changes to:
+
+#+begin_example
+database.sqlite
+database.sqlite-wal
+database.sqlite-shm
+#+end_example
+
+Those file events are only triggers to call the status command.
+
+The database generation remains the authoritative logical-change signal.
+
+Document that clients must not infer a new generation solely from:
+
+- the main database modification time
+- WAL modification time
+- SHM modification time
+- file size
+- watcher filesystem events
+
+This task does not require ~orgfdb~ itself to monitor its SQLite files.
+
+** Concurrent readers and writers
+
+The status command must behave correctly while the watcher or another index operation is active.
+
+Readers must observe either:
+
+- the previous committed generation and state
+- or the new committed generation and state
+
+They must never observe:
+
+- a new generation with partially written index data
+- a generation increment from a rolled-back transaction
+- an uncommitted intermediate value
+
+Use the existing SQLite transaction and concurrency model.
+
+Do not add an independent status file whose update could become inconsistent with the database transaction.
+
+** Multiple writers
+
+If more than one indexing process can write to the same database, generation increments must remain monotonic and atomic.
+
+Use a database-side increment:
+
+#+begin_src sql
+UPDATE index_state
+SET generation = generation + 1
+WHERE singleton = 1;
+#+end_src
+
+Do not implement:
+
+#+begin_example
+read generation
+→ add one in Rust
+→ write calculated value
+#+end_example
+
+because concurrent writers could lose increments.
+
+Follow existing write-locking and transaction rules.
+
+** Migration
+
+Add a schema migration for existing databases.
+
+The migration must:
+
+- create the index-state table when absent
+- generate one stable database ID
+- initialize the generation
+- initialize the last-indexed timestamp
+- preserve all existing indexed data
+
+Choose and document the initial generation for migrated databases.
+
+A reasonable migration policy is:
+
+#+begin_example
+database_id     newly generated
+generation      1
+last_indexed_at migration time
+#+end_example
+
+This indicates that the migrated database has one known complete state.
+
+Alternatively, generation zero may be used if zero consistently means the initialized state.
+
+Use one convention throughout tests and documentation.
+
+The migration must be idempotent through the normal schema-version mechanism.
+
+** Rust API
+
+Provide one internal representation:
+
+#+begin_src rust
+pub struct IndexState {
+    pub database_id: String,
+    pub generation: i64,
+    pub last_indexed_at: String,
+}
+#+end_src
+
+Use stronger existing timestamp and UUID types where appropriate.
+
+Provide shared database operations conceptually equivalent to:
+
+#+begin_src rust
+pub fn read_index_state(
+    connection: &Connection,
+) -> Result<IndexState>;
+
+pub fn advance_index_generation(
+    transaction: &Transaction,
+) -> Result<IndexState>;
+#+end_src
+
+The exact module placement should follow existing ownership boundaries.
+
+Do not duplicate generation SQL in rebuild, incremental indexer, and watcher code.
+
+Use one shared writer primitive.
+
+** Integration points
+
+Audit every production path that changes query-visible indexed data.
+
+At minimum verify:
+
+- full rebuild
+- explicit incremental add or replace
+- explicit indexed-file deletion
+- startup reconciliation
+- watcher reconciliation
+- recursive directory rename reconciliation
+- symlink identity refresh
+- link-resolution refresh
+- FTS maintenance
+- any command that mutates persisted derived state
+
+Each path must either:
+
+- advance the generation in its mutation transaction
+- or delegate to a shared write path that does so
+
+Test-only database writers should follow production semantics when they are intended to simulate committed indexing.
+
+Do not advance the generation for unrelated configuration reads or discovery planning.
+
+** Error handling
+
+The status command reports actionable errors for:
+
+- missing database
+- unreadable database
+- unsupported schema version
+- missing or corrupt index-state row
+- invalid configuration
+- database lock or I/O failure
+
+Do not silently synthesize a generation when the state row is unexpectedly missing from a database whose schema version requires it.
+
+A corrupt or missing singleton row is a database integrity error.
+
+** Performance
+
+Reading the index state must be inexpensive.
+
+The status command should perform approximately:
+
+#+begin_example
+open database
+→ read one singleton row
+→ serialize output
+#+end_example
+
+It must not:
+
+- scan indexed files
+- count headings
+- resolve links
+- run FTS queries
+- perform reconciliation
+- update timestamps
+
+Add a focused benchmark where practical, or at least a test ensuring the command performs no index mutation.
+
+** Documentation
+
+Document:
+
+- the meaning of ~database_id~
+- the meaning of ~generation~
+- when the generation changes
+- when it does not change
+- transactional consistency
+- the status JSON contract
+- how external clients can use SQLite file notifications only as a wake-up signal
+- why modification times are not sufficient
+- the optional watcher event, if implemented
+
+State clearly:
+
+#+begin_example
+Equal database_id and equal generation
+→ same known committed index state
+
+Equal database_id and newer generation
+→ database contents changed
+
+Different database_id
+→ different or recreated database
+#+end_example
+
+Do not claim that the generation identifies changes to source Org files before those changes have been indexed.
+
+** Tests
+
+Add schema and migration tests covering:
+
+- new database initialization
+- existing database migration
+- stable database ID across reopen
+- stable database ID across ordinary rebuild
+- new database ID after recreation
+- initial generation value
+- singleton-row constraints
+
+Add transaction tests covering:
+
+- successful mutation increments once
+- several changed files in one batch increment once
+- unchanged operation does not increment
+- failed transaction does not increment
+- rolled-back transaction does not increment
+- derived-state-only change increments when query-visible
+- generation and index data become visible atomically
+
+Add integration tests covering:
+
+- full rebuild
+- no-op rebuild where supported
+- incremental add
+- incremental replace
+- indexed-file deletion
+- watcher batch
+- watcher no-op batch
+- startup reconciliation
+- recursive rename or delete
+- symlink-related changes
+- link-resolution changes
+
+Add status-command tests covering:
+
+- JSON output
+- text output when supported
+- configuration-file selection
+- missing database
+- corrupt state
+- read-only behaviour
+- concurrent committed update visibility
+- non-ASCII paths in configuration where relevant
+
+If watcher events are implemented, test:
+
+- one event after successful changed batch
+- no event for no-op batch
+- no event before commit
+- no event after rollback
+- correct database ID and generation
+- deterministic machine-readable output
+
+** Implementation order
+
+1. Define exact generation and database-identity semantics.
+2. Add the schema migration.
+3. Add the shared ~IndexState~ representation.
+4. Add shared read and atomic increment database operations.
+5. Integrate generation advancement into the common production write transaction.
+6. Audit all mutation paths for bypasses.
+7. Add the lightweight status command.
+8. Add JSON and optional text serialization.
+9. Add schema, transaction, and command tests.
+10. Add watcher integration tests.
+11. Optionally add committed watcher events.
+12. Document the machine-readable contract.
+13. Verify that no generation change occurs for queries or no-op operations.
+14. Run formatting, linting, unit tests, integration tests, and watcher tests.
+
+** Acceptance criteria
+
+- Every database has a persistent unique ~database_id~.
+- Every database has a persistent monotonic ~generation~.
+- The generation is advanced atomically inside the same transaction as index changes.
+- One committed batch advances the generation exactly once.
+- No-op operations do not advance the generation.
+- Failed and rolled-back operations do not advance the generation.
+- A new generation always refers to a completely committed query-visible state.
+- Full rebuild, incremental indexing, deletion, and watcher reconciliation follow the same semantics.
+- The generation survives process and watcher restarts.
+- Ordinary rebuilds preserve the database identity.
+- Recreated databases receive a new database identity.
+- ~orgfdb status --format json~ returns database identity, generation, and last-indexed time.
+- The status command is read-only and inexpensive.
+- Concurrent clients observe only complete committed states.
+- SQLite file events can be used as wake-up signals, but generation remains authoritative.
+- Existing databases migrate without losing indexed data.
+- Tests cover initialization, migration, mutations, no-op operations, rollback, rebuild, watcher updates, concurrent reads, and status output.
