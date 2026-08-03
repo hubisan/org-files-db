@@ -1110,20 +1110,25 @@ impl EnrichmentContext {
         } else {
             None
         };
-        let heading = if resolved {
+        let target_heading = if resolved {
             target_heading_id
-                .map(|heading_id| self.heading_ref(heading_id))
+                .map(|heading_id| self.heading(heading_id))
                 .transpose()?
         } else {
             None
         };
+        // Plain file links resolve to the synthetic level-0 heading internally.
+        // Expose only real Org headings as heading targets.
+        let heading = match target_heading {
+            Some(heading) if heading.level > 0 => Some(self.heading_ref(heading.id)?),
+            _ => None,
+        };
         let resolved_kind = if resolved {
-            if target_heading_id.is_some() {
-                Some(QueryTarget::Headings)
-            } else if target_file_id.is_some() {
-                Some(QueryTarget::Files)
-            } else {
-                None
+            match target_heading {
+                Some(heading) if heading.level > 0 => Some(QueryTarget::Headings),
+                Some(_) => Some(QueryTarget::Files),
+                None if target_file_id.is_some() => Some(QueryTarget::Files),
+                None => None,
             }
         } else {
             None
@@ -1961,6 +1966,49 @@ mod tests {
         .expect("outline results should shape");
         let outline_json = serde_json::to_value(&outline).expect("outline should serialize");
         assert_eq!(outline_json["results"][0]["kind"], "root");
+    }
+
+    #[test]
+    fn file_root_target_include_is_shaped_as_file_without_root_title_raw() {
+        let connection = seeded_connection();
+        connection
+            .execute("UPDATE headings SET title_raw = NULL WHERE id = 20", [])
+            .expect("root title_raw should clear");
+        connection
+            .execute("UPDATE links SET target_heading_id = 20 WHERE id = 100", [])
+            .expect("file link should reference the synthetic root heading");
+
+        let response = execute_and_shape_query(
+            &connection,
+            &validated(r#"(links (status "resolved"))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::Target],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("file root target should shape");
+
+        let link = response
+            .results
+            .iter()
+            .find_map(|node| match node {
+                QueryResultNode::Link(link) if link.id == 100 => Some(link.as_ref()),
+                _ => None,
+            })
+            .expect("resolved file link should exist");
+        let target = link.target.as_ref().expect("target include should exist");
+
+        assert_eq!(link.target_heading_id, Some(20));
+        assert_eq!(target.resolved_kind, Some(QueryTarget::Files));
+        assert!(target.heading.is_none());
+        assert_eq!(
+            target
+                .file
+                .as_ref()
+                .and_then(|file| file.title_raw.as_deref()),
+            None
+        );
     }
 
     #[test]
