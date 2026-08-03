@@ -25,6 +25,11 @@ tmp/
 temp/
 coverage/
 
+# Package artifacts
+*.tar
+*.tar.gz
+*.zip
+
 # User stuff
 .project/local/
 

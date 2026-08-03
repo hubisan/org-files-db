@@ -7,64 +7,11 @@ Do not work directly from this file. Active tasks are tracked in [[./todo.org]].
 
 * Phase 9: Emacs integration
 
-Goal of this phase: Make the SQLite/CLI layer usable from Emacs.
+The Emacs integration is developed separately in:
 
-General rules:
+- [[https://github.com/hubisan/org-files-db.el][org-files-db.el]]
 
-- Emacs integration should stay thin until the CLI/API is stable.
-- Results should include file path and byte offsets for editor jumps.
-- UTF-8 byte offset behavior must be documented and tested.
-
-** TODO Write Elisp wrapper for CLI communication
-
-Acceptance criteria:
-
-- Emacs can call ~orgfdb query --json~.
-- Emacs can call ~orgfdb search --json~ when FTS5 is enabled.
-- JSON is read in Elisp.
-- Results can be displayed as a list.
-- Result entries include file path and ~byte_start~.
-- Disabled FTS5 is handled gracefully in Emacs-facing commands.
-
-** TODO Implement Emacs jump to result
-
-Goal: Use DB byte offsets to jump to headings or links from Emacs.
-
-Acceptance criteria:
-
-- Emacs can open the file from a query/search result.
-- Emacs can jump to ~byte_start~.
-- UTF-8 byte offsets are handled correctly.
-- Fallback behavior using ~line_number~ is documented.
-- Manual or automated checks cover non-ASCII text.
-
-** TODO Plan interactive Emacs commands
-
-Possible commands:
-
-- search by heading title
-- full-text search title/body when FTS5 is enabled
-- search by TODO state
-- search by TODO type
-- search by tag
-- search by property
-- show broken links
-- jump to ancestor/descendant result
-
-Acceptance criteria:
-
-- MVP command set is chosen.
-- Commands map cleanly to CLI/API calls.
-- Unsupported query features fail clearly.
-
-** TODO Evaluate thin Emacs module wrapper
-
-Note: Optional. Check only after the CLI is stable.
-
-Acceptance criteria:
-
-- Decision is documented: not needed, later, or useful.
-- Added complexity is justified by concrete performance or UX benefits.
+The Rust project is responsible for the CLI, JSON API, indexing, and database behaviour required by the Emacs package.
 
 * Phase 10: Testing and regression
 
