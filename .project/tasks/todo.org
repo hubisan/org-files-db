@@ -93,9 +93,1151 @@ Operational context:
 - Parallel parsing would therefore not improve the normal operating path.
 - The only potentially affected operation would be an already fast and infrequent full rebuild.
 
-  
+* TODO Recover Org links that Orgize misparses
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
+Goal: Correctly recognize, index, resolve, render, and update valid Org links in cases where Orgize does not produce a correct ~LINK~ syntax node or classifies parts of the link as unrelated Org syntax.
+
+Implement one isolated compatibility layer in the ~orgfdb~ Orgize adapter.
+
+The rest of the application must consume one normalized link representation without needing to know whether a link was:
+
+- parsed natively by Orgize
+- recovered by the compatibility scanner
+
+Do not spread Orgize-specific workarounds throughout:
+
+- indexing
+- heading extraction
+- database writing
+- link resolution
+- query output
+- rename handling
+- source rewriting
+
+** Known Orgize parsing failures
+
+Orgize currently fails to recognize some valid links whose descriptions contain square brackets.
+
+Example:
+
+#+begin_src org
+[[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
+#+end_src
+
+Expected description:
+
+#+begin_example
+Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium
+#+end_example
+
+Orgize may expose the complete source as plain ~TEXT~ rather than as a ~LINK~ node.
+
+Links whose descriptions begin with inactive timestamps are also affected:
+
+#+begin_src org
+[[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]
+
+[[file:../notes/gesundheit/leiden/2022-12-operation-nasenscheidenwand.org][[2022-12-13 Di] Operation Nasenscheidenwand & Nebenhöhlen]]
+
+[[file:../notes/gesundheit/leiden/leiden.org::#f22e2595-302b-4263-85d5-0394a16ac405][[2026-03-21 Sa] Schmerzen Fuss unten vorne]]
+#+end_src
+
+Orgize may expose these as a sequence such as:
+
+#+begin_example
+TEXT
+TIMESTAMP_INACTIVE
+TEXT
+#+end_example
+
+instead of one complete link.
+
+Orgize also misclassifies links at the beginning of list items when their target contains ~::~:
+
+#+begin_src org
+- [[test.org::Heading]]
+- [[test.org::#1]]
+#+end_src
+
+The beginning of the link may be interpreted as a descriptive-list tag because of the ~::~ inside the target.
+
+This ordinary paragraph form is recognized correctly and must remain correct:
+
+#+begin_src org
+Parsed as link: [[test.org::Heading]]
+#+end_src
+
+** Required normalized behaviour
+
+Recovered links must behave like native Orgize links for:
+
+- link indexing
+- link type detection
+- authored target extraction
+- logical target extraction
+- search-option extraction
+- link-description extraction
+- source byte offsets
+- heading-title rendering
+- link resolution
+- incoming-link queries
+- outgoing-link queries
+- result navigation
+- file rename handling
+- path-based link rewriting
+- source-range replacement
+
+The database and query layers must not need separate logic for native and recovered links.
+
+** Normalized link representation
+
+Define one internal normalized link representation.
+
+It should retain conceptually:
+
+#+begin_example
+link kind
+raw complete link
+raw target
+logical target
+raw description
+visible description
+complete source byte range
+target source byte range
+description source byte range
+native or recovered origin for diagnostics
+#+end_example
+
+The exact Rust type may differ.
+
+The normalized representation must clearly distinguish:
+
+- exact authored source
+- decoded logical values
+- user-visible rendered values
+- source-editing ranges
+
+Native Orgize links and recovered links must populate the same representation.
+
+** Raw and logical targets
+
+Preserve the exact authored target:
+
+#+begin_example
+raw_target
+#+end_example
+
+Also expose the decoded target used for:
+
+- link-type classification
+- file-path extraction
+- search-option extraction
+- link resolution
+- target comparison
+
+Conceptually:
+
+#+begin_example
+raw target:
+https://www.gnu.org\]\[test
+
+logical target:
+https://www.gnu.org][test
+#+end_example
+
+Do not destroy the raw representation after decoding.
+
+Source rewriting must operate on exact source byte ranges rather than by searching for the decoded target text.
+
+Decode target escaping in one shared function.
+
+Do not duplicate unescaping logic in:
+
+- parser adapter
+- resolver
+- rename implementation
+- query result construction
+
+** Org target escaping rules
+
+The compatibility scanner must follow Org link-target escaping rules.
+
+In the link target, escaping is required for:
+
+- every literal ~[~
+- every literal ~]~
+- every backslash immediately preceding ~[~ or ~]~
+- every backslash at the end of the target
+
+Examples:
+
+#+begin_src org
+[[https://www.gnu.org\][Test]]
+
+[[https://www.gnu.org\\][Test]]
+
+[[https://www.gnu.org\]\[brackets need to be escaped \[\] in the path\]][test]]
+#+end_src
+
+The scanner must distinguish:
+
+- an escaped closing bracket
+- an escaped opening bracket
+- a literal final backslash
+- a structural target delimiter
+- a malformed or incomplete escape sequence
+
+The first example must not be accepted merely by searching forward for the next possible closing brackets.
+
+The second example contains an escaped trailing backslash and must be handled according to GNU Emacs Org semantics.
+
+The third example contains escaped brackets and backslashes in the target and must not terminate prematurely.
+
+Do not implement target parsing with one broad regular expression.
+
+** Description delimiter rules
+
+Descriptions follow different rules from targets.
+
+Square brackets in a description do not generally require target-style escaping.
+
+Examples:
+
+#+begin_src org
+[[https://www.gnu.org][Intro to Brazilian Jiu-Jitsu [BJJML]]]
+
+[[file:notes.org::#id][[2026-03-21 Sa] Note]]
+
+[[https://orgmode.org][test [again] oder nicht]]
+#+end_src
+
+Expected visible descriptions:
+
+#+begin_example
+Intro to Brazilian Jiu-Jitsu [BJJML]
+[2026-03-21 Sa] Note
+test [again] oder nicht
+#+end_example
+
+Do not parse a description as recursively nested Org links.
+
+Nested links are not supported as nested link objects.
+
+Two consecutive closing brackets terminate the described link according to the Org link grammar.
+
+The description scanner must therefore not use arbitrary recursive bracket balancing.
+
+Test ambiguous and malformed inputs:
+
+#+begin_src org
+[[https://www.gnu.org][[Test]]]]
+
+[[https://www.gnu.org][[[[[[Test]]]]
+
+[[https://www.gnu.org][[][][]]]]
+
+[[https://orgmode.org][test [[https://test.com]]no more link
+
+[[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]
+#+end_src
+
+For these inputs:
+
+- follow GNU Emacs Org boundary behaviour
+- do not fabricate nested link objects
+- do not consume unrelated following text
+- preserve trailing text outside the recognized link
+- reject incomplete links deterministically
+- never panic
+- always make forward progress
+
+** Escape-aware bracket-link scanner
+
+Implement the compatibility scanner as an explicit state machine.
+
+Conceptually:
+
+#+begin_example
+find opening [[
+→ scan target with escape awareness
+→ detect target-only closing ]]
+   or target-description separator ][
+→ when described, scan description using Org description rules
+→ require the grammar-valid final ]]
+#+end_example
+
+The state machine must distinguish at least:
+
+- opening delimiter
+- ordinary target character
+- escaped target character
+- target closing delimiter
+- target-description separator
+- ordinary description character
+- description closing delimiter
+- malformed end of input
+
+Do not describe or implement this merely as a balanced-bracket scanner.
+
+Targets and descriptions intentionally use different parsing rules.
+
+Do not implement the complete grammar with one regular expression.
+
+** Eligible recovery regions
+
+Use Orgize node ranges to identify source regions eligible for recovery.
+
+Include at least:
+
+- headline titles
+- ordinary paragraph text
+- ordinary list-item content
+- list-item tags that appear to have been created from a link target containing ~::~
+
+Do not scan blindly across the complete source file.
+
+Exclude literal or inactive regions according to the existing indexing semantics, including where applicable:
+
+- source blocks
+- example blocks
+- export blocks
+- fixed-width literal regions
+- comments
+- comment blocks
+- verbatim text
+- code text
+- drawers excluded from link indexing
+- other literal contexts
+
+The compatibility scanner must not create links from source examples or quoted parser fixtures merely because they contain ~[[...]]~ text.
+
+Use exact source ranges rather than reconstructed Orgize node text where possible.
+
+** Native and recovered link merging
+
+Collect both:
+
+- native Orgize links
+- complete recovered links
+
+Merge them into one source-ordered collection.
+
+A native link and a recovered link covering the same complete source range represent the same link.
+
+Prefer the native Orgize representation for an identical complete range.
+
+Use stable source identity such as:
+
+#+begin_example
+file identity
++ complete start byte
++ complete end byte
+#+end_example
+
+Do not emit duplicate link rows.
+
+A difference in interpreted target text must not create two links when the complete source range is identical.
+
+When Orgize begins parsing an affected form correctly in a future version, normalized ~orgfdb~ output must remain unchanged.
+
+** List-item recovery
+
+Recover links in list items such as:
+
+#+begin_src org
+- [[test.org::Heading]]
+- [[test.org::#1]]
+#+end_src
+
+Expected logical targets:
+
+#+begin_example
+test.org::Heading
+test.org::#1
+#+end_example
+
+The ~::~ inside the target must not turn the valid link into a descriptive-list tag from the perspective of ~orgfdb~ link indexing.
+
+This workaround must not be required:
+
+#+begin_src org
+- To overcome, just add :: to the list item before the link [[test.org::#1]]
+#+end_src
+
+The compatibility layer does not necessarily need to repair Orgize's complete list AST.
+
+It must expose the correct normalized link and exact source position to the indexer.
+
+Also verify ordinary descriptive lists remain unaffected:
+
+#+begin_src org
+- Term :: Description
+- Link example :: [[test.org::#1]]
+#+end_src
+
+Do not reinterpret valid descriptive-list syntax as a malformed link.
+
+** Heading-title rendering
+
+Heading ~title~ must contain human-readable visible text.
+
+Heading ~title_raw~ must preserve the exact authored heading title.
+
+Example:
+
+#+begin_src org
+  ,* [[https://example.org][Example]]
+#+end_src
+
+Expected representation:
+
+#+begin_src json
+{
+  "title": "Example",
+  "title_raw": "[[https://example.org][Example]]"
+}
+#+end_src
+
+Mixed content:
+
+#+begin_src org
+  ,* Read [[https://example.org][the documentation]] today
+#+end_src
+
+Expected title:
+
+#+begin_example
+Read the documentation today
+#+end_example
+
+Bracket-containing description:
+
+#+begin_src org
+  ,* [[https://example.org][Example [description]]]
+#+end_src
+
+Expected title:
+
+#+begin_example
+Example [description]
+#+end_example
+
+Timestamp description:
+
+#+begin_src org
+  ,* [[file:notes.org::#id][[2026-03-21 Sa] Note]]
+#+end_src
+
+Expected title:
+
+#+begin_example
+[2026-03-21 Sa] Note
+#+end_example
+
+For a link with a description:
+
+#+begin_example
+rendered contribution = visible description
+#+end_example
+
+For a link without a description:
+
+#+begin_example
+rendered contribution = logical or authored target according to the existing public title semantics
+#+end_example
+
+Example:
+
+#+begin_src org
+  ,* [[https://example.org]]
+#+end_src
+
+Expected title:
+
+#+begin_example
+https://example.org
+#+end_example
+
+Build rendered headings from normalized inline source components.
+
+Do not repair titles later through broad string replacement.
+
+Do not expose the complete ~[[target][description]]~ syntax as the ordinary user-facing ~title~ merely because Orgize missed the link node.
+
+** Other inline title content
+
+Ensure link recovery does not remove or corrupt adjacent inline content.
+
+Test interaction with:
+
+- plain text before a link
+- plain text after a link
+- multiple links
+- emphasis
+- code
+- verbatim text
+- entities
+- timestamps
+- targets
+- radio targets
+- footnote references
+- Unicode text
+- heading tags
+
+The task may remain focused on links, but title rendering must continue to preserve existing non-link behaviour.
+
+** Source byte offsets
+
+Recovered links must retain exact UTF-8 byte ranges.
+
+Record at least:
+
+- complete link start byte
+- complete link end byte
+- target start byte
+- target end byte
+- description start byte when present
+- description end byte when present
+
+Use the same end-exclusive range convention as existing Orgize-derived source ranges.
+
+Do not mix:
+
+- Rust character indexes
+- Unicode scalar indexes
+- grapheme positions
+- UTF-8 byte offsets
+
+For every stored range, slicing the original UTF-8 source by that byte range must reproduce the exact authored substring.
+
+Offsets are required for:
+
+- opening query results
+- result previews
+- preserving authored links
+- file rename link updates
+- source replacement
+- non-ASCII paths
+- non-ASCII descriptions
+- text following emoji characters
+
+Do not calculate final byte positions by applying character counts to the original source.
+
+** Unicode regression fixture
+
+Add Unicode before and inside links:
+
+#+begin_src org
+  Text with: äöü ÄÖÜ 😀😇🤖
+
+  ,*** Übung 🚀 Ein Titel mit Umlaut und Emoji :foo:bar:
+
+  Some body text with a link: https://orgmode.org/🔥
+
+  And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
+
+  https://orgmode.org/🔥
+
+  <https://orgmode.org/🔥>
+
+  <https://orgmode.org/ 🔥>
+#+end_src
+
+Verify exact UTF-8 byte positions for:
+
+- the Unicode headline
+- the headline title
+- heading tags
+- the complete bracket link
+- the bracket-link target
+- the bracket-link description
+- plain links
+- angle-style links where supported
+- text after emoji characters
+- later headings after Unicode content
+
+Expected byte slices for the bracket link:
+
+#+begin_example
+complete:
+[[file:sub/äöü.txt::target][A file link with Umlaut]]
+
+target:
+file:sub/äöü.txt::target
+
+description:
+A file link with Umlaut
+#+end_example
+
+** Plain links
+
+Do not regress ordinary plain-link handling.
+
+Examples:
+
+#+begin_src org
+Some body text with a link: https://orgmode.org/🔥
+
+https://orgmode.org/🔥
+#+end_src
+
+The bracket-link recovery scanner must only recover bracket links beginning with ~[[~.
+
+It must not independently reinterpret every URL-looking substring.
+
+Continue to use the existing native parser behaviour for supported plain links.
+
+Test that malformed bracket input before a plain link does not hide or consume the later plain link.
+
+** Angle-style links
+
+Test angle-style input:
+
+#+begin_src org
+<https://orgmode.org/🔥>
+
+<https://orgmode.org/ 🔥>
+#+end_src
+
+Define the expected behaviour according to the supported GNU Emacs Org syntax and current ~orgfdb~ link model.
+
+An unsupported or malformed angle form containing whitespace must not:
+
+- consume surrounding text
+- shift later positions
+- become an incorrect bracket link
+- panic
+
+The bracket-link compatibility scanner must not change native angle-link semantics.
+
+** Malformed input
+
+Recover only complete and unambiguous links.
+
+Examples:
+
+#+begin_src org
+[[https://example.org][unfinished
+
+[[file:test.org
+
+[[https://example.org\][Description]]
+
+[[https://example.org][Description
+#+end_src
+
+For malformed input:
+
+- do not fabricate a valid link
+- do not consume the remainder of the file
+- do not suppress later valid links
+- do not panic
+- always advance the scanner
+- preserve existing parser output for unrelated text
+
+Add fuzz or property-based tests where practical.
+
+At minimum, assert that arbitrary bracket and backslash sequences:
+
+- terminate
+- remain within source bounds
+- never produce invalid ranges
+- never panic
+
+** GNU Emacs Org as compatibility reference
+
+Use GNU Emacs Org behaviour as the reference for difficult delimiter and escaping cases.
+
+Do not define expected behaviour solely from the current Orgize tree because Orgize is the component being worked around.
+
+Create a small golden fixture containing conceptually:
+
+#+begin_example
+input source
+recognized link kind
+raw complete link
+raw target
+logical target
+raw description
+visible description
+start position
+end position
+remaining trailing text
+#+end_example
+
+The ordinary Rust test suite must not require starting Emacs for every run.
+
+Provide a separate development command or documented script to regenerate or verify the golden expectations with GNU Emacs Org.
+
+The production parser remains fully implemented in Rust.
+
+It must not shell out to Emacs.
+
+** Complete regression fixture
+
+Add one fixture containing all reported cases:
+
+#+begin_src org
+  [[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
+
+  [[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]
+
+  [[file:../notes/gesundheit/leiden/2022-12-operation-nasenscheidenwand.org][[2022-12-13 Di] Operation Nasenscheidenwand & Nebenhöhlen]]
+
+  [[file:../notes/gesundheit/leiden/leiden.org::#f22e2595-302b-4263-85d5-0394a16ac405][[2026-03-21 Sa] Schmerzen Fuss unten vorne]]
+
+  ,* Tasks
+
+  Parsed as link: [[test.org::Heading]]
+
+  - [[test.org::Heading]]
+  - [[test.org::#1]]
+  - To overcome, just add :: to the list item before the link [[test.org::#1]]
+
+  ,** Escape Chars
+
+  - [[https://www.gnu.org\][Test]]
+
+  - [[https://www.gnu.org\\][Test]]
+
+  - [[https://www.gnu.org\]\[brackets need to be escaped \[\] in the path\]][test]]
+
+  - [[https://www.gnu.org][[Test]]]]
+
+  - [[https://www.gnu.org][[[[[[Test]]]]
+
+  - [[https://www.gnu.org][[][][]]]]
+
+  - [[https://orgmode.org][test [[https://test.com]]no more link
+
+  - [[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]
+
+  Text with: äöü ÄÖÜ 😀😇🤖
+
+  ,*** Übung 🚀 Ein Titel mit Umlaut und Emoji :foo:bar:
+
+  Some body text with a link: https://orgmode.org/🔥
+
+  And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
+
+  https://orgmode.org/🔥
+
+  <https://orgmode.org/🔥>
+
+  <https://orgmode.org/ 🔥>
+#+end_src
+
+Do not require every malformed case to become a valid link.
+
+Malformed cases exist to verify:
+
+- correct termination
+- no overconsumption
+- no panic
+- deterministic behaviour
+- preservation of trailing text
+- later-link recovery
+- compatibility with GNU Emacs Org
+
+** Additional focused fixtures
+
+Add focused fixtures for:
+
+#+begin_src org
+  ,* Prefix [[https://example.org][description [with brackets]]] suffix
+
+  ,* Two [[https://one.example][first [one]]] and [[https://two.example][second [two]]] links
+
+  ,* [[https://example.org]]
+
+  ,* Unicode [[https://example.org][Überblick [grün]]]
+
+  - Term :: Description
+
+  - Link example :: [[test.org::#1]]
+#+end_src
+
+Expected rendered heading titles:
+
+#+begin_example
+Prefix description [with brackets] suffix
+Two first [one] and second [two] links
+https://example.org
+Unicode Überblick [grün]
+#+end_example
+
+** Query and database semantics
+
+Recovered links must use the existing database schema and public query representation.
+
+Do not introduce a separate recovered-link table or query result kind.
+
+Ensure:
+
+- authored targets are stored correctly
+- logical targets are resolved correctly
+- search options remain complete
+- descriptions remain complete
+- link types remain correct
+- source positions remain exact
+- resolution status uses the existing values
+- heading titles use rendered descriptions
+- heading ~title_raw~ preserves source syntax
+
+A full rebuild after the fix must correct previously misindexed:
+
+- links
+- link targets
+- descriptions
+- source positions
+- heading titles
+- resolution rows
+
+Document that users must rebuild an existing database to repair previously persisted parser results.
+
+** Search-option handling
+
+Preserve complete target search options.
+
+Examples:
+
+#+begin_src org
+[[test.org::Heading]]
+
+[[test.org::#1]]
+
+[[file:notes.org::*Named heading]]
+
+[[file:notes.org::#custom-id][Description]]
+#+end_src
+
+Expected targets must not lose:
+
+- ~::Heading~
+- ~::#1~
+- ~::*Named heading~
+- ~::#custom-id~
+
+Use the existing target parser after the complete logical target has been recovered.
+
+Do not let list parsing or target escaping truncate the search option.
+
+** Link resolution
+
+Recovered links must enter the normal link-resolution pipeline.
+
+Verify resolution for:
+
+- file-only targets
+- heading search targets
+- custom-ID search targets
+- ID links where applicable
+- relative file paths
+- Unicode file paths
+- unresolved targets
+- ambiguous targets
+
+A recovered link and an equivalent native Orgize link must produce the same resolution result.
+
+** Rename and source update safety
+
+At least one integration test must update a recovered path-based link.
+
+For example:
+
+#+begin_src org
+[[file:sub/äöü.txt::target][A file link with Umlaut]]
+#+end_src
+
+After renaming the target file, verify:
+
+- exactly the intended source range is replaced
+- the description remains unchanged
+- surrounding Unicode remains unchanged
+- search options remain unchanged
+- no neighbouring link is modified
+- the resulting Org source remains valid
+- stored byte positions are refreshed after reindexing
+
+Do not reconstruct the complete source line from parsed values.
+
+Use the exact source byte range and the existing safe rewrite mechanism.
+
+** Diagnostics
+
+Where parser diagnostics exist, optionally expose:
+
+#+begin_example
+native_link_count
+recovered_link_count
+discarded_recovery_count
+#+end_example
+
+Normal indexing must not emit one warning per recovered valid link.
+
+A debug mode may report:
+
+- source file
+- complete byte range
+- raw link
+- covering Orgize node kinds
+- native or recovered origin
+- recovery rejection reason
+
+Diagnostics must not affect normalized production output.
+
+** Orgize version isolation
+
+Keep the workaround isolated in the Orgize adapter.
+
+Document the supported Orgize version and upstream issue.
+
+Tests must assert normalized ~orgfdb~ behaviour rather than requiring Orgize to continue failing.
+
+After an Orgize upgrade:
+
+- run all compatibility tests
+- compare native and recovered ranges
+- verify normalized output remains unchanged
+- remove only recovery paths made fully redundant
+- retain the normalized internal contract
+- retain malformed-input and escaping tests
+
+Do not remove the compatibility layer merely because one reported example starts parsing correctly.
+
+** Upstream issue
+
+Create or reference an Orgize issue containing minimized cases for:
+
+- brackets inside descriptions
+- inactive timestamps at the start of descriptions
+- list-item links containing ~::~
+- escaped target brackets
+- escaped trailing backslashes
+- malformed nested-link-looking descriptions
+
+Include relevant syntax-tree output.
+
+The ~orgfdb~ implementation must not depend on the upstream issue being fixed immediately.
+
+** Unit tests for target scanning
+
+Add focused tests for:
+
+- target-only links
+- described links
+- described web links
+- described file links
+- heading search options
+- custom-ID search options
+- escaped opening brackets in targets
+- escaped closing brackets in targets
+- escaped opening and closing brackets together
+- one trailing backslash
+- valid escaped final backslash
+- backslash before a non-bracket character
+- malformed target escaping
+- incomplete target delimiters
+- exact raw target
+- exact logical target
+- exact target byte ranges
+- guaranteed forward progress
+
+** Unit tests for descriptions
+
+Add focused tests for:
+
+- ordinary descriptions
+- descriptions containing one bracket pair
+- descriptions containing several bracket pairs
+- descriptions beginning with inactive timestamps
+- descriptions containing non-ASCII text
+- descriptions containing emoji
+- descriptions resembling nested links
+- the first grammar-valid closing delimiter
+- trailing brackets after a complete link
+- trailing plain text after a complete link
+- incomplete descriptions
+- multiple links in one source region
+- valid links after malformed input
+
+** Parser-adapter tests
+
+Test normalized adapter output for:
+
+- native Orgize links
+- recovered links
+- native and recovered deduplication
+- stable source ordering
+- headline-title rendering
+- paragraph links
+- links at the beginning of list items
+- ordinary descriptive lists
+- excluded literal contexts
+- exact raw and rendered heading titles
+- exact UTF-8 ranges
+- Unicode before and inside links
+
+Do not test only the standalone scanner.
+
+Verify the complete normalized representation consumed by the indexer.
+
+** Database integration tests
+
+After indexing the regression fixture, verify:
+
+- every valid expected link exists exactly once
+- malformed inputs do not create fabricated links
+- targets are complete
+- logical targets are correctly decoded
+- raw targets preserve authored escaping
+- descriptions are complete
+- description brackets remain visible
+- inactive timestamps remain part of descriptions
+- list-item links with ~::~ are indexed
+- search options remain intact
+- heading ~title~ contains rendered visible text
+- heading ~title_raw~ preserves authored syntax
+- source byte ranges reproduce the original source
+- link resolution matches equivalent native links
+- Unicode paths resolve where targets exist
+- malformed input does not hide later valid links
+- full rebuild corrects old persisted values
+
+** Plain- and angle-link regression tests
+
+Verify existing behaviour for:
+
+- plain ASCII URLs
+- plain Unicode URLs
+- plain URLs surrounded by prose
+- angle-style URLs
+- angle-style Unicode URLs
+- malformed angle input with whitespace
+- plain URLs after malformed bracket links
+
+The bracket-link recovery implementation must not replace the existing native handling for these forms.
+
+** Fuzz and property tests
+
+Where practical, generate inputs containing combinations of:
+
+- ~[~
+- ~]~
+- ~\~
+- ~::~
+- ASCII
+- non-ASCII characters
+- emoji
+- newlines
+
+Assert:
+
+- the scanner always terminates
+- every returned range is within the source
+- every start is less than or equal to its end
+- target and description ranges are contained in the complete range
+- byte slicing never panics
+- native and recovered links are not duplicated
+- malformed input cannot consume beyond the eligible region
+
+** Documentation
+
+Document:
+
+- why the Orgize compatibility layer exists
+- that native and recovered links share one normalized representation
+- target escaping semantics
+- description boundary semantics
+- UTF-8 byte-offset requirements
+- rebuild requirements for existing databases
+- the referenced upstream Orgize issue
+- how to regenerate GNU Emacs Org golden fixtures
+
+Keep these implementation details in contributor or parser documentation rather than ordinary end-user query documentation.
+
+** Implementation plan
+
+1. Add minimized fixtures for every reported failure.
+2. Record current Orgize node ranges for diagnostics.
+3. Generate GNU Emacs Org golden expectations for difficult cases.
+4. Define the normalized internal link representation.
+5. Define raw, logical, and visible field semantics.
+6. Identify eligible and excluded source regions from the Orgize tree.
+7. Implement the escape-aware bracket-link target state machine.
+8. Implement the separate description-boundary scanner.
+9. Add exact UTF-8 byte-range handling.
+10. Recover links from headline titles.
+11. Recover links from ordinary paragraphs.
+12. Recover links from misclassified list-item tag and content ranges.
+13. Merge native and recovered links by complete source range.
+14. Preserve stable source ordering.
+15. Route heading-title rendering through normalized inline link data.
+16. Integrate normalized links into indexing.
+17. Integrate recovered links into the normal resolution pipeline.
+18. Verify query and search output.
+19. Verify file rename and source update operations.
+20. Add malformed-input and forward-progress tests.
+21. Add Unicode byte-offset tests.
+22. Add plain- and angle-link regression tests.
+23. Add parser-adapter integration tests.
+24. Add database and rebuild integration tests.
+25. Add fuzz or property-based tests.
+26. Add optional parser diagnostics.
+27. Document the compatibility layer and rebuild requirement.
+28. Reference the upstream Orgize issue.
+29. Run formatting, linting, unit tests, integration tests, rebuild tests, and watcher tests.
+
+** Acceptance criteria
+
+- Bracket-containing descriptions are recognized as complete links.
+- Inactive timestamps at the beginning of descriptions remain part of the description.
+- Descriptions containing square brackets are rendered correctly.
+- Description text is not parsed as recursively nested links.
+- The first grammar-valid closing delimiter terminates a described link.
+- Escaped opening brackets in targets do not terminate the target.
+- Escaped closing brackets in targets do not terminate the target.
+- Valid escaped trailing backslashes are handled correctly.
+- Invalid or incomplete target escaping does not fabricate links.
+- Raw targets preserve exact authored escaping.
+- Logical targets are decoded once for classification and resolution.
+- Links at the beginning of list items are recognized when their targets contain ~::~.
+- ~[[test.org::Heading]]~ retains the complete target ~test.org::Heading~.
+- ~[[test.org::#1]]~ retains the complete target ~test.org::#1~.
+- Users do not need to alter valid list-item source to work around Orgize.
+- Ordinary descriptive lists remain correct.
+- Native and recovered links share one normalized representation.
+- Native Orgize links are not duplicated.
+- Recovered links remain in source order.
+- Heading ~title~ contains visible rendered descriptions.
+- Heading ~title_raw~ preserves exact authored syntax.
+- Mixed text before and after links is preserved.
+- Multiple links in one heading are rendered correctly.
+- Links without descriptions use deterministic documented title text.
+- Recovered links have exact UTF-8 byte ranges.
+- Slicing the original source by stored ranges reproduces the authored text.
+- Unicode before a link does not shift its stored positions.
+- Unicode targets and descriptions remain intact.
+- Plain-link behaviour is not regressed.
+- Angle-link behaviour is not regressed.
+- Malformed bracket links never panic.
+- Malformed input does not consume the remainder of the file.
+- Malformed input does not hide later valid links.
+- Link queries expose recovered links exactly once.
+- Link resolution treats recovered and native equivalents identically.
+- Rename and source-update operations modify exactly the intended recovered link.
+- A full rebuild repairs previously misindexed links and heading titles.
+- The compatibility workaround remains isolated in the Orgize adapter.
+- Tests remain valid when a future Orgize version parses affected links natively.
+- Difficult delimiter and escaping behaviour is checked against GNU Emacs Org.
+  
 * TODO Add index generation tracking for reliable external cache invalidation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
 
 Goal: Expose a stable database generation that changes only after a successful index update has been committed.
 
@@ -703,3 +1845,4 @@ If watcher events are implemented, test:
 - SQLite file events can be used as wake-up signals, but generation remains authoritative.
 - Existing databases migrate without losing indexed data.
 - Tests cover initialization, migration, mutations, no-op operations, rollback, rebuild, watcher updates, concurrent reads, and status output.
+
