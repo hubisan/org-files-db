@@ -93,1393 +93,508 @@ Operational context:
 - Parallel parsing would therefore not improve the normal operating path.
 - The only potentially affected operation would be an already fast and infrequent full rebuild.
 
-* TODO Recover Org links that Orgize misparses
+* DONE Recover Org links that Orgize misparses
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Correctly recognize, index, resolve, render, and update valid Org links in cases where Orgize does not produce a correct ~LINK~ syntax node or classifies parts of the link as unrelated Org syntax.
+Detailed implementation plan: [[./archive/2026-08-04--recover-org-links-orgize-misparses.org][Recover Org Links Across Orgize Parse Gaps]]
 
-Implement one isolated compatibility layer in the ~orgfdb~ Orgize adapter.
+The implementation exists and is currently under review. Complete the review corrections and required checks before marking the task complete.
 
-The rest of the application must consume one normalized link representation without needing to know whether a link was:
-
-- parsed natively by Orgize
-- recovered by the compatibility scanner
-
-Do not spread Orgize-specific workarounds throughout:
-
-- indexing
-- heading extraction
-- database writing
-- link resolution
-- query output
-- rename handling
-- source rewriting
-
-** Known Orgize parsing failures
-
-Orgize currently fails to recognize some valid links whose descriptions contain square brackets.
-
-Example:
-
-#+begin_src org
-[[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
-#+end_src
-
-Expected description:
-
-#+begin_example
-Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium
-#+end_example
-
-Orgize may expose the complete source as plain ~TEXT~ rather than as a ~LINK~ node.
-
-Links whose descriptions begin with inactive timestamps are also affected:
-
-#+begin_src org
-[[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]
-
-[[file:../notes/gesundheit/leiden/2022-12-operation-nasenscheidenwand.org][[2022-12-13 Di] Operation Nasenscheidenwand & Nebenhöhlen]]
-
-[[file:../notes/gesundheit/leiden/leiden.org::#f22e2595-302b-4263-85d5-0394a16ac405][[2026-03-21 Sa] Schmerzen Fuss unten vorne]]
-#+end_src
-
-Orgize may expose these as a sequence such as:
-
-#+begin_example
-TEXT
-TIMESTAMP_INACTIVE
-TEXT
-#+end_example
-
-instead of one complete link.
-
-Orgize also misclassifies links at the beginning of list items when their target contains ~::~:
-
-#+begin_src org
-- [[test.org::Heading]]
-- [[test.org::#1]]
-#+end_src
-
-The beginning of the link may be interpreted as a descriptive-list tag because of the ~::~ inside the target.
-
-This ordinary paragraph form is recognized correctly and must remain correct:
-
-#+begin_src org
-Parsed as link: [[test.org::Heading]]
-#+end_src
-
-** Required normalized behaviour
-
-Recovered links must behave like native Orgize links for:
-
-- link indexing
-- link type detection
-- authored target extraction
-- logical target extraction
-- search-option extraction
-- link-description extraction
-- source byte offsets
-- heading-title rendering
-- link resolution
-- incoming-link queries
-- outgoing-link queries
-- result navigation
-- file rename handling
-- path-based link rewriting
-- source-range replacement
-
-The database and query layers must not need separate logic for native and recovered links.
-
-** Normalized link representation
-
-Define one internal normalized link representation.
-
-It should retain conceptually:
-
-#+begin_example
-link kind
-raw complete link
-raw target
-logical target
-raw description
-visible description
-complete source byte range
-target source byte range
-description source byte range
-native or recovered origin for diagnostics
-#+end_example
-
-The exact Rust type may differ.
-
-The normalized representation must clearly distinguish:
-
-- exact authored source
-- decoded logical values
-- user-visible rendered values
-- source-editing ranges
-
-Native Orgize links and recovered links must populate the same representation.
-
-** Raw and logical targets
-
-Preserve the exact authored target:
-
-#+begin_example
-raw_target
-#+end_example
-
-Also expose the decoded target used for:
-
-- link-type classification
-- file-path extraction
-- search-option extraction
-- link resolution
-- target comparison
-
-Conceptually:
-
-#+begin_example
-raw target:
-https://www.gnu.org\]\[test
-
-logical target:
-https://www.gnu.org][test
-#+end_example
-
-Do not destroy the raw representation after decoding.
-
-Source rewriting must operate on exact source byte ranges rather than by searching for the decoded target text.
-
-Decode target escaping in one shared function.
-
-Do not duplicate unescaping logic in:
-
-- parser adapter
-- resolver
-- rename implementation
-- query result construction
-
-** Org target escaping rules
-
-The compatibility scanner must follow Org link-target escaping rules.
-
-In the link target, escaping is required for:
-
-- every literal ~[~
-- every literal ~]~
-- every backslash immediately preceding ~[~ or ~]~
-- every backslash at the end of the target
-
-Examples:
-
-#+begin_src org
-[[https://www.gnu.org\][Test]]
-
-[[https://www.gnu.org\\][Test]]
-
-[[https://www.gnu.org\]\[brackets need to be escaped \[\] in the path\]][test]]
-#+end_src
-
-The scanner must distinguish:
-
-- an escaped closing bracket
-- an escaped opening bracket
-- a literal final backslash
-- a structural target delimiter
-- a malformed or incomplete escape sequence
-
-The first example must not be accepted merely by searching forward for the next possible closing brackets.
-
-The second example contains an escaped trailing backslash and must be handled according to GNU Emacs Org semantics.
-
-The third example contains escaped brackets and backslashes in the target and must not terminate prematurely.
-
-Do not implement target parsing with one broad regular expression.
-
-** Description delimiter rules
-
-Descriptions follow different rules from targets.
-
-Square brackets in a description do not generally require target-style escaping.
-
-Examples:
-
-#+begin_src org
-[[https://www.gnu.org][Intro to Brazilian Jiu-Jitsu [BJJML]]]
-
-[[file:notes.org::#id][[2026-03-21 Sa] Note]]
-
-[[https://orgmode.org][test [again] oder nicht]]
-#+end_src
-
-Expected visible descriptions:
-
-#+begin_example
-Intro to Brazilian Jiu-Jitsu [BJJML]
-[2026-03-21 Sa] Note
-test [again] oder nicht
-#+end_example
-
-Do not parse a description as recursively nested Org links.
-
-Nested links are not supported as nested link objects.
-
-Two consecutive closing brackets terminate the described link according to the Org link grammar.
-
-The description scanner must therefore not use arbitrary recursive bracket balancing.
-
-Test ambiguous and malformed inputs:
-
-#+begin_src org
-[[https://www.gnu.org][[Test]]]]
-
-[[https://www.gnu.org][[[[[[Test]]]]
-
-[[https://www.gnu.org][[][][]]]]
-
-[[https://orgmode.org][test [[https://test.com]]no more link
-
-[[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]
-#+end_src
-
-For these inputs:
-
-- follow GNU Emacs Org boundary behaviour
-- do not fabricate nested link objects
-- do not consume unrelated following text
-- preserve trailing text outside the recognized link
-- reject incomplete links deterministically
-- never panic
-- always make forward progress
-
-** Escape-aware bracket-link scanner
-
-Implement the compatibility scanner as an explicit state machine.
-
-Conceptually:
-
-#+begin_example
-find opening [[
-→ scan target with escape awareness
-→ detect target-only closing ]]
-   or target-description separator ][
-→ when described, scan description using Org description rules
-→ require the grammar-valid final ]]
-#+end_example
-
-The state machine must distinguish at least:
-
-- opening delimiter
-- ordinary target character
-- escaped target character
-- target closing delimiter
-- target-description separator
-- ordinary description character
-- description closing delimiter
-- malformed end of input
-
-Do not describe or implement this merely as a balanced-bracket scanner.
-
-Targets and descriptions intentionally use different parsing rules.
-
-Do not implement the complete grammar with one regular expression.
-
-** Eligible recovery regions
-
-Use Orgize node ranges to identify source regions eligible for recovery.
-
-Include at least:
-
-- headline titles
-- ordinary paragraph text
-- ordinary list-item content
-- list-item tags that appear to have been created from a link target containing ~::~
-
-Do not scan blindly across the complete source file.
-
-Exclude literal or inactive regions according to the existing indexing semantics, including where applicable:
-
-- source blocks
-- example blocks
-- export blocks
-- fixed-width literal regions
-- comments
-- comment blocks
-- verbatim text
-- code text
-- drawers excluded from link indexing
-- other literal contexts
-
-The compatibility scanner must not create links from source examples or quoted parser fixtures merely because they contain ~[[...]]~ text.
-
-Use exact source ranges rather than reconstructed Orgize node text where possible.
-
-** Native and recovered link merging
-
-Collect both:
-
-- native Orgize links
-- complete recovered links
-
-Merge them into one source-ordered collection.
-
-A native link and a recovered link covering the same complete source range represent the same link.
-
-Prefer the native Orgize representation for an identical complete range.
-
-Use stable source identity such as:
-
-#+begin_example
-file identity
-+ complete start byte
-+ complete end byte
-#+end_example
-
-Do not emit duplicate link rows.
-
-A difference in interpreted target text must not create two links when the complete source range is identical.
-
-When Orgize begins parsing an affected form correctly in a future version, normalized ~orgfdb~ output must remain unchanged.
-
-** List-item recovery
-
-Recover links in list items such as:
-
-#+begin_src org
-- [[test.org::Heading]]
-- [[test.org::#1]]
-#+end_src
-
-Expected logical targets:
-
-#+begin_example
-test.org::Heading
-test.org::#1
-#+end_example
-
-The ~::~ inside the target must not turn the valid link into a descriptive-list tag from the perspective of ~orgfdb~ link indexing.
-
-This workaround must not be required:
-
-#+begin_src org
-- To overcome, just add :: to the list item before the link [[test.org::#1]]
-#+end_src
-
-The compatibility layer does not necessarily need to repair Orgize's complete list AST.
-
-It must expose the correct normalized link and exact source position to the indexer.
-
-Also verify ordinary descriptive lists remain unaffected:
-
-#+begin_src org
-- Term :: Description
-- Link example :: [[test.org::#1]]
-#+end_src
-
-Do not reinterpret valid descriptive-list syntax as a malformed link.
-
-** Heading-title rendering
-
-Heading ~title~ must contain human-readable visible text.
-
-Heading ~title_raw~ must preserve the exact authored heading title.
-
-Example:
-
-#+begin_src org
-  ,* [[https://example.org][Example]]
-#+end_src
-
-Expected representation:
-
-#+begin_src json
-{
-  "title": "Example",
-  "title_raw": "[[https://example.org][Example]]"
-}
-#+end_src
-
-Mixed content:
-
-#+begin_src org
-  ,* Read [[https://example.org][the documentation]] today
-#+end_src
-
-Expected title:
-
-#+begin_example
-Read the documentation today
-#+end_example
-
-Bracket-containing description:
-
-#+begin_src org
-  ,* [[https://example.org][Example [description]]]
-#+end_src
-
-Expected title:
-
-#+begin_example
-Example [description]
-#+end_example
-
-Timestamp description:
-
-#+begin_src org
-  ,* [[file:notes.org::#id][[2026-03-21 Sa] Note]]
-#+end_src
-
-Expected title:
-
-#+begin_example
-[2026-03-21 Sa] Note
-#+end_example
-
-For a link with a description:
-
-#+begin_example
-rendered contribution = visible description
-#+end_example
-
-For a link without a description:
-
-#+begin_example
-rendered contribution = logical or authored target according to the existing public title semantics
-#+end_example
-
-Example:
-
-#+begin_src org
-  ,* [[https://example.org]]
-#+end_src
-
-Expected title:
-
-#+begin_example
-https://example.org
-#+end_example
-
-Build rendered headings from normalized inline source components.
-
-Do not repair titles later through broad string replacement.
-
-Do not expose the complete ~[[target][description]]~ syntax as the ordinary user-facing ~title~ merely because Orgize missed the link node.
-
-** Other inline title content
-
-Ensure link recovery does not remove or corrupt adjacent inline content.
-
-Test interaction with:
-
-- plain text before a link
-- plain text after a link
-- multiple links
-- emphasis
-- code
-- verbatim text
-- entities
-- timestamps
-- targets
-- radio targets
-- footnote references
-- Unicode text
-- heading tags
-
-The task may remain focused on links, but title rendering must continue to preserve existing non-link behaviour.
-
-** Source byte offsets
-
-Recovered links must retain exact UTF-8 byte ranges.
-
-Record at least:
-
-- complete link start byte
-- complete link end byte
-- target start byte
-- target end byte
-- description start byte when present
-- description end byte when present
-
-Use the same end-exclusive range convention as existing Orgize-derived source ranges.
-
-Do not mix:
-
-- Rust character indexes
-- Unicode scalar indexes
-- grapheme positions
-- UTF-8 byte offsets
-
-For every stored range, slicing the original UTF-8 source by that byte range must reproduce the exact authored substring.
-
-Offsets are required for:
-
-- opening query results
-- result previews
-- preserving authored links
-- file rename link updates
-- source replacement
-- non-ASCII paths
-- non-ASCII descriptions
-- text following emoji characters
-
-Do not calculate final byte positions by applying character counts to the original source.
-
-** Unicode regression fixture
-
-Add Unicode before and inside links:
-
-#+begin_src org
-  Text with: äöü ÄÖÜ 😀😇🤖
-
-  ,*** Übung 🚀 Ein Titel mit Umlaut und Emoji :foo:bar:
-
-  Some body text with a link: https://orgmode.org/🔥
-
-  And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
-
-  https://orgmode.org/🔥
-
-  <https://orgmode.org/🔥>
-
-  <https://orgmode.org/ 🔥>
-#+end_src
-
-Verify exact UTF-8 byte positions for:
-
-- the Unicode headline
-- the headline title
-- heading tags
-- the complete bracket link
-- the bracket-link target
-- the bracket-link description
-- plain links
-- angle-style links where supported
-- text after emoji characters
-- later headings after Unicode content
-
-Expected byte slices for the bracket link:
-
-#+begin_example
-complete:
-[[file:sub/äöü.txt::target][A file link with Umlaut]]
-
-target:
-file:sub/äöü.txt::target
-
-description:
-A file link with Umlaut
-#+end_example
-
-** Plain links
-
-Do not regress ordinary plain-link handling.
-
-Examples:
-
-#+begin_src org
-Some body text with a link: https://orgmode.org/🔥
-
-https://orgmode.org/🔥
-#+end_src
-
-The bracket-link recovery scanner must only recover bracket links beginning with ~[[~.
-
-It must not independently reinterpret every URL-looking substring.
-
-Continue to use the existing native parser behaviour for supported plain links.
-
-Test that malformed bracket input before a plain link does not hide or consume the later plain link.
-
-** Angle-style links
-
-Test angle-style input:
-
-#+begin_src org
-<https://orgmode.org/🔥>
-
-<https://orgmode.org/ 🔥>
-#+end_src
-
-Define the expected behaviour according to the supported GNU Emacs Org syntax and current ~orgfdb~ link model.
-
-An unsupported or malformed angle form containing whitespace must not:
-
-- consume surrounding text
-- shift later positions
-- become an incorrect bracket link
-- panic
-
-The bracket-link compatibility scanner must not change native angle-link semantics.
-
-** Malformed input
-
-Recover only complete and unambiguous links.
-
-Examples:
-
-#+begin_src org
-[[https://example.org][unfinished
-
-[[file:test.org
-
-[[https://example.org\][Description]]
-
-[[https://example.org][Description
-#+end_src
-
-For malformed input:
-
-- do not fabricate a valid link
-- do not consume the remainder of the file
-- do not suppress later valid links
-- do not panic
-- always advance the scanner
-- preserve existing parser output for unrelated text
-
-Add fuzz or property-based tests where practical.
-
-At minimum, assert that arbitrary bracket and backslash sequences:
-
-- terminate
-- remain within source bounds
-- never produce invalid ranges
-- never panic
-
-** GNU Emacs Org as compatibility reference
-
-Use GNU Emacs Org behaviour as the reference for difficult delimiter and escaping cases.
-
-Do not define expected behaviour solely from the current Orgize tree because Orgize is the component being worked around.
-
-Create a small golden fixture containing conceptually:
-
-#+begin_example
-input source
-recognized link kind
-raw complete link
-raw target
-logical target
-raw description
-visible description
-start position
-end position
-remaining trailing text
-#+end_example
-
-The ordinary Rust test suite must not require starting Emacs for every run.
-
-Provide a separate development command or documented script to regenerate or verify the golden expectations with GNU Emacs Org.
-
-The production parser remains fully implemented in Rust.
-
-It must not shell out to Emacs.
-
-** Complete regression fixture
-
-Add one fixture containing all reported cases:
-
-#+begin_src org
-  [[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
-
-  [[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]
-
-  [[file:../notes/gesundheit/leiden/2022-12-operation-nasenscheidenwand.org][[2022-12-13 Di] Operation Nasenscheidenwand & Nebenhöhlen]]
-
-  [[file:../notes/gesundheit/leiden/leiden.org::#f22e2595-302b-4263-85d5-0394a16ac405][[2026-03-21 Sa] Schmerzen Fuss unten vorne]]
-
-  ,* Tasks
-
-  Parsed as link: [[test.org::Heading]]
-
-  - [[test.org::Heading]]
-  - [[test.org::#1]]
-  - To overcome, just add :: to the list item before the link [[test.org::#1]]
-
-  ,** Escape Chars
-
-  - [[https://www.gnu.org\][Test]]
-
-  - [[https://www.gnu.org\\][Test]]
-
-  - [[https://www.gnu.org\]\[brackets need to be escaped \[\] in the path\]][test]]
-
-  - [[https://www.gnu.org][[Test]]]]
-
-  - [[https://www.gnu.org][[[[[[Test]]]]
-
-  - [[https://www.gnu.org][[][][]]]]
-
-  - [[https://orgmode.org][test [[https://test.com]]no more link
-
-  - [[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]
-
-  Text with: äöü ÄÖÜ 😀😇🤖
-
-  ,*** Übung 🚀 Ein Titel mit Umlaut und Emoji :foo:bar:
-
-  Some body text with a link: https://orgmode.org/🔥
-
-  And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
-
-  https://orgmode.org/🔥
-
-  <https://orgmode.org/🔥>
-
-  <https://orgmode.org/ 🔥>
-#+end_src
-
-Do not require every malformed case to become a valid link.
-
-Malformed cases exist to verify:
-
-- correct termination
-- no overconsumption
-- no panic
-- deterministic behaviour
-- preservation of trailing text
-- later-link recovery
-- compatibility with GNU Emacs Org
-
-** Additional focused fixtures
-
-Add focused fixtures for:
-
-#+begin_src org
-  ,* Prefix [[https://example.org][description [with brackets]]] suffix
-
-  ,* Two [[https://one.example][first [one]]] and [[https://two.example][second [two]]] links
-
-  ,* [[https://example.org]]
-
-  ,* Unicode [[https://example.org][Überblick [grün]]]
-
-  - Term :: Description
-
-  - Link example :: [[test.org::#1]]
-#+end_src
-
-Expected rendered heading titles:
-
-#+begin_example
-Prefix description [with brackets] suffix
-Two first [one] and second [two] links
-https://example.org
-Unicode Überblick [grün]
-#+end_example
-
-** Query and database semantics
-
-Recovered links must use the existing database schema and public query representation.
-
-Do not introduce a separate recovered-link table or query result kind.
-
-Ensure:
-
-- authored targets are stored correctly
-- logical targets are resolved correctly
-- search options remain complete
-- descriptions remain complete
-- link types remain correct
-- source positions remain exact
-- resolution status uses the existing values
-- heading titles use rendered descriptions
-- heading ~title_raw~ preserves source syntax
-
-A full rebuild after the fix must correct previously misindexed:
-
-- links
-- link targets
-- descriptions
-- source positions
-- heading titles
-- resolution rows
-
-Document that users must rebuild an existing database to repair previously persisted parser results.
-
-** Search-option handling
-
-Preserve complete target search options.
-
-Examples:
-
-#+begin_src org
-[[test.org::Heading]]
-
-[[test.org::#1]]
-
-[[file:notes.org::*Named heading]]
-
-[[file:notes.org::#custom-id][Description]]
-#+end_src
-
-Expected targets must not lose:
-
-- ~::Heading~
-- ~::#1~
-- ~::*Named heading~
-- ~::#custom-id~
-
-Use the existing target parser after the complete logical target has been recovered.
-
-Do not let list parsing or target escaping truncate the search option.
-
-** Link resolution
-
-Recovered links must enter the normal link-resolution pipeline.
-
-Verify resolution for:
-
-- file-only targets
-- heading search targets
-- custom-ID search targets
-- ID links where applicable
-- relative file paths
-- Unicode file paths
-- unresolved targets
-- ambiguous targets
-
-A recovered link and an equivalent native Orgize link must produce the same resolution result.
-
-** Rename and source update safety
-
-At least one integration test must update a recovered path-based link.
-
-For example:
-
-#+begin_src org
-[[file:sub/äöü.txt::target][A file link with Umlaut]]
-#+end_src
-
-After renaming the target file, verify:
-
-- exactly the intended source range is replaced
-- the description remains unchanged
-- surrounding Unicode remains unchanged
-- search options remain unchanged
-- no neighbouring link is modified
-- the resulting Org source remains valid
-- stored byte positions are refreshed after reindexing
-
-Do not reconstruct the complete source line from parsed values.
-
-Use the exact source byte range and the existing safe rewrite mechanism.
-
-** Diagnostics
-
-Where parser diagnostics exist, optionally expose:
-
-#+begin_example
-native_link_count
-recovered_link_count
-discarded_recovery_count
-#+end_example
-
-Normal indexing must not emit one warning per recovered valid link.
-
-A debug mode may report:
-
-- source file
-- complete byte range
-- raw link
-- covering Orgize node kinds
-- native or recovered origin
-- recovery rejection reason
-
-Diagnostics must not affect normalized production output.
-
-** Orgize version isolation
-
-Keep the workaround isolated in the Orgize adapter.
-
-Document the supported Orgize version and upstream issue.
-
-Tests must assert normalized ~orgfdb~ behaviour rather than requiring Orgize to continue failing.
-
-After an Orgize upgrade:
-
-- run all compatibility tests
-- compare native and recovered ranges
-- verify normalized output remains unchanged
-- remove only recovery paths made fully redundant
-- retain the normalized internal contract
-- retain malformed-input and escaping tests
-
-Do not remove the compatibility layer merely because one reported example starts parsing correctly.
-
-** Upstream issue
-
-Create or reference an Orgize issue containing minimized cases for:
-
-- brackets inside descriptions
-- inactive timestamps at the start of descriptions
-- list-item links containing ~::~
-- escaped target brackets
-- escaped trailing backslashes
-- malformed nested-link-looking descriptions
-
-Include relevant syntax-tree output.
-
-The ~orgfdb~ implementation must not depend on the upstream issue being fixed immediately.
-
-** Unit tests for target scanning
-
-Add focused tests for:
-
-- target-only links
-- described links
-- described web links
-- described file links
-- heading search options
-- custom-ID search options
-- escaped opening brackets in targets
-- escaped closing brackets in targets
-- escaped opening and closing brackets together
-- one trailing backslash
-- valid escaped final backslash
-- backslash before a non-bracket character
-- malformed target escaping
-- incomplete target delimiters
-- exact raw target
-- exact logical target
-- exact target byte ranges
-- guaranteed forward progress
-
-** Unit tests for descriptions
-
-Add focused tests for:
-
-- ordinary descriptions
-- descriptions containing one bracket pair
-- descriptions containing several bracket pairs
-- descriptions beginning with inactive timestamps
-- descriptions containing non-ASCII text
-- descriptions containing emoji
-- descriptions resembling nested links
-- the first grammar-valid closing delimiter
-- trailing brackets after a complete link
-- trailing plain text after a complete link
-- incomplete descriptions
-- multiple links in one source region
-- valid links after malformed input
-
-** Parser-adapter tests
-
-Test normalized adapter output for:
-
-- native Orgize links
-- recovered links
-- native and recovered deduplication
-- stable source ordering
-- headline-title rendering
-- paragraph links
-- links at the beginning of list items
-- ordinary descriptive lists
-- excluded literal contexts
-- exact raw and rendered heading titles
-- exact UTF-8 ranges
-- Unicode before and inside links
-
-Do not test only the standalone scanner.
-
-Verify the complete normalized representation consumed by the indexer.
-
-** Database integration tests
-
-After indexing the regression fixture, verify:
-
-- every valid expected link exists exactly once
-- malformed inputs do not create fabricated links
-- targets are complete
-- logical targets are correctly decoded
-- raw targets preserve authored escaping
-- descriptions are complete
-- description brackets remain visible
-- inactive timestamps remain part of descriptions
-- list-item links with ~::~ are indexed
-- search options remain intact
-- heading ~title~ contains rendered visible text
-- heading ~title_raw~ preserves authored syntax
-- source byte ranges reproduce the original source
-- link resolution matches equivalent native links
-- Unicode paths resolve where targets exist
-- malformed input does not hide later valid links
-- full rebuild corrects old persisted values
-
-** Plain- and angle-link regression tests
-
-Verify existing behaviour for:
-
-- plain ASCII URLs
-- plain Unicode URLs
-- plain URLs surrounded by prose
-- angle-style URLs
-- angle-style Unicode URLs
-- malformed angle input with whitespace
-- plain URLs after malformed bracket links
-
-The bracket-link recovery implementation must not replace the existing native handling for these forms.
-
-** Fuzz and property tests
-
-Where practical, generate inputs containing combinations of:
-
-- ~[~
-- ~]~
-- ~\~
-- ~::~
-- ASCII
-- non-ASCII characters
-- emoji
-- newlines
-
-Assert:
-
-- the scanner always terminates
-- every returned range is within the source
-- every start is less than or equal to its end
-- target and description ranges are contained in the complete range
-- byte slicing never panics
-- native and recovered links are not duplicated
-- malformed input cannot consume beyond the eligible region
-
-** Documentation
-
-Document:
-
-- why the Orgize compatibility layer exists
-- that native and recovered links share one normalized representation
-- target escaping semantics
-- description boundary semantics
-- UTF-8 byte-offset requirements
-- rebuild requirements for existing databases
-- the referenced upstream Orgize issue
-- how to regenerate GNU Emacs Org golden fixtures
-
-Keep these implementation details in contributor or parser documentation rather than ordinary end-user query documentation.
-
-** Implementation plan
-
-1. Add minimized fixtures for every reported failure.
-2. Record current Orgize node ranges for diagnostics.
-3. Generate GNU Emacs Org golden expectations for difficult cases.
-4. Define the normalized internal link representation.
-5. Define raw, logical, and visible field semantics.
-6. Identify eligible and excluded source regions from the Orgize tree.
-7. Implement the escape-aware bracket-link target state machine.
-8. Implement the separate description-boundary scanner.
-9. Add exact UTF-8 byte-range handling.
-10. Recover links from headline titles.
-11. Recover links from ordinary paragraphs.
-12. Recover links from misclassified list-item tag and content ranges.
-13. Merge native and recovered links by complete source range.
-14. Preserve stable source ordering.
-15. Route heading-title rendering through normalized inline link data.
-16. Integrate normalized links into indexing.
-17. Integrate recovered links into the normal resolution pipeline.
-18. Verify query and search output.
-19. Verify file rename and source update operations.
-20. Add malformed-input and forward-progress tests.
-21. Add Unicode byte-offset tests.
-22. Add plain- and angle-link regression tests.
-23. Add parser-adapter integration tests.
-24. Add database and rebuild integration tests.
-25. Add fuzz or property-based tests.
-26. Add optional parser diagnostics.
-27. Document the compatibility layer and rebuild requirement.
-28. Reference the upstream Orgize issue.
-29. Run formatting, linting, unit tests, integration tests, rebuild tests, and watcher tests.
-
-** Acceptance criteria
-
-- Bracket-containing descriptions are recognized as complete links.
-- Inactive timestamps at the beginning of descriptions remain part of the description.
-- Descriptions containing square brackets are rendered correctly.
-- Description text is not parsed as recursively nested links.
-- The first grammar-valid closing delimiter terminates a described link.
-- Escaped opening brackets in targets do not terminate the target.
-- Escaped closing brackets in targets do not terminate the target.
-- Valid escaped trailing backslashes are handled correctly.
-- Invalid or incomplete target escaping does not fabricate links.
-- Raw targets preserve exact authored escaping.
-- Logical targets are decoded once for classification and resolution.
-- Links at the beginning of list items are recognized when their targets contain ~::~.
-- ~[[test.org::Heading]]~ retains the complete target ~test.org::Heading~.
-- ~[[test.org::#1]]~ retains the complete target ~test.org::#1~.
-- Users do not need to alter valid list-item source to work around Orgize.
-- Ordinary descriptive lists remain correct.
-- Native and recovered links share one normalized representation.
-- Native Orgize links are not duplicated.
-- Recovered links remain in source order.
-- Heading ~title~ contains visible rendered descriptions.
-- Heading ~title_raw~ preserves exact authored syntax.
-- Mixed text before and after links is preserved.
-- Multiple links in one heading are rendered correctly.
-- Links without descriptions use deterministic documented title text.
-- Recovered links have exact UTF-8 byte ranges.
-- Slicing the original source by stored ranges reproduces the authored text.
-- Unicode before a link does not shift its stored positions.
-- Unicode targets and descriptions remain intact.
-- Plain-link behaviour is not regressed.
-- Angle-link behaviour is not regressed.
-- Malformed bracket links never panic.
-- Malformed input does not consume the remainder of the file.
-- Malformed input does not hide later valid links.
-- Link queries expose recovered links exactly once.
-- Link resolution treats recovered and native equivalents identically.
-- Rename and source-update operations modify exactly the intended recovered link.
-- A full rebuild repairs previously misindexed links and heading titles.
-- The compatibility workaround remains isolated in the Orgize adapter.
-- Tests remain valid when a future Orgize version parses affected links natively.
-- Difficult delimiter and escaping behaviour is checked against GNU Emacs Org.
-  
-* TODO Add index generation tracking for reliable external cache invalidation
+* TODO Add transactional index generations and cached-view delta refresh
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Expose a stable database generation that changes only after a successful index update has been committed.
+Goal: Allow external clients such as ~org-files-db.el~ to cache saved query views reliably and refresh them only after committed query-visible database changes.
 
-External clients such as ~org-files-db.el~ must be able to determine whether cached query results still represent the current database state without relying only on SQLite file modification times.
+A cache belongs to a complete saved view, not to an individual file.
 
-The generation is a database-wide monotonic integer.
+A saved view may contain:
 
-It changes when a successful indexing operation commits a logical database change.
+- a query or search expression
+- a result target such as headings, links, or files
+- selected columns
+- sorting
+- display options
+- optional result limits
 
-It does not change when an operation:
+The database must expose:
 
-- only inspects the database
-- finds that no indexed data changed
-- starts but fails
-- rolls back
-- receives a filesystem event before reconciliation
-- performs SQLite maintenance without changing the logical index state
+- a stable database identity
+- a monotonic committed generation
+- a persistent journal of files affected by each generation
+- a lightweight status command
+- a changes-since command
+- a machine-safe way to rerun an existing query only for selected files
 
-** Database schema
+The affected-file journal is an optimisation for cached query views. It does not change the cache into separate per-file caches.
 
-Add persistent index-state metadata.
+For an incrementally refreshable query view, Emacs may:
 
-Prefer one dedicated singleton table:
+1. remove cached rows belonging to affected files
+2. rerun the same query restricted to affected non-deleted files
+3. merge the refreshed rows into the cached view
+4. apply the saved view sorting again
+5. store the new generation
 
-#+begin_src sql
-CREATE TABLE index_state (
-    singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
-    generation      INTEGER NOT NULL,
-    last_indexed_at TEXT NOT NULL
-);
-#+end_src
+When selective refresh is not provably correct, Emacs must rerun the complete view.
 
-Initialize it during schema creation or migration:
+** Fixed public semantics
 
-#+begin_src sql
-INSERT INTO index_state (
-    singleton,
-    generation,
-    last_indexed_at
-)
-VALUES (
-    1,
-    0,
-    CURRENT_TIMESTAMP
-);
-#+end_src
+The implementation must follow these decisions.
 
-The exact timestamp storage format must follow the existing database timestamp conventions.
+*** Database identity
 
-Do not use a process-local counter.
+Every database has one persistent ~database_id~.
 
-The value must survive:
+The identifier:
 
-- process restarts
-- watcher restarts
-- rebuilds
-- incremental indexing
-- opening the database from another client
+- is created once when the database is initialized
+- survives process restarts
+- survives watcher restarts
+- survives incremental indexing
+- survives ordinary rebuilds that preserve the database file
+- changes when a database is recreated from scratch
 
-** Generation semantics
+External caches identify their database using:
 
-Increment ~generation~ only when the logical indexed state changes successfully.
+#+begin_example
+database_id
+#+end_example
 
-Examples that increment the generation:
+A changed ~database_id~ means that all cached views for the previous database must be discarded.
 
-- one or more files are added
-- one or more files are replaced after content changes
-- one or more indexed files are deleted
-- derived link-resolution state changes
-- a full rebuild commits a changed index
-- an incremental reconciliation commits changes
+*** Generation
 
-Examples that do not increment the generation:
+Every database has one persistent monotonic integer ~generation~.
 
-- a query
-- a search
-- a status request
-- a watcher batch containing no effective changes
-- a rebuild producing the same persisted logical state, where this can be determined
-- a failed parse
-- a failed database write
-- a rolled-back transaction
-- an ignored filesystem event
-- a watcher debounce cycle before reconciliation
-- a SQLite WAL checkpoint
+The generation represents committed query-visible database state.
 
-The generation represents committed query-visible database state, not filesystem activity.
+It advances:
 
-** Transactional update
+- once for one committed full rebuild batch
+- once for one committed incremental batch
+- once for one committed watcher reconciliation batch
+- once when one or more files are added
+- once when one or more files are replaced
+- once when one or more indexed files are deleted
+- once when persisted derived state changes query-visible results
 
-Update the index generation inside the same database transaction as the corresponding index mutation.
+It does not advance:
 
-Conceptually:
+- once per changed file
+- for queries
+- for searches
+- for status requests
+- for changes-since requests
+- for discovery or planning
+- for ignored filesystem events
+- for watcher debounce activity
+- for a watcher batch with no effective changes
+- for a failed parse
+- for a failed write
+- for a rolled-back transaction
+- for SQLite maintenance such as WAL checkpoints
+- for an operation that can prove that persisted logical state is unchanged
 
-#+begin_src sql
-BEGIN;
+One watcher batch affecting 12 files advances the generation by exactly one.
 
--- Add, replace, or delete indexed data.
--- Update derived state required by queries.
+*** Changed timestamp
 
-UPDATE index_state
-SET generation = generation + 1,
-    last_indexed_at = CURRENT_TIMESTAMP
-WHERE singleton = 1;
+Store:
 
-COMMIT;
-#+end_src
+#+begin_example
+last_changed_at
+#+end_example
 
-The new generation must become visible only when the complete indexing transaction commits.
+Update it only when the generation advances.
 
-If any part of the transaction fails:
+Do not call this field ~last_indexed_at~, because a successful no-op indexing operation does not update it.
 
-- roll back all index changes
-- do not publish a new generation
-- do not update ~last_indexed_at~
+The timestamp format must follow the repository's existing UTC timestamp conventions.
 
-A client observing a new generation must be able to assume that the corresponding database state is completely committed and queryable.
+*** Affected files
 
-** Define logical change detection
+Each committed generation records the files whose persisted query-visible state changed.
 
-Before incrementing the generation, determine whether the operation produced an effective logical change.
-
-Reuse existing change-planning information where possible.
-
-For incremental indexing, a generation change may be based on a non-empty committed plan containing operations such as:
-
-- add
-- replace
-- delete
-
-If global derived-state maintenance changes persisted query-visible data, that also counts as a logical change.
-
-Do not increment once per file.
-
-Increment once per successfully committed logical batch or operation.
+Record all query-visible affected files, not only files whose source text changed.
 
 Examples:
 
+- A changed Org file is affected.
+- A newly indexed Org file is affected.
+- A deleted Org file is affected.
+- A source file whose persisted outgoing-link resolution changed is affected.
+- A source file whose indexed derived state changed is affected.
+- A target-file deletion may therefore affect the deleted target path and several surviving source files that link to it.
+
+Public file actions are:
+
 #+begin_example
-watcher batch modifies 12 files
-→ generation increases by 1
-
-full rebuild changes 5,000 rows
-→ generation increases by 1
-
-incremental command finds all files unchanged
-→ generation remains unchanged
+upsert
+delete
 #+end_example
 
-Document the chosen batch boundary.
+~upsert~ means:
 
-** Full rebuild behaviour
+- remove cached rows owned by this file
+- rerun the saved query for this file
+- insert any new matching rows
 
-A full rebuild must preserve monotonic generation semantics.
+~delete~ means:
 
-Do not reset the generation to zero when rebuilding the database contents.
+- remove cached rows owned by this file
+- do not query the deleted path again
 
-When rebuilding in the existing database:
+Do not expose separate public actions for add, replace, link-resolution change, FTS change, or rename.
 
-- retain the current generation
-- increment it once after the changed rebuilt state commits
+A rename is represented as:
 
-If rebuild creates a completely new database file:
+#+begin_example
+delete old/path.org
+upsert new/path.org
+#+end_example
 
-- initialize its generation deterministically
-- document that replacing the database file creates a new database identity
-- expose enough information for clients to distinguish the replacement from an unchanged older database
+Store the canonical persisted path representation already used by the ~files~ table.
 
-Prefer also exposing a persistent database identity.
+A deleted path must remain available in the journal after its ~files~ row has been deleted.
 
-** Database identity
+*** Full invalidation
 
-Add a stable database identifier so clients can distinguish:
+A generation may be marked:
 
-- the same database at a newer generation
-- a different database that happens to have the same generation
-- a newly recreated database file
+#+begin_example
+full_invalidation = true
+#+end_example
 
-Conceptually:
+Use full invalidation when the complete query-visible change cannot be safely represented as an exact finite affected-file set.
 
-#+begin_src sql
-ALTER TABLE index_state
-ADD COLUMN database_id TEXT NOT NULL;
-#+end_src
+Examples include:
 
-Or include it in the initial schema:
+- migration of an existing database to the generation schema
+- database repair
+- a rebuild path that cannot reliably derive an exact delta
+- a global derived-state mutation that cannot safely be attributed to files
+- an internal invariant failure while constructing an otherwise committed delta
+
+Do not silently emit an incomplete file list.
+
+When any generation in the requested range has ~full_invalidation = true~, the changes-since command instructs the client to rebuild the complete cached view.
+
+*** View-cache refresh safety
+
+Saved query views remain cached as complete query result sets.
+
+Selective file-based refresh is valid only when all of the following are true:
+
+- every result row is owned by one indexed source file
+- the complete cached result set is available
+- the view has no result limit or offset
+- the view is not truncated
+- the result semantics do not depend on corpus-wide ranking
+- the client can reapply the saved view sorting after merging
+
+Structural ~query~ views over headings, links, and files are expected to support selective refresh when these conditions hold.
+
+~search~ views must be fully rerun after any generation change unless a later task proves that partial refresh preserves ranking and result semantics.
+
+FTS ranking may depend on corpus-wide statistics, so a changed file can affect scores of otherwise unchanged rows.
+
+Query views using ~limit~, ~offset~, top-N behaviour, or other truncation must also be fully rerun.
+
+The Rust implementation does not need to understand every Emacs view option. It must expose enough stable information for ~org-files-db.el~ to choose between:
+
+#+begin_example
+unchanged
+patch
+rebuild
+#+end_example
+
+** TODO Persist database identity and generation
+
+Add persistent index-state metadata through the existing schema-version and migration mechanism.
+
+Use one singleton table conceptually equivalent to:
 
 #+begin_src sql
 CREATE TABLE index_state (
     singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
     database_id     TEXT NOT NULL,
     generation      INTEGER NOT NULL,
-    last_indexed_at TEXT NOT NULL
+    last_changed_at TEXT NOT NULL
 );
 #+end_src
 
-Generate ~database_id~ once when the database is first initialized.
+Requirements:
 
-Use a stable unique value such as a UUID.
+- Exactly one row exists with ~singleton = 1~.
+- ~database_id~ is non-empty and stable.
+- ~generation~ is non-negative.
+- The value survives reopen and process restarts.
+- Ordinary rebuilds preserve ~database_id~.
+- Database recreation creates a new ~database_id~.
+- Missing or corrupt state is an integrity error once the schema version requires the table.
 
-Do not change it for ordinary indexing, watcher runs, or rebuilds that preserve the same database.
-
-When a database is recreated from scratch, a new identifier is expected.
-
-External cache keys may then use:
+Initialization policy:
 
 #+begin_example
-database_id + generation
+new empty database:
+database_id     newly generated
+generation      0
+last_changed_at initialization time
+no generation journal entries
+
+migrated existing database:
+database_id     newly generated
+generation      1
+last_changed_at migration time
+generation 1 marked full_invalidation
 #+end_example
 
-** Public status command
+Generation zero means an initialized database with no published indexing generation yet.
 
-Provide a lightweight read-only CLI command for retrieving index state.
+Do not reset generation during an ordinary rebuild.
 
-Preferred interface:
+Provide one internal representation conceptually equivalent to:
 
-#+begin_src sh
-orgfdb status --format json
-#+end_src
-
-Example output:
-
-#+begin_src json
-{
-  "schema_version": 1,
-  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
-  "generation": 1842,
-  "last_indexed_at": "2026-08-03T14:58:12Z"
+#+begin_src rust
+pub struct IndexState {
+    pub database_id: String,
+    pub generation: i64,
+    pub last_changed_at: String,
 }
 #+end_src
 
-The exact command name may follow existing CLI conventions, but it must:
+Provide one shared read operation.
 
-- open the configured database
-- perform no indexing
-- perform no query planning
-- return quickly
-- not modify the database
-- support structured JSON output
-- return the current database identity and generation
+Do not duplicate index-state SQL across CLI, indexer, rebuild, and watcher modules.
 
-Support the normal configuration resolution:
+** TODO Persist a per-generation affected-file journal
+
+Add one committed-generation table and one affected-file table conceptually equivalent to:
+
+#+begin_src sql
+CREATE TABLE index_generations (
+    generation        INTEGER PRIMARY KEY,
+    committed_at      TEXT NOT NULL,
+    full_invalidation INTEGER NOT NULL
+        CHECK (full_invalidation IN (0, 1))
+);
+
+CREATE TABLE index_generation_files (
+    generation INTEGER NOT NULL,
+    path       TEXT NOT NULL,
+    action     TEXT NOT NULL
+        CHECK (action IN ('upsert', 'delete')),
+    PRIMARY KEY (generation, path),
+    FOREIGN KEY (generation)
+        REFERENCES index_generations(generation)
+        ON DELETE CASCADE
+);
+#+end_src
+
+Use repository naming and timestamp conventions where they differ.
+
+Journal requirements:
+
+- One generation has at most one final action per path.
+- Journal paths survive deletion of the corresponding indexed file.
+- Journal rows are committed atomically with index data.
+- A rolled-back index transaction creates no generation or journal rows.
+- A failed write creates no generation or journal rows.
+- A no-op operation creates no generation or journal rows.
+- One committed batch creates one generation row.
+- Several affected files in one batch share the same generation.
+- A full-invalidation generation may omit individual file rows.
+- File rows may still be stored for diagnostics, but clients must obey full invalidation.
+
+Do not automatically prune journal history in this task.
+
+Design the read contract so later retention can be added safely.
+
+Expose the oldest available generation in the internal journal API even when all history is currently retained.
+
+*** Net changes across several generations
+
+The public changes-since response must collapse several generation rows into one net action per path.
+
+Examples:
+
+#+begin_example
+generation 10: upsert a.org
+generation 11: upsert a.org
+result since generation 9: upsert a.org
+#+end_example
+
+#+begin_example
+generation 10: delete a.org
+generation 11: upsert a.org
+result since generation 9: upsert a.org
+#+end_example
+
+#+begin_example
+generation 10: upsert a.org
+generation 11: delete a.org
+result since generation 9: delete a.org
+#+end_example
+
+The response does not need to expose every intermediate action.
+
+*** Shared transactional writer primitive
+
+Provide one shared operation conceptually equivalent to:
+
+#+begin_src rust
+pub struct IndexGenerationChange {
+    pub full_invalidation: bool,
+    pub files: Vec<AffectedFile>,
+}
+
+pub enum AffectedFileAction {
+    Upsert,
+    Delete,
+}
+
+pub fn advance_index_generation(
+    transaction: &Transaction,
+    change: &IndexGenerationChange,
+) -> Result<IndexState>;
+#+end_src
+
+The exact types and module placement must follow existing ownership boundaries.
+
+The increment must be database-side and atomic:
+
+#+begin_src sql
+UPDATE index_state
+SET generation = generation + 1,
+    last_changed_at = ?
+WHERE singleton = 1;
+#+end_src
+
+Do not:
+
+#+begin_example
+read generation in Rust
+add one
+write calculated generation
+#+end_example
+
+Retrieve the resulting generation within the same write transaction.
+
+Use ~UPDATE ... RETURNING~ if supported by the repository's SQLite compatibility target. Otherwise update and read within the same locked transaction.
+
+The shared operation must:
+
+1. atomically increment the generation
+2. update ~last_changed_at~
+3. insert the generation batch row
+4. insert deduplicated final affected-file actions
+5. return the new index state
+
+All query-visible index and derived-state mutations must already have succeeded before this shared operation runs.
+
+Commit occurs only after the generation and journal are complete.
+
+** TODO Integrate generation and affected-file tracking into mutation paths
+
+Audit every production path that changes query-visible persisted state.
+
+At minimum inspect:
+
+- full rebuild
+- explicit incremental add
+- explicit incremental replace
+- explicit indexed-file deletion
+- startup reconciliation
+- watcher reconciliation
+- recursive directory rename reconciliation
+- recursive directory deletion reconciliation
+- symlink identity refresh
+- source-root reconciliation
+- link-resolution refresh
+- FTS maintenance
+- test-only writers that simulate production indexing
+
+Each production path must either:
+
+- provide one complete ~IndexGenerationChange~
+- delegate to a shared write path that provides it
+- prove that no logical change occurred and leave the generation unchanged
+
+*** Incremental and watcher batches
+
+For a normal incremental or watcher batch:
+
+- changed or newly indexed files are ~upsert~
+- deleted indexed files are ~delete~
+- files whose persisted derived state changed are ~upsert~
+- deduplicate paths within the batch
+- increment once after the complete batch mutation succeeds
+
+Do not increment when the plan is empty.
+
+Do not use raw filesystem events as the journal source.
+
+Use the final committed indexing and derived-state plan.
+
+*** Link-resolution changes
+
+When a target change modifies persisted resolution rows for links in other files, mark the owning source files of those links as ~upsert~.
+
+Example:
+
+#+begin_example
+delete target.org
+source-a.org contains a link whose status changes to unresolved
+source-b.org contains a link whose status changes to unresolved
+
+journal:
+delete target.org
+upsert source-a.org
+upsert source-b.org
+#+end_example
+
+The Emacs cache does not need to know why the source files changed.
+
+*** Full rebuilds
+
+A full rebuild that commits changed query-visible state increments generation once.
+
+Use:
+
+#+begin_example
+full_invalidation = true
+#+end_example
+
+unless the existing rebuild plan can already prove a complete exact affected-file delta without adding an expensive second comparison.
+
+Do not add a large logical-database diff solely to avoid full invalidation.
+
+If an existing rebuild optimisation proves that no persisted logical state changes, do not advance generation.
+
+An initial index into a new empty database may either:
+
+- record all indexed files as ~upsert~
+- or use one full-invalidation generation
+
+Choose one convention and document it consistently.
+
+*** Derived-state-only mutations
+
+A mutation that changes persisted query-visible derived state but no source file content still advances generation.
+
+If the affected source files can be identified exactly, record them as ~upsert~.
+
+Otherwise use full invalidation.
+
+Do not advance generation for maintenance that does not change query-visible state.
+
+** TODO Add the read-only status command
+
+Provide:
 
 #+begin_src sh
 orgfdb status \
@@ -1487,362 +602,557 @@ orgfdb status \
   --format json
 #+end_src
 
-If the CLI already has a general database-information or diagnostics command, extend that command rather than adding an overlapping implementation.
-
-** Text output
-
-A human-readable format may also be provided:
-
-#+begin_example
-Database ID:     74f470e2-0354-4ed8-b2e0-e0647e0c706a
-Generation:      1842
-Last indexed:    2026-08-03T14:58:12Z
-Schema version:  1
-#+end_example
-
-JSON is the required machine-readable interface.
-
-Field names and meanings must be documented and kept stable.
-
-** Watcher output
-
-Optionally allow the watcher to emit a structured event after a successful committed batch:
+Required JSON fields:
 
 #+begin_src json
 {
-  "event": "index-committed",
+  "schema_version": 1,
   "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
   "generation": 1842,
-  "changed_files": 3
+  "last_changed_at": "2026-08-05T00:42:10Z"
 }
 #+end_src
 
-This event must be emitted:
+Use the actual current schema version rather than hard-coding the example value.
 
-- only after the database transaction commits
-- once per committed watcher batch
-- only when the generation changed
+The command must:
 
-Do not emit it merely because filesystem events were received.
+- use normal configuration resolution
+- open the configured database
+- perform no indexing
+- perform no discovery
+- perform no reconciliation
+- perform no query planning
+- perform no FTS work
+- read exactly the required schema and singleton state
+- not update timestamps
+- not modify WAL-visible logical state
+- return quickly
 
-Do not make watcher-event consumption the only way to retrieve the generation.
-
-The status command remains the authoritative polling interface for clients that do not own the watcher process.
-
-If structured watcher events do not fit the current watcher output contract, leave them for a separate task.
-
-** SQLite file monitoring compatibility
-
-External clients may monitor the SQLite database directory for changes to:
-
-#+begin_example
-database.sqlite
-database.sqlite-wal
-database.sqlite-shm
-#+end_example
-
-Those file events are only triggers to call the status command.
-
-The database generation remains the authoritative logical-change signal.
-
-Document that clients must not infer a new generation solely from:
-
-- the main database modification time
-- WAL modification time
-- SHM modification time
-- file size
-- watcher filesystem events
-
-This task does not require ~orgfdb~ itself to monitor its SQLite files.
-
-** Concurrent readers and writers
-
-The status command must behave correctly while the watcher or another index operation is active.
-
-Readers must observe either:
-
-- the previous committed generation and state
-- or the new committed generation and state
-
-They must never observe:
-
-- a new generation with partially written index data
-- a generation increment from a rolled-back transaction
-- an uncommitted intermediate value
-
-Use the existing SQLite transaction and concurrency model.
-
-Do not add an independent status file whose update could become inconsistent with the database transaction.
-
-** Multiple writers
-
-If more than one indexing process can write to the same database, generation increments must remain monotonic and atomic.
-
-Use a database-side increment:
-
-#+begin_src sql
-UPDATE index_state
-SET generation = generation + 1
-WHERE singleton = 1;
-#+end_src
-
-Do not implement:
+Optional text output may be provided:
 
 #+begin_example
-read generation
-→ add one in Rust
-→ write calculated value
+Database ID:   74f470e2-0354-4ed8-b2e0-e0647e0c706a
+Generation:    1842
+Last changed:  2026-08-05T00:42:10Z
+Schema version: 1
 #+end_example
 
-because concurrent writers could lose increments.
+JSON is required.
 
-Follow existing write-locking and transaction rules.
-
-** Migration
-
-Add a schema migration for existing databases.
-
-The migration must:
-
-- create the index-state table when absent
-- generate one stable database ID
-- initialize the generation
-- initialize the last-indexed timestamp
-- preserve all existing indexed data
-
-Choose and document the initial generation for migrated databases.
-
-A reasonable migration policy is:
-
-#+begin_example
-database_id     newly generated
-generation      1
-last_indexed_at migration time
-#+end_example
-
-This indicates that the migrated database has one known complete state.
-
-Alternatively, generation zero may be used if zero consistently means the initialized state.
-
-Use one convention throughout tests and documentation.
-
-The migration must be idempotent through the normal schema-version mechanism.
-
-** Rust API
-
-Provide one internal representation:
-
-#+begin_src rust
-pub struct IndexState {
-    pub database_id: String,
-    pub generation: i64,
-    pub last_indexed_at: String,
-}
-#+end_src
-
-Use stronger existing timestamp and UUID types where appropriate.
-
-Provide shared database operations conceptually equivalent to:
-
-#+begin_src rust
-pub fn read_index_state(
-    connection: &Connection,
-) -> Result<IndexState>;
-
-pub fn advance_index_generation(
-    transaction: &Transaction,
-) -> Result<IndexState>;
-#+end_src
-
-The exact module placement should follow existing ownership boundaries.
-
-Do not duplicate generation SQL in rebuild, incremental indexer, and watcher code.
-
-Use one shared writer primitive.
-
-** Integration points
-
-Audit every production path that changes query-visible indexed data.
-
-At minimum verify:
-
-- full rebuild
-- explicit incremental add or replace
-- explicit indexed-file deletion
-- startup reconciliation
-- watcher reconciliation
-- recursive directory rename reconciliation
-- symlink identity refresh
-- link-resolution refresh
-- FTS maintenance
-- any command that mutates persisted derived state
-
-Each path must either:
-
-- advance the generation in its mutation transaction
-- or delegate to a shared write path that does so
-
-Test-only database writers should follow production semantics when they are intended to simulate committed indexing.
-
-Do not advance the generation for unrelated configuration reads or discovery planning.
-
-** Error handling
-
-The status command reports actionable errors for:
+Report actionable errors for:
 
 - missing database
 - unreadable database
-- unsupported schema version
-- missing or corrupt index-state row
 - invalid configuration
+- unsupported schema version
+- missing singleton state
+- duplicate singleton state
+- corrupt values
 - database lock or I/O failure
 
-Do not silently synthesize a generation when the state row is unexpectedly missing from a database whose schema version requires it.
+Do not synthesize missing state for a schema version that requires it.
 
-A corrupt or missing singleton row is a database integrity error.
+** TODO Add the changes-since command
 
-** Performance
+Provide a lightweight command conceptually equivalent to:
 
-Reading the index state must be inexpensive.
+#+begin_src sh
+orgfdb changes \
+  --config ~/memento/orgfdb-config.toml \
+  --database-id 74f470e2-0354-4ed8-b2e0-e0647e0c706a \
+  --since-generation 1840 \
+  --format json
+#+end_src
 
-The status command should perform approximately:
+The exact command placement may follow existing CLI conventions.
+
+The command must be read-only and must not perform indexing or query execution.
+
+Required response shape:
+
+#+begin_src json
+{
+  "schema_version": 1,
+  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
+  "from_generation": 1840,
+  "to_generation": 1843,
+  "oldest_available_generation": 0,
+  "cache_action": "patch",
+  "complete": true,
+  "reason": null,
+  "upsert_files": [
+    "/home/hubisan/memento/projects/test.org",
+    "/home/hubisan/memento/tasks.org"
+  ],
+  "deleted_files": [
+    "/home/hubisan/memento/old.org"
+  ]
+}
+#+end_src
+
+~cache_action~ is one of:
 
 #+begin_example
-open database
-→ read one singleton row
-→ serialize output
+unchanged
+patch
+rebuild
 #+end_example
 
-It must not:
+*** Unchanged
 
-- scan indexed files
-- count headings
-- resolve links
-- run FTS queries
-- perform reconciliation
-- update timestamps
+Return ~unchanged~ when:
 
-Add a focused benchmark where practical, or at least a test ensuring the command performs no index mutation.
+#+begin_example
+requested generation == current generation
+#+end_example
 
-** Documentation
+Required shape:
+
+#+begin_src json
+{
+  "cache_action": "unchanged",
+  "complete": true,
+  "upsert_files": [],
+  "deleted_files": []
+}
+#+end_src
+
+*** Patch
+
+Return ~patch~ when:
+
+- the database ID matches
+- the requested generation is not newer than the database
+- the complete journal range is available
+- no generation in the range requires full invalidation
+- the net affected-file set can be returned exactly
+
+The paths must be deterministically ordered.
+
+*** Rebuild
+
+Return ~rebuild~ when:
+
+- the database ID differs
+- the requested generation predates available journal history
+- one generation in the range has full invalidation
+- exact changes cannot be supplied safely
+
+Use a stable machine-readable ~reason~, such as:
+
+#+begin_example
+database-id-changed
+history-unavailable
+full-invalidation
+#+end_example
+
+A database-ID mismatch is an expected cache transition, not a corrupt-database failure.
+
+Return a valid JSON response instructing the client to rebuild rather than only producing an unstructured error.
+
+Set ~complete = false~ for database identity changes or unavailable history.
+
+Set ~complete = true~ when the full journal range is available but contains a deliberate full-invalidation generation.
+
+If ~since-generation~ is greater than the current generation, return an actionable error rather than silently treating it as unchanged.
+
+Operational failures such as invalid configuration, missing database, corruption, and I/O errors remain non-zero command failures.
+
+** TODO Add file-restricted query execution for view patching
+
+A cached view is one complete query cache.
+
+The client nevertheless needs to rerun that query only for affected ~upsert~ files.
+
+Add a machine-safe file restriction to the existing query command.
+
+The exact CLI spelling may follow current argument conventions, but it must support:
+
+- one or more explicit canonical paths
+- a bulk machine-readable path list
+- Unicode paths
+- paths containing spaces
+- an empty list
+- enough files that command-line length is not a practical limit
+
+A preferred interface is conceptually:
+
+#+begin_src sh
+orgfdb query \
+  --config ~/memento/orgfdb-config.toml \
+  --restrict-files-json /tmp/affected-files.json \
+  '(headings (not (done)))'
+#+end_src
+
+Allow ~-~ as the JSON source for standard input where this does not conflict with an existing stdin contract:
+
+#+begin_src sh
+printf '%s' '["/path/a.org","/path/b.org"]' |
+  orgfdb query \
+    --config ~/memento/orgfdb-config.toml \
+    --restrict-files-json - \
+    '(headings (not (done)))'
+#+end_src
+
+A repeatable single-file option may also be provided for interactive use.
+
+Restriction semantics:
+
+- treat the restriction as an additional AND condition on the owning indexed file
+- do not rewrite the user's query text
+- do not change public query-language semantics
+- do not return rows owned by files outside the restriction
+- an empty restriction returns an empty result set
+- deleted files are never supplied for requery
+- nonexistent paths in an upsert restriction produce no rows
+- use the same canonical path identity as the journal
+- preserve normal sorting within the restricted result
+- preserve normal selected-column behaviour
+- preserve normal JSON result representation
+
+Every machine-readable query result row used for caching must expose its owning canonical file path, even when the file path is not a displayed view column.
+
+Reuse an existing stable result field if one already exists.
+
+Do not force the user to display the file path merely so the cache can maintain ownership.
+
+Do not add partial-refresh support to ~search~ in this task.
+
+Search views continue to rerun completely after a generation change.
+
+** TODO Document the Emacs saved-view cache algorithm
+
+Document the intended client algorithm without implementing the Emacs package in this Rust task.
+
+A cached view stores at least:
+
+#+begin_example
+database_id
+generation
+normalized saved-view definition
+complete result rows
+owning file path for each result row
+saved sort definition
+#+end_example
+
+The saved-view definition includes the query or search expression and result options required to reproduce the view.
+
+*** Query view refresh
+
+For a query view that is safe to patch:
+
+1. Call ~orgfdb changes~ with the cached database ID and generation.
+2. If ~cache_action = unchanged~, keep the cache.
+3. If ~cache_action = rebuild~, rerun the complete query.
+4. If ~cache_action = patch~:
+   - remove all cached rows whose owning file is in ~upsert_files~
+   - remove all cached rows whose owning file is in ~deleted_files~
+   - rerun the same query restricted to ~upsert_files~
+   - merge the returned rows
+   - reapply the saved view sorting
+   - store ~to_generation~
+
+This remains one cache for the complete view.
+
+The file path is only an internal ownership key used to replace affected portions.
+
+*** Query views requiring full refresh
+
+Rerun the complete query when the saved view:
+
+- uses a result limit
+- uses an offset
+- stores only a truncated result set
+- depends on a global aggregate
+- uses semantics that cannot be reconstructed by replacing file-owned rows
+- cannot reapply its sorting deterministically
+
+*** Search view refresh
+
+Rerun the complete search view whenever generation changes.
+
+Do not patch search results by affected file in this task.
+
+*** Race handling
+
+A client may receive another database change while refreshing a view.
+
+The documented safe algorithm is:
+
+1. read changes up to generation N
+2. perform the patch or rebuild
+3. call status or changes again
+4. publish the refreshed cache only if the database is still at generation N
+5. otherwise continue from N or repeat the refresh
+
+Do not require a long-lived read transaction across separate CLI processes.
+
+The generation check is the consistency boundary.
+
+** TODO Test schema, transactions, CLI, and cache-delta semantics
+
+*** Schema and migration tests
+
+Cover:
+
+- new database initialization
+- migration of an existing populated database
+- initial generation zero for a new database
+- migration generation one
+- migrated generation marked full invalidation
+- stable database ID across reopen
+- stable database ID across ordinary rebuild
+- new database ID after recreation
+- singleton-row constraint
+- invalid second singleton row
+- non-negative generation
+- missing required state row
+- journal foreign-key behaviour
+- deleted paths remaining readable from journal snapshots
+
+*** Transaction tests
+
+Cover:
+
+- one successful mutation increments once
+- several changed files in one batch increment once
+- one watcher batch increments once
+- no-op plan does not increment
+- failed parse does not increment
+- failed database write does not increment
+- explicit rollback does not increment
+- generation row rolls back with index data
+- affected-file rows roll back with index data
+- generation and query-visible rows become visible atomically
+- database-side increment remains monotonic under the supported writer model
+- ~last_changed_at~ changes only with generation
+- duplicate path actions collapse deterministically
+- full invalidation commits without requiring file rows
+
+*** Affected-file tests
+
+Cover:
+
+- incremental add produces ~upsert~
+- incremental replace produces ~upsert~
+- indexed-file deletion produces ~delete~
+- rename produces old-path ~delete~ and new-path ~upsert~
+- recursive directory deletion records all deleted indexed paths
+- symlink-related replacement records affected canonical paths
+- derived link-resolution changes record owning source files as ~upsert~
+- no raw filesystem event is journalled before reconciliation
+- several generations collapse to final net path actions
+
+*** Status-command tests
+
+Cover:
+
+- JSON output
+- optional text output
+- configuration-file selection
+- missing database
+- corrupt singleton state
+- unsupported schema version
+- read-only behaviour
+- non-ASCII database and configuration paths
+- concurrent reader observing either old or new committed state
+
+*** Changes-command tests
+
+Cover:
+
+- unchanged response
+- one-generation patch
+- multi-generation collapsed patch
+- deterministic path ordering
+- database-ID mismatch
+- future requested generation
+- full-invalidation range
+- unavailable-history response through a prepared fixture
+- corrupt journal state
+- read-only behaviour
+- Unicode and whitespace-containing paths
+- deleted file path returned after file-row deletion
+
+*** File-restricted query tests
+
+Cover:
+
+- one restricted file
+- several restricted files
+- JSON file input
+- standard-input JSON where supported
+- empty list
+- Unicode paths
+- paths containing spaces
+- headings query
+- links query
+- files query
+- result rows expose owning canonical file path
+- existing query sorting is retained
+- unrestricted query behaviour remains unchanged
+- restriction does not modify the parsed user query
+- deleted or unknown path returns no rows
+- restriction combines correctly with an existing file predicate
+
+*** Integration tests
+
+Cover:
+
+- full rebuild
+- incremental add
+- incremental replace
+- incremental deletion
+- startup reconciliation
+- watcher changed batch
+- watcher no-op batch
+- recursive rename or delete
+- symlink identity refresh
+- link target deletion affecting source-file link status
+- FTS-changing mutation advancing generation
+- SQLite maintenance not advancing generation
+- query view patch reproducing the same complete result as a fresh unrestricted query
+
+For the final cache-patch equivalence test:
+
+1. cache a complete unrestricted query result
+2. mutate several files
+3. read changes since the cached generation
+4. remove rows for affected paths
+5. rerun the query restricted to upsert paths
+6. merge and sort
+7. compare with a fresh unrestricted query at the same final generation
+
+This is the most important end-to-end correctness test for selective view refresh.
+
+Also prove that a limited query view is documented or marked as requiring a full rerun rather than using the patch algorithm.
+
+** TODO Document the public contract
 
 Document:
 
-- the meaning of ~database_id~
-- the meaning of ~generation~
-- when the generation changes
-- when it does not change
+- ~database_id~
+- ~generation~
+- ~last_changed_at~
+- when generation changes
+- when generation does not change
+- one-generation-per-committed-batch semantics
 - transactional consistency
-- the status JSON contract
-- how external clients can use SQLite file notifications only as a wake-up signal
-- why modification times are not sufficient
-- the optional watcher event, if implemented
+- affected-file meaning
+- direct versus derived affected files
+- ~upsert~ and ~delete~
+- rename representation
+- full invalidation
+- status JSON contract
+- changes JSON contract
+- deterministic path ordering
+- journal history and future retention behaviour
+- file-restricted query execution
+- query-view patch safety
+- full refresh for search views
+- full refresh for limited or truncated views
+- SQLite file notifications as wake-up signals only
+- rebuild requirement after migration if applicable
 
 State clearly:
 
 #+begin_example
-Equal database_id and equal generation
-→ same known committed index state
+equal database_id and equal generation
+→ same known committed query-visible state
 
-Equal database_id and newer generation
-→ database contents changed
+equal database_id and newer generation
+→ committed query-visible state changed
 
-Different database_id
-→ different or recreated database
+different database_id
+→ different or recreated database; rebuild cached views
+
+cache_action unchanged
+→ keep the view cache
+
+cache_action patch
+→ replace cached rows owned by affected files
+
+cache_action rebuild
+→ rerun the complete saved view
 #+end_example
 
-Do not claim that the generation identifies changes to source Org files before those changes have been indexed.
+Do not claim that the generation represents source Org changes before indexing commits them.
 
-** Tests
+Do not claim that affected files contain only source-text changes.
 
-Add schema and migration tests covering:
+** Non-goals
 
-- new database initialization
-- existing database migration
-- stable database ID across reopen
-- stable database ID across ordinary rebuild
-- new database ID after recreation
-- initial generation value
-- singleton-row constraints
+This task does not implement:
 
-Add transaction tests covering:
+- the Emacs cache itself
+- cache persistence inside Emacs
+- one database cache per file
+- selective FTS search refresh
+- watcher JSON events
+- automatic journal pruning
+- webhook or push notifications
+- database-file monitoring inside ~orgfdb~
+- source file hashes in the public changes response
+- row-level change journals
+- per-query dependency tracking inside the Rust database
+- automatic analysis of whether an arbitrary saved Emacs view is patch-safe
 
-- successful mutation increments once
-- several changed files in one batch increment once
-- unchanged operation does not increment
-- failed transaction does not increment
-- rolled-back transaction does not increment
-- derived-state-only change increments when query-visible
-- generation and index data become visible atomically
-
-Add integration tests covering:
-
-- full rebuild
-- no-op rebuild where supported
-- incremental add
-- incremental replace
-- indexed-file deletion
-- watcher batch
-- watcher no-op batch
-- startup reconciliation
-- recursive rename or delete
-- symlink-related changes
-- link-resolution changes
-
-Add status-command tests covering:
-
-- JSON output
-- text output when supported
-- configuration-file selection
-- missing database
-- corrupt state
-- read-only behaviour
-- concurrent committed update visibility
-- non-ASCII paths in configuration where relevant
-
-If watcher events are implemented, test:
-
-- one event after successful changed batch
-- no event for no-op batch
-- no event before commit
-- no event after rollback
-- correct database ID and generation
-- deterministic machine-readable output
+The Emacs package decides whether a saved view uses patch or full rebuild based on the documented rules.
 
 ** Implementation order
 
-1. Define exact generation and database-identity semantics.
-2. Add the schema migration.
-3. Add the shared ~IndexState~ representation.
-4. Add shared read and atomic increment database operations.
-5. Integrate generation advancement into the common production write transaction.
-6. Audit all mutation paths for bypasses.
-7. Add the lightweight status command.
-8. Add JSON and optional text serialization.
-9. Add schema, transaction, and command tests.
-10. Add watcher integration tests.
-11. Optionally add committed watcher events.
-12. Document the machine-readable contract.
-13. Verify that no generation change occurs for queries or no-op operations.
-14. Run formatting, linting, unit tests, integration tests, and watcher tests.
+1. Inspect the existing schema-version and migration ownership.
+2. Inspect every production transaction that mutates query-visible data.
+3. Add ~index_state~ migration and initialization.
+4. Add generation-batch and affected-file journal tables.
+5. Add shared state-read and atomic-generation-advance operations.
+6. Add transaction-level unit tests before integrating production paths.
+7. Integrate full rebuild generation semantics.
+8. Integrate incremental add, replace, and deletion.
+9. Integrate startup and watcher reconciliation.
+10. Integrate derived link-resolution affected-file tracking.
+11. Audit FTS and other persisted derived-state maintenance.
+12. Add ~orgfdb status~.
+13. Add ~orgfdb changes~.
+14. Add file-restricted query execution.
+15. Add cache-patch equivalence integration tests.
+16. Add migration, concurrency, rollback, watcher, and CLI tests.
+17. Document the Rust and Emacs-facing contracts.
+18. Run targeted tests.
+19. Run ~make ci~.
+20. Manually exercise status, changes, unrestricted query, and restricted query against a temporary database.
 
 ** Acceptance criteria
 
-- Every database has a persistent unique ~database_id~.
+- Every database has a stable persistent ~database_id~.
 - Every database has a persistent monotonic ~generation~.
-- The generation is advanced atomically inside the same transaction as index changes.
-- One committed batch advances the generation exactly once.
-- No-op operations do not advance the generation.
-- Failed and rolled-back operations do not advance the generation.
-- A new generation always refers to a completely committed query-visible state.
-- Full rebuild, incremental indexing, deletion, and watcher reconciliation follow the same semantics.
-- The generation survives process and watcher restarts.
-- Ordinary rebuilds preserve the database identity.
-- Recreated databases receive a new database identity.
-- ~orgfdb status --format json~ returns database identity, generation, and last-indexed time.
-- The status command is read-only and inexpensive.
-- Concurrent clients observe only complete committed states.
-- SQLite file events can be used as wake-up signals, but generation remains authoritative.
+- New databases begin at generation zero.
+- Migrated populated databases begin at generation one with full invalidation.
+- Generation advances inside the same transaction as query-visible index changes.
+- One committed logical batch advances generation exactly once.
+- No-op, failed, and rolled-back operations do not advance generation.
+- ~last_changed_at~ changes only when generation changes.
+- Every committed generation has a valid generation-batch record.
+- Normal incremental batches record exact affected paths.
+- Deleted paths remain available in the journal.
+- Derived link-resolution changes mark owning source files as affected.
+- Full invalidation is used instead of an incomplete file list.
+- Ordinary rebuilds preserve database identity.
+- Database recreation creates a new identity.
+- ~orgfdb status --format json~ is read-only and inexpensive.
+- ~orgfdb changes --format json~ returns ~unchanged~, ~patch~, or ~rebuild~ deterministically.
+- Several generations collapse to final net actions per path.
+- Database-ID changes cause complete cached-view rebuilding.
+- File-restricted query execution supports machine-safe bulk path input.
+- Restricted queries return only rows owned by selected files.
+- Machine-readable result rows expose their owning canonical file path.
+- A selectively patched complete query view equals a fresh unrestricted query result.
+- Search views are documented to rerun fully after generation changes.
+- Limited, offset, or truncated views are documented to rerun fully.
+- Concurrent readers observe only complete committed generations and journal data.
+- SQLite file events are wake-up signals only; generation remains authoritative.
 - Existing databases migrate without losing indexed data.
-- Tests cover initialization, migration, mutations, no-op operations, rollback, rebuild, watcher updates, concurrent reads, and status output.
-
+- Existing query, search, rebuild, watcher, resolver, and FTS tests remain green.
+- All targeted checks pass.
+- ~make ci~ passes.

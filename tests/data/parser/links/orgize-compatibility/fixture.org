@@ -1,0 +1,16 @@
+#+TITLE: Orgize Link Compatibility
+
+[[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
+
+[[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]
+
+* Prefix [[https://example.org][description [with brackets]]] suffix
+
+* Actual [2026-03-20 Fr] [[file:notes.org::#id][[2026-03-21 Sa] Note]] [2026-03-22 So]
+
+- [[test.org::Heading]]
+- [[test.org::#1]]
+- Term :: Description
+- Link example :: [[test.org::#1]]
+
+*** Übung 🚀 Unicode [[file:sub/äöü.txt::target][Überblick [grün]]] :foo:bar:

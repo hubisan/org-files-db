@@ -1663,6 +1663,184 @@ file:~/plain.c::255
 }
 
 #[test]
+fn orgize_adapter_recovers_fragmented_bracket_link_titles_and_timestamps() {
+    let content = "* Prefix [[https://example.org][description [with brackets]]] suffix
+* Actual [2026-03-20 Fr] [[file:notes.org::#id][[2026-03-21 Sa] Note]] [2026-03-22 So]
+- [[test.org::Heading]]
+- [[test.org::#1]]
+- Term :: Description
+- Link example :: [[test.org::#1]]";
+
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/compatibility.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("adapter should recover bracket links");
+
+    let prefix = document
+        .headings
+        .iter()
+        .find(|heading| {
+            heading.title_raw.as_deref()
+                == Some("Prefix [[https://example.org][description [with brackets]]] suffix")
+        })
+        .expect("prefix heading should be present");
+    assert_eq!(prefix.title, "Prefix description [with brackets] suffix");
+    assert_eq!(
+        prefix.title_raw.as_deref(),
+        Some("Prefix [[https://example.org][description [with brackets]]] suffix")
+    );
+    let actual = document
+        .headings
+        .iter()
+        .find(|heading| {
+            heading
+                .title_raw
+                .as_deref()
+                .is_some_and(|title| title.starts_with("Actual "))
+        })
+        .expect("timestamp heading should be present");
+    assert_eq!(
+        actual.title,
+        "Actual [2026-03-20 Fr] [2026-03-21 Sa] Note [2026-03-22 So]"
+    );
+    assert_eq!(actual.timestamps.len(), 2);
+    assert_eq!(
+        document
+            .links
+            .iter()
+            .map(|link| (
+                link.raw_target.as_str(),
+                link.logical_target.as_str(),
+                link.search_option.as_deref()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("https://example.org", "https://example.org", None),
+            ("file:notes.org::#id", "file:notes.org::#id", Some("#id")),
+            ("test.org::Heading", "test.org::Heading", None),
+            ("test.org::#1", "test.org::#1", None),
+            ("test.org::#1", "test.org::#1", None),
+        ]
+    );
+}
+
+#[test]
+fn orgize_adapter_renders_recovered_link_descriptions_like_inline_titles() {
+    let content = "#+TODO: one | done
+* [[https://example.org][*bold*]]
+* [[https://example.org][=code=]]
+* [[https://example.org][~verbatim~]]
+* [[https://example.org][Progress [50%]]]
+* [[https://example.org][TODO remains description text]]
+* [[https://example.org][Description :foo:bar:]]
+* [[file:notes.org::#id][[2026-03-21 Sa] Note]]
+* [[https://example.org][Example [description]]]
+* one [[https://example.org][description [with brackets]]]
+* one Read [[https://example.org][*the documentation* [today]]] now
+* one Übersicht [[https://example.org][Überblick [grün]]]
+* [[https://example.org][ORG_FILES_DB_LINK_DESCRIPTION_PREFIX0X text]]
+* [[https://example.org][text ORG_FILES_DB_LINK_DESCRIPTION_SUFFIX0X]]
+* [[https://example.org][ORGFILESDBNESTEDLINK0X]]";
+    let options = ParseOptions {
+        todo_keywords: TodoKeywordConfig {
+            open: vec![TodoKeyword::new("one")],
+            closed: vec![TodoKeyword::new("done")],
+        },
+        ..ParseOptions::default()
+    };
+    let document = OrgizeAdapter::new()
+        .parse_document(Path::new("notes/title-links.org"), content, &options)
+        .expect("adapter should render link descriptions");
+
+    let expected = [
+        ("bold", "[[https://example.org][*bold*]]"),
+        ("code", "[[https://example.org][=code=]]"),
+        ("verbatim", "[[https://example.org][~verbatim~]]"),
+        ("Progress [50%]", "[[https://example.org][Progress [50%]]]"),
+        (
+            "TODO remains description text",
+            "[[https://example.org][TODO remains description text]]",
+        ),
+        (
+            "Description :foo:bar:",
+            "[[https://example.org][Description :foo:bar:]]",
+        ),
+        (
+            "[2026-03-21 Sa] Note",
+            "[[file:notes.org::#id][[2026-03-21 Sa] Note]]",
+        ),
+        (
+            "Example [description]",
+            "[[https://example.org][Example [description]]]",
+        ),
+        (
+            "description [with brackets]",
+            "one [[https://example.org][description [with brackets]]]",
+        ),
+        (
+            "Read the documentation [today] now",
+            "one Read [[https://example.org][*the documentation* [today]]] now",
+        ),
+        (
+            "Übersicht Überblick [grün]",
+            "one Übersicht [[https://example.org][Überblick [grün]]]",
+        ),
+        (
+            "ORG_FILES_DB_LINK_DESCRIPTION_PREFIX0X text",
+            "[[https://example.org][ORG_FILES_DB_LINK_DESCRIPTION_PREFIX0X text]]",
+        ),
+        (
+            "text ORG_FILES_DB_LINK_DESCRIPTION_SUFFIX0X",
+            "[[https://example.org][text ORG_FILES_DB_LINK_DESCRIPTION_SUFFIX0X]]",
+        ),
+        (
+            "ORGFILESDBNESTEDLINK0X",
+            "[[https://example.org][ORGFILESDBNESTEDLINK0X]]",
+        ),
+    ];
+    for (index, (title, title_raw)) in expected.iter().enumerate() {
+        let heading = &document.headings[index + 1];
+        assert_eq!(&heading.title, title);
+        assert_eq!(heading.title_raw.as_deref(), Some(*title_raw));
+    }
+    assert_eq!(document.headings[9].todo_keyword.as_deref(), Some("one"));
+    assert_eq!(document.headings[10].todo_keyword.as_deref(), Some("one"));
+    assert_eq!(document.headings[11].todo_keyword.as_deref(), Some("one"));
+    assert!(document.headings[7].timestamps.is_empty());
+}
+
+#[test]
+fn orgize_adapter_only_re_normalizes_todo_titles_with_link_placeholders() {
+    let content = "#+TODO: TODO NEXT | DONE
+* TODO Ordinary *bold* heading
+* TODO Heading with [[https://example.org][description [with brackets]]]";
+    let document = OrgizeAdapter::new()
+        .parse_document(
+            Path::new("notes/todo-link-title.org"),
+            content,
+            &ParseOptions::default(),
+        )
+        .expect("adapter should retain ordinary TODO title rendering");
+
+    assert_eq!(document.headings[1].title, "Ordinary bold heading");
+    assert_eq!(
+        document.headings[1].title_raw.as_deref(),
+        Some("TODO Ordinary *bold* heading")
+    );
+    assert_eq!(
+        document.headings[2].title,
+        "Heading with description [with brackets]"
+    );
+    assert_eq!(
+        document.headings[2].title_raw.as_deref(),
+        Some("TODO Heading with [[https://example.org][description [with brackets]]]")
+    );
+}
+
+#[test]
 fn orgize_adapter_ignores_links_in_ignored_regions_and_marks_source_contexts() {
     let content = "\
 #+TITLE: Link contexts

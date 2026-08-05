@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =FIXED= Full rebuilds now recover valid bracket links that Orgize fragments, including bracketed or timestamp-looking descriptions, list-item targets containing ~::~, and escaped target characters. Rebuild existing databases to refresh affected links and titles.
+
 - =ADDED= Full rebuild and full configured-source reconciliation now persist and revalidate configured directory-root identity; intentional replacement requires the manual =--accept-source-root-changes= rebuild flag.
 
 - =ADDED= Added ~orgfdb watch --config PATH~ for safe watcher-driven incremental indexing and recovery on supported Unix-like systems.

@@ -32,6 +32,24 @@ Decision labels used in this file:
 
 * Risk Register
 
+** Orgize bracket-link fragmentation
+
+- Risk: Orgize can fragment valid bracket links when descriptions contain square brackets or begin with an inactive timestamp, which previously exposed authored link syntax in heading titles and could create a false timestamp.
+- Current status: ~work around locally~
+- Current decision: Keep project-owned source scanning authoritative. The scanner recognizes same-line bracket links with an explicit escape-aware target parser, retains authored and decoded targets separately, and reports complete, target, and description UTF-8 byte ranges.
+- Workaround / containment:
+  - ~raw_target~ preserves exact authored escapes; ~logical_target~ is decoded once before classification, path extraction, and resolution.
+  - Description text ends at the first same-line ~]]~ and remains literal for link semantics; it is not recursively indexed as a nested link or timestamp.
+  - Headline rendering substitutes scanner-recognized bracket links before Orgize title normalization, then restores their visible description (or logical target).
+  - Orgize timestamps completely contained in a bracket link are ignored. Timestamps before and after the link remain normal timestamps.
+  - Bracket links remain deliberately line-bounded. GNU Emacs may accept multi-line variants, which is an accepted project policy difference.
+- Fixtures / tests:
+  - [[file:../../tests/data/parser/links/orgize-compatibility/fixture.org][orgize compatibility fixture]]
+  - [[file:../../tests/orgize_adapter.rs][adapter compatibility tests]]
+  - [[file:../../src/parser/link_scanner.rs][scanner escape and range tests]]
+- Upstream context: https://github.com/PoiScript/orgize/issues/88 and https://github.com/PoiScript/orgize/issues/91.
+- Rebuild requirement: Run a full rebuild after upgrading to this version so stored link descriptions, heading titles, timestamps, and decoded resolution fields are refreshed.
+
 ** Phase 3 link scanner cross-checks
 
 - Risk: Raw ~Orgize~ link nodes and Emacs ~org-element~ link elements do not define the Phase 3 link scanner contract, so backend/reference-parser differences must stay documented as evidence rather than silently becoming product behavior.

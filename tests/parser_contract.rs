@@ -322,12 +322,17 @@ fn parsed_link_serializes_with_storage_ready_field_names() {
         format: "plain".to_string(),
         raw: "https://example.org".to_string(),
         raw_target: "https://example.org".to_string(),
+        logical_target: "https://example.org".to_string(),
         raw_description: None,
         link_type: "https".to_string(),
         path: "//example.org".to_string(),
         search_option: None,
         byte_start: 4,
         byte_end: 23,
+        target_byte_start: 4,
+        target_byte_end: 23,
+        description_byte_start: None,
+        description_byte_end: None,
         line: 2,
     };
 
@@ -337,6 +342,7 @@ fn parsed_link_serializes_with_storage_ready_field_names() {
     assert_eq!(json["format"], "plain");
     assert_eq!(json["raw"], "https://example.org");
     assert_eq!(json["raw_target"], "https://example.org");
+    assert_eq!(json["logical_target"], "https://example.org");
     assert!(json["raw_description"].is_null());
     assert_eq!(json["link_type"], "https");
     assert_eq!(json["path"], "//example.org");

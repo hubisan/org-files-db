@@ -1,0 +1,8 @@
+# classification: Orgize compatibility regression fixture
+document.title=Orgize Link Compatibility
+diagnostic_count=0
+heading_count=4
+heading.1.title=Prefix description [with brackets] suffix
+heading.2.title=Actual [2026-03-20 Fr] [2026-03-21 Sa] Note [2026-03-22 So]
+heading.2.timestamp_count=2
+heading.3.title=Übung 🚀 Unicode Überblick [grün]

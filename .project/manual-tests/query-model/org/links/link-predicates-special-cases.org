@@ -1,0 +1,259 @@
+#+TITLE: Manuelle Testdatei für spezielle Org-Links
+#+STARTUP: showall
+
+Diese Datei enthält absichtlich gültige, ungewöhnliche und fehlerhafte Links.
+Die fehlerhaften Fälle dürfen weder den Rest der Datei verschlucken noch einen Absturz verursachen.
+
+* Manuelle Prüfpunkte
+
+- Gültige Links werden genau einmal erkannt.
+- Linkbeschreibungen mit eckigen Klammern bleiben vollständig erhalten.
+- Ein inaktiver Timestamp in einer Linkbeschreibung ist nur Beschreibungstext.
+- Er erzeugt keinen zusätzlichen Timestamp-Datensatz.
+- Ziele mit ~::~ bleiben vollständig erhalten.
+- Ungültige oder unvollständige Links verdecken spätere gültige Links nicht.
+- Unicode vor und innerhalb eines Links verschiebt keine UTF-8-Bytebereiche.
+- Überschrift ~title~ enthält sichtbaren Text, ~title_raw~ den exakten Quelltext.
+
+* Gemeldete reale Fälle
+
+** Beschreibung mit eckigen Klammern
+
+[[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
+
+Erwartet: ein Link mit der vollständigen sichtbaren Beschreibung einschliesslich ~[BJJML]~.
+
+** Beschreibungen beginnen mit inaktiven Timestamps
+
+[[file:../notes/gesundheit/leiden/leiden.org::#3b8e6503-ec59-463b-8f86-66a07d356afc][[2026-03-21 Sa] (circa) Rechte Ferse bei Bouldern angeschlagen]]
+
+[[file:../notes/gesundheit/leiden/2022-12-operation-nasenscheidenwand.org][[2022-12-13 Di] Operation Nasenscheidenwand & Nebenhöhlen]]
+
+[[file:../notes/gesundheit/leiden/leiden.org::#f22e2595-302b-4263-85d5-0394a16ac405][[2026-03-21 Sa] Schmerzen Fuss unten vorne]]
+
+Erwartet je Zeile:
+
+- genau ein Link
+- der Timestamp bleibt Teil der Linkbeschreibung
+- kein zusätzlicher Timestamp-Datensatz
+
+* Ziel-Escaping
+
+** Einzelner Backslash vor der schliessenden Klammer
+
+- [[https://www.gnu.org\][Test]]
+
+Erwartet: kein gültiger Bracket-Link. Die URL kann als Plain-Link erkannt werden.
+
+** Escapeter abschliessender Backslash
+
+- [[https://www.gnu.org\\][Test]]
+
+Erwartet: ein gültiger beschriebener Link. Das logische Ziel endet mit einem einzelnen Backslash.
+
+** Escapete Klammern im Ziel
+
+- [[https://www.gnu.org\]\[brackets need to be escaped \[\] in the path\]][test]]
+
+Erwartet: ein gültiger Link. Die escapeten Klammern gehören vollständig zum Ziel.
+
+** Weitere Zielvarianten
+
+[[test.org::Heading]]
+
+[[test.org::#1]]
+
+[[file:notes.org::*Named heading]]
+
+[[file:notes.org::#id][Description]]
+
+Erwartet: Suchoptionen nach ~::~ bleiben vollständig erhalten.
+
+* Klammern in Beschreibungen
+
+** Ein Klammerpaar
+
+[[https://www.gnu.org][Intro to Brazilian Jiu-Jitsu [BJJML]]]
+
+Erwartet: sichtbare Beschreibung mit ~[BJJML]~.
+
+** Beschreibung beginnt mit einer Klammer
+
+[[https://www.gnu.org][[Test]]]]
+
+Erwartet: Das erste grammatisch gültige ~]]~ beendet den Link. Nachfolgende Klammern bleiben ausserhalb.
+
+** Viele öffnende Klammern
+
+[[https://www.gnu.org][[[[[[Test]]]]
+
+Erwartet: deterministisches Ende, kein Absturz und kein Verschlucken späterer Inhalte.
+
+** Mehrere Klammerpaare
+
+[[https://www.gnu.org][[][][]]]]
+
+Erwartet: deterministisches Ende, kein rekursives Erzeugen verschachtelter Links.
+
+** Verschachtelt aussehender Inhalt ohne vollständigen äusseren Abschluss
+
+[[https://orgmode.org][test [[https://test.com]]no more link
+
+Erwartet: kein verschachteltes Linkobjekt. Das erste passende ~]]~ beendet die erkannte Beschreibung; nachfolgender Text bleibt erhalten.
+
+** Verschachtelt aussehender Inhalt mit weiterem Beschreibungstext
+
+[[https://orgmode.org][test [[https://test.com]] me [again] oder nicht ]]
+
+Erwartet: kein verschachteltes Linkobjekt. Text nach dem ersten passenden ~]]~ bleibt ausserhalb des Links.
+
+** Leere Beschreibung
+
+[[https://example.org][]]
+
+Erwartet: Verhalten gemäss GNU Emacs Org festhalten; kein Absturz und exakte Quellbereiche.
+
+** Mehrere Links in derselben Zeile
+
+Vorher [[https://one.example][first [one]]] und [[https://two.example][second [two]]] nachher.
+
+Erwartet: zwei Links in Quellreihenfolge; angrenzender Text bleibt unverändert.
+
+* Links in Listen
+
+- [[test.org::Heading]]
+- [[test.org::#1]]
+- To overcome, just add :: to the list item before the link [[test.org::#1]]
+
+Erwartet: Alle drei Linkziele bleiben vollständig. ~::~ im Ziel wird nicht als Description-List-Trenner missverstanden.
+
+** Gültige Description Lists
+
+- Term :: Description
+- Link example :: [[test.org::#1]]
+
+Erwartet: Die gültige Description-List-Struktur bleibt erhalten; der Link in der zweiten Zeile wird normal erkannt.
+
+* Links in Überschriften
+
+** [[https://example.org][Example]]
+
+Erwarteter sichtbarer Titel: ~Example~.
+
+** Read [[https://example.org][the documentation]] today
+
+Erwarteter sichtbarer Titel: ~Read the documentation today~.
+
+** [[https://example.org][Example [description]]]
+
+Erwarteter sichtbarer Titel: ~Example [description]~.
+
+** [[file:notes.org::#id][[2026-03-21 Sa] Note]]
+
+Erwarteter sichtbarer Titel: ~[2026-03-21 Sa] Note~.
+Der Timestamp ist auch hier kein separates Timestamp-Objekt.
+
+** [[https://example.org]]
+
+Erwarteter sichtbarer Titel: ~https://example.org~.
+
+** Unicode [[https://example.org][Überblick [grün]]] :foo:bar:
+
+Erwarteter sichtbarer Titel: ~Unicode Überblick [grün]~.
+Erwartete Tags: ~foo~ und ~bar~.
+
+* Unicode und Bytebereiche
+
+Text with: äöü ÄÖÜ 😀😇🤖
+
+*** Übung 🚀 Ein Titel mit Umlaut und Emoji :foo:bar:
+
+Some body text with a link: https://orgmode.org/🔥
+
+And another line with [[file:sub/äöü.txt::target][A file link with Umlaut]].
+
+Text nach Emoji 🤖 und vor einem Link: [[https://example.org/🔥][Feuer 🔥 [Test]]] Ende.
+
+Erwartet für den Dateilink:
+
+- kompletter Quelltext bleibt exakt erhalten
+- Ziel ist ~file:sub/äöü.txt::target~
+- Beschreibung ist ~A file link with Umlaut~
+- alle Bereiche sind UTF-8-Bytebereiche und end-exklusiv
+
+* Plain Links
+
+Some body text with a link: https://orgmode.org/🔥
+
+https://orgmode.org/🔥
+
+Plain link with trailing punctuation: https://example.org/test.
+
+Plain link in parentheses: (https://example.org/test)
+
+Erwartet: Das Bracket-Link-Recovery verändert die bestehende Plain-Link-Erkennung nicht.
+
+* Angle Links
+
+<https://orgmode.org/🔥>
+
+<https://orgmode.org/ 🔥>
+
+Erwartet:
+
+- die erste Form folgt der bestehenden Angle-Link-Semantik
+- die zweite Form mit Leerzeichen folgt der GNU-Org-Referenz oder einer ausdrücklich dokumentierten Projektabweichung
+- keine Form verschiebt spätere Bereiche oder wird als Bracket-Link interpretiert
+
+* Unvollständige und fehlerhafte Eingaben
+
+[[https://example.org][unfinished
+
+[[file:test.org
+
+[[https://example.org\][Description]]
+
+[[https://example.org][Description
+
+[[
+
+[[[
+
+\\\[[[]]]\\
+
+Erwartet für jeden Fall:
+
+- kein Absturz
+- keine ungültigen Bereiche
+- der Scanner macht vorwärts Fortschritt
+- spätere gültige Links bleiben sichtbar
+
+** Gültiger Link nach fehlerhaften Eingaben
+
+Dieser Link muss weiterhin erkannt werden: [[https://valid-after-errors.example][valid after errors]].
+
+* Ausgeschlossene Kontexte
+
+Die folgenden Inhalte dienen zur manuellen Kontrolle, dass Literalbereiche nicht als normale Links indexiert werden.
+
+#+begin_src org
+[[https://inside-source-block.example][must not be indexed as an ordinary source link]]
+#+end_src
+
+#+begin_example
+[[https://inside-example-block.example][must not be indexed as an ordinary source link]]
+#+end_example
+
+#+begin_comment
+[[https://inside-comment-block.example][must not be indexed]]
+#+end_comment
+
+Inline code: ~[[https://inside-verbatim.example][must not be indexed]]~
+
+Inline verbatim: =[[https://inside-code.example][must not be indexed]]=
+
+* Letzter Kontrollfall
+
+Nach allen fehlerhaften und ausgeschlossenen Fällen muss dieser Link erkannt werden:
+
+[[https://final.example][Final [link]]]

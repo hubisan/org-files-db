@@ -6591,7 +6591,7 @@ index_body_text = false
                             .to_string(),
                     ),
                     Some(
-                        "*\\[2026-07-01 Wed\\] Implement deterministic link resolution pass after rebuild"
+                        "*[2026-07-01 Wed] Implement deterministic link resolution pass after rebuild"
                             .to_string(),
                     ),
                     Some("resolved".to_string()),

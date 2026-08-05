@@ -13,7 +13,7 @@ use orgize::{
 };
 
 use super::diagnostics::ParseDiagnostic;
-use super::link_scanner::{scan_links, LinkScanContext};
+use super::link_scanner::{scan_links, LinkScanContext, LinkScannerConfig};
 use super::model::{
     OrgParserCore, ParseOptions, ParsedHeading, ParsedKeyword, ParsedLink, ParsedLinkSourceContext,
     ParsedOrgDocument, ParsedProperty, ParsedPropertySource, ParsedTimestamp,
@@ -57,6 +57,16 @@ impl OrgParserCore for OrgizeAdapter {
 
         parsed.metadata.title = combined_document_title(&document);
         parsed.metadata.keywords = collect_document_keywords(&document, content);
+        let structural_context = collect_link_structural_context(&document);
+        parsed.links = scan_links(
+            content,
+            &options.link_scanner,
+            &LinkScanContext {
+                ignored_byte_ranges: structural_context.ignored_byte_ranges,
+            },
+        );
+        annotate_links_source_context(&mut parsed.links, &structural_context.context_spans);
+
         let mut level_zero = level_zero_heading(path, content, parsed.metadata.title.as_deref());
         level_zero.tags = file_level_tags_from_keywords(&parsed.metadata.keywords);
         populate_heading_body(document.section(), content, &mut level_zero);
@@ -79,18 +89,10 @@ impl OrgParserCore for OrgizeAdapter {
             path,
             content,
             &options.todo_keywords,
+            &parsed.links,
             &mut parsed.headings,
             Some(0),
         );
-        let structural_context = collect_link_structural_context(&document);
-        parsed.links = scan_links(
-            content,
-            &options.link_scanner,
-            &LinkScanContext {
-                ignored_byte_ranges: structural_context.ignored_byte_ranges,
-            },
-        );
-        annotate_links_source_context(&mut parsed.links, &structural_context.context_spans);
 
         Ok(parsed)
     }
@@ -356,6 +358,7 @@ fn collect_headlines(
     path: &Path,
     content: &str,
     todo_keywords: &TodoKeywordConfig,
+    links: &[ParsedLink],
     output: &mut Vec<ParsedHeading>,
     parent_index: Option<usize>,
 ) {
@@ -364,13 +367,18 @@ fn collect_headlines(
         let end = usize::from(headline.end());
 
         let original_title_raw = headline.title_raw().trim_end().to_string();
-        let source_title_raw = source_title_raw_from_content_line(content, start);
+        let source_title = source_title_from_content_line(content, start);
+        let source_title_raw = source_title.raw;
+        let (title_for_normalization, title_placeholders) =
+            placeholder_bracket_links_in_title(&source_title_raw, &source_title.range, links);
         let headline_priority = headline.priority().map(|token| token.to_string());
         let parsed_priority = headline_priority
             .clone()
             .or_else(|| priority_from_source_title(&source_title_raw));
-        let normalized_title = if headline_priority.is_none() && parsed_priority.is_some() {
-            normalize_title_from_raw(&source_title_raw, parsed_priority.as_deref())
+        let normalized_title = if !title_placeholders.is_empty()
+            || (headline_priority.is_none() && parsed_priority.is_some())
+        {
+            normalize_title_from_raw(&title_for_normalization, parsed_priority.as_deref())
         } else {
             normalize_title_elements(headline.title())
         };
@@ -388,15 +396,31 @@ fn collect_headlines(
             parsed.todo_keyword = None;
             parsed.title_raw = Some(source_title_raw.clone());
             parsed.title = normalize_title_preserving_leading_keyword(
-                &source_title_raw,
+                &title_for_normalization,
                 parsed.priority.as_deref(),
             );
+        }
+        if !title_placeholders.is_empty() {
+            if let Some(keyword) = parsed.todo_keyword.as_deref() {
+                let stripped_source = source_title_raw
+                    .strip_prefix(keyword)
+                    .filter(|remainder| remainder.starts_with(char::is_whitespace))
+                    .map(str::trim_start);
+                if let Some(stripped_source) = stripped_source {
+                    let stripped = placeholder_title_after_todo_prefix(
+                        &source_title_raw,
+                        &title_for_normalization,
+                        stripped_source,
+                    );
+                    parsed.title = normalize_title_from_raw(stripped, parsed.priority.as_deref());
+                }
+            }
         }
         if parsed.todo_keyword.is_none() {
             if source_title_raw != original_title_raw.trim() {
                 parsed.title_raw = Some(source_title_raw.clone());
                 parsed.title = normalize_title_preserving_leading_keyword(
-                    &source_title_raw,
+                    &title_for_normalization,
                     parsed.priority.as_deref(),
                 );
             }
@@ -404,8 +428,15 @@ fn collect_headlines(
                 infer_todo_keyword(&source_title_raw, todo_keywords)
             {
                 parsed.todo_keyword = Some(keyword);
-                parsed.title =
-                    normalize_title_from_raw(&stripped_title_raw, parsed.priority.as_deref());
+                let stripped_placeholder_title = placeholder_title_after_todo_prefix(
+                    &source_title_raw,
+                    &title_for_normalization,
+                    &stripped_title_raw,
+                );
+                parsed.title = normalize_title_from_raw(
+                    stripped_placeholder_title,
+                    parsed.priority.as_deref(),
+                );
             }
         }
         parsed.todo_type = parsed
@@ -418,7 +449,8 @@ fn collect_headlines(
         parsed.is_archived = headline.is_archived();
         parsed.is_root = parent_index.is_none();
 
-        populate_heading_timestamps(&headline, content, &mut parsed);
+        parsed.title = restore_title_link_placeholders(parsed.title, &title_placeholders);
+        populate_heading_timestamps(&headline, content, links, &mut parsed);
         populate_heading_body(headline.section(), content, &mut parsed);
 
         if let Some(properties) = properties_drawer_node_in_headline(&headline) {
@@ -437,6 +469,7 @@ fn collect_headlines(
             path,
             content,
             todo_keywords,
+            links,
             output,
             Some(current_index),
         );
@@ -563,7 +596,12 @@ fn normalize_title_preserving_leading_keyword(title_raw: &str, priority: Option<
         .unwrap_or_else(|| stripped.trim().to_string())
 }
 
-fn populate_heading_timestamps(headline: &Headline, content: &str, parsed: &mut ParsedHeading) {
+fn populate_heading_timestamps(
+    headline: &Headline,
+    content: &str,
+    links: &[ParsedLink],
+    parsed: &mut ParsedHeading,
+) {
     let mut seen_ranges = HashSet::new();
     let planning_node = headline.planning();
 
@@ -610,7 +648,7 @@ fn populate_heading_timestamps(headline: &Headline, content: &str, parsed: &mut 
         .find(|node| node.kind() == SyntaxKind::HEADLINE_TITLE)
     {
         for timestamp in title_node.descendants().filter_map(Timestamp::cast) {
-            push_body_timestamp_if_new(&timestamp, content, parsed, &mut seen_ranges);
+            push_body_timestamp_if_new(&timestamp, content, links, parsed, &mut seen_ranges);
         }
     }
 
@@ -627,7 +665,7 @@ fn populate_heading_timestamps(headline: &Headline, content: &str, parsed: &mut 
             {
                 continue;
             }
-            push_body_timestamp_if_new(&timestamp, content, parsed, &mut seen_ranges);
+            push_body_timestamp_if_new(&timestamp, content, links, parsed, &mut seen_ranges);
         }
     }
 }
@@ -635,11 +673,18 @@ fn populate_heading_timestamps(headline: &Headline, content: &str, parsed: &mut 
 fn push_body_timestamp_if_new(
     timestamp: &Timestamp,
     content: &str,
+    links: &[ParsedLink],
     parsed: &mut ParsedHeading,
     seen_ranges: &mut HashSet<(usize, usize)>,
 ) {
     let parsed_timestamp =
         parsed_timestamp_from_orgize(timestamp, Some(ParsedTimestampRole::Body), content);
+    if link_contains_range(
+        links,
+        &(parsed_timestamp.byte_start..parsed_timestamp.byte_end),
+    ) {
+        return;
+    }
     if seen_ranges.insert((parsed_timestamp.byte_start, parsed_timestamp.byte_end)) {
         parsed.timestamps.push(parsed_timestamp);
     }
@@ -1546,6 +1591,30 @@ fn infer_todo_keyword(
     None
 }
 
+fn placeholder_title_after_todo_prefix<'a>(
+    source_title: &str,
+    placeholder_title: &'a str,
+    stripped_source_title: &str,
+) -> &'a str {
+    let prefix_len = source_title
+        .len()
+        .checked_sub(stripped_source_title.len())
+        .expect("stripped TODO title must be a source suffix");
+    let source_prefix = source_title
+        .get(..prefix_len)
+        .expect("TODO prefix must end on a UTF-8 boundary");
+    let placeholder_prefix = placeholder_title
+        .get(..prefix_len)
+        .expect("TODO prefix must end on the same UTF-8 boundary");
+    assert_eq!(
+        placeholder_prefix, source_prefix,
+        "link placeholders must not alter the TODO prefix"
+    );
+    placeholder_title
+        .get(prefix_len..)
+        .expect("TODO prefix must end on the same UTF-8 boundary")
+}
+
 fn strip_leading_priority_cookie<'a>(title_raw: &'a str, priority: Option<&str>) -> &'a str {
     let Some(priority) = priority else {
         return title_raw;
@@ -1616,7 +1685,12 @@ fn todo_keyword_is_active(keyword: &str, todo_keywords: &TodoKeywordConfig) -> b
         .any(|candidate| candidate.name == keyword)
 }
 
-fn source_title_raw_from_content_line(content: &str, start: usize) -> String {
+struct SourceHeadlineTitle {
+    raw: String,
+    range: Range<usize>,
+}
+
+fn source_title_from_content_line(content: &str, start: usize) -> SourceHeadlineTitle {
     let line_start = content[..start]
         .rfind('\n')
         .map(|offset| offset + 1)
@@ -1627,7 +1701,146 @@ fn source_title_raw_from_content_line(content: &str, start: usize) -> String {
         .unwrap_or(content.len());
     let line = &content[line_start..line_end];
     let without_stars = line.trim_start_matches('*').trim_start();
-    strip_trailing_org_tags(without_stars).trim().to_string()
+    let without_tags = strip_trailing_org_tags(without_stars);
+    let raw = without_tags.trim();
+    let raw_start = line_start
+        + (line.len() - without_stars.len())
+        + (without_tags.len() - without_tags.trim_start().len());
+    SourceHeadlineTitle {
+        raw: raw.to_string(),
+        range: raw_start..raw_start + raw.len(),
+    }
+}
+
+fn placeholder_bracket_links_in_title(
+    title_raw: &str,
+    title_range: &Range<usize>,
+    links: &[ParsedLink],
+) -> (String, Vec<(String, String)>) {
+    let mut title = title_raw.to_string();
+    let relevant_links = links_in_range(links, title_range);
+    let mut replacements = relevant_links
+        .iter()
+        .filter(|link| {
+            link.format == "bracket"
+                && title_range.start <= link.byte_start
+                && link.byte_end <= title_range.end
+        })
+        .enumerate()
+        .map(|(index, link)| {
+            let visible = link
+                .raw_description
+                .as_deref()
+                .map(render_link_description_for_title)
+                .unwrap_or_else(|| link.logical_target.clone());
+            let mut token_index = index;
+            let token = loop {
+                let candidate = format!("ORGFILESDBLINKTOKEN{token_index}X");
+                if !title_raw.contains(&candidate)
+                    && !relevant_links.iter().any(|link| {
+                        link.raw_description
+                            .as_deref()
+                            .is_some_and(|description| description.contains(&candidate))
+                            || link.logical_target.contains(&candidate)
+                    })
+                {
+                    break candidate;
+                }
+                token_index += links.len().max(1);
+            };
+            (
+                link.byte_start - title_range.start..link.byte_end - title_range.start,
+                token,
+                visible,
+            )
+        })
+        .collect::<Vec<_>>();
+    replacements.sort_by_key(|(range, _, _)| std::cmp::Reverse(range.start));
+
+    let mut placeholders = Vec::with_capacity(replacements.len());
+    for (range, token, visible) in replacements {
+        title.replace_range(range, &token);
+        placeholders.push((token, visible));
+    }
+    (title, placeholders)
+}
+
+fn links_in_range<'a>(links: &'a [ParsedLink], range: &Range<usize>) -> &'a [ParsedLink] {
+    let first = links.partition_point(|link| link.byte_end <= range.start);
+    let last = first + links[first..].partition_point(|link| link.byte_start < range.end);
+    &links[first..last]
+}
+
+fn link_contains_range(links: &[ParsedLink], range: &Range<usize>) -> bool {
+    let index = links.partition_point(|link| link.byte_start <= range.start);
+    index
+        .checked_sub(1)
+        .and_then(|index| links.get(index))
+        .is_some_and(|link| {
+            link.format == "bracket" && link.byte_start <= range.start && range.end <= link.byte_end
+        })
+}
+
+fn render_link_description_for_title(raw_description: &str) -> String {
+    let mut rendered = raw_description.to_string();
+    let mut sentinel_index = 0usize;
+    let (prefix, suffix) = loop {
+        let prefix = format!("ORG_FILES_DB_LINK_DESCRIPTION_PREFIX{sentinel_index}X ");
+        let suffix = format!(" ORG_FILES_DB_LINK_DESCRIPTION_SUFFIX{sentinel_index}X");
+        if !raw_description.contains(&prefix) && !raw_description.contains(&suffix) {
+            break (prefix, suffix);
+        }
+        sentinel_index += 1;
+    };
+    let nested_links = scan_links(
+        raw_description,
+        &LinkScannerConfig::default(),
+        &LinkScanContext::default(),
+    );
+    let mut nested_token_index = 0usize;
+    let mut nested_placeholders = nested_links
+        .into_iter()
+        .filter(|link| link.format == "bracket")
+        .map(|link| {
+            let token = loop {
+                let candidate = format!("ORGFILESDBNESTEDLINK{nested_token_index}X");
+                nested_token_index += 1;
+                if !raw_description.contains(&candidate) {
+                    break candidate;
+                }
+            };
+            (link.byte_start..link.byte_end, token, link.raw)
+        })
+        .collect::<Vec<_>>();
+    nested_placeholders.sort_by_key(|(range, _, _)| std::cmp::Reverse(range.start));
+    for (range, token, _) in &nested_placeholders {
+        rendered.replace_range(range.clone(), token);
+    }
+
+    let parsed = Org::parse(format!("* {prefix}{rendered}{suffix}\n"));
+    let mut visible = parsed
+        .document()
+        .headlines()
+        .next()
+        .map(|headline| normalize_title_elements(headline.title()))
+        .and_then(|title| {
+            title
+                .strip_prefix(&prefix)
+                .and_then(|title| title.strip_suffix(&suffix))
+                .map(str::to_string)
+        })
+        .unwrap_or(rendered);
+    for (_, token, raw) in nested_placeholders {
+        visible = visible.replace(&token, &raw);
+    }
+    visible
+}
+
+fn restore_title_link_placeholders(mut title: String, placeholders: &[(String, String)]) -> String {
+    for (token, visible) in placeholders {
+        title = title.replace(token, visible);
+    }
+    title
 }
 
 fn strip_trailing_org_tags(value: &str) -> &str {
@@ -1649,4 +1862,52 @@ fn is_org_tag_block(value: &str) -> bool {
         && value[1..value.len() - 1]
             .split(':')
             .all(|segment| !segment.is_empty())
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::{link_contains_range, links_in_range};
+    use crate::parser::{ParsedLink, ParsedLinkSourceContext};
+
+    fn link(start: usize, end: usize, format: &str) -> ParsedLink {
+        ParsedLink {
+            source_context: ParsedLinkSourceContext::Normal,
+            format: format.to_string(),
+            raw: String::new(),
+            raw_target: String::new(),
+            logical_target: String::new(),
+            raw_description: None,
+            link_type: String::new(),
+            path: String::new(),
+            search_option: None,
+            byte_start: start,
+            byte_end: end,
+            target_byte_start: start,
+            target_byte_end: end,
+            description_byte_start: None,
+            description_byte_end: None,
+            line: 1,
+        }
+    }
+
+    #[test]
+    fn source_ordered_range_helpers_respect_boundaries_and_link_formats() {
+        let links = vec![
+            link(10, 20, "bracket"),
+            link(20, 30, "angle"),
+            link(30, 40, "bracket"),
+        ];
+        assert!(links_in_range(&[], &(0..1)).is_empty());
+        assert!(links_in_range(&links, &(0..10)).is_empty());
+        assert!(links_in_range(&links, &(40..50)).is_empty());
+        assert_eq!(links_in_range(&links, &(10..20)).len(), 1);
+        assert_eq!(links_in_range(&links, &(20..30))[0].format, "angle");
+        assert_eq!(links_in_range(&links, &(19..31)).len(), 3);
+        assert!(link_contains_range(&links, &(10..20)));
+        assert!(link_contains_range(&links, &(11..19)));
+        assert!(!link_contains_range(&links, &(20..30)));
+        assert!(link_contains_range(&links, &(30..40)));
+        assert!(!link_contains_range(&links, &(9..10)));
+        assert!(!link_contains_range(&links, &(40..41)));
+    }
 }

@@ -180,12 +180,17 @@ pub struct ParsedLink {
     pub format: String,
     pub raw: String,
     pub raw_target: String,
+    pub logical_target: String,
     pub raw_description: Option<String>,
     pub link_type: String,
     pub path: String,
     pub search_option: Option<String>,
     pub byte_start: usize,
     pub byte_end: usize,
+    pub target_byte_start: usize,
+    pub target_byte_end: usize,
+    pub description_byte_start: Option<usize>,
+    pub description_byte_end: Option<usize>,
     pub line: u32,
 }
 
