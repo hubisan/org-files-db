@@ -19,7 +19,7 @@ Die fehlerhaften Fälle dürfen weder den Rest der Datei verschlucken noch einen
 
 ** Beschreibung mit eckigen Klammern
 
-[[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
+*** [[https://medium.com/@Graphling/intro-to-brazilian-jiu-jitsu-modeling-language-bjjml-9dd689ddd048][Intro to Brazilian Jiu-Jitsu Modeling Language [BJJML] | by Graphling | Medium]]
 
 Erwartet: ein Link mit der vollständigen sichtbaren Beschreibung einschliesslich ~[BJJML]~.
 
