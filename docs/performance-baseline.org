@@ -3,7 +3,7 @@
 
 * Purpose
 
-The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds. Schema version 10 materializes effective property values, and schema version 11 materializes effective tags, so inherited metadata matching avoids reconstructing heading ancestry at query time.
+The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds. Schema version 10 materializes effective property values, schema version 11 materializes effective tags, and schema version 12 adds transactional index generations and affected-file journalling. The derived metadata projections continue to avoid reconstructing heading ancestry at query time.
 
 * Run
 
@@ -88,7 +88,7 @@ The deterministic corpus contained 1,000 files, 5,675 headings, and 1,091 links.
 
 The accepted subset has an estimated net database-size increase of 232 KiB on the 1,000-file corpus. Every individual accepted profile preserved result counts and semantic equivalence, and its rebuild and incremental measurements remained close to the matching baseline. The exact accepted subset was not measured as a separate profile; the combined profile cannot stand in for it because that profile also included the rejected resolution-status index.
 
-The measured index decision produced schema version 9. Later derived-projection work advanced the current schema to version 11 without changing the accepted index decision. Version 9 adds:
+The measured index decision produced schema version 9. Later derived-projection and cache-consistency work advanced the current schema to version 12 without changing the accepted index decision. Version 9 adds:
 
 #+begin_src sql
 CREATE INDEX idx_files_path_lower ON files(LOWER(path));

@@ -12,11 +12,12 @@ use sha2::{Digest, Sha256};
 use crate::{
     config::{normalize_syntactic_path, Config, ConfigError},
     db::{
-        open_database_with_schema, sqlite_supports_fts5, DbError, DbWriteError, DbWriter,
-        EffectivePropertyRecord, EffectiveTagRecord, FileRecordInput, HeadingBodyRecord,
-        HeadingRecord, KeywordRecord, LinkRecord, OutlinePathRecord, PropertyRecord,
-        SchemaDefinition, TagRecord, TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord,
-        CURRENT_SCHEMA_VERSION, DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
+        advance_index_generation, open_database_with_schema, sqlite_supports_fts5, AffectedFile,
+        DbError, DbWriteError, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
+        FileRecordInput, HeadingBodyRecord, HeadingRecord, IndexGenerationChange, KeywordRecord,
+        LinkRecord, OutlinePathRecord, PropertyRecord, SchemaDefinition, TagRecord,
+        TimestampRecord, TimestampRepeaterRecord, TodoKeywordRecord, CURRENT_SCHEMA_VERSION,
+        DB_METADATA_BODY_TEXT_AVAILABLE_KEY, DB_METADATA_FTS_AVAILABLE_KEY,
         DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
         FTS_SCHEMA_CONTRACT_VERSION,
     },
@@ -651,7 +652,7 @@ where
             persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
         }
         let _ = indexed_universe;
-        LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
+        let resolution_report = LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
             .map_err(IndexerError::Write)?;
         IndexingContext::from_config(config, fts_available)
             .persist(&tx)
@@ -666,6 +667,11 @@ where
             expected
                 .persist(&tx)
                 .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        }
+        let generation_change =
+            generation_change_for_plan(&plan, &resolution_report.changed_source_paths);
+        if !generation_change.is_empty() {
+            advance_index_generation(&tx, &generation_change).map_err(IndexerError::Write)?;
         }
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -708,16 +714,21 @@ where
         let fast_snapshot_matches = persisted
             .as_ref()
             .is_some_and(|file| file.mtime_ns == metadata.mtime_ns && file.size == metadata.size);
+        let path_changed = persisted
+            .as_ref()
+            .is_some_and(|file| file.path != display_path(&discovered.path));
         let hash_comparable = persisted
             .as_ref()
             .and_then(|file| qualified_sha256_hash(file.content_hash.as_deref()))
             .is_some();
         if let Some(persisted) = persisted.as_ref() {
             if fast_snapshot_matches && hash_comparable && !options.verify_hashes && !reparse_all {
-                return Ok(PlannedCurrentFile::Unchanged(PlannedFile::from_persisted(
-                    &discovered,
-                    persisted,
-                )));
+                let file = PlannedFile::from_persisted(&discovered, persisted);
+                return Ok(if path_changed {
+                    PlannedCurrentFile::MetadataOnly(file)
+                } else {
+                    PlannedCurrentFile::Unchanged(file)
+                });
             }
         }
 
@@ -729,7 +740,7 @@ where
                 && persisted.size == captured.snapshot.size;
             if !reparse_all && hash_matches {
                 let file = PlannedFile::from_captured(&discovered, persisted, &captured)?;
-                return Ok(if captured_snapshot_matches {
+                return Ok(if captured_snapshot_matches && !path_changed {
                     PlannedCurrentFile::Unchanged(file)
                 } else {
                     PlannedCurrentFile::MetadataOnly(file)
@@ -887,7 +898,8 @@ where
             persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
         }
 
-        LinkResolver::resolve_all(&tx, &discovery.indexed_universe).map_err(IndexerError::Write)?;
+        let _resolution_report = LinkResolver::resolve_all(&tx, &discovery.indexed_universe)
+            .map_err(IndexerError::Write)?;
         indexing_context.persist(&tx).map_err(IndexerError::Write)?;
         source_root_evidence
             .ensure_unchanged(
@@ -898,6 +910,8 @@ where
         source_root_evidence
             .persist(&tx)
             .map_err(|source| IndexerError::SourceRootEvidence(Box::new(source)))?;
+        advance_index_generation(&tx, &IndexGenerationChange::full_invalidation())
+            .map_err(IndexerError::Write)?;
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
@@ -954,6 +968,66 @@ where
             path,
         })
     }
+}
+
+fn generation_change_for_plan(
+    plan: &ChangePlan,
+    resolution_changed_source_paths: &BTreeSet<String>,
+) -> IndexGenerationChange {
+    if !plan.invalidations.is_empty() {
+        return IndexGenerationChange::full_invalidation();
+    }
+
+    let previous_paths = plan
+        .expected_files
+        .iter()
+        .map(|file| (file.file_id, file.path.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let mut affected = Vec::new();
+
+    for file in &plan.metadata_only {
+        add_upsert_with_previous_path(
+            &mut affected,
+            previous_paths.get(&file.existing_file_id).copied(),
+            &file.path,
+        );
+    }
+    for file in &plan.modified {
+        add_upsert_with_previous_path(
+            &mut affected,
+            file.existing_file_id
+                .and_then(|file_id| previous_paths.get(&file_id).copied()),
+            &file.prepared.path,
+        );
+    }
+    for file in &plan.created {
+        affected.push(AffectedFile::upsert(display_path(&file.prepared.path)));
+    }
+    for file in &plan.deleted {
+        affected.push(AffectedFile::delete(file.path.clone()));
+    }
+    affected.extend(
+        resolution_changed_source_paths
+            .iter()
+            .cloned()
+            .map(AffectedFile::upsert),
+    );
+
+    IndexGenerationChange::from_files(affected)
+}
+
+fn add_upsert_with_previous_path(
+    affected: &mut Vec<AffectedFile>,
+    previous_path: Option<&str>,
+    current_path: &Path,
+) {
+    let current_path = display_path(current_path);
+    if let Some(previous_path) = previous_path {
+        if previous_path != current_path {
+            affected.push(AffectedFile::delete(previous_path.to_string()));
+        }
+    }
+    affected.push(AffectedFile::upsert(current_path));
 }
 
 fn persist_search_trust_metadata(
@@ -2130,10 +2204,12 @@ fn update_existing_file_metadata(
     file: &PlannedFile,
 ) -> Result<(), IndexerError> {
     let record = file_record_for_write(&file.file_record, &file.path)?;
-    connection.execute(
-        "UPDATE files SET mtime_ns = ?1, size = ?2, content_hash = ?3, indexed_at = ?4 WHERE id = ?5",
-        rusqlite::params![record.mtime_ns, record.size, record.content_hash, record.indexed_at, file.existing_file_id],
-    ).map_err(|source| IndexerError::Write(DbWriteError::Write { operation: "apply_change_plan.metadata_only", source }))?;
+    let file_id = DbWriter::upsert_file(connection, &record).map_err(IndexerError::Write)?;
+    if file_id != file.existing_file_id {
+        return Err(IndexerError::Write(DbWriteError::InvalidInput(
+            "metadata-only update selected a different file row",
+        )));
+    }
     Ok(())
 }
 
@@ -2816,13 +2892,14 @@ mod tests {
         },
         parser::{OrgParserCore, OrgizeAdapter, ParseDiagnostic, ParseOptions, ParsedOrgDocument},
         query::{
-            execute_sqlite_query, parse_query, validate_query, QueryRows, QueryValidationOptions,
+            execute_sqlite_query, execute_sqlite_query_with_options, parse_query, validate_query,
+            HeadingQueryMatch, QueryExecutionOptions, QueryRows, QueryValidationOptions,
         },
     };
     use rusqlite::Connection;
     use sha2::{Digest, Sha256};
     use std::{
-        collections::VecDeque,
+        collections::{BTreeSet, VecDeque},
         fs,
         os::unix::fs::MetadataExt,
         path::{Path, PathBuf},
@@ -9907,6 +9984,366 @@ index_body_text = false
             IndexerError::ReadFile { .. }
         ));
         assert!(plan.deleted.is_empty());
+    }
+
+    #[test]
+    fn rebuild_and_noop_reconciliation_preserve_identity_and_generation_semantics() {
+        let test_dir = TestDir::new("index-generation-rebuild-noop");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Stable\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        let initial = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(initial.generation, 0);
+
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("first rebuild should succeed");
+        let first = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(first.generation, 1);
+        assert_eq!(first.database_id, initial.database_id);
+        let first_full: i64 = connection
+            .query_row(
+                "SELECT full_invalidation FROM index_generations WHERE generation = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("rebuild generation should exist");
+        assert_eq!(first_full, 1);
+
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("unchanged reconciliation should succeed");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("unchanged reconciliation should apply");
+        };
+        assert_eq!(report.unchanged, 1);
+        let after_noop = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(after_noop, first);
+
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("ordinary rebuild should succeed");
+        let second = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(second.database_id, first.database_id);
+        assert_eq!(second.generation, first.generation + 1);
+    }
+
+    #[test]
+    fn identity_preserving_rename_journals_delete_and_upsert_once() {
+        let test_dir = TestDir::new("index-generation-file-rename");
+        let notes = test_dir.path().join("notes");
+        let old_path = notes.join("old.org");
+        let new_path = notes.join("new.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: Vec::new(),
+            dirs: vec![ConfiguredDir {
+                path: notes,
+                recursive: true,
+                exclude: Vec::new(),
+            }],
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&old_path, "* Renamed without content changes\n");
+        let old_canonical =
+            fs::canonicalize(&old_path).expect("old source path should canonicalize before rename");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let before = crate::db::read_index_state(&connection).expect("state should load");
+
+        fs::rename(&old_path, &new_path).expect("source should rename");
+        let new_canonical =
+            fs::canonicalize(&new_path).expect("new source path should canonicalize after rename");
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("renamed source should reconcile");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("rename reconciliation should apply");
+        };
+        assert_eq!(report.metadata_only, 1);
+        assert_eq!(report.created, 0);
+        assert_eq!(report.modified, 0);
+        assert_eq!(report.deleted, 0);
+
+        let after = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(after.generation, before.generation + 1);
+        let changes =
+            crate::db::read_index_changes(&connection, &before.database_id, before.generation)
+                .expect("rename generation should load");
+        assert_eq!(
+            changes.cache_action,
+            crate::db::index_state::CacheAction::Patch
+        );
+        assert_eq!(
+            changes.deleted_files,
+            vec![old_canonical.display().to_string()]
+        );
+        assert_eq!(
+            changes.upsert_files,
+            vec![new_canonical.display().to_string()]
+        );
+        let stored_path: String = connection
+            .query_row("SELECT path FROM files", [], |row| row.get(0))
+            .expect("renamed file path should read");
+        assert_eq!(stored_path, new_canonical.display().to_string());
+    }
+
+    #[test]
+    fn incremental_batch_journals_direct_and_link_resolution_affected_files_once() {
+        let test_dir = TestDir::new("index-generation-derived-files");
+        let source = test_dir.path().join("source.org");
+        let target = test_dir.path().join("target.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![source.clone(), target.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&source, "* Source\n[[file:target.org::*Target]]\n");
+        write_file(&target, "* Target\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let before = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(before.generation, 1);
+
+        write_file(&target, "* Renamed target\n");
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("incremental reconciliation should succeed");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("incremental reconciliation should apply");
+        };
+        assert_eq!(report.modified, 1);
+
+        let after = crate::db::read_index_state(&connection).expect("state should load");
+        assert_eq!(after.generation, before.generation + 1);
+        let changes =
+            crate::db::read_index_changes(&connection, &before.database_id, before.generation)
+                .expect("generation changes should load");
+        assert_eq!(
+            changes.cache_action,
+            crate::db::index_state::CacheAction::Patch
+        );
+        let mut expected = vec![
+            fs::canonicalize(&source)
+                .expect("source should canonicalize")
+                .display()
+                .to_string(),
+            fs::canonicalize(&target)
+                .expect("target should canonicalize")
+                .display()
+                .to_string(),
+        ];
+        expected.sort();
+        assert_eq!(changes.upsert_files, expected);
+        assert!(changes.deleted_files.is_empty());
+
+        let status: String = connection
+            .query_row(
+                "SELECT resolution_status FROM links WHERE raw = '[[file:target.org::*Target]]'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("link resolution status should load");
+        assert_eq!(status, "broken");
+    }
+
+    #[test]
+    fn incremental_deletion_journals_the_removed_canonical_path() {
+        let test_dir = TestDir::new("index-generation-delete");
+        let path = test_dir.path().join("notes.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&path, "* Delete me\n");
+        let canonical = fs::canonicalize(&path).expect("path should canonicalize");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let before = crate::db::read_index_state(&connection).expect("state should load");
+
+        fs::remove_file(&path).expect("source should be removed");
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("deletion reconciliation should succeed");
+        let ChangeApplicationResult::Applied(report) = result else {
+            panic!("deletion reconciliation should apply");
+        };
+        assert_eq!(report.deleted, 1);
+
+        let changes =
+            crate::db::read_index_changes(&connection, &before.database_id, before.generation)
+                .expect("deletion changes should load");
+        assert!(changes.upsert_files.is_empty());
+        assert_eq!(changes.deleted_files, vec![canonical.display().to_string()]);
+    }
+
+    #[test]
+    fn cached_query_view_patch_matches_a_fresh_unrestricted_query() {
+        let test_dir = TestDir::new("cached-query-view-patch");
+        let first = test_dir.path().join("first.org");
+        let second = test_dir.path().join("second.org");
+        let third = test_dir.path().join("third.org");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![first.clone(), second.clone(), third.clone()],
+            dirs: Vec::new(),
+            discovery: Default::default(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+        };
+        write_file(&first, "* First\n");
+        write_file(&second, "* Second\n");
+        write_file(&third, "* Third\n");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        let mut connection = crate::db::open_database_with_schema(
+            &config.db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .expect("database should open");
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let cached_state = crate::db::read_index_state(&connection).expect("state should load");
+        let query = validate_query(
+            parse_query("(headings)").expect("query should parse"),
+            &QueryValidationOptions::default(),
+        )
+        .expect("query should validate");
+        let QueryRows::Headings(mut cached_rows) =
+            execute_sqlite_query(&connection, &query).expect("initial query should execute")
+        else {
+            panic!("expected heading rows");
+        };
+
+        write_file(&first, "* First changed\n* First added\n");
+        fs::remove_file(&second).expect("second file should be removed");
+        let result = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("incremental reconciliation should succeed");
+        assert!(matches!(result, ChangeApplicationResult::Applied(_)));
+
+        let changes = crate::db::read_index_changes(
+            &connection,
+            &cached_state.database_id,
+            cached_state.generation,
+        )
+        .expect("changes should load");
+        assert_eq!(
+            changes.cache_action,
+            crate::db::index_state::CacheAction::Patch
+        );
+        let affected = changes
+            .upsert_files
+            .iter()
+            .chain(changes.deleted_files.iter())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        cached_rows.retain(|row| {
+            let owner = match row {
+                HeadingQueryMatch::File(row) => &row.path,
+                HeadingQueryMatch::Heading(row) => &row.file_path,
+            };
+            !affected.contains(owner)
+        });
+
+        let QueryRows::Headings(refreshed_rows) = execute_sqlite_query_with_options(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(changes.upsert_files.clone()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("restricted refresh query should execute") else {
+            panic!("expected restricted heading rows");
+        };
+        cached_rows.extend(refreshed_rows);
+        cached_rows.sort_by(|left, right| {
+            let left_key = match left {
+                HeadingQueryMatch::File(row) => (&row.path, -1_i64, row.id),
+                HeadingQueryMatch::Heading(row) => (&row.file_path, row.byte_start, row.id),
+            };
+            let right_key = match right {
+                HeadingQueryMatch::File(row) => (&row.path, -1_i64, row.id),
+                HeadingQueryMatch::Heading(row) => (&row.file_path, row.byte_start, row.id),
+            };
+            left_key.cmp(&right_key)
+        });
+
+        let QueryRows::Headings(fresh_rows) =
+            execute_sqlite_query(&connection, &query).expect("fresh query should execute")
+        else {
+            panic!("expected fresh heading rows");
+        };
+        assert_eq!(cached_rows, fresh_rows);
     }
 
     #[test]

@@ -1,113 +1,18 @@
-#+TITLE: Task Index
-#+TODO: TODO(t) NEXT(n) PLAN(p) BUILD(b) REVIEW(r) CONTINUE(C) | DONE(d) CANCEL(c)
+#+TITLE: Transactional Index Generations and Cached-View Delta Refresh
 #+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-05 Wed 02:27]
+#+TASK_COMPLETED:
 
-This file is the active task index.
-
-- For workflow rules, see [[../agents/AGENTS.md]].
-- For repository-specific rules, see [[../agents/repository.org]].
-- Project context and architecture decisions: [[./project-context.org][project-context.org]]
-- For later phases and backlog, see [[./roadmap.org]].
-
-* Working mode
-
-Task status semantics are defined in [[../agents/AGENTS.md]].
-
-* DONE Phase 0: Foundation and parser risks
+* Original Task (User only)
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 1: Minimal end-to-end slice
+* TODO Add transactional index generations and cached-view delta refresh
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
-
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 2: Complete parser data model v0.1
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 3: Org link extractor
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 4: Link resolution
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 5: Query engine and optional full-text search
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 6: Robust incremental indexer core
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Archived in [[./archive/todo-archive.org]]
-
-
-* DONE Phase 7: Watcher-driven incremental updates
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Archived in [[./archive/todo-archive.org]]
-
-* DONE Phase 8: Evaluate and optionally implement parallel parsing and preparation
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Deciscion after some tests: this is not needed. Having organized my life with Org for a long time now and still only have 570 small to medium sized files.
-
-Real-world validation:
-
-- The indexer was tested against the user's long-established personal Org corpus.
-- The corpus contains approximately 570 Org files accumulated through many years of using Org to organize personal information, tasks, projects, and other areas of life.
-- A complete rebuild finished subjectively almost instantly.
-- The current sequential implementation therefore already satisfies the practical performance requirement for the primary real-world workload.
-- Additional synthetic parser-heavy benchmarks would not address an observed user problem and are not required before closing the phase.
-
-Operational context:
-
-- A complete rebuild is required only for initial database creation, recovery, or indexing-context changes.
-- After the initial rebuild, the Phase 7 watcher processes only changed files through the existing incremental reconciliation pipeline.
-- Typical watcher batches contain one or only a few changed files and complete effectively instantly for the real-world corpus.
-- Parallel parsing would therefore not improve the normal operating path.
-- The only potentially affected operation would be an already fast and infrequent full rebuild.
-
-* DONE Recover Org links that Orgize misparses
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Detailed implementation plan: [[./archive/2026-08-04--recover-org-links-orgize-misparses.org][Recover Org Links Across Orgize Parse Gaps]]
-
-The implementation exists and is currently under review. Complete the review corrections and required checks before marking the task complete.
-
-* REVIEW Add transactional index generations and cached-view delta refresh
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Task file: [[./2026-08-05--transactional-index-generations-cached-view-delta-refresh.org][Transactional Index Generations and Cached-View Delta Refresh]]
 
 Goal: Allow external clients such as ~org-files-db.el~ to cache saved query views reliably and refresh them only after committed query-visible database changes.
 
@@ -314,7 +219,7 @@ patch
 rebuild
 #+end_example
 
-** REVIEW Persist database identity and generation
+** TODO Persist database identity and generation
 
 Add persistent index-state metadata through the existing schema-version and migration mechanism.
 
@@ -373,7 +278,7 @@ Provide one shared read operation.
 
 Do not duplicate index-state SQL across CLI, indexer, rebuild, and watcher modules.
 
-** REVIEW Persist a per-generation affected-file journal
+** TODO Persist a per-generation affected-file journal
 
 Add one committed-generation table and one affected-file table conceptually equivalent to:
 
@@ -500,7 +405,7 @@ All query-visible index and derived-state mutations must already have succeeded 
 
 Commit occurs only after the generation and journal are complete.
 
-** REVIEW Integrate generation and affected-file tracking into mutation paths
+** TODO Integrate generation and affected-file tracking into mutation paths
 
 Audit every production path that changes query-visible persisted state.
 
@@ -594,7 +499,7 @@ Otherwise use full invalidation.
 
 Do not advance generation for maintenance that does not change query-visible state.
 
-** REVIEW Add the read-only status command
+** TODO Add the read-only status command
 
 Provide:
 
@@ -655,7 +560,7 @@ Report actionable errors for:
 
 Do not synthesize missing state for a schema version that requires it.
 
-** REVIEW Add the changes-since command
+** TODO Add the changes-since command
 
 Provide a lightweight command conceptually equivalent to:
 
@@ -761,7 +666,7 @@ If ~since-generation~ is greater than the current generation, return an actionab
 
 Operational failures such as invalid configuration, missing database, corruption, and I/O errors remain non-zero command failures.
 
-** REVIEW Add file-restricted query execution for view patching
+** TODO Add file-restricted query execution for view patching
 
 A cached view is one complete query cache.
 
@@ -823,7 +728,7 @@ Do not add partial-refresh support to ~search~ in this task.
 
 Search views continue to rerun completely after a generation change.
 
-** REVIEW Document the Emacs saved-view cache algorithm
+** TODO Document the Emacs saved-view cache algorithm
 
 Document the intended client algorithm without implementing the Emacs package in this Rust task.
 
@@ -892,7 +797,7 @@ Do not require a long-lived read transaction across separate CLI processes.
 
 The generation check is the consistency boundary.
 
-** REVIEW Test schema, transactions, CLI, and cache-delta semantics
+** TODO Test schema, transactions, CLI, and cache-delta semantics
 
 *** Schema and migration tests
 
@@ -1030,7 +935,7 @@ This is the most important end-to-end correctness test for selective view refres
 
 Also prove that a limited query view is documented or marked as requiring a full rerun rather than using the patch algorithm.
 
-** REVIEW Document the public contract
+** TODO Document the public contract
 
 Document:
 
@@ -1158,3 +1063,123 @@ The Emacs package decides whether a saved view uses patch or full rebuild based 
 - Existing query, search, rebuild, watcher, resolver, and FTS tests remain green.
 - All targeted checks pass.
 - ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+External clients need a transactionally consistent database identity and generation plus a persistent affected-file journal so complete cached query views can be kept, patched, or rebuilt safely. The implementation must cover every production indexing transaction, indirect link-resolution changes, read-only status and changes commands, and file-restricted query execution.
+
+** Goals
+
+- Add schema-versioned index state and generation journal tables.
+- Advance one generation exactly once per committed query-visible indexing batch.
+- Record direct and derived affected source-file paths atomically.
+- Add read-only ~status~ and ~changes~ JSON commands.
+- Add machine-safe file restrictions to structural queries.
+- Prove selective query-view patching equals a fresh full query.
+
+** Non-goals
+
+- Do not implement the Emacs cache.
+- Do not patch FTS search views incrementally.
+- Do not add watcher push events or journal retention.
+- Do not add row-level journals or query-specific dependency tracking.
+
+** Architecture
+
+- Keep generation state and journal writes in the same SQLite transaction as index mutations.
+- Extend the existing shared rebuild and incremental transaction boundaries rather than adding watcher-specific logic.
+- Make the link resolver report source files whose persisted resolution facts changed.
+- Keep query restriction as an execution option that adds an owning-file filter without rewriting the public query AST.
+- Keep status and changes reads on read-only database connections.
+
+** Execution plan
+
+1. Add schema version 12 tables, migration initialization, and integrity validation.
+2. Add shared index-state/journal read and write APIs.
+3. Integrate full rebuild and incremental/watcher transactions.
+4. Track indirect link-resolution affected files.
+5. Add status and changes CLI contracts.
+6. Add JSON/stdin file restriction for structural queries.
+7. Add schema, transaction, CLI, query, watcher, and patch-equivalence tests.
+8. Update CLI, design, and changelog documentation.
+9. Run available focused checks and ~make ci~.
+
+** Risks & assumptions
+
+- Full rebuilds use ~full_invalidation~ rather than an expensive logical diff.
+- Metadata-only file changes are query-visible because file result rows expose metadata and therefore produce ~upsert~ journal actions.
+- Existing structural query rows already expose their owning canonical path through ~location.file_path~ or ~path~.
+- The current project supports one serialized SQLite writer; the database-side increment remains atomic for any additional writer.
+
+** Open questions
+
+None. The task fixes the public semantics.
+
+** Proposed checks
+
+- Schema and migration unit tests.
+- Index-state rollback and net-delta tests.
+- Incremental and full-rebuild generation tests.
+- Status, changes, and file-restricted query CLI tests.
+- Link-resolution indirect affected-file test.
+- Cached-view patch equivalence integration test.
+- ~make ci~.
+
+* Results
+
+** Approach
+
+- Added schema-version-12 singleton state plus an append-only committed-generation and affected-file journal.
+- Published generation, timestamp, full-invalidation state, and final per-path actions in the same SQLite transaction as rebuild or incremental index mutations.
+- Reused the common incremental transaction for watcher and startup reconciliation, including no-op suppression.
+- Extended link resolution to report source files whose persisted resolution facts changed.
+- Added read-only ~status~ and ~changes~ JSON commands and an execution-only structural-query file restriction backed by a temporary SQLite table.
+- Added direct, derived, deletion, rename, rollback, migration, concurrency, watcher, CLI, Unicode-path, and cache-patch-equivalence coverage.
+
+** Changed files
+
+- ~sql/schema.sql~
+- ~src/db/index_state.rs~
+- ~src/db/schema.rs~
+- ~src/db/writer.rs~
+- ~src/db.rs~
+- ~src/indexer.rs~
+- ~src/indexing_context.rs~
+- ~src/link_resolver.rs~
+- ~src/query/result.rs~
+- ~src/query/sqlite.rs~
+- ~src/cli.rs~
+- ~src/watcher.rs~
+- ~src/watcher_integration_tests.rs~
+- ~README.org~
+- ~CHANGELOG.org~
+- ~docs/cli.org~
+- ~docs/design/incremental-indexing.org~
+- ~docs/design/index-generations-and-cached-views.org~
+- ~docs/performance-baseline.org~
+- ~.project/tasks/todo.org~
+- this task file
+
+** Checks performed
+
+- Applied the complete schema with Python SQLite and checked UUIDv4 generation, singleton and generation constraints, atomic rollback and commit, foreign-key cascade, deleted-path snapshots, and Unicode paths.
+- Exercised the temporary file-restriction table with Unicode, spaces, and an empty selection.
+- Checked delimiter balance for all changed Rust files with a source-aware static scanner.
+- Checked changed text files for final newlines and balanced Org source blocks.
+- Audited all production SQLite transaction entry points and all ~LinkResolver::resolve_all~ call sites.
+- Corrected the public ~HeadingQueryMatch~ re-export used by indexer tests.
+- Replaced Clippy-disallowed ~filter_map~ with ~filter~ followed by ~map~ in link-resolution delta collection.
+- Ran ~make ci~.
+
+** Test results
+
+- SQLite schema and transaction fixtures passed.
+- SQLite file-restriction fixtures passed.
+- Static Rust delimiter checks passed for all changed Rust files.
+- ~make ci~ passed: formatting, Clippy with warnings denied, and all 598 tests.
+
+** Follow-ups
+
+- Exercise ~orgfdb status~, ~orgfdb changes~, and ~orgfdb query --restrict-files-json~ once against a real temporary database after the Rust checks pass.

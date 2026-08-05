@@ -9,10 +9,15 @@ use std::{
 use regex::Regex;
 use rusqlite::{functions::FunctionFlags, Connection, OpenFlags};
 
+pub(crate) mod index_state;
 pub(crate) mod reader;
 pub mod schema;
 pub(crate) mod writer;
 
+pub(crate) use index_state::{
+    advance_index_generation, read_index_changes, read_index_state, AffectedFile, IndexChanges,
+    IndexGenerationChange, IndexStateReadError,
+};
 pub(crate) use reader::{DbReadError, DbReader, HeadingListRow, LinkListRow};
 pub use schema::{sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION};
 pub use writer::DbWriteError;
@@ -223,7 +228,7 @@ impl fmt::Display for SqliteRegexpError {
 
 impl Error for SqliteRegexpError {}
 
-fn read_schema_version(connection: &Connection) -> rusqlite::Result<u32> {
+pub(crate) fn read_schema_version(connection: &Connection) -> rusqlite::Result<u32> {
     connection.pragma_query_value(None, "user_version", |row| row.get(0))
 }
 
@@ -443,6 +448,7 @@ mod tests {
             "idx_timestamps_role_start",
             "idx_timestamps_start",
             "idx_todo_keywords_file_state",
+            "index_generation_files_path_idx",
             "uq_headings_file_level0",
         ]
         .into_iter()
@@ -633,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_version_8_index_set_to_version_11() {
+    fn migrates_version_8_index_set_to_current_schema() {
         let test_dir = TestDir::new("version-8-index-set");
         let db_path = test_dir.path().join("db.sqlite");
 
@@ -658,7 +664,7 @@ PRAGMA user_version = 8;
         let version = read_schema_version(&connection).expect("schema version should load");
 
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 12);
         assert_eq!(
             explicit_index_names(&connection),
             expected_current_explicit_indexes()

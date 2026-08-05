@@ -107,6 +107,42 @@ CREATE TABLE IF NOT EXISTS db_metadata (
 );
 
 --------------------------------------------------
+-- INDEX STATE AND GENERATION JOURNAL
+--------------------------------------------------
+/*
+  Transactionally published logical index state for external caches.
+
+  index_state contains exactly one row. generation advances once per committed
+  query-visible indexing batch. index_generations and index_generation_files
+  retain the affected-file journal required for cached-view delta refresh.
+*/
+CREATE TABLE IF NOT EXISTS index_state (
+    singleton       INTEGER PRIMARY KEY CHECK (singleton = 1),
+    database_id     TEXT NOT NULL CHECK (length(database_id) > 0),
+    generation      INTEGER NOT NULL CHECK (generation >= 0),
+    last_changed_at TEXT NOT NULL CHECK (length(last_changed_at) > 0)
+);
+
+CREATE TABLE IF NOT EXISTS index_generations (
+    generation        INTEGER PRIMARY KEY CHECK (generation > 0),
+    committed_at      TEXT NOT NULL CHECK (length(committed_at) > 0),
+    full_invalidation INTEGER NOT NULL CHECK (full_invalidation IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS index_generation_files (
+    generation INTEGER NOT NULL,
+    path       TEXT NOT NULL CHECK (length(path) > 0),
+    action     TEXT NOT NULL CHECK (action IN ('upsert', 'delete')),
+    PRIMARY KEY (generation, path),
+    FOREIGN KEY (generation)
+        REFERENCES index_generations(generation)
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS index_generation_files_path_idx
+ON index_generation_files(path, generation);
+
+--------------------------------------------------
 -- HEADINGS
 --------------------------------------------------
 /*

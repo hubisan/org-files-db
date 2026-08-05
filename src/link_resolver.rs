@@ -24,6 +24,11 @@ const DUPLICATE_SYNTHETIC_ROOT_DIAGNOSTIC: &str = "duplicate synthetic root head
 #[derive(Debug, Default)]
 pub(crate) struct LinkResolver;
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct LinkResolutionReport {
+    pub(crate) changed_source_paths: BTreeSet<String>,
+}
+
 #[derive(Debug)]
 pub(crate) struct IndexedUniverse {
     global_exclusions: ExclusionMatcher,
@@ -50,6 +55,18 @@ struct StoredLink {
     path: String,
     search_option: Option<String>,
     source_file_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StoredResolutionState {
+    source_path: String,
+    path_absolute: Option<String>,
+    target_file_id: Option<i64>,
+    target_heading_id: Option<i64>,
+    target_custom_id: Option<String>,
+    target_id: Option<String>,
+    resolution_status: Option<String>,
+    resolution_diagnostic: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -85,14 +102,73 @@ impl LinkResolver {
     pub(crate) fn resolve_all(
         connection: &Connection,
         indexed_universe: &IndexedUniverse,
-    ) -> Result<(), DbWriteError> {
+    ) -> Result<LinkResolutionReport, DbWriteError> {
+        let before = Self::load_resolution_states(connection)?;
         Self::reset_resolution_fields(connection)?;
         let known_files = Self::load_known_files(connection)?;
         let links = Self::load_links(connection)?;
         for link in links {
             Self::resolve_link(connection, &link, indexed_universe, &known_files)?;
         }
-        Ok(())
+        let after = Self::load_resolution_states(connection)?;
+        let changed_source_paths = after
+            .iter()
+            .filter(|(link_id, state)| before.get(*link_id) != Some(*state))
+            .map(|(_link_id, state)| state.source_path.clone())
+            .collect();
+        Ok(LinkResolutionReport {
+            changed_source_paths,
+        })
+    }
+
+    fn load_resolution_states(
+        connection: &Connection,
+    ) -> Result<BTreeMap<i64, StoredResolutionState>, DbWriteError> {
+        let mut statement = connection
+            .prepare(
+                "SELECT
+                    links.id,
+                    files.path,
+                    links.path_absolute,
+                    links.target_file_id,
+                    links.target_heading_id,
+                    links.target_custom_id,
+                    links.target_id,
+                    links.resolution_status,
+                    links.resolution_diagnostic
+                 FROM links
+                 INNER JOIN files ON files.id = links.file_id
+                 ORDER BY links.id",
+            )
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_resolution_states.prepare",
+                source,
+            })?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    StoredResolutionState {
+                        source_path: row.get(1)?,
+                        path_absolute: row.get(2)?,
+                        target_file_id: row.get(3)?,
+                        target_heading_id: row.get(4)?,
+                        target_custom_id: row.get(5)?,
+                        target_id: row.get(6)?,
+                        resolution_status: row.get(7)?,
+                        resolution_diagnostic: row.get(8)?,
+                    },
+                ))
+            })
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_resolution_states.query",
+                source,
+            })?;
+        rows.collect::<Result<BTreeMap<_, _>, _>>()
+            .map_err(|source| DbWriteError::Write {
+                operation: "link_resolver.load_resolution_states.collect",
+                source,
+            })
     }
 
     fn reset_resolution_fields(connection: &Connection) -> Result<(), DbWriteError> {

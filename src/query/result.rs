@@ -40,6 +40,7 @@ pub struct QueryExecutionOptions {
     pub includes: Vec<QueryInclude>,
     pub query_timezone: Option<String>,
     pub now_utc: Option<DateTime<Utc>>,
+    pub restricted_file_paths: Option<Vec<String>>,
 }
 
 impl Default for QueryExecutionOptions {
@@ -49,6 +50,7 @@ impl Default for QueryExecutionOptions {
             includes: Vec::new(),
             query_timezone: None,
             now_utc: None,
+            restricted_file_paths: None,
         }
     }
 }

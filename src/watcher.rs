@@ -418,12 +418,19 @@ impl WatcherExecutionController {
 #[cfg(test)]
 mod tests {
     use super::{
-        NormalizedWatcherBatch, WatcherBatchExecutor, WatcherBatchNormalizer,
-        WatcherControllerError, WatcherExecutionController, WatcherExecutionStatus, WatcherInput,
-        WatcherPathEventKind, WatcherUncertainty, DEFAULT_WATCHER_DEBOUNCE_INTERVAL,
-        MAX_WATCHER_CANDIDATES_PER_BATCH,
+        IndexerWatcherExecutor, NormalizedWatcherBatch, WatcherBatchExecutor,
+        WatcherBatchNormalizer, WatcherControllerError, WatcherExecutionController,
+        WatcherExecutionStatus, WatcherInput, WatcherPathEventKind, WatcherUncertainty,
+        DEFAULT_WATCHER_DEBOUNCE_INTERVAL, MAX_WATCHER_CANDIDATES_PER_BATCH,
     };
-    use crate::config::Config;
+    use crate::{
+        config::Config,
+        db::{
+            open_database_with_schema, read_index_state, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        },
+        indexer::Indexer,
+        parser::OrgizeAdapter,
+    };
     use std::{
         ffi::OsStr,
         fs,
@@ -521,6 +528,38 @@ mod tests {
     fn controller(config: &Config, debounce_interval: Duration) -> WatcherExecutionController {
         WatcherExecutionController::with_debounce_interval(config, debounce_interval)
             .expect("controller")
+    }
+
+    #[test]
+    fn indexer_watcher_batch_advances_once_and_noop_batch_does_not_advance() {
+        let test_dir = TestDir::new("generation-batch");
+        let config = recursive_config(&test_dir);
+        let note = test_dir.path().join("notes/note.org");
+        write_file(&note, "* Initial\n");
+        let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
+        let mut connection = open_database_with_schema(&config.db_path, &schema)
+            .expect("watcher test database should open");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("initial rebuild should succeed");
+        let before = read_index_state(&connection).expect("initial state should load");
+
+        write_file(&note, "* Changed\n");
+        let canonical = fs::canonicalize(&note).expect("candidate should canonicalize");
+        IndexerWatcherExecutor::new(&indexer, &mut connection, &config)
+            .execute(NormalizedWatcherBatch::Candidates(vec![canonical.clone()]))
+            .expect("changed watcher batch should execute");
+        let after_change = read_index_state(&connection).expect("changed state should load");
+        assert_eq!(after_change.generation, before.generation + 1);
+
+        IndexerWatcherExecutor::new(&indexer, &mut connection, &config)
+            .execute(NormalizedWatcherBatch::Candidates(vec![canonical]))
+            .expect("no-op watcher batch should execute");
+        assert_eq!(
+            read_index_state(&connection).expect("no-op state should load"),
+            after_change
+        );
     }
 
     #[test]

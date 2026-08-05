@@ -114,3 +114,11 @@ The user-facing ~orgfdb watch --config PATH~ command loads the normal indexing c
 Routine filesystem activity is silent. The command keeps stdout empty and writes only bounded lifecycle messages to stderr: ready, stopping, and stopped. Fatal source, registration, runtime, or indexer execution errors terminate the command with a non-zero status and retain the actionable context supplied by the lower layers.
 
 The event loop polls the non-blocking watcher runtime at a bounded 25 millisecond signal-check interval and sleeps only until the earlier of that boundary or the current debounce deadline. Once shutdown starts, the runtime no longer drains new source messages. It invokes the controller's close-and-flush policy so work accepted before the signal is executed immediately and no new event batch is admitted. No automatic restart, daemonization, service integration, or hidden retry loop is added.
+
+* Transactional generation publication
+
+The shared full-rebuild and incremental application transactions also publish the persistent database generation and affected-file journal used by external cached views. Watcher execution does not maintain a separate counter or journal. A changed watcher batch delegates to the same indexer transaction and advances the generation once; a no-op batch leaves it unchanged.
+
+Directly added, replaced, metadata-updated, renamed, or deleted files become ~upsert~ or ~delete~ journal actions. The resolver additionally reports otherwise unchanged source files whose persisted outgoing-link resolution fields changed. Indexing-context invalidations and full rebuilds publish full invalidation when an exact safe file delta is unavailable.
+
+See [[./index-generations-and-cached-views.org][Index Generations and Cached Query Views]] for schema, CLI, migration, race, and Emacs cache semantics.

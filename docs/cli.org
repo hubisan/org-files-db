@@ -5,7 +5,7 @@ This page documents the user-facing ~orgfdb~ commands that are stable enough to 
 
 * Output format
 
-~headings~, ~links~, ~query~, and ~search~ emit JSON by default. ~--format json~ is the canonical explicit form and leaves room for future formats; ~--json~ remains a visible compatibility form. The three forms use the same renderer and produce byte-identical JSON. Supplying more than one format selector, including repeated ~--format~, is a CLI usage error with exit code ~2~.
+~headings~, ~links~, ~status~, ~changes~, ~query~, and ~search~ emit JSON by default. ~--format json~ is the canonical explicit form and leaves room for future formats; ~--json~ remains a visible compatibility form. The three forms use the same renderer and produce byte-identical JSON. Supplying more than one format selector, including repeated ~--format~, is a CLI usage error with exit code ~2~.
 
 #+begin_src shell
 orgfdb query '(todo "NEXT")'
@@ -160,6 +160,49 @@ Notes:
 - Org ~id:~ links resolve only against indexed non-root headings. External ~org-id-locations~ are not supported, so missing indexed IDs remain ~unresolved~ with ~id not found~.
 - The command opens the existing database in read-only mode. If ~--config~ is provided, only the stored ~db_path~ is read from that config file.
 
+* ~orgfdb status~
+
+~orgfdb status~ returns the committed database identity and generation without performing indexing or query planning.
+
+#+begin_src shell
+orgfdb status --config ./org-files-db.toml --format json
+#+end_src
+
+#+begin_src json
+{
+  "schema_version": 12,
+  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
+  "generation": 1842,
+  "last_changed_at": "2026-08-05T00:42:10Z"
+}
+#+end_src
+
+The command opens the existing configured database read-only. It does not initialize a missing database, migrate an older schema, scan Org files, reconcile sources, resolve links, touch FTS, or update timestamps. An older database must first be opened by a normal indexing command so schema migration can run.
+
+* ~orgfdb changes~
+
+~orgfdb changes~ returns the committed affected-file delta after a cached generation.
+
+#+begin_src shell
+orgfdb changes \
+  --config ./org-files-db.toml \
+  --database-id 74f470e2-0354-4ed8-b2e0-e0647e0c706a \
+  --since-generation 1840 \
+  --format json
+#+end_src
+
+The JSON response contains ~from_generation~, ~to_generation~, ~oldest_available_generation~, ~cache_action~, ~complete~, ~reason~, ~upsert_files~, and ~deleted_files~ in addition to ~schema_version~ and ~database_id~.
+
+~cache_action~ is:
+
+- ~unchanged~ when the requested generation is current;
+- ~patch~ when the complete interval is available as exact per-file actions;
+- ~rebuild~ when the database identity changed, history is unavailable, or the interval contains full invalidation.
+
+Stable rebuild reasons are ~database-id-changed~, ~history-unavailable~, and ~full-invalidation~. Paths are exact persisted canonical paths and are returned deterministically. A generation newer than the current database is an error.
+
+The command is read-only and performs no query execution. See [[./design/index-generations-and-cached-views.org][Index Generations and Cached Query Views]] for transaction semantics, view patch safety, and the Emacs refresh algorithm.
+
 * ~orgfdb query~
 
 ~orgfdb query QUERY~ parses Query Model v0 syntax, validates it against the current query contract, executes it against the existing SQLite database, and prints the shaped JSON response.
@@ -214,6 +257,22 @@ Accepted options:
 - ~properties~, ~effective_properties~, ~keywords~, ~links~, and ~backlinks~ are valid for ~headings~ and ~files~ output only.
 - ~source~ and ~target~ are valid for ~links~ output only.
 - Unknown include values are rejected by Clap with exit code ~2~.
+
+** Restricting execution to affected files
+
+~--restrict-files-json PATH_OR_DASH~ adds an owning-file restriction to a structural query. ~PATH_OR_DASH~ is a UTF-8 JSON file containing an array of exact persisted canonical paths, or ~-~ to read that array from standard input.
+
+#+begin_src shell
+printf '%s' '["/home/user/notes/a.org","/home/user/notes/b with spaces.org"]' |
+  orgfdb query \
+    --config ./org-files-db.toml \
+    --restrict-files-json - \
+    '(headings (not (done)))'
+#+end_src
+
+The restriction combines with the query as an additional AND condition without modifying the Query Model expression. It applies to heading, link, and file targets. Duplicate paths are ignored, an empty array returns no rows, and unknown paths return no rows.
+
+This option exists for patching complete cached structural query views after ~orgfdb changes~. It does not make every query view patch-safe. Search views, truncated views, incoming-link or backlink-dependent queries, and cross-file result expansions require a complete rerun. Top-level JSON result rows continue to expose their owning canonical file path independently of displayed view columns.
 
 ** Query Grammar Overview
 

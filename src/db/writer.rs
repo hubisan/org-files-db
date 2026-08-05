@@ -4,6 +4,8 @@ use std::{fmt, path::PathBuf};
 use rusqlite::Transaction;
 use rusqlite::{params, Connection, OptionalExtension};
 
+#[cfg(test)]
+use super::index_state::{advance_index_generation, AffectedFile, IndexGenerationChange};
 use super::schema::{heading_fts_sql, sqlite_supports_fts5};
 use crate::file_identity::display_path;
 
@@ -191,6 +193,12 @@ impl DbWriter {
         let file_id = Self::upsert_file(&tx, file)?;
         Self::delete_file_data(&tx, file_id)?;
         let value = operation(&tx, file_id)?;
+        advance_index_generation(
+            &tx,
+            &IndexGenerationChange::from_files(vec![AffectedFile::upsert(display_path(
+                &file.path,
+            ))]),
+        )?;
         tx.commit()
             .map_err(|source| DbWriteError::Transaction { source })?;
         Ok((file_id, value))

@@ -105,3 +105,27 @@ Write top 10 rows from every SQLite table as Markdown.
 #+end_src
 
 
+** Status
+
+#+name: run-rebuild
+#+begin_src shell :noweb yes
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- status --config <<config-path()>>
+#+end_src
+
+#+RESULTS: run-rebuild
+
+** Changes
+
+#+name: run-rebuild
+#+begin_src shell :noweb yes
+cargo run --manifest-path <<cargo-manifest()>> --bin orgfdb -- changes --config <<config-path()>>
+#+end_src
+
+#+RESULTS: run-rebuild
+| {                  |                                         |
+| "schema_version":  | 12,                                     |
+| "database_id":     | "aadec1b6-b674-42fc-bb36-e931ab586b67", |
+| "generation":      | 3,                                      |
+| "last_changed_at": | 2026-08-05T09:12:33Z                    |
+| }                  |                                         |
+

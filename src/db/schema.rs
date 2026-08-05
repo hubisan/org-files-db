@@ -9,11 +9,12 @@ use crate::property::{derive_effective_properties, PropertyRow};
 use crate::tag::derive_effective_tags;
 
 use super::{
+    index_state::{initialize_index_state_schema, INDEX_STATE_SCHEMA_VERSION},
     DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 11;
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 const EFFECTIVE_PROPERTIES_SCHEMA_VERSION: u32 = 10;
 const EFFECTIVE_TAGS_SCHEMA_VERSION: u32 = 11;
 const EFFECTIVE_TAGS_ORDER_BACKUP_TABLE: &str = "orgfdb_effective_tags_order_backup";
@@ -179,6 +180,11 @@ impl SchemaDefinition {
     pub fn apply(&self, connection: &Connection) -> rusqlite::Result<()> {
         let on_disk_version: u32 =
             connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        let migrated_populated_database = on_disk_version < INDEX_STATE_SCHEMA_VERSION
+            && table_exists(connection, "files")?
+            && connection.query_row("SELECT EXISTS(SELECT 1 FROM files)", [], |row| {
+                row.get::<_, bool>(0)
+            })?;
         let mut needs_effective_properties_backfill = on_disk_version
             < EFFECTIVE_PROPERTIES_SCHEMA_VERSION
             || !table_exists(connection, "effective_properties")?;
@@ -201,7 +207,7 @@ impl SchemaDefinition {
 
         // Preserve the public effective-tag order only when schema work may
         // rebuild headings, canonical tags, or effective_tags. Healthy
-        // schema-version-11 opens must not scan and reserialize every tag.
+        // schema-version-12 opens must not scan and reserialize every tag.
         if needs_effective_tags_backfill
             || headings_need_migration
             || effective_tags_need_fk_repair
@@ -228,6 +234,7 @@ impl SchemaDefinition {
         needs_effective_tags_backfill |= repaired.effective_tags;
         migrate_v8_index_set(connection)?;
         connection.execute_batch(&self.render_sql(connection))?;
+        initialize_index_state_schema(connection, on_disk_version, migrated_populated_database)?;
         if needs_effective_properties_backfill {
             connection.execute("DELETE FROM effective_properties", [])?;
             backfill_effective_properties(connection)?;

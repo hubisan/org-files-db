@@ -4,6 +4,10 @@ This file records completed changes.
 
 * Unreleased
 
+- =ADDED= Added persistent database identities, transactional index generations, affected-file change journals, and read-only ~status~ and ~changes~ JSON commands for reliable cached-view refresh.
+
+- =ADDED= Structural ~query~ execution can now be restricted safely to a machine-readable list of owning canonical file paths for selective saved-view patching.
+
 - =FIXED= Full rebuilds now recover valid bracket links that Orgize fragments, including bracketed or timestamp-looking descriptions, list-item targets containing ~::~, and escaped target characters. Rebuild existing databases to refresh affected links and titles.
 
 - =ADDED= Full rebuild and full configured-source reconciliation now persist and revalidate configured directory-root identity; intentional replacement requires the manual =--accept-source-root-changes= rebuild flag.

@@ -1,7 +1,7 @@
 use std::{
     error::Error,
-    fmt,
-    io::{self, Write},
+    fmt, fs,
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -13,9 +13,11 @@ use serde::Serialize;
 use crate::{
     config::{Config, ConfigError},
     db::{
-        open_existing_database_read_only, sqlite_supports_fts5, DbError, DbReader, HeadingListRow,
-        LinkListRow, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
-        DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
+        open_existing_database_read_only, read_index_changes, read_index_state,
+        read_schema_version, sqlite_supports_fts5, DbError, DbReader, HeadingListRow, IndexChanges,
+        IndexStateReadError, LinkListRow, CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY,
+        DB_METADATA_FTS_BODY_INDEXED_KEY, DB_METADATA_FTS_SCHEMA_VERSION_KEY,
+        FTS_SCHEMA_CONTRACT_VERSION,
     },
     indexer::{Indexer, IndexerError, RebuildOptions, RebuildReport},
     parser::OrgizeAdapter,
@@ -75,6 +77,24 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    #[command(about = "Read the committed database identity and index generation")]
+    Status {
+        #[command(flatten)]
+        format: CliOutputArgs,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
+    #[command(about = "Read committed affected-file changes after a generation")]
+    Changes {
+        #[command(flatten)]
+        format: CliOutputArgs,
+        #[arg(long)]
+        database_id: String,
+        #[arg(long)]
+        since_generation: i64,
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
     Query {
         #[command(flatten)]
         format: CliOutputArgs,
@@ -82,6 +102,12 @@ enum Command {
         output: CliQueryOutput,
         #[arg(long, value_enum, value_delimiter = ',')]
         include: Vec<CliQueryInclude>,
+        #[arg(
+            long,
+            value_name = "PATH_OR_DASH",
+            help = "Read a JSON array of canonical file paths from PATH, or from stdin with '-'"
+        )]
+        restrict_files_json: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(help = "Query Model v0 expression, for example '(todo \"NEXT\")'")]
@@ -221,15 +247,57 @@ where
             let rows = links_json_rows(config.as_deref())?;
             write_output(output_format, writer, &rows)
         }
+        Command::Status { format, config } => {
+            let output_format = format.selected();
+            let connection = open_cli_database(config.as_deref())?;
+            let schema_version = current_index_state_schema_version(&connection)?;
+            let state = read_index_state(&connection).map_err(CliError::IndexState)?;
+            let response = StatusJsonResponse {
+                schema_version,
+                database_id: state.database_id,
+                generation: state.generation,
+                last_changed_at: state.last_changed_at,
+            };
+            write_output(output_format, writer, &response)
+        }
+        Command::Changes {
+            format,
+            database_id,
+            since_generation,
+            config,
+        } => {
+            let output_format = format.selected();
+            let connection = open_cli_database(config.as_deref())?;
+            let schema_version = current_index_state_schema_version(&connection)?;
+            let changes = read_index_changes(&connection, &database_id, since_generation)
+                .map_err(CliError::IndexState)?;
+            let response = ChangesJsonResponse {
+                schema_version,
+                changes,
+            };
+            write_output(output_format, writer, &response)
+        }
         Command::Query {
             format,
             output,
             include,
+            restrict_files_json,
             config,
             query,
         } => {
             let output_format = format.selected();
-            let response = query_json_response(&query, output, &include, config.as_deref())?;
+            let response = if let Some(source) = restrict_files_json.as_deref() {
+                let paths = read_restricted_file_paths(source)?;
+                query_json_response_with_restriction(
+                    &query,
+                    output,
+                    &include,
+                    config.as_deref(),
+                    Some(paths),
+                )?
+            } else {
+                query_json_response(&query, output, &include, config.as_deref())?
+            };
             write_output(output_format, writer, &response)
         }
         Command::Search {
@@ -290,6 +358,16 @@ fn query_json_response(
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
 ) -> Result<QueryResponse, CliError> {
+    query_json_response_with_restriction(query, output, includes, config_path, None)
+}
+
+fn query_json_response_with_restriction(
+    query: &str,
+    output: CliQueryOutput,
+    includes: &[CliQueryInclude],
+    config_path: Option<&Path>,
+    restricted_file_paths: Option<Vec<String>>,
+) -> Result<QueryResponse, CliError> {
     let config = load_cli_config(config_path)?;
     let connection =
         open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
@@ -302,8 +380,53 @@ fn query_json_response(
         includes: includes.iter().copied().map(QueryInclude::from).collect(),
         query_timezone: config.query.timezone.clone(),
         now_utc: None,
+        restricted_file_paths,
     };
     execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
+}
+
+fn read_restricted_file_paths(source: &str) -> Result<Vec<String>, CliError> {
+    let content = if source == "-" {
+        let mut content = String::new();
+        io::stdin()
+            .read_to_string(&mut content)
+            .map_err(|source| CliError::ReadRestriction {
+                location: "stdin".to_string(),
+                source,
+            })?;
+        content
+    } else {
+        fs::read_to_string(source).map_err(|error| CliError::ReadRestriction {
+            location: source.to_string(),
+            source: error,
+        })?
+    };
+    let paths = serde_json::from_str::<Vec<String>>(&content).map_err(CliError::RestrictionJson)?;
+    if paths.iter().any(|path| path.is_empty()) {
+        return Err(CliError::InvalidRestriction(
+            "restricted file paths must not be empty".to_string(),
+        ));
+    }
+    Ok(paths
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect())
+}
+
+#[derive(Debug, Serialize)]
+struct StatusJsonResponse {
+    schema_version: u32,
+    database_id: String,
+    generation: i64,
+    last_changed_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ChangesJsonResponse {
+    schema_version: u32,
+    #[serde(flatten)]
+    changes: IndexChanges,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -692,6 +815,17 @@ fn links_rows_for_json(connection: &Connection) -> Result<Vec<LinkJsonRow>, CliE
         .collect()
 }
 
+fn current_index_state_schema_version(connection: &Connection) -> Result<u32, CliError> {
+    let version = read_schema_version(connection).map_err(CliError::SchemaInspect)?;
+    if version != CURRENT_SCHEMA_VERSION {
+        return Err(CliError::UnsupportedIndexStateSchema {
+            on_disk_version: version,
+            required_version: CURRENT_SCHEMA_VERSION,
+        });
+    }
+    Ok(version)
+}
+
 fn open_cli_database(config_path: Option<&std::path::Path>) -> Result<Connection, CliError> {
     let config = load_cli_config(config_path)?;
     open_existing_database_read_only(&config.db_path).map_err(CliError::Database)
@@ -753,6 +887,18 @@ enum CliError {
     QueryExecute(QueryExecutionError),
     QueryShape(QueryShapeError),
     Search(SearchError),
+    IndexState(IndexStateReadError),
+    SchemaInspect(rusqlite::Error),
+    UnsupportedIndexStateSchema {
+        on_disk_version: u32,
+        required_version: u32,
+    },
+    ReadRestriction {
+        location: String,
+        source: io::Error,
+    },
+    RestrictionJson(serde_json::Error),
+    InvalidRestriction(String),
     InvalidHeadingPath {
         heading_id: i64,
         source: serde_json::Error,
@@ -775,6 +921,12 @@ impl CliError {
             | Self::QueryExecute(_)
             | Self::QueryShape(_)
             | Self::Search(_)
+            | Self::IndexState(_)
+            | Self::SchemaInspect(_)
+            | Self::UnsupportedIndexStateSchema { .. }
+            | Self::ReadRestriction { .. }
+            | Self::RestrictionJson(_)
+            | Self::InvalidRestriction(_)
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
@@ -797,6 +949,22 @@ impl fmt::Display for CliError {
             Self::QueryExecute(source) => write!(f, "{source}"),
             Self::QueryShape(source) => write!(f, "{source}"),
             Self::Search(source) => write!(f, "{source}"),
+            Self::IndexState(source) => write!(f, "{source}"),
+            Self::SchemaInspect(source) => write!(f, "failed to read database schema version: {source}"),
+            Self::UnsupportedIndexStateSchema {
+                on_disk_version,
+                required_version,
+            } => write!(
+                f,
+                "database schema version {on_disk_version} does not support index state; run an indexing command to migrate it to version {required_version}"
+            ),
+            Self::ReadRestriction { location, source } => {
+                write!(f, "failed to read restricted file paths from {location}: {source}")
+            }
+            Self::RestrictionJson(source) => {
+                write!(f, "failed to parse restricted file paths as JSON: {source}")
+            }
+            Self::InvalidRestriction(message) => write!(f, "invalid file restriction: {message}"),
             Self::InvalidHeadingPath { heading_id, source } => {
                 write!(
                     f,
@@ -825,6 +993,12 @@ impl Error for CliError {
             Self::QueryExecute(source) => Some(source),
             Self::QueryShape(source) => Some(source),
             Self::Search(source) => Some(source),
+            Self::IndexState(source) => Some(source),
+            Self::SchemaInspect(source) => Some(source),
+            Self::UnsupportedIndexStateSchema { .. } => None,
+            Self::ReadRestriction { source, .. } => Some(source),
+            Self::RestrictionJson(source) => Some(source),
+            Self::InvalidRestriction(_) => None,
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
@@ -1401,12 +1575,56 @@ mod tests {
 
         let cli = Cli::try_parse_from([
             "orgfdb",
+            "status",
+            "--format",
+            "json",
+            "--config",
+            "config.toml",
+        ])
+        .expect("status args should parse");
+        match cli.command {
+            super::Command::Status { format, config } => {
+                assert_eq!(format.selected(), super::CliOutputFormat::Json);
+                assert_eq!(config, Some(PathBuf::from("config.toml")));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "changes",
+            "--database-id",
+            "database-id",
+            "--since-generation",
+            "42",
+            "--config",
+            "config.toml",
+        ])
+        .expect("changes args should parse");
+        match cli.command {
+            super::Command::Changes {
+                database_id,
+                since_generation,
+                config,
+                ..
+            } => {
+                assert_eq!(database_id, "database-id");
+                assert_eq!(since_generation, 42);
+                assert_eq!(config, Some(PathBuf::from("config.toml")));
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
             "query",
             "--json",
             "--output",
             "outline",
             "--include",
             "path,links,path",
+            "--restrict-files-json",
+            "paths.json",
             "(todo \"NEXT\")",
         ])
         .expect("query args should parse");
@@ -1416,6 +1634,7 @@ mod tests {
                 format,
                 output,
                 include,
+                restrict_files_json,
                 config,
                 query,
             } => {
@@ -1429,6 +1648,7 @@ mod tests {
                         super::CliQueryInclude::Path,
                     ]
                 );
+                assert_eq!(restrict_files_json.as_deref(), Some("paths.json"));
                 assert_eq!(config, None);
                 assert_eq!(query, "(todo \"NEXT\")");
             }
@@ -4005,6 +4225,222 @@ db_path = "./future.sqlite"
             }
             other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
         }
+    }
+
+    #[test]
+    fn status_and_changes_commands_return_the_committed_generation_contract() {
+        let test_dir = TestDir::new("index-state-cli");
+        let config_path = write_query_fixture(&test_dir);
+        let config = config_path.display().to_string();
+
+        let status_output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "status".to_string(),
+            "--config".to_string(),
+            config.clone(),
+        ])
+        .expect("status command should succeed");
+        let status: Value =
+            serde_json::from_slice(&status_output).expect("status output should be valid JSON");
+        assert_eq!(status["schema_version"], CURRENT_SCHEMA_VERSION);
+        assert_eq!(status["generation"], 1);
+        let database_id = status["database_id"]
+            .as_str()
+            .expect("database ID should be a string")
+            .to_string();
+        assert!(!database_id.is_empty());
+        assert!(status["last_changed_at"].as_str().is_some());
+
+        let unchanged_output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "changes".to_string(),
+            "--database-id".to_string(),
+            database_id.clone(),
+            "--since-generation".to_string(),
+            "1".to_string(),
+            "--config".to_string(),
+            config.clone(),
+        ])
+        .expect("unchanged command should succeed");
+        let unchanged: Value =
+            serde_json::from_slice(&unchanged_output).expect("changes output should be valid JSON");
+        assert_eq!(unchanged["cache_action"], "unchanged");
+        assert_eq!(unchanged["complete"], true);
+        assert_eq!(unchanged["upsert_files"], serde_json::json!([]));
+        assert_eq!(unchanged["deleted_files"], serde_json::json!([]));
+
+        let initial_output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "changes".to_string(),
+            "--database-id".to_string(),
+            database_id,
+            "--since-generation".to_string(),
+            "0".to_string(),
+            "--config".to_string(),
+            config,
+        ])
+        .expect("initial generation changes should succeed");
+        let initial: Value =
+            serde_json::from_slice(&initial_output).expect("changes output should be valid JSON");
+        assert_eq!(initial["cache_action"], "rebuild");
+        assert_eq!(initial["reason"], "full-invalidation");
+        assert_eq!(initial["complete"], true);
+    }
+
+    #[test]
+    fn status_requires_the_index_state_schema_without_migrating_read_only() {
+        let test_dir = TestDir::new("status-old-schema");
+        let config_path = test_dir.path().join("config.toml");
+        let db_path = test_dir.path().join("old.sqlite");
+        write_file(
+            &config_path,
+            r#"
+db_path = "./old.sqlite"
+"#,
+        );
+        let connection = Connection::open(&db_path).expect("legacy database should open");
+        connection
+            .pragma_update(None, "user_version", 11_u32)
+            .expect("legacy schema version should seed");
+        drop(connection);
+
+        let error = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "status".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+        ])
+        .expect_err("status should not migrate an old database");
+        assert!(error
+            .to_string()
+            .contains("run an indexing command to migrate it to version 12"));
+
+        let version = Connection::open(&db_path)
+            .expect("legacy database should reopen")
+            .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .expect("legacy schema version should remain readable");
+        assert_eq!(version, 11);
+    }
+
+    #[test]
+    fn changes_rejects_a_generation_newer_than_the_database() {
+        let test_dir = TestDir::new("changes-future-generation");
+        let config_path = write_query_fixture(&test_dir);
+        let status_output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "status".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+        ])
+        .expect("status command should succeed");
+        let status: Value =
+            serde_json::from_slice(&status_output).expect("status output should be valid JSON");
+        let database_id = status["database_id"]
+            .as_str()
+            .expect("database ID should be a string");
+
+        let error = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "changes".to_string(),
+            "--database-id".to_string(),
+            database_id.to_string(),
+            "--since-generation".to_string(),
+            "2".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+        ])
+        .expect_err("future generation should fail");
+        assert!(error
+            .to_string()
+            .contains("newer than current generation 1"));
+    }
+
+    #[test]
+    fn query_file_restriction_reads_bulk_json_and_preserves_row_ownership() {
+        let test_dir = TestDir::new("query-file-restriction");
+        let config_path = write_query_fixture(&test_dir);
+        let paths_path = test_dir.path().join("paths.json");
+        let notes_path = test_dir.path().join("notes.org").display().to_string();
+        write_file(
+            &paths_path,
+            &serde_json::to_string(&vec![notes_path.clone(), notes_path.clone()])
+                .expect("path list should serialize"),
+        );
+
+        let output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "query".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+            "--restrict-files-json".to_string(),
+            paths_path.display().to_string(),
+            "(headings)".to_string(),
+        ])
+        .expect("restricted query should succeed");
+        let response: Value =
+            serde_json::from_slice(&output).expect("restricted query output should be valid JSON");
+        let results = response["results"]
+            .as_array()
+            .expect("results should be an array");
+        assert!(!results.is_empty());
+        for result in results {
+            assert_eq!(result["location"]["file_path"], notes_path);
+        }
+
+        write_file(&paths_path, "[]");
+        let empty_output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "query".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+            "--restrict-files-json".to_string(),
+            paths_path.display().to_string(),
+            "(headings)".to_string(),
+        ])
+        .expect("empty restriction should succeed");
+        let empty_response: Value = serde_json::from_slice(&empty_output)
+            .expect("empty restricted query output should be valid JSON");
+        assert!(empty_response["results"]
+            .as_array()
+            .expect("results should be an array")
+            .is_empty());
+
+        write_file(&paths_path, r#"[""]"#);
+        let error = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "query".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+            "--restrict-files-json".to_string(),
+            paths_path.display().to_string(),
+            "(headings)".to_string(),
+        ])
+        .expect_err("empty path entry should fail");
+        assert!(error
+            .to_string()
+            .contains("restricted file paths must not be empty"));
+    }
+
+    #[test]
+    fn changes_reports_database_identity_replacement_without_failing() {
+        let test_dir = TestDir::new("changes-database-id");
+        let config_path = write_query_fixture(&test_dir);
+        let output = run_cli_output(vec![
+            "orgfdb".to_string(),
+            "changes".to_string(),
+            "--database-id".to_string(),
+            "different-database".to_string(),
+            "--since-generation".to_string(),
+            "0".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+        ])
+        .expect("database identity mismatch should return a rebuild response");
+        let response: Value =
+            serde_json::from_slice(&output).expect("changes output should be valid JSON");
+        assert_eq!(response["cache_action"], "rebuild");
+        assert_eq!(response["reason"], "database-id-changed");
+        assert_eq!(response["complete"], false);
     }
 
     #[test]

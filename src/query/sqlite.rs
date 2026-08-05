@@ -19,6 +19,8 @@ use super::{
 use crate::db::DB_METADATA_BODY_TEXT_AVAILABLE_KEY;
 use crate::property::normalize_property_key;
 
+const QUERY_FILE_RESTRICTION_TABLE: &str = "orgfdb_query_file_restriction";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledSqlQuery {
     pub target: QueryTarget,
@@ -332,6 +334,13 @@ impl AliasAllocator {
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
+    compile_sqlite_query_with_file_restriction(query, false)
+}
+
+fn compile_sqlite_query_with_file_restriction(
+    query: &ValidatedQuery,
+    restrict_files: bool,
+) -> Result<CompiledSqlQuery, QueryExecutionError> {
     ensure_relative_dates_resolved(query).map_err(|error| {
         QueryExecutionError::date_resolution(
             query.target,
@@ -341,7 +350,11 @@ pub fn compile_sqlite_query(
     })?;
     let mut aliases = AliasAllocator::default();
     let scope = aliases.next_scope(query.target);
-    let where_clause = compile_query_match_filter(query, &scope, &mut aliases)?;
+    let where_clause = add_file_restriction(
+        compile_query_match_filter(query, &scope, &mut aliases)?,
+        &scope,
+        restrict_files,
+    );
 
     let sql = match query.target {
         QueryTarget::Headings => format!(
@@ -527,14 +540,18 @@ pub fn execute_sqlite_query_with_options(
     })?;
 
     ensure_body_text_backend_capabilities(connection, &resolved)?;
+    let restrict_files = options.restricted_file_paths.is_some();
+    if let Some(paths) = options.restricted_file_paths.as_deref() {
+        prepare_file_restriction(connection, resolved.target, paths)?;
+    }
     match resolved.target {
-        QueryTarget::Headings => execute_headings_query(connection, &resolved),
+        QueryTarget::Headings => execute_headings_query(connection, &resolved, restrict_files),
         QueryTarget::Links => {
-            let compiled = compile_sqlite_query(&resolved)?;
+            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
             execute_links_query(connection, &compiled)
         }
         QueryTarget::Files => {
-            let compiled = compile_sqlite_query(&resolved)?;
+            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
             execute_files_query(connection, &compiled)
         }
     }
@@ -552,14 +569,15 @@ pub fn sqlite_query_validation_options(
 fn execute_headings_query(
     connection: &Connection,
     query: &ValidatedQuery,
+    restrict_files: bool,
 ) -> Result<QueryRows, QueryExecutionError> {
-    let compiled = compile_sqlite_query(query)?;
+    let compiled = compile_sqlite_query_with_file_restriction(query, restrict_files)?;
     let mut rows = execute_heading_rows_query(connection, &compiled)?
         .into_iter()
         .map(HeadingQueryMatch::Heading)
         .collect::<Vec<_>>();
 
-    let root_compiled = compile_heading_root_file_query(query)?;
+    let root_compiled = compile_heading_root_file_query(query, restrict_files)?;
     rows.extend(
         execute_file_rows_query(connection, &root_compiled)?
             .into_iter()
@@ -2426,6 +2444,60 @@ fn sql_literal(sql: &str) -> SqlFragment {
     }
 }
 
+fn add_file_restriction(
+    fragment: Option<SqlFragment>,
+    scope: &QueryScope,
+    restrict_files: bool,
+) -> Option<SqlFragment> {
+    if !restrict_files {
+        return fragment;
+    }
+    let restriction = format!(
+        "EXISTS (SELECT 1 FROM temp.{QUERY_FILE_RESTRICTION_TABLE} AS restricted_file WHERE restricted_file.path = {})",
+        scope.file_col("path")
+    );
+    Some(match fragment {
+        Some(fragment) => SqlFragment {
+            sql: format!("({}) AND ({restriction})", fragment.sql),
+            params: fragment.params,
+        },
+        None => SqlFragment {
+            sql: restriction,
+            params: Vec::new(),
+        },
+    })
+}
+
+fn prepare_file_restriction(
+    connection: &Connection,
+    target: QueryTarget,
+    paths: &[String],
+) -> Result<(), QueryExecutionError> {
+    connection
+        .execute_batch(&format!(
+            "CREATE TEMP TABLE IF NOT EXISTS {QUERY_FILE_RESTRICTION_TABLE} (
+                 path TEXT PRIMARY KEY
+             );
+             DELETE FROM {QUERY_FILE_RESTRICTION_TABLE};"
+        ))
+        .map_err(|source| {
+            QueryExecutionError::database(target, "prepare_file_restriction.reset", source)
+        })?;
+    let mut statement = connection
+        .prepare(&format!(
+            "INSERT OR IGNORE INTO temp.{QUERY_FILE_RESTRICTION_TABLE} (path) VALUES (?1)"
+        ))
+        .map_err(|source| {
+            QueryExecutionError::database(target, "prepare_file_restriction.prepare", source)
+        })?;
+    for path in paths {
+        statement.execute([path]).map_err(|source| {
+            QueryExecutionError::database(target, "prepare_file_restriction.insert", source)
+        })?;
+    }
+    Ok(())
+}
+
 fn render_where_clause(fragment: Option<&SqlFragment>) -> String {
     match fragment {
         Some(fragment) => format!("WHERE {}", fragment.sql),
@@ -2478,10 +2550,15 @@ fn file_from_clause(scope: &QueryScope) -> String {
 
 fn compile_heading_root_file_query(
     query: &ValidatedQuery,
+    restrict_files: bool,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
     let mut aliases = AliasAllocator::default();
     let scope = aliases.next_heading_root_scope();
-    let where_clause = compile_query_match_filter(query, &scope, &mut aliases)?;
+    let where_clause = add_file_restriction(
+        compile_query_match_filter(query, &scope, &mut aliases)?,
+        &scope,
+        restrict_files,
+    );
 
     Ok(CompiledSqlQuery {
         target: QueryTarget::Files,
@@ -3088,6 +3165,106 @@ mod tests {
                 .to_string()
                 .contains("resolve relative dates before SQL compilation"));
         }
+    }
+
+    #[test]
+    fn execution_file_restriction_filters_structural_targets_and_combines_with_query() {
+        let connection = seeded_connection();
+        let alpha = "/tmp/query-alpha.org".to_string();
+        let beta = "/tmp/query-beta.org".to_string();
+
+        let heading_rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated("(headings)"),
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(vec![alpha.clone()]),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("restricted heading query should execute");
+        let QueryRows::Headings(heading_rows) = heading_rows else {
+            panic!("expected heading rows");
+        };
+        assert!(!heading_rows.is_empty());
+        assert!(heading_rows.iter().all(|row| match row {
+            HeadingQueryMatch::File(row) => row.path == alpha,
+            HeadingQueryMatch::Heading(row) => row.file_path == alpha,
+        }));
+
+        let link_rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated("(links)"),
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(vec![alpha.clone()]),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("restricted link query should execute");
+        let QueryRows::Links(link_rows) = link_rows else {
+            panic!("expected link rows");
+        };
+        assert!(!link_rows.is_empty());
+        assert!(link_rows.iter().all(|row| row.file_path == alpha));
+
+        let file_rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated("(files)"),
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(vec![beta.clone()]),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("restricted file query should execute");
+        assert_eq!(file_paths(file_rows), vec![beta]);
+
+        let mismatch = execute_sqlite_query_with_options(
+            &connection,
+            &validated(r#"(files (file-title "Beta Index" :exact t))"#),
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(vec![alpha]),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("restriction should combine with the user query");
+        assert!(file_paths(mismatch).is_empty());
+
+        for query in ["(headings)", "(links)", "(files)"] {
+            let rows = execute_sqlite_query_with_options(
+                &connection,
+                &validated(query),
+                &QueryExecutionOptions {
+                    restricted_file_paths: Some(Vec::new()),
+                    ..QueryExecutionOptions::default()
+                },
+            )
+            .expect("an empty restriction should execute");
+            let empty = match rows {
+                QueryRows::Headings(rows) => rows.is_empty(),
+                QueryRows::Links(rows) => rows.is_empty(),
+                QueryRows::Files(rows) => rows.is_empty(),
+            };
+            assert!(empty, "empty restriction returned rows for {query}");
+        }
+    }
+
+    #[test]
+    fn execution_file_restriction_preserves_unicode_and_space_paths() {
+        let schema = SchemaDefinition::new(3, false);
+        let mut connection =
+            open_in_memory_database_with_schema(&schema).expect("database should open");
+        let selected = Path::new("/tmp/über space.org");
+        seed_database(&mut connection, selected, Path::new("/tmp/other.org"));
+
+        let rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated("(files)"),
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(vec![selected.display().to_string()]),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("Unicode restriction should execute");
+        assert_eq!(file_paths(rows), vec![selected.display().to_string()]);
     }
 
     #[test]

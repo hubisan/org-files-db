@@ -11,7 +11,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::{
     config::{Config, ConfiguredDir, DiscoveryConfig, SearchConfig},
     db::{
-        open_database_with_schema, sqlite_supports_fts5, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        open_database_with_schema, read_index_state, sqlite_supports_fts5, SchemaDefinition,
+        CURRENT_SCHEMA_VERSION,
     },
     indexer::{ChangeApplicationResult, Indexer},
     notify_source::{NotifyWatcherError, NotifyWatcherSource},
@@ -633,6 +634,8 @@ fn real_backend_no_change_startup_preserves_indexed_rows() {
     harness.rebuild_without_watcher();
     let heading_before = heading_id(&harness.connection, &note, "Stable");
     let fingerprint_before = file_fingerprint(&harness.connection, &note);
+    let generation_before = read_index_state(&harness.connection)
+        .expect("index state should load before watcher startup");
 
     harness.start();
 
@@ -645,6 +648,12 @@ fn real_backend_no_change_startup_preserves_indexed_rows() {
         fingerprint_before
     );
     assert_eq!(heading_titles(&harness.connection), vec!["Stable"]);
+    assert_eq!(
+        read_index_state(&harness.connection)
+            .expect("index state should load after watcher startup"),
+        generation_before,
+        "no-op watcher startup reconciliation must not publish a generation"
+    );
     harness.settle_quietly("no-change startup");
 }
 
