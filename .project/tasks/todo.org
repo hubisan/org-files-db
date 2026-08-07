@@ -102,6 +102,10 @@ Detailed implementation plan: [[./archive/2026-08-04--recover-org-links-orgize-m
 
 The implementation exists and is currently under review. Complete the review corrections and required checks before marking the task complete.
 
+* DONE Expose canonical database path in status
+
+Task file: [[./archive/2026-08-07--status-database-path.org][Expose Canonical Database Path in Status]]
+
 * DONE Add transactional index generations and cached-view delta refresh
 :PROPERTIES:
 :VISIBILITY: folded

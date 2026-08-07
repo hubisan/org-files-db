@@ -77,7 +77,9 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
-    #[command(about = "Read the committed database identity and index generation")]
+    #[command(
+        about = "Read the committed database identity, index generation, and canonical path"
+    )]
     Status {
         #[command(flatten)]
         format: CliOutputArgs,
@@ -249,11 +251,20 @@ where
         }
         Command::Status { format, config } => {
             let output_format = format.selected();
-            let connection = open_cli_database(config.as_deref())?;
+            let config = load_cli_config(config.as_deref())?;
+            let connection =
+                open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
+            let database_path = fs::canonicalize(&config.db_path).map_err(|source| {
+                CliError::CanonicalizeDatabasePath {
+                    path: config.db_path.clone(),
+                    source,
+                }
+            })?;
             let schema_version = current_index_state_schema_version(&connection)?;
             let state = read_index_state(&connection).map_err(CliError::IndexState)?;
             let response = StatusJsonResponse {
                 schema_version,
+                database_path: database_path.display().to_string(),
                 database_id: state.database_id,
                 generation: state.generation,
                 last_changed_at: state.last_changed_at,
@@ -417,6 +428,7 @@ fn read_restricted_file_paths(source: &str) -> Result<Vec<String>, CliError> {
 #[derive(Debug, Serialize)]
 struct StatusJsonResponse {
     schema_version: u32,
+    database_path: String,
     database_id: String,
     generation: i64,
     last_changed_at: String,
@@ -893,6 +905,10 @@ enum CliError {
         on_disk_version: u32,
         required_version: u32,
     },
+    CanonicalizeDatabasePath {
+        path: PathBuf,
+        source: io::Error,
+    },
     ReadRestriction {
         location: String,
         source: io::Error,
@@ -924,6 +940,7 @@ impl CliError {
             | Self::IndexState(_)
             | Self::SchemaInspect(_)
             | Self::UnsupportedIndexStateSchema { .. }
+            | Self::CanonicalizeDatabasePath { .. }
             | Self::ReadRestriction { .. }
             | Self::RestrictionJson(_)
             | Self::InvalidRestriction(_)
@@ -957,6 +974,11 @@ impl fmt::Display for CliError {
             } => write!(
                 f,
                 "database schema version {on_disk_version} does not support index state; run an indexing command to migrate it to version {required_version}"
+            ),
+            Self::CanonicalizeDatabasePath { path, source } => write!(
+                f,
+                "failed to canonicalize configured database path {}: {source}",
+                path.display()
             ),
             Self::ReadRestriction { location, source } => {
                 write!(f, "failed to read restricted file paths from {location}: {source}")
@@ -996,6 +1018,7 @@ impl Error for CliError {
             Self::IndexState(source) => Some(source),
             Self::SchemaInspect(source) => Some(source),
             Self::UnsupportedIndexStateSchema { .. } => None,
+            Self::CanonicalizeDatabasePath { source, .. } => Some(source),
             Self::ReadRestriction { source, .. } => Some(source),
             Self::RestrictionJson(source) => Some(source),
             Self::InvalidRestriction(_) => None,
@@ -4250,6 +4273,9 @@ db_path = "./future.sqlite"
             .to_string();
         assert!(!database_id.is_empty());
         assert!(status["last_changed_at"].as_str().is_some());
+        let database_path = fs::canonicalize(test_dir.path().join("db.sqlite"))
+            .expect("fixture database path should canonicalize");
+        assert_eq!(status["database_path"], database_path.display().to_string());
 
         let unchanged_output = run_cli_output(vec![
             "orgfdb".to_string(),

@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= ~orgfdb status~ now reports the absolute canonical ~database_path~ so cached clients can install SQLite file-notification watches without duplicating config resolution.
+
 - =ADDED= Added persistent database identities, transactional index generations, affected-file change journals, and read-only ~status~ and ~changes~ JSON commands for reliable cached-view refresh.
 
 - =ADDED= Structural ~query~ execution can now be restricted safely to a machine-readable list of owning canonical file paths for selective saved-view patching.

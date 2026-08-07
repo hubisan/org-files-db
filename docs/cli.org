@@ -162,7 +162,7 @@ Notes:
 
 * ~orgfdb status~
 
-~orgfdb status~ returns the committed database identity and generation without performing indexing or query planning.
+~orgfdb status~ returns the committed database identity and generation together with the canonical path of the configured SQLite database, without performing indexing or query planning.
 
 #+begin_src shell
 orgfdb status --config ./org-files-db.toml --format json
@@ -171,11 +171,14 @@ orgfdb status --config ./org-files-db.toml --format json
 #+begin_src json
 {
   "schema_version": 12,
+  "database_path": "/home/user/notes/org-files-db.sqlite",
   "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
   "generation": 1842,
   "last_changed_at": "2026-08-05T00:42:10Z"
 }
 #+end_src
+
+~database_path~ is the absolute canonical filesystem path of the database that was opened. Cached clients can use its directory to install file-notification watches for the SQLite main file, ~-wal~, and ~-shm~ files without duplicating config-path resolution.
 
 The command opens the existing configured database read-only. It does not initialize a missing database, migrate an older schema, scan Org files, reconcile sources, resolve links, touch FTS, or update timestamps. An older database must first be opened by a normal indexing command so schema migration can run.
 

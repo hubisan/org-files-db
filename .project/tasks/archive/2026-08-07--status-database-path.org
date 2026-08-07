@@ -1,0 +1,97 @@
+#+TITLE: Expose Canonical Database Path in Status
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-07 Thu 14:20]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Expose the effective canonical SQLite database path in ~orgfdb status~ JSON so external clients can install reliable file-notification watches without reimplementing config resolution.
+
+* Planning
+
+** Problem summary
+
+~orgfdb status~ exposes database identity and generation but not the concrete SQLite path used by the command. External cached clients therefore cannot reliably install filesystem watches without duplicating Rust config-path semantics.
+
+** Goals
+
+- Add ~database_path~ to the JSON status response.
+- Report the existing configured database as an absolute canonical filesystem path.
+- Preserve read-only status behavior.
+- Document the field as the preferred path for SQLite main/WAL/SHM notifications.
+
+** Non-goals
+
+- No config format changes.
+- No watcher behavior changes.
+- No changes to ~orgfdb changes~.
+
+** Architecture
+
+Load the normal CLI config, open the configured database read-only as before, canonicalize the configured database path after the successful open, and serialize that path in the status response. The Rust config loader remains the sole source of path-resolution semantics.
+
+** Execution plan
+
+- Extend the status response with ~database_path~.
+- Add an explicit CLI error if an already opened database path cannot be canonicalized.
+- Cover the JSON contract with a path assertion that exercises relative config resolution.
+- Update CLI/design documentation and changelog.
+
+** Risks & assumptions
+
+- Status output paths are already represented as JSON strings elsewhere in the CLI; the canonical path is rendered with the same display convention.
+- Canonicalization occurs only after read-only open succeeds, preserving the existing missing-database error path.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~make ci~
+
+* Results
+
+** Approach
+
+Extended the existing read-only status path rather than adding a second config resolver. Status now loads the normal CLI config, opens the configured database read-only, canonicalizes that successfully opened path, and serializes it as ~database_path~ alongside identity and generation.
+
+** Changed files
+
+- ~src/cli.rs~
+- ~src/indexer.rs~
+- ~docs/cli.org~
+- ~docs/design/index-generations-and-cached-views.org~
+- ~README.org~
+- ~CHANGELOG.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-07--status-database-path.org~
+
+** Checks performed
+
+- Reviewed the status command, config path resolution, and status JSON tests.
+- Added a regression assertion that a relative configured database path is emitted as the canonical absolute path.
+- Attempted ~cargo fmt --check~.
+
+** Test results
+
+The container does not provide Cargo, so ~cargo fmt --check~ and ~make ci~ could not be run here. The changed Rust match arms and response construction were inspected manually for exhaustiveness and consistency.
+
+** Blockers
+
+- Cargo is unavailable in the execution environment.
+
+** Review corrections
+
+The first local ~make test~ run exposed two generation-journal tests that did not match the existing documented incremental-indexing contract. The production indexer behavior was already consistent with that contract.
+
+- Renames use canonical path identity, so a path rename is represented internally as one created file plus one deleted file until explicit rename correlation exists. The generation journal still publishes exactly one old-path ~delete~ and one new-path ~upsert~.
+- Deleting the final explicit configured file is exercised through bounded candidate reconciliation, which intentionally permits an empty discovered set. Full configured-source reconciliation retains the existing empty-source safety guard and must not be weakened for this test.
+
+** Follow-ups
+
+- Run ~make ci~ in the normal development environment before commit.

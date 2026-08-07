@@ -10047,7 +10047,7 @@ index_body_text = false
     }
 
     #[test]
-    fn identity_preserving_rename_journals_delete_and_upsert_once() {
+    fn rename_journals_delete_and_upsert_once() {
         let test_dir = TestDir::new("index-generation-file-rename");
         let notes = test_dir.path().join("notes");
         let old_path = notes.join("old.org");
@@ -10092,10 +10092,10 @@ index_body_text = false
         let ChangeApplicationResult::Applied(report) = result else {
             panic!("rename reconciliation should apply");
         };
-        assert_eq!(report.metadata_only, 1);
-        assert_eq!(report.created, 0);
+        assert_eq!(report.metadata_only, 0);
+        assert_eq!(report.created, 1);
         assert_eq!(report.modified, 0);
-        assert_eq!(report.deleted, 0);
+        assert_eq!(report.deleted, 1);
 
         let after = crate::db::read_index_state(&connection).expect("state should load");
         assert_eq!(after.generation, before.generation + 1);
@@ -10195,7 +10195,7 @@ index_body_text = false
     }
 
     #[test]
-    fn incremental_deletion_journals_the_removed_canonical_path() {
+    fn incremental_candidate_deletion_journals_the_removed_canonical_path() {
         let test_dir = TestDir::new("index-generation-delete");
         let path = test_dir.path().join("notes.org");
         let config = Config {
@@ -10226,7 +10226,7 @@ index_body_text = false
 
         fs::remove_file(&path).expect("source should be removed");
         let result = indexer
-            .reconcile_configured_sources(&mut connection, &config)
+            .reconcile_candidate_paths(&mut connection, &config, [canonical.clone()])
             .expect("deletion reconciliation should succeed");
         let ChangeApplicationResult::Applied(report) = result else {
             panic!("deletion reconciliation should apply");

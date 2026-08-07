@@ -80,11 +80,14 @@ The response is:
 #+begin_src json
 {
   "schema_version": 12,
+  "database_path": "/home/user/notes/org-files-db.sqlite",
   "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
   "generation": 1842,
   "last_changed_at": "2026-08-05T00:42:10Z"
 }
 #+end_src
+
+~database_path~ is the absolute canonical path of the database that was actually opened. External cache clients should use this value for SQLite file-notification setup rather than reimplementing config-path resolution.
 
 The command opens the configured database read-only. It performs no discovery, reconciliation, query planning, FTS work, migration, or timestamp update. A database whose schema predates index state must first be opened by an indexing command so the normal migration can run.
 
@@ -223,6 +226,6 @@ This generation check is the consistency boundary. A concurrent writer never exp
 
 * SQLite file notifications
 
-Clients may monitor the SQLite directory for activity on the main database, WAL, or SHM files. Those events are wake-up signals only. Modification times, file sizes, WAL writes, SHM writes, and filesystem events do not establish a logical index change.
+Clients may monitor the directory containing the canonical ~database_path~ reported by ~orgfdb status~ for activity on the main database, WAL, or SHM files. Those events are wake-up signals only. Modification times, file sizes, WAL writes, SHM writes, and filesystem events do not establish a logical index change.
 
 After any wake-up, read ~orgfdb status~ or ~orgfdb changes~. The database identity and generation are authoritative.
