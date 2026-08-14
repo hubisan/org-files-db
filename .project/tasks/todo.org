@@ -77,30 +77,12 @@ Archived in [[./archive/todo-archive.org]]
 
 Deciscion after some tests: this is not needed. Having organized my life with Org for a long time now and still only have 570 small to medium sized files.
 
-Real-world validation:
-
-- The indexer was tested against the user's long-established personal Org corpus.
-- The corpus contains approximately 570 Org files accumulated through many years of using Org to organize personal information, tasks, projects, and other areas of life.
-- A complete rebuild finished subjectively almost instantly.
-- The current sequential implementation therefore already satisfies the practical performance requirement for the primary real-world workload.
-- Additional synthetic parser-heavy benchmarks would not address an observed user problem and are not required before closing the phase.
-
-Operational context:
-
-- A complete rebuild is required only for initial database creation, recovery, or indexing-context changes.
-- After the initial rebuild, the Phase 7 watcher processes only changed files through the existing incremental reconciliation pipeline.
-- Typical watcher batches contain one or only a few changed files and complete effectively instantly for the real-world corpus.
-- Parallel parsing would therefore not improve the normal operating path.
-- The only potentially affected operation would be an already fast and infrequent full rebuild.
-
 * DONE Recover Org links that Orgize misparses
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
 Detailed implementation plan: [[./archive/2026-08-04--recover-org-links-orgize-misparses.org][Recover Org Links Across Orgize Parse Gaps]]
-
-The implementation exists and is currently under review. Complete the review corrections and required checks before marking the task complete.
 
 * DONE Expose canonical database path in status
 
@@ -117,141 +99,21 @@ Task file: [[./archive/2026-08-05--transactional-index-generations-cached-view-d
 
 Task file: [[./2026-08-14--query-result-shape-errors.org][Query Result Shape Errors]]
 
-In ~query/result.rs~, remove production-code panics that can be triggered by inconsistent or incomplete stored query data.
-
-- Replace data-dependent ~expect(...)~ and ~unreachable!(...)~ calls in result shaping with ~QueryShapeError~, preferably the existing ~MissingStoredData~ kind.
-- Propagate ~Result~ through private helper functions where necessary.
-- This includes path construction, included-link shaping and outline construction.
-- Test-only ~expect~ and ~unwrap~ calls do not need to be removed.
-- Add focused regression tests for the newly handled error cases.
-
-Do not:
-- change the JSON output for valid queries;
-- change query SQL or query semantics;
-- redesign the public error model;
-- perform unrelated refactoring.
-
-Acceptance:
-- valid existing query-result tests still produce the same results;
-- malformed or inconsistent stored data handled by these paths returns ~QueryShapeError~ instead of panicking;
-- ~cargo fmt~, Clippy and the full test suite pass.
-
 * DONE Add GitHub CI for the existing make ci target
 
 Task file: [[./2026-08-14--github-ci.org][GitHub CI]]
-
-Add a GitHub Actions workflow that runs the repository's existing ~make ci~ quality gate.
-
-- Run it for pull requests and pushes.
-- Use the stable Rust toolchain.
-- Let ~make ci~ remain the single definition of the checks to execute.
-
-Do not:
-- duplicate the individual CI commands in the workflow if ~make ci~ already provides them;
-- change the Makefile unless required for the workflow to run;
-- add release, packaging or deployment jobs.
-
-Acceptance:
-- the workflow runs ~make ci~ on a clean checkout;
-- no existing local development workflow changes.
 
 * DONE Reject unknown TOML configuration keys
 
 Task file: [[./2026-08-14--strict-toml-config-keys.org][Strict TOML Configuration Keys]]
 
-Make configuration parsing fail when the user supplies an unknown configuration key.
-
-- Apply Serde's unknown-field validation to the user-facing raw configuration structs in ~config.rs~.
-- Cover the top-level configuration and nested configuration sections.
-- Add tests for an unknown top-level key and an unknown nested key.
-- Keep all currently valid configuration files valid.
-
-Do not:
-- rename configuration keys;
-- change defaults;
-- change configuration semantics;
-- introduce a new configuration format.
-
-Acceptance:
-- typos such as an unknown ~search~ option produce a clear TOML/config parsing error;
-- existing valid configuration tests continue to pass.
-
 * DONE Avoid loading every heading for plain flat queries
 
 Task file: [[./2026-08-14--plain-flat-query-heading-load.org][Plain Flat Query Heading Load]]
 
-Optimise the simplest query-result path so that a flat query without ~--include~ does not load every heading belonging to every matched file.
-
-Currently ~EnrichmentContext::load~ loads headings with ~load_headings_for_files~ even when a plain flat result only needs the matched heading or the file's synthetic root heading.
-
-Implement only the plain flat case:
-
-- For ~QueryOutputMode::Flat~ with no includes, load only the heading rows required to shape the returned result nodes.
-- Files still need their synthetic root heading.
-- Heading results need their matched heading.
-- Plain flat link results should not require unrelated headings.
-- Add a targeted heading-by-ID loader if useful.
-- Keep the existing loading behaviour for outline output and queries with includes for now.
-
-Do not:
-- optimise ~--include~ handling in this task;
-- redesign ~EnrichmentContext~;
-- change query SQL;
-- change result ordering or JSON output;
-- add caching.
-
-Acceptance:
-- existing flat-query output remains unchanged;
-- existing outline and include behaviour remains unchanged;
-- the plain flat path no longer calls the full-file heading loader merely to shape unrelated headings;
-- tests, Clippy and formatting pass.
-
 * DONE Reject outdated database schemas on read-only query opens
 
 Task file: [[./2026-08-14--reject-outdated-read-only-schema.org][Reject Outdated Read-Only Database Schemas]]
-
-Make read-only database access fail early and clearly when the database schema is older than the schema expected by the current binary.
-
-Currently the common schema validation rejects future schema versions but permits older versions because writable opens can migrate them. A read-only open cannot perform that migration.
-
-- Keep older schemas valid for writable opens so existing migration behaviour remains unchanged.
-- For read-only opens, reject a schema version lower than the current required version.
-- Add a dedicated error variant/message if needed.
-- The error should tell the user to run an indexing command to migrate/rebuild the database.
-- Add tests for an older read-only database as well as the already supported future-version case.
-
-Do not:
-- migrate anything during a read-only operation;
-- change writable migration behaviour;
-- change the database schema itself.
-
-Acceptance:
-- current-version databases open read-only as before;
-- future versions are still rejected;
-- older versions are rejected before a query reaches missing-table or missing-column SQLite errors;
-- the database is not modified.
-
-* DONE Remove the unused indexed universe from ChangePlan application
-
-Clean up the obsolete ~indexed_universe~ value carried from change planning into change application.
-
-The current change application performs a fresh discovery before mutation and resolves links using ~rediscovery.indexed_universe~. The ~indexed_universe~ extracted from ~ActionableChangePlan~ is only discarded with ~let _ = indexed_universe;~.
-
-- Remove this unused value from ~ChangePlan~ and/or ~ActionableChangePlan~ as appropriate.
-- Simplify ~TryFrom<ChangePlan> for ActionableChangePlan~ accordingly.
-- Remove logic that exists only to transport this unused value.
-- Preserve the fresh rediscovery and its stale-plan validation.
-
-Do not:
-- remove or weaken rediscovery before applying a plan;
-- change stale-plan detection;
-- change link resolution behaviour;
-- broadly remove unrelated ~#[allow(dead_code)]~ annotations.
-
-Acceptance:
-- there is no unused ~indexed_universe~ transported through the actionable change plan;
-- change planning and application behaviour remains the same;
-- all existing indexer tests pass.
 
 * CANCEL Feature - ignore single file
 
@@ -299,3 +161,751 @@ Expected semantics would be:
 Prefer a file-level keyword over a property such as ~VULPEA_IGNORE~,
 because ignoring the file is source/indexing metadata rather than heading
 metadata.
+
+
+* TODO Overhaul the org-files-db documentation before presentation work
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Reorganize and rewrite the project documentation so that the current public behaviour, internal architecture, and planned presentation interface are clearly separated before implementing the next architecture.
+
+Treat the existing implementation as the source of truth for current behaviour.
+
+Do not document planned functionality as already implemented.
+
+** Documentation structure
+
+Separate documentation by audience and purpose.
+
+At minimum distinguish:
+
+- user-facing CLI documentation
+- query language and query result documentation
+- configuration documentation
+- architecture / contributor documentation
+- stable machine-readable output contracts
+- planned presentation architecture
+
+Keep the main README concise and user-facing.
+
+Move implementation details and architectural explanations into dedicated documentation where appropriate.
+
+** Current CLI behaviour
+
+Document the current supported commands and options from the implementation.
+
+In particular document:
+
+- configuration handling
+- indexing
+- querying
+- query result kinds
+- query includes
+- JSON output
+- changes / generations where relevant
+- file restrictions where relevant
+- mutation commands where relevant
+
+Do not infer options from old documentation when they no longer exist.
+
+** Existing JSON contract
+
+Document the existing:
+
+#+begin_src sh
+orgfdb query --format json ...
+#+end_src
+
+contract as the stable compatibility interface.
+
+Make clear that future presentation output is a separate opt-in representation and does not replace or modify the existing JSON contract.
+
+Document result kinds and optional included data sufficiently for client implementations such as ~org-files-db.el~.
+
+** Query documentation
+
+Document the supported structural query language from the current parser and implementation.
+
+Use practical examples such as:
+
+#+begin_src sh
+orgfdb query '(headings)'
+orgfdb query '(headings (not (done)))'
+orgfdb query '(links (status "resolved"))'
+orgfdb query '(files (tags "project"))'
+#+end_src
+
+Avoid duplicating implementation internals unless they are required to understand public behaviour.
+
+** Architecture documentation
+
+Document the current high-level architecture, including where useful:
+
+- discovery
+- parsing
+- indexing
+- database generations
+- query execution
+- result construction
+- includes
+- changes
+- mutations
+- output serialization
+
+Keep implementation documentation separate from the user README.
+
+** Planned presentation design
+
+Add a design document for the planned presentation architecture.
+
+Clearly mark it as planned until implemented.
+
+Capture the architectural decisions already made:
+
+- existing ~query --format json~ remains unchanged
+- presentation is opt-in
+- presentation belongs to ~orgfdb query~
+- one structured ~PresentationSpec~
+- Rust performs UI-independent presentation work
+- Emacs maps semantic roles to concrete faces
+- results, rows, and cells are separate concepts
+- rows reference original results instead of duplicating them
+- full search values remain separate from visible truncated values
+- no search support in this architecture
+- no Child Emacs / ~async.el~
+- no presentation cache until benchmarks justify one
+
+Include the intended pipeline:
+
+#+begin_example
+query
+  -> results
+  -> row expansion
+  -> cell extraction
+  -> sort
+  -> shared widths
+  -> truncation / padding
+  -> presentation rows
+#+end_example
+
+Do not prematurely freeze incidental implementation details that have not yet been tested.
+
+** Stale documentation
+
+Audit existing documentation for:
+
+- removed commands
+- renamed options
+- obsolete cache designs
+- old query-model terminology
+- stale JSON examples
+- implementation details presented as public API
+
+Remove or update stale material.
+
+** Documentation maintenance
+
+Establish clear locations for future updates so presentation work does not require duplicating the same documentation in several files.
+
+Acceptance criteria:
+
+- The README describes the current CLI from a user perspective.
+- Current query syntax and result behaviour are documented.
+- The existing JSON contract is explicitly identified as stable.
+- Architecture documentation is separate from normal user documentation.
+- The planned presentation architecture has one dedicated design document.
+- Planned features are clearly distinguished from implemented features.
+- Obsolete cache and Child-Emacs assumptions are removed from current architecture documentation.
+- Documentation examples match the current executable.
+- Future presentation tasks have an obvious documentation location to update.
+
+* TODO Add query-specific presentation output support
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Add the infrastructure for an opt-in presentation output format to ~orgfdb query~ without changing the existing JSON output contract.
+
+Keep:
+
+#+begin_src sh
+orgfdb query --format json ...
+#+end_src
+
+fully backwards compatible.
+
+Add a query-specific presentation format conceptually named:
+
+#+begin_example
+presentation-json
+#+end_example
+
+Presentation must remain part of the existing ~query~ command rather than becoming a separate query subcommand.
+
+Do not expose the presentation format accidentally on unrelated commands.
+
+Do not implement presentation caching or streaming.
+
+Acceptance criteria:
+
+- Existing JSON query output remains unchanged.
+- ~presentation-json~ is query-specific.
+- The normal query parser and execution path remain shared.
+- Invalid combinations produce clear CLI errors.
+
+* TODO Define the Rust PresentationSpec model
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Define one structured input model for all UI-independent presentation configuration.
+
+The model initially contains:
+
+#+begin_example
+PresentationSpec
+  columns
+  sort
+  row_source
+#+end_example
+
+Use one specification rather than separate public column and sort configuration formats.
+
+Support:
+
+- ordered columns
+- sorting
+- optional row source
+- width modes
+- truncation
+- outline-path options
+
+Initial width modes:
+
+- ~auto~
+- ~max~
+- ~fixed~
+
+Design the width type so another mode such as percentage width can be added later without redesigning unrelated presentation types.
+
+Initial truncation options:
+
+- left
+- middle
+- right
+- configurable marker
+
+Outline-path options:
+
+- separator
+- include root
+- include match
+
+The initial ~row_source~ may execute only the normal one-result-to-one-row behaviour, but the type must be ready for later row expansion.
+
+Do not include:
+
+- Emacs faces
+- colours
+- text properties
+- completion frontend concepts
+- Emacs action names
+
+Acceptance criteria:
+
+- One complete presentation specification can be parsed and validated.
+- Optional values have deterministic defaults.
+- Unknown values produce useful errors.
+- The type is independent of Emacs.
+
+* TODO Define the public presentation column registry
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Make Rust the authoritative definition of supported presentation columns.
+
+Do not use arbitrary JSON property lookup as the public presentation-column API.
+
+Initial normal columns should cover the stable existing Emacs functionality where meaningful:
+
+- ~title~
+- ~todo-keyword~
+- ~todo-type~
+- ~priority~
+- ~outline-path~
+- ~tags~
+- ~scheduled-raw~
+- ~deadline-raw~
+- ~closed-raw~
+- ~file-title~
+- ~file-name~
+- ~file-path~
+- ~line-number~
+- ~link-type~
+- ~link-target~
+- ~link-description~
+- ~resolution-status~
+- ~source-outline-path~
+- ~target-outline-path~
+- ~rank~
+
+Reserve the following columns for row expansion:
+
+- ~tag~
+- ~property-name~
+- ~property-value~
+- ~keyword-name~
+- ~keyword-value~
+
+For every column define centrally:
+
+- supported result kinds
+- required query data/includes
+- value extraction
+- default semantic role
+- supported column-specific options
+
+Review the existing Emacs column set rather than copying accidental generic-field behaviour.
+
+Acceptance criteria:
+
+- Unknown columns are rejected.
+- Columns are validated against query result kinds.
+- Sort-only columns use the same definitions as displayed columns.
+- Include requirements can be derived from the same registry.
+- Public presentation columns have deterministic semantics.
+
+* TODO Define semantic presentation roles
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Let Rust describe semantic display meaning without knowing concrete client styling.
+
+Initial roles should include at least:
+
+- ~heading~
+- ~title~
+- ~todo~
+- ~done~
+- ~priority~
+- ~tag~
+- ~date~
+- ~file-name~
+- ~file-path~
+- ~keyword-name~
+- ~keyword-value~
+- ~property-name~
+- ~property-value~
+
+Add link-specific roles only where a distinct role has a useful semantic purpose.
+
+Use:
+
+#+begin_example
+outline-path        -> heading
+source-outline-path -> heading
+target-outline-path -> heading
+#+end_example
+
+Do not distinguish heading levels.
+
+Do not add role ranges.
+
+Do not add separate styling metadata for outline separators.
+
+Do not encode Emacs face names.
+
+Acceptance criteria:
+
+- A cell can have one optional semantic role.
+- Roles describe meaning rather than appearance.
+- Rust has no dependency on Emacs themes or faces.
+
+* TODO Define the presentation results, rows, and cells wire model
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Separate original query results from presentation rows and visible cells.
+
+The presentation response should conceptually contain:
+
+#+begin_example
+presentation_version
+database_id
+generation
+results
+rows
+#+end_example
+
+~results~ contains each original query result once.
+
+Each row contains:
+
+#+begin_example
+result_index
+row_context
+cells
+#+end_example
+
+For normal one-row-per-result presentation:
+
+#+begin_example
+row_context = null
+#+end_example
+
+Each cell contains:
+
+#+begin_example
+search_text
+display_text
+role
+#+end_example
+
+Definitions:
+
+- ~search_text~ contains the complete logical value.
+- ~display_text~ contains the final visible value after truncation and padding.
+- ~role~ contains the semantic presentation role.
+
+Rows may be sorted independently of the order of ~results~.
+
+Do not duplicate the complete result object inside every row.
+
+Do not add generic rich-text ranges.
+
+Acceptance criteria:
+
+- Results and presentation rows are separate representations.
+- Rows refer to results using ~result_index~.
+- Full values survive visible truncation.
+- The model permits several future rows to reference one result.
+- ~database_id~ and ~generation~ identify the originating database snapshot.
+
+* TODO Implement presentation value extraction and include inference
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Move UI-independent column extraction and presentation include inference into Rust.
+
+Derive data requirements from:
+
+- displayed columns
+- sort columns
+- outline-path options
+- row source where applicable
+
+Explicit query includes supplied by callers must be combined with presentation-derived requirements rather than replaced.
+
+This is important so a client can request additional structured data for actions even when that data is not displayed.
+
+Examples:
+
+- file columns may require path data
+- source outline paths require source data
+- target outline paths require target data
+
+Do not encode knowledge of Emacs actions in Rust.
+
+Acceptance criteria:
+
+- Columns receive the data required to render them.
+- Hidden sort columns receive the same include inference.
+- Explicit caller includes and inferred includes are combined.
+- One query execution produces the complete result data.
+- No presentation-specific include table is required in Emacs.
+
+* TODO Implement presentation sorting in Rust
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Move predefined-view sorting into the Rust presentation pipeline.
+
+Support:
+
+- ascending order
+- descending order
+- multiple ordered sort keys
+- sort columns that are not displayed
+- deterministic handling of equal values
+- deterministic handling of missing values
+
+Use the shared column registry for validation and extraction.
+
+Do not implement free-text search.
+
+Acceptance criteria:
+
+- Rust emits rows in final presentation order.
+- Hidden sort columns work.
+- Multiple sort keys work in declared order.
+- Invalid sort columns are rejected.
+- Equal values produce deterministic ordering.
+
+* TODO Implement presentation widths, truncation, and padding
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Move shared column layout preparation into Rust.
+
+Implement:
+
+- ~auto~
+- ~max N~
+- ~fixed N~
+- shared width calculation
+- left truncation
+- middle truncation
+- right truncation
+- configurable truncation marker
+- final padding
+
+Keep the complete value in ~search_text~.
+
+Put only the final visible representation into ~display_text~.
+
+Do not implement percentage widths yet.
+
+Add explicit tests for non-ASCII values.
+
+Acceptance criteria:
+
+- Shared widths are calculated across the complete row set.
+- ~max~ respects its configured maximum.
+- ~fixed~ produces the configured width where possible.
+- The truncation marker counts toward visible width.
+- An empty marker performs hard truncation.
+- Search values remain complete.
+- Unicode behaviour is deterministic and tested.
+
+* TODO Connect query execution to compact presentation-json output
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Implement the complete initial Rust presentation pipeline.
+
+Pipeline:
+
+#+begin_example
+query
+  -> original results
+  -> initial presentation rows
+  -> values
+  -> sort keys
+  -> sort
+  -> shared widths
+  -> truncation
+  -> padding
+  -> semantic roles
+  -> presentation-json
+#+end_example
+
+Use compact JSON for presentation output.
+
+Keep normal ~--format json~ on its existing serialization path.
+
+Do not implement JSONL or streaming yet.
+
+Acceptance criteria:
+
+- ~(headings)~ can produce complete presentation output.
+- Results are stored once.
+- Rows reference results.
+- Cells contain complete search values and final display values.
+- Semantic roles are included.
+- Normal JSON remains unchanged.
+
+* TODO Benchmark uncached Rust-prepared presentation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Measure the complete presentation path before introducing any presentation cache.
+
+Benchmark representative structural queries with approximately:
+
+- 100 rows
+- 1'000 rows
+- 10'000 rows
+- 50'000 rows
+
+Measure separately where practical:
+
+- database query execution
+- presentation extraction
+- sorting
+- width calculation
+- formatting
+- JSON serialization
+- payload size
+- process startup
+- total CLI elapsed time
+
+The Emacs rewrite does not need to exist yet for this first Rust-side benchmark.
+
+Record enough data to identify whether Rust-side computation itself requires caching.
+
+Acceptance criteria:
+
+- Several result-set sizes are measured.
+- Presentation stages can be compared meaningfully.
+- Payload sizes are recorded.
+- No cache is added during benchmarking.
+- Results are documented.
+
+* TODO Decide whether Rust-side presentation caching is justified
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Decide whether any Rust-side presentation cache is necessary based on measurements rather than architectural assumptions.
+
+Possible outcomes:
+
+- no presentation cache
+- persistent disk cache
+- long-lived orgfdb process / daemon
+- another narrowly justified mechanism
+
+Consider:
+
+- query cost
+- presentation CPU cost
+- process startup
+- serialization cost
+- expected client transfer cost
+
+Do not add a cache merely because ~database_id~, ~generation~, and ~changes~ already exist.
+
+Keep their existing meanings.
+
+If no Rust-side cache is justified, explicitly record that decision and continue without one.
+
+If a cache is justified, create new implementation TODOs based on the measured bottleneck rather than embedding cache implementation in this task.
+
+Acceptance criteria:
+
+- The cache decision is backed by benchmark evidence.
+- Existing generation/change semantics are not overloaded.
+- Unnecessary cache lifecycle complexity is avoided.
+
+* TODO Implement presentation row expansion
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Allow one original query result to produce multiple presentation rows through the same Rust presentation pipeline.
+
+Support row sources:
+
+- ~tags~
+- ~effective-properties~
+- ~keywords~
+
+Normal behaviour remains one row per query result.
+
+Each expanded row retains:
+
+#+begin_example
+result_index
+row_context
+cells
+#+end_example
+
+Suggested row contexts:
+
+#+begin_example
+tag:
+  kind
+  value
+
+effective property:
+  kind
+  name
+  value
+
+keyword:
+  kind
+  name
+  value
+#+end_example
+
+Add singular columns:
+
+- ~tag~
+- ~property-name~
+- ~property-value~
+- ~keyword-name~
+- ~keyword-value~
+
+Requirements:
+
+- normal columns repeat for every expanded row
+- empty collections produce no rows
+- only one row source can be active
+- no Cartesian products
+- sorting operates on expanded rows
+- shared widths operate across expanded rows
+- the original query result remains unchanged
+
+Include inference:
+
+#+begin_example
+tags                 -> no additional include when already available
+effective-properties -> effective_properties
+keywords             -> keywords
+#+end_example
+
+Preserve source order where the underlying data provides it.
+
+Preserve duplicate keyword entries.
+
+Acceptance criteria:
+
+- One result can generate several rows.
+- Several rows can reference the same ~result_index~.
+- Singular columns are valid only for their matching row source.
+- Expanded rows use the normal sort, width, truncation, and role pipeline.
+- Empty collections produce no artificial rows.
+
+* TODO Finalize presentation architecture documentation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Update the documentation after the Rust presentation implementation and benchmarks so the documentation describes the implemented system rather than the earlier design proposal.
+
+Update:
+
+- CLI presentation usage
+- ~PresentationSpec~
+- supported columns
+- semantic roles
+- result / row / cell representation
+- row expansion
+- include inference
+- compatibility guarantees
+- cache decision
+- performance observations where useful
+
+Clearly retain the guarantee that:
+
+#+begin_src sh
+orgfdb query --format json ...
+#+end_src
+
+has not changed.
+
+Acceptance criteria:
+
+- Planned documentation is converted to implemented documentation where appropriate.
+- Removed or rejected design alternatives are no longer presented as current architecture.
+- Public examples execute against the implemented CLI.
+- The Emacs client has a stable documented interface to implement against.
