@@ -113,3 +113,15 @@ Task file: [[./archive/2026-08-07--status-database-path.org][Expose Canonical Da
 
 Task file: [[./archive/2026-08-05--transactional-index-generations-cached-view-delta-refresh.org][Transactional Index Generations and Cached-View Delta Refresh]]
 
+* TODO Feature - ignore single file
+
+So etwas wie Vulpea machen, allenfalls einfach mit einem Keyword. Sicher geeignet, für Sachen, welche man nicht ungedingt in der DB haben will. Ansonsten kann man dies natürlich auch einfach als Filterkriterium verwenden (not ...). Weiss nicht, ob notwendig:
+
+#+BEGIN_SRC org
+  :PROPERTIES:
+  :ID: some-uuid
+  :VULPEA_IGNORE: t
+  :END:
+  ,#+title: Private Note
+#+END_SRC
+
