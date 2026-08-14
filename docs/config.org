@@ -42,6 +42,8 @@ timezone = "Europe/Zurich"
 - ~search~
 - ~query~
 
+Unknown keys are rejected. This applies both to top-level keys and to keys inside configuration sections such as ~[[dirs]]~, ~[links]~, ~[todo]~, ~[search]~, and ~[query]~. A misspelled key therefore causes config loading to fail instead of silently falling back to a default.
+
 * ~db_path~
 
 Path to the SQLite database file.

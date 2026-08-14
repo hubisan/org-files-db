@@ -155,7 +155,9 @@ Acceptance:
 - the workflow runs ~make ci~ on a clean checkout;
 - no existing local development workflow changes.
 
-* TODO Reject unknown TOML configuration keys
+* DONE Reject unknown TOML configuration keys
+
+Task file: [[./2026-08-14--strict-toml-config-keys.org][Strict TOML Configuration Keys]]
 
 Make configuration parsing fail when the user supplies an unknown configuration key.
 

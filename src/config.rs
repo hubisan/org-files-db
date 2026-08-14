@@ -351,6 +351,7 @@ impl Error for ConfigError {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawConfig {
     #[serde(default = "default_db_path")]
     db_path: PathBuf,
@@ -367,6 +368,7 @@ struct RawConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawConfiguredDir {
     path: PathBuf,
     #[serde(default)]
@@ -376,24 +378,28 @@ struct RawConfiguredDir {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawLinksConfig {
     plain_protocols: Option<Vec<String>>,
     custom_protocols: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawTodoConfig {
     default_open_keywords: Option<Vec<String>>,
     default_closed_keywords: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawSearchConfig {
     fts5_enabled: Option<bool>,
     index_body_text: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawQueryConfig {
     timezone: Option<String>,
 }
@@ -672,6 +678,59 @@ db_path = "db.sqlite"
         assert!(config.files.is_empty());
         assert!(config.dirs.is_empty());
         assert_eq!(config.query, QueryConfig::default());
+    }
+
+    #[test]
+    fn rejects_unknown_top_level_config_key() {
+        let test_dir = TestDir::new("unknown-top-level-key");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+filez = []
+"#,
+        );
+
+        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+        match error {
+            ConfigError::ParseToml { source, .. } => {
+                let message = source.to_string();
+                assert!(message.contains("unknown field `filez`"), "{message}");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_nested_config_key() {
+        let test_dir = TestDir::new("unknown-search-key");
+        let config_path = test_dir.path().join("config.toml");
+
+        write_file(
+            &config_path,
+            r#"
+db_path = "db.sqlite"
+
+[search]
+fts5_enabeld = false
+"#,
+        );
+
+        let error = Config::load_from_file(&config_path).expect_err("config should fail");
+
+        match error {
+            ConfigError::ParseToml { source, .. } => {
+                let message = source.to_string();
+                assert!(
+                    message.contains("unknown field `fts5_enabeld`"),
+                    "{message}"
+                );
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     #[test]

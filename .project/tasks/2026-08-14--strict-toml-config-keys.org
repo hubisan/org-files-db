@@ -1,0 +1,76 @@
+#+TITLE: Strict TOML Configuration Keys
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-14 Fri 18:58]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+* Planning
+
+** Problem summary
+The raw TOML configuration structs currently ignore unknown fields, so misspelled keys can silently leave defaults in effect.
+
+** Goals
+- Reject unknown top-level configuration keys.
+- Reject unknown keys in nested config tables and directory entries.
+- Add focused tests for a top-level typo and a nested ~[search]~ typo.
+- Document that unknown configuration keys are rejected.
+
+** Non-goals
+- Do not rename keys or change defaults.
+- Do not change configuration semantics beyond rejecting unknown keys.
+- Do not introduce a new configuration format.
+
+** Architecture
+Use Serde's existing ~deny_unknown_fields~ support on every user-facing raw configuration struct. Keep the existing ~ConfigError::ParseToml~ path so callers receive normal TOML/config parsing errors.
+
+** Execution plan
+1. Add ~#[serde(deny_unknown_fields)]~ to all raw config structs.
+2. Add regression tests for unknown top-level and nested ~[search]~ keys.
+3. Update the config reference with strict unknown-key behavior.
+
+** Risks & assumptions
+- Existing valid TOML remains unchanged.
+- Previously ignored unknown keys will intentionally become parse errors.
+- Rust CI is run by the user rather than in this environment.
+
+** Open questions
+None.
+
+** Proposed checks
+- Inspect the diff for scope.
+- Verify all user-facing ~Raw*Config~ structs use ~deny_unknown_fields~.
+- User runs ~make ci~ locally.
+
+* Build
+
+** Approach
+- Added ~#[serde(deny_unknown_fields)]~ to every user-facing raw configuration struct, including directory entries and all nested config tables.
+- Kept unknown-field failures on the existing ~ConfigError::ParseToml~ path.
+- Added focused regression tests for an unknown top-level key and a misspelled key in ~[search]~.
+- Documented strict unknown-key handling in the config reference.
+
+** Changed files
+- ~src/config.rs~
+- ~docs/config.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-14--strict-toml-config-keys.org~
+
+** Checks performed
+- Verified all six raw configuration structs use ~deny_unknown_fields~.
+- Reviewed the diff against the supplied repository archive.
+- Verified no production file other than ~src/config.rs~ changed.
+
+** Test results
+- ~make ci~ was not run, per user instruction.
+- Rust checks were not run in this environment; the user will run ~make ci~ locally.
+
+** Blockers
+None.
+
+** Follow-ups
+- User runs ~make ci~ locally and reviews the resulting TOML error messages.
