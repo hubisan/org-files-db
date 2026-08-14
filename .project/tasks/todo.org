@@ -176,7 +176,9 @@ Acceptance:
 - typos such as an unknown ~search~ option produce a clear TOML/config parsing error;
 - existing valid configuration tests continue to pass.
 
-* TODO Avoid loading every heading for plain flat queries
+* REVIEW Avoid loading every heading for plain flat queries
+
+Task file: [[./2026-08-14--plain-flat-query-heading-load.org][Plain Flat Query Heading Load]]
 
 Optimise the simplest query-result path so that a flat query without ~--include~ does not load every heading belonging to every matched file.
 

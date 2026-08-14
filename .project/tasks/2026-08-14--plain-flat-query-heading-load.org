@@ -1,0 +1,84 @@
+#+TITLE: Plain Flat Query Heading Load
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-14 Fri 19:15]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+* Planning
+
+** Problem summary
+~EnrichmentContext::load~ currently loads every stored heading for every relevant file, even when flat output without includes only needs the matched node data required to shape the result.
+
+** Goals
+- Add a narrow loading path for ~QueryOutputMode::Flat~ with no includes.
+- Load only matched heading rows for real heading results.
+- Load synthetic root headings only when a file result node needs them.
+- Avoid loading heading rows for plain flat link results.
+- Preserve all existing output, ordering, outline, and include behaviour.
+
+** Non-goals
+- Do not optimise outline output.
+- Do not optimise any query using ~--include~.
+- Do not redesign ~EnrichmentContext~ or query SQL.
+- Do not add caching.
+
+** Architecture
+Keep the existing ~EnrichmentContext::load~ path unchanged for outline output and any query with includes. Add a dedicated flat/no-include constructor that loads matched files first, derives only the required heading IDs, and uses a targeted heading-by-ID loader.
+
+** Execution plan
+1. Route only flat output with an empty normalised include list through the dedicated loader.
+2. Add a heading-by-ID loader while sharing the existing stored-heading loading implementation.
+3. Add focused regression tests proving unrelated headings are not required for plain flat heading and link shaping.
+4. Review the diff for output and scope changes.
+
+** Risks & assumptions
+- File result nodes still require their synthetic root heading because file tags are read from it.
+- Real heading result nodes require only their own stored heading row when no includes are requested.
+- Plain link result nodes require file metadata but no stored heading rows when no includes are requested.
+- Rust CI is run by the user rather than in this environment.
+
+** Open questions
+None.
+
+** Proposed checks
+- Inspect the diff for scope.
+- Verify the legacy loader remains the path for outlines and all includes.
+- Add regression tests that would fail with the previous full-file heading load.
+- User runs ~make ci~ locally.
+
+* Build
+
+** Approach
+- Routed only flat output with no normalised includes through ~EnrichmentContext::load_flat_without_includes~.
+- Kept the existing ~EnrichmentContext::load~ path unchanged for outline output and every query with includes.
+- Added ~load_headings_by_ids~ and shared the existing stored-heading SQL/decoding through a common internal loader.
+- Flat file nodes load only their synthetic root heading, flat real-heading nodes load only matched heading IDs, and flat link nodes load no stored headings.
+- Added regression tests that remove unrelated or source ~outline_path~ rows so the tests fail if the old full-file heading loader is used.
+
+** Changed files
+- ~src/query/result.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-14--plain-flat-query-heading-load.org~
+
+** Checks performed
+- Reviewed the source diff against the supplied repository archive.
+- Verified the specialised loader is selected only for ~QueryOutputMode::Flat~ with an empty normalised include list.
+- Verified ~load_headings_for_files~ remains in the legacy enrichment path used by outline output and includes.
+- Verified no production file other than ~src/query/result.rs~ changed.
+- Verified neither ~cargo~ nor ~rustfmt~ is available in this environment.
+
+** Test results
+- Added focused regression coverage for plain flat file, heading, and link shaping.
+- ~make ci~ was not run, per user instruction; the user will run it locally.
+- Rust tests and formatting could not be executed in this environment because the Rust toolchain is unavailable.
+
+** Blockers
+None.
+
+** Follow-ups
+- User runs ~make ci~ locally and reviews the performance change.

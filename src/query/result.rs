@@ -411,7 +411,11 @@ pub fn shape_query_results(
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
     let includes = normalized_includes(&options.includes);
-    let context = EnrichmentContext::load(connection, &rows, &includes)?;
+    let context = if options.output_mode == QueryOutputMode::Flat && includes.is_empty() {
+        EnrichmentContext::load_flat_without_includes(connection, &rows)?
+    } else {
+        EnrichmentContext::load(connection, &rows, &includes)?
+    };
     let results = match (&rows, options.output_mode) {
         (QueryRows::Headings(rows), QueryOutputMode::Flat) => rows
             .iter()
@@ -597,6 +601,58 @@ struct EnrichmentContext {
 }
 
 impl EnrichmentContext {
+    fn load_flat_without_includes(
+        connection: &Connection,
+        rows: &QueryRows,
+    ) -> Result<Self, QueryShapeError> {
+        let (matched_file_ids, matched_heading_ids, _) = collect_matched_ids(rows);
+        let files = load_files(connection, &matched_file_ids)?;
+        let mut required_heading_ids = match rows {
+            QueryRows::Headings(_) => matched_heading_ids,
+            QueryRows::Links(_) | QueryRows::Files(_) => BTreeSet::new(),
+        };
+
+        match rows {
+            QueryRows::Headings(rows) => {
+                for row in rows {
+                    if let HeadingQueryMatch::File(row) = row {
+                        let file = files.get(&row.id).ok_or_else(|| {
+                            QueryShapeError::missing(format!(
+                                "missing stored file row for id {}",
+                                row.id
+                            ))
+                        })?;
+                        required_heading_ids.insert(file.root_heading_id);
+                    }
+                }
+            }
+            QueryRows::Files(rows) => {
+                for row in rows {
+                    let file = files.get(&row.id).ok_or_else(|| {
+                        QueryShapeError::missing(format!(
+                            "missing stored file row for id {}",
+                            row.id
+                        ))
+                    })?;
+                    required_heading_ids.insert(file.root_heading_id);
+                }
+            }
+            QueryRows::Links(_) => {}
+        }
+
+        Ok(Self {
+            files,
+            headings: load_headings_by_ids(connection, &required_heading_ids)?,
+            properties: HashMap::new(),
+            effective_properties: HashMap::new(),
+            keywords: HashMap::new(),
+            links_by_file: HashMap::new(),
+            links_by_heading: HashMap::new(),
+            backlinks_by_file: HashMap::new(),
+            backlinks_by_heading: HashMap::new(),
+        })
+    }
+
     fn load(
         connection: &Connection,
         rows: &QueryRows,
@@ -1504,7 +1560,22 @@ fn load_headings_for_files(
     connection: &Connection,
     file_ids: &BTreeSet<i64>,
 ) -> Result<HashMap<i64, StoredHeading>, QueryShapeError> {
-    if file_ids.is_empty() {
+    load_headings(connection, "headings.file_id", file_ids)
+}
+
+fn load_headings_by_ids(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<HashMap<i64, StoredHeading>, QueryShapeError> {
+    load_headings(connection, "headings.id", heading_ids)
+}
+
+fn load_headings(
+    connection: &Connection,
+    filter_column: &str,
+    ids: &BTreeSet<i64>,
+) -> Result<HashMap<i64, StoredHeading>, QueryShapeError> {
+    if ids.is_empty() {
         return Ok(HashMap::new());
     }
 
@@ -1534,11 +1605,11 @@ fn load_headings_for_files(
          FROM headings
          LEFT JOIN outline_path ON outline_path.heading_id = headings.id
          INNER JOIN files ON files.id = headings.file_id
-         WHERE headings.file_id IN ({})
+         WHERE {filter_column} IN ({})
          ORDER BY files.path, headings.byte_start, headings.id",
-        placeholders(file_ids.len())
+        placeholders(ids.len())
     );
-    let params = file_ids.iter().copied().collect::<Vec<_>>();
+    let params = ids.iter().copied().collect::<Vec<_>>();
     let mut statement = connection
         .prepare(&sql)
         .map_err(|source| QueryShapeError::database("load_headings.prepare", source))?;
@@ -2470,6 +2541,63 @@ mod tests {
         let file = file_node(&response.results[0]);
         assert_eq!(file.location.byte_start, None);
         assert_eq!(file.location.byte_end, None);
+    }
+
+    #[test]
+    fn plain_flat_file_results_load_only_their_required_root_heading() {
+        let connection = seeded_connection();
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 13", [])
+            .expect("unrelated outline path should delete");
+
+        let response = execute_and_shape_query(
+            &connection,
+            &validated(r#"(files (file-title "Alpha Index" :exact t))"#),
+            &QueryExecutionOptions::default(),
+        )
+        .expect("plain flat file query should shape without unrelated headings");
+
+        let file = file_node(&response.results[0]);
+        assert_eq!(file.path, "/tmp/query-alpha.org");
+        assert_eq!(file.tags, vec!["filetag".to_string()]);
+    }
+
+    #[test]
+    fn plain_flat_heading_results_do_not_load_unrelated_headings_from_the_same_file() {
+        let connection = seeded_connection();
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 13", [])
+            .expect("unrelated outline path should delete");
+
+        let response = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Query Engine" :exact t))"#),
+            &QueryExecutionOptions::default(),
+        )
+        .expect("plain flat heading query should shape without unrelated headings");
+
+        let heading = heading_node(&response.results[0]);
+        assert_eq!(heading.id, 11);
+        assert_eq!(heading.title, "Query Engine");
+    }
+
+    #[test]
+    fn plain_flat_link_results_do_not_load_source_headings() {
+        let connection = seeded_connection();
+        let query = validated(r#"(links (status "resolved"))"#);
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 11", [])
+            .expect("source outline path should delete after query execution");
+
+        let response = shape_query_results(&connection, rows, &QueryExecutionOptions::default())
+            .expect("plain flat link rows should shape without stored heading enrichment");
+
+        assert!(response
+            .results
+            .iter()
+            .any(|node| matches!(node, QueryResultNode::Link(link) if link.id == 100)));
     }
 
     #[test]
