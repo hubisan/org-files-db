@@ -176,7 +176,7 @@ Acceptance:
 - typos such as an unknown ~search~ option produce a clear TOML/config parsing error;
 - existing valid configuration tests continue to pass.
 
-* REVIEW Avoid loading every heading for plain flat queries
+* DONE Avoid loading every heading for plain flat queries
 
 Task file: [[./2026-08-14--plain-flat-query-heading-load.org][Plain Flat Query Heading Load]]
 
@@ -206,7 +206,7 @@ Acceptance:
 - the plain flat path no longer calls the full-file heading loader merely to shape unrelated headings;
 - tests, Clippy and formatting pass.
 
-* REVIEW Reject outdated database schemas on read-only query opens
+* DONE Reject outdated database schemas on read-only query opens
 
 Task file: [[./2026-08-14--reject-outdated-read-only-schema.org][Reject Outdated Read-Only Database Schemas]]
 
@@ -231,7 +231,7 @@ Acceptance:
 - older versions are rejected before a query reaches missing-table or missing-column SQLite errors;
 - the database is not modified.
 
-* TODO Remove the unused indexed universe from ChangePlan application
+* DONE Remove the unused indexed universe from ChangePlan application
 
 Clean up the obsolete ~indexed_universe~ value carried from change planning into change application.
 
@@ -253,15 +253,49 @@ Acceptance:
 - change planning and application behaviour remains the same;
 - all existing indexer tests pass.
 
-* TODO Feature - ignore single file
+* CANCEL Feature - ignore single file
 
-So etwas wie Vulpea machen, allenfalls einfach mit einem Keyword. Sicher geeignet, für Sachen, welche man nicht ungedingt in der DB haben will. Ansonsten kann man dies natürlich auch einfach als Filterkriterium verwenden (not ...). Weiss nicht, ob notwendig:
+Reason for cancelling:
 
-#+BEGIN_SRC org
-  :PROPERTIES:
-  :ID: some-uuid
-  :VULPEA_IGNORE: t
-  :END:
-  ,#+title: Private Note
-#+END_SRC
+The existing configuration already supports excluding individual files,
+directories and path patterns from the indexed source universe. This
+covers the current need without introducing a second exclusion mechanism
+inside Org files.
 
+A file-level ~#+orgfdb: ignore~ keyword would mainly provide a portable
+exclusion that follows the file when it is moved. There is currently no
+concrete use case that justifies the additional discovery,
+reconciliation and watcher semantics.
+
+Allow an Org file to declare that it must not be included in the
+~org-files-db~ index.
+
+Possible syntax:
+
+#+begin_src org
+  ,#+TITLE: Private Note
+  ,#+ORGFDB: ignore
+#+end_src
+
+The keyword would mean that the file is outside the indexed source
+universe, even if its path is otherwise included by the configured files
+or directories.
+
+Expected semantics would be:
+
+- detect ~#+orgfdb: ignore~ at file level;
+- do not store the file or any of its headings, properties, keywords or
+  links in the database;
+- if an already indexed file gains ~#+orgfdb: ignore~, remove it during
+  the next rebuild or reconciliation;
+- if the keyword is removed, make the file eligible for indexing again;
+- treat links to an ignored file the same way as links to another file
+  outside the indexed source universe;
+- make watcher/reconciliation behaviour consistent when the keyword is
+  added or removed;
+- use only the exact ~ignore~ value initially; do not introduce boolean
+  aliases or additional ~orgfdb~ options without a separate use case.
+
+Prefer a file-level keyword over a property such as ~VULPEA_IGNORE~,
+because ignoring the file is source/indexing metadata rather than heading
+metadata.

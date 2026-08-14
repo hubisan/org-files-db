@@ -421,7 +421,6 @@ where
             .sort_by(|left, right| left.identity.as_bytes().cmp(right.identity.as_bytes()));
         let mut plan = ChangePlan {
             invalidations,
-            indexed_universe: Some(discovery.indexed_universe),
             planning_context: context,
             fts_backend_available,
             verification_policy: options,
@@ -487,9 +486,6 @@ where
             ChangePlanningResult::FullRebuildRequired => {
                 Err(ChangeApplicationRejection::FullRebuildRequired)
             }
-            ChangePlanningResult::Ready(plan) if !plan.failed.is_empty() => {
-                Err(ChangeApplicationRejection::FailedSources)
-            }
             ChangePlanningResult::Ready(plan) => ActionableChangePlan::try_from(*plan),
         }
     }
@@ -515,10 +511,7 @@ where
     where
         H: FnOnce(),
     {
-        let ActionableChangePlan {
-            plan,
-            indexed_universe,
-        } = actionable;
+        let ActionableChangePlan { plan } = actionable;
         if !plan.failed.is_empty() {
             return Ok(ChangeApplicationResult::Rejected(
                 ChangeApplicationRejection::FailedSources,
@@ -651,7 +644,6 @@ where
         } else {
             persist_search_trust_metadata(&tx, false, false).map_err(IndexerError::Write)?;
         }
-        let _ = indexed_universe;
         let resolution_report = LinkResolver::resolve_all(&tx, &rediscovery.indexed_universe)
             .map_err(IndexerError::Write)?;
         IndexingContext::from_config(config, fts_available)
@@ -1143,7 +1135,6 @@ pub(crate) enum ChangePlanningResult {
 #[derive(Debug)]
 pub(crate) struct ChangePlan {
     pub(crate) invalidations: IndexInvalidationSet,
-    indexed_universe: Option<IndexedUniverse>,
     planning_context: IndexingContext,
     fts_backend_available: bool,
     verification_policy: ChangePlanningOptions,
@@ -1173,24 +1164,16 @@ impl ChangePlan {
 #[derive(Debug)]
 pub(crate) struct ActionableChangePlan {
     plan: ChangePlan,
-    indexed_universe: IndexedUniverse,
 }
 
 impl TryFrom<ChangePlan> for ActionableChangePlan {
     type Error = ChangeApplicationRejection;
 
-    fn try_from(mut plan: ChangePlan) -> Result<Self, Self::Error> {
+    fn try_from(plan: ChangePlan) -> Result<Self, Self::Error> {
         if !plan.failed.is_empty() {
             return Err(ChangeApplicationRejection::FailedSources);
         }
-        let indexed_universe = plan
-            .indexed_universe
-            .take()
-            .ok_or(ChangeApplicationRejection::InvalidPlan)?;
-        Ok(Self {
-            plan,
-            indexed_universe,
-        })
+        Ok(Self { plan })
     }
 }
 
@@ -1199,7 +1182,6 @@ impl TryFrom<ChangePlan> for ActionableChangePlan {
 pub(crate) enum ChangeApplicationRejection {
     FullRebuildRequired,
     FailedSources,
-    InvalidPlan,
     Stale,
 }
 

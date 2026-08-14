@@ -177,10 +177,6 @@ impl fmt::Display for WatcherExecutionError {
                 f,
                 "watcher reconciliation was rejected because one or more sources failed preparation"
             ),
-            Self::Rejected(ChangeApplicationRejection::InvalidPlan) => write!(
-                f,
-                "watcher reconciliation was rejected because the indexing plan was invalid"
-            ),
             Self::Rejected(ChangeApplicationRejection::Stale) => write!(
                 f,
                 "watcher reconciliation was rejected because the indexing plan became stale"
