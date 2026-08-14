@@ -88,6 +88,13 @@ pub(crate) fn open_existing_database_read_only_with_schema(
         source,
     })?;
     validate_schema_version(on_disk_version, schema, &target)?;
+    if on_disk_version < schema.version {
+        return Err(DbError::OutdatedSchemaVersion {
+            target,
+            on_disk_version,
+            required_version: schema.version,
+        });
+    }
     Ok(connection)
 }
 
@@ -270,6 +277,11 @@ pub enum DbError {
         on_disk_version: u32,
         supported_version: u32,
     },
+    OutdatedSchemaVersion {
+        target: String,
+        on_disk_version: u32,
+        required_version: u32,
+    },
     UnsupportedBackendFeature {
         target: String,
         feature: &'static str,
@@ -310,6 +322,15 @@ impl fmt::Display for DbError {
                 "failed to open SQLite database {}: unsupported future schema version {} (this binary supports up to {})",
                 target, on_disk_version, supported_version
             ),
+            Self::OutdatedSchemaVersion {
+                target,
+                on_disk_version,
+                required_version,
+            } => write!(
+                f,
+                "failed to open SQLite database {} read-only: outdated schema version {} (this binary requires version {}); run an indexing command to migrate it to version {} or rebuild the database",
+                target, on_disk_version, required_version, required_version
+            ),
             Self::UnsupportedBackendFeature {
                 target, message, ..
             } => write!(f, "failed to initialize SQLite database {}: {}", target, message),
@@ -325,6 +346,7 @@ impl Error for DbError {
             | Self::Initialize { source, .. }
             | Self::Inspect { source, .. } => Some(source),
             Self::UnsupportedFutureSchemaVersion { .. }
+            | Self::OutdatedSchemaVersion { .. }
             | Self::UnsupportedBackendFeature { .. } => None,
         }
     }
@@ -333,9 +355,9 @@ impl Error for DbError {
 #[cfg(test)]
 mod tests {
     use super::{
-        initialize_database, open_database, open_in_memory_database,
-        open_in_memory_database_with_schema, read_schema_version, sqlite_supports_fts5, DbError,
-        DbReader, SchemaDefinition, CURRENT_SCHEMA_VERSION,
+        initialize_database, open_database, open_existing_database_read_only,
+        open_in_memory_database, open_in_memory_database_with_schema, read_schema_version,
+        sqlite_supports_fts5, DbError, DbReader, SchemaDefinition, CURRENT_SCHEMA_VERSION,
     };
     use rusqlite::{params, Connection, OptionalExtension};
     use std::{
@@ -897,6 +919,38 @@ VALUES (1, 'legacy body text', 0, 10);
             }
             other => panic!("expected UnsupportedFutureSchemaVersion, got {other}"),
         }
+    }
+
+    #[test]
+    fn read_only_open_rejects_outdated_schema_without_migrating() {
+        let test_dir = TestDir::new("read-only-outdated-schema");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = open_database(&db_path).expect("current database should open");
+        connection
+            .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION - 1))
+            .expect("outdated user_version should seed");
+        drop(connection);
+
+        let error = open_existing_database_read_only(&db_path)
+            .expect_err("outdated read-only schema should fail closed");
+        match error {
+            DbError::OutdatedSchemaVersion {
+                on_disk_version,
+                required_version,
+                ..
+            } => {
+                assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION - 1);
+                assert_eq!(required_version, CURRENT_SCHEMA_VERSION);
+            }
+            other => panic!("expected OutdatedSchemaVersion, got {other}"),
+        }
+
+        let reopened = Connection::open(&db_path).expect("outdated database should reopen");
+        let version_after =
+            read_schema_version(&reopened).expect("outdated schema version should remain readable");
+        assert_eq!(version_after, CURRENT_SCHEMA_VERSION - 1);
+        drop(reopened);
     }
 
     #[test]

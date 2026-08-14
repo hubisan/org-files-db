@@ -206,7 +206,9 @@ Acceptance:
 - the plain flat path no longer calls the full-file heading loader merely to shape unrelated headings;
 - tests, Clippy and formatting pass.
 
-* TODO Reject outdated database schemas on read-only query opens
+* REVIEW Reject outdated database schemas on read-only query opens
+
+Task file: [[./2026-08-14--reject-outdated-read-only-schema.org][Reject Outdated Read-Only Database Schemas]]
 
 Make read-only database access fail early and clearly when the database schema is older than the schema expected by the current binary.
 

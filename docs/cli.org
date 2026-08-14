@@ -7,6 +7,8 @@ This page documents the user-facing ~orgfdb~ commands that are stable enough to 
 
 ~headings~, ~links~, ~status~, ~changes~, ~query~, and ~search~ emit JSON by default. ~--format json~ is the canonical explicit form and leaves room for future formats; ~--json~ remains a visible compatibility form. The three forms use the same renderer and produce byte-identical JSON. Supplying more than one format selector, including repeated ~--format~, is a CLI usage error with exit code ~2~.
 
+Read-only database commands (~headings~, ~links~, ~status~, ~changes~, ~query~, and ~search~) require the existing database to use the current schema version. They never migrate an older database. An outdated schema is rejected before command-specific table access with an instruction to run an indexing command to migrate or rebuild the database.
+
 #+begin_src shell
 orgfdb query '(todo "NEXT")'
 orgfdb query --json '(todo "NEXT")'

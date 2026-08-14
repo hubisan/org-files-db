@@ -3265,6 +3265,51 @@ index_body_text = false
     }
 
     #[test]
+    fn query_json_read_only_open_rejects_outdated_schema_without_mutation() {
+        let test_dir = TestDir::new("query-outdated-db");
+        let config_path = write_query_fixture(&test_dir);
+        let db_path = test_dir.path().join("db.sqlite");
+
+        let connection = Connection::open(&db_path).expect("query database should open");
+        connection
+            .pragma_update(None, "user_version", i64::from(CURRENT_SCHEMA_VERSION - 1))
+            .expect("outdated user_version should seed");
+        drop(connection);
+
+        let error = super::query_json_response(
+            "(todo \"NEXT\")",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect_err("outdated read-only query database should fail before execution");
+
+        let message = error.to_string();
+        match error {
+            CliError::Database(DbError::OutdatedSchemaVersion {
+                on_disk_version,
+                required_version,
+                ..
+            }) => {
+                assert_eq!(on_disk_version, CURRENT_SCHEMA_VERSION - 1);
+                assert_eq!(required_version, CURRENT_SCHEMA_VERSION);
+            }
+            other => panic!("expected OutdatedSchemaVersion, got {other}"),
+        }
+
+        assert!(message.contains(&format!(
+            "run an indexing command to migrate it to version {}",
+            CURRENT_SCHEMA_VERSION
+        )));
+
+        let reopened = Connection::open(&db_path).expect("outdated database should reopen");
+        let version_after: u32 = reopened
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .expect("outdated schema version should remain unchanged");
+        assert_eq!(version_after, CURRENT_SCHEMA_VERSION - 1);
+    }
+
+    #[test]
     fn headings_json_includes_level_zero_rows_by_default() {
         let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false);
         let mut connection =
