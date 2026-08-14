@@ -3,9 +3,11 @@
 
 * Status
 
-This document describes planned work. The current CLI does not provide ~presentation-json~ or ~PresentationSpec~.
+This document describes planned work. The ~query~ command now reserves ~presentation-json~ as a query-specific output format.
 
-The current ~orgfdb query --format json~ contract stays unchanged. Presentation output will be a separate opt-in representation.
+The CLI does not yet provide ~PresentationSpec~ or a presentation response. Selecting ~presentation-json~ currently reports that presentation output is unavailable.
+
+The current ~orgfdb query --format json~ contract stays unchanged. Presentation output remains a separate opt-in representation.
 
 * Goal
 
@@ -19,7 +21,9 @@ The design does not use Child Emacs or ~async.el~ for presentation preparation.
 
 Presentation remains part of ~orgfdb query~. It does not become a second query command.
 
-The planned command shape is conceptually:
+The query command now accepts ~--format presentation-json~. Other commands continue to accept JSON output only.
+
+The planned complete command shape is conceptually:
 
 #+begin_src shell
 orgfdb query \

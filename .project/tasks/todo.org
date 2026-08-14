@@ -170,39 +170,12 @@ metadata.
 
 Task file: [[./2026-08-14--documentation-overhaul-before-presentation.org][Documentation Overhaul Before Presentation Work]]
 
-* TODO Add query-specific presentation output support
+* DONE Add query-specific presentation output support
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Add the infrastructure for an opt-in presentation output format to ~orgfdb query~ without changing the existing JSON output contract.
-
-Keep:
-
-#+begin_src sh
-orgfdb query --format json ...
-#+end_src
-
-fully backwards compatible.
-
-Add a query-specific presentation format conceptually named:
-
-#+begin_example
-presentation-json
-#+end_example
-
-Presentation must remain part of the existing ~query~ command rather than becoming a separate query subcommand.
-
-Do not expose the presentation format accidentally on unrelated commands.
-
-Do not implement presentation caching or streaming.
-
-Acceptance criteria:
-
-- Existing JSON query output remains unchanged.
-- ~presentation-json~ is query-specific.
-- The normal query parser and execution path remain shared.
-- Invalid combinations produce clear CLI errors.
+Task file: [[./2026-08-14--query-specific-presentation-output.org][Query-specific Presentation Output]]
 
 * TODO Define the Rust PresentationSpec model
 :PROPERTIES:

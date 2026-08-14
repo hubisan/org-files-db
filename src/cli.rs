@@ -99,7 +99,7 @@ enum Command {
     },
     Query {
         #[command(flatten)]
-        format: CliOutputArgs,
+        format: CliQueryFormatArgs,
         #[arg(long, value_enum, default_value_t = CliQueryOutput::Flat)]
         output: CliQueryOutput,
         #[arg(long, value_enum, value_delimiter = ',')]
@@ -154,6 +154,39 @@ impl CliOutputArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum CliOutputFormat {
     Json,
+}
+
+#[derive(Debug, Clone, Copy, Args)]
+struct CliQueryFormatArgs {
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CliQueryOutputFormat::Json,
+        conflicts_with = "json"
+    )]
+    format: CliQueryOutputFormat,
+    #[arg(
+        long,
+        conflicts_with = "format",
+        help = "Compatibility form for --format json"
+    )]
+    json: bool,
+}
+
+impl CliQueryFormatArgs {
+    fn selected(self) -> CliQueryOutputFormat {
+        if self.json {
+            CliQueryOutputFormat::Json
+        } else {
+            self.format
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliQueryOutputFormat {
+    Json,
+    PresentationJson,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -309,7 +342,7 @@ where
             } else {
                 query_json_response(&query, output, &include, config.as_deref())?
             };
-            write_output(output_format, writer, &response)
+            write_query_output(output_format, writer, &response)
         }
         Command::Search {
             format,
@@ -860,6 +893,17 @@ fn write_output<T: Serialize>(
     }
 }
 
+fn write_query_output(
+    format: CliQueryOutputFormat,
+    writer: &mut impl Write,
+    value: &QueryResponse,
+) -> Result<(), CliError> {
+    match format {
+        CliQueryOutputFormat::Json => write_json_output(writer, value),
+        CliQueryOutputFormat::PresentationJson => Err(CliError::PresentationOutputUnavailable),
+    }
+}
+
 fn write_json_output<T: Serialize>(writer: &mut impl Write, value: &T) -> Result<(), CliError> {
     serde_json::to_writer_pretty(&mut *writer, value).map_err(CliError::Json)?;
     writer.write_all(b"\n").map_err(CliError::Io)
@@ -915,6 +959,7 @@ enum CliError {
     },
     RestrictionJson(serde_json::Error),
     InvalidRestriction(String),
+    PresentationOutputUnavailable,
     InvalidHeadingPath {
         heading_id: i64,
         source: serde_json::Error,
@@ -944,6 +989,7 @@ impl CliError {
             | Self::ReadRestriction { .. }
             | Self::RestrictionJson(_)
             | Self::InvalidRestriction(_)
+            | Self::PresentationOutputUnavailable
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
@@ -987,6 +1033,10 @@ impl fmt::Display for CliError {
                 write!(f, "failed to parse restricted file paths as JSON: {source}")
             }
             Self::InvalidRestriction(message) => write!(f, "invalid file restriction: {message}"),
+            Self::PresentationOutputUnavailable => write!(
+                f,
+                "presentation-json output is not available until presentation specification support is implemented"
+            ),
             Self::InvalidHeadingPath { heading_id, source } => {
                 write!(
                     f,
@@ -1021,7 +1071,7 @@ impl Error for CliError {
             Self::CanonicalizeDatabasePath { source, .. } => Some(source),
             Self::ReadRestriction { source, .. } => Some(source),
             Self::RestrictionJson(source) => Some(source),
-            Self::InvalidRestriction(_) => None,
+            Self::InvalidRestriction(_) | Self::PresentationOutputUnavailable => None,
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
@@ -1662,6 +1712,7 @@ mod tests {
                 query,
             } => {
                 assert!(format.json);
+                assert_eq!(format.selected(), super::CliQueryOutputFormat::Json);
                 assert_eq!(output, super::CliQueryOutput::Outline);
                 assert_eq!(
                     include,
@@ -1901,10 +1952,28 @@ fts5_enabled = false
             other => panic!("unexpected command: {other:?}"),
         }
 
+        let cli = Cli::try_parse_from(["orgfdb", "query", "(headings)"])
+            .expect("query default format should parse");
+        match cli.command {
+            super::Command::Query { format, .. } => {
+                assert!(!format.json);
+                assert_eq!(format.selected(), super::CliQueryOutputFormat::Json);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
         for args in [
             vec!["orgfdb", "headings", "--json", "--format", "json"],
             vec!["orgfdb", "links", "--json", "--format", "json"],
             vec!["orgfdb", "query", "--json", "--format", "json", "(todo)"],
+            vec![
+                "orgfdb",
+                "query",
+                "--json",
+                "--format",
+                "presentation-json",
+                "(todo)",
+            ],
             vec!["orgfdb", "search", "--json", "--format", "json", "sqlite"],
             vec!["orgfdb", "headings", "--format", "json", "--format", "json"],
         ] {
@@ -1920,8 +1989,56 @@ fts5_enabled = false
     }
 
     #[test]
-    fn output_format_help_is_visible_for_all_json_commands() {
-        for command in ["headings", "links", "query", "search"] {
+    fn query_output_format_is_query_specific() {
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "query",
+            "--format",
+            "presentation-json",
+            "(headings)",
+        ])
+        .expect("query presentation format should parse");
+        match cli.command {
+            super::Command::Query { format, .. } => {
+                assert_eq!(
+                    format.selected(),
+                    super::CliQueryOutputFormat::PresentationJson
+                );
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        for args in [
+            vec!["orgfdb", "headings", "--format", "presentation-json"],
+            vec!["orgfdb", "links", "--format", "presentation-json"],
+            vec!["orgfdb", "status", "--format", "presentation-json"],
+            vec![
+                "orgfdb",
+                "changes",
+                "--format",
+                "presentation-json",
+                "--database-id",
+                "database-id",
+                "--since-generation",
+                "0",
+            ],
+            vec![
+                "orgfdb",
+                "search",
+                "--format",
+                "presentation-json",
+                "sqlite",
+            ],
+        ] {
+            let error = Cli::try_parse_from(args)
+                .expect_err("presentation-json should be rejected outside query");
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        }
+    }
+
+    #[test]
+    fn output_format_help_is_scoped_by_command() {
+        for command in ["headings", "links", "status", "changes", "search"] {
             let error = Cli::try_parse_from(["orgfdb", command, "--help"])
                 .expect_err("help should stop argument parsing");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -1929,7 +2046,65 @@ fts5_enabled = false
             assert!(help.contains("--format <FORMAT>"));
             assert!(help.contains("[default: json]"));
             assert!(help.contains("--json"));
+            assert!(!help.contains("presentation-json"));
         }
+
+        let error = Cli::try_parse_from(["orgfdb", "query", "--help"])
+            .expect_err("help should stop argument parsing");
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        let help = error.to_string();
+        assert!(help.contains("--format <FORMAT>"));
+        assert!(help.contains("[default: json]"));
+        assert!(help.contains("presentation-json"));
+        assert!(help.contains("--json"));
+    }
+
+    #[test]
+    fn query_presentation_format_uses_shared_query_validation() {
+        let test_dir = TestDir::new("presentation-format-validation");
+        let config_path = write_query_fixture(&test_dir);
+        let config = config_path.display().to_string();
+        let json_error = cli_error_summary(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "json".into(),
+            "--config".into(),
+            config.clone(),
+            "(todo".into(),
+        ]);
+        let presentation_error = cli_error_summary(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--config".into(),
+            config,
+            "(todo".into(),
+        ]);
+        assert_eq!(json_error, presentation_error);
+    }
+
+    #[test]
+    fn query_presentation_format_reports_staged_output_error_after_execution() {
+        let test_dir = TestDir::new("presentation-format-placeholder");
+        let config_path = write_query_fixture(&test_dir);
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--config".into(),
+            config_path.display().to_string(),
+            "(headings)".into(),
+        ])
+        .expect_err("presentation output should remain unavailable before its wire model exists");
+
+        assert!(matches!(&error, CliError::PresentationOutputUnavailable));
+        assert_eq!(
+            error.to_string(),
+            "presentation-json output is not available until presentation specification support is implemented"
+        );
     }
 
     #[test]

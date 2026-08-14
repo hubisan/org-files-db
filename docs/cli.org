@@ -354,12 +354,17 @@ Read [[./reference/query-language.org][Structural Query Language]] for complete 
 
 ** Options
 
-- ~--format json~ selects the explicit current output format.
+- ~--format json~ selects the stable query JSON format.
+- ~--format presentation-json~ selects the query-only presentation format.
 - ~--json~ is a compatibility form for ~--format json~.
 - ~--output flat|outline~ selects the result shape. The default is ~flat~.
 - ~--include VALUE~ requests optional structured result data.
 - ~--restrict-files-json PATH_OR_DASH~ restricts query ownership to exact persisted file paths.
 - ~--config PATH~ selects database and query-time configuration.
+
+The ~presentation-json~ selector is infrastructure for the presentation pipeline. It currently reports that presentation output is unavailable. ~PresentationSpec~ and the presentation response contract are not implemented yet.
+
+Other commands do not accept ~presentation-json~.
 
 ~--include~ is repeatable. One flag can also contain comma-separated values.
 
