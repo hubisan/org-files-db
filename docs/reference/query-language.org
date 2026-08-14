@@ -187,9 +187,12 @@ For heading queries, ~:inherit~ defaults to ~t~. The query then uses effective t
 
 For file queries, ~:inherit~ is not valid. File queries use tags stored for the file root.
 
-~:match :any~ is the default. At least one requested tag must match.
+~:match~ controls how multiple tag arguments are combined.
 
-~:match :all~ requires every requested tag to match.
+Supported values are:
+
+- ~:any~: match at least one tag, is the default
+- ~:all~: match all tags
 
 Examples:
 

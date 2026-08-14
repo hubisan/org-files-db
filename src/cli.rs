@@ -4823,8 +4823,9 @@ index_body_text = false
     }
 
     #[test]
-    fn docs_cli_query_reference_mentions_public_predicates_includes_and_options() {
+    fn docs_query_reference_mentions_public_predicates_includes_and_options() {
         const CLI_DOCS: &str = include_str!("../docs/cli.org");
+        const QUERY_DOCS: &str = include_str!("../docs/reference/query-language.org");
 
         for predicate in [
             "todo",
@@ -4867,8 +4868,8 @@ index_body_text = false
             "target",
         ] {
             assert!(
-                CLI_DOCS.contains(&format!("~{predicate}~")),
-                "docs/cli.org should mention predicate {predicate}"
+                QUERY_DOCS.contains(&format!("~{predicate}~")),
+                "docs/reference/query-language.org should mention predicate {predicate}"
             );
         }
 
@@ -4892,8 +4893,8 @@ index_body_text = false
             ":exact", ":regexp", ":match", ":inherit", ":from", ":to", ":on",
         ] {
             assert!(
-                CLI_DOCS.contains(&format!("~{option}~")),
-                "docs/cli.org should mention query option {option}"
+                QUERY_DOCS.contains(&format!("~{option}~")),
+                "docs/reference/query-language.org should mention query option {option}"
             );
         }
     }
