@@ -136,7 +136,9 @@ Acceptance:
 - malformed or inconsistent stored data handled by these paths returns ~QueryShapeError~ instead of panicking;
 - ~cargo fmt~, Clippy and the full test suite pass.
 
-* TODO Add GitHub CI for the existing make ci target
+* DONE Add GitHub CI for the existing make ci target
+
+Task file: [[./2026-08-14--github-ci.org][GitHub CI]]
 
 Add a GitHub Actions workflow that runs the repository's existing ~make ci~ quality gate.
 
