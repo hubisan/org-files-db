@@ -113,6 +113,136 @@ Task file: [[./archive/2026-08-07--status-database-path.org][Expose Canonical Da
 
 Task file: [[./archive/2026-08-05--transactional-index-generations-cached-view-delta-refresh.org][Transactional Index Generations and Cached-View Delta Refresh]]
 
+* TODO Make query result shaping return errors instead of panicking
+
+In ~query/result.rs~, remove production-code panics that can be triggered by inconsistent or incomplete stored query data.
+
+- Replace data-dependent ~expect(...)~ and ~unreachable!(...)~ calls in result shaping with ~QueryShapeError~, preferably the existing ~MissingStoredData~ kind.
+- Propagate ~Result~ through private helper functions where necessary.
+- This includes path construction, included-link shaping and outline construction.
+- Test-only ~expect~ and ~unwrap~ calls do not need to be removed.
+- Add focused regression tests for the newly handled error cases.
+
+Do not:
+- change the JSON output for valid queries;
+- change query SQL or query semantics;
+- redesign the public error model;
+- perform unrelated refactoring.
+
+Acceptance:
+- valid existing query-result tests still produce the same results;
+- malformed or inconsistent stored data handled by these paths returns ~QueryShapeError~ instead of panicking;
+- ~cargo fmt~, Clippy and the full test suite pass.
+
+* TODO Add GitHub CI for the existing make ci target
+
+Add a GitHub Actions workflow that runs the repository's existing ~make ci~ quality gate.
+
+- Run it for pull requests and pushes.
+- Use the stable Rust toolchain.
+- Let ~make ci~ remain the single definition of the checks to execute.
+
+Do not:
+- duplicate the individual CI commands in the workflow if ~make ci~ already provides them;
+- change the Makefile unless required for the workflow to run;
+- add release, packaging or deployment jobs.
+
+Acceptance:
+- the workflow runs ~make ci~ on a clean checkout;
+- no existing local development workflow changes.
+
+* TODO Reject unknown TOML configuration keys
+
+Make configuration parsing fail when the user supplies an unknown configuration key.
+
+- Apply Serde's unknown-field validation to the user-facing raw configuration structs in ~config.rs~.
+- Cover the top-level configuration and nested configuration sections.
+- Add tests for an unknown top-level key and an unknown nested key.
+- Keep all currently valid configuration files valid.
+
+Do not:
+- rename configuration keys;
+- change defaults;
+- change configuration semantics;
+- introduce a new configuration format.
+
+Acceptance:
+- typos such as an unknown ~search~ option produce a clear TOML/config parsing error;
+- existing valid configuration tests continue to pass.
+
+* TODO Avoid loading every heading for plain flat queries
+
+Optimise the simplest query-result path so that a flat query without ~--include~ does not load every heading belonging to every matched file.
+
+Currently ~EnrichmentContext::load~ loads headings with ~load_headings_for_files~ even when a plain flat result only needs the matched heading or the file's synthetic root heading.
+
+Implement only the plain flat case:
+
+- For ~QueryOutputMode::Flat~ with no includes, load only the heading rows required to shape the returned result nodes.
+- Files still need their synthetic root heading.
+- Heading results need their matched heading.
+- Plain flat link results should not require unrelated headings.
+- Add a targeted heading-by-ID loader if useful.
+- Keep the existing loading behaviour for outline output and queries with includes for now.
+
+Do not:
+- optimise ~--include~ handling in this task;
+- redesign ~EnrichmentContext~;
+- change query SQL;
+- change result ordering or JSON output;
+- add caching.
+
+Acceptance:
+- existing flat-query output remains unchanged;
+- existing outline and include behaviour remains unchanged;
+- the plain flat path no longer calls the full-file heading loader merely to shape unrelated headings;
+- tests, Clippy and formatting pass.
+
+* TODO Reject outdated database schemas on read-only query opens
+
+Make read-only database access fail early and clearly when the database schema is older than the schema expected by the current binary.
+
+Currently the common schema validation rejects future schema versions but permits older versions because writable opens can migrate them. A read-only open cannot perform that migration.
+
+- Keep older schemas valid for writable opens so existing migration behaviour remains unchanged.
+- For read-only opens, reject a schema version lower than the current required version.
+- Add a dedicated error variant/message if needed.
+- The error should tell the user to run an indexing command to migrate/rebuild the database.
+- Add tests for an older read-only database as well as the already supported future-version case.
+
+Do not:
+- migrate anything during a read-only operation;
+- change writable migration behaviour;
+- change the database schema itself.
+
+Acceptance:
+- current-version databases open read-only as before;
+- future versions are still rejected;
+- older versions are rejected before a query reaches missing-table or missing-column SQLite errors;
+- the database is not modified.
+
+* TODO Remove the unused indexed universe from ChangePlan application
+
+Clean up the obsolete ~indexed_universe~ value carried from change planning into change application.
+
+The current change application performs a fresh discovery before mutation and resolves links using ~rediscovery.indexed_universe~. The ~indexed_universe~ extracted from ~ActionableChangePlan~ is only discarded with ~let _ = indexed_universe;~.
+
+- Remove this unused value from ~ChangePlan~ and/or ~ActionableChangePlan~ as appropriate.
+- Simplify ~TryFrom<ChangePlan> for ActionableChangePlan~ accordingly.
+- Remove logic that exists only to transport this unused value.
+- Preserve the fresh rediscovery and its stale-plan validation.
+
+Do not:
+- remove or weaken rediscovery before applying a plan;
+- change stale-plan detection;
+- change link resolution behaviour;
+- broadly remove unrelated ~#[allow(dead_code)]~ annotations.
+
+Acceptance:
+- there is no unused ~indexed_universe~ transported through the actionable change plan;
+- change planning and application behaviour remains the same;
+- all existing indexer tests pass.
+
 * TODO Feature - ignore single file
 
 So etwas wie Vulpea machen, allenfalls einfach mit einem Keyword. Sicher geeignet, für Sachen, welche man nicht ungedingt in der DB haben will. Ansonsten kann man dies natürlich auch einfach als Filterkriterium verwenden (not ...). Weiss nicht, ob notwendig:
