@@ -1,0 +1,244 @@
+#+TITLE: Rust PresentationSpec Model
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-15 Saturday 00:07]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Define one structured Rust ~PresentationSpec~ input model for UI-independent presentation configuration.
+
+The model contains ordered columns, sorting, optional row source, widths, truncation, and outline-path options.
+
+Keep the model independent of Emacs. Do not implement presentation execution, caching, streaming, column extraction, or the presentation response.
+
+** DONE Define the Rust PresentationSpec model
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-15--presentation-spec-model.org][Rust PresentationSpec Model]]
+
+Goal: Define one structured input model for all UI-independent presentation configuration.
+
+The model initially contains:
+
+#+begin_example
+PresentationSpec
+  columns
+  sort
+  row_source
+#+end_example
+
+Use one specification rather than separate public column and sort configuration formats.
+
+Support:
+
+- ordered columns
+- sorting
+- optional row source
+- width modes
+- truncation
+- outline-path options
+
+Initial width modes:
+
+- ~auto~
+- ~max~
+- ~fixed~
+
+Design the width type so another mode such as percentage width can be added later without redesigning unrelated presentation types.
+
+Initial truncation options:
+
+- left
+- middle
+- right
+- configurable marker
+
+Outline-path options:
+
+- separator
+- include root
+- include match
+
+The initial ~row_source~ may execute only the normal one-result-to-one-row behaviour, but the type must be ready for later row expansion.
+
+Do not include:
+
+- Emacs faces
+- colours
+- text properties
+- completion frontend concepts
+- Emacs action names
+
+Acceptance criteria:
+
+- One complete presentation specification can be parsed and validated.
+- Optional values have deterministic defaults.
+- Unknown values produce useful errors.
+- The type is independent of Emacs.
+
+* Planning
+
+** Problem summary
+
+The query command now reserves ~presentation-json~, but the CLI has no structured presentation input model.
+
+The next presentation stages need one stable specification for columns, sort rules, row source, widths, truncation, and outline paths.
+
+** Goals
+
+- Add one Rust ~PresentationSpec~ model.
+- Parse the model from JSON.
+- Reject unknown fields and enum values.
+- Provide deterministic defaults for optional values.
+- Add query-only ~--presentation-spec-json~ input.
+- Keep the existing query JSON path unchanged.
+- Keep presentation output unavailable until the response model exists.
+
+** Non-goals
+
+- Do not define the public presentation column registry.
+- Do not extract column values.
+- Do not sort query results.
+- Do not calculate widths or truncate values.
+- Do not define presentation rows, cells, or semantic roles.
+- Do not add caching, JSONL, or streaming.
+- Do not add Emacs-specific names or data.
+
+** Architecture
+
+Add a small presentation module that owns the input model and its type-level validation.
+
+Use this JSON shape:
+
+#+begin_src json
+{
+  "columns": [
+    {
+      "name": "outline-path",
+      "width": {"mode": "max", "value": 80},
+      "truncate": {"position": "right", "marker": "…"},
+      "outline_path": {
+        "separator": " » ",
+        "include_root": false,
+        "include_match": true
+      }
+    }
+  ],
+  "sort": [
+    {"column": "outline-path", "direction": "asc"}
+  ],
+  "row_source": null
+}
+#+end_src
+
+Column names remain strings in this task. The later column-registry task defines their public semantics.
+
+The width object uses a ~mode~ plus an optional ~value~. This shape can add a percentage mode later without changing the surrounding model.
+
+A non-null row source uses an object with a ~kind~ field. This keeps room for source-specific options later.
+
+Recognize these row-source kinds from the start:
+
+- ~tags~
+- ~effective-properties~
+- ~keywords~
+
+This task only models them. The later row-expansion task implements their execution.
+
+** Execution plan
+
+1. Add ~src/presentation.rs~ with the specification types, defaults, parsing, and validation.
+2. Add ~--presentation-spec-json~ to ~orgfdb query~.
+3. Require the specification for ~--format presentation-json~.
+4. Reject the specification with normal JSON output.
+5. Parse and validate the specification before query execution.
+6. Keep the current presentation-output placeholder after a valid query.
+7. Add unit and CLI tests for defaults, unknown values, invalid widths, and argument combinations.
+8. Update the CLI and presentation design documentation.
+9. Run ~make ci~.
+
+** Risks & assumptions
+
+- The JSON transport uses ~--presentation-spec-json~ because the design already documents this conceptual command shape.
+- Column-specific semantic validation belongs to the later public-column-registry task.
+- A recognized non-null ~row_source~ is valid input even though row expansion is not implemented yet.
+- The output remains unavailable after successful specification parsing until the response model is implemented.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation::tests~
+- ~cargo test cli::tests::query_presentation_spec~
+- ~cargo test cli::tests::implicit_and_explicit_json_forms_produce_identical_stdout~
+- ~make ci~
+
+* Build
+
+- Added ~src/presentation.rs~ with the complete initial ~PresentationSpec~ input model.
+- Added JSON parsing, strict unknown-field handling, deterministic defaults, and type-level validation.
+- Added structured width, truncation, outline-path, sort, and row-source types.
+- Added query-only ~--presentation-spec-json~ input.
+- Required a presentation specification for ~--format presentation-json~.
+- Rejected presentation specification input with normal JSON output.
+- Kept the existing query execution and JSON serialization paths unchanged.
+- Kept presentation response output unavailable until the response model exists.
+- Added unit and CLI tests for defaults, invalid input, argument scope, and shared query validation.
+- Updated CLI and presentation design documentation.
+
+* Results
+
+** Approach
+
+The new presentation module owns only input data and structural validation. Column names remain strings until the next column-registry task.
+
+A non-null ~row_source~ uses an object with a ~kind~ field. This shape leaves room for source-specific options later.
+
+The CLI parses ~PresentationSpec~ before query execution for presentation requests. A valid request still ends at the staged presentation-response error.
+
+Normal ~--format json~ requests follow the existing query and JSON output path.
+
+** Changed files
+
+- Added ~src/presentation.rs~.
+- Updated ~src/lib.rs~ to expose the presentation model.
+- Updated ~src/cli.rs~ with ~--presentation-spec-json~, validation, errors, and tests.
+- Updated ~docs/cli.org~.
+- Updated ~docs/design/presentation.org~.
+- Added this task file and linked it from ~.project/tasks/todo.org~.
+
+** Checks performed
+
+- Checked the changed Rust files for balanced delimiters.
+- Parsed the documented JSON examples with a JSON parser.
+- Checked that ~src/presentation.rs~ contains no Emacs face or completion data.
+- Audited the changed documentation with the Simple English pragmatic rules.
+- Ran ~make ci~.
+
+** Test results
+
+~make ci~ cannot start because this container has no Cargo toolchain:
+
+#+begin_example
+cargo fmt --all --check
+make: cargo: No such file or directory
+make: *** [Makefile:19: fmt] Error 127
+#+end_example
+
+The Rust formatter, linter, and test suite still need to run in an environment with Cargo.
+
+** Blockers
+
+The uploaded archive has no Git metadata, so no task branch can be created.
+
+** Follow-ups
+
+The next task can define the public presentation column registry and replace string-only column semantics with validated public column definitions.

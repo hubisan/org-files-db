@@ -12,6 +12,7 @@ mod indexing_context;
 mod link_resolver;
 pub(crate) mod notify_source;
 pub mod parser;
+pub mod presentation;
 pub(crate) mod property;
 pub mod query;
 mod source_root_evidence;

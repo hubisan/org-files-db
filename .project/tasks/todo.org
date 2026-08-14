@@ -177,70 +177,12 @@ Task file: [[./2026-08-14--documentation-overhaul-before-presentation.org][Docum
 
 Task file: [[./2026-08-14--query-specific-presentation-output.org][Query-specific Presentation Output]]
 
-* TODO Define the Rust PresentationSpec model
+* DONE Define the Rust PresentationSpec model
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Define one structured input model for all UI-independent presentation configuration.
-
-The model initially contains:
-
-#+begin_example
-PresentationSpec
-  columns
-  sort
-  row_source
-#+end_example
-
-Use one specification rather than separate public column and sort configuration formats.
-
-Support:
-
-- ordered columns
-- sorting
-- optional row source
-- width modes
-- truncation
-- outline-path options
-
-Initial width modes:
-
-- ~auto~
-- ~max~
-- ~fixed~
-
-Design the width type so another mode such as percentage width can be added later without redesigning unrelated presentation types.
-
-Initial truncation options:
-
-- left
-- middle
-- right
-- configurable marker
-
-Outline-path options:
-
-- separator
-- include root
-- include match
-
-The initial ~row_source~ may execute only the normal one-result-to-one-row behaviour, but the type must be ready for later row expansion.
-
-Do not include:
-
-- Emacs faces
-- colours
-- text properties
-- completion frontend concepts
-- Emacs action names
-
-Acceptance criteria:
-
-- One complete presentation specification can be parsed and validated.
-- Optional values have deterministic defaults.
-- Unknown values produce useful errors.
-- The type is independent of Emacs.
+Task file: [[./2026-08-15--presentation-spec-model.org][Rust PresentationSpec Model]]
 
 * TODO Define the public presentation column registry
 :PROPERTIES:

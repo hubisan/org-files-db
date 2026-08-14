@@ -356,15 +356,31 @@ Read [[./reference/query-language.org][Structural Query Language]] for complete 
 
 - ~--format json~ selects the stable query JSON format.
 - ~--format presentation-json~ selects the query-only presentation format.
+- ~--presentation-spec-json JSON~ supplies one ~PresentationSpec~ for presentation output.
 - ~--json~ is a compatibility form for ~--format json~.
 - ~--output flat|outline~ selects the result shape. The default is ~flat~.
 - ~--include VALUE~ requests optional structured result data.
 - ~--restrict-files-json PATH_OR_DASH~ restricts query ownership to exact persisted file paths.
 - ~--config PATH~ selects database and query-time configuration.
 
-The ~presentation-json~ selector is infrastructure for the presentation pipeline. It currently reports that presentation output is unavailable. ~PresentationSpec~ and the presentation response contract are not implemented yet.
+~--presentation-spec-json~ is valid only with ~--format presentation-json~. The presentation format requires this option.
 
-Other commands do not accept ~presentation-json~.
+The CLI parses and validates ~PresentationSpec~ before it runs the query. The presentation response contract is not implemented yet.
+
+A valid presentation request therefore reaches the current staged output error after query execution. Normal ~--format json~ queries ignore this staged path.
+
+Other commands do not accept ~presentation-json~ or ~--presentation-spec-json~.
+
+Example staged request:
+
+#+begin_src shell
+orgfdb query \
+  --format presentation-json \
+  --presentation-spec-json '{"columns":[{"name":"title"}]}' \
+  '(headings)'
+#+end_src
+
+Read [[./design/presentation.org][Planned Presentation Output Design]] for the current ~PresentationSpec~ model.
 
 ~--include~ is repeatable. One flag can also contain comma-separated values.
 

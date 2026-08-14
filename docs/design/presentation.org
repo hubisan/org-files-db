@@ -3,9 +3,11 @@
 
 * Status
 
-This document describes planned work. The ~query~ command now reserves ~presentation-json~ as a query-specific output format.
+This document describes planned presentation work and the implemented ~PresentationSpec~ input model.
 
-The CLI does not yet provide ~PresentationSpec~ or a presentation response. Selecting ~presentation-json~ currently reports that presentation output is unavailable.
+The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
+
+The presentation response is not implemented yet. A valid presentation request still reports that presentation output is unavailable.
 
 The current ~orgfdb query --format json~ contract stays unchanged. Presentation output remains a separate opt-in representation.
 
@@ -23,7 +25,7 @@ Presentation remains part of ~orgfdb query~. It does not become a second query c
 
 The query command now accepts ~--format presentation-json~. Other commands continue to accept JSON output only.
 
-The planned complete command shape is conceptually:
+The current staged command shape is:
 
 #+begin_src shell
 orgfdb query \
@@ -32,13 +34,13 @@ orgfdb query \
   '(headings)'
 #+end_src
 
-The exact CLI transport for ~PresentationSpec~ can change during implementation. The data model stays one structured specification.
+~--presentation-spec-json~ accepts the complete specification as one JSON value. Normal JSON output rejects this option.
 
 * PresentationSpec
 
 One ~PresentationSpec~ owns the UI-independent presentation configuration.
 
-The initial model contains:
+The implemented top-level model contains:
 
 #+begin_example
 PresentationSpec
@@ -47,28 +49,72 @@ PresentationSpec
   row_source
 #+end_example
 
-Columns can define width, truncation, and outline-path options. Sorting can use displayed or hidden supported columns.
+~columns~ is required and must contain at least one column. ~sort~ defaults to an empty list. ~row_source~ defaults to ~null~.
 
-The initial width modes are:
+A column uses this shape:
 
-- ~auto~
-- ~max~
-- ~fixed~
+#+begin_src json
+{
+  "name": "outline-path",
+  "width": {"mode": "max", "value": 80},
+  "truncate": {"position": "right", "marker": "…"},
+  "outline_path": {
+    "separator": " » ",
+    "include_root": false,
+    "include_match": true
+  }
+}
+#+end_src
 
-The width model must permit a later percentage mode without redesigning unrelated fields.
+The column name stays a string in this stage. The later column-registry work defines valid public names and result kinds.
 
-Truncation supports:
+~width~ defaults to ~{"mode":"auto"}~. The initial width modes are:
 
-- left
-- middle
-- right
-- a configurable marker
+- ~auto~ without ~value~
+- ~max~ with a positive ~value~
+- ~fixed~ with a positive ~value~
 
-Outline paths support:
+This object can add another width mode later without changing the surrounding column model.
 
-- separator
-- include root
-- include match
+~truncate~ is optional. If present, ~position~ defaults to ~right~ and ~marker~ defaults to ~…~.
+
+The supported truncation positions are:
+
+- ~left~
+- ~middle~
+- ~right~
+
+~outline_path~ is optional. If present, it uses these defaults:
+
+- ~separator~: ~ » ~
+- ~include_root~: ~false~
+- ~include_match~: ~true~
+
+A sort rule uses this shape:
+
+#+begin_src json
+{"column": "title", "direction": "asc"}
+#+end_src
+
+~direction~ defaults to ~asc~. The supported values are ~asc~ and ~desc~.
+
+A non-null ~row_source~ uses this shape:
+
+#+begin_src json
+{"kind": "tags"}
+#+end_src
+
+The model recognizes these row-source kinds:
+
+- ~tags~
+- ~effective-properties~
+- ~keywords~
+
+The object leaves room for source-specific options later. This stage only parses these row-source values.
+
+The later row-expansion work defines their execution.
+
+The parser rejects unknown fields and unknown enum values. It also rejects empty column lists, empty names, and invalid width shapes.
 
 * Supported columns
 
