@@ -1,0 +1,261 @@
+#+TITLE: Planned Presentation Output Design
+#+STARTUP: showall
+
+* Status
+
+This document describes planned work. The current CLI does not provide ~presentation-json~ or ~PresentationSpec~.
+
+The current ~orgfdb query --format json~ contract stays unchanged. Presentation output will be a separate opt-in representation.
+
+* Goal
+
+Move expensive UI-independent presentation work from Emacs to Rust. Keep the Emacs client small and theme-aware.
+
+The design targets predefined structural query views such as ~(headings)~. Free-text search is outside this design.
+
+The design does not use Child Emacs or ~async.el~ for presentation preparation.
+
+* Command boundary
+
+Presentation remains part of ~orgfdb query~. It does not become a second query command.
+
+The planned command shape is conceptually:
+
+#+begin_src shell
+orgfdb query \
+  --format presentation-json \
+  --presentation-spec-json '...' \
+  '(headings)'
+#+end_src
+
+The exact CLI transport for ~PresentationSpec~ can change during implementation. The data model stays one structured specification.
+
+* PresentationSpec
+
+One ~PresentationSpec~ owns the UI-independent presentation configuration.
+
+The initial model contains:
+
+#+begin_example
+PresentationSpec
+  columns
+  sort
+  row_source
+#+end_example
+
+Columns can define width, truncation, and outline-path options. Sorting can use displayed or hidden supported columns.
+
+The initial width modes are:
+
+- ~auto~
+- ~max~
+- ~fixed~
+
+The width model must permit a later percentage mode without redesigning unrelated fields.
+
+Truncation supports:
+
+- left
+- middle
+- right
+- a configurable marker
+
+Outline paths support:
+
+- separator
+- include root
+- include match
+
+* Supported columns
+
+Rust becomes the authoritative definition of public presentation columns. Presentation does not use arbitrary JSON field lookup as its public column API.
+
+Each supported column defines:
+
+- valid result kinds
+- required query includes
+- value extraction
+- default semantic role
+- valid column options
+
+Sort-only columns use the same registry as displayed columns.
+
+The initial normal column set will cover the stable columns required by the Emacs client. Row-source columns join the same registry when row expansion is implemented.
+
+* Semantic roles
+
+Rust sends semantic roles instead of concrete Emacs faces.
+
+Planned roles include:
+
+- ~heading~
+- ~title~
+- ~todo~
+- ~done~
+- ~priority~
+- ~tag~
+- ~date~
+- ~file-name~
+- ~file-path~
+- ~keyword-name~
+- ~keyword-value~
+- ~property-name~
+- ~property-value~
+
+The complete ~outline-path~, ~source-outline-path~, and ~target-outline-path~ value uses the ~heading~ role.
+
+Rust does not encode heading levels, Emacs face names, colors, font sizes, or theme data.
+
+The initial format has one role per cell. It has no role ranges and no separate outline-separator role.
+
+* Results, rows, and cells
+
+The presentation response separates data identity from presentation.
+
+Conceptually:
+
+#+begin_example
+response
+  presentation_version
+  database_id
+  generation
+  results
+  rows
+#+end_example
+
+~results~ contains each original query result once. A row refers to its original result with ~result_index~.
+
+Conceptually, a normal row contains:
+
+#+begin_example
+result_index
+row_context
+cells
+#+end_example
+
+~row_context~ is null for normal one-row-per-result presentation. Later row expansion uses structured row context.
+
+Each cell contains:
+
+#+begin_example
+search_text
+display_text
+role
+#+end_example
+
+~search_text~ contains the complete logical value. Truncation never changes this value.
+
+~display_text~ contains the final visible value after width calculation, truncation, and padding.
+
+~role~ contains one semantic presentation role.
+
+Rows do not duplicate complete result objects. Several future rows can refer to the same original result.
+
+* Planned pipeline
+
+Rust performs this pipeline:
+
+#+begin_example
+query
+  -> original results
+  -> row expansion
+  -> cell value extraction
+  -> sort keys
+  -> sort
+  -> shared column widths
+  -> truncation
+  -> padding
+  -> semantic roles
+  -> presentation rows
+#+end_example
+
+Emacs receives prepared rows and performs only Emacs-specific work.
+
+* Row expansion
+
+The data model includes ~row_source~ from the start. Initial implementation can use only normal one-row-per-result behavior.
+
+Later row sources are:
+
+- ~tags~
+- ~effective-properties~
+- ~keywords~
+
+One result can then create several rows. Each row keeps the same ~result_index~ and gets a structured ~row_context~.
+
+Example tag context:
+
+#+begin_example
+kind = tag
+value = project
+#+end_example
+
+Example effective-property context:
+
+#+begin_example
+kind = effective-property
+name = OWNER
+value = Daniel
+#+end_example
+
+Example keyword context:
+
+#+begin_example
+kind = keyword
+name = TITLE
+value = Example
+#+end_example
+
+Only one row source can be active for one presentation. The design does not create Cartesian products between row sources.
+
+Empty source collections produce no presentation rows.
+
+* Includes and data requirements
+
+Rust derives includes required by displayed columns, sort columns, and row source.
+
+A caller can also request explicit includes for other client needs. Rust combines explicit includes with presentation-derived includes.
+
+This keeps Emacs actions outside ~PresentationSpec~. For example, an Emacs action can request ~target~ data without displaying a target column.
+
+Rust does not know Emacs action function names.
+
+One query invocation must provide all declared data requirements. The client does not run one follow-up query per selected result.
+
+* Emacs boundary
+
+Emacs maps semantic roles to real faces. The mapping belongs to ~org-files-db.el~, not to ~org-files-db.toml~.
+
+A planned mapping can distinguish roles such as ~heading~, ~title~, ~file-path~, and keyword roles. The Emacs client also keeps completion line height based on the ~default~ face.
+
+Emacs builds lightweight completion candidates from prepared rows. A selected row resolves through ~result_index~ to the original result for actions.
+
+Emacs does not recalculate values, sorting, widths, truncation, padding, or outline paths.
+
+* JSON and streaming
+
+The first implementation uses compact JSON. It does not use JSONL or streaming.
+
+Sorting and shared width calculation require the complete row set before final display rows are ready. Streaming adds complexity before measurements show a need.
+
+* Cache policy
+
+The first implementation has no presentation cache.
+
+Benchmarks must measure the uncached Rust path before a cache design is selected. Measurements must separate Rust work, serialization, transfer, JSON parsing, and Emacs candidate construction.
+
+If the uncached path is fast enough, no presentation cache is added.
+
+Existing ~database_id~, ~generation~, ~changes~, and ~cache_action~ keep their current meanings. The presentation design does not overload them.
+
+If measurements later justify a cache, the cache design must follow the measured bottleneck.
+
+* Compatibility
+
+The following command remains the compatibility interface for existing structural-query clients:
+
+#+begin_src shell
+orgfdb query --format json '(headings)'
+#+end_src
+
+Presentation output is opt-in. It does not change existing JSON result fields, include semantics, output modes, or query matching.

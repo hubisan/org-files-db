@@ -1,31 +1,37 @@
+#+TITLE: Contributing
 #+STARTUP: showall
-* Contributing
 
-** Bugs, Improvements and new Features
+* Report a problem or request a change
 
-Go to the issues page and create a new issue.
+Open an issue in the project issue tracker.
 
-Make sure to:
+Before you open a new issue:
 
-- Check that the issue has not already been reported (open and closed issues).
-- Check that the issue is not part of an active pull request.
+- Search open and closed issues for the same problem.
+- Check active pull requests for related work.
+- Describe the expected behavior and the current behavior.
+- Include a small reproduction when practical.
 
-** Pull Requests
+* Submit a pull request
 
-Cool that you want to contribute your code :-)
+Keep each pull request focused on one feature or correction.
 
-Remember to:
+Before you submit it:
 
-- Include only one feature in a pull request.
-- Open an issue and mention your planned pull request.
-- Add/update tests if needed.
-- Ensure the tests pass (see [[#testing][Testing]]).
-- Update [[./README.org][README.org]] if needed.
-- Update the documentation in the [[./README.org][README.org]] if needed.
-- Update [[./CHANGELOG.org][CHANGELOG.org]].
+- Open or reference the related issue.
+- Add or update tests for changed behavior.
+- Update user or contributor documentation when the public contract changes.
+- Update [[./CHANGELOG.org][CHANGELOG.org]] when the change needs a release note.
+- Run the repository checks.
 
-** TODO Testing
-:PROPERTIES:
-:CUSTOM_ID: testing
-:END:
+Read [[./docs/README.org][Documentation]] to find the correct document for a public fact.
 
+* Tests
+
+Run the standard repository check:
+
+#+begin_src shell
+make ci
+#+end_src
+
+If the check fails, correct the error before you submit the pull request.

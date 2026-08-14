@@ -1,20 +1,24 @@
-#+TITLE: Config Reference
+#+TITLE: Configuration Reference
 #+STARTUP: showall
 
-This page lists the ~config.toml~ variables currently supported by ~orgfdb~.
+~orgfdb~ reads TOML configuration. This page lists the configuration keys that the current implementation accepts.
+
+Unknown keys are errors. This rule applies at the top level and inside every configuration section.
 
 * Example
 
 #+begin_src toml
 db_path = "org-files-db.sqlite"
 files = ["inbox.org", "projects.org"]
+files_exclude = ["private.org", "**/*.private.org"]
 
 [[dirs]]
 path = "notes"
 recursive = true
+exclude = ["archive/**"]
 
 [[dirs]]
-path = "archive"
+path = "reference"
 
 [links]
 plain_protocols = ["http", "https", "file"]
@@ -32,61 +36,92 @@ index_body_text = false
 timezone = "Europe/Zurich"
 #+end_src
 
+* Path rules
+
+Relative paths use the configuration file directory as their base. This rule applies to ~db_path~, ~files~, and ~dirs[].path~.
+
+A leading ~~/~ uses the current ~HOME~ directory. Named-user forms such as ~~alice/~ are not supported.
+
+The loader converts configured paths to absolute syntactic paths. File discovery later canonicalizes indexed file identity.
+
 * Top-level keys
+
+The supported top-level keys are:
 
 - ~db_path~
 - ~files~
+- ~files_exclude~
 - ~dirs~
 - ~links~
 - ~todo~
 - ~search~
 - ~query~
 
-Unknown keys are rejected. This applies both to top-level keys and to keys inside configuration sections such as ~[[dirs]]~, ~[links]~, ~[todo]~, ~[search]~, and ~[query]~. A misspelled key therefore causes config loading to fail instead of silently falling back to a default.
+The old top-level ~recursive~ key is not supported. Configure recursion in each ~[[dirs]]~ entry.
 
 * ~db_path~
 
-Path to the SQLite database file.
+~db_path~ selects the SQLite database file.
 
 - Type: string
 - Default: ~org-files-db.sqlite~
 
-Relative paths are resolved against the config file location.
+Example:
+
+#+begin_src toml
+db_path = "./state/org-files-db.sqlite"
+#+end_src
 
 * ~files~
 
-Explicit Org files to index.
+~files~ lists explicit source files.
 
 - Type: array of strings
 - Default: ~[]~
 
-Each entry is a file path. Relative paths are resolved against the config file location.
+Example:
 
-Explicit files are regular-file overrides: they may use an extension other than ~.org~. A missing explicit file is recorded as an absent configured source for later incremental reconciliation; it does not make a configured directory root disappear.
+#+begin_src toml
+files = ["inbox.org", "capture.txt"]
+#+end_src
+
+An explicit file does not need an ~.org~ extension. This is the documented extension override for individual files.
+
+A missing explicit file remains part of the configured source set as an absent source. Incremental reconciliation can detect its later creation.
+
+* ~files_exclude~
+
+~files_exclude~ defines global file exclusion globs.
+
+- Type: array of strings
+- Default: ~[]~
+
+Example:
+
+#+begin_src toml
+files_exclude = [
+  "private.org",
+  "**/*.private.org",
+  "~/notes/generated/**"
+]
+#+end_src
+
+Global exclusions apply across configured aliases and directory roots. Another root cannot make a globally excluded file eligible again.
+
+An excluded explicit file is ignored before file metadata or canonical path access. An excluded missing explicit file therefore causes no missing-file error.
 
 * ~dirs~
 
-Directories to search for Org files.
+~dirs~ contains directory discovery roots. Configure each root with a ~[[dirs]]~ table.
 
 - Type: array of tables
 - Default: ~[]~
 
-Each ~[[dirs]]~ entry configures one discovery root. Relative paths are resolved against the config file location.
+Each table supports:
 
-** ~dirs[].path~
-
-Directory path to search for Org files.
-
-- Type: string
-- Required: yes
-
-** ~dirs[].recursive~
-
-Controls whether discovery for this directory descends into subdirectories.
-
-- Type: boolean
-- Required: no
-- Default: ~false~
+- ~path~
+- ~recursive~
+- ~exclude~
 
 Example:
 
@@ -94,30 +129,69 @@ Example:
 [[dirs]]
 path = "notes"
 recursive = true
-
-[[dirs]]
-path = "inbox"
-recursive = false
+exclude = ["archive/**", "generated/*.org"]
 #+end_src
 
-* Discovery and file identity
+** ~dirs[].path~
 
-Discovery constructs one deterministic source set shared by rebuild and later incremental entry points.
+~path~ selects the directory root.
 
-- org-files-db supports Linux and Unix-like platforms, including macOS. Windows is unsupported.
-- Directory roots include regular files whose extension is ASCII case-insensitively ~.org~. Explicit ~files~ entries are the documented extension override.
-- Hidden entries follow the same rules as ordinary entries. Recursive roots descend into hidden directories.
-- Configured aliases, overlapping roots, and file symlinks are canonicalized and deduplicated to one indexed file. A recursive directory symlink is followed even when its target is outside the configured root. Cycle detection is per configured root, so overlapping roots may traverse a physical directory separately while final files remain globally deduplicated.
-- A missing configured directory root is a discovery error and prevents destructive reconciliation. A missing explicit file is an absent-source record; the existing empty-source rebuild guard still prevents an unintended wipe.
-- Indexed file identity is a version-tagged byte-preserving canonical Unix path. The public path field remains unchanged for UTF-8 paths; non-UTF-8 paths use a reversible ~path-bytes:%XX...~ representation rather than lossy replacement text. Existing TEXT-only DB rows retain ~identity = NULL~ until a successful rebuild or later reconciliation rediscovers the canonical path.
-- ~files_exclude~ contains global, file-only Unix globs. Relative patterns are evaluated from the config directory; absolute patterns are matched against absolute logical paths; leading ~~/~ patterns are expanded once while loading the config and retain that stable home-directory basis for discovery.
-- Each ~[[dirs]]~ entry may contain ~exclude = ["..."]~. Relative local patterns are evaluated from that entry's logical root and may exclude files or whole directory trees. A matching recursive directory is pruned; use ~archive/**~ to exclude that directory and all descendants.
-- Globs are case-sensitive, use ~/~ as a literal path separator, and match Unix path bytes without lossy conversion. Global rules win across aliases and are never undone by another root; local rules remain isolated to their configured root. Logical discovery provenance is retained for this decision while canonical paths remain the physical identity and final deduplication key.
-- An explicit file matched by a global exclusion is ignored before any stat or canonicalization, so an excluded missing explicit file is not an error. A rebuild emptied by matching exclusions, including a pruned tree, is intentional and transactionally removes prior indexed rows. Missing roots and genuinely empty input retain the existing safety behavior.
+- Type: string
+- Required: yes
+
+** ~dirs[].recursive~
+
+~recursive~ controls subdirectory discovery for this root.
+
+- Type: boolean
+- Default: ~false~
+
+If ~recursive = false~, discovery reads eligible files directly inside the configured directory only.
+
+If ~recursive = true~, discovery also descends into eligible subdirectories.
+
+** ~dirs[].exclude~
+
+~exclude~ defines exclusion globs for one directory root.
+
+- Type: array of strings
+- Default: ~[]~
+
+Relative local patterns use that root as their logical base. A local exclusion affects only its own ~[[dirs]]~ entry.
+
+A local pattern can exclude a file or a directory tree. For example, ~archive/**~ excludes that tree from a recursive root.
+
+* Discovery rules
+
+Directory discovery includes regular files whose extension is ASCII case-insensitively equal to ~.org~. Explicit ~files~ entries can use another extension.
+
+Hidden files and directories use the same discovery rules as other entries. A recursive root can descend into hidden directories.
+
+File symlinks and directory symlinks are followed. Cycle detection prevents recursive loops inside each configured root.
+
+Configured aliases and overlapping roots can find the same physical file. Canonical file identity deduplicates these matches before indexing.
+
+A missing configured directory is an error. A missing explicit file is an absent configured source.
+
+The rebuild safety guard prevents an accidental empty-source replacement of an existing index. Use ~--allow-empty~ only for an intentional empty rebuild.
+
+* Exclusion glob rules
+
+Exclusion globs are case-sensitive. A slash is a literal path separator.
+
+Global relative patterns use the configuration directory as their base. Global absolute patterns match absolute logical paths.
+
+A leading ~~/~ in a global pattern expands when the configuration loads. That expansion keeps the same home-directory basis during discovery.
+
+Local relative patterns use their ~[[dirs]]~ root as the base. Local rules do not leak into another root.
+
+Discovery keeps logical path provenance while it applies exclusions. Canonical paths remain the physical file identity and final deduplication key.
+
+A rebuild that becomes empty only because exclusions matched is intentional. It can remove previously indexed rows without ~--allow-empty~.
 
 * ~[links]~
 
-Controls plain-link protocol handling for Phase 3 link scanning.
+The ~[links]~ section controls protocols that the parser recognizes as plain Org links.
 
 Supported keys:
 
@@ -126,52 +200,68 @@ Supported keys:
 
 ** ~links.plain_protocols~
 
-Protocols recognized as plain links.
+~plain_protocols~ replaces the built-in base protocol list when present.
 
 - Type: array of strings
-- Default: built-in plain-link protocol list
+- Default: built-in plain-link protocols
 
-When this field is omitted, the built-in defaults are used. When it is present, it defines the base list before ~custom_protocols~ are appended and deduplicated case-insensitively.
+Example:
+
+#+begin_src toml
+[links]
+plain_protocols = ["http", "https", "file"]
+#+end_src
+
+The loader normalizes protocol names to lowercase and removes duplicates.
 
 ** ~links.custom_protocols~
 
-Additional project-specific protocols recognized as plain links.
+~custom_protocols~ adds project-specific protocols to the base list.
 
 - Type: array of strings
 - Default: ~[]~
 
-Values are lowercased and deduplicated together with ~plain_protocols~.
+Example:
+
+#+begin_src toml
+[links]
+custom_protocols = ["jira", "customlink"]
+#+end_src
+
+The loader normalizes and deduplicates the combined protocol list.
 
 * ~[todo]~
 
-Controls default TODO keyword handling when a file does not define its own in-buffer Org TODO keywords.
+The ~[todo]~ section provides default TODO keywords for files without in-buffer TODO declarations.
 
 Supported keys:
 
 - ~default_open_keywords~
 - ~default_closed_keywords~
 
+In-buffer ~#+TODO~, ~#+SEQ_TODO~, and ~#+TYP_TODO~ declarations take precedence over these defaults.
+
 ** ~todo.default_open_keywords~
 
-Default open TODO keywords.
+~default_open_keywords~ defines open TODO keywords.
 
 - Type: array of strings
 - Default: ~["TODO"]~
 
-Entries may include Org-style fast selection keys such as ~TODO(t)~.
+Entries can contain Org fast-selection keys such as ~TODO(t)~.
 
 ** ~todo.default_closed_keywords~
 
-Default closed TODO keywords.
+~default_closed_keywords~ defines closed TODO keywords.
 
 - Type: array of strings
 - Default: ~["DONE"]~
 
-Entries may include Org-style fast selection keys such as ~DONE(d)~.
+Entries can contain Org fast-selection keys such as ~DONE(d)~.
 
 * ~[search]~
 
-Controls search-related indexing behavior.
+The ~[search]~ section controls the optional SQLite FTS5 index.
 
 Supported keys:
 
@@ -180,32 +270,33 @@ Supported keys:
 
 ** ~search.fts5_enabled~
 
-Controls whether SQLite FTS5 indexing is enabled during rebuild.
+~fts5_enabled~ controls FTS5 index creation during indexing.
 
 - Type: boolean
 - Default: ~true~
-- When enabled and supported by the opened SQLite build, rebuild recreates a derived contentless ~heading_fts~ table from canonical relational facts.
-- When enabled but unsupported by the opened SQLite build, rebuild fails with a clear backend-capability error.
-- When disabled, rebuild does not create or refresh ~heading_fts~. A stale table may still exist on disk, but it is not trusted without a new FTS-enabled rebuild.
-- The read-only ~orgfdb search~ command also requires the active config to leave ~search.fts5_enabled = true~. A trusted persisted FTS index on disk is not usable when the current config disables FTS.
-- Current config does not prove that a trusted search index exists. ~orgfdb search~ additionally requires persisted FTS trust metadata written by a successful rebuild.
+
+If this value is true, rebuild requires SQLite FTS5 support. Rebuild writes trust metadata for the derived search index.
+
+If this value is false, rebuild does not create or refresh the FTS index. ~orgfdb search~ also rejects search while this configuration disables FTS.
+
+A table that remains from an older rebuild is not sufficient. Search also requires current persisted FTS trust metadata.
 
 ** ~search.index_body_text~
 
-Controls whether heading body text is persisted as canonical database data during rebuild.
-
-- When enabled, the indexer stores heading body text in ~heading_bodies~ and persists a database capability flag indicating that body text is available for query backends.
-- When enabled together with ~search.fts5_enabled = true~, rebuild also records that the trusted FTS index contains body text so ~orgfdb search --body~ is allowed.
-- When disabled, the indexer does not store heading body text and persists the capability flag as unavailable even though the ~heading_bodies~ table may still exist in the schema.
-- When disabled, a trusted FTS rebuild remains title-only and ~orgfdb search --body~ fails clearly until a later rebuild enables both FTS and body persistence.
-- Upgrading an older database schema creates the metadata storage, but body-text capability does not become available until a rebuild writes the current capability value for that database instance.
+~index_body_text~ controls persistence and search indexing of heading body text.
 
 - Type: boolean
 - Default: ~false~
 
+If this value is true, indexing stores canonical heading body text. An FTS-enabled rebuild also indexes that body text.
+
+If this value is false, the trusted FTS index is title-only. ~orgfdb search --body~ is then unavailable.
+
+Changing this setting requires a rebuild before the database capability reflects the new value.
+
 * ~[query]~
 
-Controls query-time behavior for relative date resolution.
+The ~[query]~ section controls structural query time handling.
 
 Supported keys:
 
@@ -213,10 +304,18 @@ Supported keys:
 
 ** ~query.timezone~
 
-Optional IANA timezone name used when resolving relative query date values such as ~today~, ~-1~, and ~7~.
+~timezone~ selects an IANA timezone for relative query dates such as ~today~, ~-1~, and ~7~.
 
 - Type: string
-- Required: no
 - Default: local system timezone
 
-If this field is set, it overrides the local system timezone for query-time relative-date resolution. Relative dates are resolved before SQL execution into timezone-naive date strings so stored Org timestamps are not converted between timezones.
+Example:
+
+#+begin_src toml
+[query]
+timezone = "Europe/Zurich"
+#+end_src
+
+The loader rejects an invalid timezone name.
+
+The timezone selects the calendar date for relative values. Stored Org planning and generic timestamp values remain timezone-naive.

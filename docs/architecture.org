@@ -1,0 +1,147 @@
+#+TITLE: Architecture
+#+STARTUP: showall
+
+This document describes the current ~org-files-db~ implementation. It does not describe planned presentation output.
+
+* Overview
+
+~orgfdb~ has one Rust library and one thin binary entry point. The library owns configuration, indexing, SQLite access, queries, and watcher behavior.
+
+The normal data flow is:
+
+#+begin_example
+configured Org sources
+  -> discovery
+  -> stable file capture
+  -> Org parsing
+  -> normalized facts
+  -> SQLite transaction
+  -> link resolution and derived data
+  -> committed generation
+  -> read-only query or search
+#+end_example
+
+* CLI boundary
+
+~src/main.rs~ calls ~org_files_db::cli::run()~. Command parsing and user-facing command errors live in ~src/cli.rs~.
+
+The CLI exposes these commands:
+
+- ~rebuild~
+- ~watch~
+- ~headings~
+- ~links~
+- ~status~
+- ~changes~
+- ~query~
+- ~search~
+
+Read [[./cli.org][CLI Reference]] for the public command contract.
+
+* Configuration and source discovery
+
+~src/config.rs~ loads TOML configuration and rejects unknown keys. It resolves relative paths against the configuration file directory.
+
+The indexer builds one configured source universe from explicit files and directory roots. Global and root-local exclusion rules operate during discovery.
+
+Discovery canonicalizes file identity and deduplicates aliases. Unix path identity preserves non-UTF-8 path bytes.
+
+Read [[./config.org][Configuration Reference]] and [[./design/incremental-indexing.org][Incremental Indexing]] for the detailed source rules.
+
+* Parser layer
+
+~src/parser/~ defines the parser-facing data model and diagnostics. ~OrgizeAdapter~ is the current parser implementation.
+
+The parser produces source facts. The indexer converts those facts into the persistent database model.
+
+Emacs Org mode acts as a reference oracle for difficult parser semantics. The implementation does not evaluate unsafe Emacs Lisp or diary expressions.
+
+Read [[./design/parser-risks.org][Parser Risks]] for known parser differences.
+
+* Indexer
+
+~src/indexer.rs~ coordinates discovery, stable file capture, parsing, change planning, and transactional application.
+
+The indexer separates read-only change planning from database mutation. It rechecks relevant file state before it applies a planned change.
+
+A full rebuild reconciles the complete configured source universe. Incremental reconciliation limits work to affected candidates when the context permits it.
+
+The indexer also maintains synthetic level-0 file roots. Real Org headings use level 1 or more.
+
+* SQLite layer
+
+~src/db/~ owns schema application, reads, writes, and committed index state. The schema source is ~sql/schema.sql~.
+
+SQLite ~PRAGMA user_version~ stores the persistent schema version. ~CURRENT_SCHEMA_VERSION~ in ~src/db/schema.rs~ is the code source of truth.
+
+Indexing commands can initialize or migrate a database. Read-only commands require the current schema and do not migrate it.
+
+Canonical relational tables store the query-visible facts. Optional FTS data is derived from canonical heading and body data.
+
+* Link resolution
+
+The parser stores authored link facts first. Link resolution runs after the required indexed files exist in the transaction state.
+
+The resolver stores resolution status and structured target identifiers when it can resolve a target. Query output can expose structured source and target data through includes.
+
+The stored resolution statuses are:
+
+- ~resolved~
+- ~broken~
+- ~unresolved~
+- ~ambiguous~
+- ~unsupported~
+
+Read [[./cli.org][CLI Reference]] for current user-visible link behavior.
+
+* Query path
+
+~src/query/parser.rs~ parses structural query forms. ~src/query/validate.rs~ checks predicate, target, option, and backend constraints.
+
+~src/query/resolve.rs~ resolves relative temporal values before execution. ~src/query/sqlite.rs~ compiles validated queries to the SQLite backend.
+
+~src/query/result.rs~ converts matched database rows into the public query result model. It also loads optional include data and builds outline output.
+
+The query path is read-only. It does not reparse Org files or resolve links on demand.
+
+Read [[./reference/query-language.org][Structural Query Language]] and [[./reference/query-json.org][Query JSON Contract]].
+
+* Search path
+
+~orgfdb search~ is separate from the structural query language. It uses the trusted derived SQLite FTS5 index.
+
+Search can use indexed title text and optional indexed body text. Search trust metadata records whether the current database contains a usable FTS index.
+
+The search command is read-only. It does not repair or rebuild stale FTS state.
+
+* Watcher path
+
+~src/notify_source.rs~, ~src/watcher.rs~, ~src/watcher_runtime.rs~, and ~src/watcher_cli.rs~ implement watcher-driven reconciliation.
+
+The watcher translates filesystem activity into bounded reconciliation work. Backend uncertainty requests a full configured-source reconciliation instead of guessed file mutations.
+
+The watcher uses the same indexer planning and application boundary as manual indexing work.
+
+* Generations and changes
+
+Each database has a persistent ~database_id~ and committed ~generation~. A transaction that changes query-visible state advances the generation once.
+
+The same transaction records affected canonical file paths. ~orgfdb status~ and ~orgfdb changes~ expose this committed state to external clients.
+
+A generation is a database consistency boundary. Filesystem events and SQLite file timestamps are not consistency boundaries.
+
+Read [[./design/index-generations-and-changes.org][Index Generations and Changes]] for the full contract.
+
+* Output serialization
+
+Current machine-readable CLI output uses JSON. ~src/cli.rs~ owns command-specific inspection and search serializers.
+
+~src/query/result.rs~ owns the structural query response model. The stable query JSON contract is documented separately from future presentation output.
+
+Read [[./reference/query-json.org][Query JSON Contract]] for client-facing query fields.
+
+* Planned presentation work
+
+The next architecture adds an opt-in presentation representation for structural queries. Rust will prepare UI-independent rows while the existing query JSON contract stays unchanged.
+
+This feature does not exist yet. Read [[./design/presentation.org][Presentation Output Design]] for the planned boundary.

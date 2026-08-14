@@ -1,124 +1,210 @@
-#+TITLE: Incremental Indexing Source-Set Contract
+#+TITLE: Incremental Indexing
 #+STARTUP: showall
+
+This document describes the current source and reconciliation contract. It focuses on rules that protect the committed SQLite state.
 
 * Source identity
 
-org-files-db supports Linux and Unix-like systems, including macOS. Windows is unsupported. The indexer identifies a source by its canonical Unix target-path bytes, encoded as a version-tagged byte sequence. This identity is stable across configured aliases and symlink paths. The database also keeps a human-facing display path: UTF-8 paths are stored unchanged, while non-UTF-8 paths use reversible percent-escaped bytes with the ~path-bytes:~ prefix.
+~org-files-db~ supports Linux and other Unix-like systems, including macOS. Windows is not supported.
 
-Legacy databases have only a TEXT path and retain ~identity = NULL~ after the version-8 migration. The original native bytes cannot be reconstructed safely. A successful rebuild or future reconciliation upgrades the row only after discovery observes its canonical Unix path.
+The indexer identifies a source by canonical Unix target-path bytes. It stores those bytes in a versioned identity format.
 
-Hard links are separate sources because their canonical paths are distinct. A rename is therefore represented as deletion plus creation until a later task adds explicit rename correlation.
+Configured aliases and symlink paths can point to the same source. Canonical identity deduplicates those aliases.
 
-* Discovery policy
+The database also stores a display path. UTF-8 paths stay unchanged. Other Unix paths use reversible ~path-bytes:~ encoding.
 
-- Explicit configured files are regular-file overrides and may have any extension.
-- Directory roots collect regular files with an ASCII case-insensitive ~.org~ extension.
-- Hidden entries are not special.
-- File and directory symlinks are followed. Directory cycles and repeated traversal are prevented within each configured root; directory targets outside the configured root remain eligible.
-- Overlapping roots may traverse the same physical directory independently so later root-local exclusions can use the correct logical provenance. The resulting files are still globally deduplicated by canonical identity.
+Legacy rows can have ~identity = NULL~. Reconciliation upgrades such a row after discovery observes its canonical Unix path.
 
-* Failure policy
+Hard links remain separate sources because their canonical paths differ. A rename is represented as one deletion and one creation.
 
-A missing explicit file becomes an absent configured source so a later change planner can remove its persisted state without trying to canonicalize a missing leaf. A missing configured directory root, or any traversal/stat/canonicalization error other than an explicit missing file, is a hard discovery failure. Such a failure must not be interpreted as deletion.
+* Discovery
 
-Configured exclusions are evaluated before the final source set and link-resolution universe are built. The universe retains explicit inclusions plus one scope for every configured directory root, including its logical-to-canonical directory provenance and local rules. Global file exclusions are evaluated for every logical discovery provenance and remove a matched physical identity everywhere; directory-local exclusions apply only to their own logical root. Link resolution asks this same universe, so an excluded target is outside the indexed universe rather than missing within it. Directory matches prune recursive traversal. An explicit file matched by a global rule is ignored before stat or canonicalization, even if it is missing. Home-relative patterns are expanded once during configuration loading and use that stable basis thereafter. A source set made empty solely by valid exclusions, including a pruned tree, is an intentional rebuild input; genuinely empty input retains the full-rebuild safety guard.
+Explicit ~files~ entries can use any file extension. Directory roots collect regular files with a case-insensitive ~.org~ extension.
 
-* Persisted configured-root identity
+Hidden files and directories use the normal discovery rules. File and directory symlinks are followed.
 
-Every successful full rebuild and full configured-source reconciliation persists a versioned deterministic evidence set for configured directory roots in ~db_metadata~. Each entry records the configured native logical path, canonical target path, Unix device and inode identity, and recursive mode. Explicit-file inputs and discovered subdirectories do not receive persistent root evidence.
+Cycle detection prevents recursive directory loops inside one configured root. Overlapping roots can traverse the same target through different logical paths.
 
-At the beginning of a full reconciliation, the indexer captures the current evidence and compares every logical root retained from the last successful commit. Missing, inaccessible, non-directory, canonically retargeted, or native-identity-changed roots reject automatic reconciliation before indexed rows can be removed. Adding or removing a configured logical root remains a configuration change; roots present in both committed and current sets must retain identity. A database with indexed files and configured directory roots but no valid committed evidence requires an explicit manual adoption rebuild with ~--accept-source-root-changes~.
+Discovery keeps this logical provenance until exclusion rules finish. Canonical identity performs final deduplication.
 
-The captured evidence travels with a full incremental plan. The indexer captures it again after discovery, during stale-plan validation, and immediately before commit. Full rebuild performs equivalent checks after discovery, after file preparation, and inside the write transaction before commit. Any mismatch rejects the operation and rolls back the transaction. Updated evidence becomes authoritative only in the same successful transaction as indexed facts, link resolution, FTS/search trust metadata, and indexing context.
+Read [[../config.org][Configuration Reference]] for user-facing discovery and exclusion rules.
 
-~--accept-source-root-changes~ applies only to a manual rebuild. It bypasses comparison with the previously committed identities for that invocation, but it does not bypass within-run stability checks and does not imply ~--allow-empty~. The watcher always uses automatic validation.
+* Missing sources and discovery errors
 
-* Per-file preparation
+A missing explicit file is an absent configured source. This state lets later reconciliation remove its old indexed row safely.
 
-Before any database transaction, rebuild prepares each discovered file into an owned value containing the canonical identity, resolved TODO keywords, normalized document, diagnostics, and DB-ready metadata. Preparation reads the source bytes once per attempt, computes a lowercase hexadecimal SHA-256 hash over those exact bytes, and decodes and parses that same byte sequence.
+A missing configured directory is an error. Traversal, metadata, or canonicalization errors also stop discovery.
 
-Preparation compares mtime nanoseconds and size before and after the read. A mismatch retries the complete preparation once; a second mismatch fails with file-path context and opens no write transaction. The resulting mtime, size, and content hash are the snapshot evidence retained for later change planning. A prepared value represents its captured source snapshot: before a later incremental mutation, the caller must revalidate that evidence. A known-stale value must be retried or rejected and must not be committed as current.
+The indexer does not convert these discovery errors into deletions.
 
-Full rebuild prepares every file before its all-or-nothing write transaction and assigns ~indexed_at~ only while writing each prepared file. It does not claim a filesystem-wide atomic snapshot; a file may still change after preparation and before the transaction. Later incremental application must perform the documented stale-preparation revalidation.
+Global exclusions apply to every logical discovery path. A matching global rule removes the physical source from all configured aliases.
 
-* Indexing context and invalidation
+Root-local exclusions apply only to their own ~[[dirs]]~ entry. Directory matches can prune recursive traversal.
 
-Every successful rebuild writes a version and deterministic SHA-256 fingerprint for three indexing-context components to ~db_metadata~ in the same transaction as indexed facts, link resolution, and search trust metadata. Full rebuild does not compare the previous context and remains the recovery path for missing, malformed, or unsupported metadata. Later incremental planning treats such metadata as untrusted and requires a full rebuild.
+Link resolution uses the same eligible source universe. An excluded target is outside that universe.
 
-- The semantic component covers the parser/indexer contract, configured default TODO keywords in their declared order, the effective plain-link protocol set, and body-text persistence. A mismatch requires reparsing all indexed files. Changing body-text persistence also requires a derived-search rebuild; direction-specific optimisation is deferred. Selective reparsing would require separately persisted per-file dependency evidence.
-- The source-universe component covers resolved logical Unix paths for explicit files and configured directory roots, recursion, global exclusions, root-local exclusions, and the stable configuration/home bases used by discovery. Set-like inputs are sorted and deduplicated. A mismatch requires source-universe and link reconciliation.
-- The derived-search component covers the FTS policy, FTS schema contract, body-index policy, and the persisted/current SQLite FTS5 capability. A mismatch requires rebuilding derived search state.
+* Configured-root identity
 
-The comparison API returns ~Compatible~, ~FullRebuildRequired~, or a combinable set of ~ReparseAllFiles~, ~ReconcileSourceUniverseAndLinks~, and ~RebuildDerivedSearch~ actions. Missing keys, unsupported contract versions, invalid fingerprint text, and non-TEXT SQLite metadata values are all fail-safe ~FullRebuildRequired~ results; only actual SQLite access failures are returned as errors. Query-only settings, including ~query.timezone~, are excluded and do not invalidate source facts.
+A successful full reconciliation stores identity evidence for each configured directory root in ~db_metadata~.
 
-Fingerprint inputs use a tagged, length-prefixed binary encoding. Strings, booleans, enum-like values, lists, and native Unix path bytes are encoded without lossy path conversion. Source paths are the resolved logical configuration paths rather than only canonical targets, so root provenance and exclusion semantics remain visible to future reconciliation.
+Each record includes:
+
+- the configured logical path
+- the canonical target path
+- Unix device and inode identity
+- recursive mode
+
+Explicit files and discovered subdirectories do not receive this persistent root evidence.
+
+Automatic full reconciliation compares retained roots with their last committed identities. A changed retained root stops the operation before file deletions.
+
+The check detects missing roots, inaccessible roots, changed target paths, and changed native identities.
+
+A manual rebuild can accept an intentional root replacement with ~--accept-source-root-changes~. This flag does not imply ~--allow-empty~.
+
+The indexer repeats root checks during long full operations. A mismatch rejects the operation and rolls back its write transaction.
+
+* Stable file preparation
+
+The indexer prepares source files before a write transaction. One prepared value represents one captured file snapshot.
+
+Preparation reads one byte sequence. It computes SHA-256 and parses that same byte sequence.
+
+The indexer compares modification time and size before and after the read. A mismatch causes one complete retry.
+
+A second mismatch stops preparation. No write transaction starts for that failed preparation.
+
+The prepared snapshot keeps:
+
+- canonical identity
+- modification time
+- file size
+- content hash
+- parsed document data
+- parser diagnostics
+- resolved TODO keyword configuration
+
+Later incremental application rechecks stale-sensitive evidence before mutation. A known stale preparation is never committed as current.
+
+* Indexing context
+
+A successful rebuild stores deterministic indexing-context fingerprints in ~db_metadata~.
+
+The context has three parts:
+
+- semantic parsing and indexing rules
+- source-universe rules
+- derived search rules
+
+The semantic part includes parser behavior, TODO defaults, link protocols, and body-text persistence.
+
+The source-universe part includes configured paths, recursion, exclusions, and path bases.
+
+The derived search part includes FTS policy, body indexing, and SQLite FTS5 capability.
+
+Incremental planning compares the stored context with the current context. An incompatible context can require wider reconciliation or a full rebuild.
+
+~query.timezone~ is query-only configuration. It does not invalidate indexed source facts.
 
 * Change planning
 
-Change planning is read-only. It first checks the configured FTS5 capability and the persisted indexing context. Missing, malformed, or unsupported context metadata, and malformed populated stored file identities, produce a terminal ~FullRebuildRequired~ result without discovery, source reads, parsing, or actionable file changes.
+Change planning is read-only. It checks database context before it discovers or reads actionable files.
 
-An actionable plan compares valid stored identities with successfully discovered canonical identities. It reports unchanged, metadata-only, created, modified, deleted, and failed files in native Unix identity-byte order. Existing entries carry the expected ~files.id~ selected by identity (or the exact UTF-8 legacy display-path fallback); created entries have no existing row ID. Later transactional application must verify that this row and identity still match rather than repeating an ambiguous path lookup. A row is deleted only when discovery completed successfully and its identity was not observed in the eligible current source set. A missing explicit logical path is never deleted directly by display path, and a current file that later fails stat, capture, UTF-8 decoding, or parsing remains observed rather than becoming deleted.
+An actionable plan compares stored source identities with current discovered identities.
 
-The normal unchanged fast path compares ~mtime_ns~ and ~size~. Forced verification, changed metadata, and non-comparable stored hashes capture one stable byte snapshot. Once captured, its own metadata is authoritative: equal hash and equal captured metadata is unchanged, while equal hash and changed captured metadata is metadata-only. Hashes are stored only as ~sha256:<64 lowercase hexadecimal characters>~. NULL, legacy bare hashes, unknown prefixes, uppercase text, malformed text, and non-TEXT SQLite hash values are non-comparable; they cause modified-file preparation so a later application can upgrade the stored representation. Malformed, unsupported, or non-BLOB populated identities, and unusable path, mtime, or size values, require a full rebuild. Metadata-only files retain captured snapshot evidence without decoding or parsing. Reparse-all invalidation overrides the fast path, while derived-search-only invalidation does not parse unchanged sources.
+The plan can classify files as:
+
+- unchanged
+- metadata-only
+- created
+- modified
+- deleted
+- failed
+
+The normal unchanged path compares ~mtime_ns~ and file size. Other cases can capture one stable byte snapshot and compare its content hash.
+
+Deletion requires successful discovery of the relevant source universe. A failed current source does not become a deletion by accident.
+
+Existing plan entries keep the expected database row identity. Transactional application rechecks that identity before mutation.
 
 * Transactional application
 
-Only a failure-free planned result can be converted into a single-use actionable change set. The mutation boundary rejects terminal, failed, malformed, and stale plans without committing a partial result. Before application it verifies source snapshots; inside one immediate SQLite transaction it verifies the expected file-row baseline before updating metadata, replacing file-owned facts, or deleting a file. Replacement preserves the file row while dependent surrogate IDs are deliberately recreated. FTS, search capability metadata, link resolution, and indexing context are reconciled once before commit. The database records the validated source snapshots for that change set; it does not claim an atomic snapshot shared with the filesystem.
+The indexer applies one accepted plan inside a controlled SQLite transaction.
 
-~properties~ are canonical source facts. Schema version 10 materializes their visible per-heading values in the mandatory ~effective_properties~ projection during the same transaction. The projection is rebuilt deterministically from property rows and the stored heading tree, including root-level ~#+PROPERTY~ and ~#+CATEGORY~ facts; ordinary keywords remain keywords. Property inheritance never crosses a file boundary.
+The transaction updates canonical file facts and dependent rows. Foreign keys remove obsolete dependent data when a file row is replaced or deleted.
 
-~tags~ are canonical direct tag facts. Schema version 11 materializes the ordered, deduplicated tag set visible at each heading in ~effective_tags~ during the same transaction. Root ~FILETAGS~ participate in normal inheritance, metadata-only changes leave the projection unchanged, and replacement or deletion removes stale rows through the controlled file transaction and foreign-key cascades. The public ~all_tags~ array is built from this normalized projection; ~headings.all_tags_json~ no longer exists.
+The same transaction updates link resolution and derived search state when the plan requires those operations.
+
+The transaction also updates persistent generation state. A failed transaction leaves the previous committed state intact.
+
+* Effective properties and tags
+
+Raw property rows remain stored with source information. The index also materializes resolved effective property values.
+
+Schema version 10 introduced the ~effective_properties~ projection. Query matching reads this projection instead of rebuilding inherited values recursively.
+
+Raw direct tags remain canonical facts. Schema version 11 introduced ordered, deduplicated ~effective_tags~ for each heading.
+
+File ~FILETAGS~ participate in normal tag inheritance. The public ~all_tags~ query field uses this projection.
 
 * Watcher candidate batching
 
-The backend-independent watcher layer accepts raw path-bearing event hints plus explicit backend-uncertainty signals. Create, modify, remove, metadata, and other event kinds do not select database operations. A complete rename contributes both reported paths; an incomplete rename, backend overflow, dropped-event indication, rescan request, or equivalent uncertainty requests full configured-source reconciliation.
+The watcher treats filesystem notifications as hints. Event kinds do not select database mutations directly.
 
-Candidate paths are normalized through the indexer source universe captured from discovery. Existing files use their canonical Unix target identity. Missing or renamed-away files reuse retained logical-to-canonical source mappings, including explicit files and symlinked sources, without requiring the leaf to remain present. Directory creation, removal, rename, or symlink-topology changes request full reconciliation because one directory hint can change an unbounded set of indexed sources. Explicit configured files remain eligible with any extension; directory roots accept only case-insensitive ~.org~ paths and retain their recursive, non-recursive, global-exclusion, and root-local-exclusion semantics.
+Normal file events contribute candidate paths. Directory topology changes and backend uncertainty request full configured-source reconciliation.
 
-Equivalent path hints are deduplicated by the version-tagged native Unix file identity and emitted in that identity order. One normalized or merged batch retains at most 1,024 distinct candidates; exceeding that bound converts the batch to full reconciliation. A reconciliation request supersedes all path candidates in the batch. An empty or fully irrelevant batch produces an empty candidate set and performs no indexing work by itself.
+Incomplete rename information, overflow, dropped events, and rescan requests also request full reconciliation.
 
-* Watcher execution controller
+Candidate paths pass through the current source-universe rules. Unrelated paths and normal SQLite sidecar activity are ignored.
 
-The watcher execution controller uses a monotonic caller-provided timestamp and a default debounce interval of 250 milliseconds. Each relevant input resets the pending deadline. The interval is an internal setting so later CLI integration can expose or replace it without changing batching semantics. Tests advance timestamps directly and do not sleep.
+One normalized batch retains at most 1,024 distinct candidates. A larger batch becomes one full-reconciliation request.
 
-Pending inputs are stored only as their bounded normalized result, not as an unbounded raw event queue. Candidate batches merge by native Unix file identity up to the 1,024-candidate batch limit, while overflow or a full reconciliation request collapses the pending state to one reconciliation marker. Once the deadline is reached, the controller starts exactly one execution and dispatches either bounded candidate reconciliation or complete configured-source reconciliation through the indexer reconciliation boundary.
+A full-reconciliation request supersedes path candidates in the same batch.
 
-An active execution blocks a second execution but does not block collection of the next pending batch. Inputs accepted while reconciliation is running remain pending for a later execution. A failed execution is returned to the pending state and merged with later work; its retry becomes eligible after one debounce interval, avoiding both silent event loss and an immediate tight retry loop. Indexer errors retain their path context, and indexing-plan rejections are reported as watcher execution failures.
+* Watcher execution
 
-Shutdown uses a flush policy. The controller stops accepting new inputs, allows an active execution to finish, and makes any pending batch immediately eligible without waiting for its debounce deadline. Shutdown is complete only when no active or pending batch remains.
+The watcher controller uses a default debounce interval of 250 milliseconds. Relevant input resets the pending deadline.
 
-* Filesystem event source
+The controller stores bounded normalized work, not an unbounded raw event queue.
 
-The filesystem adapter uses ~notify~ only for observation. Configured directory roots retain their recursive or non-recursive mode, and each configured root also adds a non-recursive parent watch so replacement of the watched directory remains observable. Explicit files are observed through a non-recursive parent watch so editor-style remove-and-replace saves remain visible. Indexer source-universe mappings additionally provide canonical directory and file-parent hints, including targets reached through symlinks. Covered targets are collapsed only when the covering recursive watch has the same filesystem identity, so nested mount boundaries retain their own validation target.
+Only one reconciliation runs at a time. Events that arrive during execution remain pending for the next run.
 
-The ~notify~ callback translates each result before buffering and never blocks waiting for the consumer. The translated-message buffer has capacity 1,024. One event retains at most 64 paths; a larger or pathless mutating event becomes one uncertainty marker. Backend diagnostics retain at most 16 paths and 1,024 message bytes. If the channel is full, the overflowing message is dropped, one atomic overflow marker is retained, and the next source read requests full configured-source reconciliation. Repeated overflow before consumption remains bounded to the same marker rather than growing an error queue.
+A failed execution remains eligible for a later retry through the controller state. The runtime itself does not hide failures in an uncontrolled loop.
 
-Create, ordinary modify, metadata, remove, complete or partial rename, and unknown path-bearing events contribute only backend-reported paths. Access-only events are ignored. Complete rename path order is preserved, while a partial rename remains a rename input and is conservatively escalated by normal batching. An event carrying ~need_rescan~ requests full configured-source reconciliation. Runtime backend errors produce a dropped-events recovery input with bounded context.
+Shutdown stops new event intake and flushes work that the controller already accepted.
 
-Watch creation, source-universe derivation, filesystem inspection, and registration failures are fatal setup or recovery errors with affected paths in their context. Watch-target planning reuses indexer discovery output rather than copying source eligibility, exclusion, identity, parsing, or database-mutation rules. Translated paths still pass through the indexer candidate normalizer, which ignores unrelated files and SQLite database or sidecar activity under ordinary configurations.
+* Filesystem observation
 
-* Watcher startup and recovery lifecycle
+The ~notify~ crate observes configured inputs. Source eligibility and database decisions remain in the indexer.
 
-The watcher runtime creates the filesystem source, refreshes its registrations once more, and only then runs the initial full configured-source reconciliation. The old and new registrations overlap during refresh, and the old bounded receiver is retained after the swap so events in the hand-off window are not silently discarded. At most two retired buffers are retained; exceeding that bound records dropped-event uncertainty. The backend channels remain active during synchronous reconciliation work. Source draining is limited to 1,025 messages per runtime cycle so an event storm cannot starve signals, debounce deadlines, or serial database work; undrained messages remain in bounded source buffers for later cycles.
+Configured directories keep their recursive mode. Parent watches help detect replacement of configured roots.
 
-Candidate execution remains inside the indexer discovery and transactional safety boundary without rebuilding registrations. Before full reconciliation the runtime derives the complete new target set, rejects changed identities for targets that remain relevant, validates and registers the replacement set, swaps watchers, and prepares a replacement indexer candidate normalizer before any database write. A missing, inaccessible, non-directory, or changed-filesystem target terminates the current runtime before indexer planning begins. On Linux the process-local guard compares the device and the containing ~/proc/self/mountinfo~ identity; other supported Unix systems compare the device identifier. The indexer additionally compares persisted configured-root evidence at startup and revalidates it after discovery and immediately before commit. A root replacement observed at any of those checkpoints is not accepted automatically; as with any path-based filesystem validation, an infinitesimal change after the final stat and before commit cannot be locked out without holding directory descriptors through the transaction.
+Explicit files also use parent observation. This supports editor save patterns that replace a file.
 
-A create, remove, rename, metadata, or unknown event whose path is exactly a registered watch target requests full reconciliation. Directory and symlink topology detected by the indexer normalizer does the same. Backend uncertainty also refreshes all registrations because dropped events may have hidden a relevant root replacement. Rescan requests, bounded-buffer overflow, overlap-buffer overflow, and runtime backend failures collapse into the controller's single pending reconciliation state. After a successful full reconciliation, the controller atomically replaces its indexer source-universe snapshot; normal file candidates do not rebuild watches or discovery state. Diagnostic recovery state is bounded: it retains a saturating uncertainty count, the latest affected watch target, and the latest bounded backend failure rather than an unbounded error queue.
+The translated event buffer is bounded. Overflow collapses to one uncertainty state and requests full reconciliation.
 
-The runtime does not retry failures invisibly. A source validation, registration refresh, channel, indexer execution, or plan-rejection failure terminates that runtime and returns the actionable error. The controller retains the failed normalized batch, while the last committed SQLite state remains protected by the indexer transaction and rollback contract. A later CLI lifecycle may report the failure and restart explicitly; it must not add an uncontrolled retry loop.
+A mutating event with no usable path also requests conservative reconciliation.
 
-* Watcher CLI lifecycle
+* Watcher startup and recovery
 
-The user-facing ~orgfdb watch --config PATH~ command loads the normal indexing configuration, opens the database with the configured FTS schema setting, installs Unix ~SIGINT~ and ~SIGTERM~ flags, and starts the existing watcher runtime. Readiness is reported only after watch registration and startup reconciliation both succeed.
+The watcher installs and refreshes registrations before its initial full reconciliation completes.
 
-Routine filesystem activity is silent. The command keeps stdout empty and writes only bounded lifecycle messages to stderr: ready, stopping, and stopped. Fatal source, registration, runtime, or indexer execution errors terminate the command with a non-zero status and retain the actionable context supplied by the lower layers.
+It keeps bounded overlap state during registration replacement. This reduces the risk of lost events during the hand-off.
 
-The event loop polls the non-blocking watcher runtime at a bounded 25 millisecond signal-check interval and sleeps only until the earlier of that boundary or the current debounce deadline. Once shutdown starts, the runtime no longer drains new source messages. It invokes the controller's close-and-flush policy so work accepted before the signal is executed immediately and no new event batch is admitted. No automatic restart, daemonization, service integration, or hidden retry loop is added.
+A changed registered root identity stops the runtime before database mutation. Backend uncertainty also refreshes registrations.
 
-* Transactional generation publication
+The runtime returns fatal source, registration, channel, indexer, and plan errors to its caller. It does not restart itself silently.
 
-The shared full-rebuild and incremental application transactions also publish the persistent database generation and affected-file journal used by external cached views. Watcher execution does not maintain a separate counter or journal. A changed watcher batch delegates to the same indexer transaction and advances the generation once; a no-op batch leaves it unchanged.
+Read [[../cli.org][CLI Reference]] for the user-facing ~watch~ lifecycle.
 
-Directly added, replaced, metadata-updated, renamed, or deleted files become ~upsert~ or ~delete~ journal actions. The resolver additionally reports otherwise unchanged source files whose persisted outgoing-link resolution fields changed. Indexing-context invalidations and full rebuilds publish full invalidation when an exact safe file delta is unavailable.
+* Generations and affected files
 
-See [[./index-generations-and-cached-views.org][Index Generations and Cached Query Views]] for schema, CLI, migration, race, and Emacs cache semantics.
+Full and incremental writes use the same persistent generation contract.
+
+A transaction that changes query-visible state advances the database generation once. A no-op reconciliation leaves it unchanged.
+
+The same transaction records affected owning files when an exact file delta is available.
+
+Full rebuilds and broad invalidations can publish a full invalidation instead of an unsafe partial delta.
+
+Read [[./index-generations-and-changes.org][Index Generations and Changes]] for the public consistency and delta contract.

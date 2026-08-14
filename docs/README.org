@@ -1,0 +1,42 @@
+#+TITLE: Documentation
+#+STARTUP: showall
+
+This directory separates user references, machine-readable contracts, contributor architecture, and design work.
+
+* User documentation
+
+- [[./cli.org][CLI Reference]] describes each ~orgfdb~ command and its options.
+- [[./config.org][Configuration Reference]] describes every supported TOML key.
+- [[./reference/query-language.org][Structural Query Language]] describes structural query syntax and matching semantics.
+- [[./reference/query-json.org][Query JSON Contract]] describes the stable ~orgfdb query --format json~ response.
+
+Use these documents when you use ~orgfdb~ or build a client for its current public interfaces.
+
+* Contributor documentation
+
+- [[./architecture.org][Architecture]] describes the current implementation at a high level.
+- [[./design/incremental-indexing.org][Incremental Indexing]] describes source discovery and reconciliation contracts.
+- [[./design/index-generations-and-changes.org][Index Generations and Changes]] describes committed generations and affected-file deltas.
+- [[./design/parser-risks.org][Parser Risks]] records known parser differences and risk decisions.
+- [[./performance-baseline.org][Performance Baseline]] describes the benchmark framework and historical measurements.
+
+These documents describe implementation boundaries or detailed internal contracts.
+
+* Planned design work
+
+- [[./design/presentation.org][Presentation Output Design]] describes planned query presentation output.
+
+A planned design document does not describe current CLI behavior. The document says explicitly when an interface does not exist yet.
+
+* Documentation ownership
+
+Use one primary document for each public fact.
+
+- Put command flags and command behavior in ~docs/cli.org~.
+- Put TOML keys and defaults in ~docs/config.org~.
+- Put structural query syntax in ~docs/reference/query-language.org~.
+- Put query JSON fields and include-controlled output in ~docs/reference/query-json.org~.
+- Put current module boundaries in ~docs/architecture.org~.
+- Put future architecture in a file under ~docs/design/~ and mark it as planned.
+
+The root ~README.org~ stays short. It links to these references instead of duplicating them.

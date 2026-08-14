@@ -112,7 +112,7 @@ enum Command {
         restrict_files_json: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
-        #[arg(help = "Query Model v0 expression, for example '(todo \"NEXT\")'")]
+        #[arg(help = "Structural query expression, for example '(todo \"NEXT\")'")]
         query: String,
     },
     Search {

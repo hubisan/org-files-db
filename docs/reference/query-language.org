@@ -1,0 +1,846 @@
+#+TITLE: Structural Query Language
+#+STARTUP: showall
+
+~orgfdb query~ uses a small Lisp-like language for structural queries over indexed Org data.
+
+This document describes the current implemented language. It does not describe planned presentation output or FTS5 search.
+
+* Quick examples
+
+Open TODO items:
+
+#+begin_src shell
+orgfdb query '(headings (not (done)))'
+#+end_src
+
+Resolved links:
+
+#+begin_src shell
+orgfdb query '(links (status "resolved"))'
+#+end_src
+
+Files with a project tag:
+
+#+begin_src shell
+orgfdb query '(files (tags "project"))'
+#+end_src
+
+A bare heading predicate is shorthand for a ~headings~ query:
+
+#+begin_src shell
+orgfdb query '(todo "NEXT")'
+#+end_src
+
+The previous command is equivalent to:
+
+#+begin_src shell
+orgfdb query '(headings (todo "NEXT"))'
+#+end_src
+
+* Basic grammar
+
+The main forms are:
+
+#+begin_src text
+(headings EXPR?)
+(links EXPR?)
+(files EXPR?)
+
+(and EXPR...)
+(or EXPR...)
+(not EXPR)
+
+(predicate ARG... :option VALUE...)
+#+end_src
+
+Strings use double quotes. Integers are bare numeric values.
+
+Boolean option values use ~t~ or ~nil~. Keyword values use forms such as ~:any~ or ~:all~.
+
+Quote the complete query expression in a normal shell. This prevents the shell from interpreting parentheses and spaces.
+
+* Targets
+
+The outer target controls the result domain.
+
+** ~headings~
+
+~headings~ returns real headings and matching synthetic file roots.
+
+A bare top-level predicate uses this target automatically.
+
+The complete heading-query domain contains:
+
+- every real heading
+- one synthetic file-root object for each indexed file
+
+A matching synthetic root is serialized as ~kind = "root"~. It is never serialized as a real ~heading~ result.
+
+** ~links~
+
+~links~ returns stored link objects.
+
+A link query requires the explicit ~links~ wrapper. Nested source or target filters change matching only.
+
+** ~files~
+
+~files~ returns file objects.
+
+File-level tags, properties, keywords, and preamble links use the synthetic file-root storage context.
+
+* Boolean expressions
+
+~and~ requires every child expression to match.
+
+#+begin_src lisp
+(and (todo "NEXT") (priority "A"))
+#+end_src
+
+~or~ requires at least one child expression to match.
+
+#+begin_src lisp
+(or (priority "A") (priority "B"))
+#+end_src
+
+~not~ negates exactly one child expression.
+
+#+begin_src lisp
+(not (done))
+#+end_src
+
+Boolean expressions work inside the active target domain.
+
+* Nested queries
+
+Relation predicates use explicit nested target wrappers.
+
+For example:
+
+#+begin_src lisp
+(has-link (links (status "broken")))
+#+end_src
+
+A nested query filters related indexed objects. The outer query still controls the returned result kind.
+
+Invalid nested targets are validation errors.
+
+* Common text options
+
+Several text predicates support these options.
+
+** ~:exact~
+
+~:exact t~ requests exact text matching for predicates that support it.
+
+The option is valid on:
+
+- ~title~
+- ~file-name~
+- ~file-path~
+- ~file-dir~
+- ~file-title~
+- ~outline-sequence~
+- ~link-target~
+- ~link-description~
+
+For most text predicates, ~:exact t~ requires one text argument. ~outline-sequence~ applies exact matching to each path segment.
+
+Do not combine ~:exact t~ with ~:regexp t~.
+
+** ~:regexp~
+
+~:regexp t~ uses Rust regular-expression matching for supported predicates.
+
+The option is valid on:
+
+- ~title~
+- ~has-text~
+- ~tags~
+- ~property~
+- ~keyword~
+- ~file-name~
+- ~file-path~
+- ~file-dir~
+- ~file-title~
+- ~outline-contains~
+- ~outline-sequence~
+- ~link-target~
+- ~link-description~
+
+Regular-expression matching requires backend regexp support. Matching is case-sensitive unless the pattern changes case behavior.
+
+The old ~tags-regexp~ operator is not supported. Use ~(tags "PATTERN" :regexp t)~.
+
+* Tag matching
+
+~tags~ works on ~headings~ and ~files~.
+
+Syntax:
+
+#+begin_src lisp
+(tags TAG... :inherit t|nil :regexp t|nil :match :any|:all)
+#+end_src
+
+At least one tag argument is required.
+
+For heading queries, ~:inherit~ defaults to ~t~. The query then uses effective tags, including inherited file or ancestor tags.
+
+For file queries, ~:inherit~ is not valid. File queries use tags stored for the file root.
+
+~:match :any~ is the default. At least one requested tag must match.
+
+~:match :all~ requires every requested tag to match.
+
+Examples:
+
+#+begin_src lisp
+(tags "project")
+(tags "project" "urgent" :match :all)
+(tags "^work-" :regexp t)
+#+end_src
+
+~tags-all~ is a parser alias for ~tags~ with ~:match :all~.
+
+#+begin_src lisp
+(tags-all "project" "urgent")
+#+end_src
+
+The parser normalizes that alias before semantic validation.
+
+* Property matching
+
+~property~ works on ~headings~ and ~files~.
+
+Syntax:
+
+#+begin_src lisp
+(property KEY [VALUE] :inherit t|nil :regexp t|nil)
+#+end_src
+
+One argument checks for the property key. Two arguments check the key and value.
+
+For heading queries, ~:inherit~ defaults to ~t~. The query uses the resolved effective property value.
+
+Use ~:inherit nil~ to restrict a heading query to direct stored property rows.
+
+File queries use direct file-root property rows. They do not accept ~:inherit~.
+
+~:regexp t~ requires a value argument. The regular expression applies to the resolved value.
+
+Effective values use one consistent rule for property drawer rows and file-level ~#+PROPERTY~ rows.
+
+The last non-append definition supplies the base value. All append definitions for the same key are added in source order.
+
+This rule can differ from Emacs Org for some repeated file-level ~#+PROPERTY~ sequences. Raw ~properties~ include data preserves source and append metadata.
+
+Examples:
+
+#+begin_src lisp
+(property "CATEGORY")
+(property "CATEGORY" "work")
+(property "OWNER" "^(Daniel|Alice)$" :regexp t)
+(property "LOCAL_ONLY" :inherit nil)
+#+end_src
+
+* Keyword matching
+
+~keyword~ works on ~headings~ and ~files~.
+
+Syntax:
+
+#+begin_src lisp
+(keyword KEY [VALUE] :inherit t|nil :regexp t|nil)
+#+end_src
+
+One argument checks the keyword key. Two arguments check the key and value.
+
+For heading queries, ~:inherit~ defaults to ~t~. Document keywords stored on the file root can then match contained headings.
+
+Use ~:inherit nil~ for direct candidate rows only. Document keywords are normally stored on the synthetic file root.
+
+File queries use file-root keyword facts. They do not accept ~:inherit~.
+
+~:regexp t~ requires a value argument. The regular expression applies to the keyword value, not the key.
+
+Examples:
+
+#+begin_src lisp
+(keyword "TITLE")
+(keyword "AUTHOR" "Alice")
+(keyword "CATEGORY" "^work" :regexp t)
+#+end_src
+
+* Heading predicates
+
+The following predicates are valid on ~headings~ unless another target is listed.
+
+** ~todo~
+
+Syntax:
+
+#+begin_src lisp
+(todo [KEYWORD...])
+#+end_src
+
+With no arguments, ~todo~ matches headings that have any TODO keyword.
+
+With arguments, it matches any listed stored TODO keyword. Keyword comparison is case-sensitive.
+
+#+begin_src lisp
+(todo)
+(todo "NEXT" "PLAN")
+#+end_src
+
+** ~done~
+
+Syntax:
+
+#+begin_src lisp
+(done)
+#+end_src
+
+~done~ matches headings whose stored TODO type is ~closed~.
+
+** ~title~
+
+Syntax:
+
+#+begin_src lisp
+(title STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+The default uses case-insensitive substring matching on normalized semantic titles.
+
+A title query can also match the synthetic file-root title. Such a result has ~kind = "root"~.
+
+#+begin_src lisp
+(title "Query Engine" :exact t)
+#+end_src
+
+** ~has-text~
+
+Syntax:
+
+#+begin_src lisp
+(has-text STRING... :regexp t|nil)
+#+end_src
+
+~has-text~ matches persisted heading body text. All supplied text arguments must match the same candidate body.
+
+The database must contain body text. Rebuild with body indexing enabled before you use this predicate.
+
+#+begin_src lisp
+(has-text "sqlite" "fts")
+(has-text "TODO|FIXME" :regexp t)
+#+end_src
+
+** ~level~
+
+Supported forms are:
+
+#+begin_src lisp
+(level NUMBER)
+(level MIN MAX)
+(level COMPARATOR NUMBER)
+#+end_src
+
+Comparators are ~<~, ~<=~, ~>~, and ~>=~.
+
+Examples:
+
+#+begin_src lisp
+(level 2)
+(level 1 3)
+(level >= 4)
+#+end_src
+
+The synthetic file root uses level ~0~.
+
+** ~priority~
+
+Supported forms are:
+
+#+begin_src lisp
+(priority VALUE...)
+(priority COMPARATOR VALUE)
+#+end_src
+
+The multi-value form uses OR matching. The comparator form accepts ~<~, ~<=~, ~>~, and ~>=~.
+
+Priority values are strings. A value is one uppercase letter from ~A~ through ~Z~, or a number from ~0~ through ~64~.
+
+The query rank maps ~A~ to ~1~, ~B~ to ~2~, and continues through ~Z~ as ~26~. Numeric strings use their numeric rank.
+
+A lower rank is a higher semantic priority. Thus ~A~ and ~1~ have the same query rank.
+
+The query engine does not evaluate Emacs priority variables or file-local ~#+PRIORITIES~ declarations.
+
+Examples:
+
+#+begin_src lisp
+(priority "A" "B")
+(priority > "B")
+#+end_src
+
+** File metadata predicates
+
+These predicates work on ~headings~ and ~files~:
+
+- ~file-name~
+- ~file-path~
+- ~file-dir~
+- ~file-title~
+- ~file-modified~
+
+They are not direct predicates on the ~links~ target. Use a nested ~source~ file query for link source files.
+
+*** ~file-name~
+
+#+begin_src lisp
+(file-name STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+This predicate matches the containing file name.
+
+*** ~file-path~
+
+#+begin_src lisp
+(file-path STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+This predicate matches the stored containing file path.
+
+A query value equal to ~~ or beginning with ~~/~ expands from the process ~HOME~ directory before matching.
+
+This expansion does not invoke a shell. It does not canonicalize the query value or require the path to exist.
+
+Named-user forms such as ~~alice/~ are not supported.
+
+*** ~file-dir~
+
+#+begin_src lisp
+(file-dir STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+This predicate matches the containing directory path. It uses the same leading-home expansion rule as ~file-path~.
+
+*** ~file-title~
+
+#+begin_src lisp
+(file-title STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+This predicate matches the effective file title.
+
+On a heading query, it filters real headings by their containing file. It can also match the synthetic root object in that heading domain.
+
+*** ~file-modified~
+
+#+begin_src lisp
+(file-modified :from DATE :to DATE :on DATE)
+#+end_src
+
+At least one date option is required. This predicate matches the persisted file modification time.
+
+It works on ~headings~ and ~files~.
+
+* Outline path predicates
+
+The complete heading path starts with the synthetic file-root title.
+
+** ~outline-contains~
+
+Syntax:
+
+#+begin_src lisp
+(outline-contains STRING... :regexp t|nil)
+#+end_src
+
+Every supplied argument must match some component in the complete path. The components do not need to be adjacent.
+
+~:regexp t~ applies each regular expression to individual path components.
+
+This predicate has no ~:exact~ option.
+
+** ~outline-sequence~
+
+Syntax:
+
+#+begin_src lisp
+(outline-sequence STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+The supplied arguments must match a contiguous sequence of path components in order.
+
+~:exact t~ requires exact component matches. ~:regexp t~ applies each pattern to its corresponding component.
+
+* Timestamp predicates
+
+These predicates work on ~headings~:
+
+- ~ts~
+- ~ts-active~
+- ~ts-inactive~
+- ~deadline~
+- ~scheduled~
+- ~closed~
+- ~planning~
+
+They accept ~:from~, ~:to~, and ~:on~.
+
+All timestamp predicates except ~file-modified~ can omit all three options. With no bounds, they test for the relevant stored timestamp presence.
+
+** Generic timestamps
+
+~ts~ matches any stored timestamp row for the heading.
+
+~ts-active~ matches active timestamp rows only. ~ts-inactive~ matches inactive timestamp rows only.
+
+** Planning timestamps
+
+~scheduled~, ~deadline~, and ~closed~ match their corresponding persisted planning values.
+
+~planning~ matches any stored ~scheduled~, ~deadline~, or ~closed~ value.
+
+* Date and time values
+
+Temporal options accept:
+
+- date strings such as ~"2026-01-03"~
+- datetimes such as ~"2026-01-03 09:15"~
+- ~today~
+- integer day offsets such as ~-7~, ~0~, or ~7~
+
+~file-modified~ also accepts RFC 3339 datetimes with an explicit offset.
+
+The effective timezone is ~query.timezone~ from configuration. If that value is absent, the process local timezone is used.
+
+The timezone selects the date for ~today~ and integer day offsets.
+
+~file-modified~ represents an absolute Unix instant. Offset-free dates and datetimes use the effective timezone for this predicate.
+
+A nonexistent local datetime is an error. An ambiguous local datetime is also an error unless an explicit RFC 3339 offset removes the ambiguity.
+
+Org planning and generic timestamp values remain timezone-naive. They do not accept offset datetimes.
+
+A date value describes the complete calendar day. A minute-precision datetime describes the complete minute.
+
+A second-precision datetime describes the complete second.
+
+~:from~ starts at the beginning of its value interval. ~:to~ includes the complete value interval.
+
+~:on~ matches exactly the complete interval represented by its value.
+
+Examples:
+
+#+begin_src lisp
+(scheduled :on today)
+(deadline :to 7)
+(ts-active :from "2026-01-01" :to "2026-12-31")
+(planning :from -30 :to today)
+(file-modified :from -7 :to today)
+#+end_src
+
+* Hierarchy predicates
+
+Hierarchy predicates work on ~headings~ and stay within one indexed file.
+
+Each predicate accepts no nested query or one explicit ~headings~ query.
+
+** ~parent~
+
+#+begin_src lisp
+(parent)
+(parent (headings EXPR))
+#+end_src
+
+~parent~ checks the direct parent only.
+
+The synthetic file root is the parent of each top-level Org heading. The synthetic root itself has no parent.
+
+** ~children~
+
+#+begin_src lisp
+(children)
+(children (headings EXPR))
+#+end_src
+
+~children~ checks direct children only.
+
+The direct children of a synthetic root are the top-level Org headings in that file.
+
+** ~ancestors~
+
+#+begin_src lisp
+(ancestors)
+(ancestors (headings EXPR))
+#+end_src
+
+~ancestors~ checks one or more strict levels upward. A heading never matches itself through this relation.
+
+Every real heading has the synthetic root among its ancestors.
+
+** ~descendants~
+
+#+begin_src lisp
+(descendants)
+(descendants (headings EXPR))
+#+end_src
+
+~descendants~ checks one or more strict levels downward. A heading never matches itself through this relation.
+
+A matching real descendant can make its synthetic root eligible as the outer heading-domain result.
+
+** Example
+
+For this outline:
+
+#+begin_src org
+,#+TITLE: hierarchy-example
+
+,* Parent
+,** Child
+,*** Grandchild
+#+end_src
+
+~(parent (headings (title "Parent")))~ matches ~Child~ only.
+
+~(children (headings (title "Grandchild")))~ matches ~Child~ only.
+
+~(ancestors (headings (title "Parent")))~ matches ~Child~ and ~Grandchild~.
+
+~(descendants (headings (title "Grandchild")))~ matches ~Parent~ and ~Child~.
+
+* Link relation predicates on headings and files
+
+These predicates work on ~headings~ and ~files~. They do not work directly on returned link objects.
+
+** ~has-link~
+
+Syntax:
+
+#+begin_src lisp
+(has-link)
+(has-link (links EXPR))
+#+end_src
+
+With no nested query, ~has-link~ tests for any contained stored link.
+
+With a nested query, at least one contained link must match that ~links~ query.
+
+A file query includes links stored in file preamble or root context.
+
+** ~links-to~
+
+Syntax:
+
+#+begin_src lisp
+(links-to (headings EXPR))
+(links-to (files EXPR))
+#+end_src
+
+The outer heading or file must have an outgoing resolved target that matches the nested query.
+
+** ~linked-from~
+
+Syntax:
+
+#+begin_src lisp
+(linked-from :any)
+(linked-from (headings EXPR))
+(linked-from (files EXPR))
+#+end_src
+
+~:any~ means any stored incoming resolved relation.
+
+A nested query filters the source heading or source file of incoming links.
+
+* Link predicates
+
+The following predicates work only on ~links~.
+
+** ~link-type~
+
+#+begin_src lisp
+(link-type TYPE...)
+#+end_src
+
+The predicate matches any listed stored link type.
+
+** ~link-target~
+
+#+begin_src lisp
+(link-target STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+The predicate matches stored authored target text.
+
+The default uses case-insensitive substring matching.
+
+** ~link-description~
+
+#+begin_src lisp
+(link-description STRING... :regexp t|nil :exact t|nil)
+#+end_src
+
+The predicate matches stored authored link descriptions.
+
+** ~has-description~
+
+#+begin_src lisp
+(has-description)
+#+end_src
+
+The predicate matches links that have a stored description.
+
+** ~status~
+
+#+begin_src lisp
+(status STATUS...)
+#+end_src
+
+Supported stored resolution states are:
+
+- ~resolved~
+- ~broken~
+- ~unresolved~
+- ~ambiguous~
+- ~unsupported~
+
+A null stored status means no resolver pass populated the row. ~status~ matches non-null persisted status strings.
+
+~resolved~ means exactly one supported indexed target exists.
+
+~broken~ means a target is expected inside the indexed universe but no valid target exists.
+
+~unresolved~ means the resolver lacks a supported indexed target or sufficient resolution information.
+
+~ambiguous~ means several candidate targets prevent a unique result.
+
+~unsupported~ means the resolver does not support that link or target form.
+
+** ~source~
+
+Syntax:
+
+#+begin_src lisp
+(source :any)
+(source (headings EXPR))
+(source (files EXPR))
+#+end_src
+
+~source~ filters link objects by their indexed source relation.
+
+~:any~ accepts any indexed source. A nested query filters the source heading or containing source file.
+
+** ~target~
+
+Syntax:
+
+#+begin_src lisp
+(target :any)
+(target (headings EXPR))
+(target (files EXPR))
+#+end_src
+
+~target~ filters link objects by their resolved indexed target relation.
+
+~:any~ accepts any resolved indexed target. A nested query filters resolved target headings or files.
+
+Broken, unresolved, ambiguous, and unsupported links do not match a structured target relation.
+
+* File-target predicates
+
+The ~files~ target supports:
+
+- ~file-name~
+- ~file-path~
+- ~file-dir~
+- ~file-title~
+- ~file-modified~
+- ~tags~
+- ~tags-all~
+- ~property~
+- ~keyword~
+- ~has-link~
+- ~links-to~
+- ~linked-from~
+
+File queries do not accept heading-only hierarchy, TODO, planning, outline, or body predicates.
+
+* Root and file semantics
+
+Each indexed file has one synthetic level-0 root object.
+
+The ~headings~ target evaluates its predicates over real headings plus these root objects when the predicate supports root participation.
+
+A matching root becomes a file-shaped result with ~kind = "root"~.
+
+A ~files~ query returns file-shaped results with ~kind = "file"~.
+
+This difference lets clients distinguish a file result from the same file participating in a heading-domain query.
+
+File metadata predicates on a ~headings~ query examine the containing file for real headings. They also evaluate the synthetic root object.
+
+* Query output and includes
+
+Query matching is independent from output shape and includes.
+
+Use ~--output flat~ or ~--output outline~ to select result shape.
+
+Use ~--include~ to request optional structured data. Includes do not change which objects match.
+
+Read [[../cli.org][CLI Reference]] for options. Read [[./query-json.org][Query JSON Contract]] for response fields.
+
+* File restrictions
+
+~--restrict-files-json~ adds an exact owning-file restriction outside the query expression.
+
+The restriction applies to all three structural targets. It does not rewrite the query syntax or weaken existing predicates.
+
+Read [[../cli.org][CLI Reference]] for the command option.
+
+* Error behavior
+
+Malformed syntax is a query parse error. Unknown predicates and invalid target combinations are validation errors.
+
+Invalid options, wrong arity, invalid values, and unsupported backend features are also validation errors.
+
+Query parse and validation errors use command exit code ~1~.
+
+Examples of invalid forms include:
+
+#+begin_src lisp
+(tags-regexp "project")
+(links (file-path "notes.org"))
+(headings (status "broken"))
+(property "CATEGORY" :regexp t)
+#+end_src
+
+Use a nested source file query to filter links by source file:
+
+#+begin_src lisp
+(links (source (files (file-path "notes.org" :exact t))))
+#+end_src
+
+* Complete examples
+
+#+begin_src shell
+orgfdb query '(headings)'
+orgfdb query '(headings (not (done)))'
+orgfdb query '(and (todo "NEXT") (priority "A"))'
+orgfdb query '(headings (tags "project" "urgent" :match :all))'
+orgfdb query '(headings (property "CATEGORY" "work"))'
+orgfdb query '(headings (keyword "AUTHOR" "Alice"))'
+orgfdb query '(headings (file-modified :from -7 :to today))'
+orgfdb query '(headings (scheduled :on today))'
+orgfdb query '(headings (children (headings (todo "NEXT"))))'
+orgfdb query '(headings (has-link (links (status "broken"))))'
+orgfdb query '(headings (links-to (files (file-title "Projects" :exact t))))'
+orgfdb query '(files (tags "project"))'
+orgfdb query '(files (linked-from :any))'
+orgfdb query '(links (link-type "file" "id"))'
+orgfdb query '(links (status "broken" "unresolved"))'
+orgfdb query '(links (source (files (file-name "inbox.org" :exact t))))'
+orgfdb query '(links (target (headings (title "Architecture" :exact t))))'
+#+end_src

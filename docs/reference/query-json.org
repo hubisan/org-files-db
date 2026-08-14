@@ -1,0 +1,470 @@
+#+TITLE: Query JSON Contract
+#+STARTUP: showall
+
+This document describes the current machine-readable contract for:
+
+#+begin_src shell
+orgfdb query --format json QUERY
+#+end_src
+
+This contract remains the compatibility interface for existing structural-query clients.
+
+Planned presentation output is a separate opt-in format. It does not replace or modify this JSON contract.
+
+* Contract scope
+
+The contract covers:
+
+- the top-level response envelope
+- result node kinds
+- flat and outline result shape
+- include-controlled fields
+- structured source and target objects
+
+The contract describes field names, field types, and field meaning. Pretty-print whitespace is not part of the semantic contract.
+
+* Top-level response
+
+A query response contains:
+
+#+begin_src json
+{
+  "target": "headings",
+  "output": "flat",
+  "includes": [],
+  "results": []
+}
+#+end_src
+
+Fields:
+
+- ~target~ is ~headings~, ~links~, or ~files~.
+- ~output~ is ~flat~ or ~outline~.
+- ~includes~ contains the normalized enabled include names.
+- ~results~ contains result nodes.
+
+The current query response does not contain ~database_id~ or ~generation~. Use ~orgfdb status~ when a client needs committed database identity information.
+
+* Result kinds
+
+Every top-level or nested result node has a ~kind~ field.
+
+Supported kinds are:
+
+- ~file~
+- ~root~
+- ~heading~
+- ~link~
+
+A ~files~ query returns ~file~ nodes.
+
+A real heading in a ~headings~ query returns a ~heading~ node. A synthetic file root in that domain returns a ~root~ node.
+
+A ~links~ query returns ~link~ nodes.
+
+Outline context can also contain file-root and heading nodes needed to represent hierarchy.
+
+* Common result fields
+
+Every result node has:
+
+- ~kind~
+- ~matched~
+- ~location~
+
+~matched~ is true for an object that matched the query. It can be false for an outline context node.
+
+~location~ contains:
+
+#+begin_src json
+{
+  "file_path": "/home/user/notes/example.org",
+  "line": 12,
+  "byte_start": 128,
+  "byte_end": 182
+}
+#+end_src
+
+Location fields can be null where the stored object has no corresponding source position.
+
+The canonical owning file path is always available through ~location.file_path~ on structural result nodes.
+
+* File and root nodes
+
+A file-shaped node contains:
+
+- ~kind~
+- ~matched~
+- ~id~
+- ~level~
+- ~path~
+- ~name~
+- ~dir~
+- ~title~
+- ~title_raw~
+- ~root_heading_id~
+- ~mtime_ns~
+- ~size~
+- ~content_hash~
+- ~indexed_at~
+- ~location~
+- ~tags~
+
+Optional include or outline fields are:
+
+- ~node_path~
+- ~properties~
+- ~effective_properties~
+- ~keywords~
+- ~links~
+- ~backlinks~
+- ~children~
+
+A direct ~files~ query uses ~kind = "file"~.
+
+A synthetic root returned through the ~headings~ domain uses ~kind = "root"~ and ~level = 0~.
+
+A root used as hierarchy context in a heading or link outline also represents the synthetic file root.
+
+* Heading nodes
+
+A heading node contains:
+
+- ~kind~
+- ~matched~
+- ~id~
+- ~file_id~
+- ~parent_id~
+- ~level~
+- ~title~
+- ~title_raw~
+- ~todo_keyword~
+- ~todo_type~
+- ~priority~
+- ~scheduled_raw~
+- ~scheduled_ts~
+- ~deadline_raw~
+- ~deadline_ts~
+- ~closed_raw~
+- ~closed_ts~
+- ~archivedp~
+- ~footnote_section_p~
+- ~all_tags~
+- ~location~
+
+Optional include or outline fields are:
+
+- ~node_path~
+- ~properties~
+- ~effective_properties~
+- ~keywords~
+- ~links~
+- ~backlinks~
+- ~children~
+
+~all_tags~ is always an array of strings. It contains the stored effective tags for the heading.
+
+Planning raw fields and timestamp fields are null when the corresponding metadata is absent.
+
+* Link nodes
+
+A link node contains:
+
+- ~kind~
+- ~matched~
+- ~id~
+- ~file_id~
+- ~heading_id~
+- ~heading_level~
+- ~source_context~
+- ~format~
+- ~link_type~
+- ~raw~
+- ~raw_target~
+- ~raw_description~
+- ~link_path~
+- ~search_option~
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+- ~resolution_status~
+- ~resolution_diagnostic~
+- ~location~
+
+Optional include fields are:
+
+- ~node_path~
+- ~source~
+- ~target~
+
+Several resolution fields can be null. A null ~resolution_status~ means no resolver pass populated a stored status.
+
+The current non-null status values are:
+
+- ~resolved~
+- ~broken~
+- ~unresolved~
+- ~ambiguous~
+- ~unsupported~
+
+* Flat output
+
+~--output flat~ is the default.
+
+Flat output returns matched result objects without ancestor context trees.
+
+The ~results~ array can use an order that differs by target. The result shaper keeps this order deterministic for the same database state.
+
+A flat heading query can return both ~root~ and ~heading~ nodes. A flat file query returns ~file~ nodes only.
+
+* Outline output
+
+~--output outline~ returns file-root trees.
+
+For heading queries:
+
+- file roots are top-level nodes
+- required ancestor headings appear as context
+- matched nodes use ~matched = true~
+- context nodes use ~matched = false~
+
+For link queries:
+
+- file roots are top-level nodes
+- source heading hierarchy provides context
+- link nodes appear under their source context
+- links in file-root context can appear directly below the root
+
+For file queries, outline output returns matched file nodes with an empty ~children~ collection. It does not expand contained headings automatically.
+
+The ~children~ field exists only where outline shaping supplies hierarchy.
+
+* ~path~ include
+
+Use:
+
+#+begin_src shell
+orgfdb query --include path '(headings)'
+#+end_src
+
+This include adds ~node_path~.
+
+~node_path~ is an array of path entries from the file root through the result context.
+
+A file path entry has:
+
+#+begin_src json
+{
+  "kind": "file",
+  "id": 1,
+  "path": "/home/user/notes/example.org",
+  "title": "Example",
+  "title_raw": "Example"
+}
+#+end_src
+
+A heading path entry has:
+
+#+begin_src json
+{
+  "kind": "heading",
+  "id": 42,
+  "title": "Architecture",
+  "title_raw": "Architecture",
+  "level": 2
+}
+#+end_src
+
+~path~ adds data to ~headings~, ~links~, and ~files~ results.
+
+* ~properties~ include
+
+Use:
+
+#+begin_src shell
+orgfdb query --include properties '(headings)'
+#+end_src
+
+This include adds ~properties~ to heading-shaped and file-shaped nodes.
+
+Each property fact contains:
+
+- ~key~
+- ~value~
+- ~source~
+- ~append~
+- ~line_number~
+
+These are raw stored property rows. Duplicate definitions remain separate.
+
+~append~ records whether the source row used append semantics.
+
+This include adds data to ~headings~ and ~files~ results.
+
+* ~effective_properties~ include
+
+Use:
+
+#+begin_src shell
+orgfdb query --include effective_properties '(headings)'
+#+end_src
+
+This include adds ~effective_properties~.
+
+Each effective property contains:
+
+- ~key~
+- ~value~
+
+These values are the resolved values used by effective property matching.
+
+This include adds data to ~headings~ and ~files~ results.
+
+* ~keywords~ include
+
+Use:
+
+#+begin_src shell
+orgfdb query --include keywords '(files)'
+#+end_src
+
+This include adds ~keywords~.
+
+Each keyword fact contains:
+
+- ~keyword~
+- ~value~
+- ~line_number~
+
+Keyword rows preserve separate stored entries.
+
+This include adds data to ~headings~ and ~files~ results. Heading results obtain document keyword context through the stored file root where applicable.
+
+* ~links~ and ~backlinks~ includes
+
+Use:
+
+#+begin_src shell
+orgfdb query --include links,backlinks '(headings)'
+#+end_src
+
+~links~ adds outgoing included-link objects. ~backlinks~ adds incoming included-link objects.
+
+These includes add data to ~headings~ and ~files~ results.
+
+An included-link object contains:
+
+- ~id~
+- ~source_context~
+- ~format~
+- ~link_type~
+- ~raw~
+- ~raw_target~
+- ~raw_description~
+- ~link_path~
+- ~search_option~
+- ~path_absolute~
+- ~target_file_id~
+- ~target_heading_id~
+- ~target_custom_id~
+- ~target_id~
+- ~resolution_status~
+- ~resolution_diagnostic~
+- ~location~
+- ~source_path~
+- ~source~
+- ~target~
+
+Included-link objects contain structured source and target objects directly. They do not require separate ~source~ or ~target~ query includes.
+
+* ~source~ include for link results
+
+Use:
+
+#+begin_src shell
+orgfdb query --include source '(links)'
+#+end_src
+
+This include adds a ~source~ object to each link result.
+
+The source object contains:
+
+- ~file~
+- optional ~heading~
+- ~source_path~
+
+A file reference contains:
+
+- ~id~
+- ~path~
+- ~title~
+- ~title_raw~
+
+A heading reference contains:
+
+- ~id~
+- ~title~
+- ~title_raw~
+- ~level~
+- ~outline_path~
+
+~source~ adds data to ~links~ results only.
+
+* ~target~ include for link results
+
+Use:
+
+#+begin_src shell
+orgfdb query --include target '(links (status "resolved"))'
+#+end_src
+
+This include adds a ~target~ object to each link result.
+
+The target object contains:
+
+- ~resolved_kind~
+- optional ~file~
+- optional ~heading~
+- ~raw_target~
+- ~resolution_status~
+- ~resolution_diagnostic~
+
+~resolved_kind~ can identify a resolved ~headings~ or ~files~ relation when structured target data exists.
+
+The file and heading reference shapes are the same as the source reference shapes.
+
+Unresolved, broken, ambiguous, or unsupported links can have no structured file or heading target.
+
+~target~ adds data to ~links~ results only.
+
+* Include normalization
+
+The response ~includes~ array contains unique enabled includes in deterministic normalized order.
+
+Supplying the same include more than once does not duplicate the field or the include name.
+
+The CLI does not reject a listed include because of the query target. A non-applicable include adds no field for that result kind.
+
+The response still lists that enabled include in ~includes~. Includes do not change query matching.
+
+* Ownership and file-restricted refresh
+
+Every structural top-level result retains an owning file path independent of display choices in a client.
+
+- file-shaped nodes have ~path~ and ~location.file_path~
+- heading nodes have ~location.file_path~
+- link nodes have ~location.file_path~
+
+This ownership is also available when ~--restrict-files-json~ limits query execution.
+
+* Compatibility rule for presentation work
+
+Future presentation output must use another explicit format. It must not change this response envelope or these existing node fields.
+
+Clients that depend on the current structural data contract can continue to use:
+
+#+begin_src shell
+orgfdb query --format json QUERY
+#+end_src

@@ -1,0 +1,233 @@
+#+TITLE: Index Generations and Changes
+#+STARTUP: showall
+
+This document describes the committed index-state and affected-file journal. External clients can use this data to detect database changes.
+
+This document does not define the planned presentation cache architecture. The planned presentation path starts without a cache.
+
+* Consistency model
+
+Every database has a persistent ~database_id~ and a monotonic ~generation~.
+
+#+begin_example
+same database_id and same generation
+-> same known committed query-visible state
+
+same database_id and newer generation
+-> committed query-visible state changed
+
+different database_id
+-> different or recreated database identity
+#+end_example
+
+~last_changed_at~ is an RFC 3339 UTC timestamp. It changes only when the committed generation advances.
+
+A successful no-op reconciliation leaves ~generation~ and ~last_changed_at~ unchanged.
+
+The indexer advances the generation in the same SQLite transaction as query-visible data changes. A reader sees either the old complete state or the new complete state.
+
+A failed transaction publishes neither the new data nor the new generation.
+
+One committed logical batch advances the generation once. The number of changed files in the batch does not change that rule.
+
+Filesystem events, queries, searches, WAL activity, and SQLite maintenance do not advance the generation.
+
+* Persistent state
+
+Schema version 12 introduced these index-state tables:
+
+- ~index_state~ stores the database identity, current generation, and ~last_changed_at~.
+- ~index_generations~ stores one row for each committed generation and its full-invalidation flag.
+- ~index_generation_files~ stores the final affected-file action for each path in a generation.
+
+A new empty database starts at generation ~0~. It has no generation journal rows.
+
+The first successful full rebuild advances the database to generation ~1~ and publishes full invalidation.
+
+A populated database migrated from an older schema receives a new database identity and full invalidation. Existing indexed content remains available after migration.
+
+An ordinary rebuild preserves ~database_id~. Recreating the database file creates a new identity.
+
+* Affected-file journal
+
+The journal records canonical files whose persisted query-visible state changed.
+
+Public actions are:
+
+- ~upsert~ means that the current result data for this owning path changed.
+- ~delete~ means that the owning path no longer exists in the committed indexed set.
+
+A rename produces a delete for the old path and an upsert for the new path.
+
+A source file can receive an upsert even when its source text did not change. Link-resolution changes can modify its persisted query-visible link state.
+
+For example, deleting a target file can change links stored in several unchanged source files. Those source files then receive upsert actions.
+
+The changes reader collapses several generations to one final action for each path. Returned path lists use deterministic order.
+
+The current implementation does not automatically remove old journal history. The public contract still exposes ~oldest_available_generation~ for future retention policies.
+
+* Full invalidation
+
+A generation uses ~full_invalidation = true~ when an exact safe affected-file set is unavailable.
+
+Current full-invalidation cases include:
+
+- a successful full rebuild
+- migration of a populated database from a schema before generation support
+- an incremental context change that cannot use a safe file delta
+
+If the requested interval contains full invalidation, ~orgfdb changes~ returns ~cache_action = rebuild~.
+
+The stable reason is ~full-invalidation~.
+
+* ~orgfdb status~
+
+Use ~status~ to read the current committed identity and generation:
+
+#+begin_src shell
+orgfdb status --config ./org-files-db.toml --format json
+#+end_src
+
+Example:
+
+#+begin_src json
+{
+  "schema_version": 12,
+  "database_path": "/home/user/notes/org-files-db.sqlite",
+  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
+  "generation": 1842,
+  "last_changed_at": "2026-08-05T00:42:10Z"
+}
+#+end_src
+
+~database_path~ is the canonical path of the database that the command opened.
+
+A client can use this path to locate the SQLite main file, WAL file, and SHM file. Filesystem activity remains only a wake-up signal.
+
+The identity and generation are the logical consistency values.
+
+* ~orgfdb changes~
+
+Use ~changes~ to read the committed delta after a previous generation:
+
+#+begin_src shell
+orgfdb changes \
+  --config ./org-files-db.toml \
+  --database-id 74f470e2-0354-4ed8-b2e0-e0647e0c706a \
+  --since-generation 1840 \
+  --format json
+#+end_src
+
+A patch response can look like this:
+
+#+begin_src json
+{
+  "schema_version": 12,
+  "database_id": "74f470e2-0354-4ed8-b2e0-e0647e0c706a",
+  "from_generation": 1840,
+  "to_generation": 1843,
+  "oldest_available_generation": 0,
+  "cache_action": "patch",
+  "complete": true,
+  "reason": null,
+  "upsert_files": [
+    "/home/user/notes/project.org"
+  ],
+  "deleted_files": [
+    "/home/user/notes/old.org"
+  ]
+}
+#+end_src
+
+~cache_action~ has these meanings:
+
+- ~unchanged~ means that ~since-generation~ equals the current generation.
+- ~patch~ means that the complete interval has exact file actions and no full invalidation.
+- ~rebuild~ means that an exact file patch is not available for this transition.
+
+Stable ~reason~ values are:
+
+- ~database-id-changed~
+- ~history-unavailable~
+- ~full-invalidation~
+
+A database-ID mismatch returns a normal JSON response with ~cache_action = rebuild~.
+
+A requested generation newer than the current generation is an error.
+
+~complete = false~ means that the exact requested history is not available. A changed identity and unavailable history use this state.
+
+~complete = true~ with ~cache_action = rebuild~ means that history is complete but contains full invalidation.
+
+* File-restricted structural queries
+
+~orgfdb query --restrict-files-json~ can limit a structural query to exact owning file paths.
+
+Example:
+
+#+begin_src shell
+orgfdb query \
+  --config ./org-files-db.toml \
+  --restrict-files-json /tmp/affected-files.json \
+  '(headings (not (done)))'
+#+end_src
+
+The JSON file contains an array of exact persisted canonical paths:
+
+#+begin_src json
+[
+  "/home/user/notes/a.org",
+  "/home/user/notes/b with spaces.org"
+]
+#+end_src
+
+Use ~--restrict-files-json -~ to read the array from standard input.
+
+An empty array returns no results. Duplicate paths are removed. Unknown paths return no results.
+
+The restriction adds an owning-file condition. It does not rewrite or weaken the structural query.
+
+It applies to ~headings~, ~links~, and ~files~.
+
+* Client patch safety
+
+~cache_action = patch~ describes the database journal only. It does not prove that every client view is safe to patch by file.
+
+A client can use file replacement only when its own result semantics remain local to each owning file.
+
+Examples that can require a complete rerun include:
+
+- corpus-ranked FTS search
+- top-N or offset views
+- global aggregates
+- queries whose membership depends on incoming links from other files
+- presentation rows that embed cross-file target or backlink data
+
+The client owns this higher-level decision.
+
+The planned presentation architecture does not use this mechanism initially. Benchmarks will determine whether presentation caching is necessary.
+
+* Refresh races
+
+Separate CLI processes do not share one long-lived SQLite read transaction.
+
+A client that applies generation-based refresh must check the generation again before it publishes refreshed state.
+
+A safe pattern is:
+
+1. Read changes up to generation N.
+2. Refresh client state for that transition.
+3. Read the committed state again.
+4. Publish the refreshed state only if the database is still at generation N.
+5. If the generation changed, continue from N or rerun the refresh.
+
+This generation check protects the client from a writer that commits during refresh work.
+
+* SQLite file notifications
+
+A client can monitor the directory that contains ~database_path~. Activity on the main database, WAL, or SHM file can trigger a status check.
+
+File modification times and file sizes do not define a logical index change. A WAL write also does not define one.
+
+After a wake-up, read ~orgfdb status~ or ~orgfdb changes~. Use ~database_id~ and ~generation~ as the authoritative state.

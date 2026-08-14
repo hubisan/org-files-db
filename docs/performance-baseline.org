@@ -3,11 +3,17 @@
 
 * Purpose
 
-The benchmark records Query Model v0 and production-search behaviour across the historical baseline and named index profiles. The runner is measurement-only: it does not change authoritative indexes, schema versions, query semantics, or CI thresholds. Schema version 10 materializes effective property values, schema version 11 materializes effective tags, and schema version 12 adds transactional index generations and affected-file journalling. The derived metadata projections continue to avoid reconstructing heading ancestry at query time.
+The benchmark measures structural queries and production FTS5 search. It also records historical index-tuning evidence.
+
+The benchmark does not change authoritative schema decisions, query semantics, or CI limits.
+
+Schema version 10 materialized effective properties. Schema version 11 materialized effective tags. Schema version 12 added index generations and affected-file journaling.
+
+These projections avoid repeated query-time reconstruction of inherited metadata.
 
 * Run
 
-Use an optimized release build and explicit, untracked output paths:
+Use an optimized release build. Use new, untracked paths for the work directory and JSON output.
 
 #+begin_src sh
 cargo run --release --bin orgfdb-benchmark -- \
@@ -16,33 +22,84 @@ cargo run --release --bin orgfdb-benchmark -- \
   --output /tmp/orgfdb-benchmark.json
 #+end_src
 
-The corpus generator contract is versioned and its manifest contains the file count, expected heading and link cardinalities, seed, generation duration, and SHA-256 fingerprint. It generates deterministic directory and filename groups, shallow/wide and deep outlines, TODO states, tags, direct properties, planning and generic timestamps, repeaters, resolved and broken links, title/body tokens, and varying body sizes. The workload matrix measures direct tag matching separately from inherited tag matching; inherited tag SQL must use ~effective_tags~ and its lookup index. The fingerprint uses tagged length-prefixed relative native paths and exact file bytes. The runner requires both a new work directory and a new output path, writes JSON only to the requested output path, and does not modify source fixtures or documentation.
+The corpus generator is deterministic for the same version, file count, and seed.
+
+Its manifest records:
+
+- file count
+- expected heading count
+- expected link count
+- seed
+- generation duration
+- SHA-256 fingerprint
+
+The corpus includes several outline shapes and indexed Org features. These include TODO states, tags, properties, timestamps, links, and search text.
+
+The workload matrix measures direct and inherited tag matching separately. Inherited tag queries use the materialized ~effective_tags~ projection.
+
+The runner writes benchmark JSON only to the requested output path. It does not modify source fixtures or documentation.
 
 * Measurement protocol
 
-Workloads have stable IDs and are measured in stable order. Query Model workloads use parser, validator, compiler, executor, and both flat and outline result materialization. FTS title and body workloads use the existing production search path; unavailable or disabled FTS is recorded as a structured skip and is never replaced by LIKE or regexp.
+Workloads have stable IDs and a stable execution order.
 
-After rebuilding, the writer connection is closed. Each workload group then opens one fresh read-only connection for the single cold-connection end-to-end sample, closes it, and uses a second fresh read-only connection for its warm-ups and measured samples. The runner records parser/validation/compiler timing separately from validated-query end-to-end execution and result materialization; it does not claim a separate compiled-SQL-only timing. It runs five warm-ups and thirty measured executions by default. A newly opened connection is described as a cold connection only; it is not evidence of a cold operating-system or storage cache. Optional OS-cache experiments must be performed and documented separately by the operator.
+Structural query workloads use the production parser, validator, compiler, executor, and result shaper.
 
-* Output and size policy
+FTS title and body workloads use the production search path. An unavailable FTS feature becomes a structured skip.
 
-Each workload records its expression, production path, output mode, compiled SQL, deterministic parameters, result count, cold-connection end-to-end sample, warmed timing distributions, and =EXPLAIN QUERY PLAN= details. Variant records include FTS capability and structured skips. The environment records command arguments, build profile, OS/architecture, available CPUs where available, SQLite version and compile options, relevant pragma values, and explicit unknown storage notes.
+The runner does not replace unavailable FTS with ~LIKE~ or regular-expression queries.
 
-For each database variant, the output records corpus rebuild duration, main database size before and after checkpoint, WAL size before and after =wal_checkpoint(TRUNCATE)=, page count, page size, freelist count, and journal mode. The checkpoint policy is identical for all variants. =VACUUM= is not part of the normal baseline.
+After rebuild, the runner closes the writer connection. Each workload group opens a fresh read-only connection for one cold-connection sample.
 
-Commit the generator, runner, output schema, and tests. Benchmark JSON is intentionally local and untracked, including small machine-specific examples, so the repository does not imply that one machine's timings are a reference baseline.
+The runner then opens another read-only connection for warm-up and measured samples.
 
-* SQLite linkage and optional dbstat evidence
+By default, it uses five warm-ups and thirty measured executions.
 
-The project enables the ~rusqlite~ ~functions~ feature but does not enable bundled SQLite. On Unix-like systems, ~libsqlite3-sys~ therefore resolves an external SQLite library through the normal build environment, commonly through ~pkg-config~. The exact linked library is environment-specific and may differ from the SQLite implementation used by the system ~sqlite3~ executable. Matching version numbers do not prove matching binaries or compile options.
+A fresh connection is only a cold connection. It does not prove that operating-system or storage caches are cold.
 
-The benchmark records the runtime SQLite version and compile options of the library linked into the Rust process. It also probes ~sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')~ and performs a direct query against ~dbstat~. A successful direct query is the capability check. When the linked library does not provide ~dbstat~, the benchmark records a structured skip containing the direct SQLite error, the compile-option result, ~sqlite_version()~, and ~sqlite_source_id()~. Missing ~dbstat~ support does not fail the benchmark.
+Run separate experiments if you need operating-system cache measurements.
 
-When available, ~dbstat~ supplies direct per-index page count, allocated bytes, and payload bytes after the documented checkpoint state. This evidence isolates individual index storage cost from unrelated whole-database variation. It does not establish whether an index improves a workload; planner output, timing distributions, rebuild duration, and incremental-update measurements remain authoritative for that decision.
+* Recorded output
 
-OrgFDB deliberately does not change project-wide SQLite linkage, require bundled SQLite, or require a custom SQLite build solely to obtain ~dbstat~. Runtime detection and structured skip reporting are the portable contract. Developers may use a locally supplied dbstat-enabled external SQLite library for additional benchmark evidence without making that capability a normal installation requirement.
+Each workload records important execution evidence, including:
 
-On Linux, inspect the exact linked libraries and capabilities with:
+- query expression
+- production path
+- output mode
+- compiled SQL
+- deterministic parameters
+- result count
+- cold-connection sample
+- warmed timing distributions
+- ~EXPLAIN QUERY PLAN~ output
+
+The environment record includes build and SQLite information. It also records relevant command arguments and available platform details.
+
+For each database variant, the output records database and WAL size evidence around the standard checkpoint.
+
+The normal baseline does not run ~VACUUM~.
+
+Keep machine-specific benchmark JSON untracked. Repository documentation must not present one machine as a universal timing baseline.
+
+* SQLite linkage and dbstat
+
+The project enables the ~rusqlite~ ~functions~ feature. It does not enable bundled SQLite.
+
+On Unix-like systems, the build therefore uses an external SQLite library from the normal build environment.
+
+The Rust process and the system ~sqlite3~ command can use different SQLite libraries. Equal version numbers do not prove equal binaries.
+
+The benchmark records the runtime SQLite version and compile options from its own linked library.
+
+It also tests ~sqlite_compileoption_used('ENABLE_DBSTAT_VTAB')~ and queries ~dbstat~ directly.
+
+If ~dbstat~ is unavailable, the benchmark records a structured capability skip. Missing ~dbstat~ does not fail the benchmark.
+
+When available, ~dbstat~ supplies per-index page, allocated-byte, and payload-byte evidence.
+
+Storage evidence alone does not prove query benefit. Use query plans, timing distributions, rebuild measurements, and incremental measurements together.
+
+On Linux, inspect linked libraries and ~dbstat~ capability with:
 
 #+begin_src sh
 ldd target/release/orgfdb-benchmark | grep -i sqlite
@@ -52,17 +109,21 @@ sqlite3 ':memory:' "SELECT sqlite_compileoption_used('ENABLE_DBSTAT_VTAB');"
 sqlite3 ':memory:' 'SELECT count(*) FROM dbstat;'
 #+end_src
 
-The first two commands may differ because the CLI can be statically linked or can carry a different SQLite build. The benchmark JSON describes the SQLite library used by the benchmark process, not the capabilities of an unrelated CLI executable.
+* Historical index-tuning profiles
 
-* Index-tuning profiles
+The runner can reconstruct the historical schema-version-8 index set for index-profile measurements.
 
-The runner measures the historical version-8 index baseline, every named individual index candidate, and a combined candidate profile. Profiles are rebuilt into fresh databases through the normal production path. Before applying a profile, the runner reconstructs the version-8 index set explicitly so the historical matrix remains reproducible after the authoritative schema moves to version 9. The databases still use the current table schema and production code; only the measured index set is restored.
+Each profile uses a fresh database through the normal production path. Only the measured index set differs from the current schema.
 
-All profiles use the same generated corpus, query workload order, warm-ups, iterations, SQLite build, and application pragmas. The runner rejects a profile set when query or search result cardinalities differ from its matching baseline variant. The output records explicit declared-index inventory separately from SQLite implicit indexes, dbstat availability, plans, timing distributions, database/WAL evidence, and FTS variant identity. It does not run ANALYZE, VACUUM, or benchmark-only pragmas.
+All compared profiles use the same corpus, workload order, warm-ups, iterations, SQLite build, and application pragmas.
 
-* Final measured decision
+The runner rejects a profile comparison if result counts differ from its matching baseline variant.
 
-The release decision used the following command:
+The profile run does not use ~ANALYZE~, ~VACUUM~, or benchmark-only pragmas.
+
+* Historical measured decision
+
+The index decision used this command:
 
 #+begin_src sh
 cargo run --release --bin orgfdb-benchmark -- \
@@ -74,27 +135,43 @@ cargo run --release --bin orgfdb-benchmark -- \
   --iterations 30
 #+end_src
 
-The deterministic corpus contained 1,000 files, 5,675 headings, and 1,091 links. The environment was Linux x86_64 with eight available CPUs and SQLite 3.40.1. FTS-disabled, title-only FTS, and body-enabled FTS variants all completed. All 24 profile variants reported semantic equivalence after the incremental sequence. The linked SQLite library did not provide ~dbstat~, so per-index page evidence was unavailable and the structured capability skip was retained.
+The corpus contained 1,000 files, 5,675 headings, and 1,091 links.
 
-| Candidate | Target evidence | Storage delta | Decision |
-|-----------+-----------------+---------------+----------|
-| Add ~LOWER(files.path)~ | Exact case-insensitive ~file-path~ changed from a covering scan to ~idx_files_path_lower~ and improved warmed median latency by about 65-66 percent. | +164 KiB | Accept |
-| Add ~LOWER(headings.title)~ | Exact case-insensitive file-title and nested exact-title lookups used ~idx_headings_title_lower~ and improved the file-title workload by about 68-70 percent. | +136 KiB | Accept |
-| Add ~links(resolution_status)~ | The planner used the candidate, but resolved/broken-link timings showed no stable meaningful gain and incremental application became about 5-9 percent slower. | +24 KiB | Reject |
-| Remove ~idx_tags_heading~ | The primary-key index on ~(heading_id, tag)~ already covers heading-first access; no meaningful read regression was measured. | -36 KiB | Accept |
-| Remove ~idx_keywords_heading~ | The unique index on ~(heading_id, keyword, line_number)~ already covers heading-first access; no meaningful read regression was measured. | -16 KiB | Accept |
+The run used Linux x86_64, eight available CPUs, and SQLite 3.40.1.
+
+FTS-disabled, title-only FTS, and body-enabled FTS variants completed. All 24 profile variants kept semantic equivalence after the incremental sequence.
+
+The linked SQLite library did not provide ~dbstat~. The run therefore kept the structured capability skip instead of per-index page evidence.
+
+| Candidate | Evidence | Storage delta | Decision |
+|-----------+----------+---------------+----------|
+| Add ~LOWER(files.path)~ | Exact case-insensitive ~file-path~ used ~idx_files_path_lower~. Warmed median latency improved by about 65-66 percent. | +164 KiB | Accept |
+| Add ~LOWER(headings.title)~ | Exact title lookups used ~idx_headings_title_lower~. The file-title workload improved by about 68-70 percent. | +136 KiB | Accept |
+| Add ~links(resolution_status)~ | The planner used the index. Timings had no stable gain, and incremental application became about 5-9 percent slower. | +24 KiB | Reject |
+| Remove ~idx_tags_heading~ | The primary-key index on ~(heading_id, tag)~ already covers heading-first access. | -36 KiB | Accept |
+| Remove ~idx_keywords_heading~ | The unique index on ~(heading_id, keyword, line_number)~ already covers heading-first access. | -16 KiB | Accept |
 | Remove ~idx_timestamp_repeaters_timestamp_id~ | The ~UNIQUE~ constraint on ~timestamp_id~ already creates an equivalent index. | -16 KiB | Accept |
-| Combined candidate | The combined profile included the rejected link-status index. | +256 KiB relative to the version-8 baseline | Reject as measured |
+| Combined candidate | The combined profile also contained the rejected link-status index. | +256 KiB from version 8 | Reject as measured |
 
-The accepted subset has an estimated net database-size increase of 232 KiB on the 1,000-file corpus. Every individual accepted profile preserved result counts and semantic equivalence, and its rebuild and incremental measurements remained close to the matching baseline. The exact accepted subset was not measured as a separate profile; the combined profile cannot stand in for it because that profile also included the rejected resolution-status index.
+The accepted subset has an estimated net database-size increase of 232 KiB on this corpus.
 
-The measured index decision produced schema version 9. Later derived-projection and cache-consistency work advanced the current schema to version 12 without changing the accepted index decision. Version 9 adds:
+The exact accepted subset was not measured as one profile. The combined profile also contained the rejected resolution-status index.
+
+The accepted decision produced schema version 9. It added:
 
 #+begin_src sql
 CREATE INDEX idx_files_path_lower ON files(LOWER(path));
 CREATE INDEX idx_headings_title_lower ON headings(LOWER(title));
 #+end_src
 
-It removes the redundant explicit indexes ~idx_tags_heading~, ~idx_keywords_heading~, and ~idx_timestamp_repeaters_timestamp_id~. It does not add a resolution-status index. Opening a version-8 database performs these index-only changes transactionally and advances ~PRAGMA user_version~ to 9.
+It removed ~idx_tags_heading~, ~idx_keywords_heading~, and ~idx_timestamp_repeaters_timestamp_id~.
 
-The historical schema-version-9 run exposed inherited property resolution as a separate query-shape hotspot: its effective-value query took several seconds on the 1,000-file corpus. Schema version 10 subsequently replaced that recursive query-time resolution with the materialized ~effective_properties~ projection. A post-change benchmark should record the current property and effective-tag latencies without reinterpreting the historical index-tuning measurements.
+It did not add a resolution-status index.
+
+Later schema versions did not change this historical index decision.
+
+The schema-version-9 run also exposed slow inherited property resolution. One effective-value query took several seconds on the 1,000-file corpus.
+
+Schema version 10 replaced that recursive query-time work with the materialized ~effective_properties~ projection.
+
+A new benchmark can measure current property and effective-tag performance without changing the historical index-tuning record.

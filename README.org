@@ -1,218 +1,158 @@
+#+TITLE: org-files-db
 #+STARTUP: showall
-* Org
 
 [[https://www.gnu.org/licenses/gpl-3.0][https://img.shields.io/badge/License-GPL%20v3-blue.svg]] [[https://github.com/hubisan/org-files-db][GitHub repository]]
 
-** AI Agent Instructions
+~org-files-db~ indexes Org files in SQLite. The ~orgfdb~ command can rebuild the index, keep it current, and query stored Org data.
 
-This repository contains AI-specific development instructions in [[./AGENTS.md]] =AGENTS.md=. AI agents must read =AGENTS.md= before making changes.
+The index stores headings, file metadata, tags, properties, keywords, timestamps, and Org links. Structural queries read this indexed data without reparsing source files.
 
-** Current Architecture
+The project supports Linux and other Unix-like systems, including macOS. Windows is not supported.
 
-The codebase now implements the end-to-end indexing flow described in =.project/tasks/todo.org=.
+* Quick start
 
-- =src/parser/= owns the internal parser trait, data model, diagnostics, and the Orgize implementation adapter
-- =src/indexer.rs= orchestrates parsing, normalization, and DB writes
-- =src/source_root_evidence.rs= persists and validates configured directory-root identity inside the indexer transaction contract
-- =src/db/= owns the SQLite schema, reader, and writer layers
-- =src/query.rs= contains query-side helpers used by the CLI and tests
-- =src/watcher.rs=, =src/notify_source.rs=, and =src/watcher_runtime.rs= translate filesystem events into bounded indexer reconciliation
-- =src/cli.rs= exposes the supported rebuild, watch, headings, links, query, and search commands
-- =main.rs= remains thin and delegates directly to the CLI module
-- org-files-db supports Linux and Unix-like systems, including macOS. Windows is unsupported.
-
-** Parser Contract Notes
-
-- Orgize is the implementation parser in =src/parser/orgize_adapter.rs=.
-- Emacs Org-mode is used as a reference oracle for tricky semantics when that helps confirm parser behavior.
-- Unsafe Emacs Lisp and diary expressions must not be evaluated.
-- TODO keyword precedence is:
-  1. Org in-buffer =#+TODO= / =#+SEQ_TODO= / =#+TYP_TODO= declarations
-  2. config defaults
-- The parser and indexer produce synthetic level-0/root rows for file and document roots; =headings= includes them by default and =--no-root= excludes them.
-- Planning lines populate the supported =scheduled=, =deadline=, and =closed= fields, while body timestamps remain available as parsed timestamp rows.
-
-** Documentation
-
-- CLI reference: [[./docs/cli.org][docs/cli.org]]
-- Config reference: [[./docs/config.org][docs/config.org]]
-- Incremental indexing source-set contract: [[./docs/design/incremental-indexing.org][docs/design/incremental-indexing.org]]
-- Discovery supports global file exclusions and root-local file/tree exclusions; see [[./docs/config.org][docs/config.org]] for glob semantics.
-- =headings=, =links=, =query=, and =search= emit JSON by default; use =--format json= for the canonical explicit form or =--json= for the compatible short form.
-- Phase 3 link indexing notes are documented alongside parser risks in [[./docs/design/parser-risks.org][docs/design/parser-risks.org]].
-- Link resolving is documented in the CLI reference and summarized here so the Phase 3 source facts and Phase 4 resolver-owned fields stay clearly separated.
-
-** Link Resolving Contract
-
-- =links= stores raw Phase 3 link source facts and nullable Phase 4 resolution fields in the same row.
-- Phase 3 source facts are =raw=, =raw_target=, =raw_description=, =link_type=, =path=, =search_option=, byte positions, and source context.
-- Phase 4 resolver-owned fields are =path_absolute=, =target_file_id=, =target_heading_id=, =target_custom_id=, =target_id=, =resolution_status=, and =resolution_diagnostic=.
-- =resolution_status = NULL= means the resolver has not populated the row yet.
-- =resolved=, =broken=, =unresolved=, =ambiguous=, and =unsupported= are the stored resolution states.
-- File-only links resolve to the target file's synthetic root heading when the file is indexed.
-- File links to indexed files populate =path_absolute= and =target_file_id=; file links with =::*Heading= resolve heading titles in the resolved target file.
-- Same-file =[[*Heading]]= links resolve headings in the source file.
-- Same-file =[[#custom-id]]= links resolve =CUSTOM_ID= values in the source file, and file-context =[[file:target.org::#custom-id]]= links resolve =CUSTOM_ID= values in the resolved target file.
-- Org =id:= links resolve =ID= values across indexed non-root headings.
-- Heading-title star links trim surrounding whitespace, unescape bracket escapes such as =\[= and =\]=, and match case-insensitively.
-- =CUSTOM_ID= and Org =ID= matching is case-insensitive and whitespace-sensitive; neither target type is trimmed before lookup.
-- External =org-id-locations= are not supported, so missing indexed Org IDs remain =unresolved= with =id not found=.
-- Supported file search options are only =::*Heading= and =::#custom-id=; other file search options such as =::42=, =::/regexp/=, and dedicated targets such as =::target= or =::<<target>>= are intentionally unsupported.
-
-** DB Schema Versioning
-
-- SQLite =PRAGMA user_version= is the on-disk schema version for =org-files-db= databases.
-- =CURRENT_SCHEMA_VERSION= in =src/db/schema.rs= is the code-level source of truth for the current persistent schema version.
-- Any persistent schema change must bump =CURRENT_SCHEMA_VERSION=.
-- Changes to tables, columns, indexes, constraints, FTS tables, or other persisted schema structures require a version bump.
-- Older supported databases are upgraded through the existing schema application and legacy migration path during DB open/initialization.
-- Databases with a newer =user_version= than the running binary supports fail closed and are not opened or downgraded silently.
-- Schema application, legacy migrations, and the final =PRAGMA user_version= update run inside one transaction; the transaction is committed only after all schema work succeeds.
-- Successful schema application or migration updates =user_version= only after the schema work succeeds.
-- Manual or local test databases may need to be rebuilt after a schema version bump.
-
-** SQLite Schema Contract
-
-- The schema definition lives in =sql/schema.sql= and is applied by =SchemaDefinition= in =src/db/schema.rs=.
-- The current =v0.1= populated schema contract covers these tables:
-  - =files=
-  - =headings=
-  - =todo_keywords=
-  - =keywords=
-  - =properties=
-  - =tags=
-  - =timestamps=
-  - =timestamp_repeaters=
-  - =heading_bodies=
-  - =outline_path=
-- =heading_fts= is optional. It is created only when rebuild/indexing enables FTS and the local SQLite build supports FTS5.
-- =heading_fts= is a contentless derived/cache FTS5 table rebuilt from canonical relational facts. It indexes every canonical heading, including synthetic level-0 file roots, with =rowid = headings.id=.
-- Heading titles remain canonical in =headings.title= and body text remains canonical in =heading_bodies.body_text=. FTS indexes =headings.title_raw= when available, falling back to the canonical title for roots without a source title; title-only FTS indexing uses an empty FTS body when canonical body persistence is disabled.
-- =orgfdb search= is a read-only FTS5 convenience command over the trusted derived index. It requires the active config to leave =search.fts5_enabled = true= and requires persisted FTS trust metadata written by a successful rebuild.
-- Search JSON rows include =kind=: =root= for synthetic level-0 file roots and =heading= for real headings.
-- Databases created before the FTS trust metadata existed, level-0 roots were added, or FTS contract version 3 changed the indexed title source must be rebuilt once before =orgfdb search= will trust the stored index.
-- =links= stores raw Phase 3 link source facts plus nullable Phase 4 target fields and explicit resolution state columns. The current rebuild pipeline resolves file-like links to indexed files when possible, maps file-only links to the resolved target file's synthetic root heading, resolves =file:...::*Heading= against normalized heading titles in the resolved target file, resolves same-file =[[*Heading]]= fuzzy star links against normalized titles in the source file, resolves same-file =[[#custom-id]]= links against =CUSTOM_ID= properties in the source file, resolves file-context =file:...::#custom-id= links against =CUSTOM_ID= properties in the resolved target file, resolves Org =id:...= links against =ID= properties across indexed non-root headings, trims surrounding whitespace only for star heading-title targets, preserves significant surrounding whitespace for =CUSTOM_ID= and Org =ID= targets, and matches those targets case-insensitively via Rust-side Unicode lowercase comparison. Duplicate heading-title and =CUSTOM_ID= matches stay silent, duplicate Org =ID= matches become =ambiguous=, missing in-universe file or heading-title targets become =broken=, missing Org =ID= targets and outside-universe file targets become =unresolved=, and other link forms become =unsupported=.
-- Read-only CLI commands such as =headings=, =status=, =changes=, =query=, and =search= do not initialize missing databases, apply schema changes, run migrations, update =PRAGMA user_version=, or create optional artifacts such as =heading_fts=.
-- =orgfdb status= exposes the stable database identity, committed generation, and canonical SQLite database path for cache freshness and file-notification setup. =orgfdb changes= exposes exact affected-file deltas or instructs cached clients to rebuild. See [[./docs/design/index-generations-and-cached-views.org][Index Generations and Cached Query Views]].
-- Synthetic level-0/root rows are DB/indexing sentinels for file/document roots, not parser-level Org headings.
-- Persisted synthetic root rows use =level = 0=, =parent_id = NULL=, and =byte_start = -1=.
-- Rebuild/indexing creates one synthetic root row per indexed file and attaches file-level keywords, file-level properties, file tags, and other file-scope facts to that row.
-- Real Org headings start at =level >= 1= and are stored under the synthetic root when they are top-level headings.
-- =outline_path= includes the synthetic root row: depth =0= uses materialized path =0000= and breadcrumbs start with the root title.
-
-** Configured Paths
-
-- Relative configured paths are resolved against the config file location, not the current shell directory.
-- =db_path= is normalized syntactically only. It is not required to exist during config loading.
-- =files= and =dirs= are resolved syntactically during config loading. Discovery canonicalizes present paths, deduplicates aliases and followed symlinks by canonical target, and retains byte-preserving identities for persistence.
-- Missing explicit files are absent configured sources for later reconciliation; missing configured directory roots remain discovery failures and cannot trigger mass deletion.
-- Version-8 migration leaves legacy TEXT-only file rows with a null identity. A later successful rebuild or reconciliation upgrades them only after observing the canonical Unix path.
-- Rebuild refuses to wipe an existing indexed database when discovery finds zero input files unless =--allow-empty= is passed explicitly.
-- Successful full indexing persists configured directory-root identities. Automatic reconciliation rejects a replaced root; intentional replacements require one manual rebuild with =--accept-source-root-changes=. This flag is independent from =--allow-empty=.
-- Read-only commands such as =headings= load the config without requiring configured source paths to exist.
-
-** headings JSON Contract
-
-- =orgfdb headings= returns a top-level JSON array.
-- Each row currently exposes these fields:
-  - =id=: integer
-  - =file_id=: integer
-  - =file_path=: string
-  - =parent_id=: integer or =null=
-  - =level=: integer
-  - =line_number=: integer or =null=
-  - =byte_start=: integer
-  - =byte_end=: integer
-  - =title=: string
-  - =title_raw=: string
-  - =todo_keyword=: string or =null=
-  - =todo_type=: string or =null=
-  - =priority=: one-character string or =null=
-  - =scheduled_raw=: string or =null=
-  - =scheduled_ts=: integer Unix timestamp or =null=
-  - =deadline_raw=: string or =null=
-  - =deadline_ts=: integer Unix timestamp or =null=
-  - =closed_raw=: string or =null=
-  - =closed_ts=: integer Unix timestamp or =null=
-  - =archivedp=: boolean
-  - =footnote_section_p=: boolean
-  - =all_tags=: JSON array of strings
-- Synthetic level-0/root rows exist for file and document roots and are included by default.
-- Passing =--no-root= excludes the synthetic level-0/root rows from the JSON output.
-- =--include-root= is retained only as a compatibility no-op and is not needed for the default behavior.
-- The public CLI JSON contract uses =all_tags= as an array. The database stores effective tag membership in the normalized ~effective_tags~ projection instead of a ~headings.all_tags_json~ cache.
-- For real headings, =title= is the cleaned semantic title, while =title_raw= preserves the source title area after the headline stars, including TODO keywords, priorities, and statistics cookies, but excluding trailing Org tags.
-
-** Features
-
------
-
-** Contents
-
-- [[#installation][Installation]]
-- [[#usage][Usage]]
-- [[#customization][Customization]]
-- [[#key-bindings][Key Bindings]]
-- [[#changelog][Changelog]]
-- [[#contributing][Contributing]]
-
-** Installation
-:PROPERTIES:
-:CUSTOM_ID: installation
-:END:
-
-** Usage
-:PROPERTIES:
-:CUSTOM_ID: usage
-:END:
-
-Build the project and initialise or rebuild the database with the configured sources:
+Downlaod this repo and run the following in the root to install ~orgfdb~:
 
 #+begin_src shell
-cargo run --bin orgfdb -- rebuild --config ./org-files-db.toml
+make install
 #+end_src
 
-When adopting an existing indexed database with configured directory roots that predates root-identity evidence, or after intentionally replacing a configured directory root, verify the new root and run:
+Create a ~org-files-db.toml~:
+
+#+begin_src toml
+db_path = "org-files-db.sqlite"
+
+[[dirs]]
+path = "notes"
+recursive = true
+#+end_src
+
+Build the index:
 
 #+begin_src shell
-cargo run --bin orgfdb -- rebuild --config ./org-files-db.toml --accept-source-root-changes
+orgfdb rebuild --config ./org-files-db.toml
 #+end_src
 
-The acceptance flag does not imply =--allow-empty=.
-
-Then start watcher-driven incremental indexing with the same configuration:
+Run a structural query:
 
 #+begin_src shell
-cargo run --bin orgfdb -- watch --config ./org-files-db.toml
+orgfdb query \
+  --config ./org-files-db.toml \
+  '(headings (not (done)))'
 #+end_src
 
-For a release build:
+Query output is JSON by default.
+
+The explicit JSON form is:
 
 #+begin_src shell
-cargo build --release
-./target/release/orgfdb watch --config ./org-files-db.toml
+orgfdb query \
+  --config ./org-files-db.toml \
+  --format json \
+  '(headings)'
 #+end_src
 
-During startup the watcher registers the configured inputs and runs a full configured-source reconciliation, including persisted configured-root identity validation. After ~watcher ready~ appears on stderr, create, modify, rename, replace, and delete operations are applied incrementally. Stop the foreground process with ~Ctrl-C~. The watcher is supported on Unix-like systems only; see [[./docs/cli.org][docs/cli.org]] for lifecycle and failure behavior.
+Use ~watch~ after the initial rebuild to update the database upon changes:
 
-** Customization
-:PROPERTIES:
-:CUSTOM_ID: customization
-:END:
+#+begin_src shell
+orgfdb watch --config ./org-files-db.toml
+#+end_src
 
-** Key Bindings
-:PROPERTIES:
-:CUSTOM_ID: key-bindings
-:END:
+The watcher runs in the foreground. Press ~Ctrl-C~ to stop it.
 
-** Changelog
-:PROPERTIES:
-:CUSTOM_ID: changelog
-:END:
+* Common commands
 
-** Contributing
-:PROPERTIES:
-:CUSTOM_ID: contributing
-:END:
+- ~orgfdb rebuild~ creates or refreshes the complete configured index.
+- ~orgfdb watch~ monitors configured inputs and applies incremental updates.
+- ~orgfdb query~ runs structural queries against the existing database.
+- ~orgfdb search~ runs SQLite FTS5 search against the trusted search index.
+- ~orgfdb headings~ prints stored heading rows for inspection.
+- ~orgfdb links~ prints stored link rows for inspection.
+- ~orgfdb status~ prints the database identity, generation, and canonical database path.
+- ~orgfdb changes~ reports affected files after a committed generation.
 
-** Licence
+Read [[./docs/cli.org][docs/cli.org]] for command syntax and options.
+
+* Query examples
+
+Open TODO items:
+
+#+begin_src shell
+orgfdb query --config ./org-files-db.toml '(headings (not (done)))'
+#+end_src
+
+Resolved links:
+
+#+begin_src shell
+orgfdb query --config ./org-files-db.toml '(links (status "resolved"))'
+#+end_src
+
+Files with a project tag:
+
+#+begin_src shell
+orgfdb query --config ./org-files-db.toml '(files (tags "project"))'
+#+end_src
+
+Include structured path data:
+
+#+begin_src shell
+orgfdb query \
+  --config ./org-files-db.toml \
+  --include path \
+  '(headings (todo "NEXT"))'
+#+end_src
+
+Read [[./docs/reference/query-language.org][Structural Query Language]] for the complete query syntax.
+
+* Configuration
+
+A configuration file selects the SQLite database and the Org source set. It also controls link parsing, TODO defaults, search indexing, and query timezone handling.
+
+Relative paths in a configuration file use the configuration file directory as their base.
+
+Read [[./docs/config.org][docs/config.org]] for all supported keys and defaults.
+
+* JSON compatibility
+
+~headings~, ~links~, ~status~, ~changes~, ~query~, and ~search~ use JSON output. Use ~--format json~ when a client depends on the machine-readable contract.
+
+The existing ~orgfdb query --format json~ contract is stable. Planned presentation output is a separate opt-in format and does not replace this contract.
+
+Read [[./docs/reference/query-json.org][Query JSON Contract]] for the structural query response format.
+
+* Documentation
+
+Start at [[./docs/README.org][docs/README.org]] for the complete documentation map.
+
+User references:
+
+- [[./docs/cli.org][CLI Reference]]
+- [[./docs/config.org][Configuration Reference]]
+- [[./docs/reference/query-language.org][Structural Query Language]]
+- [[./docs/reference/query-json.org][Query JSON Contract]]
+
+Contributor references:
+
+- [[./docs/architecture.org][Architecture]]
+- [[./docs/design/incremental-indexing.org][Incremental Indexing]]
+- [[./docs/design/index-generations-and-changes.org][Index Generations and Changes]]
+- [[./docs/design/parser-risks.org][Parser Risks]]
+- [[./docs/performance-baseline.org][Performance Baseline]]
+
+Planned work:
+
+- [[./docs/design/presentation.org][Presentation Output Design]]
+
+* Development
+
+Read [[./CONTRIBUTING.org][CONTRIBUTING.org]] before you submit changes.
+
+AI agents must also read [[./AGENTS.md][AGENTS.md]].
+
+* Changelog
+
+See [[./CHANGELOG.org][CHANGELOG.org]].
+
+* Licence
+
+This project uses the GNU General Public License version 3. See [[./LICENSE][LICENSE]].
