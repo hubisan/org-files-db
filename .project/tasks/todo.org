@@ -113,7 +113,9 @@ Task file: [[./archive/2026-08-07--status-database-path.org][Expose Canonical Da
 
 Task file: [[./archive/2026-08-05--transactional-index-generations-cached-view-delta-refresh.org][Transactional Index Generations and Cached-View Delta Refresh]]
 
-* TODO Make query result shaping return errors instead of panicking
+* DONE Make query result shaping return errors instead of panicking
+
+Task file: [[./2026-08-14--query-result-shape-errors.org][Query Result Shape Errors]]
 
 In ~query/result.rs~, remove production-code panics that can be triggered by inconsistent or incomplete stored query data.
 

@@ -1,0 +1,73 @@
+#+TITLE: Query Result Shape Errors
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-14 Fri 18:13]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+* Planning
+
+** Problem summary
+Production result shaping still contains data-dependent ~expect~ and ~unreachable!~ calls. Inconsistent stored rows can therefore terminate the process instead of returning the existing ~QueryShapeError~ type.
+
+** Goals
+- Replace data-dependent production panics in ~src/query/result.rs~ with ~QueryShapeError~.
+- Propagate ~Result~ through the affected private helpers.
+- Add focused regression tests for malformed or incomplete stored data.
+
+** Non-goals
+- Do not change valid JSON output, query SQL, or query semantics.
+- Do not redesign the public error model.
+- Do not perform unrelated refactoring.
+
+** Architecture
+Reuse ~QueryShapeError::missing~ and propagate errors through the existing shaping call graph. Keep valid-path data structures and serialization unchanged.
+
+** Execution plan
+1. Remove production ~expect~ and ~unreachable!~ calls in path, included-link, and outline shaping.
+2. Adjust helper return types and callers only where required.
+3. Add regression tests that assert ~QueryShapeErrorKind::MissingStoredData~.
+
+** Risks & assumptions
+- Existing successful output must remain byte-for-byte equivalent at the serialization model level.
+- Rust tooling is not available in this environment, so repository CI will be run by the user.
+
+** Open questions
+None.
+
+** Proposed checks
+- Static search for production ~expect~, ~unwrap~, ~panic!~, and ~unreachable!~ in ~src/query/result.rs~.
+- Review the diff for output-model changes.
+- User runs ~make ci~ locally.
+
+* Build
+
+** Approach
+- Propagated ~QueryShapeError~ through path construction and included-link helpers.
+- Replaced outline-shaping assumptions with explicit ~MissingStoredData~ errors.
+- Preserved the existing result structs and valid-output shaping paths.
+- Added focused regression tests for missing non-root ~title_raw~ data and inconsistent outline rows.
+
+** Changed files
+- ~src/query/result.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-14--query-result-shape-errors.org~
+
+** Checks performed
+- Verified statically that production code in ~src/query/result.rs~ contains no ~expect~, ~unwrap~, ~panic!~, or ~unreachable!~ calls.
+- Reviewed the diff against the supplied repository archive for scope and output-model changes.
+- Verified that no production file other than ~src/query/result.rs~ changed.
+
+** Test results
+- Rust tooling is not installed in the execution environment, so ~cargo fmt~, Clippy, and the Rust test suite were not run.
+- The user will run ~make ci~ locally.
+
+** Blockers
+- Rust tooling is unavailable in this environment.
+
+** Follow-ups
+- Run ~make ci~ locally and address any formatting, Clippy, or test failures before approval.

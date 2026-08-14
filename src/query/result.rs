@@ -776,11 +776,11 @@ impl EnrichmentContext {
                 byte_end: None,
             },
             tags: root_heading.all_tags.clone(),
-            node_path: includes.contains(&QueryInclude::Path).then(|| {
-                vec![self
-                    .file_path_entry(file.id)
-                    .expect("file path entry should build")]
-            }),
+            node_path: if includes.contains(&QueryInclude::Path) {
+                Some(vec![self.file_path_entry(file.id)?])
+            } else {
+                None
+            },
             properties: includes.contains(&QueryInclude::Properties).then(|| {
                 self.properties
                     .get(&file.root_heading_id)
@@ -803,10 +803,12 @@ impl EnrichmentContext {
             }),
             links: includes
                 .contains(&QueryInclude::Links)
-                .then(|| self.build_included_links(self.links_by_file.get(&file.id))),
+                .then(|| self.build_included_links(self.links_by_file.get(&file.id)))
+                .transpose()?,
             backlinks: includes
                 .contains(&QueryInclude::Backlinks)
-                .then(|| self.build_included_links(self.backlinks_by_file.get(&file.id))),
+                .then(|| self.build_included_links(self.backlinks_by_file.get(&file.id)))
+                .transpose()?,
             children: with_children.then(Vec::new),
         })
     }
@@ -849,7 +851,8 @@ impl EnrichmentContext {
             },
             node_path: includes
                 .contains(&QueryInclude::Path)
-                .then(|| self.path_entries_for_heading(heading.id)),
+                .then(|| self.path_entries_for_heading(heading.id))
+                .transpose()?,
             properties: includes.contains(&QueryInclude::Properties).then(|| {
                 self.properties
                     .get(&heading.id)
@@ -869,10 +872,12 @@ impl EnrichmentContext {
                 .then(|| self.keywords.get(&heading.id).cloned().unwrap_or_default()),
             links: includes
                 .contains(&QueryInclude::Links)
-                .then(|| self.build_included_links(self.links_by_heading.get(&heading.id))),
+                .then(|| self.build_included_links(self.links_by_heading.get(&heading.id)))
+                .transpose()?,
             backlinks: includes
                 .contains(&QueryInclude::Backlinks)
-                .then(|| self.build_included_links(self.backlinks_by_heading.get(&heading.id))),
+                .then(|| self.build_included_links(self.backlinks_by_heading.get(&heading.id)))
+                .transpose()?,
             children: with_children.then(Vec::new),
         })
     }
@@ -913,7 +918,8 @@ impl EnrichmentContext {
             },
             node_path: includes
                 .contains(&QueryInclude::Path)
-                .then(|| self.path_entries_for_link_source(row.heading_id)),
+                .then(|| self.path_entries_for_link_source(row.heading_id))
+                .transpose()?,
             source: includes
                 .contains(&QueryInclude::Source)
                 .then(|| self.link_source(row.file_id, row.heading_id))
@@ -936,19 +942,29 @@ impl EnrichmentContext {
                 HeadingQueryMatch::File(row) => self.file(row.id)?,
                 HeadingQueryMatch::Heading(row) => self.file(row.file_id)?,
             };
-            roots.entry(file.path.clone()).or_insert_with(|| {
-                self.shape_file_node(file.id, ResultDomain::Headings, false, &[], true)
-                    .expect("file root should shape")
-            });
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                roots.entry(file.path.clone())
+            {
+                entry.insert(self.shape_file_node(
+                    file.id,
+                    ResultDomain::Headings,
+                    false,
+                    &[],
+                    true,
+                )?);
+            }
         }
 
         for row in rows {
-            let file_node = roots
-                .get_mut(match row {
-                    HeadingQueryMatch::File(row) => &row.path,
-                    HeadingQueryMatch::Heading(row) => &row.file_path,
-                })
-                .expect("outline file root should exist");
+            let file_path = match row {
+                HeadingQueryMatch::File(row) => &row.path,
+                HeadingQueryMatch::Heading(row) => &row.file_path,
+            };
+            let file_node = roots.get_mut(file_path).ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing outline file root for stored path {file_path}"
+                ))
+            })?;
             match row {
                 HeadingQueryMatch::File(file_row) => {
                     file_node.matched = true;
@@ -974,35 +990,49 @@ impl EnrichmentContext {
         let mut roots = BTreeMap::<String, FileResultNode>::new();
         for row in rows {
             let file = self.file(row.file_id)?;
-            roots.entry(file.path.clone()).or_insert_with(|| {
-                self.shape_file_node(file.id, ResultDomain::Headings, false, &[], true)
-                    .expect("file root should shape")
-            });
+            if let std::collections::btree_map::Entry::Vacant(entry) =
+                roots.entry(file.path.clone())
+            {
+                entry.insert(self.shape_file_node(
+                    file.id,
+                    ResultDomain::Headings,
+                    false,
+                    &[],
+                    true,
+                )?);
+            }
         }
 
         for row in rows {
             let file = self.file(row.file_id)?;
-            let file_node = roots
-                .get_mut(&file.path)
-                .expect("outline file root should exist");
+            let file_node = roots.get_mut(&file.path).ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing outline file root for stored path {}",
+                    file.path
+                ))
+            })?;
             if row.heading_level == 0 {
-                file_node
-                    .children
-                    .as_mut()
-                    .expect("outline file node should have children")
-                    .push(QueryResultNode::Link(Box::new(
-                        self.shape_link_node(row, includes)?,
-                    )));
+                let file_node_id = file_node.id;
+                let children = file_node.children.as_mut().ok_or_else(|| {
+                    QueryShapeError::missing(format!(
+                        "missing outline children for file node {file_node_id}"
+                    ))
+                })?;
+                children.push(QueryResultNode::Link(Box::new(
+                    self.shape_link_node(row, includes)?,
+                )));
             } else {
                 let heading_path = self.heading_chain_without_root(row.heading_id)?;
                 let parent = ensure_heading_outline_path(file_node, &heading_path, self, &[])?;
-                parent
-                    .children
-                    .as_mut()
-                    .expect("outline heading should have children")
-                    .push(QueryResultNode::Link(Box::new(
-                        self.shape_link_node(row, includes)?,
-                    )));
+                let parent_id = parent.id;
+                let children = parent.children.as_mut().ok_or_else(|| {
+                    QueryShapeError::missing(format!(
+                        "missing outline children for heading node {parent_id}"
+                    ))
+                })?;
+                children.push(QueryResultNode::Link(Box::new(
+                    self.shape_link_node(row, includes)?,
+                )));
             }
         }
 
@@ -1013,20 +1043,20 @@ impl EnrichmentContext {
         Ok(results.into_iter().map(QueryResultNode::File).collect())
     }
 
-    fn build_included_links(&self, links: Option<&Vec<StoredLink>>) -> Vec<IncludedLink> {
+    fn build_included_links(
+        &self,
+        links: Option<&Vec<StoredLink>>,
+    ) -> Result<Vec<IncludedLink>, QueryShapeError> {
         links
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .map(|link| {
-                self.included_link(&link)
-                    .expect("included link should shape")
-            })
+            .map(|link| self.included_link(&link))
             .collect()
     }
 
     fn included_link(&self, link: &StoredLink) -> Result<IncludedLink, QueryShapeError> {
-        let source_path = self.path_entries_for_link_source(link.heading_id);
+        let source_path = self.path_entries_for_link_source(link.heading_id)?;
         Ok(IncludedLink {
             id: link.id,
             source_context: link.source_context.clone(),
@@ -1059,7 +1089,7 @@ impl EnrichmentContext {
     fn link_source(&self, file_id: i64, heading_id: i64) -> Result<LinkSource, QueryShapeError> {
         let file = self.file(file_id)?;
         let heading = self.heading(heading_id)?;
-        let source_path = self.path_entries_for_link_source(heading_id);
+        let source_path = self.path_entries_for_link_source(heading_id)?;
         Ok(LinkSource {
             file: FileRef {
                 id: file.id,
@@ -1158,21 +1188,24 @@ impl EnrichmentContext {
 
     fn heading_ref(&self, heading_id: i64) -> Result<HeadingRef, QueryShapeError> {
         let heading = self.heading(heading_id)?;
+        let title_raw = heading.title_raw.clone().ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing title_raw for stored heading row {}",
+                heading.id
+            ))
+        })?;
         Ok(HeadingRef {
             id: heading.id,
             title: heading.title.clone(),
-            title_raw: heading
-                .title_raw
-                .clone()
-                .expect("non-root heading refs should have title_raw"),
+            title_raw,
             level: heading.level,
             outline_path: strip_root_breadcrumb(&heading.breadcrumbs, heading.level),
         })
     }
 
-    fn path_entries_for_heading(&self, heading_id: i64) -> Vec<PathEntry> {
-        let heading = self.heading(heading_id).expect("heading should exist");
-        let file = self.file(heading.file_id).expect("file should exist");
+    fn path_entries_for_heading(&self, heading_id: i64) -> Result<Vec<PathEntry>, QueryShapeError> {
+        let heading = self.heading(heading_id)?;
+        let file = self.file(heading.file_id)?;
         let mut path = vec![PathEntry::File(FilePathEntry {
             id: file.id,
             path: file.path.clone(),
@@ -1180,35 +1213,38 @@ impl EnrichmentContext {
             title_raw: file.root_title_raw.clone(),
         })];
 
-        for id in self
-            .heading_chain_without_root(heading_id)
-            .expect("heading chain should exist")
-        {
-            let entry = self.heading(id).expect("heading should exist");
+        for id in self.heading_chain_without_root(heading_id)? {
+            let entry = self.heading(id)?;
+            let title_raw = entry.title_raw.clone().ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing title_raw for stored heading row {}",
+                    entry.id
+                ))
+            })?;
             path.push(PathEntry::Heading(HeadingPathEntry {
                 id: entry.id,
                 title: entry.title.clone(),
-                title_raw: entry
-                    .title_raw
-                    .clone()
-                    .expect("non-root heading path entries should have title_raw"),
+                title_raw,
                 level: entry.level,
             }));
         }
 
-        path
+        Ok(path)
     }
 
-    fn path_entries_for_link_source(&self, heading_id: i64) -> Vec<PathEntry> {
-        let heading = self.heading(heading_id).expect("heading should exist");
+    fn path_entries_for_link_source(
+        &self,
+        heading_id: i64,
+    ) -> Result<Vec<PathEntry>, QueryShapeError> {
+        let heading = self.heading(heading_id)?;
         if heading.level == 0 {
-            let file = self.file(heading.file_id).expect("file should exist");
-            return vec![PathEntry::File(FilePathEntry {
+            let file = self.file(heading.file_id)?;
+            return Ok(vec![PathEntry::File(FilePathEntry {
                 id: file.id,
                 path: file.path.clone(),
                 title: file.root_title.clone(),
                 title_raw: file.root_title_raw.clone(),
-            })];
+            })]);
         }
         self.path_entries_for_heading(heading_id)
     }
@@ -1270,14 +1306,13 @@ fn ensure_heading_outline_path<'a>(
     context: &EnrichmentContext,
     _includes: &[QueryInclude],
 ) -> Result<&'a mut HeadingResultNode, QueryShapeError> {
-    ensure_heading_outline_children(
-        file_node
-            .children
-            .as_mut()
-            .expect("outline file node should have children"),
-        heading_chain,
-        context,
-    )
+    let file_node_id = file_node.id;
+    let children = file_node.children.as_mut().ok_or_else(|| {
+        QueryShapeError::missing(format!(
+            "missing outline children for file node {file_node_id}"
+        ))
+    })?;
+    ensure_heading_outline_children(children, heading_chain, context)
 }
 
 fn ensure_heading_outline_children<'a>(
@@ -1304,18 +1339,22 @@ fn ensure_heading_outline_children<'a>(
     };
     let node = match &mut children[index] {
         QueryResultNode::Heading(node) => node,
-        _ => unreachable!("outline path nodes should be headings"),
+        _ => {
+            return Err(QueryShapeError::missing(format!(
+                "missing expected outline heading node for stored heading {head}"
+            )))
+        }
     };
     if tail.is_empty() {
         Ok(node)
     } else {
-        ensure_heading_outline_children(
-            node.children
-                .as_mut()
-                .expect("outline heading should have children"),
-            tail,
-            context,
-        )
+        let node_id = node.id;
+        let children = node.children.as_mut().ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing outline children for heading node {node_id}"
+            ))
+        })?;
+        ensure_heading_outline_children(children, tail, context)
     }
 }
 
@@ -1881,6 +1920,7 @@ mod tests {
     use super::{
         execute_and_shape_query, shape_query_results, EffectivePropertyFact, QueryExecutionOptions,
         QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode,
+        QueryShapeErrorKind,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -1889,7 +1929,8 @@ mod tests {
     };
     use crate::property::{derive_effective_properties, PropertyRow};
     use crate::query::{
-        execute_sqlite_query, parse_query, validate_query, QueryTarget, QueryValidationOptions,
+        execute_sqlite_query, parse_query, validate_query, HeadingQueryMatch, QueryRows,
+        QueryTarget, QueryValidationOptions,
     };
     use crate::tag::derive_effective_tags;
     use rusqlite::Connection;
@@ -2011,6 +2052,102 @@ mod tests {
                 .and_then(|file| file.title_raw.as_deref()),
             None
         );
+    }
+
+    #[test]
+    fn missing_heading_title_raw_in_path_returns_shape_error() {
+        let connection = seeded_connection();
+        connection
+            .execute("UPDATE headings SET title_raw = NULL WHERE id = 11", [])
+            .expect("heading title_raw should clear");
+
+        let error = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Nested" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::Path],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect_err("missing path title_raw should return a shape error");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error.message.contains("stored heading row 11"));
+    }
+
+    #[test]
+    fn missing_heading_title_raw_in_included_link_returns_shape_error() {
+        let connection = seeded_connection();
+        connection
+            .execute("UPDATE headings SET title_raw = NULL WHERE id = 11", [])
+            .expect("heading title_raw should clear");
+
+        let error = execute_and_shape_query(
+            &connection,
+            &validated(r#"(headings (title "Query Engine" :exact t))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::Links],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect_err("malformed included link source should return a shape error");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error.message.contains("stored heading row 11"));
+    }
+
+    #[test]
+    fn missing_heading_title_raw_in_resolved_target_returns_shape_error() {
+        let connection = seeded_connection();
+        connection
+            .execute("UPDATE headings SET title_raw = NULL WHERE id = 21", [])
+            .expect("target heading title_raw should clear");
+
+        let error = execute_and_shape_query(
+            &connection,
+            &validated(r#"(links (status "resolved"))"#),
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::Target],
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect_err("malformed resolved target should return a shape error");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error.message.contains("stored heading row 21"));
+    }
+
+    #[test]
+    fn inconsistent_outline_file_path_returns_shape_error() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let mut rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+
+        match &mut rows {
+            QueryRows::Headings(rows) => match rows.first_mut() {
+                Some(HeadingQueryMatch::Heading(row)) => {
+                    row.file_path = "/tmp/inconsistent-query-path.org".to_string();
+                }
+                _ => panic!("expected a heading query row"),
+            },
+            _ => panic!("expected heading query rows"),
+        }
+
+        let error = shape_query_results(
+            &connection,
+            rows,
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Outline,
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect_err("inconsistent outline path should return a shape error");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error.message.contains("missing outline file root"));
     }
 
     #[test]
