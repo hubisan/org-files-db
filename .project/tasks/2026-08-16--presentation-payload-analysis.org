@@ -1,0 +1,149 @@
+#+TITLE: Presentation JSON Payload Analysis
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-16 Sunday 22:41]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Analyze the current ~presentation-json~ payload before changing the public wire format.
+
+Measure response sections, repeated field names, repeated values, and average bytes for the existing benchmark workloads.
+
+Do not add compression, streaming, cache logic, or parallel execution.
+
+* Planning
+
+** Problem summary
+
+The first presentation benchmark produced payloads from about 47 MB through 94 MB at 50,000 original results.
+
+The project needs exact payload attribution before it changes the wire format.
+
+** Goals
+
+- Reuse the existing benchmark corpus and database files.
+- Measure the top-level ~results~ and ~rows~ components.
+- Split row bytes into metadata, row context, and cells.
+- Split cell bytes into structure, search text, display text, and semantic roles.
+- Count repeated JSON field-name bytes.
+- Estimate structural JSON overhead.
+- Measure repeated values between results, row contexts, and cells.
+- Measure search content repeated by display padding.
+- Record average bytes per result, row, and cell.
+- Keep the public ~presentation-json~ contract unchanged.
+
+** Non-goals
+
+- Do not change the public presentation wire format.
+- Do not add compression.
+- Do not add JSONL or streaming.
+- Do not add a presentation cache.
+- Do not add parallel execution.
+- Do not rebuild the benchmark corpus for payload analysis.
+
+** Architecture
+
+Add a measurement-only payload analyzer beside the existing presentation benchmark code.
+
+The analyzer reads databases from an existing benchmark work directory.
+
+It runs each existing workload once through the production query and presentation pipeline.
+
+It serializes the current ~PresentationResponse~ without changing that type.
+
+The analyzer reports hierarchical byte sections so their totals remain exact.
+
+It also scans serialized JSON for field-name and syntax overhead.
+
+Exact scalar matches identify repeated values between original results and presentation cells.
+
+** Execution plan
+
+1. Add payload-analysis result types to the benchmark module.
+2. Add a payload analyzer for existing benchmark work directories.
+3. Add exact byte accounting for response, row, and cell sections.
+4. Add field-name and JSON syntax accounting.
+5. Add repeated-value counters.
+6. Add a dedicated payload-analysis binary.
+7. Add unit tests for accounting invariants and repetition detection.
+8. Document the local analysis command and output fields.
+9. Archive the completed benchmark task.
+
+** Risks & assumptions
+
+- The detailed analysis requires the existing benchmark work directory.
+- The analysis does not include the final stdout newline in section totals.
+- ~cli_payload_bytes~ adds the one-byte newline used by the CLI.
+- Result-to-cell repetition counts exact scalar matches only.
+- Repetition counters are indicators and are not additive savings estimates.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation_benchmark~
+- ~cargo test --bin orgfdb-presentation-payload-analysis~
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~make ci~
+- Run the payload analyzer against the existing benchmark work directory.
+
+* Results
+
+** Approach
+
+- Added a measurement-only payload analyzer that reuses the existing benchmark databases.
+- Kept ~PresentationResponse~ and the public wire format unchanged.
+- Added exact hierarchical byte accounting for response, row, and cell data.
+- Added repeated field-name and JSON syntax accounting.
+- Added exact repetition counters for search/display, row contexts, and result scalars.
+- Added a dedicated local analyzer binary.
+- Updated the performance documentation with the baseline payloads and analysis protocol.
+- Archived the completed benchmark task.
+- The supplied archive contains no git metadata, so no branch was created.
+
+** Changed files
+
+- ~src/presentation_benchmark.rs~
+- ~src/bin/orgfdb-presentation-payload-analysis.rs~
+- ~docs/README.org~
+- ~docs/presentation-performance.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-16--presentation-payload-analysis.org~
+- ~.project/tasks/archive/2026-08-16--presentation-benchmark.org~
+
+** Checks performed
+
+- Added accounting-invariant tests for response, row, and cell sections.
+- Added a field-name scanner test.
+- Added option validation tests for the analyzer.
+- Checked the changed Org text with the Simple English pragmatic rules.
+- Attempted ~make ci~.
+
+** Test results
+
+The execution environment does not provide ~cargo~. Rust formatting, Clippy, tests, and local payload analysis remain pending.
+
+Run these commands in the development environment:
+
+#+begin_src sh
+cargo fmt --all
+make ci
+cargo build --release --bin orgfdb-presentation-payload-analysis
+#+end_src
+
+Then run the analysis command from ~docs/presentation-performance.org~.
+
+** Blockers
+
+The local analyzer run must provide the detailed byte attribution.
+
+** Follow-ups
+
+Use the measured byte attribution in the payload-reduction task.

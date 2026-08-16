@@ -5,27 +5,39 @@
 
 This benchmark measures the complete uncached Rust presentation path.
 
-It measures the sequential implementation before any presentation cache or parallel optimization.
+It measures the sequential implementation before presentation cache or parallel optimization work.
 
 The benchmark uses synthetic structural queries with 100, 1,000, 10,000, and 50,000 query results by default.
 
 It also measures expanded rows from tags, effective properties, and keywords.
 
+The payload analyzer measures how the current ~presentation-json~ wire format uses bytes.
+
 * Status
 
 The benchmark harness is implemented in ~orgfdb-presentation-benchmark~.
 
-Local benchmark results are pending. Run the benchmark on the development machine and keep the raw JSON output.
+A local release benchmark completed on Linux x86_64 with eight available CPUs.
 
-Do not add cache or parallel changes before this baseline is complete.
+The run used one warmup and three measured iterations for each workload.
+
+The payload analyzer is implemented in ~orgfdb-presentation-payload-analysis~.
+
+Run the analyzer against the existing benchmark work directory before changing the presentation wire format.
+
+Do not add cache or parallel changes before the payload analysis is complete.
 
 * Benchmark corpus
 
 Each target result uses one small Org file and one level-1 heading.
 
-Each heading contains three tags and two local properties. Each file also contains two non-title document keywords.
+Each heading contains three tags and two local properties.
 
-The corpus generator uses deterministic names and values. The JSON output records the corpus fingerprint for each result size.
+Each file also contains two non-title document keywords.
+
+The corpus generator uses deterministic names and values.
+
+The JSON output records the corpus fingerprint for each result size.
 
 The benchmark queries return exactly the requested number of original results.
 
@@ -40,7 +52,9 @@ The benchmark runs these workloads for every configured result size:
 - ~headings.effective-properties~ expands effective heading properties.
 - ~files.keywords~ expands file keywords.
 
-Each workload uses sorting and shared column widths. The specifications also exercise fixed widths, maximum widths, truncation, and hidden sort columns.
+Each workload uses sorting and shared column widths.
+
+The specifications also exercise fixed widths, maximum widths, truncation, and hidden sort columns.
 
 The output records the original result count and the final presentation row count.
 
@@ -61,23 +75,31 @@ It records these timing distributions:
 - compact JSON serialization
 - query, presentation, and serialization together
 
-The truncation stage also creates the final ~display_text~ strings. These operations share one production loop and are measured together.
+The truncation stage also creates the final ~display_text~ strings.
 
-The benchmark excludes input cloning from isolated stage timers. It prepares cloned stage input before each measured sample.
+These operations share one production loop and are measured together.
+
+The benchmark excludes input cloning from isolated stage timers.
+
+It prepares cloned stage input before each measured sample.
 
 * Process measurements
 
 The benchmark records one process-startup probe with ~orgfdb --help~.
 
-This value includes process creation, CLI parsing, and help generation. It does not include database or presentation work.
+This value includes process creation, CLI parsing, and help generation.
+
+It does not include database or presentation work.
 
 Each total CLI sample starts a fresh ~orgfdb~ process and runs the complete ~presentation-json~ query.
 
-The runner captures stdout through a pipe. Total CLI time therefore includes payload transfer into the benchmark process.
+The runner captures stdout through a pipe.
+
+Total CLI time therefore includes payload transfer into the benchmark process.
 
 The output records the exact stdout payload size in bytes.
 
-* Run
+* Run the timing benchmark
 
 Build both release binaries first.
 
@@ -97,23 +119,21 @@ target/release/orgfdb-presentation-benchmark \
   --output /tmp/orgfdb-presentation-smoke.json
 #+end_src
 
-Use new paths for the full benchmark.
+Use new work and output paths for a full benchmark.
 
 #+begin_src sh
 target/release/orgfdb-presentation-benchmark \
   --orgfdb target/release/orgfdb \
   --rows 100,1000,10000,50000 \
-  --warmups 3 \
-  --iterations 10 \
+  --warmups 1 \
+  --iterations 3 \
   --work-dir /tmp/orgfdb-presentation-benchmark-work \
   --output /tmp/orgfdb-presentation-benchmark.json
 #+end_src
 
-The work directory and output file must not exist before the run.
-
 Keep the machine under normal low-load conditions during the measurement.
 
-* Output
+* Timing benchmark output
 
 The benchmark writes one JSON document.
 
@@ -121,24 +141,162 @@ Each timing contains ~min_ns~, ~median_ns~, ~p95_ns~, ~max_ns~, and the sample c
 
 Each size record also contains corpus generation time, rebuild time, database size, and a corpus fingerprint.
 
-Setup time is evidence for reproducibility. It is not part of the presentation latency totals.
+Setup time is reproducibility evidence.
+
+It is not part of the presentation latency totals.
 
 The protocol record states that the benchmark uses no presentation cache and no presentation parallelism.
 
-* Results
+* Timing baseline
 
-The repository does not contain machine-specific results yet.
+The completed local run shows that database query execution dominates normal presentation work at large result sizes.
 
-After the local run, record the measured bottlenecks here. Keep the raw benchmark JSON outside version control unless it is intentionally added as evidence.
+The process-startup median is about 1.72 ms.
+
+At 50,000 original results, the timing run produced these payloads:
+
+| Workload | Results | Rows | CLI payload bytes |
+|----------+---------+------+-------------------|
+| ~headings.normal~ | 50,000 | 50,000 | 47,300,127 |
+| ~headings.tags~ | 50,000 | 150,000 | 74,677,907 |
+| ~headings.effective-properties~ | 50,000 | 150,000 | 87,347,199 |
+| ~files.keywords~ | 50,000 | 150,000 | 94,425,521 |
+
+The normal workload scales from 93,456 bytes at 100 results to 47,300,127 bytes at 50,000 results.
+
+The large payloads justify a separate wire-size analysis before parallel or cache work.
+
+* Payload analysis
+
+The payload analyzer reuses databases from an existing timing benchmark work directory.
+
+It does not rebuild the corpus and does not change the public ~presentation-json~ format.
+
+** Run the payload analyzer
+
+Build the analyzer after the timing benchmark work directory exists.
+
+#+begin_src sh
+cargo build --release --bin orgfdb-presentation-payload-analysis
+#+end_src
+
+Run the analyzer for the same result sizes.
+
+#+begin_src sh
+target/release/orgfdb-presentation-payload-analysis \
+  --rows 100,1000,10000,50000 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-presentation-payload-analysis.json
+#+end_src
+
+Use a new output path for each analysis run.
+
+** Analysis behavior
+
+The analyzer executes each existing workload once for each requested result size.
+
+It serializes the same production ~PresentationResponse~ that the CLI uses.
+
+The analyzer records ~compact_json_bytes~ without the final newline.
+
+It also records ~cli_payload_bytes~, which adds the one-byte CLI newline.
+
+** Payload sections
+
+The byte sections form an exact hierarchy.
+
+#+begin_example
+compact_json_bytes
+  = response_metadata_bytes
+  + results_bytes
+  + rows_bytes
+
+rows_bytes
+  = row_metadata_bytes
+  + row_context_bytes
+  + cells_bytes
+
+cells_bytes
+  = cell_structure_bytes
+  + search_text_bytes
+  + display_text_bytes
+  + semantic_role_bytes
+#+end_example
+
+~results_bytes~ and ~rows_bytes~ are the serialized values of the two top-level fields.
+
+~response_metadata_bytes~ contains the remaining top-level JSON data and syntax.
+
+~row_context_bytes~ contains the serialized ~row_context~ values, including ~null~.
+
+~cells_bytes~ contains every serialized cells array.
+
+The cell value counters include their JSON string quotes and escaping.
+
+~cell_structure_bytes~ contains the remaining cell arrays, object syntax, field names, and separators.
+
+** Field-name and syntax overhead
+
+The analyzer counts serialized object-key bytes separately.
+
+The field-name counters include the quotes around each object key.
+
+The analyzer also counts JSON braces, brackets, commas, and colons outside strings.
+
+~structural_overhead.combined_bytes~ adds these field-name and syntax counts.
+
+This value does not include quotes or escaping that belong to scalar string values.
+
+** Repeated values
+
+The repetition counters identify exact repeated values.
+
+~search_display_equal_cells~ counts cells where ~search_text~ and ~display_text~ are identical.
+
+~search_display_duplicate_bytes~ counts one serialized copy of each identical value.
+
+~display_is_padded_search_cells~ counts cells where ~display_text~ only adds right-side spaces.
+
+~padded_search_repeated_content_bytes~ counts the repeated serialized search content in those padded cells.
+
+Row-context counters compare context scalar values with cell ~search_text~ values in the same row.
+
+Result counters compare cell ~search_text~ values with exact scalar values in the referenced original result.
+
+Result number values use their JSON decimal text for this comparison.
+
+JSON ~null~ values do not match presentation text.
+
+The repetition counters can overlap.
+
+Do not add their byte counts as one possible saving value.
+
+** Averages
+
+The analyzer records these averages:
+
+- serialized ~results~ bytes per original result
+- serialized ~rows~ bytes per presentation row
+- serialized cell bytes per cell
+- total compact payload bytes per original result
+
+* Payload analysis results
+
+Detailed payload attribution requires one local analyzer run against the completed benchmark work directory.
+
+Keep the raw analysis JSON outside version control unless it is intentionally added as evidence.
 
 Record at least:
 
-- the machine and build profile
-- median and p95 total CLI time for each result size
-- final row counts for expanded workloads
-- payload sizes
-- the dominant internal stages
-- process-startup cost
-- any stage whose share grows materially with result size
+- the share of ~results~ and ~rows~ in the total payload
+- the share of cell structure and repeated field names
+- the share of ~search_text~ and ~display_text~
+- the share of semantic roles
+- row-context size for expanded workloads
+- exact search/display repetition
+- search content repeated by padding
+- exact row-context/cell repetition
+- exact result-scalar/cell repetition
+- average bytes per result, row, and cell
 
-Use these results as the baseline for the parallelism task.
+Use these measurements to define the payload-reduction task.

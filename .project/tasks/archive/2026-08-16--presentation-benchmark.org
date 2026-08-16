@@ -2,7 +2,7 @@
 #+STARTUP: showall
 #+TEMPLATE_VERSION: 0.8.0
 #+TASK_STARTED: [2026-08-16 Sunday 21:53]
-#+TASK_COMPLETED:
+#+TASK_COMPLETED: [2026-08-16 Sunday 22:40]
 
 * Original Task (User only)
 :PROPERTIES:
@@ -176,10 +176,27 @@ The benchmark can now reach large result sets without one SQL variable per resul
 
 ** Blockers
 
-- The local Rust toolchain must run the automated checks.
-- The local benchmark run must provide the machine-specific performance results.
+None for the benchmark measurement.
+
+** Local benchmark result
+
+The release benchmark completed on Linux x86_64 with eight available CPUs.
+
+The run used one warmup and three measured iterations.
+
+At 50,000 original results, normal heading presentation took about 1.20 seconds of median CLI time.
+
+The expanded workloads produced 150,000 presentation rows.
+
+Their median CLI times ranged from about 1.54 seconds through 2.16 seconds.
+
+The process-startup median was about 1.72 ms.
+
+The 50,000-result payload sizes ranged from 47,300,127 bytes through 94,425,521 bytes.
+
+These payload sizes require analysis before parallel or cache work.
 
 ** Follow-ups
 
-- Add the local benchmark results to ~docs/presentation-performance.org~.
-- Use the measured baseline in the presentation parallelism task.
+- Analyze the ~presentation-json~ payload structure before parallelism work.
+- Use the measured baseline when later optimization tasks compare results.
