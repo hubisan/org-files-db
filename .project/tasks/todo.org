@@ -233,96 +233,23 @@ Task file: [[./archive/2026-08-16--presentation-widths-truncation-padding.org][P
 
 Task file: [[./2026-08-16--presentation-json-output.org][Compact Presentation JSON Output]]
 
-* TODO Benchmark uncached Rust-prepared presentation
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Goal: Measure the complete presentation path before introducing any presentation cache.
-
-Benchmark representative structural queries with approximately:
-
-- 100 rows
-- 1'000 rows
-- 10'000 rows
-- 50'000 rows
-
-Measure separately where practical:
-
-- database query execution
-- presentation extraction
-- sorting
-- width calculation
-- formatting
-- JSON serialization
-- payload size
-- process startup
-- total CLI elapsed time
-
-The Emacs rewrite does not need to exist yet for this first Rust-side benchmark.
-
-Record enough data to identify whether Rust-side computation itself requires caching.
-
-Acceptance criteria:
-
-- Several result-set sizes are measured.
-- Presentation stages can be compared meaningfully.
-- Payload sizes are recorded.
-- No cache is added during benchmarking.
-- Results are documented.
-
-* TODO Decide whether Rust-side presentation caching is justified
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-Goal: Decide whether any Rust-side presentation cache is necessary based on measurements rather than architectural assumptions.
-
-Possible outcomes:
-
-- no presentation cache
-- persistent disk cache
-- long-lived orgfdb process / daemon
-- another narrowly justified mechanism
-
-Consider:
-
-- query cost
-- presentation CPU cost
-- process startup
-- serialization cost
-- expected client transfer cost
-
-Do not add a cache merely because ~database_id~, ~generation~, and ~changes~ already exist.
-
-Keep their existing meanings.
-
-If no Rust-side cache is justified, explicitly record that decision and continue without one.
-
-If a cache is justified, create new implementation TODOs based on the measured bottleneck rather than embedding cache implementation in this task.
-
-Acceptance criteria:
-
-- The cache decision is backed by benchmark evidence.
-- Existing generation/change semantics are not overloaded.
-- Unnecessary cache lifecycle complexity is avoided.
 
 * TODO Implement presentation row expansion
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Allow one original query result to produce multiple presentation rows through the same Rust presentation pipeline.
+Goal: Let one original query result produce multiple presentation rows through the same Rust presentation pipeline.
 
-Support row sources:
+Support these row sources:
 
 - ~tags~
 - ~effective-properties~
 - ~keywords~
 
-Normal behaviour remains one row per query result.
+Keep normal behavior at one row per query result when no row source is active.
 
-Each expanded row retains:
+Each expanded row contains:
 
 #+begin_example
 result_index
@@ -330,7 +257,7 @@ row_context
 cells
 #+end_example
 
-Suggested row contexts:
+Use these row contexts:
 
 #+begin_example
 tag:
@@ -348,7 +275,7 @@ keyword:
   value
 #+end_example
 
-Add singular columns:
+Add these singular columns:
 
 - ~tag~
 - ~property-name~
@@ -358,15 +285,17 @@ Add singular columns:
 
 Requirements:
 
-- normal columns repeat for every expanded row
-- empty collections produce no rows
-- only one row source can be active
-- no Cartesian products
-- sorting operates on expanded rows
-- shared widths operate across expanded rows
-- the original query result remains unchanged
+- Repeat normal columns for every expanded row.
+- Produce no rows for an empty row source.
+- Allow only one active row source.
+- Do not create Cartesian products.
+- Sort expanded rows with the normal presentation sort pipeline.
+- Calculate shared widths across all expanded rows.
+- Keep each original query result unchanged.
+- Preserve source order when the source data defines an order.
+- Preserve duplicate keyword entries.
 
-Include inference:
+Derive these includes from the active row source:
 
 #+begin_example
 tags                 -> no additional include when already available
@@ -374,24 +303,70 @@ effective-properties -> effective_properties
 keywords             -> keywords
 #+end_example
 
-Preserve source order where the underlying data provides it.
+Acceptance criteria:
 
-Preserve duplicate keyword entries.
+- One result can produce several presentation rows.
+- Several rows can reference the same ~result_index~.
+- Singular columns are valid only for their matching row source.
+- Expanded rows use the normal sort, width, truncation, padding, and role pipeline.
+- Empty row sources produce no artificial rows.
+
+* TODO Benchmark uncached Rust-prepared presentation
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Measure the complete presentation path before any presentation cache or parallel optimization is added.
+
+Benchmark representative structural queries with approximately:
+
+- 100 rows
+- 1'000 rows
+- 10'000 rows
+- 50'000 rows
+
+Include normal one-row results and representative expanded-row workloads.
+
+Measure these stages when the benchmark harness can isolate them:
+
+- database query execution
+- value extraction
+- row expansion
+- sort-key creation
+- sorting
+- width calculation
+- truncation and padding
+- final row formatting
+- JSON serialization
+- payload size
+- process startup
+- total CLI elapsed time
+
+The Emacs rewrite does not need to exist for this Rust-side benchmark.
+
+Do not add a presentation cache in this task.
+
+Do not add parallel execution in this task.
+
+Record enough data to identify the expensive stages and the main source of total latency.
 
 Acceptance criteria:
 
-- One result can generate several rows.
-- Several rows can reference the same ~result_index~.
-- Singular columns are valid only for their matching row source.
-- Expanded rows use the normal sort, width, truncation, and role pipeline.
-- Empty collections produce no artificial rows.
+- Several result-set sizes are measured.
+- Expanded-row workloads are measured.
+- Presentation stages can be compared with useful timing data.
+- Payload sizes are recorded.
+- Process startup cost is recorded.
+- No cache is added.
+- No parallel optimization is added.
+- Benchmark results are documented.
 
 * TODO Evaluate presentation pipeline parallelism
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Measure the complete presentation pipeline and add parallel execution only where benchmarks show a useful improvement.
+Goal: Use the uncached benchmark results to add parallel execution only where measurements show a useful improvement.
 
 Keep the presentation pipeline easy to parallelize before this task:
 
@@ -402,22 +377,7 @@ Keep the presentation pipeline easy to parallelize before this task:
 - Build sort keys locally.
 - Format each row independently after shared widths are known.
 
-Measure at least:
-
-- query execution
-- value extraction
-- row expansion
-- sort-key creation
-- sorting
-- width calculation
-- truncation and padding
-- final row formatting
-- JSON serialization
-- total presentation latency
-
-Use representative result sizes, including large result sets.
-
-Evaluate parallel execution for:
+Evaluate parallel execution for measured bottlenecks such as:
 
 - value extraction
 - row expansion
@@ -427,7 +387,7 @@ Evaluate parallel execution for:
 - truncation and padding
 - final row formatting
 
-Use ~rayon~ or another Rust-native solution only when benchmarks justify the extra dependency and complexity.
+Use ~rayon~ or another Rust-native solution only when benchmark results justify the dependency and complexity.
 
 Do not parallelize the SQLite query by default.
 
@@ -445,25 +405,72 @@ Do not change:
 
 Compare sequential and parallel execution with identical benchmark inputs.
 
-Keep sequential execution for small result sets when parallel execution adds more overhead than it removes.
+Repeat the benchmark for representative small and large result sets after each retained optimization.
+
+Keep sequential execution for small workloads when parallel execution adds more cost than it removes.
 
 Acceptance criteria:
 
-- Benchmarks identify the expensive presentation stages.
+- Baseline benchmarks identify the expensive presentation stages.
 - Parallel execution targets only measured bottlenecks.
 - Sequential and parallel execution produce identical output.
 - Result ordering stays deterministic.
-- Small queries have no material performance regression.
-- Large queries show a measurable improvement when parallel execution stays enabled.
-- Documentation records the benchmark results.
-- Documentation records the selected execution strategy.
-  
+- Small workloads have no material performance regression.
+- Large workloads show a measurable improvement when parallel execution stays enabled.
+- Benchmark results record the final execution strategy.
+
+* TODO Decide whether Rust-side presentation caching is justified
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Decide whether Rust needs a presentation cache after the complete pipeline and measured optimizations are available.
+
+Base the decision on the benchmark results from the sequential and optimized presentation pipeline.
+
+Consider:
+
+- database query cost
+- presentation CPU cost
+- process startup cost
+- JSON serialization cost
+- payload size
+- expected client transfer cost
+- expected repeated-query patterns
+
+Possible outcomes:
+
+- no presentation cache
+- persistent disk cache
+- long-lived ~orgfdb~ process or daemon
+- another mechanism that targets a measured bottleneck
+
+Do not add a cache only because ~database_id~, ~generation~, and ~changes~ already exist.
+
+Keep the existing meanings of ~database_id~, ~generation~, and ~changes~.
+
+If no Rust-side cache is justified, record that decision and continue without a cache.
+
+If a cache is justified, create separate implementation TODOs for the measured bottleneck.
+
+Do not implement the cache in this decision task.
+
+Acceptance criteria:
+
+- Benchmark evidence supports the cache decision.
+- The decision uses measurements from the optimized presentation pipeline.
+- Existing generation and change semantics keep their current meanings.
+- Unnecessary cache lifecycle complexity is avoided.
+- Any required cache implementation gets separate TODOs.
+
 * TODO Finalize presentation architecture documentation
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Update the documentation after the Rust presentation implementation and benchmarks so the documentation describes the implemented system rather than the earlier design proposal.
+Goal: Update the documentation after the presentation implementation, benchmarks, optimization work, and cache decision are complete.
+
+Document the implemented system instead of the earlier design proposal.
 
 Update:
 
@@ -471,25 +478,33 @@ Update:
 - ~PresentationSpec~
 - supported columns
 - semantic roles
-- result / row / cell representation
+- result, row, and cell representation
 - row expansion
 - include inference
+- sorting
+- width, truncation, and padding behavior
 - compatibility guarantees
+- performance observations
+- parallel execution strategy
 - cache decision
-- performance observations where useful
 
-Clearly retain the guarantee that:
+Retain this compatibility guarantee clearly:
 
 #+begin_src sh
 orgfdb query --format json ...
 #+end_src
 
-has not changed.
+The command keeps its existing JSON contract.
+
+Remove or update design text that no longer describes the implemented architecture.
+
+Use public examples that run against the implemented CLI.
 
 Acceptance criteria:
 
-- Planned documentation is converted to implemented documentation where appropriate.
-- Removed or rejected design alternatives are no longer presented as current architecture.
-- Public examples execute against the implemented CLI.
+- Current documentation describes the implemented presentation architecture.
+- Planned sections are converted to implemented documentation where appropriate.
+- Rejected design alternatives are not presented as current architecture.
+- Public examples run against the implemented CLI.
+- The normal JSON compatibility guarantee is explicit.
 - The Emacs client has a stable documented interface to implement against.
-  
