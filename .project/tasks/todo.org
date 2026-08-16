@@ -231,85 +231,15 @@ Task file: [[./archive/2026-08-16--presentation-widths-truncation-padding.org][P
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-json-output.org][Compact Presentation JSON Output]]
+Task file: [[./archive/2026-08-16--presentation-json-output.org][Compact Presentation JSON Output]]
 
 
-* TODO Implement presentation row expansion
+* DONE Implement presentation row expansion
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Let one original query result produce multiple presentation rows through the same Rust presentation pipeline.
-
-Support these row sources:
-
-- ~tags~
-- ~effective-properties~
-- ~keywords~
-
-Keep normal behavior at one row per query result when no row source is active.
-
-Each expanded row contains:
-
-#+begin_example
-result_index
-row_context
-cells
-#+end_example
-
-Use these row contexts:
-
-#+begin_example
-tag:
-  kind
-  value
-
-effective property:
-  kind
-  name
-  value
-
-keyword:
-  kind
-  name
-  value
-#+end_example
-
-Add these singular columns:
-
-- ~tag~
-- ~property-name~
-- ~property-value~
-- ~keyword-name~
-- ~keyword-value~
-
-Requirements:
-
-- Repeat normal columns for every expanded row.
-- Produce no rows for an empty row source.
-- Allow only one active row source.
-- Do not create Cartesian products.
-- Sort expanded rows with the normal presentation sort pipeline.
-- Calculate shared widths across all expanded rows.
-- Keep each original query result unchanged.
-- Preserve source order when the source data defines an order.
-- Preserve duplicate keyword entries.
-
-Derive these includes from the active row source:
-
-#+begin_example
-tags                 -> no additional include when already available
-effective-properties -> effective_properties
-keywords             -> keywords
-#+end_example
-
-Acceptance criteria:
-
-- One result can produce several presentation rows.
-- Several rows can reference the same ~result_index~.
-- Singular columns are valid only for their matching row source.
-- Expanded rows use the normal sort, width, truncation, padding, and role pipeline.
-- Empty row sources produce no artificial rows.
+Task file: [[./2026-08-16--presentation-row-expansion.org][Presentation Row Expansion]]
 
 * TODO Benchmark uncached Rust-prepared presentation
 :PROPERTIES:

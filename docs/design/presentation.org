@@ -3,7 +3,7 @@
 
 * Status
 
-The initial Rust presentation pipeline is implemented for normal one-row-per-result output.
+The initial Rust presentation pipeline is implemented for normal and expanded row output.
 
 The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
 
@@ -11,7 +11,7 @@ Rust now performs value extraction, sorting, shared layout, semantic role select
 
 The current ~orgfdb query --format json~ contract stays unchanged. Presentation output remains a separate opt-in representation.
 
-Row expansion, JSONL, streaming, and presentation caching remain separate later work.
+JSONL, streaming, and presentation caching remain separate later work.
 
 * Goal
 
@@ -120,9 +120,7 @@ The model recognizes these row-source kinds:
 - ~effective-properties~
 - ~keywords~
 
-The object leaves room for source-specific options later. This stage only parses these row-source values.
-
-The later row-expansion work defines their execution.
+The object leaves room for source-specific options later. The presentation pipeline executes these row sources.
 
 The parser rejects unknown fields and unknown enum values. It also rejects empty column lists, empty names, and invalid width shapes.
 
@@ -134,7 +132,7 @@ Each supported column defines:
 
 - valid result contexts
 - required query includes
-- one value source for later extraction
+- one value source
 - one semantic-role rule
 - valid column options
 - an optional required row source
@@ -188,13 +186,13 @@ The registry also reserves a ~search~ context for later client work. It supports
 
 The current presentation CLI is query-only, so it cannot select the ~search~ context yet.
 
-The registry reserves these row-expansion columns:
+The registry supports these row-expansion columns:
 
 - ~tag~ for ~row_source.kind = tags~
 - ~property-name~ and ~property-value~ for ~row_source.kind = effective-properties~
 - ~keyword-name~ and ~keyword-value~ for ~row_source.kind = keywords~
 
-The row-expansion implementation is still planned. The parser already rejects a singular row column without its required row source.
+A singular row column is valid only with its required row source.
 
 Only ~outline-path~, ~source-outline-path~, and ~target-outline-path~ accept the ~outline_path~ option object.
 
@@ -234,7 +232,7 @@ The initial structural extraction rules include these examples:
 
 Optional values can be missing without causing an error. A missing required include field produces a presentation extraction error.
 
-Reserved row columns read their value from ~row_context~. Row expansion still remains a later pipeline stage.
+Reserved row columns read their value from ~row_context~. The row-expansion stage creates this context from structured query data.
 
 The ~rank~ value remains reserved for search results. Structural query presentation does not create search result objects.
 
@@ -349,7 +347,7 @@ cells
 
 ~result_index~ points into the top-level ~results~ array. Row order does not change result identity.
 
-Normal rows use ~row_context = null~. The wire model also defines structured contexts for later row expansion.
+Normal rows use ~row_context = null~. Expanded rows use one structured context from the active row source.
 
 A tag context has this JSON shape:
 
@@ -369,7 +367,7 @@ A keyword context has this JSON shape:
 {"kind":"keyword","name":"TITLE","value":"Notes"}
 #+end_src
 
-The wire model defines these contexts for row expansion. The initial pipeline rejects non-null ~row_source~ until that implementation exists.
+The row-expansion stage creates these contexts before sorting and layout.
 
 Each cell contains:
 
@@ -389,12 +387,12 @@ Rows do not duplicate complete result objects. Several rows can reference the sa
 
 * Initial pipeline
 
-Rust performs this pipeline for normal presentation rows:
+Rust performs this pipeline for normal and expanded presentation rows:
 
 #+begin_example
 query
   -> original results
-  -> initial presentation rows
+  -> row expansion
   -> cell value extraction
   -> sort keys
   -> sort
@@ -405,7 +403,9 @@ query
   -> presentation-json
 #+end_example
 
-Each initial row uses ~row_context = null~ and one ~result_index~ into the original result array.
+Without ~row_source~, each result creates one row with ~row_context = null~.
+
+With ~row_source~, one result can create zero or more rows with the same ~result_index~.
 
 The presentation query reads ~database_id~, ~generation~, and query data inside one read transaction. This keeps the response tied to one database snapshot.
 
@@ -413,15 +413,13 @@ Emacs receives prepared rows and performs only Emacs-specific work.
 
 * Row expansion
 
-The data model includes ~row_source~ from the start. The current pipeline rejects non-null ~row_source~ until row expansion is implemented.
-
-Later row sources are:
+The presentation pipeline supports these row sources for heading and file results:
 
 - ~tags~
 - ~effective-properties~
 - ~keywords~
 
-One result can then create several rows. Each row keeps the same ~result_index~ and gets a structured ~row_context~.
+One result can create several rows. Each expanded row keeps the same ~result_index~ and gets one structured ~row_context~.
 
 Example tag context:
 
@@ -446,9 +444,13 @@ name = TITLE
 value = Example
 #+end_example
 
-Only one row source can be active for one presentation. The design does not create Cartesian products between row sources.
+Only one row source can be active for one presentation. The pipeline does not create Cartesian products.
 
-Empty source collections produce no presentation rows.
+Empty source collections produce no presentation rows. Normal columns repeat for every expanded row.
+
+The pipeline preserves source order when the query result defines it. Keyword expansion also preserves duplicate keyword entries.
+
+A keyword without a value uses an empty string in ~row_context~ and ~keyword-value~. The original query result stays unchanged.
 
 * Includes and data requirements
 

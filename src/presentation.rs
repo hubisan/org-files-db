@@ -129,6 +129,17 @@ impl PresentationSpec {
         &self,
         result_kind: PresentationResultKind,
     ) -> Result<(), PresentationSpecError> {
+        match self.row_source {
+            Some(row_source) if !row_source.kind.supports(result_kind) => {
+                return Err(PresentationSpecError::Invalid(format!(
+                    "row_source kind `{}` is not supported for {} results",
+                    row_source.kind.as_str(),
+                    result_kind.as_str()
+                )));
+            }
+            _ => {}
+        }
+
         for (index, column) in self.columns.iter().enumerate() {
             if !column.name.definition().supports(result_kind) {
                 return Err(PresentationSpecError::Invalid(format!(
@@ -319,25 +330,120 @@ impl PresentationSpec {
         Ok(prepared_rows)
     }
 
+    pub fn expand_rows(
+        &self,
+        results: &[QueryResultNode],
+    ) -> Result<Vec<PresentationRow>, PresentationRowExpansionError> {
+        let Some(row_source) = self.row_source else {
+            return Ok((0..results.len())
+                .map(|result_index| PresentationRow {
+                    result_index,
+                    row_context: None,
+                    cells: Vec::new(),
+                })
+                .collect());
+        };
+
+        let mut rows = Vec::new();
+        for (result_index, result) in results.iter().enumerate() {
+            match row_source.kind {
+                PresentationRowSourceKind::Tags => {
+                    let tags = match result {
+                        QueryResultNode::File(node) => &node.tags,
+                        QueryResultNode::Heading(node) => &node.all_tags,
+                        QueryResultNode::Link(_) => {
+                            return Err(PresentationRowExpansionError::unsupported_result(
+                                row_source.kind,
+                                result,
+                                result_index,
+                            ));
+                        }
+                    };
+                    for value in tags {
+                        rows.push(PresentationRow {
+                            result_index,
+                            row_context: Some(PresentationRowContext::Tag {
+                                value: value.clone(),
+                            }),
+                            cells: Vec::new(),
+                        });
+                    }
+                }
+                PresentationRowSourceKind::EffectiveProperties => {
+                    let properties = match result {
+                        QueryResultNode::File(node) => node.effective_properties.as_deref(),
+                        QueryResultNode::Heading(node) => node.effective_properties.as_deref(),
+                        QueryResultNode::Link(_) => {
+                            return Err(PresentationRowExpansionError::unsupported_result(
+                                row_source.kind,
+                                result,
+                                result_index,
+                            ));
+                        }
+                    }
+                    .ok_or_else(|| {
+                        PresentationRowExpansionError::missing_include(
+                            row_source.kind,
+                            "effective_properties",
+                            result_index,
+                        )
+                    })?;
+                    for property in properties {
+                        rows.push(PresentationRow {
+                            result_index,
+                            row_context: Some(PresentationRowContext::EffectiveProperty {
+                                name: property.key.clone(),
+                                value: property.value.clone().unwrap_or_default(),
+                            }),
+                            cells: Vec::new(),
+                        });
+                    }
+                }
+                PresentationRowSourceKind::Keywords => {
+                    let keywords = match result {
+                        QueryResultNode::File(node) => node.keywords.as_deref(),
+                        QueryResultNode::Heading(node) => node.keywords.as_deref(),
+                        QueryResultNode::Link(_) => {
+                            return Err(PresentationRowExpansionError::unsupported_result(
+                                row_source.kind,
+                                result,
+                                result_index,
+                            ));
+                        }
+                    }
+                    .ok_or_else(|| {
+                        PresentationRowExpansionError::missing_include(
+                            row_source.kind,
+                            "keywords",
+                            result_index,
+                        )
+                    })?;
+                    for keyword in keywords {
+                        rows.push(PresentationRow {
+                            result_index,
+                            row_context: Some(PresentationRowContext::Keyword {
+                                name: keyword.keyword.clone(),
+                                value: keyword.value.clone().unwrap_or_default(),
+                            }),
+                            cells: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(rows)
+    }
+
     pub fn build_response(
         &self,
         database_id: impl Into<String>,
         generation: i64,
         results: Vec<QueryResultNode>,
     ) -> Result<PresentationResponse, PresentationBuildError> {
-        if let Some(row_source) = self.row_source {
-            return Err(PresentationBuildError::RowSourceUnavailable(
-                row_source.kind,
-            ));
-        }
-
-        let rows = (0..results.len())
-            .map(|result_index| PresentationRow {
-                result_index,
-                row_context: None,
-                cells: Vec::new(),
-            })
-            .collect();
+        let rows = self
+            .expand_rows(&results)
+            .map_err(PresentationBuildError::Expansion)?;
         let rows = self
             .sort_rows(&results, rows)
             .map_err(PresentationBuildError::Sort)?;
@@ -881,9 +987,57 @@ impl fmt::Display for PresentationLayoutError {
 
 impl Error for PresentationLayoutError {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationRowExpansionError {
+    message: String,
+}
+
+impl PresentationRowExpansionError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    fn unsupported_result(
+        row_source: PresentationRowSourceKind,
+        result: &QueryResultNode,
+        result_index: usize,
+    ) -> Self {
+        let kind = match result {
+            QueryResultNode::File(node) => node.kind.as_str(),
+            QueryResultNode::Heading(node) => node.kind.as_str(),
+            QueryResultNode::Link(node) => node.kind.as_str(),
+        };
+        Self::new(format!(
+            "row_source kind `{}` cannot expand {kind} result at result_index {result_index}",
+            row_source.as_str()
+        ))
+    }
+
+    fn missing_include(
+        row_source: PresentationRowSourceKind,
+        include: &str,
+        result_index: usize,
+    ) -> Self {
+        Self::new(format!(
+            "row_source kind `{}` requires query include `{include}` for result_index {result_index}",
+            row_source.as_str()
+        ))
+    }
+}
+
+impl fmt::Display for PresentationRowExpansionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl Error for PresentationRowExpansionError {}
+
 #[derive(Debug)]
 pub enum PresentationBuildError {
-    RowSourceUnavailable(PresentationRowSourceKind),
+    Expansion(PresentationRowExpansionError),
     Sort(PresentationSortError),
     Layout(PresentationLayoutError),
 }
@@ -891,11 +1045,7 @@ pub enum PresentationBuildError {
 impl fmt::Display for PresentationBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RowSourceUnavailable(kind) => write!(
-                f,
-                "presentation row_source kind `{}` is not available until row expansion support is implemented",
-                kind.as_str()
-            ),
+            Self::Expansion(source) => write!(f, "failed to expand presentation rows: {source}"),
             Self::Sort(source) => write!(f, "failed to sort presentation rows: {source}"),
             Self::Layout(source) => write!(f, "failed to prepare presentation cells: {source}"),
         }
@@ -905,7 +1055,7 @@ impl fmt::Display for PresentationBuildError {
 impl Error for PresentationBuildError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::RowSourceUnavailable(_) => None,
+            Self::Expansion(source) => Some(source),
             Self::Sort(source) => Some(source),
             Self::Layout(source) => Some(source),
         }
@@ -1512,6 +1662,13 @@ impl PresentationRowSourceKind {
         }
     }
 
+    pub const fn supports(self, result_kind: PresentationResultKind) -> bool {
+        matches!(
+            result_kind,
+            PresentationResultKind::Heading | PresentationResultKind::File
+        )
+    }
+
     pub const fn required_includes(self) -> &'static [QueryInclude] {
         match self {
             Self::Tags => NO_INCLUDES,
@@ -1670,8 +1827,9 @@ impl Error for PresentationSpecError {
 mod tests {
     use crate::query::result::{FilePathEntry, FileRef, HeadingPathEntry, HeadingRef};
     use crate::query::{
-        FileResultNode, HeadingResultNode, LinkResultNode, LinkTarget, Location, PathEntry,
-        QueryInclude, QueryResultKind, QueryResultNode, QueryTarget,
+        EffectivePropertyFact, FileResultNode, HeadingResultNode, KeywordFact, LinkResultNode,
+        LinkTarget, Location, PathEntry, QueryInclude, QueryResultKind, QueryResultNode,
+        QueryTarget,
     };
 
     use super::{
@@ -2356,6 +2514,32 @@ mod tests {
                 .expect("property includes should derive"),
             vec![QueryInclude::EffectiveProperties]
         );
+
+        let tags = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"tag"}],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect("tag row presentation should parse");
+        assert!(tags
+            .required_includes_for_query_target(QueryTarget::Headings)
+            .expect("tag includes should derive")
+            .is_empty());
+
+        let keywords = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "row_source":{"kind":"keywords"}
+            }"#,
+        )
+        .expect("keyword row presentation should parse");
+        assert_eq!(
+            keywords
+                .required_includes_for_query_target(QueryTarget::Files)
+                .expect("keyword includes should derive"),
+            vec![QueryInclude::Keywords]
+        );
     }
 
     #[test]
@@ -2928,6 +3112,222 @@ mod tests {
     }
 
     #[test]
+    fn tag_row_source_expands_rows_in_source_order_and_uses_shared_widths() {
+        let mut result = file_result(1, "notes");
+        let QueryResultNode::File(node) = &mut result else {
+            unreachable!("file_result should return a file");
+        };
+        node.tags = vec!["x".to_string(), "project".to_string()];
+        let original = result.clone();
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"},{"name":"tag"}],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect("tag presentation should parse");
+
+        let response = spec
+            .build_response("database-id", 7, vec![result])
+            .expect("tag rows should build");
+
+        assert_eq!(response.results, vec![original]);
+        assert_eq!(response.rows.len(), 2);
+        assert!(response.rows.iter().all(|row| row.result_index == 0));
+        assert_eq!(
+            response.rows[0].row_context,
+            Some(PresentationRowContext::Tag {
+                value: "x".to_string()
+            })
+        );
+        assert_eq!(
+            response.rows[1].row_context,
+            Some(PresentationRowContext::Tag {
+                value: "project".to_string()
+            })
+        );
+        assert_eq!(response.rows[0].cells[0].search_text, "notes.org");
+        assert_eq!(response.rows[1].cells[0].search_text, "notes.org");
+        assert_eq!(response.rows[0].cells[1].search_text, "x");
+        assert_eq!(response.rows[0].cells[1].display_text, "x      ");
+        assert_eq!(response.rows[1].cells[1].display_text, "project");
+        assert_eq!(response.rows[0].cells[1].role, Some(PresentationRole::Tag));
+    }
+
+    #[test]
+    fn empty_row_source_produces_no_rows() {
+        let result = file_result(1, "notes");
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"},{"name":"tag"}],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect("tag presentation should parse");
+
+        let response = spec
+            .build_response("database-id", 7, vec![result.clone()])
+            .expect("empty tag source should build");
+
+        assert_eq!(response.results, vec![result]);
+        assert!(response.rows.is_empty());
+    }
+
+    #[test]
+    fn effective_property_rows_preserve_source_order_and_repeat_normal_columns() {
+        let mut result = heading_result();
+        let QueryResultNode::Heading(node) = &mut result else {
+            unreachable!("heading_result should return a heading");
+        };
+        node.effective_properties = Some(vec![
+            EffectivePropertyFact {
+                key: "OWNER".to_string(),
+                value: Some("Daniel".to_string()),
+            },
+            EffectivePropertyFact {
+                key: "AREA".to_string(),
+                value: Some("infra".to_string()),
+            },
+        ]);
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[
+                    {"name":"title"},
+                    {"name":"property-name"},
+                    {"name":"property-value"}
+                ],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("property presentation should parse");
+
+        let response = spec
+            .build_response("database-id", 7, vec![result])
+            .expect("property rows should build");
+
+        assert_eq!(response.rows.len(), 2);
+        assert_eq!(response.rows[0].cells[0].search_text, "Task");
+        assert_eq!(response.rows[1].cells[0].search_text, "Task");
+        assert_eq!(response.rows[0].cells[1].search_text, "OWNER");
+        assert_eq!(response.rows[1].cells[1].search_text, "AREA");
+        assert_eq!(response.rows[1].cells[1].display_text, "AREA ");
+        assert_eq!(response.rows[0].cells[2].search_text, "Daniel");
+        assert_eq!(response.rows[1].cells[2].search_text, "infra");
+        assert_eq!(response.rows[1].cells[2].display_text, "infra ");
+    }
+
+    #[test]
+    fn keyword_rows_preserve_duplicates_and_absent_values() {
+        let mut result = file_result(1, "notes");
+        let QueryResultNode::File(node) = &mut result else {
+            unreachable!("file_result should return a file");
+        };
+        node.keywords = Some(vec![
+            KeywordFact {
+                keyword: "TITLE".to_string(),
+                value: Some("First".to_string()),
+                line_number: Some(1),
+            },
+            KeywordFact {
+                keyword: "TITLE".to_string(),
+                value: Some("Second".to_string()),
+                line_number: Some(2),
+            },
+            KeywordFact {
+                keyword: "EMPTY".to_string(),
+                value: None,
+                line_number: Some(3),
+            },
+        ]);
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"keyword-name"},{"name":"keyword-value"}],
+                "row_source":{"kind":"keywords"}
+            }"#,
+        )
+        .expect("keyword presentation should parse");
+
+        let response = spec
+            .build_response("database-id", 7, vec![result])
+            .expect("keyword rows should build");
+
+        assert_eq!(response.rows.len(), 3);
+        assert_eq!(
+            response.rows[0].row_context,
+            Some(PresentationRowContext::Keyword {
+                name: "TITLE".to_string(),
+                value: "First".to_string(),
+            })
+        );
+        assert_eq!(
+            response.rows[1].row_context,
+            Some(PresentationRowContext::Keyword {
+                name: "TITLE".to_string(),
+                value: "Second".to_string(),
+            })
+        );
+        assert_eq!(response.rows[2].cells[1].search_text, "");
+    }
+
+    #[test]
+    fn hidden_row_column_sorts_expanded_rows_before_layout() {
+        let mut result = file_result(1, "notes");
+        let QueryResultNode::File(node) = &mut result else {
+            unreachable!("file_result should return a file");
+        };
+        node.tags = vec!["zeta".to_string(), "alpha".to_string()];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"tag","direction":"asc"}],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect("hidden tag sort should parse");
+
+        let response = spec
+            .build_response("database-id", 7, vec![result])
+            .expect("expanded rows should sort");
+
+        assert_eq!(
+            response
+                .rows
+                .iter()
+                .map(|row| row.row_context.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Some(PresentationRowContext::Tag {
+                    value: "alpha".to_string()
+                }),
+                Some(PresentationRowContext::Tag {
+                    value: "zeta".to_string()
+                }),
+            ]
+        );
+        assert!(response.rows.iter().all(|row| row.cells.len() == 1));
+    }
+
+    #[test]
+    fn row_expansion_reports_missing_inferred_include_data() {
+        let result = file_result(1, "notes");
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"property-name"}],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("property presentation should parse");
+
+        let error = spec
+            .build_response("database-id", 7, vec![result])
+            .expect_err("missing effective property data should fail");
+        assert_eq!(
+            error.to_string(),
+            "failed to expand presentation rows: row_source kind `effective-properties` requires query include `effective_properties` for result_index 0"
+        );
+    }
+
+    #[test]
     fn build_response_runs_sort_and_layout_without_duplicating_results() {
         let results = vec![file_result(1, "Alpha"), file_result(2, "Long title")];
         let spec = PresentationSpec::parse_json(
@@ -2961,22 +3361,20 @@ mod tests {
     }
 
     #[test]
-    fn build_response_rejects_row_source_until_expansion_exists() {
+    fn row_sources_are_limited_to_heading_and_file_results() {
         let spec = PresentationSpec::parse_json(
             r#"{
-                "columns":[{"name":"file-name"}],
+                "columns":[{"name":"link-target"}],
                 "row_source":{"kind":"tags"}
             }"#,
         )
-        .expect("row-source presentation should parse");
-
-        let error = spec
-            .build_response("database-id", 7, vec![file_result(1, "notes")])
-            .expect_err("row source should wait for row expansion support");
+        .expect("known row source should parse");
 
         assert_eq!(
-            error.to_string(),
-            "presentation row_source kind `tags` is not available until row expansion support is implemented"
+            spec.validate_for_query_target(QueryTarget::Links)
+                .expect_err("link results should reject row expansion")
+                .to_string(),
+            "invalid presentation specification: row_source kind `tags` is not supported for link results"
         );
     }
 
@@ -3038,7 +3436,7 @@ mod tests {
     }
 
     #[test]
-    fn all_planned_row_sources_parse() {
+    fn all_supported_row_sources_parse() {
         for (value, expected) in [
             ("tags", PresentationRowSourceKind::Tags),
             (
@@ -3068,6 +3466,7 @@ mod tests {
             r#"{"columns":[{"name":"title"}],"row_source":"tags"}"#,
             r#"{"columns":[{"name":"title"}],"row_source":{"kind":"properties"}}"#,
             r#"{"columns":[{"name":"title"}],"row_source":{"kind":"tags","unknown":true}}"#,
+            r#"{"columns":[{"name":"title"}],"row_source":{"kind":"tags"},"row_source":{"kind":"keywords"}}"#,
         ] {
             let error = PresentationSpec::parse_json(input)
                 .expect_err("unknown presentation input should fail");

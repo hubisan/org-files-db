@@ -2427,6 +2427,59 @@ fts5_enabled = false
     }
 
     #[test]
+    fn query_presentation_expands_keyword_rows_with_inferred_data() {
+        let test_dir = TestDir::new("presentation-row-expansion");
+        let config_path = write_query_fixture(&test_dir);
+        let output = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--presentation-spec-json".into(),
+            r#"{
+                "columns":[{"name":"file-name"},{"name":"keyword-value"}],
+                "sort":[{"column":"keyword-name","direction":"asc"}],
+                "row_source":{"kind":"keywords"}
+            }"#
+            .into(),
+            "--config".into(),
+            config_path.display().to_string(),
+            "(files)".into(),
+        ])
+        .expect("keyword row presentation should succeed");
+
+        let response: Value =
+            serde_json::from_slice(&output).expect("presentation output should be valid JSON");
+        let results = response["results"]
+            .as_array()
+            .expect("presentation results should be an array");
+        let rows = response["rows"]
+            .as_array()
+            .expect("presentation rows should be an array");
+        let projects_index = results
+            .iter()
+            .position(|result| result["name"].as_str() == Some("projects.org"))
+            .expect("projects result should exist");
+        let project_rows = rows
+            .iter()
+            .filter(|row| row["result_index"].as_u64() == Some(projects_index as u64))
+            .collect::<Vec<_>>();
+
+        assert!(!project_rows.is_empty());
+        assert!(project_rows.iter().all(|row| row.get("result").is_none()));
+        assert!(project_rows
+            .iter()
+            .all(|row| row["row_context"]["kind"].as_str() == Some("keyword")));
+        assert!(project_rows.iter().any(|row| {
+            row["row_context"]["name"].as_str() == Some("AUTHOR")
+                && row["row_context"]["value"].as_str() == Some("Alice")
+        }));
+        assert!(project_rows
+            .iter()
+            .all(|row| { row["cells"][0]["search_text"].as_str() == Some("projects.org") }));
+    }
+
+    #[test]
     fn query_json_format_keeps_existing_pretty_serialization_path() {
         let test_dir = TestDir::new("query-json-existing-path");
         let config_path = write_query_fixture(&test_dir);

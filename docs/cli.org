@@ -371,7 +371,7 @@ After query parsing, the CLI validates displayed columns and sort-only columns a
 
 For example, ~link-target~ is valid for ~(links)~ but not for ~(headings)~. The same registry validates sort-only columns.
 
-Singular row columns also require their matching ~row_source~ value. The row-expansion execution itself is not implemented yet.
+Singular row columns require their matching ~row_source~ value. Row sources are valid for heading and file query results.
 
 Only outline-path columns accept the ~outline_path~ option object.
 
@@ -381,15 +381,15 @@ Displayed columns, sort-only columns, and row sources can add required includes.
 
 For example, a hidden ~outline-path~ sort adds ~path~. An ~effective-properties~ row source adds ~effective_properties~.
 
-The query command emits the complete initial presentation response for normal one-row-per-result views.
+The query command emits complete presentation responses for normal and expanded views.
 
-The presentation path runs the query once. It then sorts rows, calculates shared widths, truncates, pads, and assigns semantic roles.
+The presentation path runs the query once. It expands rows, sorts them, calculates shared widths, truncates, pads, and assigns semantic roles.
 
 The presentation query reads index state and query data from one database read transaction. The response identifies one database snapshot.
 
 ~presentation-json~ uses compact JSON and ends with one newline. Normal ~--format json~ keeps its existing pretty JSON serialization.
 
-A non-null ~row_source~ is rejected until row expansion is implemented.
+The supported row sources are ~tags~, ~effective-properties~, and ~keywords~. Empty row-source collections produce no rows.
 
 Other commands do not accept ~presentation-json~ or ~--presentation-spec-json~.
 
@@ -400,6 +400,15 @@ orgfdb query \
   --format presentation-json \
   --presentation-spec-json '{"columns":[{"name":"title"}]}' \
   '(headings)'
+#+end_src
+
+Example keyword expansion:
+
+#+begin_src shell
+orgfdb query \
+  --format presentation-json \
+  --presentation-spec-json '{"columns":[{"name":"file-name"},{"name":"keyword-name"},{"name":"keyword-value"}],"row_source":{"kind":"keywords"}}' \
+  '(files)'
 #+end_src
 
 The response contains:
