@@ -203,9 +203,9 @@ This stage only derives those requirements. A later task combines inferred inclu
 
 * Semantic roles
 
-Rust sends semantic roles instead of concrete Emacs faces.
+Rust defines semantic roles without concrete client styling.
 
-Planned roles include:
+The initial roles are:
 
 - ~heading~
 - ~title~
@@ -223,9 +223,15 @@ Planned roles include:
 
 The complete ~outline-path~, ~source-outline-path~, and ~target-outline-path~ value uses the ~heading~ role.
 
+The ~todo-keyword~ column uses ~todo~ for ~todo_type = open~ and ~done~ for ~todo_type = closed~.
+
+A missing or unknown TODO type produces no semantic role. Columns without a useful display distinction also have no role.
+
+Link-specific columns have no special role in the initial registry. A later change can add one when a distinct display meaning exists.
+
 Rust does not encode heading levels, Emacs face names, colors, font sizes, or theme data.
 
-The initial format has one role per cell. It has no role ranges and no separate outline-separator role.
+The later cell wire model stores one optional role per cell. It has no role ranges and no separate outline-separator role.
 
 * Results, rows, and cells
 

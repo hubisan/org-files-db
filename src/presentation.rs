@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::query::{QueryInclude, QueryTarget};
 
@@ -245,6 +245,7 @@ impl PresentationColumn {
 
     pub fn definition(self) -> PresentationColumnDefinition {
         use PresentationColumn as Column;
+        use PresentationRole as SemanticRole;
         use PresentationRoleRule as Role;
         use PresentationValueSource as Value;
 
@@ -258,7 +259,7 @@ impl PresentationColumn {
                 HEADING_AND_SEARCH_RESULTS,
                 PresentationIncludeRule::None,
                 Value::Title,
-                Role::Static("title"),
+                Role::Static(SemanticRole::Title),
                 common,
                 None,
             ),
@@ -282,7 +283,7 @@ impl PresentationColumn {
                 HEADING_RESULTS,
                 PresentationIncludeRule::None,
                 Value::Priority,
-                Role::Static("priority"),
+                Role::Static(SemanticRole::Priority),
                 common,
                 None,
             ),
@@ -290,7 +291,7 @@ impl PresentationColumn {
                 HEADING_AND_SEARCH_RESULTS,
                 PresentationIncludeRule::ForKind(PresentationResultKind::Heading, PATH_INCLUDE),
                 Value::OutlinePath,
-                Role::Static("heading"),
+                Role::Static(SemanticRole::Heading),
                 outline,
                 None,
             ),
@@ -298,7 +299,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::None,
                 Value::Tags,
-                Role::Static("tag"),
+                Role::Static(SemanticRole::Tag),
                 common,
                 None,
             ),
@@ -306,7 +307,7 @@ impl PresentationColumn {
                 HEADING_RESULTS,
                 PresentationIncludeRule::None,
                 Value::ScheduledRaw,
-                Role::Static("date"),
+                Role::Static(SemanticRole::Date),
                 common,
                 None,
             ),
@@ -314,7 +315,7 @@ impl PresentationColumn {
                 HEADING_RESULTS,
                 PresentationIncludeRule::None,
                 Value::DeadlineRaw,
-                Role::Static("date"),
+                Role::Static(SemanticRole::Date),
                 common,
                 None,
             ),
@@ -322,7 +323,7 @@ impl PresentationColumn {
                 HEADING_RESULTS,
                 PresentationIncludeRule::None,
                 Value::ClosedRaw,
-                Role::Static("date"),
+                Role::Static(SemanticRole::Date),
                 common,
                 None,
             ),
@@ -330,7 +331,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::ForKind(PresentationResultKind::Heading, PATH_INCLUDE),
                 Value::FileTitle,
-                Role::Static("title"),
+                Role::Static(SemanticRole::Title),
                 common,
                 None,
             ),
@@ -338,7 +339,7 @@ impl PresentationColumn {
                 FILE_LOCATION_RESULTS,
                 PresentationIncludeRule::None,
                 Value::FileName,
-                Role::Static("file-name"),
+                Role::Static(SemanticRole::FileName),
                 common,
                 None,
             ),
@@ -346,7 +347,7 @@ impl PresentationColumn {
                 FILE_LOCATION_RESULTS,
                 PresentationIncludeRule::None,
                 Value::FilePath,
-                Role::Static("file-path"),
+                Role::Static(SemanticRole::FilePath),
                 common,
                 None,
             ),
@@ -394,7 +395,7 @@ impl PresentationColumn {
                 LINK_RESULTS,
                 PresentationIncludeRule::Always(PATH_INCLUDE),
                 Value::SourceOutlinePath,
-                Role::Static("heading"),
+                Role::Static(SemanticRole::Heading),
                 outline,
                 None,
             ),
@@ -402,7 +403,7 @@ impl PresentationColumn {
                 LINK_RESULTS,
                 PresentationIncludeRule::Always(TARGET_INCLUDE),
                 Value::TargetOutlinePath,
-                Role::Static("heading"),
+                Role::Static(SemanticRole::Heading),
                 outline,
                 None,
             ),
@@ -418,7 +419,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::None,
                 Value::RowTag,
-                Role::Static("tag"),
+                Role::Static(SemanticRole::Tag),
                 common,
                 Some(PresentationRowSourceKind::Tags),
             ),
@@ -426,7 +427,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::Always(EFFECTIVE_PROPERTIES_INCLUDE),
                 Value::RowPropertyName,
-                Role::Static("property-name"),
+                Role::Static(SemanticRole::PropertyName),
                 common,
                 Some(PresentationRowSourceKind::EffectiveProperties),
             ),
@@ -434,7 +435,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::Always(EFFECTIVE_PROPERTIES_INCLUDE),
                 Value::RowPropertyValue,
-                Role::Static("property-value"),
+                Role::Static(SemanticRole::PropertyValue),
                 common,
                 Some(PresentationRowSourceKind::EffectiveProperties),
             ),
@@ -442,7 +443,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::Always(KEYWORDS_INCLUDE),
                 Value::RowKeywordName,
-                Role::Static("keyword-name"),
+                Role::Static(SemanticRole::KeywordName),
                 common,
                 Some(PresentationRowSourceKind::Keywords),
             ),
@@ -450,7 +451,7 @@ impl PresentationColumn {
                 HEADING_AND_FILE_RESULTS,
                 PresentationIncludeRule::Always(KEYWORDS_INCLUDE),
                 Value::RowKeywordValue,
-                Role::Static("keyword-value"),
+                Role::Static(SemanticRole::KeywordValue),
                 common,
                 Some(PresentationRowSourceKind::Keywords),
             ),
@@ -514,11 +515,63 @@ pub enum PresentationValueSource {
     RowKeywordValue,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PresentationRole {
+    Heading,
+    Title,
+    Todo,
+    Done,
+    Priority,
+    Tag,
+    Date,
+    FileName,
+    FilePath,
+    KeywordName,
+    KeywordValue,
+    PropertyName,
+    PropertyValue,
+}
+
+impl PresentationRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Heading => "heading",
+            Self::Title => "title",
+            Self::Todo => "todo",
+            Self::Done => "done",
+            Self::Priority => "priority",
+            Self::Tag => "tag",
+            Self::Date => "date",
+            Self::FileName => "file-name",
+            Self::FilePath => "file-path",
+            Self::KeywordName => "keyword-name",
+            Self::KeywordValue => "keyword-value",
+            Self::PropertyName => "property-name",
+            Self::PropertyValue => "property-value",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresentationRoleRule {
     None,
-    Static(&'static str),
+    Static(PresentationRole),
     TodoKeyword,
+}
+
+impl PresentationRoleRule {
+    pub fn resolve(self, todo_type: Option<&str>) -> Option<PresentationRole> {
+        match self {
+            Self::None => None,
+            Self::Static(role) => Some(role),
+            Self::TodoKeyword => match todo_type {
+                Some("open") => Some(PresentationRole::Todo),
+                Some("closed") => Some(PresentationRole::Done),
+                _ => None,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -763,7 +816,7 @@ mod tests {
     use crate::query::{QueryInclude, QueryTarget};
 
     use super::{
-        PresentationColumn, PresentationResultKind, PresentationRoleRule,
+        PresentationColumn, PresentationResultKind, PresentationRole, PresentationRoleRule,
         PresentationRowSourceKind, PresentationSortDirection, PresentationSpec,
         PresentationTruncationPosition, PresentationValueSource, PresentationWidthMode,
     };
@@ -972,15 +1025,82 @@ mod tests {
 
         let outline = PresentationColumn::OutlinePath.definition();
         assert_eq!(outline.value_source, PresentationValueSource::OutlinePath);
-        assert_eq!(outline.role_rule, PresentationRoleRule::Static("heading"));
+        assert_eq!(
+            outline.role_rule,
+            PresentationRoleRule::Static(PresentationRole::Heading)
+        );
         assert!(outline.options.outline_path);
 
         let file_path = PresentationColumn::FilePath.definition();
         assert_eq!(file_path.value_source, PresentationValueSource::FilePath);
         assert_eq!(
             file_path.role_rule,
-            PresentationRoleRule::Static("file-path")
+            PresentationRoleRule::Static(PresentationRole::FilePath)
         );
+    }
+
+    #[test]
+    fn semantic_roles_have_stable_wire_names() {
+        for (role, name) in [
+            (PresentationRole::Heading, "heading"),
+            (PresentationRole::Title, "title"),
+            (PresentationRole::Todo, "todo"),
+            (PresentationRole::Done, "done"),
+            (PresentationRole::Priority, "priority"),
+            (PresentationRole::Tag, "tag"),
+            (PresentationRole::Date, "date"),
+            (PresentationRole::FileName, "file-name"),
+            (PresentationRole::FilePath, "file-path"),
+            (PresentationRole::KeywordName, "keyword-name"),
+            (PresentationRole::KeywordValue, "keyword-value"),
+            (PresentationRole::PropertyName, "property-name"),
+            (PresentationRole::PropertyValue, "property-value"),
+        ] {
+            assert_eq!(role.as_str(), name);
+            assert_eq!(
+                serde_json::to_string(&role).expect("presentation role should serialize"),
+                format!(r#""{name}""#)
+            );
+        }
+    }
+
+    #[test]
+    fn todo_keyword_role_uses_open_and_closed_semantics() {
+        let rule = PresentationColumn::TodoKeyword.definition().role_rule;
+
+        assert_eq!(rule.resolve(Some("open")), Some(PresentationRole::Todo));
+        assert_eq!(rule.resolve(Some("closed")), Some(PresentationRole::Done));
+        assert_eq!(rule.resolve(None), None);
+        assert_eq!(rule.resolve(Some("unknown")), None);
+    }
+
+    #[test]
+    fn outline_paths_use_one_heading_role_without_level_metadata() {
+        for column in [
+            PresentationColumn::OutlinePath,
+            PresentationColumn::SourceOutlinePath,
+            PresentationColumn::TargetOutlinePath,
+        ] {
+            assert_eq!(
+                column.definition().role_rule.resolve(None),
+                Some(PresentationRole::Heading)
+            );
+        }
+    }
+
+    #[test]
+    fn columns_without_distinct_display_semantics_have_no_role() {
+        for column in [
+            PresentationColumn::TodoType,
+            PresentationColumn::LineNumber,
+            PresentationColumn::LinkType,
+            PresentationColumn::LinkTarget,
+            PresentationColumn::LinkDescription,
+            PresentationColumn::ResolutionStatus,
+            PresentationColumn::Rank,
+        ] {
+            assert_eq!(column.definition().role_rule.resolve(None), None);
+        }
     }
 
     #[test]

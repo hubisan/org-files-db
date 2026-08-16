@@ -1,0 +1,147 @@
+#+TITLE: Semantic Presentation Roles
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-16 Sunday 11:06]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Define semantic presentation roles in Rust.
+
+Initial roles include:
+
+- ~heading~
+- ~title~
+- ~todo~
+- ~done~
+- ~priority~
+- ~tag~
+- ~date~
+- ~file-name~
+- ~file-path~
+- ~keyword-name~
+- ~keyword-value~
+- ~property-name~
+- ~property-value~
+
+Use ~heading~ for ~outline-path~, ~source-outline-path~, and ~target-outline-path~.
+
+Do not add heading-level roles, role ranges, outline-separator styling, Emacs face names, colors, text properties, or theme data.
+
+* Planning
+
+** Problem summary
+
+The public presentation column registry stores semantic roles as string literals inside ~PresentationRoleRule~.
+
+This does not give Rust one typed definition of the public role vocabulary. It also leaves the ~todo-keyword~ role unresolved between open and closed TODO states.
+
+** Goals
+
+- Add one typed ~PresentationRole~ enum.
+- Give every role a stable kebab-case wire name.
+- Replace string role literals in the column registry with typed roles.
+- Keep ~todo-keyword~ dynamic so open TODO states use ~todo~ and closed states use ~done~.
+- Keep columns without useful styling semantics on ~None~.
+- Keep outline-path columns on the single ~heading~ role.
+- Prepare the role type for the later cell wire model.
+
+** Non-goals
+
+- Do not define presentation rows or cells.
+- Do not serialize complete presentation responses.
+- Do not add link-specific roles without a concrete display distinction.
+- Do not add heading levels, role ranges, or separator roles.
+- Do not add Emacs face names or client styling data.
+- Do not implement value extraction, sorting, widths, truncation, or row expansion.
+
+** Architecture
+
+Add ~PresentationRole~ as a typed public enum in ~src/presentation.rs~.
+
+Use ~serde~ kebab-case names so the later wire model can serialize stable values without client-specific names.
+
+Keep ~PresentationRoleRule~ as the registry rule type:
+
+- ~None~ gives no role.
+- ~Static(PresentationRole)~ gives one fixed role.
+- ~TodoKeyword~ resolves from the stored TODO type.
+
+The TODO type uses the existing database values ~open~ and ~closed~. Unknown or missing TODO types do not invent a role.
+
+** Execution plan
+
+1. Add the typed semantic role enum and stable names.
+2. Replace role string literals in the column registry.
+3. Add role resolution for open and closed TODO states.
+4. Add tests for all initial roles and column mappings.
+5. Update the presentation design documentation.
+6. Archive all earlier dated task files and update their links in ~todo.org~.
+7. Run formatting and repository checks where available.
+
+** Risks & assumptions
+
+- Link columns keep no special role in this task because no distinct link styling requirement exists yet.
+- ~file-title~ uses the existing ~title~ role.
+- Aggregate ~tags~ and singular ~tag~ both use the ~tag~ role.
+- Missing or invalid TODO type data produces no role instead of guessing an open or closed state.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation::tests~
+- ~cargo fmt --all --check~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Added a typed ~PresentationRole~ enum with stable kebab-case wire names.
+- Replaced semantic role string literals in the column registry with typed roles.
+- Kept ~todo-keyword~ as a dynamic rule that maps ~open~ to ~todo~ and ~closed~ to ~done~.
+- Kept link-specific fields without a role because this task has no distinct link styling requirement.
+- Kept all three outline-path columns on the single ~heading~ role.
+- Archived every earlier dated task file that was present in the active task directory.
+- Updated active task-index links for the moved task files.
+
+** Changed files
+
+- ~src/presentation.rs~
+- ~docs/design/presentation.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-16--semantic-presentation-roles.org~
+- Earlier dated task files moved from ~.project/tasks/~ to ~.project/tasks/archive/~.
+
+** Checks performed
+
+- Checked that no static role in the registry uses a string literal.
+- Checked stable role names against the planned public role vocabulary.
+- Checked open, closed, missing, and unknown TODO type role resolution in unit tests.
+- Checked that only the current task has a direct dated task link in ~todo.org~.
+- Ran a Simple English audit on the new documentation and task text.
+
+** Test results
+
+The current execution environment does not provide ~cargo~ or ~rustfmt~. The full Rust checks cannot run here.
+
+Run these checks in the development environment:
+
+#+begin_src shell
+cargo fmt --all
+make ci
+#+end_src
+
+** Blockers
+
+- Full Rust formatting, Clippy, and tests require the local Rust toolchain.
+
+** Follow-ups
+
+- The next wire-model task can use ~Option<PresentationRole>~ directly for a cell role.

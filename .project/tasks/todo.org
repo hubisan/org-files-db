@@ -97,23 +97,23 @@ Task file: [[./archive/2026-08-05--transactional-index-generations-cached-view-d
 
 * DONE Make query result shaping return errors instead of panicking
 
-Task file: [[./2026-08-14--query-result-shape-errors.org][Query Result Shape Errors]]
+Task file: [[./archive/2026-08-14--query-result-shape-errors.org][Query Result Shape Errors]]
 
 * DONE Add GitHub CI for the existing make ci target
 
-Task file: [[./2026-08-14--github-ci.org][GitHub CI]]
+Task file: [[./archive/2026-08-14--github-ci.org][GitHub CI]]
 
 * DONE Reject unknown TOML configuration keys
 
-Task file: [[./2026-08-14--strict-toml-config-keys.org][Strict TOML Configuration Keys]]
+Task file: [[./archive/2026-08-14--strict-toml-config-keys.org][Strict TOML Configuration Keys]]
 
 * DONE Avoid loading every heading for plain flat queries
 
-Task file: [[./2026-08-14--plain-flat-query-heading-load.org][Plain Flat Query Heading Load]]
+Task file: [[./archive/2026-08-14--plain-flat-query-heading-load.org][Plain Flat Query Heading Load]]
 
 * DONE Reject outdated database schemas on read-only query opens
 
-Task file: [[./2026-08-14--reject-outdated-read-only-schema.org][Reject Outdated Read-Only Database Schemas]]
+Task file: [[./archive/2026-08-14--reject-outdated-read-only-schema.org][Reject Outdated Read-Only Database Schemas]]
 
 * CANCEL Feature - ignore single file
 
@@ -168,33 +168,35 @@ metadata.
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-14--documentation-overhaul-before-presentation.org][Documentation Overhaul Before Presentation Work]]
+Task file: [[./archive/2026-08-14--documentation-overhaul-before-presentation.org][Documentation Overhaul Before Presentation Work]]
 
 * DONE Add query-specific presentation output support
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-14--query-specific-presentation-output.org][Query-specific Presentation Output]]
+Task file: [[./archive/2026-08-14--query-specific-presentation-output.org][Query-specific Presentation Output]]
 
 * DONE Define the Rust PresentationSpec model
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-15--presentation-spec-model.org][Rust PresentationSpec Model]]
+Task file: [[./archive/2026-08-15--presentation-spec-model.org][Rust PresentationSpec Model]]
 
 * DONE Define the public presentation column registry
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--public-presentation-column-registry.org][Public Presentation Column Registry]]
+Task file: [[./archive/2026-08-16--public-presentation-column-registry.org][Public Presentation Column Registry]]
 
-* TODO Define semantic presentation roles
+* REVIEW Define semantic presentation roles
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-16--semantic-presentation-roles.org][Semantic Presentation Roles]]
 
 Goal: Let Rust describe semantic display meaning without knowing concrete client styling.
 
