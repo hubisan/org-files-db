@@ -14,6 +14,8 @@ use super::{
     ValidatedQuery,
 };
 
+const QUERY_ENRICHMENT_ID_CHUNK_SIZE: usize = 900;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryOutputMode {
@@ -1479,81 +1481,100 @@ fn load_files(
         return Ok(HashMap::new());
     }
 
-    let sql = format!(
-        "SELECT
-            files.id,
-            files.path,
-            files.mtime_ns,
-            files.size,
-            files.content_hash,
-            files.indexed_at,
-            root.id,
-            root.title,
-            root.title_raw,
-            root.line_number
-         FROM files
-         INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0
-         WHERE files.id IN ({})
-         ORDER BY files.path",
-        placeholders(file_ids.len())
-    );
-    let params = file_ids.iter().copied().collect::<Vec<_>>();
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|source| QueryShapeError::database("load_files.prepare", source))?;
-    let rows = statement
-        .query_map(params_from_iter(params.iter()), |row| {
-            let path: String = row.get(1)?;
-            let path_ref = Path::new(&path);
-            let name = path_ref
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or(path.as_str())
-                .to_string();
-            let dir = path_ref
-                .parent()
-                .and_then(|value| value.to_str())
-                .unwrap_or(".")
-                .to_string();
-            Ok(StoredFile {
-                id: row.get(0)?,
-                path,
-                name,
-                dir,
-                mtime_ns: row.get(2)?,
-                size: row.get(3)?,
-                content_hash: row.get(4)?,
-                indexed_at: row.get(5)?,
-                root_heading_id: row.get(6)?,
-                root_title: row.get(7)?,
-                root_title_raw: row.get(8)?,
-                root_line_number: row.get(9)?,
+    let file_ids = file_ids.iter().copied().collect::<Vec<_>>();
+    let mut files = HashMap::new();
+    for chunk in file_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT
+                files.id,
+                files.path,
+                files.mtime_ns,
+                files.size,
+                files.content_hash,
+                files.indexed_at,
+                root.id,
+                root.title,
+                root.title_raw,
+                root.line_number
+             FROM files
+             INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0
+             WHERE files.id IN ({})
+             ORDER BY files.path",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|source| QueryShapeError::database("load_files.prepare", source))?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                let path: String = row.get(1)?;
+                let path_ref = Path::new(&path);
+                let name = path_ref
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(path.as_str())
+                    .to_string();
+                let dir = path_ref
+                    .parent()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(".")
+                    .to_string();
+                Ok(StoredFile {
+                    id: row.get(0)?,
+                    path,
+                    name,
+                    dir,
+                    mtime_ns: row.get(2)?,
+                    size: row.get(3)?,
+                    content_hash: row.get(4)?,
+                    indexed_at: row.get(5)?,
+                    root_heading_id: row.get(6)?,
+                    root_title: row.get(7)?,
+                    root_title_raw: row.get(8)?,
+                    root_line_number: row.get(9)?,
+                })
             })
-        })
-        .map_err(|source| QueryShapeError::database("load_files.query", source))?;
+            .map_err(|source| QueryShapeError::database("load_files.query", source))?;
 
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_files.collect", source))
-        .map(|rows| rows.into_iter().map(|row| (row.id, row)).collect())
+        for row in rows {
+            let file =
+                row.map_err(|source| QueryShapeError::database("load_files.collect", source))?;
+            files.insert(file.id, file);
+        }
+    }
+    Ok(files)
 }
 
 fn load_file_ids_for_headings(
     connection: &Connection,
     heading_ids: &[i64],
 ) -> Result<BTreeSet<i64>, QueryShapeError> {
-    let sql = format!(
-        "SELECT DISTINCT file_id FROM headings WHERE id IN ({}) ORDER BY file_id",
-        placeholders(heading_ids.len())
-    );
-    let mut statement = connection.prepare(&sql).map_err(|source| {
-        QueryShapeError::database("load_file_ids_for_headings.prepare", source)
-    })?;
-    let rows = statement
-        .query_map(params_from_iter(heading_ids.iter()), |row| row.get(0))
-        .map_err(|source| QueryShapeError::database("load_file_ids_for_headings.query", source))?;
+    if heading_ids.is_empty() {
+        return Ok(BTreeSet::new());
+    }
 
-    rows.collect::<Result<BTreeSet<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_file_ids_for_headings.collect", source))
+    let mut file_ids = BTreeSet::new();
+    for chunk in heading_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT DISTINCT file_id FROM headings WHERE id IN ({}) ORDER BY file_id",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection.prepare(&sql).map_err(|source| {
+            QueryShapeError::database("load_file_ids_for_headings.prepare", source)
+        })?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| row.get(0))
+            .map_err(|source| {
+                QueryShapeError::database("load_file_ids_for_headings.query", source)
+            })?;
+
+        for row in rows {
+            file_ids.insert(row.map_err(|source| {
+                QueryShapeError::database("load_file_ids_for_headings.collect", source)
+            })?);
+        }
+    }
+    Ok(file_ids)
 }
 
 fn load_headings_for_files(
@@ -1579,88 +1600,88 @@ fn load_headings(
         return Ok(HashMap::new());
     }
 
-    let sql = format!(
-        "SELECT
-            headings.id,
-            headings.file_id,
-            headings.parent_id,
-            headings.level,
-            headings.line_number,
-            headings.byte_start,
-            headings.byte_end,
-            headings.title,
-            headings.title_raw,
-            headings.todo_keyword,
-            headings.todo_type,
-            headings.priority,
-            headings.scheduled_raw,
-            headings.scheduled_ts,
-            headings.deadline_raw,
-            headings.deadline_ts,
-            headings.closed_raw,
-            headings.closed_ts,
-            headings.archivedp,
-            headings.footnote_section_p,
-            outline_path.breadcrumbs_json
-         FROM headings
-         LEFT JOIN outline_path ON outline_path.heading_id = headings.id
-         INNER JOIN files ON files.id = headings.file_id
-         WHERE {filter_column} IN ({})
-         ORDER BY files.path, headings.byte_start, headings.id",
-        placeholders(ids.len())
-    );
-    let params = ids.iter().copied().collect::<Vec<_>>();
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|source| QueryShapeError::database("load_headings.prepare", source))?;
-    let rows = statement
-        .query_map(params_from_iter(params.iter()), |row| {
-            let priority: Option<String> = row.get(11)?;
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, Option<String>>(20)?,
-                StoredHeading {
-                    id: row.get(0)?,
-                    file_id: row.get(1)?,
-                    parent_id: row.get(2)?,
-                    level: row.get(3)?,
-                    line_number: row.get(4)?,
-                    byte_start: row.get(5)?,
-                    byte_end: row.get(6)?,
-                    title: row.get(7)?,
-                    title_raw: row.get(8)?,
-                    todo_keyword: row.get(9)?,
-                    todo_type: row.get(10)?,
-                    priority,
-                    scheduled_raw: row.get(12)?,
-                    scheduled_ts: row.get(13)?,
-                    deadline_raw: row.get(14)?,
-                    deadline_ts: row.get(15)?,
-                    closed_raw: row.get(16)?,
-                    closed_ts: row.get(17)?,
-                    archivedp: row.get::<_, i64>(18)? != 0,
-                    footnote_section_p: row.get::<_, i64>(19)? != 0,
-                    all_tags: Vec::new(),
-                    breadcrumbs: Vec::new(),
-                },
-            ))
-        })
-        .map_err(|source| QueryShapeError::database("load_headings.query", source))?;
-
+    let ids = ids.iter().copied().collect::<Vec<_>>();
     let mut headings = HashMap::new();
-    for row in rows
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_headings.collect", source))?
-    {
-        let (id, breadcrumbs_json, mut heading) = row;
-        let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
-            QueryShapeError::missing(format!(
-                "missing outline_path row for stored heading id {id}"
-            ))
-        })?;
-        heading.breadcrumbs = serde_json::from_str(&breadcrumbs_json)
-            .map_err(|source| QueryShapeError::invalid_json("breadcrumbs_json", id, source))?;
-        headings.insert(id, heading);
+    for chunk in ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT
+                headings.id,
+                headings.file_id,
+                headings.parent_id,
+                headings.level,
+                headings.line_number,
+                headings.byte_start,
+                headings.byte_end,
+                headings.title,
+                headings.title_raw,
+                headings.todo_keyword,
+                headings.todo_type,
+                headings.priority,
+                headings.scheduled_raw,
+                headings.scheduled_ts,
+                headings.deadline_raw,
+                headings.deadline_ts,
+                headings.closed_raw,
+                headings.closed_ts,
+                headings.archivedp,
+                headings.footnote_section_p,
+                outline_path.breadcrumbs_json
+             FROM headings
+             LEFT JOIN outline_path ON outline_path.heading_id = headings.id
+             INNER JOIN files ON files.id = headings.file_id
+             WHERE {filter_column} IN ({})
+             ORDER BY files.path, headings.byte_start, headings.id",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|source| QueryShapeError::database("load_headings.prepare", source))?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                let priority: Option<String> = row.get(11)?;
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(20)?,
+                    StoredHeading {
+                        id: row.get(0)?,
+                        file_id: row.get(1)?,
+                        parent_id: row.get(2)?,
+                        level: row.get(3)?,
+                        line_number: row.get(4)?,
+                        byte_start: row.get(5)?,
+                        byte_end: row.get(6)?,
+                        title: row.get(7)?,
+                        title_raw: row.get(8)?,
+                        todo_keyword: row.get(9)?,
+                        todo_type: row.get(10)?,
+                        priority,
+                        scheduled_raw: row.get(12)?,
+                        scheduled_ts: row.get(13)?,
+                        deadline_raw: row.get(14)?,
+                        deadline_ts: row.get(15)?,
+                        closed_raw: row.get(16)?,
+                        closed_ts: row.get(17)?,
+                        archivedp: row.get::<_, i64>(18)? != 0,
+                        footnote_section_p: row.get::<_, i64>(19)? != 0,
+                        all_tags: Vec::new(),
+                        breadcrumbs: Vec::new(),
+                    },
+                ))
+            })
+            .map_err(|source| QueryShapeError::database("load_headings.query", source))?;
+
+        for row in rows {
+            let (id, breadcrumbs_json, mut heading) =
+                row.map_err(|source| QueryShapeError::database("load_headings.collect", source))?;
+            let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing outline_path row for stored heading id {id}"
+                ))
+            })?;
+            heading.breadcrumbs = serde_json::from_str(&breadcrumbs_json)
+                .map_err(|source| QueryShapeError::invalid_json("breadcrumbs_json", id, source))?;
+            headings.insert(id, heading);
+        }
     }
     load_effective_tags_for_stored_headings(connection, &mut headings)?;
     Ok(headings)
@@ -1674,9 +1695,8 @@ fn load_effective_tags_for_stored_headings(
         return Ok(());
     }
 
-    const TAG_LOAD_CHUNK_SIZE: usize = 900;
     let heading_ids = headings.keys().copied().collect::<Vec<_>>();
-    for chunk in heading_ids.chunks(TAG_LOAD_CHUNK_SIZE) {
+    for chunk in heading_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
         let sql = format!(
             "SELECT heading_id, tag
              FROM effective_tags
@@ -1714,20 +1734,12 @@ fn load_properties(
     files: &HashMap<i64, StoredFile>,
     include_all_file_headings: bool,
 ) -> Result<Vec<StoredProperty>, QueryShapeError> {
-    let (sql, params) = if include_all_file_headings {
+    let (filter_column, target_ids) = if include_all_file_headings {
         if file_ids.is_empty() {
             return Ok(Vec::new());
         }
         (
-            format!(
-                "SELECT properties.id, properties.heading_id, properties.key, properties.value,
-                        properties.source, properties.append, properties.line_number
-                 FROM properties
-                 INNER JOIN headings ON headings.id = properties.heading_id
-                 WHERE headings.file_id IN ({})
-                 ORDER BY properties.heading_id, properties.line_number, properties.id",
-                placeholders(file_ids.len())
-            ),
+            "headings.file_id",
             file_ids.iter().copied().collect::<Vec<_>>(),
         )
     } else {
@@ -1741,35 +1753,50 @@ fn load_properties(
             return Ok(Vec::new());
         }
         (
-            format!(
-                "SELECT properties.id, heading_id, key, value, source, append, line_number
-                 FROM properties
-                 WHERE heading_id IN ({})
-                 ORDER BY heading_id, line_number, id",
-                placeholders(target_ids.len())
-            ),
-            target_ids.iter().copied().collect::<Vec<_>>(),
+            "properties.heading_id",
+            target_ids.into_iter().collect::<Vec<_>>(),
         )
     };
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|source| QueryShapeError::database("load_properties.prepare", source))?;
-    let rows = statement
-        .query_map(params_from_iter(params.iter()), |row| {
-            Ok(StoredProperty {
-                heading_id: row.get(1)?,
-                fact: PropertyFact {
-                    key: row.get(2)?,
-                    value: row.get(3)?,
-                    source: row.get(4)?,
-                    append: row.get::<_, i64>(5)? != 0,
-                    line_number: row.get(6)?,
-                },
+
+    let mut properties = Vec::new();
+    for chunk in target_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                    properties.source, properties.append, properties.line_number
+             FROM properties
+             INNER JOIN headings ON headings.id = properties.heading_id
+             WHERE {filter_column} IN ({})
+             ORDER BY properties.heading_id, properties.line_number, properties.id",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|source| QueryShapeError::database("load_properties.prepare", source))?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok(StoredProperty {
+                    heading_id: row.get(1)?,
+                    fact: PropertyFact {
+                        key: row.get(2)?,
+                        value: row.get(3)?,
+                        source: row.get(4)?,
+                        append: row.get::<_, i64>(5)? != 0,
+                        line_number: row.get(6)?,
+                    },
+                })
             })
-        })
-        .map_err(|source| QueryShapeError::database("load_properties.query", source))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_properties.collect", source))
+            .map_err(|source| QueryShapeError::database("load_properties.query", source))?;
+        properties.extend(
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|source| QueryShapeError::database("load_properties.collect", source))?,
+        );
+    }
+    properties.sort_by(|left, right| {
+        left.heading_id
+            .cmp(&right.heading_id)
+            .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
+    });
+    Ok(properties)
 }
 
 fn load_effective_properties(
@@ -1787,30 +1814,43 @@ fn load_effective_properties(
     if target_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let sql = format!("SELECT heading_id, key, effective_value FROM effective_properties WHERE heading_id IN ({}) ORDER BY heading_id, key", placeholders(target_ids.len()));
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|source| QueryShapeError::database("load_effective_properties.prepare", source))?;
-    let rows = statement
-        .query_map(params_from_iter(target_ids.iter()), |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                EffectivePropertyFact {
-                    key: row.get(1)?,
-                    value: Some(row.get(2)?),
-                },
-            ))
-        })
-        .map_err(|source| QueryShapeError::database("load_effective_properties.query", source))?;
-    let mut effective = HashMap::new();
-    for heading_id in target_ids {
-        effective.insert(heading_id, Vec::new());
-    }
-    for row in rows
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_effective_properties.collect", source))?
-    {
-        effective.entry(row.0).or_insert_with(Vec::new).push(row.1);
+
+    let target_ids = target_ids.into_iter().collect::<Vec<_>>();
+    let mut effective = target_ids
+        .iter()
+        .copied()
+        .map(|heading_id| (heading_id, Vec::new()))
+        .collect::<HashMap<_, _>>();
+    for chunk in target_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT heading_id, key, effective_value
+             FROM effective_properties
+             WHERE heading_id IN ({})
+             ORDER BY heading_id, key",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection.prepare(&sql).map_err(|source| {
+            QueryShapeError::database("load_effective_properties.prepare", source)
+        })?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    EffectivePropertyFact {
+                        key: row.get(1)?,
+                        value: Some(row.get(2)?),
+                    },
+                ))
+            })
+            .map_err(|source| {
+                QueryShapeError::database("load_effective_properties.query", source)
+            })?;
+        for row in rows {
+            let (heading_id, fact) = row.map_err(|source| {
+                QueryShapeError::database("load_effective_properties.collect", source)
+            })?;
+            effective.entry(heading_id).or_default().push(fact);
+        }
     }
     Ok(effective)
 }
@@ -1831,31 +1871,42 @@ fn load_keywords(
         return Ok(Vec::new());
     }
 
-    let sql = format!(
-        "SELECT heading_id, keyword, value, line_number
-         FROM keywords
-         WHERE heading_id IN ({})
-         ORDER BY heading_id, line_number, id",
-        placeholders(target_ids.len())
-    );
-    let params = target_ids.iter().copied().collect::<Vec<_>>();
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|source| QueryShapeError::database("load_keywords.prepare", source))?;
-    let rows = statement
-        .query_map(params_from_iter(params.iter()), |row| {
-            Ok(StoredKeyword {
-                heading_id: row.get(0)?,
-                fact: KeywordFact {
-                    keyword: row.get(1)?,
-                    value: row.get(2)?,
-                    line_number: row.get(3)?,
-                },
+    let target_ids = target_ids.into_iter().collect::<Vec<_>>();
+    let mut keywords = Vec::new();
+    for chunk in target_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT heading_id, keyword, value, line_number
+             FROM keywords
+             WHERE heading_id IN ({})
+             ORDER BY heading_id, line_number, id",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|source| QueryShapeError::database("load_keywords.prepare", source))?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok(StoredKeyword {
+                    heading_id: row.get(0)?,
+                    fact: KeywordFact {
+                        keyword: row.get(1)?,
+                        value: row.get(2)?,
+                        line_number: row.get(3)?,
+                    },
+                })
             })
-        })
-        .map_err(|source| QueryShapeError::database("load_keywords.query", source))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_keywords.collect", source))
+            .map_err(|source| QueryShapeError::database("load_keywords.query", source))?;
+        keywords.extend(
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(|source| QueryShapeError::database("load_keywords.collect", source))?,
+        );
+    }
+    keywords.sort_by(|left, right| {
+        left.heading_id
+            .cmp(&right.heading_id)
+            .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
+    });
+    Ok(keywords)
 }
 
 fn load_links_by_file(
@@ -1894,80 +1945,82 @@ fn load_link_map(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let sql = format!(
-        "SELECT
-            links.id,
-            links.file_id,
-            files.path,
-            links.heading_id,
-            headings.level,
-            links.source_context,
-            links.format,
-            links.link_type,
-            links.raw,
-            links.raw_target,
-            links.raw_description,
-            links.path,
-            links.search_option,
-            links.path_absolute,
-            links.target_file_id,
-            links.target_heading_id,
-            links.target_custom_id,
-            links.target_id,
-            links.resolution_status,
-            links.resolution_diagnostic,
-            links.byte_start,
-            links.byte_end,
-            links.line,
-            {id_column}
-         FROM links
-         INNER JOIN files ON files.id = links.file_id
-         INNER JOIN headings ON headings.id = links.heading_id
-         WHERE {id_column} IN ({})
-         ORDER BY {id_column}, files.path, links.byte_start, links.id",
-        placeholders(ids.len())
-    );
-    let params = ids.iter().copied().collect::<Vec<_>>();
-    let mut statement = connection
-        .prepare(&sql)
-        .map_err(|source| QueryShapeError::database("load_link_map.prepare", source))?;
-    let rows = statement
-        .query_map(params_from_iter(params.iter()), |row| {
-            Ok((
-                row.get::<_, i64>(23)?,
-                StoredLink {
-                    id: row.get(0)?,
-                    file_id: row.get(1)?,
-                    file_path: row.get(2)?,
-                    heading_id: row.get(3)?,
-                    source_context: row.get(5)?,
-                    format: row.get(6)?,
-                    link_type: row.get(7)?,
-                    raw: row.get(8)?,
-                    raw_target: row.get(9)?,
-                    raw_description: row.get(10)?,
-                    link_path: row.get(11)?,
-                    search_option: row.get(12)?,
-                    path_absolute: row.get(13)?,
-                    target_file_id: row.get(14)?,
-                    target_heading_id: row.get(15)?,
-                    target_custom_id: row.get(16)?,
-                    target_id: row.get(17)?,
-                    resolution_status: row.get(18)?,
-                    resolution_diagnostic: row.get(19)?,
-                    byte_start: row.get(20)?,
-                    byte_end: row.get(21)?,
-                    line: row.get(22)?,
-                },
-            ))
-        })
-        .map_err(|source| QueryShapeError::database("load_link_map.query", source))?;
+
+    let ids = ids.iter().copied().collect::<Vec<_>>();
     let mut grouped = HashMap::<i64, Vec<StoredLink>>::new();
-    for row in rows
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryShapeError::database("load_link_map.collect", source))?
-    {
-        grouped.entry(row.0).or_default().push(row.1);
+    for chunk in ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+        let sql = format!(
+            "SELECT
+                links.id,
+                links.file_id,
+                files.path,
+                links.heading_id,
+                headings.level,
+                links.source_context,
+                links.format,
+                links.link_type,
+                links.raw,
+                links.raw_target,
+                links.raw_description,
+                links.path,
+                links.search_option,
+                links.path_absolute,
+                links.target_file_id,
+                links.target_heading_id,
+                links.target_custom_id,
+                links.target_id,
+                links.resolution_status,
+                links.resolution_diagnostic,
+                links.byte_start,
+                links.byte_end,
+                links.line,
+                {id_column}
+             FROM links
+             INNER JOIN files ON files.id = links.file_id
+             INNER JOIN headings ON headings.id = links.heading_id
+             WHERE {id_column} IN ({})
+             ORDER BY {id_column}, files.path, links.byte_start, links.id",
+            placeholders(chunk.len())
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|source| QueryShapeError::database("load_link_map.prepare", source))?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((
+                    row.get::<_, i64>(23)?,
+                    StoredLink {
+                        id: row.get(0)?,
+                        file_id: row.get(1)?,
+                        file_path: row.get(2)?,
+                        heading_id: row.get(3)?,
+                        source_context: row.get(5)?,
+                        format: row.get(6)?,
+                        link_type: row.get(7)?,
+                        raw: row.get(8)?,
+                        raw_target: row.get(9)?,
+                        raw_description: row.get(10)?,
+                        link_path: row.get(11)?,
+                        search_option: row.get(12)?,
+                        path_absolute: row.get(13)?,
+                        target_file_id: row.get(14)?,
+                        target_heading_id: row.get(15)?,
+                        target_custom_id: row.get(16)?,
+                        target_id: row.get(17)?,
+                        resolution_status: row.get(18)?,
+                        resolution_diagnostic: row.get(19)?,
+                        byte_start: row.get(20)?,
+                        byte_end: row.get(21)?,
+                        line: row.get(22)?,
+                    },
+                ))
+            })
+            .map_err(|source| QueryShapeError::database("load_link_map.query", source))?;
+        for row in rows {
+            let (group_id, link) =
+                row.map_err(|source| QueryShapeError::database("load_link_map.collect", source))?;
+            grouped.entry(group_id).or_default().push(link);
+        }
     }
     Ok(grouped)
 }

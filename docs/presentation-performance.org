@@ -1,0 +1,144 @@
+#+TITLE: Presentation Performance Benchmark
+#+STARTUP: showall
+
+* Purpose
+
+This benchmark measures the complete uncached Rust presentation path.
+
+It measures the sequential implementation before any presentation cache or parallel optimization.
+
+The benchmark uses synthetic structural queries with 100, 1,000, 10,000, and 50,000 query results by default.
+
+It also measures expanded rows from tags, effective properties, and keywords.
+
+* Status
+
+The benchmark harness is implemented in ~orgfdb-presentation-benchmark~.
+
+Local benchmark results are pending. Run the benchmark on the development machine and keep the raw JSON output.
+
+Do not add cache or parallel changes before this baseline is complete.
+
+* Benchmark corpus
+
+Each target result uses one small Org file and one level-1 heading.
+
+Each heading contains three tags and two local properties. Each file also contains two non-title document keywords.
+
+The corpus generator uses deterministic names and values. The JSON output records the corpus fingerprint for each result size.
+
+The benchmark queries return exactly the requested number of original results.
+
+Expanded workloads can produce more presentation rows than original query results.
+
+* Workloads
+
+The benchmark runs these workloads for every configured result size:
+
+- ~headings.normal~ uses one presentation row per heading result.
+- ~headings.tags~ expands effective heading tags.
+- ~headings.effective-properties~ expands effective heading properties.
+- ~files.keywords~ expands file keywords.
+
+Each workload uses sorting and shared column widths. The specifications also exercise fixed widths, maximum widths, truncation, and hidden sort columns.
+
+The output records the original result count and the final presentation row count.
+
+* Measured stages
+
+The internal benchmark uses the production query and presentation code.
+
+It records these timing distributions:
+
+- database query execution
+- row expansion
+- sort-key creation
+- sorting
+- displayed-value extraction
+- shared width calculation
+- truncation, padding, and final row formatting
+- complete presentation preparation
+- compact JSON serialization
+- query, presentation, and serialization together
+
+The truncation stage also creates the final ~display_text~ strings. These operations share one production loop and are measured together.
+
+The benchmark excludes input cloning from isolated stage timers. It prepares cloned stage input before each measured sample.
+
+* Process measurements
+
+The benchmark records one process-startup probe with ~orgfdb --help~.
+
+This value includes process creation, CLI parsing, and help generation. It does not include database or presentation work.
+
+Each total CLI sample starts a fresh ~orgfdb~ process and runs the complete ~presentation-json~ query.
+
+The runner captures stdout through a pipe. Total CLI time therefore includes payload transfer into the benchmark process.
+
+The output records the exact stdout payload size in bytes.
+
+* Run
+
+Build both release binaries first.
+
+#+begin_src sh
+cargo build --release --bin orgfdb --bin orgfdb-presentation-benchmark
+#+end_src
+
+Run a short smoke benchmark before the full measurement.
+
+#+begin_src sh
+target/release/orgfdb-presentation-benchmark \
+  --orgfdb target/release/orgfdb \
+  --rows 100,1000 \
+  --warmups 1 \
+  --iterations 2 \
+  --work-dir /tmp/orgfdb-presentation-smoke-work \
+  --output /tmp/orgfdb-presentation-smoke.json
+#+end_src
+
+Use new paths for the full benchmark.
+
+#+begin_src sh
+target/release/orgfdb-presentation-benchmark \
+  --orgfdb target/release/orgfdb \
+  --rows 100,1000,10000,50000 \
+  --warmups 3 \
+  --iterations 10 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-presentation-benchmark.json
+#+end_src
+
+The work directory and output file must not exist before the run.
+
+Keep the machine under normal low-load conditions during the measurement.
+
+* Output
+
+The benchmark writes one JSON document.
+
+Each timing contains ~min_ns~, ~median_ns~, ~p95_ns~, ~max_ns~, and the sample count.
+
+Each size record also contains corpus generation time, rebuild time, database size, and a corpus fingerprint.
+
+Setup time is evidence for reproducibility. It is not part of the presentation latency totals.
+
+The protocol record states that the benchmark uses no presentation cache and no presentation parallelism.
+
+* Results
+
+The repository does not contain machine-specific results yet.
+
+After the local run, record the measured bottlenecks here. Keep the raw benchmark JSON outside version control unless it is intentionally added as evidence.
+
+Record at least:
+
+- the machine and build profile
+- median and p95 total CLI time for each result size
+- final row counts for expanded workloads
+- payload sizes
+- the dominant internal stages
+- process-startup cost
+- any stage whose share grows materially with result size
+
+Use these results as the baseline for the parallelism task.

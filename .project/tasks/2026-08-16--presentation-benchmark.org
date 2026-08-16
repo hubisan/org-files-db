@@ -1,0 +1,185 @@
+#+TITLE: Uncached Rust Presentation Benchmark
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-16 Sunday 21:53]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Benchmark the complete uncached Rust presentation path before cache or parallel optimization work.
+
+Measure normal and expanded-row workloads at approximately 100, 1,000, 10,000, and 50,000 results.
+
+Record stage timings, payload size, process startup, and total CLI time.
+
+Do not add presentation caching or parallel execution.
+
+* Planning
+
+** Problem summary
+
+The complete sequential presentation pipeline now exists.
+
+The project needs a reproducible baseline before it evaluates parallel execution or presentation caching.
+
+** Goals
+
+- Add a dedicated presentation benchmark runner.
+- Generate deterministic result sizes from 100 through 50,000 results.
+- Measure normal and expanded-row workloads.
+- Measure useful production stages separately.
+- Measure compact JSON serialization and payload size.
+- Measure a process-startup floor.
+- Measure total CLI elapsed time with a fresh process.
+- Keep the benchmark sequential and uncached.
+
+** Non-goals
+
+- Do not add a presentation cache.
+- Do not add parallel execution.
+- Do not change presentation semantics.
+- Do not change the normal query JSON contract.
+- Do not benchmark Emacs in this task.
+
+** Architecture
+
+Add ~orgfdb-presentation-benchmark~ as a measurement-only binary.
+
+Use the production query parser, validator, result shaper, presentation registry, row expansion, sorting, layout, and serializer.
+
+Factor existing presentation stages only where the benchmark needs a real production boundary.
+
+Keep stage helpers internal to the crate.
+
+Use one synthetic file per requested original result. Use one level-1 heading per file.
+
+Measure expanded rows through tags, effective properties, and file keywords.
+
+Measure total CLI time by starting the release ~orgfdb~ binary and capturing its stdout.
+
+Use ~orgfdb --help~ as a repeatable process-startup probe.
+
+** Execution plan
+
+1. Add internal sort and layout stage boundaries without changing production behavior.
+2. Add the presentation benchmark module and binary.
+3. Generate deterministic benchmark corpora for requested result sizes.
+4. Add normal and expanded-row workloads.
+5. Record internal stage timing distributions.
+6. Record compact JSON payload size.
+7. Record process-startup and total CLI timing distributions.
+8. Add tests for benchmark options and workload specifications.
+9. Document the benchmark protocol and run commands.
+10. Archive the completed row-expansion task.
+
+** Risks & assumptions
+
+- The 50,000-result corpus creates 50,000 small files and can take significant setup time.
+- Total CLI samples include stdout transfer through a pipe.
+- ~orgfdb --help~ includes help generation, so it is not pure operating-system process creation.
+- Machine-specific timing results require the user's local Rust environment.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation_benchmark~
+- ~cargo test presentation::tests~
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~make ci~
+- Run a 100 and 1,000 result smoke benchmark.
+- Run the full 100 through 50,000 result benchmark locally.
+
+* Results
+
+** Approach
+
+- Added a dedicated sequential presentation benchmark binary.
+- Added deterministic corpora with exact original result counts.
+- Added normal, tag, effective-property, and keyword workloads.
+- Added internal timing boundaries for sort preparation and layout preparation.
+- Kept the production sort and layout methods on the same stage helpers.
+- Added process-startup, full CLI, serialization, and payload measurements.
+- Added benchmark protocol documentation.
+- Archived the completed row-expansion task.
+
+** Changed files
+
+- ~src/query/result.rs~
+- ~src/presentation.rs~
+- ~src/presentation_benchmark.rs~
+- ~src/bin/orgfdb-presentation-benchmark.rs~
+- ~src/lib.rs~
+- ~docs/README.org~
+- ~docs/design/presentation.org~
+- ~docs/presentation-performance.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-16--presentation-benchmark.org~
+- ~.project/tasks/archive/2026-08-16--presentation-row-expansion.org~
+
+** Checks performed
+
+- Checked the benchmark workload specifications against the public presentation model by inspection.
+- Added unit tests for default result sizes and option validation.
+- Added a unit test that parses every benchmark query and presentation specification.
+- Checked changed Org text with the Simple English pragmatic rules.
+- Attempted ~make ci~.
+
+** Test results
+
+The execution environment does not provide ~cargo~. Rust formatting, Clippy, tests, and benchmark execution remain pending.
+
+#+begin_src text
+cargo fmt --all --check
+make: cargo: No such file or directory
+make: *** [Makefile:19: fmt] Error 127
+#+end_src
+
+Run these commands in the development environment:
+
+#+begin_src sh
+cargo fmt --all
+make ci
+cargo build --release --bin orgfdb --bin orgfdb-presentation-benchmark
+#+end_src
+
+Then run the smoke and full commands from ~docs/presentation-performance.org~.
+
+** Review fix: SQLite variable limit
+
+The first 50,000-result run exposed the SQLite variable limit in query enrichment.
+
+Large result sets passed every file or heading ID through one ~IN (...)~ clause.
+
+The fix uses chunks of 900 IDs for enrichment queries.
+
+The same chunk limit now applies to:
+
+- files
+- heading-to-file lookup
+- headings
+- effective tags
+- properties
+- effective properties
+- keywords
+- links and backlinks
+
+This change keeps the query result contract unchanged.
+
+The benchmark can now reach large result sets without one SQL variable per result.
+
+** Blockers
+
+- The local Rust toolchain must run the automated checks.
+- The local benchmark run must provide the machine-specific performance results.
+
+** Follow-ups
+
+- Add the local benchmark results to ~docs/presentation-performance.org~.
+- Use the measured baseline in the presentation parallelism task.

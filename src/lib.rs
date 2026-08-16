@@ -13,6 +13,7 @@ mod link_resolver;
 pub(crate) mod notify_source;
 pub mod parser;
 pub mod presentation;
+pub mod presentation_benchmark;
 pub(crate) mod property;
 pub mod query;
 mod source_root_evidence;

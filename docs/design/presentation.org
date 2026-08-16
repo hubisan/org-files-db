@@ -486,6 +486,8 @@ The first implementation has no presentation cache.
 
 Benchmarks must measure the uncached Rust path before a cache design is selected. Measurements must separate Rust work, serialization, transfer, JSON parsing, and Emacs candidate construction.
 
+The Rust-side benchmark harness is documented in [[../presentation-performance.org][Presentation Performance Benchmark]].
+
 If the uncached path is fast enough, no presentation cache is added.
 
 Existing ~database_id~, ~generation~, ~changes~, and ~cache_action~ keep their current meanings. The presentation design does not overload them.

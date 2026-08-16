@@ -239,12 +239,28 @@ Task file: [[./archive/2026-08-16--presentation-json-output.org][Compact Present
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-row-expansion.org][Presentation Row Expansion]]
+Task file: [[./archive/2026-08-16--presentation-row-expansion.org][Presentation Row Expansion]]
 
-* TODO Benchmark uncached Rust-prepared presentation
+* DONE Benchmark uncached Rust-prepared presentation
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-16--presentation-benchmark.org][Uncached Rust Presentation Benchmark]]
+
+Run benchmark like this:
+
+#+BEGIN_SRC shell
+  cargo build --release --bin orgfdb --bin orgfdb-presentation-benchmark
+
+  target/release/orgfdb-presentation-benchmark \
+    --orgfdb target/release/orgfdb \
+    --rows 100,1000,10000,50000 \
+    --warmups 1 \
+    --iterations 3 \
+    --work-dir /tmp/orgfdb-presentation-benchmark-work \
+    --output /tmp/orgfdb-presentation-50000.json
+#+END_SRC
 
 Goal: Measure the complete presentation path before any presentation cache or parallel optimization is added.
 
@@ -290,6 +306,128 @@ Acceptance criteria:
 - No cache is added.
 - No parallel optimization is added.
 - Benchmark results are documented.
+  
+* TODO Analyze presentation JSON payload size
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Identify which parts of ~presentation-json~ cause the large payload size.
+
+Use the existing presentation benchmark workloads.
+
+Analyze at least:
+
+- response metadata
+- original ~results~
+- row metadata
+- ~row_context~
+- cell structure
+- ~search_text~
+- ~display_text~
+- semantic roles
+- repeated JSON field names
+
+Measure these workloads at representative sizes:
+
+- normal heading rows
+- tag expansion
+- effective-property expansion
+- keyword expansion
+
+Record:
+
+- total payload size
+- bytes used by ~results~
+- bytes used by ~rows~
+- bytes used by row contexts
+- bytes used by cells
+- bytes used by repeated field names where practical
+- average bytes per result
+- average bytes per presentation row
+- average bytes per cell
+
+Identify repeated values between:
+
+- original results and cells
+- ~row_context~ and cells
+- ~search_text~ and ~display_text~
+
+Do not change the public wire format in this task.
+
+Do not add compression.
+
+Do not add JSONL or streaming.
+
+Do not add a cache.
+
+Do not add parallel execution.
+
+Acceptance criteria:
+
+- The main payload contributors are measured.
+- Normal and expanded workloads are compared.
+- Repeated values are identified.
+- Structural JSON overhead is estimated.
+- The results identify concrete wire-format optimization targets.
+- The analysis is documented.
+
+* TODO Reduce presentation JSON payload size
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Reduce ~presentation-json~ size based on the measured payload analysis.
+
+Keep these semantic guarantees:
+
+- each original query result appears once
+- rows reference results through ~result_index~
+- ~search_text~ preserves the complete logical value
+- ~display_text~ preserves the final visible value
+- cells retain their semantic roles
+- several rows can reference one result
+- row contexts retain their required data
+- ~database_id~ and ~generation~ keep their current meanings
+
+Evaluate compact representations for repeated cell data.
+
+Possible options include:
+
+- compact cell arrays instead of repeated object keys
+- omission rules when ~search_text~ and ~display_text~ are identical
+- compact semantic role encoding
+- removal of data that already exists through ~result_index~
+- removal of duplicated row-context data where the client can recover it safely
+
+Prefer simple wire rules over complex compression logic.
+
+Do not require the client to reconstruct information from undocumented assumptions.
+
+Keep the normal ~--format json~ contract unchanged.
+
+Do not add JSONL or streaming in this task.
+
+Do not add a presentation cache.
+
+After the change, rerun the existing benchmark workloads.
+
+Compare:
+
+- payload size
+- serialization time
+- total CLI time
+- presentation output semantics
+
+Acceptance criteria:
+
+- The optimized format preserves all required presentation semantics.
+- Normal ~--format json~ remains unchanged.
+- Payload size decreases materially for large result sets.
+- Expanded-row workloads also decrease materially.
+- The new format remains simple for an Emacs client to parse.
+- Benchmark results compare the old and new payload sizes.
+- The wire-format documentation describes the optimized representation.
 
 * TODO Evaluate presentation pipeline parallelism
 :PROPERTIES:

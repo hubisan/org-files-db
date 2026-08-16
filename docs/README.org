@@ -19,6 +19,7 @@ Use these documents when you use ~orgfdb~ or build a client for its current publ
 - [[./design/index-generations-and-changes.org][Index Generations and Changes]] describes committed generations and affected-file deltas.
 - [[./design/parser-risks.org][Parser Risks]] records known parser differences and risk decisions.
 - [[./performance-baseline.org][Performance Baseline]] describes the benchmark framework and historical measurements.
+- [[./presentation-performance.org][Presentation Performance Benchmark]] describes the uncached presentation benchmark and measurement protocol.
 
 These documents describe implementation boundaries or detailed internal contracts.
 

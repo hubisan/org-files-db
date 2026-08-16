@@ -227,6 +227,15 @@ impl PresentationSpec {
             return Ok(rows);
         }
 
+        let plan = self.prepare_sort_rows(results, rows)?;
+        Ok(self.finish_sort_rows(plan))
+    }
+
+    pub(crate) fn prepare_sort_rows(
+        &self,
+        results: &[QueryResultNode],
+        rows: Vec<PresentationRow>,
+    ) -> Result<PresentationSortPlan, PresentationSortError> {
         let mut sortable_rows = Vec::with_capacity(rows.len());
         for (original_index, row) in rows.into_iter().enumerate() {
             let result = results.get(row.result_index).ok_or_else(|| {
@@ -253,8 +262,13 @@ impl PresentationSpec {
                 keys,
             });
         }
+        Ok(PresentationSortPlan {
+            rows: sortable_rows,
+        })
+    }
 
-        sortable_rows.sort_by(|left, right| {
+    pub(crate) fn finish_sort_rows(&self, mut plan: PresentationSortPlan) -> Vec<PresentationRow> {
+        plan.rows.sort_by(|left, right| {
             for (index, sort) in self.sort.iter().enumerate() {
                 let ordering =
                     compare_sort_values(&left.keys[index], &right.keys[index], sort.direction);
@@ -264,8 +278,7 @@ impl PresentationSpec {
             }
             left.original_index.cmp(&right.original_index)
         });
-
-        Ok(sortable_rows.into_iter().map(|entry| entry.row).collect())
+        plan.rows.into_iter().map(|entry| entry.row).collect()
     }
 
     pub fn layout_rows(
@@ -273,6 +286,16 @@ impl PresentationSpec {
         results: &[QueryResultNode],
         rows: Vec<PresentationRow>,
     ) -> Result<Vec<PresentationRow>, PresentationLayoutError> {
+        let plan = self.prepare_layout_rows(results, rows)?;
+        let widths = self.resolve_layout_widths(plan.natural_widths())?;
+        Ok(self.finish_layout_rows(plan, &widths))
+    }
+
+    pub(crate) fn prepare_layout_rows(
+        &self,
+        results: &[QueryResultNode],
+        rows: Vec<PresentationRow>,
+    ) -> Result<PresentationLayoutPlan, PresentationLayoutError> {
         let mut natural_widths = vec![0; self.columns.len()];
         let mut prepared_rows = Vec::with_capacity(rows.len());
 
@@ -308,16 +331,32 @@ impl PresentationSpec {
             prepared_rows.push(row);
         }
 
-        let widths = self
-            .columns
+        Ok(PresentationLayoutPlan {
+            rows: prepared_rows,
+            natural_widths,
+        })
+    }
+
+    pub(crate) fn resolve_layout_widths(
+        &self,
+        natural_widths: &[usize],
+    ) -> Result<Vec<usize>, PresentationLayoutError> {
+        self.columns
             .iter()
             .enumerate()
             .map(|(column_index, column)| {
                 resolve_layout_width(&column.width, natural_widths[column_index], column_index)
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect()
+    }
 
-        for row in &mut prepared_rows {
+    pub(crate) fn finish_layout_rows(
+        &self,
+        mut plan: PresentationLayoutPlan,
+        widths: &[usize],
+    ) -> Vec<PresentationRow> {
+        debug_assert_eq!(widths.len(), self.columns.len());
+        for row in &mut plan.rows {
             for (column_index, cell) in row.cells.iter_mut().enumerate() {
                 cell.display_text = fit_cell_text(
                     &cell.search_text,
@@ -326,8 +365,7 @@ impl PresentationSpec {
                 );
             }
         }
-
-        Ok(prepared_rows)
+        plan.rows
     }
 
     pub fn expand_rows(
@@ -1062,10 +1100,28 @@ impl Error for PresentationBuildError {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct PresentationSortPlan {
+    rows: Vec<PresentationSortableRow>,
+}
+
+#[derive(Debug, Clone)]
 struct PresentationSortableRow {
     original_index: usize,
     row: PresentationRow,
     keys: Vec<PresentationValue>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PresentationLayoutPlan {
+    rows: Vec<PresentationRow>,
+    natural_widths: Vec<usize>,
+}
+
+impl PresentationLayoutPlan {
+    pub(crate) fn natural_widths(&self) -> &[usize] {
+        &self.natural_widths
+    }
 }
 
 fn compare_sort_values(
