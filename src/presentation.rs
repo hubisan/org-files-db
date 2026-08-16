@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use crate::query::{QueryInclude, QueryTarget};
+use crate::query::{QueryInclude, QueryResultNode, QueryTarget};
 
 const DEFAULT_TRUNCATION_MARKER: &str = "…";
 const DEFAULT_OUTLINE_SEPARATOR: &str = " » ";
@@ -12,6 +12,56 @@ const PATH_INCLUDE: &[QueryInclude] = &[QueryInclude::Path];
 const TARGET_INCLUDE: &[QueryInclude] = &[QueryInclude::Target];
 const EFFECTIVE_PROPERTIES_INCLUDE: &[QueryInclude] = &[QueryInclude::EffectiveProperties];
 const KEYWORDS_INCLUDE: &[QueryInclude] = &[QueryInclude::Keywords];
+
+pub const PRESENTATION_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PresentationResponse {
+    pub presentation_version: u32,
+    pub database_id: String,
+    pub generation: i64,
+    pub results: Vec<QueryResultNode>,
+    pub rows: Vec<PresentationRow>,
+}
+
+impl PresentationResponse {
+    pub fn new(
+        database_id: impl Into<String>,
+        generation: i64,
+        results: Vec<QueryResultNode>,
+        rows: Vec<PresentationRow>,
+    ) -> Self {
+        Self {
+            presentation_version: PRESENTATION_VERSION,
+            database_id: database_id.into(),
+            generation,
+            results,
+            rows,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PresentationRow {
+    pub result_index: usize,
+    pub row_context: Option<PresentationRowContext>,
+    pub cells: Vec<PresentationCell>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum PresentationRowContext {
+    Tag { value: String },
+    EffectiveProperty { name: String, value: String },
+    Keyword { name: String, value: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PresentationCell {
+    pub search_text: String,
+    pub display_text: String,
+    pub role: Option<PresentationRole>,
+}
 
 const HEADING_RESULTS: &[PresentationResultKind] = &[PresentationResultKind::Heading];
 const LINK_RESULTS: &[PresentationResultKind] = &[PresentationResultKind::Link];
@@ -813,13 +863,162 @@ impl Error for PresentationSpecError {
 
 #[cfg(test)]
 mod tests {
-    use crate::query::{QueryInclude, QueryTarget};
+    use crate::query::{
+        FileResultNode, Location, QueryInclude, QueryResultKind, QueryResultNode, QueryTarget,
+    };
 
     use super::{
-        PresentationColumn, PresentationResultKind, PresentationRole, PresentationRoleRule,
+        PresentationCell, PresentationColumn, PresentationResponse, PresentationResultKind,
+        PresentationRole, PresentationRoleRule, PresentationRow, PresentationRowContext,
         PresentationRowSourceKind, PresentationSortDirection, PresentationSpec,
         PresentationTruncationPosition, PresentationValueSource, PresentationWidthMode,
+        PRESENTATION_VERSION,
     };
+
+    fn file_result(id: i64, title: &str) -> QueryResultNode {
+        QueryResultNode::File(FileResultNode {
+            kind: QueryResultKind::File,
+            matched: true,
+            id,
+            level: 0,
+            path: format!("/notes/{title}.org"),
+            name: format!("{title}.org"),
+            dir: "/notes".to_string(),
+            title: title.to_string(),
+            title_raw: Some(title.to_string()),
+            root_heading_id: id,
+            mtime_ns: 0,
+            size: 0,
+            content_hash: None,
+            indexed_at: None,
+            location: Location {
+                file_path: format!("/notes/{title}.org"),
+                line: Some(1),
+                byte_start: None,
+                byte_end: None,
+            },
+            tags: Vec::new(),
+            node_path: None,
+            properties: None,
+            effective_properties: None,
+            keywords: None,
+            links: None,
+            backlinks: None,
+            children: None,
+        })
+    }
+
+    #[test]
+    fn wire_response_separates_results_rows_and_visible_cells() {
+        let response = PresentationResponse::new(
+            "00000000-0000-4000-8000-000000000001",
+            42,
+            vec![file_result(7, "project")],
+            vec![PresentationRow {
+                result_index: 0,
+                row_context: None,
+                cells: vec![PresentationCell {
+                    search_text: "A complete value that stays searchable".to_string(),
+                    display_text: "A complete value…".to_string(),
+                    role: Some(PresentationRole::Title),
+                }],
+            }],
+        );
+
+        let value =
+            serde_json::to_value(&response).expect("presentation response should serialize");
+
+        assert_eq!(value["presentation_version"], PRESENTATION_VERSION);
+        assert_eq!(value["database_id"], "00000000-0000-4000-8000-000000000001");
+        assert_eq!(value["generation"], 42);
+        assert_eq!(value["results"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["rows"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["rows"][0]["result_index"], 0);
+        assert!(value["rows"][0]["row_context"].is_null());
+        assert_eq!(
+            value["rows"][0]["cells"][0]["search_text"],
+            "A complete value that stays searchable"
+        );
+        assert_eq!(
+            value["rows"][0]["cells"][0]["display_text"],
+            "A complete value…"
+        );
+        assert_eq!(value["rows"][0]["cells"][0]["role"], "title");
+        assert!(value["rows"][0]["cells"][0].get("role_ranges").is_none());
+    }
+
+    #[test]
+    fn several_rows_can_reference_one_result_with_structured_contexts() {
+        let response = PresentationResponse::new(
+            "00000000-0000-4000-8000-000000000001",
+            9,
+            vec![file_result(11, "notes")],
+            vec![
+                PresentationRow {
+                    result_index: 0,
+                    row_context: Some(PresentationRowContext::Tag {
+                        value: "project".to_string(),
+                    }),
+                    cells: Vec::new(),
+                },
+                PresentationRow {
+                    result_index: 0,
+                    row_context: Some(PresentationRowContext::EffectiveProperty {
+                        name: "OWNER".to_string(),
+                        value: "Daniel".to_string(),
+                    }),
+                    cells: Vec::new(),
+                },
+                PresentationRow {
+                    result_index: 0,
+                    row_context: Some(PresentationRowContext::Keyword {
+                        name: "TITLE".to_string(),
+                        value: "Notes".to_string(),
+                    }),
+                    cells: Vec::new(),
+                },
+            ],
+        );
+
+        let value =
+            serde_json::to_value(&response).expect("presentation response should serialize");
+
+        assert_eq!(value["results"].as_array().map(Vec::len), Some(1));
+        assert_eq!(value["rows"].as_array().map(Vec::len), Some(3));
+        assert!(value["rows"]
+            .as_array()
+            .expect("rows should be an array")
+            .iter()
+            .all(|row| row["result_index"] == 0));
+        assert_eq!(
+            value["rows"][0]["row_context"],
+            serde_json::json!({"kind": "tag", "value": "project"})
+        );
+        assert_eq!(
+            value["rows"][1]["row_context"],
+            serde_json::json!({
+                "kind": "effective-property",
+                "name": "OWNER",
+                "value": "Daniel"
+            })
+        );
+        assert_eq!(
+            value["rows"][2]["row_context"],
+            serde_json::json!({"kind": "keyword", "name": "TITLE", "value": "Notes"})
+        );
+    }
+
+    #[test]
+    fn cell_role_can_be_null() {
+        let cell = PresentationCell {
+            search_text: "open".to_string(),
+            display_text: "open".to_string(),
+            role: None,
+        };
+
+        let value = serde_json::to_value(&cell).expect("presentation cell should serialize");
+        assert!(value["role"].is_null());
+    }
 
     #[test]
     fn minimal_spec_uses_deterministic_defaults() {

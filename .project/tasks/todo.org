@@ -196,68 +196,14 @@ Task file: [[./archive/2026-08-16--public-presentation-column-registry.org][Publ
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--semantic-presentation-roles.org][Semantic Presentation Roles]]
+Task file: [[./archive/2026-08-16--semantic-presentation-roles.org][Semantic Presentation Roles]]
 
-* TODO Define the presentation results, rows, and cells wire model
+* DONE Define the presentation results, rows, and cells wire model
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Separate original query results from presentation rows and visible cells.
-
-The presentation response should conceptually contain:
-
-#+begin_example
-presentation_version
-database_id
-generation
-results
-rows
-#+end_example
-
-~results~ contains each original query result once.
-
-Each row contains:
-
-#+begin_example
-result_index
-row_context
-cells
-#+end_example
-
-For normal one-row-per-result presentation:
-
-#+begin_example
-row_context = null
-#+end_example
-
-Each cell contains:
-
-#+begin_example
-search_text
-display_text
-role
-#+end_example
-
-Definitions:
-
-- ~search_text~ contains the complete logical value.
-- ~display_text~ contains the final visible value after truncation and padding.
-- ~role~ contains the semantic presentation role.
-
-Rows may be sorted independently of the order of ~results~.
-
-Do not duplicate the complete result object inside every row.
-
-Do not add generic rich-text ranges.
-
-Acceptance criteria:
-
-- Results and presentation rows are separate representations.
-- Rows refer to results using ~result_index~.
-- Full values survive visible truncation.
-- The model permits several future rows to reference one result.
-- ~database_id~ and ~generation~ identify the originating database snapshot.
+Task file: [[./2026-08-16--presentation-wire-model.org][Presentation Results, Rows, and Cells Wire Model]]
 
 * TODO Implement presentation value extraction and include inference
 :PROPERTIES:

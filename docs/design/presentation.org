@@ -3,11 +3,13 @@
 
 * Status
 
-This document describes planned presentation work, the implemented ~PresentationSpec~ input model, and the public column registry.
+This document describes planned presentation work and the implemented presentation data models.
 
 The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
 
-The presentation response is not implemented yet. A valid presentation request still reports that presentation output is unavailable.
+The response wire model now exists in Rust. The query command does not emit this response yet.
+
+A valid presentation request still reports that presentation output is unavailable.
 
 The current ~orgfdb query --format json~ contract stays unchanged. Presentation output remains a separate opt-in representation.
 
@@ -231,26 +233,25 @@ Link-specific columns have no special role in the initial registry. A later chan
 
 Rust does not encode heading levels, Emacs face names, colors, font sizes, or theme data.
 
-The later cell wire model stores one optional role per cell. It has no role ranges and no separate outline-separator role.
+The cell wire model stores one optional role per cell. It has no role ranges and no separate outline-separator role.
 
 * Results, rows, and cells
 
-The presentation response separates data identity from presentation.
+The presentation response separates query results from presentation rows. The Rust wire model uses ~presentation_version = 1~.
 
-Conceptually:
+The response contains:
 
 #+begin_example
-response
-  presentation_version
-  database_id
-  generation
-  results
-  rows
+presentation_version
+database_id
+generation
+results
+rows
 #+end_example
 
-~results~ contains each original query result once. A row refers to its original result with ~result_index~.
+~database_id~ and ~generation~ identify the database snapshot. ~results~ stores each original ~QueryResultNode~ once.
 
-Conceptually, a normal row contains:
+Each row contains:
 
 #+begin_example
 result_index
@@ -258,7 +259,29 @@ row_context
 cells
 #+end_example
 
-~row_context~ is null for normal one-row-per-result presentation. Later row expansion uses structured row context.
+~result_index~ points into the top-level ~results~ array. Row order does not change result identity.
+
+Normal rows use ~row_context = null~. The wire model also defines structured contexts for later row expansion.
+
+A tag context has this JSON shape:
+
+#+begin_src json
+{"kind":"tag","value":"project"}
+#+end_src
+
+An effective-property context has this JSON shape:
+
+#+begin_src json
+{"kind":"effective-property","name":"OWNER","value":"Daniel"}
+#+end_src
+
+A keyword context has this JSON shape:
+
+#+begin_src json
+{"kind":"keyword","name":"TITLE","value":"Notes"}
+#+end_src
+
+This task defines these shapes only. It does not execute row expansion.
 
 Each cell contains:
 
@@ -268,13 +291,13 @@ display_text
 role
 #+end_example
 
-~search_text~ contains the complete logical value. Truncation never changes this value.
+~search_text~ contains the complete logical value. Later truncation and padding do not replace this value.
 
-~display_text~ contains the final visible value after width calculation, truncation, and padding.
+~display_text~ contains the final visible value. The later formatting stage produces this text.
 
-~role~ contains one semantic presentation role.
+~role~ contains one semantic presentation role or ~null~. Cells contain no role ranges or other rich-text metadata.
 
-Rows do not duplicate complete result objects. Several future rows can refer to the same original result.
+Rows do not duplicate complete result objects. Several rows can reference the same ~result_index~.
 
 * Planned pipeline
 

@@ -21,6 +21,7 @@ use crate::{
     },
     indexer::{Indexer, IndexerError, RebuildOptions, RebuildReport},
     parser::OrgizeAdapter,
+    presentation::{PresentationSpec, PresentationSpecError},
     query::{
         execute_and_shape_query, parse_query, shape_matched_heading_nodes,
         sqlite_query_validation_options, validate_query, HeadingResultNode, QueryExecutionError,
@@ -99,7 +100,7 @@ enum Command {
     },
     Query {
         #[command(flatten)]
-        format: CliOutputArgs,
+        format: CliQueryFormatArgs,
         #[arg(long, value_enum, default_value_t = CliQueryOutput::Flat)]
         output: CliQueryOutput,
         #[arg(long, value_enum, value_delimiter = ',')]
@@ -110,6 +111,12 @@ enum Command {
             help = "Read a JSON array of canonical file paths from PATH, or from stdin with '-'"
         )]
         restrict_files_json: Option<String>,
+        #[arg(
+            long,
+            value_name = "JSON",
+            help = "PresentationSpec JSON; valid only with --format presentation-json"
+        )]
+        presentation_spec_json: Option<String>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(help = "Structural query expression, for example '(todo \"NEXT\")'")]
@@ -154,6 +161,39 @@ impl CliOutputArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum CliOutputFormat {
     Json,
+}
+
+#[derive(Debug, Clone, Copy, Args)]
+struct CliQueryFormatArgs {
+    #[arg(
+        long,
+        value_enum,
+        default_value_t = CliQueryOutputFormat::Json,
+        conflicts_with = "json"
+    )]
+    format: CliQueryOutputFormat,
+    #[arg(
+        long,
+        conflicts_with = "format",
+        help = "Compatibility form for --format json"
+    )]
+    json: bool,
+}
+
+impl CliQueryFormatArgs {
+    fn selected(self) -> CliQueryOutputFormat {
+        if self.json {
+            CliQueryOutputFormat::Json
+        } else {
+            self.format
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliQueryOutputFormat {
+    Json,
+    PresentationJson,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -293,23 +333,34 @@ where
             output,
             include,
             restrict_files_json,
+            presentation_spec_json,
             config,
             query,
         } => {
             let output_format = format.selected();
+            let presentation_spec =
+                parse_query_presentation_spec(output_format, presentation_spec_json.as_deref())?;
             let response = if let Some(source) = restrict_files_json.as_deref() {
                 let paths = read_restricted_file_paths(source)?;
-                query_json_response_with_restriction(
+                query_response_with_restriction(
                     &query,
                     output,
                     &include,
                     config.as_deref(),
                     Some(paths),
+                    presentation_spec.as_ref(),
                 )?
             } else {
-                query_json_response(&query, output, &include, config.as_deref())?
+                query_response_with_restriction(
+                    &query,
+                    output,
+                    &include,
+                    config.as_deref(),
+                    None,
+                    presentation_spec.as_ref(),
+                )?
             };
-            write_output(output_format, writer, &response)
+            write_query_output(output_format, writer, &response)
         }
         Command::Search {
             format,
@@ -363,6 +414,7 @@ fn links_json_rows(config_path: Option<&Path>) -> Result<Vec<LinkJsonRow>, CliEr
     links_rows_for_json(&connection)
 }
 
+#[cfg(test)]
 fn query_json_response(
     query: &str,
     output: CliQueryOutput,
@@ -372,12 +424,31 @@ fn query_json_response(
     query_json_response_with_restriction(query, output, includes, config_path, None)
 }
 
+#[cfg(test)]
 fn query_json_response_with_restriction(
     query: &str,
     output: CliQueryOutput,
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
+) -> Result<QueryResponse, CliError> {
+    query_response_with_restriction(
+        query,
+        output,
+        includes,
+        config_path,
+        restricted_file_paths,
+        None,
+    )
+}
+
+fn query_response_with_restriction(
+    query: &str,
+    output: CliQueryOutput,
+    includes: &[CliQueryInclude],
+    config_path: Option<&Path>,
+    restricted_file_paths: Option<Vec<String>>,
+    presentation_spec: Option<&PresentationSpec>,
 ) -> Result<QueryResponse, CliError> {
     let config = load_cli_config(config_path)?;
     let connection =
@@ -386,6 +457,10 @@ fn query_json_response_with_restriction(
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
     let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
+    if let Some(spec) = presentation_spec {
+        spec.validate_for_query_target(validated.target)
+            .map_err(CliError::PresentationSpec)?;
+    }
     let options = QueryExecutionOptions {
         output_mode: output.into(),
         includes: includes.iter().copied().map(QueryInclude::from).collect(),
@@ -860,6 +935,37 @@ fn write_output<T: Serialize>(
     }
 }
 
+fn parse_query_presentation_spec(
+    format: CliQueryOutputFormat,
+    source: Option<&str>,
+) -> Result<Option<PresentationSpec>, CliError> {
+    match (format, source) {
+        (CliQueryOutputFormat::Json, None) => Ok(None),
+        (CliQueryOutputFormat::Json, Some(_)) => Err(CliError::InvalidPresentationUsage(
+            "--presentation-spec-json requires --format presentation-json".to_string(),
+        )),
+        (CliQueryOutputFormat::PresentationJson, None) => Err(CliError::InvalidPresentationUsage(
+            "--format presentation-json requires --presentation-spec-json".to_string(),
+        )),
+        (CliQueryOutputFormat::PresentationJson, Some(source)) => {
+            PresentationSpec::parse_json(source)
+                .map(Some)
+                .map_err(CliError::PresentationSpec)
+        }
+    }
+}
+
+fn write_query_output(
+    format: CliQueryOutputFormat,
+    writer: &mut impl Write,
+    value: &QueryResponse,
+) -> Result<(), CliError> {
+    match format {
+        CliQueryOutputFormat::Json => write_json_output(writer, value),
+        CliQueryOutputFormat::PresentationJson => Err(CliError::PresentationOutputUnavailable),
+    }
+}
+
 fn write_json_output<T: Serialize>(writer: &mut impl Write, value: &T) -> Result<(), CliError> {
     serde_json::to_writer_pretty(&mut *writer, value).map_err(CliError::Json)?;
     writer.write_all(b"\n").map_err(CliError::Io)
@@ -915,6 +1021,9 @@ enum CliError {
     },
     RestrictionJson(serde_json::Error),
     InvalidRestriction(String),
+    InvalidPresentationUsage(String),
+    PresentationSpec(PresentationSpecError),
+    PresentationOutputUnavailable,
     InvalidHeadingPath {
         heading_id: i64,
         source: serde_json::Error,
@@ -926,7 +1035,10 @@ enum CliError {
 impl CliError {
     fn exit_code(&self) -> u8 {
         match self {
-            Self::Parse(_) | Self::InvalidSearchUsage(_) => 2,
+            Self::Parse(_)
+            | Self::InvalidSearchUsage(_)
+            | Self::InvalidPresentationUsage(_)
+            | Self::PresentationSpec(_) => 2,
             Self::Config(_)
             | Self::Database(_)
             | Self::DbRead(_)
@@ -944,6 +1056,7 @@ impl CliError {
             | Self::ReadRestriction { .. }
             | Self::RestrictionJson(_)
             | Self::InvalidRestriction(_)
+            | Self::PresentationOutputUnavailable
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
@@ -987,6 +1100,12 @@ impl fmt::Display for CliError {
                 write!(f, "failed to parse restricted file paths as JSON: {source}")
             }
             Self::InvalidRestriction(message) => write!(f, "invalid file restriction: {message}"),
+            Self::InvalidPresentationUsage(message) => write!(f, "{message}"),
+            Self::PresentationSpec(source) => write!(f, "{source}"),
+            Self::PresentationOutputUnavailable => write!(
+                f,
+                "presentation-json output is not available until presentation response support is implemented"
+            ),
             Self::InvalidHeadingPath { heading_id, source } => {
                 write!(
                     f,
@@ -1021,7 +1140,10 @@ impl Error for CliError {
             Self::CanonicalizeDatabasePath { source, .. } => Some(source),
             Self::ReadRestriction { source, .. } => Some(source),
             Self::RestrictionJson(source) => Some(source),
-            Self::InvalidRestriction(_) => None,
+            Self::PresentationSpec(source) => Some(source),
+            Self::InvalidRestriction(_)
+            | Self::InvalidPresentationUsage(_)
+            | Self::PresentationOutputUnavailable => None,
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
@@ -1658,10 +1780,12 @@ mod tests {
                 output,
                 include,
                 restrict_files_json,
+                presentation_spec_json,
                 config,
                 query,
             } => {
                 assert!(format.json);
+                assert_eq!(format.selected(), super::CliQueryOutputFormat::Json);
                 assert_eq!(output, super::CliQueryOutput::Outline);
                 assert_eq!(
                     include,
@@ -1672,6 +1796,7 @@ mod tests {
                     ]
                 );
                 assert_eq!(restrict_files_json.as_deref(), Some("paths.json"));
+                assert_eq!(presentation_spec_json, None);
                 assert_eq!(config, None);
                 assert_eq!(query, "(todo \"NEXT\")");
             }
@@ -1901,10 +2026,28 @@ fts5_enabled = false
             other => panic!("unexpected command: {other:?}"),
         }
 
+        let cli = Cli::try_parse_from(["orgfdb", "query", "(headings)"])
+            .expect("query default format should parse");
+        match cli.command {
+            super::Command::Query { format, .. } => {
+                assert!(!format.json);
+                assert_eq!(format.selected(), super::CliQueryOutputFormat::Json);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
         for args in [
             vec!["orgfdb", "headings", "--json", "--format", "json"],
             vec!["orgfdb", "links", "--json", "--format", "json"],
             vec!["orgfdb", "query", "--json", "--format", "json", "(todo)"],
+            vec![
+                "orgfdb",
+                "query",
+                "--json",
+                "--format",
+                "presentation-json",
+                "(todo)",
+            ],
             vec!["orgfdb", "search", "--json", "--format", "json", "sqlite"],
             vec!["orgfdb", "headings", "--format", "json", "--format", "json"],
         ] {
@@ -1920,8 +2063,56 @@ fts5_enabled = false
     }
 
     #[test]
-    fn output_format_help_is_visible_for_all_json_commands() {
-        for command in ["headings", "links", "query", "search"] {
+    fn query_output_format_is_query_specific() {
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "query",
+            "--format",
+            "presentation-json",
+            "(headings)",
+        ])
+        .expect("query presentation format should parse");
+        match cli.command {
+            super::Command::Query { format, .. } => {
+                assert_eq!(
+                    format.selected(),
+                    super::CliQueryOutputFormat::PresentationJson
+                );
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        for args in [
+            vec!["orgfdb", "headings", "--format", "presentation-json"],
+            vec!["orgfdb", "links", "--format", "presentation-json"],
+            vec!["orgfdb", "status", "--format", "presentation-json"],
+            vec![
+                "orgfdb",
+                "changes",
+                "--format",
+                "presentation-json",
+                "--database-id",
+                "database-id",
+                "--since-generation",
+                "0",
+            ],
+            vec![
+                "orgfdb",
+                "search",
+                "--format",
+                "presentation-json",
+                "sqlite",
+            ],
+        ] {
+            let error = Cli::try_parse_from(args)
+                .expect_err("presentation-json should be rejected outside query");
+            assert_eq!(error.kind(), clap::error::ErrorKind::InvalidValue);
+        }
+    }
+
+    #[test]
+    fn output_format_help_is_scoped_by_command() {
+        for command in ["headings", "links", "status", "changes", "search"] {
             let error = Cli::try_parse_from(["orgfdb", command, "--help"])
                 .expect_err("help should stop argument parsing");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -1929,7 +2120,190 @@ fts5_enabled = false
             assert!(help.contains("--format <FORMAT>"));
             assert!(help.contains("[default: json]"));
             assert!(help.contains("--json"));
+            assert!(!help.contains("presentation-json"));
+            assert!(!help.contains("--presentation-spec-json"));
         }
+
+        let error = Cli::try_parse_from(["orgfdb", "query", "--help"])
+            .expect_err("help should stop argument parsing");
+        assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        let help = error.to_string();
+        assert!(help.contains("--format <FORMAT>"));
+        assert!(help.contains("[default: json]"));
+        assert!(help.contains("presentation-json"));
+        assert!(help.contains("--presentation-spec-json <JSON>"));
+        assert!(help.contains("--json"));
+    }
+
+    #[test]
+    fn query_presentation_spec_requires_presentation_format() {
+        let test_dir = TestDir::new("presentation-spec-usage");
+        let config_path = write_query_fixture(&test_dir);
+        let config = config_path.display().to_string();
+
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--config".into(),
+            config.clone(),
+            "(headings)".into(),
+        ])
+        .expect_err("presentation-json should require a presentation specification");
+        assert!(matches!(&error, CliError::InvalidPresentationUsage(_)));
+        assert_eq!(error.exit_code(), 2);
+        assert_eq!(
+            error.to_string(),
+            "--format presentation-json requires --presentation-spec-json"
+        );
+
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "json".into(),
+            "--presentation-spec-json".into(),
+            r#"{"columns":[{"name":"title"}]}"#.into(),
+            "--config".into(),
+            config,
+            "(headings)".into(),
+        ])
+        .expect_err("normal JSON should reject presentation specification input");
+        assert!(matches!(&error, CliError::InvalidPresentationUsage(_)));
+        assert_eq!(error.exit_code(), 2);
+        assert_eq!(
+            error.to_string(),
+            "--presentation-spec-json requires --format presentation-json"
+        );
+    }
+
+    #[test]
+    fn query_presentation_spec_reports_parse_and_validation_errors() {
+        let test_dir = TestDir::new("presentation-spec-errors");
+        let config_path = write_query_fixture(&test_dir);
+        let config = config_path.display().to_string();
+
+        for (spec, expected) in [
+            (
+                r#"{"columns":[{"name":"title"}],"unknown":true}"#,
+                "failed to parse presentation specification JSON:",
+            ),
+            (
+                r#"{"columns":[{"name":"title","width":{"mode":"max"}}]}"#,
+                "invalid presentation specification: columns[0].width mode max requires value",
+            ),
+        ] {
+            let error = run_cli_output(vec![
+                "orgfdb".into(),
+                "query".into(),
+                "--format".into(),
+                "presentation-json".into(),
+                "--presentation-spec-json".into(),
+                spec.into(),
+                "--config".into(),
+                config.clone(),
+                "(headings)".into(),
+            ])
+            .expect_err("invalid presentation specification should fail");
+
+            assert!(matches!(&error, CliError::PresentationSpec(_)));
+            assert_eq!(error.exit_code(), 2);
+            assert!(error.to_string().starts_with(expected));
+        }
+    }
+
+    #[test]
+    fn query_presentation_format_uses_shared_query_validation() {
+        let test_dir = TestDir::new("presentation-format-validation");
+        let config_path = write_query_fixture(&test_dir);
+        let config = config_path.display().to_string();
+        let json_error = cli_error_summary(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "json".into(),
+            "--config".into(),
+            config.clone(),
+            "(todo".into(),
+        ]);
+        let presentation_error = cli_error_summary(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--presentation-spec-json".into(),
+            r#"{"columns":[{"name":"title"}]}"#.into(),
+            "--config".into(),
+            config,
+            "(todo".into(),
+        ]);
+        assert_eq!(json_error, presentation_error);
+    }
+
+    #[test]
+    fn query_presentation_format_reports_staged_output_error_after_execution() {
+        let test_dir = TestDir::new("presentation-format-placeholder");
+        let config_path = write_query_fixture(&test_dir);
+        let error = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--presentation-spec-json".into(),
+            r#"{"columns":[{"name":"title"}]}"#.into(),
+            "--config".into(),
+            config_path.display().to_string(),
+            "(headings)".into(),
+        ])
+        .expect_err("presentation output should remain unavailable before its wire model exists");
+
+        assert!(matches!(&error, CliError::PresentationOutputUnavailable));
+        assert_eq!(
+            error.to_string(),
+            "presentation-json output is not available until presentation response support is implemented"
+        );
+    }
+
+    #[test]
+    fn query_presentation_columns_are_validated_against_the_query_target() {
+        let test_dir = TestDir::new("presentation-column-target-validation");
+        let config_path = write_query_fixture(&test_dir);
+        let config = config_path.display().to_string();
+
+        let display_error = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--presentation-spec-json".into(),
+            r#"{"columns":[{"name":"link-target"}]}"#.into(),
+            "--config".into(),
+            config.clone(),
+            "(headings)".into(),
+        ])
+        .expect_err("link presentation column should be rejected for heading queries");
+        assert_eq!(
+            display_error.to_string(),
+            "invalid presentation specification: columns[0].name `link-target` is not supported for heading results"
+        );
+
+        let sort_error = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "presentation-json".into(),
+            "--presentation-spec-json".into(),
+            r#"{"columns":[{"name":"file-name"}],"sort":[{"column":"rank"}]}"#.into(),
+            "--config".into(),
+            config,
+            "(files)".into(),
+        ])
+        .expect_err("search presentation sort column should be rejected for file queries");
+        assert_eq!(
+            sort_error.to_string(),
+            "invalid presentation specification: sort[0].column `rank` is not supported for file results"
+        );
     }
 
     #[test]
