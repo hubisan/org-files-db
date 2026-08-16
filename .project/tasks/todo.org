@@ -210,35 +210,14 @@ Task file: [[./archive/2026-08-16--presentation-wire-model.org][Presentation Res
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-value-extraction-includes.org][Presentation Value Extraction and Include Inference]]
+Task file: [[./archive/2026-08-16--presentation-value-extraction-includes.org][Presentation Value Extraction and Include Inference]]
 
-* TODO Implement presentation sorting in Rust
+* DONE Implement presentation sorting in Rust
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Move predefined-view sorting into the Rust presentation pipeline.
-
-Support:
-
-- ascending order
-- descending order
-- multiple ordered sort keys
-- sort columns that are not displayed
-- deterministic handling of equal values
-- deterministic handling of missing values
-
-Use the shared column registry for validation and extraction.
-
-Do not implement free-text search.
-
-Acceptance criteria:
-
-- Rust emits rows in final presentation order.
-- Hidden sort columns work.
-- Multiple sort keys work in declared order.
-- Invalid sort columns are rejected.
-- Equal values produce deterministic ordering.
+Task file: [[./2026-08-16--presentation-sorting.org][Presentation Sorting]]
 
 * TODO Implement presentation widths, truncation, and padding
 :PROPERTIES:

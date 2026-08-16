@@ -1,4 +1,4 @@
-use std::{error::Error, fmt, path::Path};
+use std::{cmp::Ordering, error::Error, fmt, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -205,6 +205,56 @@ impl PresentationSpec {
             .outline_path
             .then(PresentationOutlinePathSpec::default);
         extract_registered_value(column, result, row_context, outline_path.as_ref())
+    }
+
+    pub fn sort_rows(
+        &self,
+        results: &[QueryResultNode],
+        rows: Vec<PresentationRow>,
+    ) -> Result<Vec<PresentationRow>, PresentationSortError> {
+        if self.sort.is_empty() {
+            return Ok(rows);
+        }
+
+        let mut sortable_rows = Vec::with_capacity(rows.len());
+        for (original_index, row) in rows.into_iter().enumerate() {
+            let result = results.get(row.result_index).ok_or_else(|| {
+                PresentationSortError::new(format!(
+                    "presentation row {original_index} references missing result_index {}",
+                    row.result_index
+                ))
+            })?;
+            let mut keys = Vec::with_capacity(self.sort.len());
+            for (sort_index, sort) in self.sort.iter().enumerate() {
+                let extracted = self
+                    .extract_value(sort.column, result, row.row_context.as_ref())
+                    .map_err(|source| {
+                        PresentationSortError::new(format!(
+                            "failed to extract sort[{sort_index}] column `{}` for row {original_index}: {source}",
+                            sort.column.as_str()
+                        ))
+                    })?;
+                keys.push(extracted.value);
+            }
+            sortable_rows.push(PresentationSortableRow {
+                original_index,
+                row,
+                keys,
+            });
+        }
+
+        sortable_rows.sort_by(|left, right| {
+            for (index, sort) in self.sort.iter().enumerate() {
+                let ordering =
+                    compare_sort_values(&left.keys[index], &right.keys[index], sort.direction);
+                if ordering != Ordering::Equal {
+                    return ordering;
+                }
+            }
+            left.original_index.cmp(&right.original_index)
+        });
+
+        Ok(sortable_rows.into_iter().map(|entry| entry.row).collect())
     }
 
     fn validate_column_options(
@@ -632,6 +682,26 @@ impl PresentationValue {
             Self::Outline(value) => value.components.join(&value.separator),
         }
     }
+
+    fn compare_present(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Text(left), Self::Text(right)) => left.cmp(right),
+            (Self::Integer(left), Self::Integer(right)) => left.cmp(right),
+            (Self::TextList(left), Self::TextList(right)) => left.cmp(right),
+            (Self::Outline(left), Self::Outline(right)) => left.components.cmp(&right.components),
+            (left, right) => left.sort_type_rank().cmp(&right.sort_type_rank()),
+        }
+    }
+
+    const fn sort_type_rank(&self) -> u8 {
+        match self {
+            Self::Missing => 0,
+            Self::Text(_) => 1,
+            Self::Integer(_) => 2,
+            Self::TextList(_) => 3,
+            Self::Outline(_) => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -672,6 +742,52 @@ impl fmt::Display for PresentationValueError {
 }
 
 impl Error for PresentationValueError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationSortError {
+    message: String,
+}
+
+impl PresentationSortError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for PresentationSortError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl Error for PresentationSortError {}
+
+struct PresentationSortableRow {
+    original_index: usize,
+    row: PresentationRow,
+    keys: Vec<PresentationValue>,
+}
+
+fn compare_sort_values(
+    left: &PresentationValue,
+    right: &PresentationValue,
+    direction: PresentationSortDirection,
+) -> Ordering {
+    match (left, right) {
+        (PresentationValue::Missing, PresentationValue::Missing) => Ordering::Equal,
+        (PresentationValue::Missing, _) => Ordering::Greater,
+        (_, PresentationValue::Missing) => Ordering::Less,
+        _ => {
+            let ordering = left.compare_present(right);
+            match direction {
+                PresentationSortDirection::Asc => ordering,
+                PresentationSortDirection::Desc => ordering.reverse(),
+            }
+        }
+    }
+}
 
 fn append_unique_includes(target: &mut Vec<QueryInclude>, values: &[QueryInclude]) {
     for value in values {
@@ -1426,6 +1542,39 @@ mod tests {
         })
     }
 
+    fn heading_result_with(
+        id: i64,
+        title: &str,
+        priority: Option<&str>,
+        line: i64,
+    ) -> QueryResultNode {
+        let mut result = heading_result();
+        let QueryResultNode::Heading(node) = &mut result else {
+            unreachable!("heading_result should return a heading");
+        };
+        node.id = id;
+        node.title = title.to_string();
+        node.title_raw = Some(title.to_string());
+        node.priority = priority.map(str::to_string);
+        node.location.line = Some(line);
+        if let Some(PathEntry::Heading(path_entry)) =
+            node.node_path.as_mut().and_then(|path| path.last_mut())
+        {
+            path_entry.id = id;
+            path_entry.title = title.to_string();
+            path_entry.title_raw = title.to_string();
+        }
+        result
+    }
+
+    fn empty_row(result_index: usize) -> PresentationRow {
+        PresentationRow {
+            result_index,
+            row_context: None,
+            cells: Vec::new(),
+        }
+    }
+
     fn link_result() -> QueryResultNode {
         QueryResultNode::Link(Box::new(LinkResultNode {
             kind: QueryResultKind::Link,
@@ -2174,6 +2323,194 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "presentation column `outline-path` requires query include `path`"
+        );
+    }
+
+    #[test]
+    fn sorting_supports_ascending_descending_and_hidden_columns() {
+        let results = vec![
+            file_result(1, "Zulu"),
+            file_result(2, "Alpha"),
+            file_result(3, "Middle"),
+        ];
+        let rows = vec![empty_row(0), empty_row(1), empty_row(2)];
+
+        let ascending = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"file-title","direction":"asc"}]
+            }"#,
+        )
+        .expect("ascending file-title sort should parse");
+        let ascending_rows = ascending
+            .sort_rows(&results, rows.clone())
+            .expect("ascending rows should sort");
+        assert_eq!(
+            ascending_rows
+                .iter()
+                .map(|row| row.result_index)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 0]
+        );
+
+        let descending = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"file-title","direction":"desc"}]
+            }"#,
+        )
+        .expect("descending file-title sort should parse");
+        let descending_rows = descending
+            .sort_rows(&results, rows)
+            .expect("descending rows should sort");
+        assert_eq!(
+            descending_rows
+                .iter()
+                .map(|row| row.result_index)
+                .collect::<Vec<_>>(),
+            vec![0, 2, 1]
+        );
+    }
+
+    #[test]
+    fn sorting_applies_multiple_typed_keys_in_declared_order() {
+        let results = vec![
+            heading_result_with(20, "Ten", Some("A"), 10),
+            heading_result_with(21, "Two", Some("A"), 2),
+            heading_result_with(22, "One", Some("B"), 1),
+        ];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"title"}],
+                "sort":[
+                    {"column":"priority","direction":"asc"},
+                    {"column":"line-number","direction":"asc"}
+                ]
+            }"#,
+        )
+        .expect("multi-key heading sort should parse");
+
+        let rows = spec
+            .sort_rows(&results, vec![empty_row(0), empty_row(1), empty_row(2)])
+            .expect("multi-key rows should sort");
+        assert_eq!(
+            rows.iter().map(|row| row.result_index).collect::<Vec<_>>(),
+            vec![1, 0, 2]
+        );
+    }
+
+    #[test]
+    fn sorting_keeps_missing_values_last_and_equal_values_in_input_order() {
+        let results = vec![
+            heading_result_with(20, "First missing", None, 1),
+            heading_result_with(21, "B", Some("B"), 2),
+            heading_result_with(22, "Second missing", None, 3),
+            heading_result_with(23, "A", Some("A"), 4),
+        ];
+        let input_rows = vec![empty_row(2), empty_row(0), empty_row(1), empty_row(3)];
+
+        let ascending = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"title"}],
+                "sort":[{"column":"priority","direction":"asc"}]
+            }"#,
+        )
+        .expect("ascending priority sort should parse");
+        let ascending_rows = ascending
+            .sort_rows(&results, input_rows.clone())
+            .expect("ascending rows should sort");
+        assert_eq!(
+            ascending_rows
+                .iter()
+                .map(|row| row.result_index)
+                .collect::<Vec<_>>(),
+            vec![3, 1, 2, 0]
+        );
+
+        let descending = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"title"}],
+                "sort":[{"column":"priority","direction":"desc"}]
+            }"#,
+        )
+        .expect("descending priority sort should parse");
+        let descending_rows = descending
+            .sort_rows(&results, input_rows)
+            .expect("descending rows should sort");
+        assert_eq!(
+            descending_rows
+                .iter()
+                .map(|row| row.result_index)
+                .collect::<Vec<_>>(),
+            vec![1, 3, 2, 0]
+        );
+    }
+
+    #[test]
+    fn sorting_can_use_row_context_for_multiple_rows_of_one_result() {
+        let results = vec![file_result(7, "notes")];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"property-value"}],
+                "sort":[{"column":"property-name"}],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("property row sort should parse");
+        let rows = vec![
+            PresentationRow {
+                result_index: 0,
+                row_context: Some(PresentationRowContext::EffectiveProperty {
+                    name: "ZETA".to_string(),
+                    value: "last".to_string(),
+                }),
+                cells: Vec::new(),
+            },
+            PresentationRow {
+                result_index: 0,
+                row_context: Some(PresentationRowContext::EffectiveProperty {
+                    name: "ALPHA".to_string(),
+                    value: "first".to_string(),
+                }),
+                cells: Vec::new(),
+            },
+        ];
+
+        let rows = spec
+            .sort_rows(&results, rows)
+            .expect("property rows should sort");
+        assert_eq!(
+            rows[0].row_context,
+            Some(PresentationRowContext::EffectiveProperty {
+                name: "ALPHA".to_string(),
+                value: "first".to_string(),
+            })
+        );
+        assert_eq!(
+            rows[1].row_context,
+            Some(PresentationRowContext::EffectiveProperty {
+                name: "ZETA".to_string(),
+                value: "last".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn sorting_reports_missing_result_references() {
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"file-title"}]
+            }"#,
+        )
+        .expect("file sort should parse");
+
+        let error = spec
+            .sort_rows(&[file_result(1, "notes")], vec![empty_row(4)])
+            .expect_err("missing result reference should fail");
+        assert_eq!(
+            error.to_string(),
+            "presentation row 0 references missing result_index 4"
         );
     }
 

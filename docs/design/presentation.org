@@ -7,7 +7,9 @@ This document describes planned presentation work and the implemented presentati
 
 The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
 
-The response wire model now exists in Rust. The query command does not emit this response yet.
+The response wire model now exists in Rust. Value extraction, include inference, and row sorting also exist in Rust.
+
+The query command does not emit this response yet.
 
 A valid presentation request still reports that presentation output is unavailable.
 
@@ -231,6 +233,33 @@ Reserved row columns read their value from ~row_context~. Row expansion still re
 The ~rank~ value remains reserved for search results. Structural query presentation does not create search result objects.
 
 Clients can still request extra includes for actions or other client needs. Rust combines these explicit includes with presentation requirements.
+
+* Sorting
+
+Rust now sorts presentation rows with logical values from the public column registry.
+
+Rust extracts sort values for each row once before sorting. Hidden sort columns use the same registry and extraction rules as displayed columns.
+
+Sort rules run in their declared order. Each rule supports ~asc~ or ~desc~.
+
+If a sort column is also displayed, its column options define the extracted value. A hidden outline sort uses default outline options.
+
+Sorting uses typed logical values:
+
+- text uses case-sensitive lexicographic order
+- integers use numeric order
+- text lists compare their elements in order
+- outlines compare their components in order
+
+The rendered outline separator does not affect outline ordering.
+
+Missing values sort after present values for both directions.
+
+Rows with equal sort keys keep their incoming row order. This rule also works when several rows reference one result.
+
+Sorting changes only row order. The top-level ~results~ array and each ~result_index~ keep their original identity.
+
+Free-text search remains outside the presentation sorting stage.
 
 * Semantic roles
 
