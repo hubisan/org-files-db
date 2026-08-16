@@ -319,6 +319,40 @@ impl PresentationSpec {
         Ok(prepared_rows)
     }
 
+    pub fn build_response(
+        &self,
+        database_id: impl Into<String>,
+        generation: i64,
+        results: Vec<QueryResultNode>,
+    ) -> Result<PresentationResponse, PresentationBuildError> {
+        if let Some(row_source) = self.row_source {
+            return Err(PresentationBuildError::RowSourceUnavailable(
+                row_source.kind,
+            ));
+        }
+
+        let rows = (0..results.len())
+            .map(|result_index| PresentationRow {
+                result_index,
+                row_context: None,
+                cells: Vec::new(),
+            })
+            .collect();
+        let rows = self
+            .sort_rows(&results, rows)
+            .map_err(PresentationBuildError::Sort)?;
+        let rows = self
+            .layout_rows(&results, rows)
+            .map_err(PresentationBuildError::Layout)?;
+
+        Ok(PresentationResponse::new(
+            database_id,
+            generation,
+            results,
+            rows,
+        ))
+    }
+
     fn validate_column_options(
         &self,
         index: usize,
@@ -846,6 +880,37 @@ impl fmt::Display for PresentationLayoutError {
 }
 
 impl Error for PresentationLayoutError {}
+
+#[derive(Debug)]
+pub enum PresentationBuildError {
+    RowSourceUnavailable(PresentationRowSourceKind),
+    Sort(PresentationSortError),
+    Layout(PresentationLayoutError),
+}
+
+impl fmt::Display for PresentationBuildError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RowSourceUnavailable(kind) => write!(
+                f,
+                "presentation row_source kind `{}` is not available until row expansion support is implemented",
+                kind.as_str()
+            ),
+            Self::Sort(source) => write!(f, "failed to sort presentation rows: {source}"),
+            Self::Layout(source) => write!(f, "failed to prepare presentation cells: {source}"),
+        }
+    }
+}
+
+impl Error for PresentationBuildError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::RowSourceUnavailable(_) => None,
+            Self::Sort(source) => Some(source),
+            Self::Layout(source) => Some(source),
+        }
+    }
+}
 
 struct PresentationSortableRow {
     original_index: usize,
@@ -2859,6 +2924,59 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "presentation row 0 references missing result_index 3"
+        );
+    }
+
+    #[test]
+    fn build_response_runs_sort_and_layout_without_duplicating_results() {
+        let results = vec![file_result(1, "Alpha"), file_result(2, "Long title")];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{
+                    "name":"title",
+                    "width":{"mode":"fixed","value":6}
+                }],
+                "sort":[{"column":"title","direction":"desc"}]
+            }"#,
+        )
+        .expect("presentation should parse");
+
+        let response = spec
+            .build_response("database-id", 7, results.clone())
+            .expect("presentation response should build");
+
+        assert_eq!(response.database_id, "database-id");
+        assert_eq!(response.generation, 7);
+        assert_eq!(response.results, results);
+        assert_eq!(response.rows.len(), 2);
+        assert_eq!(response.rows[0].result_index, 1);
+        assert_eq!(response.rows[1].result_index, 0);
+        assert_eq!(response.rows[0].row_context, None);
+        assert_eq!(response.rows[0].cells[0].search_text, "Long title");
+        assert_eq!(response.rows[0].cells[0].display_text, "Long …");
+        assert_eq!(
+            response.rows[0].cells[0].role,
+            Some(PresentationRole::Title)
+        );
+    }
+
+    #[test]
+    fn build_response_rejects_row_source_until_expansion_exists() {
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect("row-source presentation should parse");
+
+        let error = spec
+            .build_response("database-id", 7, vec![file_result(1, "notes")])
+            .expect_err("row source should wait for row expansion support");
+
+        assert_eq!(
+            error.to_string(),
+            "presentation row_source kind `tags` is not available until row expansion support is implemented"
         );
     }
 

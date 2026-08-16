@@ -1,19 +1,17 @@
-#+TITLE: Planned Presentation Output Design
+#+TITLE: Presentation Output Design
 #+STARTUP: showall
 
 * Status
 
-This document describes planned presentation work and the implemented presentation data models.
+The initial Rust presentation pipeline is implemented for normal one-row-per-result output.
 
 The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
 
-The response wire model now exists in Rust. Value extraction, include inference, row sorting, and cell layout also exist in Rust.
-
-The query command does not emit this response yet.
-
-A valid presentation request still reports that presentation output is unavailable.
+Rust now performs value extraction, sorting, shared layout, semantic role selection, and compact response serialization.
 
 The current ~orgfdb query --format json~ contract stays unchanged. Presentation output remains a separate opt-in representation.
+
+Row expansion, JSONL, streaming, and presentation caching remain separate later work.
 
 * Goal
 
@@ -29,7 +27,7 @@ Presentation remains part of ~orgfdb query~. It does not become a second query c
 
 The query command now accepts ~--format presentation-json~. Other commands continue to accept JSON output only.
 
-The current staged command shape is:
+A presentation request uses this command shape:
 
 #+begin_src shell
 orgfdb query \
@@ -371,7 +369,7 @@ A keyword context has this JSON shape:
 {"kind":"keyword","name":"TITLE","value":"Notes"}
 #+end_src
 
-This task defines these shapes only. It does not execute row expansion.
+The wire model defines these contexts for row expansion. The initial pipeline rejects non-null ~row_source~ until that implementation exists.
 
 Each cell contains:
 
@@ -389,14 +387,14 @@ role
 
 Rows do not duplicate complete result objects. Several rows can reference the same ~result_index~.
 
-* Planned pipeline
+* Initial pipeline
 
-Rust performs this pipeline:
+Rust performs this pipeline for normal presentation rows:
 
 #+begin_example
 query
   -> original results
-  -> row expansion
+  -> initial presentation rows
   -> cell value extraction
   -> sort keys
   -> sort
@@ -404,14 +402,18 @@ query
   -> truncation
   -> padding
   -> semantic roles
-  -> presentation rows
+  -> presentation-json
 #+end_example
+
+Each initial row uses ~row_context = null~ and one ~result_index~ into the original result array.
+
+The presentation query reads ~database_id~, ~generation~, and query data inside one read transaction. This keeps the response tied to one database snapshot.
 
 Emacs receives prepared rows and performs only Emacs-specific work.
 
 * Row expansion
 
-The data model includes ~row_source~ from the start. Initial implementation can use only normal one-row-per-result behavior.
+The data model includes ~row_source~ from the start. The current pipeline rejects non-null ~row_source~ until row expansion is implemented.
 
 Later row sources are:
 
@@ -472,7 +474,7 @@ Emacs does not recalculate values, sorting, widths, truncation, padding, or outl
 
 * JSON and streaming
 
-The first implementation uses compact JSON. It does not use JSONL or streaming.
+The current ~presentation-json~ output uses compact JSON and ends with one newline. It does not use JSONL or streaming.
 
 Sorting and shared width calculation require the complete row set before final display rows are ready. Streaming adds complexity before measurements show a need.
 

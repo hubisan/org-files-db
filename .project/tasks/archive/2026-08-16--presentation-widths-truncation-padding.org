@@ -20,7 +20,7 @@ Do not add percentage widths.
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-widths-truncation-padding.org][Presentation Widths, Truncation, and Padding]]
+Task file: [[./archive/2026-08-16--presentation-widths-truncation-padding.org][Presentation Widths, Truncation, and Padding]]
 
 Goal: Move shared column layout preparation into Rust.
 

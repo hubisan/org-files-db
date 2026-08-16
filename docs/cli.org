@@ -381,13 +381,19 @@ Displayed columns, sort-only columns, and row sources can add required includes.
 
 For example, a hidden ~outline-path~ sort adds ~path~. An ~effective-properties~ row source adds ~effective_properties~.
 
-The presentation response contract exists in Rust, but the query command does not emit it yet.
+The query command emits the complete initial presentation response for normal one-row-per-result views.
 
-A valid presentation request therefore reaches the current staged output error after query execution. Normal ~--format json~ queries ignore this staged path.
+The presentation path runs the query once. It then sorts rows, calculates shared widths, truncates, pads, and assigns semantic roles.
+
+The presentation query reads index state and query data from one database read transaction. The response identifies one database snapshot.
+
+~presentation-json~ uses compact JSON and ends with one newline. Normal ~--format json~ keeps its existing pretty JSON serialization.
+
+A non-null ~row_source~ is rejected until row expansion is implemented.
 
 Other commands do not accept ~presentation-json~ or ~--presentation-spec-json~.
 
-Example staged request:
+Example request:
 
 #+begin_src shell
 orgfdb query \
@@ -396,7 +402,19 @@ orgfdb query \
   '(headings)'
 #+end_src
 
-Read [[./design/presentation.org][Planned Presentation Output Design]] for the current ~PresentationSpec~ model.
+The response contains:
+
+- ~presentation_version~
+- ~database_id~
+- ~generation~
+- ~results~
+- ~rows~
+
+~results~ stores each original query result once. Each row refers to one result through ~result_index~.
+
+Each cell contains complete ~search_text~, final ~display_text~, and one optional semantic ~role~.
+
+Read [[./design/presentation.org][Presentation Output Design]] for the current ~PresentationSpec~ model.
 
 ~--include~ is repeatable. One flag can also contain comma-separated values.
 

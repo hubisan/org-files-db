@@ -116,7 +116,7 @@ Read [[./docs/config.org][docs/config.org]] for all supported keys and defaults.
 
 ~headings~, ~links~, ~status~, ~changes~, ~query~, and ~search~ use JSON output. Use ~--format json~ when a client depends on the machine-readable contract.
 
-The existing ~orgfdb query --format json~ contract is stable. The query-specific ~presentation-json~ format is under development and does not replace this contract.
+The existing ~orgfdb query --format json~ contract is stable. The query-specific ~presentation-json~ format provides opt-in prepared rows and does not replace this contract.
 
 Read [[./docs/reference/query-json.org][Query JSON Contract]] for the structural query response format.
 

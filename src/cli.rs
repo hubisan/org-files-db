@@ -21,7 +21,9 @@ use crate::{
     },
     indexer::{Indexer, IndexerError, RebuildOptions, RebuildReport},
     parser::OrgizeAdapter,
-    presentation::{PresentationSpec, PresentationSpecError},
+    presentation::{
+        PresentationBuildError, PresentationResponse, PresentationSpec, PresentationSpecError,
+    },
     query::{
         execute_and_shape_query, parse_query, shape_matched_heading_nodes,
         sqlite_query_validation_options, validate_query, HeadingResultNode, QueryExecutionError,
@@ -340,27 +342,41 @@ where
             let output_format = format.selected();
             let presentation_spec =
                 parse_query_presentation_spec(output_format, presentation_spec_json.as_deref())?;
-            let response = if let Some(source) = restrict_files_json.as_deref() {
-                let paths = read_restricted_file_paths(source)?;
-                query_response_with_restriction(
-                    &query,
-                    output,
-                    &include,
-                    config.as_deref(),
-                    Some(paths),
-                    presentation_spec.as_ref(),
-                )?
+            let restricted_file_paths = if let Some(source) = restrict_files_json.as_deref() {
+                Some(read_restricted_file_paths(source)?)
             } else {
-                query_response_with_restriction(
-                    &query,
-                    output,
-                    &include,
-                    config.as_deref(),
-                    None,
-                    presentation_spec.as_ref(),
-                )?
+                None
             };
-            write_query_output(output_format, writer, &response)
+
+            match output_format {
+                CliQueryOutputFormat::Json => {
+                    let response = query_response_with_restriction(
+                        &query,
+                        output,
+                        &include,
+                        config.as_deref(),
+                        restricted_file_paths,
+                    )?;
+                    write_json_output(writer, &response)
+                }
+                CliQueryOutputFormat::PresentationJson => {
+                    let spec = presentation_spec.as_ref().ok_or_else(|| {
+                        CliError::InvalidPresentationUsage(
+                            "--format presentation-json requires --presentation-spec-json"
+                                .to_string(),
+                        )
+                    })?;
+                    let response = presentation_response_with_restriction(
+                        &query,
+                        output,
+                        &include,
+                        config.as_deref(),
+                        restricted_file_paths,
+                        spec,
+                    )?;
+                    write_compact_json_output(writer, &response)
+                }
+            }
         }
         Command::Search {
             format,
@@ -432,14 +448,7 @@ fn query_json_response_with_restriction(
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
 ) -> Result<QueryResponse, CliError> {
-    query_response_with_restriction(
-        query,
-        output,
-        includes,
-        config_path,
-        restricted_file_paths,
-        None,
-    )
+    query_response_with_restriction(query, output, includes, config_path, restricted_file_paths)
 }
 
 fn query_response_with_restriction(
@@ -448,7 +457,6 @@ fn query_response_with_restriction(
     includes: &[CliQueryInclude],
     config_path: Option<&Path>,
     restricted_file_paths: Option<Vec<String>>,
-    presentation_spec: Option<&PresentationSpec>,
 ) -> Result<QueryResponse, CliError> {
     let config = load_cli_config(config_path)?;
     let connection =
@@ -462,12 +470,47 @@ fn query_response_with_restriction(
         .copied()
         .map(QueryInclude::from)
         .collect::<Vec<_>>();
-    let query_includes = if let Some(spec) = presentation_spec {
-        spec.combined_includes_for_query_target(validated.target, &explicit_includes)
-            .map_err(CliError::PresentationSpec)?
-    } else {
-        explicit_includes
+    let options = QueryExecutionOptions {
+        output_mode: output.into(),
+        includes: explicit_includes,
+        query_timezone: config.query.timezone.clone(),
+        now_utc: None,
+        restricted_file_paths,
     };
+    execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
+}
+
+fn presentation_response_with_restriction(
+    query: &str,
+    output: CliQueryOutput,
+    includes: &[CliQueryInclude],
+    config_path: Option<&Path>,
+    restricted_file_paths: Option<Vec<String>>,
+    spec: &PresentationSpec,
+) -> Result<PresentationResponse, CliError> {
+    let config = load_cli_config(config_path)?;
+    let connection =
+        open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
+    connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|source| CliError::PresentationSnapshot {
+            operation: "begin",
+            source,
+        })?;
+
+    let state = read_index_state(&connection).map_err(CliError::IndexState)?;
+    let parsed = parse_query(query).map_err(CliError::QueryParse)?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
+    let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
+    let explicit_includes = includes
+        .iter()
+        .copied()
+        .map(QueryInclude::from)
+        .collect::<Vec<_>>();
+    let query_includes = spec
+        .combined_includes_for_query_target(validated.target, &explicit_includes)
+        .map_err(CliError::PresentationSpec)?;
     let options = QueryExecutionOptions {
         output_mode: output.into(),
         includes: query_includes,
@@ -475,7 +518,19 @@ fn query_response_with_restriction(
         now_utc: None,
         restricted_file_paths,
     };
-    execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)
+    let query_response =
+        execute_and_shape_query(&connection, &validated, &options).map_err(CliError::QueryShape)?;
+    let response = spec
+        .build_response(state.database_id, state.generation, query_response.results)
+        .map_err(CliError::PresentationBuild)?;
+
+    connection
+        .execute_batch("COMMIT")
+        .map_err(|source| CliError::PresentationSnapshot {
+            operation: "commit",
+            source,
+        })?;
+    Ok(response)
 }
 
 fn read_restricted_file_paths(source: &str) -> Result<Vec<String>, CliError> {
@@ -962,19 +1017,16 @@ fn parse_query_presentation_spec(
     }
 }
 
-fn write_query_output(
-    format: CliQueryOutputFormat,
-    writer: &mut impl Write,
-    value: &QueryResponse,
-) -> Result<(), CliError> {
-    match format {
-        CliQueryOutputFormat::Json => write_json_output(writer, value),
-        CliQueryOutputFormat::PresentationJson => Err(CliError::PresentationOutputUnavailable),
-    }
-}
-
 fn write_json_output<T: Serialize>(writer: &mut impl Write, value: &T) -> Result<(), CliError> {
     serde_json::to_writer_pretty(&mut *writer, value).map_err(CliError::Json)?;
+    writer.write_all(b"\n").map_err(CliError::Io)
+}
+
+fn write_compact_json_output<T: Serialize>(
+    writer: &mut impl Write,
+    value: &T,
+) -> Result<(), CliError> {
+    serde_json::to_writer(&mut *writer, value).map_err(CliError::Json)?;
     writer.write_all(b"\n").map_err(CliError::Io)
 }
 
@@ -1030,7 +1082,11 @@ enum CliError {
     InvalidRestriction(String),
     InvalidPresentationUsage(String),
     PresentationSpec(PresentationSpecError),
-    PresentationOutputUnavailable,
+    PresentationBuild(PresentationBuildError),
+    PresentationSnapshot {
+        operation: &'static str,
+        source: rusqlite::Error,
+    },
     InvalidHeadingPath {
         heading_id: i64,
         source: serde_json::Error,
@@ -1063,7 +1119,8 @@ impl CliError {
             | Self::ReadRestriction { .. }
             | Self::RestrictionJson(_)
             | Self::InvalidRestriction(_)
-            | Self::PresentationOutputUnavailable
+            | Self::PresentationBuild(_)
+            | Self::PresentationSnapshot { .. }
             | Self::InvalidHeadingPath { .. }
             | Self::Json(_)
             | Self::Io(_) => 1,
@@ -1109,9 +1166,10 @@ impl fmt::Display for CliError {
             Self::InvalidRestriction(message) => write!(f, "invalid file restriction: {message}"),
             Self::InvalidPresentationUsage(message) => write!(f, "{message}"),
             Self::PresentationSpec(source) => write!(f, "{source}"),
-            Self::PresentationOutputUnavailable => write!(
+            Self::PresentationBuild(source) => write!(f, "{source}"),
+            Self::PresentationSnapshot { operation, source } => write!(
                 f,
-                "presentation-json output is not available until presentation response support is implemented"
+                "failed to {operation} presentation database snapshot: {source}"
             ),
             Self::InvalidHeadingPath { heading_id, source } => {
                 write!(
@@ -1148,9 +1206,9 @@ impl Error for CliError {
             Self::ReadRestriction { source, .. } => Some(source),
             Self::RestrictionJson(source) => Some(source),
             Self::PresentationSpec(source) => Some(source),
-            Self::InvalidRestriction(_)
-            | Self::InvalidPresentationUsage(_)
-            | Self::PresentationOutputUnavailable => None,
+            Self::PresentationBuild(source) => Some(source),
+            Self::PresentationSnapshot { source, .. } => Some(source),
+            Self::InvalidRestriction(_) | Self::InvalidPresentationUsage(_) => None,
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
@@ -2256,62 +2314,145 @@ fts5_enabled = false
         let spec = PresentationSpec::parse_json(
             r#"{
                 "columns":[{"name":"file-name"}],
-                "sort":[{"column":"outline-path"}],
-                "row_source":{"kind":"effective-properties"}
+                "sort":[{"column":"outline-path"}]
             }"#,
         )
         .expect("presentation specification should parse");
 
-        let response = super::query_response_with_restriction(
+        let response = super::presentation_response_with_restriction(
             "(headings (todo \"NEXT\"))",
             super::CliQueryOutput::Flat,
             &[super::CliQueryInclude::Links],
             Some(&config_path),
             None,
-            Some(&spec),
+            &spec,
         )
         .expect("query should combine explicit and inferred includes");
 
-        assert_eq!(
-            response.includes,
-            vec![
-                crate::query::QueryInclude::Path,
-                crate::query::QueryInclude::EffectiveProperties,
-                crate::query::QueryInclude::Links,
-            ]
-        );
         let crate::query::QueryResultNode::Heading(node) = &response.results[0] else {
             panic!("expected heading result");
         };
         assert!(node.node_path.is_some());
-        assert!(node.effective_properties.is_some());
         assert!(node.links.is_some());
     }
 
     #[test]
-    fn query_presentation_format_reports_staged_output_error_after_execution() {
-        let test_dir = TestDir::new("presentation-format-placeholder");
+    fn query_presentation_format_emits_complete_compact_output() {
+        let test_dir = TestDir::new("presentation-format-output");
         let config_path = write_query_fixture(&test_dir);
-        let error = run_cli_output(vec![
+        let config = config_path.display().to_string();
+        let output = run_cli_output(vec![
             "orgfdb".into(),
             "query".into(),
             "--format".into(),
             "presentation-json".into(),
             "--presentation-spec-json".into(),
-            r#"{"columns":[{"name":"title"}]}"#.into(),
+            r#"{
+                "columns":[{
+                    "name":"title",
+                    "width":{"mode":"fixed","value":6}
+                }],
+                "sort":[{"column":"title","direction":"desc"}]
+            }"#
+            .into(),
             "--config".into(),
-            config_path.display().to_string(),
+            config.clone(),
             "(headings)".into(),
         ])
-        .expect_err(
-            "presentation output should remain unavailable before response assembly is connected",
+        .expect("presentation output should succeed");
+
+        let text = std::str::from_utf8(&output).expect("presentation output should be UTF-8");
+        assert_eq!(text.lines().count(), 1);
+        assert!(text.starts_with("{\"presentation_version\":1,"));
+
+        let response: Value =
+            serde_json::from_slice(&output).expect("presentation output should be valid JSON");
+        assert_eq!(response["presentation_version"], 1);
+        assert!(!response["database_id"]
+            .as_str()
+            .expect("database_id should be a string")
+            .is_empty());
+        assert!(
+            response["generation"]
+                .as_i64()
+                .expect("generation should be an integer")
+                > 0
         );
 
-        assert!(matches!(&error, CliError::PresentationOutputUnavailable));
+        let results = response["results"]
+            .as_array()
+            .expect("presentation results should be an array");
+        let rows = response["rows"]
+            .as_array()
+            .expect("presentation rows should be an array");
+        assert_eq!(rows.len(), results.len());
+        assert!(rows.iter().all(|row| row.get("result").is_none()));
+        assert!(rows.iter().all(|row| row["row_context"].is_null()));
+
+        let search_values = rows
+            .iter()
+            .map(|row| {
+                row["cells"][0]["search_text"]
+                    .as_str()
+                    .expect("title search text should be a string")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        let mut expected_order = search_values.clone();
+        expected_order.sort();
+        expected_order.reverse();
+        assert_eq!(search_values, expected_order);
+
+        let query_engine_row = rows
+            .iter()
+            .find(|row| row["cells"][0]["search_text"].as_str() == Some("Query engine"))
+            .expect("NEXT heading should have a presentation row");
         assert_eq!(
-            error.to_string(),
-            "presentation-json output is not available until presentation response support is implemented"
+            query_engine_row["cells"][0]["display_text"].as_str(),
+            Some("Query…")
         );
+        assert_eq!(query_engine_row["cells"][0]["role"].as_str(), Some("title"));
+
+        let status_output = run_cli_output(vec![
+            "orgfdb".into(),
+            "status".into(),
+            "--config".into(),
+            config,
+        ])
+        .expect("status output should succeed");
+        let status: Value =
+            serde_json::from_slice(&status_output).expect("status output should be valid JSON");
+        assert_eq!(response["database_id"], status["database_id"]);
+        assert_eq!(response["generation"], status["generation"]);
+    }
+
+    #[test]
+    fn query_json_format_keeps_existing_pretty_serialization_path() {
+        let test_dir = TestDir::new("query-json-existing-path");
+        let config_path = write_query_fixture(&test_dir);
+        let response = super::query_json_response(
+            "(headings (todo \"NEXT\"))",
+            super::CliQueryOutput::Flat,
+            &[],
+            Some(&config_path),
+        )
+        .expect("existing query JSON response should succeed");
+        let mut expected = Vec::new();
+        super::write_json_output(&mut expected, &response)
+            .expect("existing query JSON serializer should succeed");
+
+        let actual = run_cli_output(vec![
+            "orgfdb".into(),
+            "query".into(),
+            "--format".into(),
+            "json".into(),
+            "--config".into(),
+            config_path.display().to_string(),
+            "(headings (todo \"NEXT\"))".into(),
+        ])
+        .expect("normal query JSON output should succeed");
+
+        assert_eq!(actual, expected);
     }
 
     #[test]

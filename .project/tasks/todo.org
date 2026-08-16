@@ -224,45 +224,14 @@ Task file: [[./archive/2026-08-16--presentation-sorting.org][Presentation Sortin
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-widths-truncation-padding.org][Presentation Widths, Truncation, and Padding]]
+Task file: [[./archive/2026-08-16--presentation-widths-truncation-padding.org][Presentation Widths, Truncation, and Padding]]
 
-* TODO Connect query execution to compact presentation-json output
+* DONE Connect query execution to compact presentation-json output
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Implement the complete initial Rust presentation pipeline.
-
-Pipeline:
-
-#+begin_example
-query
-  -> original results
-  -> initial presentation rows
-  -> values
-  -> sort keys
-  -> sort
-  -> shared widths
-  -> truncation
-  -> padding
-  -> semantic roles
-  -> presentation-json
-#+end_example
-
-Use compact JSON for presentation output.
-
-Keep normal ~--format json~ on its existing serialization path.
-
-Do not implement JSONL or streaming yet.
-
-Acceptance criteria:
-
-- ~(headings)~ can produce complete presentation output.
-- Results are stored once.
-- Rows reference results.
-- Cells contain complete search values and final display values.
-- Semantic roles are included.
-- Normal JSON remains unchanged.
+Task file: [[./2026-08-16--presentation-json-output.org][Compact Presentation JSON Output]]
 
 * TODO Benchmark uncached Rust-prepared presentation
 :PROPERTIES:
