@@ -468,6 +468,78 @@ Acceptance criteria:
 - Expanded rows use the normal sort, width, truncation, and role pipeline.
 - Empty collections produce no artificial rows.
 
+* TODO Evaluate presentation pipeline parallelism
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Measure the complete presentation pipeline and add parallel execution only where benchmarks show a useful improvement.
+
+Keep the presentation pipeline easy to parallelize before this task:
+
+- Prefer immutable input data.
+- Keep row processing independent.
+- Avoid shared mutable state between rows.
+- Build extracted values locally.
+- Build sort keys locally.
+- Format each row independently after shared widths are known.
+
+Measure at least:
+
+- query execution
+- value extraction
+- row expansion
+- sort-key creation
+- sorting
+- width calculation
+- truncation and padding
+- final row formatting
+- JSON serialization
+- total presentation latency
+
+Use representative result sizes, including large result sets.
+
+Evaluate parallel execution for:
+
+- value extraction
+- row expansion
+- sort-key creation
+- sorting
+- width reduction
+- truncation and padding
+- final row formatting
+
+Use ~rayon~ or another Rust-native solution only when benchmarks justify the extra dependency and complexity.
+
+Do not parallelize the SQLite query by default.
+
+Keep one database snapshot for each presentation response.
+
+Do not change:
+
+- query semantics
+- presentation ordering
+- column semantics
+- ~result_index~ references
+- ~database_id~ semantics
+- ~generation~ semantics
+- the existing JSON compatibility contract
+
+Compare sequential and parallel execution with identical benchmark inputs.
+
+Keep sequential execution for small result sets when parallel execution adds more overhead than it removes.
+
+Acceptance criteria:
+
+- Benchmarks identify the expensive presentation stages.
+- Parallel execution targets only measured bottlenecks.
+- Sequential and parallel execution produce identical output.
+- Result ordering stays deterministic.
+- Small queries have no material performance regression.
+- Large queries show a measurable improvement when parallel execution stays enabled.
+- Documentation records the benchmark results.
+- Documentation records the selected execution strategy.
+  
 * TODO Finalize presentation architecture documentation
 :PROPERTIES:
 :VISIBILITY: folded
@@ -502,3 +574,4 @@ Acceptance criteria:
 - Removed or rejected design alternatives are no longer presented as current architecture.
 - Public examples execute against the implemented CLI.
 - The Emacs client has a stable documented interface to implement against.
+  
