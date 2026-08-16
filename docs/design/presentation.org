@@ -3,7 +3,7 @@
 
 * Status
 
-This document describes planned presentation work and the implemented ~PresentationSpec~ input model.
+This document describes planned presentation work, the implemented ~PresentationSpec~ input model, and the public column registry.
 
 The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
 
@@ -66,7 +66,7 @@ A column uses this shape:
 }
 #+end_src
 
-The column name stays a string in this stage. The later column-registry work defines valid public names and result kinds.
+The column name must be one of the public names in the Rust presentation registry. Unknown names are rejected during JSON parsing.
 
 ~width~ defaults to ~{"mode":"auto"}~. The initial width modes are:
 
@@ -118,19 +118,88 @@ The parser rejects unknown fields and unknown enum values. It also rejects empty
 
 * Supported columns
 
-Rust becomes the authoritative definition of public presentation columns. Presentation does not use arbitrary JSON field lookup as its public column API.
+Rust is the authoritative definition of public presentation columns. Presentation does not use arbitrary JSON field lookup as its public column API.
 
 Each supported column defines:
 
-- valid result kinds
+- valid result contexts
 - required query includes
-- value extraction
-- default semantic role
+- one value source for later extraction
+- one semantic-role rule
 - valid column options
+- an optional required row source
 
 Sort-only columns use the same registry as displayed columns.
 
-The initial normal column set will cover the stable columns required by the Emacs client. Row-source columns join the same registry when row expansion is implemented.
+The ~heading~ context supports:
+
+- ~title~
+- ~todo-keyword~
+- ~todo-type~
+- ~priority~
+- ~outline-path~
+- ~tags~
+- ~scheduled-raw~
+- ~deadline-raw~
+- ~closed-raw~
+- ~file-title~
+- ~file-name~
+- ~file-path~
+- ~line-number~
+
+The ~file~ context supports:
+
+- ~file-title~
+- ~file-name~
+- ~file-path~
+- ~tags~
+- ~line-number~
+
+The ~link~ context supports:
+
+- ~link-type~
+- ~link-target~
+- ~link-description~
+- ~resolution-status~
+- ~source-outline-path~
+- ~target-outline-path~
+- ~file-name~
+- ~file-path~
+- ~line-number~
+
+The registry also reserves a ~search~ context for later client work. It supports:
+
+- ~title~
+- ~outline-path~
+- ~file-name~
+- ~file-path~
+- ~line-number~
+- ~rank~
+
+The current presentation CLI is query-only, so it cannot select the ~search~ context yet.
+
+The registry reserves these row-expansion columns:
+
+- ~tag~ for ~row_source.kind = tags~
+- ~property-name~ and ~property-value~ for ~row_source.kind = effective-properties~
+- ~keyword-name~ and ~keyword-value~ for ~row_source.kind = keywords~
+
+The row-expansion implementation is still planned. The parser already rejects a singular row column without its required row source.
+
+Only ~outline-path~, ~source-outline-path~, and ~target-outline-path~ accept the ~outline_path~ option object.
+
+The registry also records query include requirements:
+
+- ~outline-path~ in the ~heading~ context requires ~path~.
+- ~file-title~ in the ~heading~ context requires ~path~.
+- ~source-outline-path~ requires ~path~.
+- ~target-outline-path~ requires ~target~.
+- ~property-name~ and ~property-value~ require ~effective_properties~.
+- ~keyword-name~ and ~keyword-value~ require ~keywords~.
+
+The other initial columns need no additional query include.
+
+This stage only derives those requirements. A later task combines inferred includes with explicit query includes during query execution.
 
 * Semantic roles
 

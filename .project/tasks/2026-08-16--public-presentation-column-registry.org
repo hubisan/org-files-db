@@ -1,0 +1,214 @@
+#+TITLE: Public Presentation Column Registry
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-16 Sunday 10:28]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Define the public Rust presentation column registry.
+
+Make Rust authoritative for supported presentation columns, result contexts, required query includes, value sources, default semantic-role rules, and column-specific options.
+
+Do not expose arbitrary query JSON fields as presentation columns.
+
+** DONE Define the public presentation column registry
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-16--public-presentation-column-registry.org][Public Presentation Column Registry]]
+
+Goal: Make Rust the authoritative definition of supported presentation columns.
+
+Do not use arbitrary JSON property lookup as the public presentation-column API.
+
+Initial normal columns should cover the stable existing Emacs functionality where meaningful:
+
+- ~title~
+- ~todo-keyword~
+- ~todo-type~
+- ~priority~
+- ~outline-path~
+- ~tags~
+- ~scheduled-raw~
+- ~deadline-raw~
+- ~closed-raw~
+- ~file-title~
+- ~file-name~
+- ~file-path~
+- ~line-number~
+- ~link-type~
+- ~link-target~
+- ~link-description~
+- ~resolution-status~
+- ~source-outline-path~
+- ~target-outline-path~
+- ~rank~
+
+Reserve the following columns for row expansion:
+
+- ~tag~
+- ~property-name~
+- ~property-value~
+- ~keyword-name~
+- ~keyword-value~
+
+For every column define centrally:
+
+- supported result kinds
+- required query data/includes
+- value extraction
+- default semantic role
+- supported column-specific options
+
+Review the existing Emacs column set rather than copying accidental generic-field behaviour.
+
+Acceptance criteria:
+
+- Unknown columns are rejected.
+- Columns are validated against query result kinds.
+- Sort-only columns use the same definitions as displayed columns.
+- Include requirements can be derived from the same registry.
+- Public presentation columns have deterministic semantics.
+
+* Planning
+
+** Problem summary
+
+~PresentationSpec~ currently stores column names as unrestricted strings.
+
+This lets the input model accept arbitrary field names and cannot validate columns against the query result context.
+
+The previous Emacs client also had a generic extractor fallback. That fallback exposed internal result fields accidentally and must not define the new public API.
+
+** Goals
+
+- Add one typed public presentation-column registry in Rust.
+- Cover the stable heading, file, link, and reserved search columns from the previous Emacs client.
+- Reserve singular tag, property, and keyword columns for row expansion.
+- Validate displayed and sort-only columns through the same registry.
+- Record supported result contexts, query include requirements, value sources, semantic-role rules, and column-specific option support centrally.
+- Reject outline-path options on columns that do not support them.
+- Make required includes derivable from the registry without applying include inference yet.
+- Keep the existing query JSON path unchanged.
+
+** Non-goals
+
+- Do not implement presentation value extraction.
+- Do not merge inferred includes into query execution yet.
+- Do not implement semantic-role serialization.
+- Do not implement sorting, widths, truncation, row expansion, or presentation response output.
+- Do not add search presentation output.
+- Do not expose old internal Emacs columns such as ~byte-start~, ~byte-end~, ~file-id~, ~parent-id~, ~link-path~, ~raw-target~, or ~raw-description~.
+
+** Architecture
+
+Replace free-form column-name strings in ~PresentationSpec~ with a typed ~PresentationColumn~ enum.
+
+Each column maps to one central definition with:
+
+- supported presentation result contexts
+- required query includes
+- a value-source identifier for later extraction
+- a semantic-role rule for the later role task
+- supported column-specific options
+- an optional required row source for singular row-expansion columns
+
+Use presentation result contexts that match the public client model:
+
+- ~heading~ for ~headings~ queries, including synthetic file-root results
+- ~file~ for ~files~ queries
+- ~link~ for ~links~ queries
+- ~search~ as reserved registry metadata for later search integration
+
+The query CLI validates ~PresentationSpec~ against the parsed query target before query execution.
+
+The registry exposes required includes. A later task combines these includes with explicit query includes and performs extraction.
+
+** Execution plan
+
+1. Add typed column, result-context, value-source, role-rule, and option-support types to ~src/presentation.rs~.
+2. Add one central definition for every public column.
+3. Change displayed and sort column names in ~PresentationSpec~ to the typed column enum.
+4. Validate column-specific options and singular row-source requirements.
+5. Add target-aware validation for displayed and sort-only columns.
+6. Add include derivation from the same registry.
+7. Apply target-aware validation in the query presentation CLI path.
+8. Add unit and CLI tests for unknown columns, result contexts, sort-only columns, includes, and options.
+9. Update ~docs/cli.org~ and ~docs/design/presentation.org~.
+10. Run ~make ci~.
+
+** Risks & assumptions
+
+- Synthetic root rows belong to the public heading presentation context because they can appear in ~headings~ query results.
+- ~rank~ remains reserved for later search presentation support. The current query-only presentation CLI cannot select the search context.
+- ~file-title~ on heading results requires ~path~ data so a real heading can access the source file title.
+- Role rules remain transport-independent hints in this task. The next semantic-role task defines the final typed role model.
+- Row-source include inference itself belongs to the later row-expansion and include-inference work.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation::tests~
+- ~cargo test cli::tests::query_presentation~
+- ~cargo test cli::tests::implicit_and_explicit_json_forms_produce_identical_stdout~
+- ~make ci~
+
+* Results
+
+** Approach
+
+- Replaced free-form presentation column strings with the typed ~PresentationColumn~ enum.
+- Added one central column definition that records result contexts, include rules, value sources, role rules, option support, and row-source requirements.
+- Added target-aware validation for displayed columns and sort-only columns before query execution.
+- Added include derivation from the same registry without changing query include execution yet.
+- Reserved singular tag, property, and keyword columns for later row expansion.
+- Rejected the old internal Emacs fields instead of preserving the generic extractor fallback.
+
+** Changed files
+
+- ~src/presentation.rs~
+- ~src/cli.rs~
+- ~docs/cli.org~
+- ~docs/design/presentation.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-16--public-presentation-column-registry.org~
+
+** Checks performed
+
+- Reviewed the previous Emacs public column and sort contexts before defining the Rust registry.
+- Checked that the stable JSON query path still passes no presentation specification to query execution.
+- Checked that displayed and sort-only columns use the same registry definitions.
+- Checked that include derivation removes duplicates while preserving first-use order.
+- Checked changed files for trailing whitespace and tabs.
+- Ran ~git diff --no-index --check~ against the uploaded repository. It reported no whitespace errors.
+- Attempted ~make ci~.
+
+** Test results
+
+~make ci~ stopped before Rust formatting because Cargo is not installed in this container:
+
+#+begin_example
+cargo fmt --all --check
+make: cargo: No such file or directory
+make: *** [Makefile:19: fmt] Error 127
+#+end_example
+
+No Rust test binary ran in this environment.
+
+** Blockers
+
+The container has no Cargo toolchain. The full formatter, Clippy, and test suite must run in the local Rust environment.
+
+** Follow-ups
+
+- Run ~cargo fmt --all~ locally before ~make ci~ if Rustfmt changes the new code.
+- Run ~make ci~ locally.
+- The next task can replace provisional role rules with the final typed semantic-role model.

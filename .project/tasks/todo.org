@@ -184,63 +184,12 @@ Task file: [[./2026-08-14--query-specific-presentation-output.org][Query-specifi
 
 Task file: [[./2026-08-15--presentation-spec-model.org][Rust PresentationSpec Model]]
 
-* TODO Define the public presentation column registry
+* DONE Define the public presentation column registry
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Make Rust the authoritative definition of supported presentation columns.
-
-Do not use arbitrary JSON property lookup as the public presentation-column API.
-
-Initial normal columns should cover the stable existing Emacs functionality where meaningful:
-
-- ~title~
-- ~todo-keyword~
-- ~todo-type~
-- ~priority~
-- ~outline-path~
-- ~tags~
-- ~scheduled-raw~
-- ~deadline-raw~
-- ~closed-raw~
-- ~file-title~
-- ~file-name~
-- ~file-path~
-- ~line-number~
-- ~link-type~
-- ~link-target~
-- ~link-description~
-- ~resolution-status~
-- ~source-outline-path~
-- ~target-outline-path~
-- ~rank~
-
-Reserve the following columns for row expansion:
-
-- ~tag~
-- ~property-name~
-- ~property-value~
-- ~keyword-name~
-- ~keyword-value~
-
-For every column define centrally:
-
-- supported result kinds
-- required query data/includes
-- value extraction
-- default semantic role
-- supported column-specific options
-
-Review the existing Emacs column set rather than copying accidental generic-field behaviour.
-
-Acceptance criteria:
-
-- Unknown columns are rejected.
-- Columns are validated against query result kinds.
-- Sort-only columns use the same definitions as displayed columns.
-- Include requirements can be derived from the same registry.
-- Public presentation columns have deterministic semantics.
+Task file: [[./2026-08-16--public-presentation-column-registry.org][Public Presentation Column Registry]]
 
 * TODO Define semantic presentation roles
 :PROPERTIES:

@@ -365,7 +365,19 @@ Read [[./reference/query-language.org][Structural Query Language]] for complete 
 
 ~--presentation-spec-json~ is valid only with ~--format presentation-json~. The presentation format requires this option.
 
-The CLI parses and validates ~PresentationSpec~ before it runs the query. The presentation response contract is not implemented yet.
+The CLI parses ~PresentationSpec~ before it runs the query. Rust rejects unknown presentation column names.
+
+After query parsing, the CLI validates displayed columns and sort-only columns against the query target.
+
+For example, ~link-target~ is valid for ~(links)~ but not for ~(headings)~. The same registry validates sort-only columns.
+
+Singular row columns also require their matching ~row_source~ value. The row-expansion execution itself is not implemented yet.
+
+Only outline-path columns accept the ~outline_path~ option object.
+
+The registry records required query includes for every supported column. The CLI does not apply these inferred includes yet.
+
+The presentation response contract is not implemented yet.
 
 A valid presentation request therefore reaches the current staged output error after query execution. Normal ~--format json~ queries ignore this staged path.
 

@@ -2,8 +2,34 @@ use std::{error::Error, fmt};
 
 use serde::Deserialize;
 
+use crate::query::{QueryInclude, QueryTarget};
+
 const DEFAULT_TRUNCATION_MARKER: &str = "…";
 const DEFAULT_OUTLINE_SEPARATOR: &str = " » ";
+
+const NO_INCLUDES: &[QueryInclude] = &[];
+const PATH_INCLUDE: &[QueryInclude] = &[QueryInclude::Path];
+const TARGET_INCLUDE: &[QueryInclude] = &[QueryInclude::Target];
+const EFFECTIVE_PROPERTIES_INCLUDE: &[QueryInclude] = &[QueryInclude::EffectiveProperties];
+const KEYWORDS_INCLUDE: &[QueryInclude] = &[QueryInclude::Keywords];
+
+const HEADING_RESULTS: &[PresentationResultKind] = &[PresentationResultKind::Heading];
+const LINK_RESULTS: &[PresentationResultKind] = &[PresentationResultKind::Link];
+const SEARCH_RESULTS: &[PresentationResultKind] = &[PresentationResultKind::Search];
+const HEADING_AND_FILE_RESULTS: &[PresentationResultKind] = &[
+    PresentationResultKind::Heading,
+    PresentationResultKind::File,
+];
+const HEADING_AND_SEARCH_RESULTS: &[PresentationResultKind] = &[
+    PresentationResultKind::Heading,
+    PresentationResultKind::Search,
+];
+const FILE_LOCATION_RESULTS: &[PresentationResultKind] = &[
+    PresentationResultKind::Heading,
+    PresentationResultKind::File,
+    PresentationResultKind::Link,
+    PresentationResultKind::Search,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,30 +56,116 @@ impl PresentationSpec {
         }
 
         for (index, column) in self.columns.iter().enumerate() {
-            if column.name.trim().is_empty() {
-                return Err(PresentationSpecError::Invalid(format!(
-                    "columns[{index}].name must not be empty"
-                )));
-            }
             column.width.validate(index)?;
+            self.validate_column_options(index, column)?;
+            self.validate_row_source_column("columns", index, column.name)?;
         }
 
         for (index, sort) in self.sort.iter().enumerate() {
-            if sort.column.trim().is_empty() {
+            self.validate_row_source_column("sort", index, sort.column)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_for_query_target(
+        &self,
+        target: QueryTarget,
+    ) -> Result<(), PresentationSpecError> {
+        self.validate_for_result_kind(PresentationResultKind::from_query_target(target))
+    }
+
+    pub fn validate_for_result_kind(
+        &self,
+        result_kind: PresentationResultKind,
+    ) -> Result<(), PresentationSpecError> {
+        for (index, column) in self.columns.iter().enumerate() {
+            if !column.name.definition().supports(result_kind) {
                 return Err(PresentationSpecError::Invalid(format!(
-                    "sort[{index}].column must not be empty"
+                    "columns[{index}].name `{}` is not supported for {} results",
+                    column.name.as_str(),
+                    result_kind.as_str()
+                )));
+            }
+        }
+
+        for (index, sort) in self.sort.iter().enumerate() {
+            if !sort.column.definition().supports(result_kind) {
+                return Err(PresentationSpecError::Invalid(format!(
+                    "sort[{index}].column `{}` is not supported for {} results",
+                    sort.column.as_str(),
+                    result_kind.as_str()
                 )));
             }
         }
 
         Ok(())
     }
+
+    pub fn required_includes_for_query_target(
+        &self,
+        target: QueryTarget,
+    ) -> Result<Vec<QueryInclude>, PresentationSpecError> {
+        let result_kind = PresentationResultKind::from_query_target(target);
+        self.validate_for_result_kind(result_kind)?;
+
+        let mut includes = Vec::new();
+        for column in self
+            .columns
+            .iter()
+            .map(|column| column.name)
+            .chain(self.sort.iter().map(|sort| sort.column))
+        {
+            for include in column.definition().required_includes(result_kind) {
+                if !includes.contains(include) {
+                    includes.push(*include);
+                }
+            }
+        }
+        Ok(includes)
+    }
+
+    fn validate_column_options(
+        &self,
+        index: usize,
+        column: &PresentationColumnSpec,
+    ) -> Result<(), PresentationSpecError> {
+        if column.outline_path.is_some() && !column.name.definition().options.outline_path {
+            return Err(PresentationSpecError::Invalid(format!(
+                "columns[{index}].outline_path is not supported by column `{}`",
+                column.name.as_str()
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_row_source_column(
+        &self,
+        section: &str,
+        index: usize,
+        column: PresentationColumn,
+    ) -> Result<(), PresentationSpecError> {
+        let Some(required) = column.definition().required_row_source else {
+            return Ok(());
+        };
+        let actual = self.row_source.map(|source| source.kind);
+        if actual == Some(required) {
+            return Ok(());
+        }
+
+        Err(PresentationSpecError::Invalid(format!(
+            "{section}[{index}].{} `{}` requires row_source kind `{}`",
+            if section == "sort" { "column" } else { "name" },
+            column.as_str(),
+            required.as_str()
+        )))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PresentationColumnSpec {
-    pub name: String,
+    pub name: PresentationColumn,
     #[serde(default)]
     pub width: PresentationWidthSpec,
     #[serde(default)]
@@ -65,14 +177,412 @@ pub struct PresentationColumnSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PresentationSortSpec {
-    pub column: String,
+    pub column: PresentationColumn,
     #[serde(default)]
     pub direction: PresentationSortDirection,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-#[derive(Default)]
+pub enum PresentationColumn {
+    Title,
+    TodoKeyword,
+    TodoType,
+    Priority,
+    OutlinePath,
+    Tags,
+    ScheduledRaw,
+    DeadlineRaw,
+    ClosedRaw,
+    FileTitle,
+    FileName,
+    FilePath,
+    LineNumber,
+    LinkType,
+    LinkTarget,
+    LinkDescription,
+    ResolutionStatus,
+    SourceOutlinePath,
+    TargetOutlinePath,
+    Rank,
+    Tag,
+    PropertyName,
+    PropertyValue,
+    KeywordName,
+    KeywordValue,
+}
+
+impl PresentationColumn {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::TodoKeyword => "todo-keyword",
+            Self::TodoType => "todo-type",
+            Self::Priority => "priority",
+            Self::OutlinePath => "outline-path",
+            Self::Tags => "tags",
+            Self::ScheduledRaw => "scheduled-raw",
+            Self::DeadlineRaw => "deadline-raw",
+            Self::ClosedRaw => "closed-raw",
+            Self::FileTitle => "file-title",
+            Self::FileName => "file-name",
+            Self::FilePath => "file-path",
+            Self::LineNumber => "line-number",
+            Self::LinkType => "link-type",
+            Self::LinkTarget => "link-target",
+            Self::LinkDescription => "link-description",
+            Self::ResolutionStatus => "resolution-status",
+            Self::SourceOutlinePath => "source-outline-path",
+            Self::TargetOutlinePath => "target-outline-path",
+            Self::Rank => "rank",
+            Self::Tag => "tag",
+            Self::PropertyName => "property-name",
+            Self::PropertyValue => "property-value",
+            Self::KeywordName => "keyword-name",
+            Self::KeywordValue => "keyword-value",
+        }
+    }
+
+    pub fn definition(self) -> PresentationColumnDefinition {
+        use PresentationColumn as Column;
+        use PresentationRoleRule as Role;
+        use PresentationValueSource as Value;
+
+        let common = PresentationColumnOptionSupport {
+            outline_path: false,
+        };
+        let outline = PresentationColumnOptionSupport { outline_path: true };
+
+        match self {
+            Column::Title => PresentationColumnDefinition::new(
+                HEADING_AND_SEARCH_RESULTS,
+                PresentationIncludeRule::None,
+                Value::Title,
+                Role::Static("title"),
+                common,
+                None,
+            ),
+            Column::TodoKeyword => PresentationColumnDefinition::new(
+                HEADING_RESULTS,
+                PresentationIncludeRule::None,
+                Value::TodoKeyword,
+                Role::TodoKeyword,
+                common,
+                None,
+            ),
+            Column::TodoType => PresentationColumnDefinition::new(
+                HEADING_RESULTS,
+                PresentationIncludeRule::None,
+                Value::TodoType,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::Priority => PresentationColumnDefinition::new(
+                HEADING_RESULTS,
+                PresentationIncludeRule::None,
+                Value::Priority,
+                Role::Static("priority"),
+                common,
+                None,
+            ),
+            Column::OutlinePath => PresentationColumnDefinition::new(
+                HEADING_AND_SEARCH_RESULTS,
+                PresentationIncludeRule::ForKind(PresentationResultKind::Heading, PATH_INCLUDE),
+                Value::OutlinePath,
+                Role::Static("heading"),
+                outline,
+                None,
+            ),
+            Column::Tags => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::None,
+                Value::Tags,
+                Role::Static("tag"),
+                common,
+                None,
+            ),
+            Column::ScheduledRaw => PresentationColumnDefinition::new(
+                HEADING_RESULTS,
+                PresentationIncludeRule::None,
+                Value::ScheduledRaw,
+                Role::Static("date"),
+                common,
+                None,
+            ),
+            Column::DeadlineRaw => PresentationColumnDefinition::new(
+                HEADING_RESULTS,
+                PresentationIncludeRule::None,
+                Value::DeadlineRaw,
+                Role::Static("date"),
+                common,
+                None,
+            ),
+            Column::ClosedRaw => PresentationColumnDefinition::new(
+                HEADING_RESULTS,
+                PresentationIncludeRule::None,
+                Value::ClosedRaw,
+                Role::Static("date"),
+                common,
+                None,
+            ),
+            Column::FileTitle => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::ForKind(PresentationResultKind::Heading, PATH_INCLUDE),
+                Value::FileTitle,
+                Role::Static("title"),
+                common,
+                None,
+            ),
+            Column::FileName => PresentationColumnDefinition::new(
+                FILE_LOCATION_RESULTS,
+                PresentationIncludeRule::None,
+                Value::FileName,
+                Role::Static("file-name"),
+                common,
+                None,
+            ),
+            Column::FilePath => PresentationColumnDefinition::new(
+                FILE_LOCATION_RESULTS,
+                PresentationIncludeRule::None,
+                Value::FilePath,
+                Role::Static("file-path"),
+                common,
+                None,
+            ),
+            Column::LineNumber => PresentationColumnDefinition::new(
+                FILE_LOCATION_RESULTS,
+                PresentationIncludeRule::None,
+                Value::LineNumber,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::LinkType => PresentationColumnDefinition::new(
+                LINK_RESULTS,
+                PresentationIncludeRule::None,
+                Value::LinkType,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::LinkTarget => PresentationColumnDefinition::new(
+                LINK_RESULTS,
+                PresentationIncludeRule::None,
+                Value::LinkTarget,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::LinkDescription => PresentationColumnDefinition::new(
+                LINK_RESULTS,
+                PresentationIncludeRule::None,
+                Value::LinkDescription,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::ResolutionStatus => PresentationColumnDefinition::new(
+                LINK_RESULTS,
+                PresentationIncludeRule::None,
+                Value::ResolutionStatus,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::SourceOutlinePath => PresentationColumnDefinition::new(
+                LINK_RESULTS,
+                PresentationIncludeRule::Always(PATH_INCLUDE),
+                Value::SourceOutlinePath,
+                Role::Static("heading"),
+                outline,
+                None,
+            ),
+            Column::TargetOutlinePath => PresentationColumnDefinition::new(
+                LINK_RESULTS,
+                PresentationIncludeRule::Always(TARGET_INCLUDE),
+                Value::TargetOutlinePath,
+                Role::Static("heading"),
+                outline,
+                None,
+            ),
+            Column::Rank => PresentationColumnDefinition::new(
+                SEARCH_RESULTS,
+                PresentationIncludeRule::None,
+                Value::Rank,
+                Role::None,
+                common,
+                None,
+            ),
+            Column::Tag => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::None,
+                Value::RowTag,
+                Role::Static("tag"),
+                common,
+                Some(PresentationRowSourceKind::Tags),
+            ),
+            Column::PropertyName => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::Always(EFFECTIVE_PROPERTIES_INCLUDE),
+                Value::RowPropertyName,
+                Role::Static("property-name"),
+                common,
+                Some(PresentationRowSourceKind::EffectiveProperties),
+            ),
+            Column::PropertyValue => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::Always(EFFECTIVE_PROPERTIES_INCLUDE),
+                Value::RowPropertyValue,
+                Role::Static("property-value"),
+                common,
+                Some(PresentationRowSourceKind::EffectiveProperties),
+            ),
+            Column::KeywordName => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::Always(KEYWORDS_INCLUDE),
+                Value::RowKeywordName,
+                Role::Static("keyword-name"),
+                common,
+                Some(PresentationRowSourceKind::Keywords),
+            ),
+            Column::KeywordValue => PresentationColumnDefinition::new(
+                HEADING_AND_FILE_RESULTS,
+                PresentationIncludeRule::Always(KEYWORDS_INCLUDE),
+                Value::RowKeywordValue,
+                Role::Static("keyword-value"),
+                common,
+                Some(PresentationRowSourceKind::Keywords),
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentationResultKind {
+    Heading,
+    File,
+    Link,
+    Search,
+}
+
+impl PresentationResultKind {
+    pub fn from_query_target(target: QueryTarget) -> Self {
+        match target {
+            QueryTarget::Headings => Self::Heading,
+            QueryTarget::Files => Self::File,
+            QueryTarget::Links => Self::Link,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Heading => "heading",
+            Self::File => "file",
+            Self::Link => "link",
+            Self::Search => "search",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentationValueSource {
+    Title,
+    TodoKeyword,
+    TodoType,
+    Priority,
+    OutlinePath,
+    Tags,
+    ScheduledRaw,
+    DeadlineRaw,
+    ClosedRaw,
+    FileTitle,
+    FileName,
+    FilePath,
+    LineNumber,
+    LinkType,
+    LinkTarget,
+    LinkDescription,
+    ResolutionStatus,
+    SourceOutlinePath,
+    TargetOutlinePath,
+    Rank,
+    RowTag,
+    RowPropertyName,
+    RowPropertyValue,
+    RowKeywordName,
+    RowKeywordValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentationRoleRule {
+    None,
+    Static(&'static str),
+    TodoKeyword,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationColumnOptionSupport {
+    pub outline_path: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationColumnDefinition {
+    pub result_kinds: &'static [PresentationResultKind],
+    pub value_source: PresentationValueSource,
+    pub role_rule: PresentationRoleRule,
+    pub options: PresentationColumnOptionSupport,
+    pub required_row_source: Option<PresentationRowSourceKind>,
+    include_rule: PresentationIncludeRule,
+}
+
+impl PresentationColumnDefinition {
+    const fn new(
+        result_kinds: &'static [PresentationResultKind],
+        include_rule: PresentationIncludeRule,
+        value_source: PresentationValueSource,
+        role_rule: PresentationRoleRule,
+        options: PresentationColumnOptionSupport,
+        required_row_source: Option<PresentationRowSourceKind>,
+    ) -> Self {
+        Self {
+            result_kinds,
+            value_source,
+            role_rule,
+            options,
+            required_row_source,
+            include_rule,
+        }
+    }
+
+    pub fn supports(self, result_kind: PresentationResultKind) -> bool {
+        self.result_kinds.contains(&result_kind)
+    }
+
+    pub fn required_includes(self, result_kind: PresentationResultKind) -> &'static [QueryInclude] {
+        match self.include_rule {
+            PresentationIncludeRule::None => NO_INCLUDES,
+            PresentationIncludeRule::Always(includes) => includes,
+            PresentationIncludeRule::ForKind(expected, includes) => {
+                if expected == result_kind {
+                    includes
+                } else {
+                    NO_INCLUDES
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PresentationIncludeRule {
+    None,
+    Always(&'static [QueryInclude]),
+    ForKind(PresentationResultKind, &'static [QueryInclude]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
 pub enum PresentationSortDirection {
     #[default]
     Asc,
@@ -91,6 +601,16 @@ pub enum PresentationRowSourceKind {
     Tags,
     EffectiveProperties,
     Keywords,
+}
+
+impl PresentationRowSourceKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tags => "tags",
+            Self::EffectiveProperties => "effective-properties",
+            Self::Keywords => "keywords",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -133,10 +653,8 @@ impl Default for PresentationWidthSpec {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
-#[derive(Default)]
 pub enum PresentationWidthMode {
     #[default]
     Auto,
@@ -171,10 +689,8 @@ impl Default for PresentationTruncationSpec {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
-#[derive(Default)]
 pub enum PresentationTruncationPosition {
     Left,
     Middle,
@@ -244,9 +760,12 @@ impl Error for PresentationSpecError {
 
 #[cfg(test)]
 mod tests {
+    use crate::query::{QueryInclude, QueryTarget};
+
     use super::{
+        PresentationColumn, PresentationResultKind, PresentationRoleRule,
         PresentationRowSourceKind, PresentationSortDirection, PresentationSpec,
-        PresentationTruncationPosition, PresentationWidthMode,
+        PresentationTruncationPosition, PresentationValueSource, PresentationWidthMode,
     };
 
     #[test]
@@ -255,7 +774,7 @@ mod tests {
             .expect("minimal presentation spec should parse");
 
         assert_eq!(spec.columns.len(), 1);
-        assert_eq!(spec.columns[0].name, "title");
+        assert_eq!(spec.columns[0].name, PresentationColumn::Title);
         assert_eq!(spec.columns[0].width.mode, PresentationWidthMode::Auto);
         assert_eq!(spec.columns[0].width.value, None);
         assert_eq!(spec.columns[0].truncate, None);
@@ -287,6 +806,7 @@ mod tests {
         .expect("complete presentation spec should parse");
 
         let column = &spec.columns[0];
+        assert_eq!(column.name, PresentationColumn::OutlinePath);
         assert_eq!(column.width.mode, PresentationWidthMode::Max);
         assert_eq!(column.width.value, Some(80));
         let truncation = column.truncate.as_ref().expect("truncation should exist");
@@ -299,6 +819,7 @@ mod tests {
         assert_eq!(outline.separator, " / ");
         assert!(outline.include_root);
         assert!(!outline.include_match);
+        assert_eq!(spec.sort[0].column, PresentationColumn::Title);
         assert_eq!(spec.sort[0].direction, PresentationSortDirection::Desc);
         assert_eq!(
             spec.row_source.map(|source| source.kind),
@@ -337,6 +858,282 @@ mod tests {
     }
 
     #[test]
+    fn public_column_names_parse_and_internal_names_are_rejected() {
+        for name in [
+            "title",
+            "todo-keyword",
+            "todo-type",
+            "priority",
+            "outline-path",
+            "tags",
+            "scheduled-raw",
+            "deadline-raw",
+            "closed-raw",
+            "file-title",
+            "file-name",
+            "file-path",
+            "line-number",
+            "link-type",
+            "link-target",
+            "link-description",
+            "resolution-status",
+            "source-outline-path",
+            "target-outline-path",
+            "rank",
+        ] {
+            let input = format!(r#"{{"columns":[{{"name":"{name}"}}]}}"#);
+            PresentationSpec::parse_json(&input).expect("public presentation column should parse");
+        }
+
+        for name in [
+            "byte-start",
+            "byte-end",
+            "file-id",
+            "parent-id",
+            "link-path",
+            "raw-target",
+            "raw-description",
+            "unknown",
+            "",
+        ] {
+            let input = format!(r#"{{"columns":[{{"name":"{name}"}}]}}"#);
+            let error = PresentationSpec::parse_json(&input)
+                .expect_err("non-public presentation column should fail");
+            assert!(error
+                .to_string()
+                .starts_with("failed to parse presentation specification JSON:"));
+        }
+    }
+
+    #[test]
+    fn registry_matches_public_result_contexts() {
+        for column in [
+            PresentationColumn::Title,
+            PresentationColumn::TodoKeyword,
+            PresentationColumn::TodoType,
+            PresentationColumn::Priority,
+            PresentationColumn::OutlinePath,
+            PresentationColumn::Tags,
+            PresentationColumn::ScheduledRaw,
+            PresentationColumn::DeadlineRaw,
+            PresentationColumn::ClosedRaw,
+            PresentationColumn::FileTitle,
+            PresentationColumn::FileName,
+            PresentationColumn::FilePath,
+            PresentationColumn::LineNumber,
+        ] {
+            assert!(column
+                .definition()
+                .supports(PresentationResultKind::Heading));
+        }
+
+        for column in [
+            PresentationColumn::FileTitle,
+            PresentationColumn::FileName,
+            PresentationColumn::FilePath,
+            PresentationColumn::Tags,
+            PresentationColumn::LineNumber,
+        ] {
+            assert!(column.definition().supports(PresentationResultKind::File));
+        }
+
+        for column in [
+            PresentationColumn::LinkType,
+            PresentationColumn::LinkTarget,
+            PresentationColumn::LinkDescription,
+            PresentationColumn::ResolutionStatus,
+            PresentationColumn::SourceOutlinePath,
+            PresentationColumn::TargetOutlinePath,
+            PresentationColumn::FileName,
+            PresentationColumn::FilePath,
+            PresentationColumn::LineNumber,
+        ] {
+            assert!(column.definition().supports(PresentationResultKind::Link));
+        }
+
+        for column in [
+            PresentationColumn::Title,
+            PresentationColumn::OutlinePath,
+            PresentationColumn::FileName,
+            PresentationColumn::FilePath,
+            PresentationColumn::LineNumber,
+            PresentationColumn::Rank,
+        ] {
+            assert!(column.definition().supports(PresentationResultKind::Search));
+        }
+    }
+
+    #[test]
+    fn registry_carries_value_role_and_option_metadata() {
+        let todo = PresentationColumn::TodoKeyword.definition();
+        assert_eq!(todo.value_source, PresentationValueSource::TodoKeyword);
+        assert_eq!(todo.role_rule, PresentationRoleRule::TodoKeyword);
+        assert!(!todo.options.outline_path);
+
+        let outline = PresentationColumn::OutlinePath.definition();
+        assert_eq!(outline.value_source, PresentationValueSource::OutlinePath);
+        assert_eq!(outline.role_rule, PresentationRoleRule::Static("heading"));
+        assert!(outline.options.outline_path);
+
+        let file_path = PresentationColumn::FilePath.definition();
+        assert_eq!(file_path.value_source, PresentationValueSource::FilePath);
+        assert_eq!(
+            file_path.role_rule,
+            PresentationRoleRule::Static("file-path")
+        );
+    }
+
+    #[test]
+    fn columns_and_sort_rules_validate_against_the_query_target() {
+        let headings = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"title"}],"sort":[{"column":"priority"}]}"#,
+        )
+        .expect("heading columns should parse");
+        headings
+            .validate_for_query_target(QueryTarget::Headings)
+            .expect("heading columns should validate for headings");
+
+        let invalid_display =
+            PresentationSpec::parse_json(r#"{"columns":[{"name":"link-target"}]}"#)
+                .expect("known link column should parse");
+        assert_eq!(
+            invalid_display
+                .validate_for_query_target(QueryTarget::Headings)
+                .expect_err("link column should fail for headings")
+                .to_string(),
+            "invalid presentation specification: columns[0].name `link-target` is not supported for heading results"
+        );
+
+        let invalid_sort = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"file-name"}],"sort":[{"column":"rank"}]}"#,
+        )
+        .expect("known search sort column should parse");
+        assert_eq!(
+            invalid_sort
+                .validate_for_query_target(QueryTarget::Files)
+                .expect_err("search sort column should fail for files")
+                .to_string(),
+            "invalid presentation specification: sort[0].column `rank` is not supported for file results"
+        );
+    }
+
+    #[test]
+    fn include_requirements_come_from_the_same_registry() {
+        let headings = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"outline-path"},{"name":"file-title"}],
+                "sort":[{"column":"outline-path"}]
+            }"#,
+        )
+        .expect("heading presentation should parse");
+        assert_eq!(
+            headings
+                .required_includes_for_query_target(QueryTarget::Headings)
+                .expect("heading includes should derive"),
+            vec![QueryInclude::Path]
+        );
+
+        let heading_file_title =
+            PresentationSpec::parse_json(r#"{"columns":[{"name":"file-title"}]}"#)
+                .expect("heading file-title presentation should parse");
+        assert_eq!(
+            heading_file_title
+                .required_includes_for_query_target(QueryTarget::Headings)
+                .expect("heading file-title include should derive"),
+            vec![QueryInclude::Path]
+        );
+        assert!(heading_file_title
+            .required_includes_for_query_target(QueryTarget::Files)
+            .expect("file file-title includes should derive")
+            .is_empty());
+
+        let links = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"source-outline-path"}],
+                "sort":[{"column":"target-outline-path"}]
+            }"#,
+        )
+        .expect("link presentation should parse");
+        assert_eq!(
+            links
+                .required_includes_for_query_target(QueryTarget::Links)
+                .expect("link includes should derive"),
+            vec![QueryInclude::Path, QueryInclude::Target]
+        );
+
+        let properties = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"property-name"},{"name":"file-name"}],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("property row presentation should parse");
+        assert_eq!(
+            properties
+                .required_includes_for_query_target(QueryTarget::Files)
+                .expect("property includes should derive"),
+            vec![QueryInclude::EffectiveProperties]
+        );
+    }
+
+    #[test]
+    fn outline_path_options_are_limited_to_outline_columns() {
+        let error = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"title","outline_path":{"include_root":true}}]}"#,
+        )
+        .expect_err("title should reject outline-path options");
+        assert_eq!(
+            error.to_string(),
+            "invalid presentation specification: columns[0].outline_path is not supported by column `title`"
+        );
+
+        for name in ["outline-path", "source-outline-path", "target-outline-path"] {
+            let input = format!(
+                r#"{{"columns":[{{"name":"{name}","outline_path":{{"include_root":true}}}}]}}"#
+            );
+            PresentationSpec::parse_json(&input)
+                .expect("outline-path column should accept outline options");
+        }
+    }
+
+    #[test]
+    fn reserved_row_columns_require_the_matching_row_source() {
+        for (column, row_source) in [
+            ("tag", "tags"),
+            ("property-name", "effective-properties"),
+            ("property-value", "effective-properties"),
+            ("keyword-name", "keywords"),
+            ("keyword-value", "keywords"),
+        ] {
+            let input = format!(
+                r#"{{"columns":[{{"name":"{column}"}}],"row_source":{{"kind":"{row_source}"}}}}"#
+            );
+            PresentationSpec::parse_json(&input)
+                .expect("reserved row column should accept matching row source");
+        }
+
+        let error = PresentationSpec::parse_json(r#"{"columns":[{"name":"tag"}]}"#)
+            .expect_err("tag should require tag row source");
+        assert_eq!(
+            error.to_string(),
+            "invalid presentation specification: columns[0].name `tag` requires row_source kind `tags`"
+        );
+
+        let error = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"keyword-name"}],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect_err("keyword sort should require keyword row source");
+        assert_eq!(
+            error.to_string(),
+            "invalid presentation specification: sort[0].column `keyword-name` requires row_source kind `keywords`"
+        );
+    }
+
+    #[test]
     fn all_planned_row_sources_parse() {
         for (value, expected) in [
             ("tags", PresentationRowSourceKind::Tags),
@@ -359,9 +1156,11 @@ mod tests {
         for input in [
             r#"{"columns":[{"name":"title"}],"unknown":true}"#,
             r#"{"columns":[{"name":"title","unknown":true}]}"#,
+            r#"{"columns":[{"name":"unknown"}]}"#,
             r#"{"columns":[{"name":"title","width":{"mode":"percent","value":50}}]}"#,
             r#"{"columns":[{"name":"title","truncate":{"position":"end"}}]}"#,
             r#"{"columns":[{"name":"title"}],"sort":[{"column":"title","direction":"up"}]}"#,
+            r#"{"columns":[{"name":"title"}],"sort":[{"column":"unknown"}]}"#,
             r#"{"columns":[{"name":"title"}],"row_source":"tags"}"#,
             r#"{"columns":[{"name":"title"}],"row_source":{"kind":"properties"}}"#,
             r#"{"columns":[{"name":"title"}],"row_source":{"kind":"tags","unknown":true}}"#,
@@ -400,27 +1199,12 @@ mod tests {
     }
 
     #[test]
-    fn empty_columns_and_names_are_rejected() {
-        for (input, expected) in [
-            (
-                r#"{"columns":[]}"#,
-                "columns must contain at least one column",
-            ),
-            (
-                r#"{"columns":[{"name":""}]}"#,
-                "columns[0].name must not be empty",
-            ),
-            (
-                r#"{"columns":[{"name":"title"}],"sort":[{"column":""}]}"#,
-                "sort[0].column must not be empty",
-            ),
-        ] {
-            let error = PresentationSpec::parse_json(input)
-                .expect_err("invalid empty presentation field should fail");
-            assert_eq!(
-                error.to_string(),
-                format!("invalid presentation specification: {expected}")
-            );
-        }
+    fn empty_columns_are_rejected() {
+        let error = PresentationSpec::parse_json(r#"{"columns":[]}"#)
+            .expect_err("empty presentation columns should fail");
+        assert_eq!(
+            error.to_string(),
+            "invalid presentation specification: columns must contain at least one column"
+        );
     }
 }
