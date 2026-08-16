@@ -257,6 +257,68 @@ impl PresentationSpec {
         Ok(sortable_rows.into_iter().map(|entry| entry.row).collect())
     }
 
+    pub fn layout_rows(
+        &self,
+        results: &[QueryResultNode],
+        rows: Vec<PresentationRow>,
+    ) -> Result<Vec<PresentationRow>, PresentationLayoutError> {
+        let mut natural_widths = vec![0; self.columns.len()];
+        let mut prepared_rows = Vec::with_capacity(rows.len());
+
+        for (row_index, mut row) in rows.into_iter().enumerate() {
+            let result = results.get(row.result_index).ok_or_else(|| {
+                PresentationLayoutError::new(format!(
+                    "presentation row {row_index} references missing result_index {}",
+                    row.result_index
+                ))
+            })?;
+            let mut cells = Vec::with_capacity(self.columns.len());
+
+            for (column_index, column) in self.columns.iter().enumerate() {
+                let extracted = column
+                    .extract_value(result, row.row_context.as_ref())
+                    .map_err(|source| {
+                        PresentationLayoutError::new(format!(
+                            "failed to extract columns[{column_index}] `{}` for row {row_index}: {source}",
+                            column.name.as_str()
+                        ))
+                    })?;
+                let search_text = extracted.search_text();
+                natural_widths[column_index] =
+                    natural_widths[column_index].max(presentation_text_width(&search_text));
+                cells.push(PresentationCell {
+                    search_text,
+                    display_text: String::new(),
+                    role: extracted.role,
+                });
+            }
+
+            row.cells = cells;
+            prepared_rows.push(row);
+        }
+
+        let widths = self
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(column_index, column)| {
+                resolve_layout_width(&column.width, natural_widths[column_index], column_index)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for row in &mut prepared_rows {
+            for (column_index, cell) in row.cells.iter_mut().enumerate() {
+                cell.display_text = fit_cell_text(
+                    &cell.search_text,
+                    widths[column_index],
+                    self.columns[column_index].truncate.as_ref(),
+                );
+            }
+        }
+
+        Ok(prepared_rows)
+    }
+
     fn validate_column_options(
         &self,
         index: usize,
@@ -764,6 +826,27 @@ impl fmt::Display for PresentationSortError {
 
 impl Error for PresentationSortError {}
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationLayoutError {
+    message: String,
+}
+
+impl PresentationLayoutError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for PresentationLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl Error for PresentationLayoutError {}
+
 struct PresentationSortableRow {
     original_index: usize,
     row: PresentationRow,
@@ -787,6 +870,88 @@ fn compare_sort_values(
             }
         }
     }
+}
+
+fn resolve_layout_width(
+    spec: &PresentationWidthSpec,
+    natural_width: usize,
+    column_index: usize,
+) -> Result<usize, PresentationLayoutError> {
+    spec.validate(column_index)
+        .map_err(|source| PresentationLayoutError::new(source.to_string()))?;
+
+    Ok(match spec.mode {
+        PresentationWidthMode::Auto => natural_width,
+        PresentationWidthMode::Max => {
+            natural_width.min(spec.value.expect("validated max width") as usize)
+        }
+        PresentationWidthMode::Fixed => spec.value.expect("validated fixed width") as usize,
+    })
+}
+
+fn presentation_text_width(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn fit_cell_text(
+    value: &str,
+    width: usize,
+    truncation: Option<&PresentationTruncationSpec>,
+) -> String {
+    let value_width = presentation_text_width(value);
+    let mut display = if value_width > width {
+        let default_truncation = PresentationTruncationSpec::default();
+        let truncation = truncation.unwrap_or(&default_truncation);
+        truncate_text(value, width, truncation)
+    } else {
+        value.to_string()
+    };
+
+    let display_width = presentation_text_width(&display);
+    if display_width < width {
+        display.push_str(&" ".repeat(width - display_width));
+    }
+    display
+}
+
+fn truncate_text(value: &str, width: usize, truncation: &PresentationTruncationSpec) -> String {
+    if width == 0 {
+        return String::new();
+    }
+
+    let marker_width = presentation_text_width(&truncation.marker);
+    if marker_width >= width {
+        return text_prefix(&truncation.marker, width);
+    }
+
+    let content_width = width - marker_width;
+    match truncation.position {
+        PresentationTruncationPosition::Left => {
+            format!("{}{}", truncation.marker, text_suffix(value, content_width))
+        }
+        PresentationTruncationPosition::Middle => {
+            let left_width = content_width.div_ceil(2);
+            let right_width = content_width / 2;
+            format!(
+                "{}{}{}",
+                text_prefix(value, left_width),
+                truncation.marker,
+                text_suffix(value, right_width)
+            )
+        }
+        PresentationTruncationPosition::Right => {
+            format!("{}{}", text_prefix(value, content_width), truncation.marker)
+        }
+    }
+}
+
+fn text_prefix(value: &str, width: usize) -> String {
+    value.chars().take(width).collect()
+}
+
+fn text_suffix(value: &str, width: usize) -> String {
+    let skip = presentation_text_width(value).saturating_sub(width);
+    value.chars().skip(skip).collect()
 }
 
 fn append_unique_includes(target: &mut Vec<QueryInclude>, values: &[QueryInclude]) {
@@ -2511,6 +2676,189 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "presentation row 0 references missing result_index 4"
+        );
+    }
+
+    #[test]
+    fn layout_auto_uses_one_shared_width_and_preserves_search_text() {
+        let results = vec![file_result(1, "A"), file_result(2, "Longer")];
+        let spec = PresentationSpec::parse_json(r#"{"columns":[{"name":"title"}]}"#)
+            .expect("auto-width presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0), empty_row(1)])
+            .expect("auto-width rows should layout");
+
+        assert_eq!(rows[0].cells[0].search_text, "A");
+        assert_eq!(rows[0].cells[0].display_text, "A     ");
+        assert_eq!(rows[1].cells[0].search_text, "Longer");
+        assert_eq!(rows[1].cells[0].display_text, "Longer");
+    }
+
+    #[test]
+    fn layout_max_width_limits_shared_width_and_counts_marker() {
+        let results = vec![file_result(1, "abcdefgh"), file_result(2, "xy")];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{
+                    "name":"title",
+                    "width":{"mode":"max","value":4},
+                    "truncate":{"position":"right","marker":".."}
+                }]
+            }"#,
+        )
+        .expect("max-width presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0), empty_row(1)])
+            .expect("max-width rows should layout");
+
+        assert_eq!(rows[0].cells[0].search_text, "abcdefgh");
+        assert_eq!(rows[0].cells[0].display_text, "ab..");
+        assert_eq!(rows[1].cells[0].display_text, "xy  ");
+    }
+
+    #[test]
+    fn layout_max_width_stays_at_natural_width_below_limit() {
+        let results = vec![file_result(1, "xy")];
+        let spec = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"title","width":{"mode":"max","value":8}}]}"#,
+        )
+        .expect("max-width presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0)])
+            .expect("max-width row should layout");
+
+        assert_eq!(rows[0].cells[0].display_text, "xy");
+    }
+
+    #[test]
+    fn layout_fixed_width_supports_left_middle_and_right_truncation() {
+        let results = vec![file_result(1, "abcdefgh")];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[
+                    {
+                        "name":"title",
+                        "width":{"mode":"fixed","value":5},
+                        "truncate":{"position":"left"}
+                    },
+                    {
+                        "name":"title",
+                        "width":{"mode":"fixed","value":5},
+                        "truncate":{"position":"middle"}
+                    },
+                    {
+                        "name":"title",
+                        "width":{"mode":"fixed","value":5},
+                        "truncate":{"position":"right"}
+                    }
+                ]
+            }"#,
+        )
+        .expect("fixed-width presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0)])
+            .expect("fixed-width row should layout");
+        let cells = &rows[0].cells;
+
+        assert_eq!(cells[0].display_text, "…efgh");
+        assert_eq!(cells[1].display_text, "ab…gh");
+        assert_eq!(cells[2].display_text, "abcd…");
+        assert!(cells.iter().all(|cell| cell.search_text == "abcdefgh"));
+    }
+
+    #[test]
+    fn layout_fixed_width_pads_short_values() {
+        let results = vec![file_result(1, "abc")];
+        let spec = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"title","width":{"mode":"fixed","value":5}}]}"#,
+        )
+        .expect("fixed-width presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0)])
+            .expect("fixed-width row should layout");
+
+        assert_eq!(rows[0].cells[0].display_text, "abc  ");
+    }
+
+    #[test]
+    fn layout_empty_marker_hard_truncates_non_ascii_text() {
+        let results = vec![file_result(1, "åäöé")];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{
+                    "name":"title",
+                    "width":{"mode":"fixed","value":3},
+                    "truncate":{"position":"right","marker":""}
+                }]
+            }"#,
+        )
+        .expect("hard-truncation presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0)])
+            .expect("non-ASCII row should layout");
+        let cell = &rows[0].cells[0];
+
+        assert_eq!(cell.search_text, "åäöé");
+        assert_eq!(cell.display_text, "åäö");
+        assert_eq!(cell.display_text.chars().count(), 3);
+    }
+
+    #[test]
+    fn layout_default_truncation_is_unicode_safe() {
+        let results = vec![file_result(1, "naïve")];
+        let spec = PresentationSpec::parse_json(
+            r#"{"columns":[{"name":"title","width":{"mode":"fixed","value":4}}]}"#,
+        )
+        .expect("default truncation presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0)])
+            .expect("Unicode row should layout");
+        let cell = &rows[0].cells[0];
+
+        assert_eq!(cell.search_text, "naïve");
+        assert_eq!(cell.display_text, "naï…");
+        assert_eq!(cell.display_text.chars().count(), 4);
+    }
+
+    #[test]
+    fn layout_truncates_marker_when_marker_exceeds_column_width() {
+        let results = vec![file_result(1, "abcdef")];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{
+                    "name":"title",
+                    "width":{"mode":"fixed","value":2},
+                    "truncate":{"marker":"..."}
+                }]
+            }"#,
+        )
+        .expect("wide-marker presentation should parse");
+
+        let rows = spec
+            .layout_rows(&results, vec![empty_row(0)])
+            .expect("wide-marker row should layout");
+
+        assert_eq!(rows[0].cells[0].display_text, "..");
+    }
+
+    #[test]
+    fn layout_reports_missing_result_references() {
+        let spec = PresentationSpec::parse_json(r#"{"columns":[{"name":"title"}]}"#)
+            .expect("presentation should parse");
+
+        let error = spec
+            .layout_rows(&[file_result(1, "notes")], vec![empty_row(3)])
+            .expect_err("missing result reference should fail");
+        assert_eq!(
+            error.to_string(),
+            "presentation row 0 references missing result_index 3"
         );
     }
 

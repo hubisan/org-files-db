@@ -217,44 +217,14 @@ Task file: [[./archive/2026-08-16--presentation-value-extraction-includes.org][P
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-sorting.org][Presentation Sorting]]
+Task file: [[./archive/2026-08-16--presentation-sorting.org][Presentation Sorting]]
 
-* TODO Implement presentation widths, truncation, and padding
+* DONE Implement presentation widths, truncation, and padding
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Move shared column layout preparation into Rust.
-
-Implement:
-
-- ~auto~
-- ~max N~
-- ~fixed N~
-- shared width calculation
-- left truncation
-- middle truncation
-- right truncation
-- configurable truncation marker
-- final padding
-
-Keep the complete value in ~search_text~.
-
-Put only the final visible representation into ~display_text~.
-
-Do not implement percentage widths yet.
-
-Add explicit tests for non-ASCII values.
-
-Acceptance criteria:
-
-- Shared widths are calculated across the complete row set.
-- ~max~ respects its configured maximum.
-- ~fixed~ produces the configured width where possible.
-- The truncation marker counts toward visible width.
-- An empty marker performs hard truncation.
-- Search values remain complete.
-- Unicode behaviour is deterministic and tested.
+Task file: [[./2026-08-16--presentation-widths-truncation-padding.org][Presentation Widths, Truncation, and Padding]]
 
 * TODO Connect query execution to compact presentation-json output
 :PROPERTIES:

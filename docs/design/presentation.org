@@ -7,7 +7,7 @@ This document describes planned presentation work and the implemented presentati
 
 The ~query~ command accepts ~presentation-json~ as a query-specific output format. It also accepts ~PresentationSpec~ through ~--presentation-spec-json~.
 
-The response wire model now exists in Rust. Value extraction, include inference, and row sorting also exist in Rust.
+The response wire model now exists in Rust. Value extraction, include inference, row sorting, and cell layout also exist in Rust.
 
 The query command does not emit this response yet.
 
@@ -80,13 +80,21 @@ The column name must be one of the public names in the Rust presentation registr
 
 This object can add another width mode later without changing the surrounding column model.
 
-~truncate~ is optional. If present, ~position~ defaults to ~right~ and ~marker~ defaults to ~…~.
+Rust uses right truncation with ~…~ when a width constraint truncates text by default.
+
+The optional ~truncate~ object overrides this behavior. Its ~position~ defaults to ~right~ and its ~marker~ defaults to ~…~.
 
 The supported truncation positions are:
 
 - ~left~
 - ~middle~
 - ~right~
+
+An empty marker performs hard truncation. The marker counts inside the configured column width.
+
+If the marker is wider than the column, Rust truncates the marker to the column width.
+
+Width values count Unicode scalar values, not UTF-8 bytes. Percentage widths are not part of the initial model.
 
 ~outline_path~ is optional. If present, it uses these defaults:
 
@@ -261,6 +269,30 @@ Sorting changes only row order. The top-level ~results~ array and each ~result_i
 
 Free-text search remains outside the presentation sorting stage.
 
+* Widths, truncation, and padding
+
+Rust prepares final display cells after row sorting.
+
+The layout stage first extracts every displayed value. It then calculates one shared width for each column across the complete row set.
+
+The width modes use these rules:
+
+- ~auto~ uses the largest complete value width.
+- ~max N~ uses the smaller value between the largest width and ~N~.
+- ~fixed N~ always uses ~N~.
+
+Rust truncates values that exceed the shared width. It then adds spaces on the right until each cell reaches that width.
+
+Left truncation keeps the end of the value. Right truncation keeps the start of the value.
+
+Middle truncation keeps both ends. If the remaining content width is odd, the start receives the extra character.
+
+Width calculation and truncation use Unicode scalar values. This keeps UTF-8 boundaries valid and makes the behavior deterministic.
+
+The layout stage does not use terminal-specific or Emacs-specific width tables.
+
+Each cell keeps its complete logical value in ~search_text~. Only ~display_text~ contains truncation and padding.
+
 * Semantic roles
 
 Rust defines semantic roles without concrete client styling.
@@ -349,9 +381,9 @@ display_text
 role
 #+end_example
 
-~search_text~ contains the complete logical value. Later truncation and padding do not replace this value.
+~search_text~ contains the complete logical value. Truncation and padding do not replace this value.
 
-~display_text~ contains the final visible value. The later formatting stage produces this text.
+~display_text~ contains the final visible value after truncation and padding.
 
 ~role~ contains one semantic presentation role or ~null~. Cells contain no role ranges or other rich-text metadata.
 
