@@ -31,6 +31,55 @@ Use ~heading~ for ~outline-path~, ~source-outline-path~, and ~target-outline-pat
 
 Do not add heading-level roles, role ranges, outline-separator styling, Emacs face names, colors, text properties, or theme data.
 
+** DONE Define semantic presentation roles
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-16--semantic-presentation-roles.org][Semantic Presentation Roles]]
+
+Goal: Let Rust describe semantic display meaning without knowing concrete client styling.
+
+Initial roles should include at least:
+
+- ~heading~
+- ~title~
+- ~todo~
+- ~done~
+- ~priority~
+- ~tag~
+- ~date~
+- ~file-name~
+- ~file-path~
+- ~keyword-name~
+- ~keyword-value~
+- ~property-name~
+- ~property-value~
+
+Add link-specific roles only where a distinct role has a useful semantic purpose.
+
+Use:
+
+#+begin_example
+outline-path        -> heading
+source-outline-path -> heading
+target-outline-path -> heading
+#+end_example
+
+Do not distinguish heading levels.
+
+Do not add role ranges.
+
+Do not add separate styling metadata for outline separators.
+
+Do not encode Emacs face names.
+
+Acceptance criteria:
+
+- A cell can have one optional semantic role.
+- Roles describe meaning rather than appearance.
+- Rust has no dependency on Emacs themes or faces.
+
 * Planning
 
 ** Problem summary
