@@ -201,7 +201,36 @@ The registry also records query include requirements:
 
 The other initial columns need no additional query include.
 
-This stage only derives those requirements. A later task combines inferred includes with explicit query includes during query execution.
+Row sources can also require data. ~effective-properties~ requires ~effective_properties~, and ~keywords~ requires ~keywords~.
+
+The query command combines explicit includes with presentation includes before one query execution. Duplicate includes do not cause duplicate result data.
+
+* Value extraction and include inference
+
+Rust now extracts presentation values from structured query results. The presentation registry selects one extractor for each public column.
+
+The extraction layer keeps useful value types until later presentation stages. Text lists keep their source order. Line numbers stay numeric.
+
+Outline values keep their components and separator. The extractor applies ~include_root~ and ~include_match~ before it creates the logical outline value.
+
+The initial structural extraction rules include these examples:
+
+- ~title~ uses the heading or synthetic-root title.
+- ~tags~ uses effective heading tags or file tags.
+- ~file-title~ uses the source file title. Heading results get this title from ~path~ data.
+- ~file-name~ and ~file-path~ use the owning result location.
+- ~link-target~ uses the authored ~raw_target~ value.
+- ~link-description~ uses ~raw_description~.
+- ~source-outline-path~ uses structured source path data.
+- ~target-outline-path~ uses the structured resolved target.
+
+Optional values can be missing without causing an error. A missing required include field produces a presentation extraction error.
+
+Reserved row columns read their value from ~row_context~. Row expansion still remains a later pipeline stage.
+
+The ~rank~ value remains reserved for search results. Structural query presentation does not create search result objects.
+
+Clients can still request extra includes for actions or other client needs. Rust combines these explicit includes with presentation requirements.
 
 * Semantic roles
 

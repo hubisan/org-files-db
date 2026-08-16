@@ -1,8 +1,8 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use crate::query::{QueryInclude, QueryResultNode, QueryTarget};
+use crate::query::{PathEntry, QueryInclude, QueryResultNode, QueryTarget};
 
 const DEFAULT_TRUNCATION_MARKER: &str = "…";
 const DEFAULT_OUTLINE_SEPARATOR: &str = " » ";
@@ -166,13 +166,45 @@ impl PresentationSpec {
             .map(|column| column.name)
             .chain(self.sort.iter().map(|sort| sort.column))
         {
-            for include in column.definition().required_includes(result_kind) {
-                if !includes.contains(include) {
-                    includes.push(*include);
-                }
-            }
+            append_unique_includes(
+                &mut includes,
+                column.definition().required_includes(result_kind),
+            );
+        }
+        if let Some(row_source) = self.row_source {
+            append_unique_includes(&mut includes, row_source.kind.required_includes());
         }
         Ok(includes)
+    }
+
+    pub fn combined_includes_for_query_target(
+        &self,
+        target: QueryTarget,
+        explicit: &[QueryInclude],
+    ) -> Result<Vec<QueryInclude>, PresentationSpecError> {
+        let mut includes = Vec::new();
+        append_unique_includes(&mut includes, explicit);
+        let inferred = self.required_includes_for_query_target(target)?;
+        append_unique_includes(&mut includes, &inferred);
+        Ok(includes)
+    }
+
+    pub fn extract_value(
+        &self,
+        column: PresentationColumn,
+        result: &QueryResultNode,
+        row_context: Option<&PresentationRowContext>,
+    ) -> Result<PresentationExtractedValue, PresentationValueError> {
+        if let Some(spec) = self.columns.iter().find(|spec| spec.name == column) {
+            return spec.extract_value(result, row_context);
+        }
+
+        let outline_path = column
+            .definition()
+            .options
+            .outline_path
+            .then(PresentationOutlinePathSpec::default);
+        extract_registered_value(column, result, row_context, outline_path.as_ref())
     }
 
     fn validate_column_options(
@@ -222,6 +254,22 @@ pub struct PresentationColumnSpec {
     pub truncate: Option<PresentationTruncationSpec>,
     #[serde(default)]
     pub outline_path: Option<PresentationOutlinePathSpec>,
+}
+
+impl PresentationColumnSpec {
+    pub fn extract_value(
+        &self,
+        result: &QueryResultNode,
+        row_context: Option<&PresentationRowContext>,
+    ) -> Result<PresentationExtractedValue, PresentationValueError> {
+        let outline_path = self
+            .name
+            .definition()
+            .options
+            .outline_path
+            .then(|| self.outline_path.clone().unwrap_or_default());
+        extract_registered_value(self.name, result, row_context, outline_path.as_ref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -565,6 +613,409 @@ pub enum PresentationValueSource {
     RowKeywordValue,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresentationValue {
+    Missing,
+    Text(String),
+    Integer(i64),
+    TextList(Vec<String>),
+    Outline(PresentationOutlineValue),
+}
+
+impl PresentationValue {
+    pub fn to_text(&self) -> String {
+        match self {
+            Self::Missing => String::new(),
+            Self::Text(value) => value.clone(),
+            Self::Integer(value) => value.to_string(),
+            Self::TextList(values) => values.join(","),
+            Self::Outline(value) => value.components.join(&value.separator),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationOutlineValue {
+    pub components: Vec<String>,
+    pub separator: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationExtractedValue {
+    pub value: PresentationValue,
+    pub role: Option<PresentationRole>,
+}
+
+impl PresentationExtractedValue {
+    pub fn search_text(&self) -> String {
+        self.value.to_text()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresentationValueError {
+    message: String,
+}
+
+impl PresentationValueError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for PresentationValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl Error for PresentationValueError {}
+
+fn append_unique_includes(target: &mut Vec<QueryInclude>, values: &[QueryInclude]) {
+    for value in values {
+        if !target.contains(value) {
+            target.push(*value);
+        }
+    }
+}
+
+fn extract_registered_value(
+    column: PresentationColumn,
+    result: &QueryResultNode,
+    row_context: Option<&PresentationRowContext>,
+    outline_path: Option<&PresentationOutlinePathSpec>,
+) -> Result<PresentationExtractedValue, PresentationValueError> {
+    let definition = column.definition();
+    let value = definition
+        .value_source
+        .extract(column, result, row_context, outline_path)?;
+    let todo_type = match result {
+        QueryResultNode::Heading(node) => node.todo_type.as_deref(),
+        QueryResultNode::File(_) | QueryResultNode::Link(_) => None,
+    };
+    Ok(PresentationExtractedValue {
+        value,
+        role: definition.role_rule.resolve(todo_type),
+    })
+}
+
+impl PresentationValueSource {
+    fn extract(
+        self,
+        column: PresentationColumn,
+        result: &QueryResultNode,
+        row_context: Option<&PresentationRowContext>,
+        outline_path: Option<&PresentationOutlinePathSpec>,
+    ) -> Result<PresentationValue, PresentationValueError> {
+        use PresentationValue as Value;
+
+        let value = match self {
+            Self::Title => match result {
+                QueryResultNode::File(node) => Value::Text(node.title.clone()),
+                QueryResultNode::Heading(node) => Value::Text(node.title.clone()),
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::TodoKeyword => match result {
+                QueryResultNode::Heading(node) => optional_text(node.todo_keyword.as_deref()),
+                QueryResultNode::File(_) => Value::Missing,
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::TodoType => match result {
+                QueryResultNode::Heading(node) => optional_text(node.todo_type.as_deref()),
+                QueryResultNode::File(_) => Value::Missing,
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::Priority => match result {
+                QueryResultNode::Heading(node) => optional_text(node.priority.as_deref()),
+                QueryResultNode::File(_) => Value::Missing,
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::OutlinePath => extract_generic_outline(column, result, outline_path)?,
+            Self::Tags => match result {
+                QueryResultNode::File(node) => Value::TextList(node.tags.clone()),
+                QueryResultNode::Heading(node) => Value::TextList(node.all_tags.clone()),
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::ScheduledRaw => match result {
+                QueryResultNode::Heading(node) => optional_text(node.scheduled_raw.as_deref()),
+                QueryResultNode::File(_) => Value::Missing,
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::DeadlineRaw => match result {
+                QueryResultNode::Heading(node) => optional_text(node.deadline_raw.as_deref()),
+                QueryResultNode::File(_) => Value::Missing,
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::ClosedRaw => match result {
+                QueryResultNode::Heading(node) => optional_text(node.closed_raw.as_deref()),
+                QueryResultNode::File(_) => Value::Missing,
+                QueryResultNode::Link(_) => return Err(unexpected_result(column, result)),
+            },
+            Self::FileTitle => extract_file_title(column, result)?,
+            Self::FileName => extract_file_name(result),
+            Self::FilePath => Value::Text(result_file_path(result).to_string()),
+            Self::LineNumber => result_line(result)
+                .map(Value::Integer)
+                .unwrap_or(Value::Missing),
+            Self::LinkType => match result {
+                QueryResultNode::Link(node) => Value::Text(node.link_type.clone()),
+                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                    return Err(unexpected_result(column, result));
+                }
+            },
+            Self::LinkTarget => match result {
+                QueryResultNode::Link(node) => Value::Text(node.raw_target.clone()),
+                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                    return Err(unexpected_result(column, result));
+                }
+            },
+            Self::LinkDescription => match result {
+                QueryResultNode::Link(node) => optional_text(node.raw_description.as_deref()),
+                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                    return Err(unexpected_result(column, result));
+                }
+            },
+            Self::ResolutionStatus => match result {
+                QueryResultNode::Link(node) => optional_text(node.resolution_status.as_deref()),
+                QueryResultNode::File(_) | QueryResultNode::Heading(_) => {
+                    return Err(unexpected_result(column, result));
+                }
+            },
+            Self::SourceOutlinePath => extract_source_outline(column, result, outline_path)?,
+            Self::TargetOutlinePath => extract_target_outline(column, result, outline_path)?,
+            Self::Rank => {
+                return Err(PresentationValueError::new(
+                    "rank extraction requires a search result representation",
+                ));
+            }
+            Self::RowTag => match row_context {
+                Some(PresentationRowContext::Tag { value }) => Value::Text(value.clone()),
+                _ => return Err(missing_row_context(column, "tag")),
+            },
+            Self::RowPropertyName => match row_context {
+                Some(PresentationRowContext::EffectiveProperty { name, .. }) => {
+                    Value::Text(name.clone())
+                }
+                _ => return Err(missing_row_context(column, "effective-property")),
+            },
+            Self::RowPropertyValue => match row_context {
+                Some(PresentationRowContext::EffectiveProperty { value, .. }) => {
+                    Value::Text(value.clone())
+                }
+                _ => return Err(missing_row_context(column, "effective-property")),
+            },
+            Self::RowKeywordName => match row_context {
+                Some(PresentationRowContext::Keyword { name, .. }) => Value::Text(name.clone()),
+                _ => return Err(missing_row_context(column, "keyword")),
+            },
+            Self::RowKeywordValue => match row_context {
+                Some(PresentationRowContext::Keyword { value, .. }) => Value::Text(value.clone()),
+                _ => return Err(missing_row_context(column, "keyword")),
+            },
+        };
+        Ok(value)
+    }
+}
+
+fn optional_text(value: Option<&str>) -> PresentationValue {
+    value
+        .map(|value| PresentationValue::Text(value.to_string()))
+        .unwrap_or(PresentationValue::Missing)
+}
+
+fn result_file_path(result: &QueryResultNode) -> &str {
+    match result {
+        QueryResultNode::File(node) => &node.location.file_path,
+        QueryResultNode::Heading(node) => &node.location.file_path,
+        QueryResultNode::Link(node) => &node.location.file_path,
+    }
+}
+
+fn result_line(result: &QueryResultNode) -> Option<i64> {
+    match result {
+        QueryResultNode::File(node) => node.location.line,
+        QueryResultNode::Heading(node) => node.location.line,
+        QueryResultNode::Link(node) => node.location.line,
+    }
+}
+
+fn extract_file_name(result: &QueryResultNode) -> PresentationValue {
+    if let QueryResultNode::File(node) = result {
+        return PresentationValue::Text(node.name.clone());
+    }
+
+    let path = result_file_path(result);
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path);
+    PresentationValue::Text(name.to_string())
+}
+
+fn extract_file_title(
+    column: PresentationColumn,
+    result: &QueryResultNode,
+) -> Result<PresentationValue, PresentationValueError> {
+    match result {
+        QueryResultNode::File(node) => Ok(PresentationValue::Text(node.title.clone())),
+        QueryResultNode::Heading(node) => {
+            let path = node
+                .node_path
+                .as_deref()
+                .ok_or_else(|| missing_include_data(column, "path"))?;
+            let (root, _) = outline_data(path);
+            root.map(PresentationValue::Text)
+                .ok_or_else(|| PresentationValueError::new("heading path has no file root"))
+        }
+        QueryResultNode::Link(_) => Err(unexpected_result(column, result)),
+    }
+}
+
+fn extract_generic_outline(
+    column: PresentationColumn,
+    result: &QueryResultNode,
+    options: Option<&PresentationOutlinePathSpec>,
+) -> Result<PresentationValue, PresentationValueError> {
+    let options = require_outline_options(column, options)?;
+    match result {
+        QueryResultNode::File(node) => {
+            let headings = if options.include_match {
+                vec![node.title.clone()]
+            } else {
+                Vec::new()
+            };
+            Ok(outline_value(None, headings, options))
+        }
+        QueryResultNode::Heading(node) => {
+            let path = node
+                .node_path
+                .as_deref()
+                .ok_or_else(|| missing_include_data(column, "path"))?;
+            let (root, headings) = outline_data(path);
+            Ok(outline_value(root, headings, options))
+        }
+        QueryResultNode::Link(_) => Err(unexpected_result(column, result)),
+    }
+}
+
+fn extract_source_outline(
+    column: PresentationColumn,
+    result: &QueryResultNode,
+    options: Option<&PresentationOutlinePathSpec>,
+) -> Result<PresentationValue, PresentationValueError> {
+    let options = require_outline_options(column, options)?;
+    let QueryResultNode::Link(node) = result else {
+        return Err(unexpected_result(column, result));
+    };
+    let path = node
+        .node_path
+        .as_deref()
+        .ok_or_else(|| missing_include_data(column, "path"))?;
+    let (root, headings) = outline_data(path);
+    Ok(outline_value(root, headings, options))
+}
+
+fn extract_target_outline(
+    column: PresentationColumn,
+    result: &QueryResultNode,
+    options: Option<&PresentationOutlinePathSpec>,
+) -> Result<PresentationValue, PresentationValueError> {
+    let options = require_outline_options(column, options)?;
+    let QueryResultNode::Link(node) = result else {
+        return Err(unexpected_result(column, result));
+    };
+    let target = node
+        .target
+        .as_ref()
+        .ok_or_else(|| missing_include_data(column, "target"))?;
+    let root = target.file.as_ref().map(|file| file.title.clone());
+    let headings = target
+        .heading
+        .as_ref()
+        .map(|heading| heading.outline_path.clone())
+        .unwrap_or_default();
+    Ok(outline_value(root, headings, options))
+}
+
+fn require_outline_options(
+    column: PresentationColumn,
+    options: Option<&PresentationOutlinePathSpec>,
+) -> Result<&PresentationOutlinePathSpec, PresentationValueError> {
+    options.ok_or_else(|| {
+        PresentationValueError::new(format!(
+            "presentation column `{}` requires outline-path options",
+            column.as_str()
+        ))
+    })
+}
+
+fn outline_data(path: &[PathEntry]) -> (Option<String>, Vec<String>) {
+    let mut root = None;
+    let mut headings = Vec::new();
+    for entry in path {
+        match entry {
+            PathEntry::File(file) => {
+                if root.is_none() {
+                    root = Some(file.title.clone());
+                }
+            }
+            PathEntry::Heading(heading) => headings.push(heading.title.clone()),
+        }
+    }
+    (root, headings)
+}
+
+fn outline_value(
+    root: Option<String>,
+    mut headings: Vec<String>,
+    options: &PresentationOutlinePathSpec,
+) -> PresentationValue {
+    if !options.include_match && !headings.is_empty() {
+        headings.pop();
+    }
+
+    let mut components = Vec::new();
+    if options.include_root {
+        components.extend(root);
+    }
+    components.extend(headings);
+    PresentationValue::Outline(PresentationOutlineValue {
+        components,
+        separator: options.separator.clone(),
+    })
+}
+
+fn missing_include_data(column: PresentationColumn, include: &str) -> PresentationValueError {
+    PresentationValueError::new(format!(
+        "presentation column `{}` requires query include `{include}`",
+        column.as_str()
+    ))
+}
+
+fn missing_row_context(column: PresentationColumn, kind: &str) -> PresentationValueError {
+    PresentationValueError::new(format!(
+        "presentation column `{}` requires row context `{kind}`",
+        column.as_str()
+    ))
+}
+
+fn unexpected_result(
+    column: PresentationColumn,
+    result: &QueryResultNode,
+) -> PresentationValueError {
+    let kind = match result {
+        QueryResultNode::File(node) => node.kind.as_str(),
+        QueryResultNode::Heading(node) => node.kind.as_str(),
+        QueryResultNode::Link(node) => node.kind.as_str(),
+    };
+    PresentationValueError::new(format!(
+        "presentation column `{}` cannot extract a value from {kind} result",
+        column.as_str()
+    ))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PresentationRole {
@@ -712,6 +1163,14 @@ impl PresentationRowSourceKind {
             Self::Tags => "tags",
             Self::EffectiveProperties => "effective-properties",
             Self::Keywords => "keywords",
+        }
+    }
+
+    pub const fn required_includes(self) -> &'static [QueryInclude] {
+        match self {
+            Self::Tags => NO_INCLUDES,
+            Self::EffectiveProperties => EFFECTIVE_PROPERTIES_INCLUDE,
+            Self::Keywords => KEYWORDS_INCLUDE,
         }
     }
 }
@@ -863,16 +1322,18 @@ impl Error for PresentationSpecError {
 
 #[cfg(test)]
 mod tests {
+    use crate::query::result::{FilePathEntry, FileRef, HeadingPathEntry, HeadingRef};
     use crate::query::{
-        FileResultNode, Location, QueryInclude, QueryResultKind, QueryResultNode, QueryTarget,
+        FileResultNode, HeadingResultNode, LinkResultNode, LinkTarget, Location, PathEntry,
+        QueryInclude, QueryResultKind, QueryResultNode, QueryTarget,
     };
 
     use super::{
         PresentationCell, PresentationColumn, PresentationResponse, PresentationResultKind,
         PresentationRole, PresentationRoleRule, PresentationRow, PresentationRowContext,
         PresentationRowSourceKind, PresentationSortDirection, PresentationSpec,
-        PresentationTruncationPosition, PresentationValueSource, PresentationWidthMode,
-        PRESENTATION_VERSION,
+        PresentationTruncationPosition, PresentationValue, PresentationValueSource,
+        PresentationWidthMode, PRESENTATION_VERSION,
     };
 
     fn file_result(id: i64, title: &str) -> QueryResultNode {
@@ -906,6 +1367,129 @@ mod tests {
             backlinks: None,
             children: None,
         })
+    }
+
+    fn heading_result() -> QueryResultNode {
+        QueryResultNode::Heading(HeadingResultNode {
+            kind: QueryResultKind::Heading,
+            matched: true,
+            id: 12,
+            file_id: 1,
+            parent_id: Some(11),
+            level: 2,
+            title: "Task".to_string(),
+            title_raw: Some("Task".to_string()),
+            todo_keyword: Some("TODO".to_string()),
+            todo_type: Some("open".to_string()),
+            priority: Some("A".to_string()),
+            scheduled_raw: Some("<2026-08-17 Mon>".to_string()),
+            scheduled_ts: None,
+            deadline_raw: None,
+            deadline_ts: None,
+            closed_raw: None,
+            closed_ts: None,
+            archivedp: false,
+            footnote_section_p: false,
+            all_tags: vec!["project".to_string(), "emacs".to_string()],
+            location: Location {
+                file_path: "/notes/notes.org".to_string(),
+                line: Some(12),
+                byte_start: Some(100),
+                byte_end: Some(120),
+            },
+            node_path: Some(vec![
+                PathEntry::File(FilePathEntry {
+                    id: 1,
+                    path: "/notes/notes.org".to_string(),
+                    title: "Notes".to_string(),
+                    title_raw: Some("Notes".to_string()),
+                }),
+                PathEntry::Heading(HeadingPathEntry {
+                    id: 11,
+                    title: "Parent".to_string(),
+                    title_raw: "Parent".to_string(),
+                    level: 1,
+                }),
+                PathEntry::Heading(HeadingPathEntry {
+                    id: 12,
+                    title: "Task".to_string(),
+                    title_raw: "Task".to_string(),
+                    level: 2,
+                }),
+            ]),
+            properties: None,
+            effective_properties: None,
+            keywords: None,
+            links: None,
+            backlinks: None,
+            children: None,
+        })
+    }
+
+    fn link_result() -> QueryResultNode {
+        QueryResultNode::Link(Box::new(LinkResultNode {
+            kind: QueryResultKind::Link,
+            matched: true,
+            id: 21,
+            file_id: 1,
+            heading_id: 12,
+            heading_level: 2,
+            source_context: "heading".to_string(),
+            format: "bracket".to_string(),
+            link_type: "file".to_string(),
+            raw: "[[file:target.org::*Target][Go]]".to_string(),
+            raw_target: "file:target.org::*Target".to_string(),
+            raw_description: Some("Go".to_string()),
+            link_path: "target.org".to_string(),
+            search_option: Some("*Target".to_string()),
+            path_absolute: Some("/notes/target.org".to_string()),
+            target_file_id: Some(2),
+            target_heading_id: Some(22),
+            target_custom_id: None,
+            target_id: None,
+            resolution_status: Some("resolved".to_string()),
+            resolution_diagnostic: None,
+            location: Location {
+                file_path: "/notes/notes.org".to_string(),
+                line: Some(12),
+                byte_start: Some(100),
+                byte_end: Some(140),
+            },
+            node_path: Some(vec![
+                PathEntry::File(FilePathEntry {
+                    id: 1,
+                    path: "/notes/notes.org".to_string(),
+                    title: "Notes".to_string(),
+                    title_raw: Some("Notes".to_string()),
+                }),
+                PathEntry::Heading(HeadingPathEntry {
+                    id: 12,
+                    title: "Task".to_string(),
+                    title_raw: "Task".to_string(),
+                    level: 2,
+                }),
+            ]),
+            source: None,
+            target: Some(LinkTarget {
+                resolved_kind: Some(QueryTarget::Headings),
+                file: Some(FileRef {
+                    id: 2,
+                    path: "/notes/target.org".to_string(),
+                    title: "Target File".to_string(),
+                    title_raw: Some("Target File".to_string()),
+                }),
+                heading: Some(HeadingRef {
+                    id: 22,
+                    title: "Target".to_string(),
+                    title_raw: "Target".to_string(),
+                    level: 2,
+                    outline_path: vec!["Section".to_string(), "Target".to_string()],
+                }),
+                raw_target: "file:target.org::*Target".to_string(),
+                resolution_status: Some("resolved".to_string()),
+                resolution_diagnostic: None,
+            }),
+        }))
     }
 
     #[test]
@@ -1392,6 +1976,204 @@ mod tests {
                 .required_includes_for_query_target(QueryTarget::Files)
                 .expect("property includes should derive"),
             vec![QueryInclude::EffectiveProperties]
+        );
+    }
+
+    #[test]
+    fn row_source_and_hidden_sort_includes_are_inferred_and_combined() {
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"outline-path"}],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("presentation specification should parse");
+
+        assert_eq!(
+            spec.required_includes_for_query_target(QueryTarget::Headings)
+                .expect("presentation includes should derive"),
+            vec![QueryInclude::Path, QueryInclude::EffectiveProperties]
+        );
+        assert_eq!(
+            spec.combined_includes_for_query_target(
+                QueryTarget::Headings,
+                &[QueryInclude::Links, QueryInclude::Path]
+            )
+            .expect("explicit and inferred includes should combine"),
+            vec![
+                QueryInclude::Links,
+                QueryInclude::Path,
+                QueryInclude::EffectiveProperties
+            ]
+        );
+    }
+
+    #[test]
+    fn heading_values_use_structured_result_data_and_outline_options() {
+        let result = heading_result();
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[
+                    {"name":"title"},
+                    {"name":"todo-keyword"},
+                    {"name":"tags"},
+                    {"name":"file-title"},
+                    {"name":"file-name"},
+                    {"name":"line-number"},
+                    {
+                        "name":"outline-path",
+                        "outline_path":{
+                            "separator":" / ",
+                            "include_root":true,
+                            "include_match":false
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .expect("heading presentation should parse");
+
+        let title = spec
+            .extract_value(PresentationColumn::Title, &result, None)
+            .expect("title should extract");
+        assert_eq!(title.search_text(), "Task");
+        assert_eq!(title.role, Some(PresentationRole::Title));
+
+        let todo = spec
+            .extract_value(PresentationColumn::TodoKeyword, &result, None)
+            .expect("todo keyword should extract");
+        assert_eq!(todo.search_text(), "TODO");
+        assert_eq!(todo.role, Some(PresentationRole::Todo));
+
+        let tags = spec
+            .extract_value(PresentationColumn::Tags, &result, None)
+            .expect("tags should extract");
+        assert_eq!(
+            &tags.value,
+            &PresentationValue::TextList(vec!["project".to_string(), "emacs".to_string()])
+        );
+        assert_eq!(tags.search_text(), "project,emacs");
+
+        assert_eq!(
+            spec.extract_value(PresentationColumn::FileTitle, &result, None)
+                .expect("file title should extract")
+                .search_text(),
+            "Notes"
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::FileName, &result, None)
+                .expect("file name should extract")
+                .search_text(),
+            "notes.org"
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::LineNumber, &result, None)
+                .expect("line number should extract")
+                .value,
+            PresentationValue::Integer(12)
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::OutlinePath, &result, None)
+                .expect("outline path should extract")
+                .search_text(),
+            "Notes / Parent"
+        );
+    }
+
+    #[test]
+    fn link_outline_values_use_inferred_path_and_target_shapes() {
+        let result = link_result();
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[
+                    {"name":"link-target"},
+                    {"name":"link-description"},
+                    {"name":"source-outline-path"},
+                    {
+                        "name":"target-outline-path",
+                        "outline_path":{
+                            "separator":" / ",
+                            "include_root":true,
+                            "include_match":false
+                        }
+                    }
+                ]
+            }"#,
+        )
+        .expect("link presentation should parse");
+
+        assert_eq!(
+            spec.extract_value(PresentationColumn::LinkTarget, &result, None)
+                .expect("link target should extract")
+                .search_text(),
+            "file:target.org::*Target"
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::LinkDescription, &result, None)
+                .expect("link description should extract")
+                .search_text(),
+            "Go"
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::SourceOutlinePath, &result, None)
+                .expect("source outline should extract")
+                .search_text(),
+            "Task"
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::TargetOutlinePath, &result, None)
+                .expect("target outline should extract")
+                .search_text(),
+            "Target File / Section"
+        );
+    }
+
+    #[test]
+    fn row_context_values_use_the_reserved_column_registry() {
+        let result = file_result(7, "notes");
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"property-name"},{"name":"property-value"}],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("property presentation should parse");
+        let context = PresentationRowContext::EffectiveProperty {
+            name: "OWNER".to_string(),
+            value: "Daniel".to_string(),
+        };
+
+        assert_eq!(
+            spec.extract_value(PresentationColumn::PropertyName, &result, Some(&context))
+                .expect("property name should extract")
+                .search_text(),
+            "OWNER"
+        );
+        assert_eq!(
+            spec.extract_value(PresentationColumn::PropertyValue, &result, Some(&context))
+                .expect("property value should extract")
+                .search_text(),
+            "Daniel"
+        );
+    }
+
+    #[test]
+    fn extraction_reports_missing_inferred_data_instead_of_hiding_it() {
+        let mut result = heading_result();
+        let QueryResultNode::Heading(node) = &mut result else {
+            panic!("expected heading result");
+        };
+        node.node_path = None;
+        let spec = PresentationSpec::parse_json(r#"{"columns":[{"name":"outline-path"}]}"#)
+            .expect("outline presentation should parse");
+
+        let error = spec
+            .extract_value(PresentationColumn::OutlinePath, &result, None)
+            .expect_err("missing path include data should fail");
+        assert_eq!(
+            error.to_string(),
+            "presentation column `outline-path` requires query include `path`"
         );
     }
 

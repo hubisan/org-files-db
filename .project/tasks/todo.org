@@ -203,41 +203,14 @@ Task file: [[./archive/2026-08-16--semantic-presentation-roles.org][Semantic Pre
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--presentation-wire-model.org][Presentation Results, Rows, and Cells Wire Model]]
+Task file: [[./archive/2026-08-16--presentation-wire-model.org][Presentation Results, Rows, and Cells Wire Model]]
 
-* TODO Implement presentation value extraction and include inference
+* DONE Implement presentation value extraction and include inference
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Move UI-independent column extraction and presentation include inference into Rust.
-
-Derive data requirements from:
-
-- displayed columns
-- sort columns
-- outline-path options
-- row source where applicable
-
-Explicit query includes supplied by callers must be combined with presentation-derived requirements rather than replaced.
-
-This is important so a client can request additional structured data for actions even when that data is not displayed.
-
-Examples:
-
-- file columns may require path data
-- source outline paths require source data
-- target outline paths require target data
-
-Do not encode knowledge of Emacs actions in Rust.
-
-Acceptance criteria:
-
-- Columns receive the data required to render them.
-- Hidden sort columns receive the same include inference.
-- Explicit caller includes and inferred includes are combined.
-- One query execution produces the complete result data.
-- No presentation-specific include table is required in Emacs.
+Task file: [[./2026-08-16--presentation-value-extraction-includes.org][Presentation Value Extraction and Include Inference]]
 
 * TODO Implement presentation sorting in Rust
 :PROPERTIES:

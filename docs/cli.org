@@ -375,9 +375,13 @@ Singular row columns also require their matching ~row_source~ value. The row-exp
 
 Only outline-path columns accept the ~outline_path~ option object.
 
-The registry records required query includes for every supported column. The CLI does not apply these inferred includes yet.
+The registry records required query includes for every supported column. The CLI adds these includes before it runs the query.
 
-The presentation response contract is not implemented yet.
+Displayed columns, sort-only columns, and row sources can add required includes. Explicit ~--include~ values stay enabled.
+
+For example, a hidden ~outline-path~ sort adds ~path~. An ~effective-properties~ row source adds ~effective_properties~.
+
+The presentation response contract exists in Rust, but the query command does not emit it yet.
 
 A valid presentation request therefore reaches the current staged output error after query execution. Normal ~--format json~ queries ignore this staged path.
 

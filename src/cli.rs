@@ -457,13 +457,20 @@ fn query_response_with_restriction(
     let validation_options =
         sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
     let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
-    if let Some(spec) = presentation_spec {
-        spec.validate_for_query_target(validated.target)
-            .map_err(CliError::PresentationSpec)?;
-    }
+    let explicit_includes = includes
+        .iter()
+        .copied()
+        .map(QueryInclude::from)
+        .collect::<Vec<_>>();
+    let query_includes = if let Some(spec) = presentation_spec {
+        spec.combined_includes_for_query_target(validated.target, &explicit_includes)
+            .map_err(CliError::PresentationSpec)?
+    } else {
+        explicit_includes
+    };
     let options = QueryExecutionOptions {
         output_mode: output.into(),
-        includes: includes.iter().copied().map(QueryInclude::from).collect(),
+        includes: query_includes,
         query_timezone: config.query.timezone.clone(),
         now_utc: None,
         restricted_file_paths,
@@ -1404,6 +1411,7 @@ mod tests {
         CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
         DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     };
+    use crate::presentation::PresentationSpec;
     use clap::Parser;
     use rusqlite::Connection;
     use serde_json::Value;
@@ -2242,6 +2250,45 @@ fts5_enabled = false
     }
 
     #[test]
+    fn query_presentation_combines_explicit_and_inferred_includes() {
+        let test_dir = TestDir::new("presentation-inferred-includes");
+        let config_path = write_query_fixture(&test_dir);
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[{"name":"file-name"}],
+                "sort":[{"column":"outline-path"}],
+                "row_source":{"kind":"effective-properties"}
+            }"#,
+        )
+        .expect("presentation specification should parse");
+
+        let response = super::query_response_with_restriction(
+            "(headings (todo \"NEXT\"))",
+            super::CliQueryOutput::Flat,
+            &[super::CliQueryInclude::Links],
+            Some(&config_path),
+            None,
+            Some(&spec),
+        )
+        .expect("query should combine explicit and inferred includes");
+
+        assert_eq!(
+            response.includes,
+            vec![
+                crate::query::QueryInclude::Path,
+                crate::query::QueryInclude::EffectiveProperties,
+                crate::query::QueryInclude::Links,
+            ]
+        );
+        let crate::query::QueryResultNode::Heading(node) = &response.results[0] else {
+            panic!("expected heading result");
+        };
+        assert!(node.node_path.is_some());
+        assert!(node.effective_properties.is_some());
+        assert!(node.links.is_some());
+    }
+
+    #[test]
     fn query_presentation_format_reports_staged_output_error_after_execution() {
         let test_dir = TestDir::new("presentation-format-placeholder");
         let config_path = write_query_fixture(&test_dir);
@@ -2256,7 +2303,9 @@ fts5_enabled = false
             config_path.display().to_string(),
             "(headings)".into(),
         ])
-        .expect_err("presentation output should remain unavailable before its wire model exists");
+        .expect_err(
+            "presentation output should remain unavailable before response assembly is connected",
+        );
 
         assert!(matches!(&error, CliError::PresentationOutputUnavailable));
         assert_eq!(
