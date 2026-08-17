@@ -1,0 +1,154 @@
+#+TITLE: Optimize Production Heading Path Rust Construction and Shaping
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-17 Monday 16:33]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Optimize production heading path Rust construction and shaping.
+
+* Planning
+
+** Problem summary
+
+The Rust-driven path loader is faster than the recursive loader in the isolated benchmark.
+
+The complete production ~headings.path~ workload regresses at ~50'000~ results after the loader switch.
+
+The current production path construction allocates temporary sets and vectors for every matched heading.
+
+Final direct-flat shaping also clones each complete ~Vec<PathEntry>~ from ~heading_paths~.
+
+** Goals
+
+- Add a same-process A/B benchmark for the complete production ~headings.path~ composition.
+- Keep the existing recursive loader as the benchmark reference.
+- Move heading paths into final result nodes instead of cloning them.
+- Reduce temporary allocations in Rust path construction.
+- Preserve query output, ordering, validation errors, and public APIs.
+- Measure 100, 1'000, 10'000, and 50'000 results after the change.
+
+** Non-goals
+
+- Do not change SQL query semantics.
+- Do not change the public query JSON format.
+- Do not add dependencies.
+- Do not remove the recursive benchmark reference.
+- Do not optimize unrelated query workloads in this task.
+
+** Architecture
+
+Add an internal path loader selector to the direct-flat shaping path.
+
+Production always selects ~rust-driven-bulk-ancestors~.
+
+The benchmark can select ~recursive-query-derived~ for a complete same-process reference run.
+
+Consume each loaded heading path during direct-flat shaping so its result owns the path without a full vector clone.
+
+Build each Rust heading path with one output vector. Reuse one small cycle-detection vector across origins.
+
+** Execution plan
+
+1. Add the benchmark-only complete production path A/B.
+2. Make ~FlatMetadataContext~ consume loaded heading paths during direct-flat shaping.
+3. Move ~heading_paths~ entries into result nodes with ~HashMap::remove~.
+4. Replace per-heading ~BTreeSet~ cycle tracking with one reused vector.
+5. Build common-case heading paths directly into the final ~Vec<PathEntry>~.
+6. Keep the fallback file-root path for malformed legacy chains.
+7. Add regression tests for path output and metadata move behavior.
+8. Run ~make ci~ when the Rust toolchain is available.
+9. Run the release benchmark at all standard result sizes.
+
+** Risks & assumptions
+
+Each direct-flat matched row appears once in the final result.
+
+Removing a heading path by row ID is safe only under that invariant.
+
+Deep cyclic parent chains can make linear cycle checks more expensive.
+
+Typical Org heading depth is small, and the reused vector removes per-result tree allocations.
+
+** Open questions
+
+- Does moving ~heading_paths~ remove enough final shaping cost at ~50'000~ results?
+- Does direct path construction reduce the measured ~heading-path-construction~ phase?
+- Does the complete same-process A/B favor the Rust-driven production strategy after the change?
+
+** Proposed checks
+
+- ~make ci~
+- Release SQL benchmark with ~--rows 100,1000,10000,50000~.
+- Compare complete production path A/B for both path loaders.
+- Confirm identical result output between both path loaders before timing.
+
+* Results
+
+** Approach
+
+The implementation keeps ~rust-driven-bulk-ancestors~ as the production default.
+
+A crate-internal strategy selector now lets the benchmark run the complete direct-flat path with either loader.
+
+Direct-flat heading shaping removes each loaded path from ~heading_paths~ and moves it into the final result.
+
+The Rust path constructor now reuses one cycle-detection vector for all origins.
+
+The common path case now builds one final ~Vec<PathEntry>~ instead of two temporary path vectors.
+
+The file-root fallback remains available for malformed legacy chains.
+
+** Changed files
+
+- ~src/query/result.rs~
+- ~src/query_sql_benchmark.rs~
+- ~docs/query-sql-performance.org~
+- ~.project/tasks/todo.org~
+- this task file
+
+** Checks performed
+
+~make ci~ was attempted.
+
+A call-site audit confirmed that production always selects ~RustDrivenBulkAncestors~.
+
+A strategy audit confirmed that only the benchmark selects ~RecursiveQueryDerived~.
+
+An output audit confirmed that the benchmark compares complete ~QueryResponse~ values before timing.
+
+A diff audit confirmed that unrelated metadata clone behavior remains unchanged.
+
+** Test results
+
+A new unit test compares complete relation-backed output from both path strategies.
+
+Existing path tests still cover nested paths, small variable limits, cross-file parents, missing ancestors, and malformed ~outline_path~ data.
+
+The Rust test suite needs the local Rust toolchain.
+
+The release benchmark must still confirm the candidate optimization at all standard result sizes.
+
+** Blockers
+
+This execution environment does not provide ~cargo~.
+
+~make ci~ stops at ~cargo fmt --all --check~ before Rust checks can run.
+
+The supplied archive has no Git metadata, so this environment cannot create the task branch.
+
+The benchmark acceptance check must run on the local benchmark machine.
+
+** Follow-ups
+
+Run ~make ci~ locally.
+
+Run the schema version ~5~ SQL benchmark at 100, 1'000, 10'000, and 50'000 results.
+
+Compare ~production_path_strategies~ and the normal production ~headings.path~ workload.
+
+Keep the optimization only if the complete production benchmark improves without a small-result regression.

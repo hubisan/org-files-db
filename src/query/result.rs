@@ -112,6 +112,12 @@ enum ResultDomain {
     Links,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HeadingPathStrategy {
+    RecursiveQueryDerived,
+    RustDrivenBulkAncestors,
+}
+
 fn public_result_kind(domain: ResultDomain, heading_level: i64) -> QueryResultKind {
     match domain {
         ResultDomain::Files => QueryResultKind::File,
@@ -407,6 +413,20 @@ pub fn execute_and_shape_query(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
+    execute_and_shape_query_with_path_strategy(
+        connection,
+        query,
+        options,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+    )
+}
+
+pub(crate) fn execute_and_shape_query_with_path_strategy(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    path_strategy: HeadingPathStrategy,
+) -> Result<QueryResponse, QueryShapeError> {
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
         connection
@@ -414,7 +434,7 @@ pub fn execute_and_shape_query(
             .map_err(|source| QueryShapeError::database("query_snapshot.begin", source))?;
     }
 
-    let result = execute_and_shape_query_in_snapshot(connection, query, options);
+    let result = execute_and_shape_query_in_snapshot(connection, query, options, path_strategy);
     if !owns_snapshot {
         return result;
     }
@@ -437,9 +457,16 @@ fn execute_and_shape_query_in_snapshot(
     connection: &Connection,
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
+    path_strategy: HeadingPathStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let executed = execute_sqlite_query_with_relation(connection, query, options)?;
-    shape_query_results_internal(connection, executed.rows, options, Some(&executed.relation))
+    shape_query_results_internal(
+        connection,
+        executed.rows,
+        options,
+        Some(&executed.relation),
+        path_strategy,
+    )
 }
 
 pub fn shape_query_results(
@@ -447,7 +474,13 @@ pub fn shape_query_results(
     rows: QueryRows,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
-    shape_query_results_internal(connection, rows, options, None)
+    shape_query_results_internal(
+        connection,
+        rows,
+        options,
+        None,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+    )
 }
 
 fn shape_query_results_internal(
@@ -455,12 +488,13 @@ fn shape_query_results_internal(
     rows: QueryRows,
     options: &QueryExecutionOptions,
     relation: Option<&MatchedSqlRelation>,
+    path_strategy: HeadingPathStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let includes = normalized_includes(&options.includes);
     if options.output_mode == QueryOutputMode::Flat
         && supports_direct_flat_shaping(&rows, &includes, relation.is_some())
     {
-        return shape_direct_flat_results(connection, rows, includes, relation);
+        return shape_direct_flat_results(connection, rows, includes, relation, path_strategy);
     }
 
     let context = EnrichmentContext::load(connection, &rows, &includes)?;
@@ -539,8 +573,10 @@ fn shape_direct_flat_results(
     rows: QueryRows,
     includes: Vec<QueryInclude>,
     relation: Option<&MatchedSqlRelation>,
+    path_strategy: HeadingPathStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let metadata = FlatMetadataContext::load(connection, &rows, &includes, relation)?;
+    let mut metadata =
+        FlatMetadataContext::load(connection, &rows, &includes, relation, path_strategy)?;
     let target = match &rows {
         QueryRows::Headings(_) => QueryTarget::Headings,
         QueryRows::Links(_) => QueryTarget::Links,
@@ -771,6 +807,7 @@ impl FlatMetadataContext {
         rows: &QueryRows,
         includes: &[QueryInclude],
         relation: Option<&MatchedSqlRelation>,
+        path_strategy: HeadingPathStrategy,
     ) -> Result<Self, QueryShapeError> {
         let include_set = includes.iter().copied().collect::<BTreeSet<_>>();
         let grouping_started = benchmark_trace::active().then(Instant::now);
@@ -917,9 +954,14 @@ impl FlatMetadataContext {
 
         let heading_paths = if include_set.contains(&QueryInclude::Path) {
             match (rows, relation) {
-                (QueryRows::Headings(rows), Some(relation)) => {
-                    load_heading_paths_from_relation(connection, relation, rows)?
-                }
+                (QueryRows::Headings(rows), Some(relation)) => match path_strategy {
+                    HeadingPathStrategy::RecursiveQueryDerived => {
+                        load_heading_paths_recursive_from_relation(connection, relation, rows)?
+                    }
+                    HeadingPathStrategy::RustDrivenBulkAncestors => {
+                        load_heading_paths_from_relation(connection, relation, rows)?
+                    }
+                },
                 (QueryRows::Headings(_), None) => HashMap::new(),
                 (QueryRows::Files(_), _) | (QueryRows::Links(_), _) => HashMap::new(),
             }
@@ -1015,7 +1057,7 @@ impl FlatMetadataContext {
     }
 
     fn shape_heading_row(
-        &self,
+        &mut self,
         row: &HeadingQueryRow,
         includes: &[QueryInclude],
     ) -> Result<HeadingResultNode, QueryShapeError> {
@@ -1050,7 +1092,7 @@ impl FlatMetadataContext {
             },
             node_path: includes
                 .contains(&QueryInclude::Path)
-                .then(|| self.heading_paths.get(&row.id).cloned().unwrap_or_default()),
+                .then(|| self.heading_paths.remove(&row.id).unwrap_or_default()),
             properties: includes
                 .contains(&QueryInclude::Properties)
                 .then(|| self.properties.get(&row.id).cloned().unwrap_or_default()),
@@ -3440,8 +3482,7 @@ struct PendingRustPath {
     origin_id: i64,
     file_id: i64,
     file_path: String,
-    file: Option<FilePathEntry>,
-    headings: Vec<HeadingPathEntry>,
+    path: Vec<PathEntry>,
 }
 
 pub(crate) fn load_heading_paths_from_relation(
@@ -3542,21 +3583,24 @@ pub(crate) fn load_heading_paths_from_relation(
         frontier = next_frontier;
     }
 
-    let mut pending = Vec::with_capacity(matched_by_id.len());
+    let mut paths = HashMap::with_capacity(matched_by_id.len());
+    let mut pending = Vec::new();
     let mut fallback_file_ids = BTreeSet::new();
     let mut construction_duration = Duration::ZERO;
+    let mut seen = Vec::new();
     for origin in matched_by_id.values() {
         let construction_started = trace_active.then(Instant::now);
-        let mut headings = Vec::new();
+        let mut path = Vec::with_capacity(origin.level.max(0) as usize + 1);
         let mut file = None;
         let mut current_id = Some(origin.id);
-        let mut seen = BTreeSet::new();
+        seen.clear();
         while let Some(heading_id) = current_id {
-            if !seen.insert(heading_id) {
+            if seen.contains(&heading_id) {
                 return Err(QueryShapeError::missing(format!(
                     "cyclic stored heading parent chain at id {heading_id}"
                 )));
             }
+            seen.push(heading_id);
 
             if let Some(row) = matched_by_id.get(&heading_id) {
                 if heading_id != origin.id && row.file_id != origin.file_id {
@@ -3578,12 +3622,12 @@ pub(crate) fn load_heading_paths_from_relation(
                         "missing title_raw for stored heading row {heading_id}"
                     ))
                 })?;
-                headings.push(HeadingPathEntry {
+                path.push(PathEntry::Heading(HeadingPathEntry {
                     id: row.id,
                     title: row.title.clone(),
                     title_raw,
                     level: row.level,
-                });
+                }));
                 current_id = row.parent_id;
                 continue;
             }
@@ -3610,25 +3654,30 @@ pub(crate) fn load_heading_paths_from_relation(
                     "missing title_raw for stored heading row {heading_id}"
                 ))
             })?;
-            headings.push(HeadingPathEntry {
+            path.push(PathEntry::Heading(HeadingPathEntry {
                 id: row.id,
                 title: row.title.clone(),
                 title_raw,
                 level: row.level,
-            });
+            }));
             current_id = row.parent_id;
         }
-        headings.reverse();
-        if file.is_none() {
-            fallback_file_ids.insert(origin.file_id);
+        path.reverse();
+        match file {
+            Some(file) => {
+                path.insert(0, PathEntry::File(file));
+                paths.insert(origin.id, path);
+            }
+            None => {
+                fallback_file_ids.insert(origin.file_id);
+                pending.push(PendingRustPath {
+                    origin_id: origin.id,
+                    file_id: origin.file_id,
+                    file_path: origin.file_path.clone(),
+                    path,
+                });
+            }
         }
-        pending.push(PendingRustPath {
-            origin_id: origin.id,
-            file_id: origin.file_id,
-            file_path: origin.file_path.clone(),
-            file,
-            headings,
-        });
         if let Some(started) = construction_started {
             construction_duration += started.elapsed();
         }
@@ -3640,30 +3689,24 @@ pub(crate) fn load_heading_paths_from_relation(
         load_rust_path_file_roots(connection, &fallback_file_ids)?
     };
 
-    let mut paths = HashMap::with_capacity(pending.len());
-    for pending in pending {
+    for mut pending in pending {
         let construction_started = trace_active.then(Instant::now);
-        let file = match pending.file {
-            Some(file) => file,
-            None => {
-                let (title, title_raw) = fallback_roots.get(&pending.file_id).ok_or_else(|| {
-                    QueryShapeError::missing(format!(
-                        "missing stored file row for heading id {}",
-                        pending.origin_id
-                    ))
-                })?;
-                FilePathEntry {
-                    id: pending.file_id,
-                    path: pending.file_path,
-                    title: title.clone(),
-                    title_raw: title_raw.clone(),
-                }
-            }
-        };
-        let mut path = Vec::with_capacity(pending.headings.len() + 1);
-        path.push(PathEntry::File(file));
-        path.extend(pending.headings.into_iter().map(PathEntry::Heading));
-        paths.insert(pending.origin_id, path);
+        let (title, title_raw) = fallback_roots.get(&pending.file_id).ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing stored file row for heading id {}",
+                pending.origin_id
+            ))
+        })?;
+        pending.path.insert(
+            0,
+            PathEntry::File(FilePathEntry {
+                id: pending.file_id,
+                path: pending.file_path,
+                title: title.clone(),
+                title_raw: title_raw.clone(),
+            }),
+        );
+        paths.insert(pending.origin_id, pending.path);
         if let Some(started) = construction_started {
             construction_duration += started.elapsed();
         }
@@ -4471,10 +4514,11 @@ fn placeholders(count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_and_shape_query, load_heading_paths_from_relation,
-        load_heading_paths_recursive_from_relation, shape_query_results, EffectivePropertyFact,
-        QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind,
-        QueryResultNode, QueryShapeErrorKind,
+        execute_and_shape_query, execute_and_shape_query_with_path_strategy,
+        load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
+        shape_query_results, EffectivePropertyFact, HeadingPathStrategy, QueryExecutionOptions,
+        QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode,
+        QueryShapeErrorKind,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -5140,6 +5184,33 @@ mod tests {
             .as_ref()
             .expect("path should exist");
         assert_eq!(path.len(), 3);
+    }
+
+    #[test]
+    fn complete_relation_backed_path_strategies_match() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+
+        let recursive = execute_and_shape_query_with_path_strategy(
+            &connection,
+            &query,
+            &options,
+            HeadingPathStrategy::RecursiveQueryDerived,
+        )
+        .expect("recursive complete path shaping should work");
+        let rust = execute_and_shape_query_with_path_strategy(
+            &connection,
+            &query,
+            &options,
+            HeadingPathStrategy::RustDrivenBulkAncestors,
+        )
+        .expect("Rust-driven complete path shaping should work");
+
+        assert_eq!(rust, recursive);
     }
 
     #[test]

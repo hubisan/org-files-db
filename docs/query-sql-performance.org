@@ -454,6 +454,43 @@ final result shaping     86.2 ms
 
 The direct phase profile comes from a separate instrumented sample.
 
+** Complete production path strategy benchmark
+
+Benchmark output schema version ~5~ adds ~production_path_strategies~ for every result size.
+
+This section measures the complete direct-flat ~headings.path~ composition in one process.
+
+Both strategies run the same match query, tag enrichment, path enrichment, and final result shaping.
+
+The benchmark compares:
+
+- ~recursive-query-derived~
+- ~rust-driven-bulk-ancestors~
+
+The benchmark requires exact ~QueryResponse~ equality before it records timings.
+
+Each strategy result records:
+
+- complete query latency
+- SQL statement profile
+- rows transferred from SQLite
+- direct phase timings
+- final result shaping time
+
+Production still selects ~rust-driven-bulk-ancestors~.
+
+The alternate strategy exists only for the same-process benchmark reference.
+
+The Rust-driven production path now moves each loaded ~Vec<PathEntry>~ into its result node.
+
+It no longer clones the complete path vector during direct-flat shaping.
+
+The Rust path constructor also reuses one cycle-detection buffer across matched headings.
+
+It builds the common path case directly in one final ~Vec<PathEntry>~.
+
+Run the schema version ~5~ benchmark before accepting these construction and shaping changes.
+
 Do not subtract its phase sum from the latency median.
 
 * Run the SQL benchmark
@@ -537,6 +574,8 @@ The path-strategy section compares the recursive query-derived loader with the R
 
 Schema version ~4~ also records the requested and effective SQLite variable limit plus ID chunk capacity for every path strategy result.
 
+Schema version ~5~ adds a complete production path A/B after match and final shaping costs.
+
 The top-level query-plan section records representative compiled queries and their SQLite plan details.
 
 The broad production workload set contains:
@@ -575,6 +614,6 @@ The production rebenchmark shows clear gains through ~10'000~ results and a ~13.
 
 The same-process loader comparison still favors ~rust-driven-bulk-ancestors~ by approximately ~25.0%~ at ~50'000~ results.
 
-Keep the current Rust-driven loader while the next task runs a complete same-process production A/B.
+Keep the current Rust-driven loader while schema version ~5~ measures the complete same-process production A/B.
 
-Then optimize the remaining Rust construction and shaping cost if that comparison still favors the Rust-driven loader.
+Accept the construction and shaping optimization only if the complete production benchmark improves.

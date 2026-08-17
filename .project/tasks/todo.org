@@ -979,7 +979,7 @@ Keep the current recursive query-derived loader until the variable-limit benchma
 
 Add regression tests for nested paths, small variable limits, missing ancestors, cross-file parents, and malformed ~outline_path~ data.
 
-* REVIEW Rebenchmark production heading path after Rust ancestor loading
+* DONE Rebenchmark production heading path after Rust ancestor loading
 
 Task file: [[./2026-08-17--rebenchmark-production-heading-path.org][Rebenchmark Production Heading Path after Rust Ancestor Loading]]
 
@@ -1008,7 +1008,9 @@ Confirm that the isolated path benchmark improvement also reduces end-to-end ~he
 
 Update ~docs/query-sql-performance.org~ with the result.
 
-* TODO Optimize production heading path Rust construction and shaping
+* DONE Optimize production heading path Rust construction and shaping
+
+[[./2026-08-17--optimize-production-heading-path-rust-shaping.org]]
 
 Remove the large-result Rust overhead that remains after the bulk ancestor loader switch.
 

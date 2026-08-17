@@ -24,14 +24,15 @@ use crate::{
 
 use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
 use crate::query::result::{
-    load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
+    execute_and_shape_query_with_path_strategy, load_heading_paths_from_relation,
+    load_heading_paths_recursive_from_relation, HeadingPathStrategy,
 };
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
 use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, execute_sqlite_query_with_relation,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "4";
+pub const OUTPUT_SCHEMA_VERSION: &str = "5";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -94,6 +95,7 @@ pub struct QuerySqlSizeResult {
     pub lookup_strategies: Vec<LookupStrategyResult>,
     pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
     pub path_strategies: Vec<PathStrategyResult>,
+    pub production_path_strategies: Vec<ProductionPathStrategyResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -183,6 +185,15 @@ pub struct PathStrategyResult {
     pub matched_heading_ids: usize,
     pub returned_paths: usize,
     pub timing: Timing,
+    pub direct_phase_profile: DirectPhaseProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProductionPathStrategyResult {
+    pub strategy: &'static str,
+    pub result_count: usize,
+    pub total_query_time: Timing,
+    pub sql_profile: SqlProfileSummary,
     pub direct_phase_profile: DirectPhaseProfile,
 }
 
@@ -294,7 +305,7 @@ pub fn run(
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, path-loading strategies, variable-limit sensitivity, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, isolated path loading, complete production path shaping, variable-limit sensitivity, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -373,6 +384,8 @@ fn run_size(
     let lookup_strategies = measure_lookup_strategies(&db_path, target_results, options)?;
     let relation_reuse_strategies = measure_relation_reuse_strategies(&db_path, options)?;
     let path_strategies = measure_path_strategies(&db_path, target_results, options)?;
+    let production_path_strategies =
+        measure_production_path_strategies(&db_path, target_results, options)?;
 
     Ok(QuerySqlSizeResult {
         target_results,
@@ -382,6 +395,7 @@ fn run_size(
         lookup_strategies,
         relation_reuse_strategies,
         path_strategies,
+        production_path_strategies,
     })
 }
 
@@ -743,6 +757,140 @@ fn measure_path_strategies_at_limit(
             direct_phase_profile: rust_profile,
         },
     ])
+}
+
+fn measure_production_path_strategies(
+    db_path: &Path,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<ProductionPathStrategyResult>, String> {
+    let mut connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+
+    let parsed = parse_query("(headings (level 1))").map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(|error| error.to_string())?;
+    let validated =
+        validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+    let query_options = QueryExecutionOptions {
+        output_mode: QueryOutputMode::Flat,
+        includes: vec![QueryInclude::Path],
+        ..Default::default()
+    };
+
+    let recursive_reference = execute_and_shape_query_with_path_strategy(
+        &connection,
+        &validated,
+        &query_options,
+        HeadingPathStrategy::RecursiveQueryDerived,
+    )
+    .map_err(|error| error.to_string())?;
+    let rust_reference = execute_and_shape_query_with_path_strategy(
+        &connection,
+        &validated,
+        &query_options,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+    )
+    .map_err(|error| error.to_string())?;
+    if recursive_reference != rust_reference {
+        return Err("complete production path strategies changed query output".into());
+    }
+    if recursive_reference.results.len() != expected_results {
+        return Err(format!(
+            "complete production path benchmark returned {} results, expected {expected_results}",
+            recursive_reference.results.len()
+        ));
+    }
+
+    let recursive = measure_production_path_strategy(
+        &mut connection,
+        &validated,
+        &query_options,
+        HeadingPathStrategy::RecursiveQueryDerived,
+        "recursive-query-derived",
+        expected_results,
+        options,
+    )?;
+    let rust = measure_production_path_strategy(
+        &mut connection,
+        &validated,
+        &query_options,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+        "rust-driven-bulk-ancestors",
+        expected_results,
+        options,
+    )?;
+
+    connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+
+    Ok(vec![recursive, rust])
+}
+
+fn measure_production_path_strategy(
+    connection: &mut Connection,
+    validated: &crate::query::ValidatedQuery,
+    query_options: &QueryExecutionOptions,
+    strategy: HeadingPathStrategy,
+    strategy_name: &'static str,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<ProductionPathStrategyResult, String> {
+    let total_query_time = measure(options, || {
+        let response = execute_and_shape_query_with_path_strategy(
+            connection,
+            validated,
+            query_options,
+            strategy,
+        )
+        .map_err(|error| error.to_string())?;
+        if response.results.len() != expected_results {
+            return Err(format!(
+                "{strategy_name} complete production path result count changed during benchmark"
+            ));
+        }
+        std::hint::black_box(response);
+        Ok(())
+    })?;
+
+    PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
+    connection.profile(Some(profile_callback));
+    let profiled =
+        execute_and_shape_query_with_path_strategy(connection, validated, query_options, strategy)
+            .map_err(|error| error.to_string());
+    connection.profile(None);
+    let profiled = profiled?;
+    if profiled.results.len() != expected_results {
+        return Err(format!(
+            "{strategy_name} complete production path result count changed during SQL profile"
+        ));
+    }
+    let sql_profile = take_profile_summary();
+
+    benchmark_trace::begin();
+    let phase_response =
+        execute_and_shape_query_with_path_strategy(connection, validated, query_options, strategy)
+            .map_err(|error| error.to_string());
+    let phase_records = benchmark_trace::finish();
+    let phase_response = phase_response?;
+    if phase_response.results.len() != expected_results {
+        return Err(format!(
+            "{strategy_name} complete production path result count changed during phase profile"
+        ));
+    }
+    let direct_phase_profile = summarize_direct_phase_profile(phase_records);
+
+    Ok(ProductionPathStrategyResult {
+        strategy: strategy_name,
+        result_count: expected_results,
+        total_query_time,
+        sql_profile,
+        direct_phase_profile,
+    })
 }
 
 fn measure_lookup_strategies(
