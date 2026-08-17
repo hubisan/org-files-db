@@ -349,6 +349,31 @@ Production path loading does not change in this benchmark task.
 
 Move the strategy to production only when end-to-end measurements show a clear win without excessive row transfer or statement growth.
 
+** Path variable-limit sensitivity
+
+Benchmark output schema version ~4~ extends each path strategy result with SQLite variable-limit metadata.
+
+The benchmark option ~--path-variable-limits~ accepts a comma-separated list of positive limits.
+
+The option affects only the path strategy comparison.
+
+Each requested limit uses a fresh read-only SQLite connection.
+
+The benchmark sets ~SQLITE_LIMIT_VARIABLE_NUMBER~ before it runs the path loaders.
+
+Each path strategy result records:
+
+- ~requested_sqlite_variable_limit~
+- ~sqlite_variable_limit~ after SQLite applies the request
+- ~id_chunk_capacity~
+- timing and direct phase data
+
+SQLite can clamp a requested limit to its compile-time maximum.
+
+The requested and effective values therefore remain separate in the output.
+
+If ~--path-variable-limits~ is absent, the benchmark keeps the previous behavior and measures the connection default once.
+
 * Run the SQL benchmark
 
 Build the release benchmark binary.
@@ -376,6 +401,22 @@ target/release/orgfdb-query-sql-benchmark \
 
 Use a new output path for each benchmark run.
 
+For the heading path variable-limit sensitivity task, use the existing ~50'000~-result database and run:
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 50000 \
+  --path-variable-limits 250000,32766,999 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-path-variable-limits-v1.json
+#+end_src
+
+This focused run still records the normal ~50'000~-result benchmark sections.
+
+The ~path_strategies~ section is the decision input for this task.
+
 * Benchmark output
 
 Each result size records the runtime SQLite variable limit and resulting ID chunk capacity.
@@ -396,6 +437,8 @@ The lookup section records ID transport strategy timings.
 The relation-reuse section records simple and complex relation timings for single and multi enrichment.
 
 The path-strategy section compares the recursive query-derived loader with the Rust-driven bulk ancestor loader.
+
+Schema version ~4~ also records the requested and effective SQLite variable limit plus ID chunk capacity for every path strategy result.
 
 The top-level query-plan section records representative compiled queries and their SQLite plan details.
 
@@ -425,6 +468,8 @@ The implementation keeps runtime-limit ~IN (...)~ as the safe fallback for Rust-
 
 The production path fast path still uses the recursive query-derived ancestor loader.
 
-Schema version ~3~ measures whether a Rust-driven bounded ancestor loader can replace that path safely.
+Schema version ~3~ showed that the Rust-driven bounded ancestor loader wins at the local ~250000~ variable limit.
 
-Do not change the production SQLite and Rust boundary until the new benchmark provides that evidence.
+Schema version ~4~ measures whether that advantage remains with smaller SQLite variable limits.
+
+Do not move the path loader to production until the variable-limit sensitivity benchmark provides that evidence.

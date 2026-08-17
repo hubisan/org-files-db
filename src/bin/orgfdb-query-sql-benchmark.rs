@@ -21,6 +21,9 @@ fn main() -> Result<(), String> {
                     .parse()
                     .map_err(|_| "--iterations must be an integer")?
             }
+            "--path-variable-limits" => {
+                options.path_variable_limits = parse_variable_limits(&value)?
+            }
             _ => return Err(format!("unknown option {argument}")),
         }
     }
@@ -46,6 +49,21 @@ fn parse_row_counts(value: &str) -> Result<Vec<usize>, String> {
     Ok(rows)
 }
 
+fn parse_variable_limits(value: &str) -> Result<Vec<usize>, String> {
+    let limits = value
+        .split(',')
+        .map(|part| {
+            part.parse::<usize>().map_err(|_| {
+                "--path-variable-limits must be a comma-separated list of integers".to_string()
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if limits.is_empty() || limits.contains(&0) {
+        return Err("--path-variable-limits values must be positive".into());
+    }
+    Ok(limits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,5 +80,19 @@ mod tests {
     fn parse_row_counts_rejects_zero_and_invalid_values() {
         assert!(parse_row_counts("100,0").is_err());
         assert!(parse_row_counts("100,nope").is_err());
+    }
+
+    #[test]
+    fn parse_variable_limits_accepts_comma_separated_values() {
+        assert_eq!(
+            parse_variable_limits("250000,32766,999").expect("variable limits should parse"),
+            vec![250_000, 32_766, 999]
+        );
+    }
+
+    #[test]
+    fn parse_variable_limits_rejects_zero_and_invalid_values() {
+        assert!(parse_variable_limits("32766,0").is_err());
+        assert!(parse_variable_limits("32766,nope").is_err());
     }
 }

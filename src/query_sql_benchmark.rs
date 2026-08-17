@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rusqlite::{params_from_iter, Connection};
+use rusqlite::{limits::Limit, params_from_iter, Connection};
 use serde::Serialize;
 
 use crate::{
@@ -29,7 +29,7 @@ use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, execute_sqlite_query_with_relation,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "3";
+pub const OUTPUT_SCHEMA_VERSION: &str = "4";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -39,6 +39,7 @@ pub struct QuerySqlBenchmarkOptions {
     pub row_counts: Vec<usize>,
     pub warmups: usize,
     pub iterations: usize,
+    pub path_variable_limits: Vec<usize>,
 }
 
 impl Default for QuerySqlBenchmarkOptions {
@@ -47,6 +48,7 @@ impl Default for QuerySqlBenchmarkOptions {
             row_counts: DEFAULT_ROW_COUNTS.to_vec(),
             warmups: DEFAULT_WARMUPS,
             iterations: DEFAULT_ITERATIONS,
+            path_variable_limits: Vec::new(),
         }
     }
 }
@@ -65,6 +67,7 @@ pub struct QuerySqlBenchmarkProtocol {
     pub warmups: usize,
     pub iterations: usize,
     pub row_counts: Vec<usize>,
+    pub path_variable_limits: Vec<usize>,
     pub database_source: &'static str,
     pub timing_policy: &'static str,
     pub profile_policy: &'static str,
@@ -172,6 +175,9 @@ pub struct RelationReuseStrategyResult {
 #[derive(Debug, Serialize)]
 pub struct PathStrategyResult {
     pub strategy: &'static str,
+    pub requested_sqlite_variable_limit: usize,
+    pub sqlite_variable_limit: usize,
+    pub id_chunk_capacity: usize,
     pub matched_heading_ids: usize,
     pub returned_paths: usize,
     pub timing: Timing,
@@ -281,11 +287,12 @@ pub fn run(
             warmups: options.warmups,
             iterations: options.iterations,
             row_counts: options.row_counts.clone(),
+            path_variable_limits: options.path_variable_limits.clone(),
             database_source: "existing or generated orgfdb-presentation-benchmark corpus databases",
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, path-loading strategies, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, path-loading strategies, variable-limit sensitivity, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -320,6 +327,13 @@ fn validate_options(options: &QuerySqlBenchmarkOptions) -> Result<(), String> {
     }
     if options.iterations == 0 {
         return Err("--iterations must be positive".into());
+    }
+    for limit in &options.path_variable_limits {
+        if *limit == 0 {
+            return Err("--path-variable-limits values must be positive".into());
+        }
+        i32::try_from(*limit)
+            .map_err(|_| "--path-variable-limits values must fit a signed 32-bit integer")?;
     }
     Ok(())
 }
@@ -578,8 +592,40 @@ fn measure_path_strategies(
     expected_results: usize,
     options: &QuerySqlBenchmarkOptions,
 ) -> Result<Vec<PathStrategyResult>, String> {
+    if options.path_variable_limits.is_empty() {
+        return measure_path_strategies_at_limit(db_path, expected_results, options, None);
+    }
+
+    let mut results = Vec::with_capacity(options.path_variable_limits.len() * 2);
+    for requested_limit in &options.path_variable_limits {
+        results.extend(measure_path_strategies_at_limit(
+            db_path,
+            expected_results,
+            options,
+            Some(*requested_limit),
+        )?);
+    }
+    Ok(results)
+}
+
+fn measure_path_strategies_at_limit(
+    db_path: &Path,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+    requested_limit: Option<usize>,
+) -> Result<Vec<PathStrategyResult>, String> {
     let connection =
         open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    let default_limit = variable_number_limit(&connection);
+    let requested_sqlite_variable_limit = requested_limit.unwrap_or(default_limit);
+    if let Some(limit) = requested_limit {
+        let limit = i32::try_from(limit)
+            .map_err(|_| "path variable limit must fit a signed 32-bit integer")?;
+        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, limit);
+    }
+    let sqlite_variable_limit = variable_number_limit(&connection);
+    let chunk_capacity = id_chunk_capacity(&connection, 0);
+
     connection
         .execute_batch("BEGIN DEFERRED TRANSACTION")
         .map_err(|error| error.to_string())?;
@@ -618,7 +664,9 @@ fn measure_path_strategies(
     let rust_reference = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
         .map_err(|error| error.to_string())?;
     if recursive_reference != rust_reference {
-        return Err("Rust-driven path strategy changed heading path output".into());
+        return Err(format!(
+            "Rust-driven path strategy changed heading path output at SQLite variable limit {sqlite_variable_limit}"
+        ));
     }
     if recursive_reference.len() != expected_results {
         return Err(format!(
@@ -673,6 +721,9 @@ fn measure_path_strategies(
     Ok(vec![
         PathStrategyResult {
             strategy: "recursive-query-derived",
+            requested_sqlite_variable_limit,
+            sqlite_variable_limit,
+            id_chunk_capacity: chunk_capacity,
             matched_heading_ids,
             returned_paths: expected_results,
             timing: recursive_timing,
@@ -680,6 +731,9 @@ fn measure_path_strategies(
         },
         PathStrategyResult {
             strategy: "rust-driven-bulk-ancestors",
+            requested_sqlite_variable_limit,
+            sqlite_variable_limit,
+            id_chunk_capacity: chunk_capacity,
             matched_heading_ids,
             returned_paths: expected_results,
             timing: rust_timing,
@@ -1422,6 +1476,20 @@ mod tests {
         let options = QuerySqlBenchmarkOptions {
             row_counts: vec![100],
             iterations: 0,
+            ..Default::default()
+        };
+        assert!(validate_options(&options).is_err());
+
+        let options = QuerySqlBenchmarkOptions {
+            row_counts: vec![100],
+            path_variable_limits: vec![0],
+            ..Default::default()
+        };
+        assert!(validate_options(&options).is_err());
+
+        let options = QuerySqlBenchmarkOptions {
+            row_counts: vec![100],
+            path_variable_limits: vec![usize::MAX],
             ..Default::default()
         };
         assert!(validate_options(&options).is_err());

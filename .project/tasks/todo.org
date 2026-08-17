@@ -916,7 +916,9 @@ After this task, decide separately whether to:
 - implement selective shared TEMP relations for expensive matched queries,
 - investigate another measured bottleneck.
   
-* TODO Benchmark heading path with smaller SQLite variable limits
+* DONE Benchmark heading path with smaller SQLite variable limits
+
+Task file: [[./2026-08-17--benchmark-heading-path-variable-limits.org][Benchmark Heading Path with Smaller SQLite Variable Limits]]
 
 Measure the Rust-driven heading path strategy with smaller SQLite variable limits.
 
@@ -949,7 +951,6 @@ Record:
 
 Keep the Rust-driven strategy only if its end-to-end advantage remains clear with smaller variable limits.
 
-
 * TODO Replace recursive heading path loading with Rust-driven bulk ancestors
 
 Use the benchmarked Rust-driven bulk ancestor loader for direct-flat heading path enrichment.
@@ -975,7 +976,6 @@ Do not reload all headings from matched files.
 Keep the current recursive query-derived loader until the variable-limit benchmark confirms the production change.
 
 Add regression tests for nested paths, small variable limits, missing ancestors, cross-file parents, and malformed ~outline_path~ data.
-
 
 * TODO Rebenchmark production heading path after Rust ancestor loading
 
@@ -1073,7 +1073,6 @@ Keep repeated query-derived joins for cheap relations.
 Keep all public query output and error behavior unchanged.
 
 Benchmark the production implementation before making the selective strategy permanent.
-
 
 * TODO Investigate final Rust result shaping cost
 
