@@ -1471,96 +1471,350 @@ Record the before and after production measurements.
 
 * TODO Use shared TEMP matched relations for expensive query reuse
 
-Start this task after the predicate-driven metadata work is settled.
+The predicate-driven metadata work is complete.
 
-Predicate-driven compilation can change the cost of matched relations.
+Production now uses predicate-driven metadata filters and schema version ~13~.
 
-Re-run the relevant relation-reuse benchmark if the compiler changes materially.
+Read these sources before changing code:
 
-Add a selective shared TEMP matched relation for expensive compiled queries that several enrichment steps reuse.
+- ~docs/query-sql-performance.org~
+- the relation-reuse benchmark in ~src/query_sql_benchmark.rs~
+- the current query compiler
+- the current query result and enrichment pipeline
 
-Do not use a TEMP relation for every query.
+The latest ~50'000~-row v9 relation-reuse benchmark gives these median times:
 
-The existing relation-reuse benchmark shows two different cases:
+- simple single enrichment:
+  - repeated query-derived relation: ~19.591 ms~
+  - shared TEMP relation: ~47.660 ms~
+- simple multiple enrichments:
+  - repeated query-derived relation: ~73.729 ms~
+  - shared TEMP relation: ~115.901 ms~
+- complex single enrichment:
+  - repeated query-derived relation: ~133.233 ms~
+  - shared TEMP relation: ~75.230 ms~
+- complex multiple enrichments:
+  - repeated query-derived relation: ~427.689 ms~
+  - shared TEMP relation: ~118.034 ms~
 
-- simple matched relations are faster when SQLite evaluates them again
-- complex matched relations are much faster when one TEMP relation is reused
+These results show that result count alone cannot select the strategy.
 
-Define a robust internal rule that identifies expensive reusable matched relations.
+They also show that consumer count alone cannot select the strategy.
 
-Do not base the decision only on result count.
+A complex relation can benefit from TEMP materialization with only one downstream consumer.
+
+A simple relation can remain faster without TEMP materialization with several consumers.
+
+The predicate-driven compiler changed query costs after the original relation-reuse work.
+
+Re-run the relevant relation-reuse benchmark against the current production compiler before implementation.
+
+Use the existing benchmark workloads as the baseline.
+
+Goal: materialize a matched heading relation only when this reduces complete query cost.
+
+Keep repeated query-derived execution for cheap matched relations.
+
+Use a shared TEMP relation only for expensive matched relations with measured benefit.
+
+Do not create a TEMP relation for every query.
+
+Do not select the strategy only from:
+
+- result count
+- database size
+- number of enrichment consumers
+
+Investigate deterministic signals from the compiled relation.
 
 Consider:
 
-- compiled predicate shape
-- relation complexity
-- number of enrichment consumers
-- expected repeated query work
+- predicate tree shape
+- nested Boolean structure
+- number and type of relational predicates
+- correlated subqueries
+- joins or subqueries that SQLite must repeat
+- predicate-driven metadata relations
+- number of downstream relation consumers
+- expected repeated SQLite work
 
-Keep repeated query-derived joins for cheap relations.
+Prefer a simple deterministic classification over runtime calibration.
 
-Keep all public query output and error behavior unchanged.
+Do not add per-query timing calibration unless benchmarks prove that a static rule is insufficient.
 
-Benchmark the production implementation before making the selective strategy permanent.
+** Phase 1 - Refresh the relation-reuse benchmark
+
+Run the existing simple and complex relation-reuse workloads with the current compiler.
+
+Test representative sizes:
+
+- ~100~
+- ~1'000~
+- ~10'000~
+- ~50'000~
+
+Compare:
+
+- repeated query-derived execution
+- one materialized TEMP matched relation
+
+Include the full TEMP cost.
+
+Measure:
+
+- TEMP table creation
+- TEMP table population
+- downstream queries
+- TEMP cleanup where applicable
+
+Record:
+
+- total strategy latency
+- statement count
+- matched heading count
+- rows transferred from SQLite
+- query plans where useful
+
+Keep benchmark output identical between both strategies.
+
+** Phase 2 - Define the selection rule
+
+Use the refreshed benchmark to define a small internal relation-cost classification.
+
+The rule must describe properties of the compiled query.
+
+Do not encode individual public query strings as special cases.
+
+Do not use result count as the primary classification input.
+
+Keep the rule understandable from the compiler code.
+
+Document why each input to the rule predicts repeated SQLite work.
+
+Allow the rule to select TEMP with one consumer if the relation is expensive enough.
+
+Allow the rule to reject TEMP with several consumers if the relation is cheap.
+
+** Phase 3 - Implement production TEMP reuse
+
+Materialize the matched heading relation once when the rule selects TEMP.
+
+Reuse the same relation for applicable enrichment queries.
+
+Keep TEMP state local to the current database connection and query execution.
+
+Do not reuse TEMP state across independent public queries.
+
+Do not leave stale matched relations after a failed query.
+
+Keep query snapshot semantics unchanged.
+
+Keep the existing query-derived path for relations that do not select TEMP.
+
+Preserve:
+
+- public query syntax
+- result semantics
+- result ordering
+- normal ~--format json~ output
+- stored-data validation
+- current error behavior
+
+** Phase 4 - Benchmark the production implementation
+
+Compare production queries with TEMP selection enabled and disabled.
+
+Use identical database contents and query inputs.
+
+Require exact public result equality before comparing latency.
+
+Include representative:
+
+- cheap queries
+- expensive queries
+- single-enrichment queries
+- multiple-enrichment queries
+- selective queries
+- broad queries
+
+Test small and large workloads.
+
+Record:
+
+- complete query latency
+- TEMP materialization cost
+- enrichment SQL cost
+- statement count
+- rows transferred from SQLite
+- direct phase profile
+
+Keep the selective TEMP strategy only if the end-to-end benchmark supports it.
+
+Update ~docs/query-sql-performance.org~ with the final rule and benchmark evidence.
+
+Run:
+
+#+begin_src sh
+make ci
+#+end_src
 
 Acceptance criteria:
 
+- The refreshed benchmark uses the current predicate-driven compiler.
 - The strategy distinguishes cheap and expensive matched relations.
+- The strategy does not depend only on result count.
+- The strategy does not depend only on consumer count.
 - Cheap relations keep repeated query-derived execution.
-- Expensive reused relations use TEMP only when benchmark evidence supports it.
-- Complete query results stay unchanged.
+- Expensive relations use TEMP only with benchmark evidence.
+- TEMP state cannot leak between public queries.
+- Error paths cannot leave stale TEMP state for later queries.
+- Complete query results remain identical.
 - Small workloads have no material regression.
 - Representative complex workloads show a measurable end-to-end improvement.
 - ~make ci~ passes.
-- Performance documentation records the final rule.
+- Performance documentation records the final rule and evidence.
 
 * TODO Investigate final Rust result shaping cost
 
-Investigate the remaining Rust-side cost of final query result shaping.
+Start this task after the shared TEMP relation task is complete.
 
-The phase benchmark shows that ~final-result-shaping~ becomes significant for large result sets.
+The query execution strategy must be stable before measuring the remaining Rust shaping cost.
+
+Read:
+
+- ~docs/query-sql-performance.org~
+- the current direct phase profiling code
+- the final query result construction path
+
+The current ~50'000~-result v9 profiles show significant ~final-result-shaping~ cost.
+
+Representative values are approximately:
+
+- normal headings: ~35 ms~
+- headings with properties: ~50 ms~
+- headings with effective properties: ~47 ms~
+- headings with path: ~44 ms~
+
+Treat these values as a starting baseline.
+
+Measure the current code again before retaining an optimization.
 
 The earlier heading-path work already removed path-specific clones and temporary path collections.
 
-Do not repeat that optimization without new evidence.
+Do not repeat that work without new profiling evidence.
 
-Do not move additional relational work from SQLite to Rust in this task.
+Do not move relational work from SQLite to Rust in this task.
 
-Profile the existing Rust shaping path first.
+Do not change the query compiler in this task.
 
-Focus on:
+Goal: reduce Rust result construction cost without changing public results.
 
-- repeated allocations
-- unnecessary clones
-- temporary collections
-- repeated map lookups
-- avoidable conversions
-- result object construction
+** Phase 1 - Profile final shaping
+
+Profile ~final-result-shaping~ separately from:
+
+- SQLite execution
+- SQLite row decoding
+- enrichment
+- outline validation
+- path construction
+- local sorting
 
 Use representative ~50'000~-result workloads.
 
-Include workloads with different enrichment shapes.
+Include at least:
 
-Make an optimization only when a benchmark shows a clear end-to-end improvement.
+- normal headings
+- headings with properties
+- headings with effective properties
+- headings with path
 
-Keep public query results unchanged.
+Identify concrete costs before changing code.
+
+Inspect:
+
+- repeated allocations
+- unnecessary clones
+- temporary vectors or maps
+- repeated map lookups
+- repeated string conversions
+- avoidable ownership conversions
+- result object construction
+- values that can move instead of clone
+
+Do not optimize code only because it looks inefficient.
+
+Require profiling evidence for each candidate.
+
+** Phase 2 - Benchmark candidate changes
+
+Apply one logical optimization at a time.
+
+Compare the candidate against the same baseline workload.
+
+Require exact public query result equality.
+
+Measure complete query latency as the final decision metric.
+
+Use direct phase profiling only for attribution.
+
+Do not add profiling instrumentation to latency samples.
+
+Test:
+
+- small workloads
+- representative ~50'000~-result workloads
+
+Keep an optimization only when it gives a clear measured benefit.
+
+A valid result for this task is also no production change.
+
+Use that result if no candidate gives a useful end-to-end improvement.
+
+Update ~docs/query-sql-performance.org~ with retained changes or the no-change decision.
+
+Run:
+
+#+begin_src sh
+make ci
+#+end_src
 
 Acceptance criteria:
 
-- Profiling identifies the remaining shaping hotspots.
-- Each retained optimization has benchmark evidence.
-- Query output remains identical.
+- Profiling identifies concrete final-shaping costs.
+- Each retained optimization has profiling evidence.
+- Each retained optimization has end-to-end benchmark evidence.
+- Public query results remain identical.
 - Small workloads have no material regression.
-- Representative large workloads show a measurable improvement.
+- Representative large workloads show a measurable improvement for retained changes.
+- A no-change decision is allowed when benchmarks reject all candidates.
 - ~make ci~ passes.
-- Performance documentation records the retained changes.
+- Performance documentation records the final result.
 
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Reduce ~presentation-json~ size based on the measured payload analysis.
+Start this task after the query-side performance tasks above are complete.
+
+Use the stable query implementation as the presentation benchmark baseline.
+
+Goal: reduce ~presentation-json~ payload size without changing presentation semantics.
+
+Read the current presentation wire-format documentation and serializer first.
+
+Establish a fresh payload baseline before changing the format.
+
+Do not depend only on estimates from earlier benchmark runs.
+
+Measure representative:
+
+- small result sets
+- large result sets
+- expanded rows
+- narrow presentations
+- wide presentations
 
 Keep these semantic guarantees:
 
@@ -1570,37 +1824,46 @@ Keep these semantic guarantees:
 - ~display_text~ preserves the final visible value
 - cells retain their semantic roles
 - several rows can reference one result
-- row contexts retain their required data
-- ~database_id~ and ~generation~ keep their current meanings
+- row contexts retain required data
+- ~database_id~ keeps its current meaning
+- ~generation~ keeps its current meaning
 
 Evaluate compact representations for repeated cell data.
 
-Possible options include:
+Candidate techniques include:
 
 - compact cell arrays instead of repeated object keys
 - omission rules where ~search_text~ and ~display_text~ are identical
 - compact semantic role encoding
-- removal of data that already exists through ~result_index~
-- removal of duplicated row-context data where the client can recover it safely
+- removal of data already available through ~result_index~
+- removal of duplicated row-context data that the documented format can recover safely
 
 Prefer simple wire rules over complex compression logic.
 
-Do not require the client to reconstruct information from undocumented assumptions.
+Every omission rule must be explicit in the wire-format documentation.
+
+Do not require the client to infer information from undocumented assumptions.
 
 Keep the normal ~--format json~ contract unchanged.
 
-Do not add JSONL or streaming in this task.
+Do not add JSONL in this task.
 
-Do not add a presentation cache.
+Do not add streaming in this task.
 
-After the change, rerun the existing benchmark workloads.
+Do not add a presentation cache in this task.
 
-Compare:
+Compare the old and candidate presentation formats with identical input.
 
-- payload size
+Require semantic equality before comparing performance.
+
+Measure:
+
+- payload bytes
 - serialization time
+- presentation processing time
 - total CLI time
-- presentation output semantics
+
+Update the wire-format documentation after the final representation is selected.
 
 Acceptance criteria:
 
@@ -1608,27 +1871,29 @@ Acceptance criteria:
 - Normal ~--format json~ remains unchanged.
 - Payload size decreases materially for large result sets.
 - Expanded-row workloads also decrease materially.
-- The new format remains simple for an Emacs client to parse.
-- Benchmark results compare the old and new payload sizes.
-- The wire-format documentation describes the optimized representation.
+- Small workloads have no material regression.
+- The representation remains simple for an Emacs client to parse.
+- Benchmark results record old and new payload sizes.
+- Benchmark results record serialization and total CLI time.
+- Wire-format documentation defines every compact representation and omission rule.
+- ~make ci~ passes.
 
 * TODO Evaluate presentation pipeline parallelism
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Use the uncached benchmark results to add parallel execution only where measurements show a useful improvement.
+Start this task after presentation payload optimization is complete.
 
-Keep the presentation pipeline easy to parallelize before this task:
+Use the final sequential presentation pipeline as the baseline.
 
-- Prefer immutable input data.
-- Keep row processing independent.
-- Avoid shared mutable state between rows.
-- Build extracted values locally.
-- Build sort keys locally.
-- Format each row independently after shared widths are known.
+Goal: add parallel execution only where profiling shows useful CPU-bound work.
 
-Evaluate parallel execution for measured bottlenecks such as:
+A valid result for this task is to keep the complete pipeline sequential.
+
+Profile the sequential pipeline before adding a dependency.
+
+Measure stages such as:
 
 - value extraction
 - row expansion
@@ -1637,12 +1902,44 @@ Evaluate parallel execution for measured bottlenecks such as:
 - width reduction
 - truncation and padding
 - final row formatting
+- serialization where applicable
 
-Use ~rayon~ or another Rust-native solution only if benchmark results justify the dependency and complexity.
+Keep the pipeline suitable for parallel execution:
 
-Do not parallelize the SQLite query by default.
+- Prefer immutable shared input.
+- Keep row processing independent.
+- Avoid shared mutable state between rows.
+- Build extracted values locally.
+- Build sort keys locally.
+- Format each row independently after shared widths are known.
+
+Do not parallelize SQLite query execution by default.
 
 Keep one database snapshot for each presentation response.
+
+Do not add ~rayon~ or another dependency before benchmarks identify a suitable bottleneck.
+
+If a candidate stage is expensive enough, compare sequential and parallel implementations.
+
+Use identical benchmark inputs.
+
+Require exact output equality.
+
+Keep result ordering deterministic.
+
+Measure:
+
+- stage latency
+- complete presentation latency
+- total CLI latency
+- small-workload overhead
+- large-workload improvement
+
+If parallel startup and coordination cost dominates, keep that stage sequential.
+
+If useful only above a workload threshold, use a simple deterministic threshold.
+
+Document the threshold and its benchmark evidence.
 
 Do not change:
 
@@ -1652,76 +1949,105 @@ Do not change:
 - ~result_index~ references
 - ~database_id~ semantics
 - ~generation~ semantics
-- the existing JSON compatibility contract
-
-Compare sequential and parallel execution with identical benchmark inputs.
-
-Repeat the benchmark for representative small and large result sets after each retained optimization.
-
-Keep sequential execution for small workloads if parallel execution adds more cost than it removes.
+- normal ~--format json~ compatibility
 
 Acceptance criteria:
 
-- Baseline benchmarks identify the expensive presentation stages.
-- Parallel execution targets only measured bottlenecks.
+- Baseline profiling identifies the expensive presentation stages.
+- Parallel execution targets only measured CPU bottlenecks.
 - Sequential and parallel execution produce identical output.
-- Result ordering stays deterministic.
-- Small workloads have no material performance regression.
-- Large workloads show a measurable improvement where parallel execution stays enabled.
+- Result ordering remains deterministic.
+- Small workloads have no material regression.
+- Enabled parallel paths show a measurable large-workload improvement.
+- The implementation keeps sequential execution where parallel work loses.
+- A fully sequential final design is allowed when benchmarks reject parallelism.
 - Benchmark results record the final execution strategy.
+- ~make ci~ passes.
 
 * TODO Decide whether Rust-side presentation caching is justified
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Decide whether Rust needs a presentation cache after the complete pipeline and measured optimizations are available.
+Start this task after payload and parallelism decisions are complete.
 
-Base the decision on benchmark results from the sequential and optimized presentation pipeline.
+Use the final optimized presentation pipeline as the baseline.
 
-Consider:
+Goal: decide whether a Rust-side presentation cache solves a measured remaining bottleneck.
+
+Do not implement a cache in this task.
+
+Measure the complete cost of representative presentation requests.
+
+Separate:
 
 - database query cost
 - presentation CPU cost
 - process startup cost
 - JSON serialization cost
 - payload size
-- expected client transfer cost
-- expected repeated-query patterns
+- repeated-query cost
 
-Possible outcomes:
+Use measured values where possible.
+
+Label transfer-cost estimates separately from measured local execution costs.
+
+Test realistic repeated-query patterns for the Emacs client.
+
+Consider these possible outcomes:
 
 - no presentation cache
 - persistent disk cache
 - long-lived ~orgfdb~ process or daemon
-- another mechanism that targets a measured bottleneck
+- another mechanism that targets the measured bottleneck
 
 Do not add a cache only because ~database_id~, ~generation~, and ~changes~ already exist.
 
-Keep the existing meanings of ~database_id~, ~generation~, and ~changes~.
+Keep the existing meanings of:
 
-If no Rust-side cache is justified, record that decision and continue without a cache.
+- ~database_id~
+- ~generation~
+- ~changes~
 
-If a cache is justified, create separate implementation TODOs for the measured bottleneck.
+For each cache candidate, identify:
 
-Do not implement the cache in this decision task.
+- cached value
+- cache key
+- invalidation source
+- expected hit pattern
+- expected saved work
+- lifecycle complexity
+
+Do not design detailed cache internals before the measurements justify a cache.
+
+If no Rust-side cache is justified, record that decision and close this task.
+
+If a cache is justified, create separate implementation TODOs.
+
+Do not implement those TODOs as part of this decision task.
 
 Acceptance criteria:
 
-- Benchmark evidence supports the cache decision.
-- The decision uses measurements from the optimized presentation pipeline.
+- Benchmark evidence supports the final cache decision.
+- Measurements use the final optimized presentation pipeline.
+- The decision separates startup, query, presentation, and serialization costs.
+- The decision describes realistic repeated-query patterns.
 - Existing generation and change semantics keep their current meanings.
 - Unnecessary cache lifecycle complexity is avoided.
-- Any required cache implementation gets separate TODOs.
+- A no-cache decision requires no further implementation task.
+- A cache decision creates separate focused implementation TODOs.
+- Performance documentation records the decision.
 
 * TODO Finalize presentation architecture documentation
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
-Goal: Update the documentation after the presentation implementation, benchmarks, optimization work, and cache decision are complete.
+Start this task after the presentation implementation and performance decisions are complete.
 
 Document the implemented system instead of the earlier design proposal.
+
+Use the current code and public CLI behavior as the source of truth.
 
 Update:
 
@@ -1729,14 +2055,19 @@ Update:
 - ~PresentationSpec~
 - supported columns
 - semantic roles
-- result, row, and cell representation
+- result representation
+- row representation
+- cell representation
 - row expansion
 - include inference
 - sorting
-- width, truncation, and padding behavior
+- width behavior
+- truncation behavior
+- padding behavior
+- presentation JSON representation
 - compatibility guarantees
 - performance observations
-- parallel execution strategy
+- parallel execution decision
 - cache decision
 
 Retain this compatibility guarantee clearly:
@@ -1747,15 +2078,28 @@ orgfdb query --format json ...
 
 The command keeps its existing JSON contract.
 
-Remove or update design text that no longer describes the implemented architecture.
+Remove design text that no longer describes the implementation.
+
+Mark historical alternatives clearly if they remain useful.
+
+Do not present rejected alternatives as current architecture.
 
 Use public examples that run against the implemented CLI.
+
+Verify each example against the current command-line interface.
 
 Acceptance criteria:
 
 - Current documentation describes the implemented presentation architecture.
-- Planned sections become implemented documentation where appropriate.
-- Rejected design alternatives are not presented as current architecture.
+- Planned sections become implementation documentation where appropriate.
+- Rejected alternatives are not presented as current architecture.
 - Public examples run against the implemented CLI.
+- Presentation JSON semantics match the implemented serializer.
 - The normal JSON compatibility guarantee is explicit.
-- The Emacs client has a stable documented interface to implement against.
+- Performance documentation matches the final measured strategies.
+- The Emacs client has one stable documented interface to implement against.
+- ~make ci~ passes.
+  
+* TODO Auto rename > resolve link mode
+
+The watcher automatically fixes links upon renaming files (filename, dir, path). This would be cool, no more having to worry about this. Should be a configuration flat in the toml.
