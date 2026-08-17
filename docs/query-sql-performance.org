@@ -392,6 +392,70 @@ The Rust-driven loader transfers ~100'000~ rows instead of ~150'000~ rows for al
 
 This result supports the production switch while keeping runtime-limit-safe chunking.
 
+** Production path rebenchmark baseline
+
+The pre-switch schema version ~3~ run provides the production ~headings.path~ A/B baseline.
+
+It ran on the same local machine and SQLite environment that will run the post-switch benchmark.
+
+| Results | Pre-switch median | SQL statements | Rows transferred |
+|---------+-------------------+----------------+------------------|
+| 100 | ~1.346579 ms~ | 4 | 700 |
+| 1'000 | ~13.033683 ms~ | 4 | 7'000 |
+| 10'000 | ~114.541652 ms~ | 4 | 70'000 |
+| 50'000 | ~502.262111 ms~ | 4 | 350'000 |
+
+The baseline comes from ~orgfdb-query-sql-benchmark-rust-vs-sqlite-v1.json~.
+
+** Production path rebenchmark result
+
+The second post-switch run is the recorded production result.
+
+| Results | Pre-switch | Post-switch v2 | Change | Rows before | Rows after |
+|---------+------------+----------------+--------+-------------+------------|
+| 100 | ~1.346579 ms~ | ~0.678259 ms~ | ~-49.6%~ | 700 | 600 |
+| 1'000 | ~13.033683 ms~ | ~5.360033 ms~ | ~-58.9%~ | 7'000 | 6'000 |
+| 10'000 | ~114.541652 ms~ | ~79.084026 ms~ | ~-31.0%~ | 70'000 | 60'000 |
+| 50'000 | ~502.262111 ms~ | ~570.870439 ms~ | ~+13.7%~ | 350'000 | 300'000 |
+
+The first post-switch run reported ~580.245167 ms~ at ~50'000~ results.
+
+The second run reported ~570.870439 ms~ after the benchmark machine stayed idle.
+
+The similar large-result values make the production regression a real follow-up signal.
+
+The same second run still favors the Rust-driven loader in the controlled path strategy section.
+
+| Strategy | 50'000-result median | Rows transferred |
+|----------+------------------------+------------------|
+| ~recursive-query-derived~ | ~282.251136 ms~ | 150'000 |
+| ~rust-driven-bulk-ancestors~ | ~211.825539 ms~ | 100'000 |
+
+The Rust-driven loader is approximately ~25.0%~ faster in that same-process comparison.
+
+The production result does not justify an immediate return to the recursive SQL strategy.
+
+Run one same-process complete production A/B before changing the loader again.
+
+Then optimize the Rust construction and shaping cost if the complete A/B still favors the Rust-driven loader.
+
+At ~50'000~ results, the v2 direct phase profile reports approximately:
+
+#+begin_example
+enrichment SQL          117.1 ms
+matched SQL              44.1 ms
+SQLite row decoding      92.4 ms
+Rust grouping            53.6 ms
+Rust local sorting       21.4 ms
+outline validation       12.3 ms
+path construction        61.2 ms
+final result shaping     86.2 ms
+#+end_example
+
+The direct phase profile comes from a separate instrumented sample.
+
+Do not subtract its phase sum from the latency median.
+
 * Run the SQL benchmark
 
 Build the release benchmark binary.
@@ -433,7 +497,22 @@ target/release/orgfdb-query-sql-benchmark \
 
 This focused run still records the normal ~50'000~-result benchmark sections.
 
-The ~path_strategies~ section is the decision input for this task.
+The ~path_strategies~ section is the decision input for the variable-limit sensitivity task.
+
+For the production heading path rebenchmark, run the standard result sizes without an explicit path variable limit.
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-production-path-v1.json
+#+end_src
+
+Use the ~headings.path~ entry under ~workloads~ for the end-to-end comparison.
+
+Use its ~direct_phase_profile~ for attribution.
 
 * Benchmark output
 
@@ -484,10 +563,18 @@ Selective TEMP relation production logic remains a separate follow-up.
 
 The implementation keeps runtime-limit ~IN (...)~ as the safe fallback for Rust-originated ID sets.
 
-The production path fast path still uses the recursive query-derived ancestor loader.
+The production direct-flat heading path now uses the Rust-driven bounded ancestor loader.
 
-Schema version ~3~ showed that the Rust-driven bounded ancestor loader wins at the local ~250000~ variable limit.
+Schema version ~3~ showed that this loader wins at the local ~250000~ variable limit.
 
-Schema version ~4~ measures whether that advantage remains with smaller SQLite variable limits.
+Schema version ~4~ confirmed the advantage at ~250000~, ~32766~, and ~999~.
 
-Do not move the path loader to production until the variable-limit sensitivity benchmark provides that evidence.
+The recursive query-derived loader remains only as a benchmark reference.
+
+The production rebenchmark shows clear gains through ~10'000~ results and a ~13.7%~ regression at ~50'000~ results.
+
+The same-process loader comparison still favors ~rust-driven-bulk-ancestors~ by approximately ~25.0%~ at ~50'000~ results.
+
+Keep the current Rust-driven loader while the next task runs a complete same-process production A/B.
+
+Then optimize the remaining Rust construction and shaping cost if that comparison still favors the Rust-driven loader.

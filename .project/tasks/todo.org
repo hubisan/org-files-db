@@ -951,7 +951,7 @@ Record:
 
 Keep the Rust-driven strategy only if its end-to-end advantage remains clear with smaller variable limits.
 
-* REVIEW Replace recursive heading path loading with Rust-driven bulk ancestors
+* DONE Replace recursive heading path loading with Rust-driven bulk ancestors
 
 Task file: [[./2026-08-17--replace-recursive-heading-path-loading.org][Replace Recursive Heading Path Loading with Rust-Driven Bulk Ancestors]]
 
@@ -979,7 +979,9 @@ Keep the current recursive query-derived loader until the variable-limit benchma
 
 Add regression tests for nested paths, small variable limits, missing ancestors, cross-file parents, and malformed ~outline_path~ data.
 
-* TODO Rebenchmark production heading path after Rust ancestor loading
+* REVIEW Rebenchmark production heading path after Rust ancestor loading
+
+Task file: [[./2026-08-17--rebenchmark-production-heading-path.org][Rebenchmark Production Heading Path after Rust Ancestor Loading]]
 
 Measure the complete production ~headings.path~ workload after the Rust-driven ancestor loader is active.
 
@@ -1005,6 +1007,45 @@ Record:
 Confirm that the isolated path benchmark improvement also reduces end-to-end ~headings.path~ latency.
 
 Update ~docs/query-sql-performance.org~ with the result.
+
+* TODO Optimize production heading path Rust construction and shaping
+
+Remove the large-result Rust overhead that remains after the bulk ancestor loader switch.
+
+The isolated ~rust-driven-bulk-ancestors~ loader is faster than the recursive loader at ~50'000~ headings.
+
+The complete production ~headings.path~ workload still regresses against the pre-switch baseline at ~50'000~ results.
+
+Keep the current Rust-driven production strategy while this task measures the integration cost.
+
+First add a benchmark-only same-process A/B for the complete production ~headings.path~ workload.
+
+Run the full match, tag enrichment, path enrichment, and final shaping with both path loaders.
+
+Use that result to confirm whether the production composition still favors the Rust-driven loader.
+
+Profile the production composition around:
+
+- heading path construction
+- cloning ~heading_paths~ into final result nodes
+- temporary ~BTreeSet~ and ~HashMap~ allocations
+- repeated path entry string clones
+- interaction with already loaded tag data
+- final direct-flat result shaping
+
+Test whether final shaping can move each path into its result instead of cloning the complete ~Vec<PathEntry>~.
+
+Add direct timing only where the existing phase profile cannot isolate the cost.
+
+Use ~50'000~ results as the primary benchmark.
+
+Also rerun 100, 1'000, and 10'000 results to prevent small-result regressions.
+
+Keep public query output, ordering, validation errors, and the recursive benchmark reference unchanged.
+
+Reconsider the production loader only if the complete same-process A/B favors the recursive strategy.
+
+Accept an optimization only when the complete production ~headings.path~ benchmark improves.
 
 * TODO Benchmark predicate-driven SQL for direct metadata filters
 
