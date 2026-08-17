@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use super::priority::normalize_priority;
 use super::result::QueryExecutionOptions;
+use super::sql_support::id_chunk_capacity;
 use super::{
     ensure_relative_dates_resolved, resolve_relative_dates, resolve_temporal_bounds,
     QueryDateResolutionOptions, QueryTarget, QueryValidationOptions, QueryValue, ValidatedArg,
@@ -91,7 +92,6 @@ pub struct LinkQueryRow {
     pub file_path: String,
     pub heading_id: i64,
     pub heading_level: i64,
-    pub heading_breadcrumbs_json: String,
     pub source_context: String,
     pub format: String,
     pub link_type: String,
@@ -123,6 +123,7 @@ pub struct FileQueryRow {
     pub root_heading_id: i64,
     pub root_title: String,
     pub root_title_raw: Option<String>,
+    pub root_line_number: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,7 +291,13 @@ impl QueryScope {
     }
 
     fn root_col(&self, column: &str) -> String {
-        format!("{}.{}", self.root_alias, column)
+        if self.target == QueryTarget::Headings
+            && self.heading_match_kind == HeadingMatchKind::RootFile
+        {
+            self.heading_col(column)
+        } else {
+            format!("{}.{}", self.root_alias, column)
+        }
     }
 
     fn link_col(&self, column: &str) -> String {
@@ -299,10 +306,6 @@ impl QueryScope {
 
     fn link_heading_col(&self, column: &str) -> String {
         format!("{}.{}", self.link_heading_alias, column)
-    }
-
-    fn outline_col(&self, column: &str) -> String {
-        format!("{}.{}", self.outline_alias, column)
     }
 }
 
@@ -355,10 +358,14 @@ fn compile_sqlite_query_with_file_restriction(
         &scope,
         restrict_files,
     );
+    let bound_parameter_count = where_clause
+        .as_ref()
+        .map_or(0, |fragment| fragment.params.len());
 
     let sql = match query.target {
         QueryTarget::Headings => format!(
-            "SELECT
+            "/* orgfdb:match-headings params={bound_parameter_count} */
+             SELECT
                 {heading_id},
                 {heading_file_id},
                 {file_path},
@@ -381,9 +388,12 @@ fn compile_sqlite_query_with_file_restriction(
                 {heading_archivedp},
                 {heading_footnote_section_p}
              {}
-             {}
-             ORDER BY {file_path}, {heading_byte_start}, {heading_id}",
-            heading_from_clause(&scope),
+             {}",
+            heading_from_clause(
+                &scope,
+                true,
+                fragment_references_root(&scope, where_clause.as_ref()),
+            ),
             render_where_clause(where_clause.as_ref()),
             heading_id = scope.heading_col("id"),
             heading_file_id = scope.heading_col("file_id"),
@@ -408,13 +418,13 @@ fn compile_sqlite_query_with_file_restriction(
             heading_footnote_section_p = scope.heading_col("footnote_section_p"),
         ),
         QueryTarget::Links => format!(
-            "SELECT
+            "/* orgfdb:match-links params={bound_parameter_count} */
+             SELECT
                 {link_id},
                 {link_file_id},
                 {file_path},
                 {link_heading_id},
                 {link_heading_level},
-                {outline_breadcrumbs},
                 {link_source_context},
                 {link_format},
                 {link_type},
@@ -434,16 +444,14 @@ fn compile_sqlite_query_with_file_restriction(
                 {link_byte_end},
                 {link_line}
              {}
-             {}
-             ORDER BY {file_path}, {link_byte_start}, {link_id}",
-            link_from_clause(&scope),
+             {}",
+            link_from_clause(&scope, true),
             render_where_clause(where_clause.as_ref()),
             link_id = scope.link_col("id"),
             link_file_id = scope.link_col("file_id"),
             file_path = scope.file_col("path"),
             link_heading_id = scope.link_col("heading_id"),
             link_heading_level = scope.link_heading_col("level"),
-            outline_breadcrumbs = scope.outline_col("breadcrumbs_json"),
             link_source_context = scope.link_col("source_context"),
             link_format = scope.link_col("format"),
             link_type = scope.link_col("link_type"),
@@ -464,7 +472,8 @@ fn compile_sqlite_query_with_file_restriction(
             link_line = scope.link_col("line"),
         ),
         QueryTarget::Files => format!(
-            "SELECT
+            "/* orgfdb:match-files params={bound_parameter_count} */
+             SELECT
                 {file_id},
                 {file_path},
                 {file_mtime_ns},
@@ -473,11 +482,11 @@ fn compile_sqlite_query_with_file_restriction(
                 {file_indexed_at},
                 {root_id},
                 {root_title},
-                {root_title_raw}
+                {root_title_raw},
+                {root_line_number}
              {}
-             {}
-             ORDER BY {file_path}, {file_id}",
-            file_from_clause(&scope),
+             {}",
+            file_from_clause(&scope, true),
             render_where_clause(where_clause.as_ref()),
             file_id = scope.file_col("id"),
             file_path = scope.file_col("path"),
@@ -488,6 +497,7 @@ fn compile_sqlite_query_with_file_restriction(
             root_id = scope.root_col("id"),
             root_title = scope.root_col("title"),
             root_title_raw = scope.root_col("title_raw"),
+            root_line_number = scope.root_col("line_number"),
         ),
     };
 
@@ -577,15 +587,100 @@ fn execute_headings_query(
         .map(HeadingQueryMatch::Heading)
         .collect::<Vec<_>>();
 
-    let root_compiled = compile_heading_root_file_query(query, restrict_files)?;
-    rows.extend(
-        execute_file_rows_query(connection, &root_compiled)?
-            .into_iter()
-            .map(HeadingQueryMatch::File),
-    );
+    if heading_root_truth(query.predicate.as_ref()) != StaticTruth::False {
+        let root_compiled = compile_heading_root_file_query(query, restrict_files)?;
+        rows.extend(
+            execute_file_rows_query(connection, &root_compiled)?
+                .into_iter()
+                .map(HeadingQueryMatch::File),
+        );
+    }
 
     rows.sort_by(compare_heading_query_matches);
     Ok(QueryRows::Headings(rows))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaticTruth {
+    True,
+    False,
+    Unknown,
+}
+
+fn heading_root_truth(expr: Option<&ValidatedExpr>) -> StaticTruth {
+    let Some(expr) = expr else {
+        return StaticTruth::True;
+    };
+    match expr {
+        ValidatedExpr::And(children) => {
+            let mut saw_unknown = false;
+            for child in children {
+                match heading_root_truth(Some(child)) {
+                    StaticTruth::False => return StaticTruth::False,
+                    StaticTruth::Unknown => saw_unknown = true,
+                    StaticTruth::True => {}
+                }
+            }
+            if saw_unknown {
+                StaticTruth::Unknown
+            } else {
+                StaticTruth::True
+            }
+        }
+        ValidatedExpr::Or(children) => {
+            let mut saw_unknown = false;
+            for child in children {
+                match heading_root_truth(Some(child)) {
+                    StaticTruth::True => return StaticTruth::True,
+                    StaticTruth::Unknown => saw_unknown = true,
+                    StaticTruth::False => {}
+                }
+            }
+            if saw_unknown {
+                StaticTruth::Unknown
+            } else {
+                StaticTruth::False
+            }
+        }
+        ValidatedExpr::Not(child) => match heading_root_truth(Some(child)) {
+            StaticTruth::True => StaticTruth::False,
+            StaticTruth::False => StaticTruth::True,
+            StaticTruth::Unknown => StaticTruth::Unknown,
+        },
+        ValidatedExpr::Predicate(predicate) => heading_root_predicate_truth(predicate),
+    }
+}
+
+fn heading_root_predicate_truth(predicate: &ValidatedPredicate) -> StaticTruth {
+    match predicate.name.as_str() {
+        "level" => level_predicate_truth_at_zero(predicate),
+        "parent" | "ancestors" | "has-text" => StaticTruth::False,
+        _ => StaticTruth::Unknown,
+    }
+}
+
+fn level_predicate_truth_at_zero(predicate: &ValidatedPredicate) -> StaticTruth {
+    let matches = match predicate.args.as_slice() {
+        [ValidatedArg::Scalar(QueryValue::Integer(value))] => *value == 0,
+        [ValidatedArg::Scalar(QueryValue::Integer(minimum)), ValidatedArg::Scalar(QueryValue::Integer(maximum))] => {
+            *minimum <= 0 && 0 <= *maximum
+        }
+        [ValidatedArg::Scalar(QueryValue::Symbol(comparator)), ValidatedArg::Scalar(QueryValue::Integer(value))] => {
+            match comparator.as_str() {
+                "<" => 0 < *value,
+                "<=" => 0 <= *value,
+                ">" => 0 > *value,
+                ">=" => 0 >= *value,
+                _ => unreachable!("validator should guarantee a valid level comparator"),
+            }
+        }
+        _ => unreachable!("validator should guarantee valid level arguments"),
+    };
+    if matches {
+        StaticTruth::True
+    } else {
+        StaticTruth::False
+    }
 }
 
 fn execute_heading_rows_query(
@@ -640,36 +735,49 @@ fn load_effective_tags_for_heading_rows(
         return Ok(());
     }
 
-    const TAG_LOAD_CHUNK_SIZE: usize = 900;
+    let chunk_size = id_chunk_capacity(connection, 0);
     let ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
-    let mut by_heading = std::collections::HashMap::<i64, Vec<String>>::new();
-    for chunk in ids.chunks(TAG_LOAD_CHUNK_SIZE) {
+    let mut by_heading = std::collections::HashMap::<i64, Vec<(i64, String)>>::new();
+    for chunk in ids.chunks(chunk_size) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
         let sql = format!(
-            "SELECT heading_id, tag
+            "/* orgfdb:query-heading-tags params={} */
+             SELECT heading_id, position, tag
              FROM effective_tags
-             WHERE heading_id IN ({placeholders})
-             ORDER BY heading_id, position"
+             WHERE heading_id IN ({placeholders})",
+            chunk.len()
         );
         let mut statement = connection.prepare(&sql).map_err(|source| {
             QueryExecutionError::database(target, "load_effective_tags.prepare", source)
         })?;
         let tag_rows = statement
             .query_map(params_from_iter(chunk.iter()), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|source| {
                 QueryExecutionError::database(target, "load_effective_tags.query", source)
             })?;
         for tag_row in tag_rows {
-            let (heading_id, tag) = tag_row.map_err(|source| {
+            let (heading_id, position, tag) = tag_row.map_err(|source| {
                 QueryExecutionError::database(target, "load_effective_tags.collect", source)
             })?;
-            by_heading.entry(heading_id).or_default().push(tag);
+            by_heading
+                .entry(heading_id)
+                .or_default()
+                .push((position, tag));
         }
     }
     for row in rows {
-        let tags = by_heading.remove(&row.id).unwrap_or_default();
+        let mut positioned_tags = by_heading.remove(&row.id).unwrap_or_default();
+        positioned_tags.sort_by_key(|(position, _)| *position);
+        let tags = positioned_tags
+            .into_iter()
+            .map(|(_, tag)| tag)
+            .collect::<Vec<_>>();
         row.all_tags_json = serde_json::to_string(&tags)
             .expect("serializing effective tag strings to JSON cannot fail");
     }
@@ -691,31 +799,37 @@ fn execute_links_query(
                 file_path: row.get(2)?,
                 heading_id: row.get(3)?,
                 heading_level: row.get(4)?,
-                heading_breadcrumbs_json: row.get(5)?,
-                source_context: row.get(6)?,
-                format: row.get(7)?,
-                link_type: row.get(8)?,
-                raw: row.get(9)?,
-                raw_target: row.get(10)?,
-                raw_description: row.get(11)?,
-                path: row.get(12)?,
-                search_option: row.get(13)?,
-                path_absolute: row.get(14)?,
-                target_file_id: row.get(15)?,
-                target_heading_id: row.get(16)?,
-                target_custom_id: row.get(17)?,
-                target_id: row.get(18)?,
-                resolution_status: row.get(19)?,
-                resolution_diagnostic: row.get(20)?,
-                byte_start: row.get(21)?,
-                byte_end: row.get(22)?,
-                line: row.get(23)?,
+                source_context: row.get(5)?,
+                format: row.get(6)?,
+                link_type: row.get(7)?,
+                raw: row.get(8)?,
+                raw_target: row.get(9)?,
+                raw_description: row.get(10)?,
+                path: row.get(11)?,
+                search_option: row.get(12)?,
+                path_absolute: row.get(13)?,
+                target_file_id: row.get(14)?,
+                target_heading_id: row.get(15)?,
+                target_custom_id: row.get(16)?,
+                target_id: row.get(17)?,
+                resolution_status: row.get(18)?,
+                resolution_diagnostic: row.get(19)?,
+                byte_start: row.get(20)?,
+                byte_end: row.get(21)?,
+                line: row.get(22)?,
             })
         })
         .map_err(|source| QueryExecutionError::database(compiled.target, "query", source))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map(QueryRows::Links)
-        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
+    let mut rows = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))?;
+    rows.sort_by(|left, right| {
+        left.file_path
+            .cmp(&right.file_path)
+            .then_with(|| left.byte_start.cmp(&right.byte_start))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(QueryRows::Links(rows))
 }
 
 fn execute_files_query(
@@ -744,11 +858,19 @@ fn execute_file_rows_query(
                 root_heading_id: row.get(6)?,
                 root_title: row.get(7)?,
                 root_title_raw: row.get(8)?,
+                root_line_number: row.get(9)?,
             })
         })
         .map_err(|source| QueryExecutionError::database(compiled.target, "query", source))?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))
+    let mut rows = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))?;
+    rows.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(rows)
 }
 
 fn ensure_body_text_backend_capabilities(
@@ -2076,9 +2198,19 @@ fn compile_nested_target_exists(
     let (id_column, from_clause) = match query.target {
         QueryTarget::Headings => (
             nested_scope.heading_col("id"),
-            heading_from_clause(&nested_scope),
+            heading_from_clause(
+                &nested_scope,
+                fragment_references_file(&nested_scope, filter.as_ref()),
+                fragment_references_root(&nested_scope, filter.as_ref()),
+            ),
         ),
-        QueryTarget::Files => (nested_scope.file_col("id"), file_from_clause(&nested_scope)),
+        QueryTarget::Files => (
+            nested_scope.file_col("id"),
+            file_from_clause(
+                &nested_scope,
+                fragment_references_root(&nested_scope, filter.as_ref()),
+            ),
+        ),
         QueryTarget::Links => unreachable!("validator should reject nested links here"),
     };
 
@@ -2185,7 +2317,11 @@ fn compile_heading_hierarchy_predicate(
     Ok(SqlFragment {
         sql: format!(
             "(EXISTS (SELECT 1 {}{} WHERE {}))",
-            heading_from_clause(&nested_scope),
+            heading_from_clause(
+                &nested_scope,
+                fragment_references_file(&nested_scope, Some(&combined)),
+                fragment_references_root(&nested_scope, Some(&combined)),
+            ),
             extra_joins,
             combined.sql
         ),
@@ -2230,7 +2366,7 @@ fn compile_has_link_predicate(
     Ok(SqlFragment {
         sql: format!(
             "(EXISTS (SELECT 1 {} WHERE {}))",
-            link_from_clause(&link_scope),
+            link_from_clause(&link_scope, false),
             combined.sql
         ),
         params: combined.params,
@@ -2277,7 +2413,7 @@ fn compile_links_to_predicate(
     Ok(SqlFragment {
         sql: format!(
             "(EXISTS (SELECT 1 {} WHERE {}))",
-            link_from_clause(&link_scope),
+            link_from_clause(&link_scope, false),
             combined.sql
         ),
         params: combined.params,
@@ -2326,7 +2462,7 @@ fn compile_linked_from_predicate(
     Ok(SqlFragment {
         sql: format!(
             "(EXISTS (SELECT 1 {} WHERE {}))",
-            link_from_clause(&link_scope),
+            link_from_clause(&link_scope, false),
             combined.sql
         ),
         params: combined.params,
@@ -2475,25 +2611,29 @@ fn prepare_file_restriction(
 ) -> Result<(), QueryExecutionError> {
     connection
         .execute_batch(&format!(
-            "CREATE TEMP TABLE IF NOT EXISTS {QUERY_FILE_RESTRICTION_TABLE} (
+            "/* orgfdb:restrict-files-reset params=0 */
+             CREATE TEMP TABLE IF NOT EXISTS {QUERY_FILE_RESTRICTION_TABLE} (
                  path TEXT PRIMARY KEY
              );
+             /* orgfdb:restrict-files-reset params=0 */
              DELETE FROM {QUERY_FILE_RESTRICTION_TABLE};"
         ))
         .map_err(|source| {
             QueryExecutionError::database(target, "prepare_file_restriction.reset", source)
         })?;
-    let mut statement = connection
-        .prepare(&format!(
-            "INSERT OR IGNORE INTO temp.{QUERY_FILE_RESTRICTION_TABLE} (path) VALUES (?1)"
-        ))
-        .map_err(|source| {
-            QueryExecutionError::database(target, "prepare_file_restriction.prepare", source)
-        })?;
-    for path in paths {
-        statement.execute([path]).map_err(|source| {
-            QueryExecutionError::database(target, "prepare_file_restriction.insert", source)
-        })?;
+    let chunk_size = id_chunk_capacity(connection, 0);
+    for chunk in paths.chunks(chunk_size) {
+        let values = vec!["(?)"; chunk.len()].join(", ");
+        let sql = format!(
+            "/* orgfdb:restrict-files-insert params={} */
+             INSERT OR IGNORE INTO temp.{QUERY_FILE_RESTRICTION_TABLE} (path) VALUES {values}",
+            chunk.len()
+        );
+        connection
+            .execute(&sql, params_from_iter(chunk.iter()))
+            .map_err(|source| {
+                QueryExecutionError::database(target, "prepare_file_restriction.insert", source)
+            })?;
     }
     Ok(())
 }
@@ -2505,47 +2645,64 @@ fn render_where_clause(fragment: Option<&SqlFragment>) -> String {
     }
 }
 
-fn heading_from_clause(scope: &QueryScope) -> String {
-    format!(
-        "FROM headings AS {}
-         INNER JOIN files AS {} ON {}.id = {}.file_id
-         INNER JOIN headings AS {} ON {}.file_id = {}.file_id AND {}.level = 0",
-        scope.heading_alias,
-        scope.file_alias,
-        scope.file_alias,
-        scope.heading_alias,
-        scope.root_alias,
-        scope.root_alias,
-        scope.heading_alias,
-        scope.root_alias
-    )
+fn heading_from_clause(scope: &QueryScope, include_file: bool, include_root: bool) -> String {
+    let mut sql = format!("FROM headings AS {}", scope.heading_alias);
+    if include_file {
+        sql.push_str(&format!(
+            "\n         INNER JOIN files AS {} ON {}.id = {}.file_id",
+            scope.file_alias, scope.file_alias, scope.heading_alias
+        ));
+    }
+    if include_root {
+        sql.push_str(&format!(
+            "\n         INNER JOIN headings AS {} ON {}.file_id = {}.file_id AND {}.level = 0",
+            scope.root_alias, scope.root_alias, scope.heading_alias, scope.root_alias
+        ));
+    }
+    sql
 }
 
-fn link_from_clause(scope: &QueryScope) -> String {
+fn fragment_references_file(scope: &QueryScope, fragment: Option<&SqlFragment>) -> bool {
+    fragment.is_some_and(|fragment| fragment.sql.contains(&format!("{}.", scope.file_alias)))
+}
+
+fn fragment_references_root(scope: &QueryScope, fragment: Option<&SqlFragment>) -> bool {
+    if scope.target == QueryTarget::Headings
+        && scope.heading_match_kind == HeadingMatchKind::RootFile
+    {
+        return false;
+    }
+    fragment.is_some_and(|fragment| fragment.sql.contains(&format!("{}.", scope.root_alias)))
+}
+
+fn link_from_clause(scope: &QueryScope, include_output_context: bool) -> String {
+    if !include_output_context {
+        return format!("FROM links AS {}", scope.link_alias);
+    }
+
     format!(
         "FROM links AS {}
          INNER JOIN files AS {} ON {}.id = {}.file_id
-         INNER JOIN headings AS {} ON {}.id = {}.heading_id
-         INNER JOIN outline_path AS {} ON {}.heading_id = {}.heading_id",
+         INNER JOIN headings AS {} ON {}.id = {}.heading_id",
         scope.link_alias,
         scope.file_alias,
         scope.file_alias,
         scope.link_alias,
         scope.link_heading_alias,
         scope.link_heading_alias,
-        scope.link_alias,
-        scope.outline_alias,
-        scope.outline_alias,
         scope.link_alias
     )
 }
 
-fn file_from_clause(scope: &QueryScope) -> String {
-    format!(
-        "FROM files AS {}
-         INNER JOIN headings AS {} ON {}.file_id = {}.id AND {}.level = 0",
-        scope.file_alias, scope.root_alias, scope.root_alias, scope.file_alias, scope.root_alias
-    )
+fn file_from_clause(scope: &QueryScope, include_root: bool) -> String {
+    let mut sql = format!("FROM files AS {}", scope.file_alias);
+    if include_root {
+        sql.push_str(&format!(
+            "\n         INNER JOIN headings AS {} ON {}.file_id = {}.id AND {}.level = 0",
+            scope.root_alias, scope.root_alias, scope.file_alias, scope.root_alias
+        ));
+    }
+    sql
 }
 
 fn compile_heading_root_file_query(
@@ -2559,11 +2716,15 @@ fn compile_heading_root_file_query(
         &scope,
         restrict_files,
     );
+    let bound_parameter_count = where_clause
+        .as_ref()
+        .map_or(0, |fragment| fragment.params.len());
 
     Ok(CompiledSqlQuery {
         target: QueryTarget::Files,
         sql: format!(
-            "SELECT DISTINCT
+            "/* orgfdb:match-heading-roots params={bound_parameter_count} */
+             SELECT
                 {file_id},
                 {file_path},
                 {file_mtime_ns},
@@ -2572,11 +2733,15 @@ fn compile_heading_root_file_query(
                 {file_indexed_at},
                 {root_id},
                 {root_title},
-                {root_title_raw}
+                {root_title_raw},
+                {root_line_number}
              {}
-             {}
-             ORDER BY {file_path}, {file_id}",
-            heading_from_clause(&scope),
+             {}",
+            heading_from_clause(
+                &scope,
+                true,
+                fragment_references_root(&scope, where_clause.as_ref()),
+            ),
             render_where_clause(where_clause.as_ref()),
             file_id = scope.file_col("id"),
             file_path = scope.file_col("path"),
@@ -2587,6 +2752,7 @@ fn compile_heading_root_file_query(
             root_id = scope.root_col("id"),
             root_title = scope.root_col("title"),
             root_title_raw = scope.root_col("title_raw"),
+            root_line_number = scope.root_col("line_number"),
         ),
         params: where_clause.map_or_else(Vec::new, |fragment| fragment.params),
     })
@@ -2658,7 +2824,7 @@ mod tests {
     };
     use crate::tag::derive_effective_tags;
     use chrono::NaiveDate;
-    use rusqlite::Connection;
+    use rusqlite::{limits::Limit, Connection};
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -2894,6 +3060,113 @@ mod tests {
                 super::QueryParam::Text(value) if value == user_value
             )));
         }
+    }
+
+    #[test]
+    fn heading_root_branch_is_skipped_when_predicates_cannot_match_level_zero() {
+        let level_one = validated(r#"(headings (level 1))"#);
+        assert_eq!(
+            super::heading_root_truth(level_one.predicate.as_ref()),
+            super::StaticTruth::False
+        );
+
+        let negated_level_one = validated(r#"(headings (not (level 1)))"#);
+        assert_eq!(
+            super::heading_root_truth(negated_level_one.predicate.as_ref()),
+            super::StaticTruth::True
+        );
+
+        let unknown_title = validated(r#"(headings (title "Project" :exact t))"#);
+        assert_eq!(
+            super::heading_root_truth(unknown_title.predicate.as_ref()),
+            super::StaticTruth::Unknown
+        );
+
+        let impossible_and =
+            validated(r#"(headings (and (title "Project" :exact t) (level 2 4)))"#);
+        assert_eq!(
+            super::heading_root_truth(impossible_and.predicate.as_ref()),
+            super::StaticTruth::False
+        );
+    }
+
+    #[test]
+    fn compile_omits_unused_heading_root_joins() {
+        let simple = compile_sqlite_query(&validated(r#"(headings (level 1))"#))
+            .expect("simple heading query should compile");
+        assert!(simple.sql.contains("INNER JOIN files AS f0"));
+        assert!(!simple.sql.contains("INNER JOIN headings AS r0"));
+
+        let with_file_title =
+            compile_sqlite_query(&validated(r#"(headings (file-title "Project" :exact t))"#))
+                .expect("file-title query should compile");
+        assert!(with_file_title.sql.contains("INNER JOIN headings AS r0"));
+    }
+
+    #[test]
+    fn compile_top_level_queries_leave_public_order_to_rust() {
+        for expression in [
+            r#"(headings (level 1))"#,
+            r#"(links (link-type "file"))"#,
+            "(files)",
+        ] {
+            let compiled = compile_sqlite_query(&validated(expression))
+                .expect("top-level query should compile");
+            assert!(!compiled.sql.contains("ORDER BY"), "{}", compiled.sql);
+        }
+    }
+
+    #[test]
+    fn compile_top_level_links_omit_unused_outline_path_join() {
+        let compiled = compile_sqlite_query(&validated(r#"(links (link-type "file"))"#))
+            .expect("link query should compile");
+
+        assert!(compiled.sql.contains("INNER JOIN files AS f0"));
+        assert!(compiled.sql.contains("INNER JOIN headings AS lh0"));
+        assert!(!compiled.sql.contains("INNER JOIN outline_path AS op0"));
+    }
+
+    #[test]
+    fn compile_nested_link_filters_use_only_the_links_table_when_possible() {
+        let compiled = compile_sqlite_query(&validated(
+            r#"(headings (has-link (links (link-type "file"))))"#,
+        ))
+        .expect("nested link query should compile");
+
+        assert!(compiled.sql.contains("EXISTS (SELECT 1 FROM links AS l1"));
+        assert!(!compiled.sql.contains("INNER JOIN files AS f1"));
+        assert!(!compiled.sql.contains("INNER JOIN headings AS lh1"));
+        assert!(!compiled.sql.contains("INNER JOIN outline_path AS op1"));
+    }
+
+    #[test]
+    fn compile_nested_heading_and_file_targets_add_only_required_joins() {
+        let heading_title = compile_sqlite_query(&validated(
+            r#"(headings (links-to (headings (title "Target" :exact t))))"#,
+        ))
+        .expect("nested heading title query should compile");
+        assert!(heading_title.sql.contains("FROM headings AS h2"));
+        assert!(!heading_title.sql.contains("INNER JOIN files AS f2"));
+        assert!(!heading_title.sql.contains("INNER JOIN headings AS r2"));
+
+        let heading_file_title = compile_sqlite_query(&validated(
+            r#"(headings (links-to (headings (file-title "Project" :exact t))))"#,
+        ))
+        .expect("nested heading file-title query should compile");
+        assert!(heading_file_title.sql.contains("INNER JOIN headings AS r2"));
+
+        let file_path = compile_sqlite_query(&validated(
+            r#"(headings (links-to (files (file-path "/tmp/target.org" :exact t))))"#,
+        ))
+        .expect("nested file path query should compile");
+        assert!(file_path.sql.contains("FROM files AS f2"));
+        assert!(!file_path.sql.contains("INNER JOIN headings AS r2"));
+
+        let file_title = compile_sqlite_query(&validated(
+            r#"(headings (links-to (files (file-title "Project" :exact t))))"#,
+        ))
+        .expect("nested file title query should compile");
+        assert!(file_title.sql.contains("INNER JOIN headings AS r2"));
     }
 
     #[test]
@@ -3268,6 +3541,30 @@ mod tests {
     }
 
     #[test]
+    fn execution_file_restriction_respects_small_runtime_variable_limit() {
+        let connection = seeded_connection();
+        let restricted = vec![
+            "/tmp/query-alpha.org".to_string(),
+            "/tmp/query-beta.org".to_string(),
+            "/tmp/query-gamma.org".to_string(),
+        ];
+        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+
+        let rows = execute_sqlite_query_with_options(
+            &connection,
+            &validated("(files)"),
+            &QueryExecutionOptions {
+                restricted_file_paths: Some(restricted.clone()),
+                ..QueryExecutionOptions::default()
+            },
+        )
+        .expect("restricted query should batch inserts below the variable limit");
+        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+
+        assert_eq!(file_paths(rows), restricted);
+    }
+
+    #[test]
     fn execution_matches_metadata_queries_and_boolean_composition() {
         let connection = seeded_connection();
 
@@ -3330,7 +3627,6 @@ mod tests {
                 file_path: "/tmp/query-alpha.org".to_string(),
                 heading_id: 11,
                 heading_level: 1,
-                heading_breadcrumbs_json: "[\"Alpha Index\",\"Query Engine\"]".to_string(),
                 source_context: "normal".to_string(),
                 format: "bracket".to_string(),
                 link_type: "file".to_string(),
@@ -3376,6 +3672,7 @@ mod tests {
                     root_heading_id: 10,
                     root_title: "Alpha Index".to_string(),
                     root_title_raw: Some("Alpha Index".to_string()),
+                    root_line_number: None,
                 },
                 FileQueryRow {
                     id: 1,
@@ -3387,6 +3684,7 @@ mod tests {
                     root_heading_id: 20,
                     root_title: "Beta Index".to_string(),
                     root_title_raw: Some("Beta Index".to_string()),
+                    root_line_number: None,
                 },
             ])
         );

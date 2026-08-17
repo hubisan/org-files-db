@@ -16,6 +16,7 @@ pub mod presentation;
 pub mod presentation_benchmark;
 pub(crate) mod property;
 pub mod query;
+pub mod query_sql_benchmark;
 mod source_root_evidence;
 pub(crate) mod tag;
 pub mod todo_keywords;

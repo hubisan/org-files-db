@@ -1,0 +1,335 @@
+#+TITLE: Query SQL Performance
+#+STARTUP: showall
+
+* Purpose
+
+This document records the SQL audit for structural query execution and result enrichment.
+
+The presentation benchmark showed that database query execution dominates latency for large result sets.
+
+The audit covers base queries, enrichment loaders, joins, ordering, indexes, and existing materialized projections.
+
+Public query semantics and normal JSON output stay unchanged.
+
+* Baseline
+
+The first uncached presentation benchmark measured these database-query medians at 50,000 original results.
+
+| Workload | Database query median |
+|----------+-----------------------|
+| ~headings.normal~ | about 798 ms |
+| ~headings.tags~ | about 824 ms |
+| ~headings.effective-properties~ | about 1.25 s |
+| ~files.keywords~ | about 1.04 s |
+
+These measurements used fixed 900-ID enrichment chunks.
+
+The old shaper also reloaded files and headings after simple base queries returned the required scalar data.
+
+* SQL audit
+
+** Base query rows
+
+Flat heading rows already contain heading scalars, file paths, locations, and effective tags.
+
+Flat file rows contain file scalars and the synthetic-root fields required by public results.
+
+Flat link rows contain link scalars, source locations, and file paths.
+
+Simple flat output now shapes these rows directly.
+
+Only requested properties, effective properties, keywords, and required root tags use extra loaders on this path.
+
+Path, source, target, link, backlink, and outline output keep the full enrichment context.
+
+** Heading root branch
+
+Heading queries support real headings and synthetic file roots.
+
+The old path always executed both branches.
+
+The query executor now evaluates predicates that have a deterministic result for level zero.
+
+It skips the synthetic-root SQL branch when that branch cannot match.
+
+For example, ~(headings (level 1))~ no longer executes a second query that can only return zero roots.
+
+The analysis is conservative for predicates without a deterministic root result.
+
+** Runtime variable limit
+
+Large ID lists use the connection value of ~SQLITE_LIMIT_VARIABLE_NUMBER~.
+
+The code derives the available parameter capacity from that runtime limit.
+
+The fixed 900-ID chunk size is removed from query execution and enrichment.
+
+A connection with a smaller configured limit uses smaller chunks automatically.
+
+Tests set a small runtime limit and compare results with the normal-limit result.
+
+File-restriction TEMP-table inserts also use the runtime parameter capacity.
+
+Each insert now sends one multi-row statement per safe chunk instead of one statement per path.
+
+** Enrichment loaders
+
+The audit covers these enrichment paths:
+
+- file rows
+- heading rows
+- effective tags
+- direct properties
+- effective properties
+- keywords
+- links
+- backlinks
+- file IDs derived from heading IDs
+- effective tags added to base heading rows
+
+ID-only loaders use the shared runtime-limit calculation.
+
+Direct property loading uses only matched metadata heading IDs and matched file roots.
+
+The full path no longer loads direct properties for unrelated headings in matched files.
+
+Link enrichment reads link facts without joining files, headings, or outline paths.
+
+Rust uses the already loaded file map to restore source paths and public link order.
+
+** Ordering
+
+Top-level heading, file, and link queries no longer ask SQLite to sort complete result sets.
+
+Rust restores the existing public result order after collection.
+
+Direct properties preserve the former ~heading_id~, ~line_number~, and row-ID order in Rust.
+
+Keywords preserve the former ~heading_id~, ~line_number~, and row-ID order in Rust.
+
+Effective tags read their stored positions and sort the small tag list for each heading in Rust.
+
+Effective properties sort the small property list for each heading by key in Rust.
+
+This removes global loader sorting while preserving public order.
+
+** Query joins
+
+Top-level heading queries always join ~files~ because the public row contains the file path.
+
+They join the synthetic root only when a predicate references root data such as ~file-title~.
+
+Nested heading relations add file and root joins only when their predicates require those aliases.
+
+Nested file relations add the synthetic-root join only when a predicate requires root metadata.
+
+Nested link predicates use ~links~ alone when a predicate needs only link columns.
+
+Top-level link queries no longer join ~outline_path~ because the base link result does not use that data.
+
+** Predicate access paths
+
+The audit also reviewed the predicate SQL against the current indexes and materialized projections.
+
+Exact file-path and heading-title matching can use the existing lowercase expression indexes.
+
+Parent hierarchy queries can use ~idx_headings_parent_id~.
+
+TODO, TODO type, and persisted planning timestamps have dedicated heading indexes.
+
+Direct tag matching can use the tag indexes and the primary heading-tag key.
+
+Inherited tag matching uses the materialized ~effective_tags~ projection and its tag-heading index.
+
+Property matching uses the materialized ~effective_properties~ primary key by heading and key.
+
+Keyword lookup has the heading-leading unique key and the separate keyword index.
+
+Case-insensitive keyword matching can limit use of case-sensitive keyword ordering.
+
+A normalized keyword index needs measured evidence before a schema change.
+
+Link relations have indexes for source heading, path, target file, and target heading.
+
+Outline hierarchy predicates use the materialized outline path and its file-path index.
+
+Substring and regular-expression predicates do not use normal exact-match indexes for their text comparison.
+
+~file-name~ and ~file-dir~ derive components from ~files.path~ inside SQLite.
+
+These computed path predicates remain candidates for materialization only after measurements show a bottleneck.
+
+Priority predicates compare a computed semantic rank.
+
+A persistent priority rank also needs measured evidence before a schema change.
+
+The broader index benchmark and its ~EXPLAIN QUERY PLAN~ evidence remain in [[./performance-baseline.org][Performance Baseline]].
+
+This benchmark focuses on large-result execution and enrichment.
+
+** Heading context
+
+The full enrichment path still loads heading context for complex includes and outline output.
+
+It no longer reads ~outline_path.breadcrumbs_json~ during heading enrichment.
+
+Heading references build their outline titles from the loaded parent chain in Rust.
+
+The materialized ~outline_path~ table remains in use for structural outline predicates.
+
+A sparse ancestor loader remains a measured candidate for selective path queries.
+
+* Existing materialized projections
+
+The schema already contains materialized data for expensive inherited or structural query work.
+
+- ~effective_properties~ stores resolved property values.
+- ~effective_tags~ stores inherited tag order.
+- ~outline_path~ stores structural outline paths.
+- Optional FTS stores indexed title and body search data.
+
+This task adds no persistent materialized table.
+
+A new projection needs measured benefit that exceeds rebuild, update, storage, and schema costs.
+
+* Remaining measured candidates
+
+Some SQL alternatives need measurements before production use.
+
+Heading effective tags still use a second ID-based query after the scalar heading query.
+
+A grouped join or correlated aggregate can remove that round trip but can increase SQLite work per heading.
+
+Complex path output still loads all headings from relevant files.
+
+A sparse ancestor relation can reduce reads for selective queries but can lose on broad queries.
+
+Computed file-name, file-directory, and priority values remain possible persistent projections.
+
+The benchmark evidence must justify their write and storage costs.
+
+* Strategy comparison
+
+The SQL benchmark compares five ways to load effective-property rows for a representative heading set.
+
+- ~runtime-limit-in~ uses chunked ~IN (...)~ statements.
+- ~cte-values~ joins against a chunked ~VALUES~ relation.
+- ~json-each-relation~ passes one JSON array and joins against ~json_each~.
+- ~temporary-id-relation~ loads IDs into a TEMP table and joins against it.
+- ~query-derived-join~ joins effective properties directly to the representative heading query.
+
+The production path uses runtime-limit ~IN (...)~ loading until measurements justify another strategy.
+
+The benchmark adds no persistent table, cache, or parallel execution.
+
+* Production profiling
+
+Production SQL statements contain internal benchmark comments with a stage name and parameter count.
+
+The measurement binary enables SQLite profiling only for one separate profile run per workload.
+
+Latency samples run without the profile callback.
+
+The profile records actual statement counts, bound parameter counts, and SQLite-reported statement durations.
+
+The profiling API does not expose exact rows visited by each statement.
+
+The benchmark records final result counts and lookup-strategy row counts instead.
+
+Allocator instrumentation is not part of this benchmark.
+
+* Run the SQL benchmark
+
+Build the release benchmark binary.
+
+#+begin_src sh
+cargo build --release --bin orgfdb-query-sql-benchmark
+#+end_src
+
+The SQL benchmark reuses compatible corpus databases when they exist.
+
+It creates the work directory and missing corpus databases when required.
+
+The first run can spend significant time preparing the 50,000-result database.
+
+A directory under ~/tmp~ can disappear after a reboot or system cleanup.
+
+Use a persistent work directory when repeated benchmark runs need database reuse.
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-v1.json
+#+end_src
+
+Use a new output path for each benchmark run.
+
+* Benchmark output
+
+Each result size records the runtime SQLite variable limit and resulting ID chunk capacity.
+
+Each production workload records:
+
+- result count
+- total query timing distribution
+- actual SQL statement count from one profile run
+- total bound parameters
+- maximum bound parameters in one statement
+- SQLite profile duration by stage
+
+The strategy section records:
+
+- selected heading count
+- returned effective-property row count
+- statements per sample
+- maximum bound parameters
+- timing distribution
+
+The ~json-each-relation~ timing includes JSON serialization in Rust.
+
+The broad workload set contains:
+
+- ~headings.normal~
+- ~headings.tags~
+- ~headings.properties~
+- ~headings.effective-properties~
+- ~headings.path~
+- ~files.normal~
+- ~files.keywords~
+
+The properties workload measures direct-property loading.
+
+The path workload exercises the full file and heading enrichment context.
+
+The ~headings.tags~ workload intentionally has the same query includes as ~headings.normal~.
+
+Its presentation expansion uses effective tags that normal heading results already contain.
+
+* Results
+
+Local optimized measurements are pending.
+
+Compare the optimized 50,000-result measurements with the baseline values in this document.
+
+Use the strategy measurements to select the production ID-relation strategy.
+
+Keep runtime-limit ~IN (...)~ chunks unless another strategy wins clearly and keeps the implementation simple.
+
+* Current design decision
+
+The implementation removes avoidable SQL work before it adds persistent data.
+
+Simple flat results no longer perform broad file and heading enrichment after the base query.
+
+Dynamic ID statements respect the connection variable limit instead of a fixed 900-ID policy.
+
+Nested query compilation omits joins that predicates do not use.
+
+Large SQL sorts move to Rust when small grouped sorts preserve the same public order.
+
+No new materialized table has enough evidence yet.
+
+The local SQL benchmark supplies the evidence for the next decision.

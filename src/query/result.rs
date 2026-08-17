@@ -8,13 +8,12 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
+use super::sql_support::id_chunk_capacity;
 use super::sqlite::HeadingQueryMatch;
 use super::{
-    execute_sqlite_query_with_options, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
-    ValidatedQuery,
+    execute_sqlite_query_with_options, FileQueryRow, HeadingQueryRow, LinkQueryRow,
+    QueryExecutionError, QueryRows, QueryTarget, ValidatedQuery,
 };
-
-const QUERY_ENRICHMENT_ID_CHUNK_SIZE: usize = 900;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -413,11 +412,11 @@ pub fn shape_query_results(
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
     let includes = normalized_includes(&options.includes);
-    let context = if options.output_mode == QueryOutputMode::Flat && includes.is_empty() {
-        EnrichmentContext::load_flat_without_includes(connection, &rows)?
-    } else {
-        EnrichmentContext::load(connection, &rows, &includes)?
-    };
+    if options.output_mode == QueryOutputMode::Flat && supports_direct_flat_shaping(&includes) {
+        return shape_direct_flat_results(connection, rows, includes);
+    }
+
+    let context = EnrichmentContext::load(connection, &rows, &includes)?;
     let results = match (&rows, options.output_mode) {
         (QueryRows::Headings(rows), QueryOutputMode::Flat) => rows
             .iter()
@@ -469,6 +468,60 @@ pub fn shape_query_results(
             QueryRows::Files(_) => QueryTarget::Files,
         },
         output: options.output_mode,
+        includes,
+        results,
+    })
+}
+
+fn supports_direct_flat_shaping(includes: &[QueryInclude]) -> bool {
+    includes.iter().all(|include| {
+        matches!(
+            include,
+            QueryInclude::Properties | QueryInclude::EffectiveProperties | QueryInclude::Keywords
+        )
+    })
+}
+
+fn shape_direct_flat_results(
+    connection: &Connection,
+    rows: QueryRows,
+    includes: Vec<QueryInclude>,
+) -> Result<QueryResponse, QueryShapeError> {
+    let metadata = FlatMetadataContext::load(connection, &rows, &includes)?;
+    let target = match &rows {
+        QueryRows::Headings(_) => QueryTarget::Headings,
+        QueryRows::Links(_) => QueryTarget::Links,
+        QueryRows::Files(_) => QueryTarget::Files,
+    };
+    let results = match &rows {
+        QueryRows::Headings(rows) => rows
+            .iter()
+            .map(|row| match row {
+                HeadingQueryMatch::File(row) => metadata
+                    .shape_file_row(row, ResultDomain::Headings, &includes)
+                    .map(QueryResultNode::File),
+                HeadingQueryMatch::Heading(row) => metadata
+                    .shape_heading_row(row, &includes)
+                    .map(QueryResultNode::Heading),
+            })
+            .collect::<Result<Vec<_>, QueryShapeError>>()?,
+        QueryRows::Links(rows) => rows
+            .iter()
+            .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
+            .collect(),
+        QueryRows::Files(rows) => rows
+            .iter()
+            .map(|row| {
+                metadata
+                    .shape_file_row(row, ResultDomain::Files, &includes)
+                    .map(QueryResultNode::File)
+            })
+            .collect::<Result<Vec<_>, QueryShapeError>>()?,
+    };
+
+    Ok(QueryResponse {
+        target,
+        output: QueryOutputMode::Flat,
         includes,
         results,
     })
@@ -549,14 +602,12 @@ struct StoredHeading {
     archivedp: bool,
     footnote_section_p: bool,
     all_tags: Vec<String>,
-    breadcrumbs: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 struct StoredLink {
     id: i64,
     file_id: i64,
-    file_path: String,
     heading_id: i64,
     source_context: String,
     format: String,
@@ -580,14 +631,254 @@ struct StoredLink {
 
 #[derive(Debug, Clone)]
 struct StoredProperty {
+    id: i64,
     heading_id: i64,
     fact: PropertyFact,
 }
 
 #[derive(Debug, Clone)]
 struct StoredKeyword {
+    id: i64,
     heading_id: i64,
     fact: KeywordFact,
+}
+
+struct FlatMetadataContext {
+    properties: HashMap<i64, Vec<PropertyFact>>,
+    effective_properties: HashMap<i64, Vec<EffectivePropertyFact>>,
+    keywords: HashMap<i64, Vec<KeywordFact>>,
+    root_tags: HashMap<i64, Vec<String>>,
+}
+
+impl FlatMetadataContext {
+    fn load(
+        connection: &Connection,
+        rows: &QueryRows,
+        includes: &[QueryInclude],
+    ) -> Result<Self, QueryShapeError> {
+        let include_set = includes.iter().copied().collect::<BTreeSet<_>>();
+        let mut metadata_heading_ids = BTreeSet::new();
+        let mut root_heading_ids = BTreeSet::new();
+
+        match rows {
+            QueryRows::Headings(rows) => {
+                for row in rows {
+                    match row {
+                        HeadingQueryMatch::File(row) => {
+                            metadata_heading_ids.insert(row.root_heading_id);
+                            root_heading_ids.insert(row.root_heading_id);
+                        }
+                        HeadingQueryMatch::Heading(row) => {
+                            metadata_heading_ids.insert(row.id);
+                        }
+                    }
+                }
+            }
+            QueryRows::Files(rows) => {
+                for row in rows {
+                    metadata_heading_ids.insert(row.root_heading_id);
+                    root_heading_ids.insert(row.root_heading_id);
+                }
+            }
+            QueryRows::Links(_) => {}
+        }
+
+        validate_outline_path_rows(connection, &metadata_heading_ids)?;
+
+        let mut properties = HashMap::new();
+        if include_set.contains(&QueryInclude::Properties) {
+            for property in load_properties(connection, &metadata_heading_ids)? {
+                properties
+                    .entry(property.heading_id)
+                    .or_insert_with(Vec::new)
+                    .push(property.fact);
+            }
+        }
+
+        let effective_properties = if include_set.contains(&QueryInclude::EffectiveProperties) {
+            load_effective_properties(connection, &metadata_heading_ids)?
+        } else {
+            HashMap::new()
+        };
+
+        let mut keywords = HashMap::new();
+        if include_set.contains(&QueryInclude::Keywords) {
+            for keyword in load_keywords(connection, &metadata_heading_ids)? {
+                keywords
+                    .entry(keyword.heading_id)
+                    .or_insert_with(Vec::new)
+                    .push(keyword.fact);
+            }
+        }
+
+        Ok(Self {
+            properties,
+            effective_properties,
+            keywords,
+            root_tags: load_effective_tags_for_heading_ids(connection, &root_heading_ids)?,
+        })
+    }
+
+    fn shape_file_row(
+        &self,
+        row: &FileQueryRow,
+        domain: ResultDomain,
+        includes: &[QueryInclude],
+    ) -> Result<FileResultNode, QueryShapeError> {
+        let path_ref = Path::new(&row.path);
+        let name = path_ref
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(row.path.as_str())
+            .to_string();
+        let dir = path_ref
+            .parent()
+            .and_then(|value| value.to_str())
+            .unwrap_or(".")
+            .to_string();
+
+        Ok(FileResultNode {
+            kind: public_result_kind(domain, 0),
+            matched: true,
+            id: row.id,
+            level: 0,
+            path: row.path.clone(),
+            name,
+            dir,
+            title: row.root_title.clone(),
+            title_raw: row.root_title_raw.clone(),
+            root_heading_id: row.root_heading_id,
+            mtime_ns: row.mtime_ns,
+            size: row.size,
+            content_hash: row.content_hash.clone(),
+            indexed_at: row.indexed_at,
+            location: Location {
+                file_path: row.path.clone(),
+                line: row.root_line_number,
+                byte_start: None,
+                byte_end: None,
+            },
+            tags: self
+                .root_tags
+                .get(&row.root_heading_id)
+                .cloned()
+                .unwrap_or_default(),
+            node_path: None,
+            properties: includes.contains(&QueryInclude::Properties).then(|| {
+                self.properties
+                    .get(&row.root_heading_id)
+                    .cloned()
+                    .unwrap_or_default()
+            }),
+            effective_properties: includes.contains(&QueryInclude::EffectiveProperties).then(
+                || {
+                    self.effective_properties
+                        .get(&row.root_heading_id)
+                        .cloned()
+                        .unwrap_or_default()
+                },
+            ),
+            keywords: includes.contains(&QueryInclude::Keywords).then(|| {
+                self.keywords
+                    .get(&row.root_heading_id)
+                    .cloned()
+                    .unwrap_or_default()
+            }),
+            links: None,
+            backlinks: None,
+            children: None,
+        })
+    }
+
+    fn shape_heading_row(
+        &self,
+        row: &HeadingQueryRow,
+        includes: &[QueryInclude],
+    ) -> Result<HeadingResultNode, QueryShapeError> {
+        let all_tags = serde_json::from_str(&row.all_tags_json)
+            .map_err(|source| QueryShapeError::invalid_json("all_tags_json", row.id, source))?;
+        Ok(HeadingResultNode {
+            kind: public_result_kind(ResultDomain::Headings, row.level),
+            matched: true,
+            id: row.id,
+            file_id: row.file_id,
+            parent_id: row.parent_id,
+            level: row.level,
+            title: row.title.clone(),
+            title_raw: row.title_raw.clone(),
+            todo_keyword: row.todo_keyword.clone(),
+            todo_type: row.todo_type.clone(),
+            priority: row.priority.clone(),
+            scheduled_raw: row.scheduled_raw.clone(),
+            scheduled_ts: row.scheduled_ts,
+            deadline_raw: row.deadline_raw.clone(),
+            deadline_ts: row.deadline_ts,
+            closed_raw: row.closed_raw.clone(),
+            closed_ts: row.closed_ts,
+            archivedp: row.archivedp,
+            footnote_section_p: row.footnote_section_p,
+            all_tags,
+            location: Location {
+                file_path: row.file_path.clone(),
+                line: row.line_number,
+                byte_start: Some(row.byte_start),
+                byte_end: Some(row.byte_end),
+            },
+            node_path: None,
+            properties: includes
+                .contains(&QueryInclude::Properties)
+                .then(|| self.properties.get(&row.id).cloned().unwrap_or_default()),
+            effective_properties: includes.contains(&QueryInclude::EffectiveProperties).then(
+                || {
+                    self.effective_properties
+                        .get(&row.id)
+                        .cloned()
+                        .unwrap_or_default()
+                },
+            ),
+            keywords: includes
+                .contains(&QueryInclude::Keywords)
+                .then(|| self.keywords.get(&row.id).cloned().unwrap_or_default()),
+            links: None,
+            backlinks: None,
+            children: None,
+        })
+    }
+
+    fn shape_link_row(&self, row: &LinkQueryRow) -> LinkResultNode {
+        LinkResultNode {
+            kind: QueryResultKind::Link,
+            matched: true,
+            id: row.id,
+            file_id: row.file_id,
+            heading_id: row.heading_id,
+            heading_level: row.heading_level,
+            source_context: row.source_context.clone(),
+            format: row.format.clone(),
+            link_type: row.link_type.clone(),
+            raw: row.raw.clone(),
+            raw_target: row.raw_target.clone(),
+            raw_description: row.raw_description.clone(),
+            link_path: row.path.clone(),
+            search_option: row.search_option.clone(),
+            path_absolute: row.path_absolute.clone(),
+            target_file_id: row.target_file_id,
+            target_heading_id: row.target_heading_id,
+            target_custom_id: row.target_custom_id.clone(),
+            target_id: row.target_id.clone(),
+            resolution_status: row.resolution_status.clone(),
+            resolution_diagnostic: row.resolution_diagnostic.clone(),
+            location: Location {
+                file_path: row.file_path.clone(),
+                line: Some(row.line),
+                byte_start: Some(row.byte_start),
+                byte_end: Some(row.byte_end),
+            },
+            node_path: None,
+            source: None,
+            target: None,
+        }
+    }
 }
 
 struct EnrichmentContext {
@@ -603,58 +894,6 @@ struct EnrichmentContext {
 }
 
 impl EnrichmentContext {
-    fn load_flat_without_includes(
-        connection: &Connection,
-        rows: &QueryRows,
-    ) -> Result<Self, QueryShapeError> {
-        let (matched_file_ids, matched_heading_ids, _) = collect_matched_ids(rows);
-        let files = load_files(connection, &matched_file_ids)?;
-        let mut required_heading_ids = match rows {
-            QueryRows::Headings(_) => matched_heading_ids,
-            QueryRows::Links(_) | QueryRows::Files(_) => BTreeSet::new(),
-        };
-
-        match rows {
-            QueryRows::Headings(rows) => {
-                for row in rows {
-                    if let HeadingQueryMatch::File(row) = row {
-                        let file = files.get(&row.id).ok_or_else(|| {
-                            QueryShapeError::missing(format!(
-                                "missing stored file row for id {}",
-                                row.id
-                            ))
-                        })?;
-                        required_heading_ids.insert(file.root_heading_id);
-                    }
-                }
-            }
-            QueryRows::Files(rows) => {
-                for row in rows {
-                    let file = files.get(&row.id).ok_or_else(|| {
-                        QueryShapeError::missing(format!(
-                            "missing stored file row for id {}",
-                            row.id
-                        ))
-                    })?;
-                    required_heading_ids.insert(file.root_heading_id);
-                }
-            }
-            QueryRows::Links(_) => {}
-        }
-
-        Ok(Self {
-            files,
-            headings: load_headings_by_ids(connection, &required_heading_ids)?,
-            properties: HashMap::new(),
-            effective_properties: HashMap::new(),
-            keywords: HashMap::new(),
-            links_by_file: HashMap::new(),
-            links_by_heading: HashMap::new(),
-            backlinks_by_file: HashMap::new(),
-            backlinks_by_heading: HashMap::new(),
-        })
-    }
-
     fn load(
         connection: &Connection,
         rows: &QueryRows,
@@ -664,35 +903,30 @@ impl EnrichmentContext {
         let (matched_file_ids, matched_heading_ids, matched_link_rows) = collect_matched_ids(rows);
 
         let mut relevant_file_ids = matched_file_ids.clone();
-        let mut relevant_heading_ids = matched_heading_ids.clone();
 
         for link in &matched_link_rows {
             relevant_file_ids.insert(link.file_id);
-            relevant_heading_ids.insert(link.heading_id);
             if let Some(file_id) = link.target_file_id {
                 relevant_file_ids.insert(file_id);
             }
-            if let Some(heading_id) = link.target_heading_id {
-                relevant_heading_ids.insert(heading_id);
-            }
         }
 
-        let links_by_file = if include_set.contains(&QueryInclude::Links) {
+        let mut links_by_file = if include_set.contains(&QueryInclude::Links) {
             load_links_by_file(connection, &matched_file_ids)?
         } else {
             HashMap::new()
         };
-        let backlinks_by_file = if include_set.contains(&QueryInclude::Backlinks) {
+        let mut backlinks_by_file = if include_set.contains(&QueryInclude::Backlinks) {
             load_backlinks_by_file(connection, &matched_file_ids)?
         } else {
             HashMap::new()
         };
-        let links_by_heading = if include_set.contains(&QueryInclude::Links) {
+        let mut links_by_heading = if include_set.contains(&QueryInclude::Links) {
             load_links_by_heading(connection, &matched_heading_ids)?
         } else {
             HashMap::new()
         };
-        let backlinks_by_heading = if include_set.contains(&QueryInclude::Backlinks) {
+        let mut backlinks_by_heading = if include_set.contains(&QueryInclude::Backlinks) {
             load_backlinks_by_heading(connection, &matched_heading_ids)?
         } else {
             HashMap::new()
@@ -701,64 +935,49 @@ impl EnrichmentContext {
         for links in links_by_file.values() {
             for link in links {
                 relevant_file_ids.insert(link.file_id);
-                relevant_heading_ids.insert(link.heading_id);
                 if let Some(file_id) = link.target_file_id {
                     relevant_file_ids.insert(file_id);
-                }
-                if let Some(heading_id) = link.target_heading_id {
-                    relevant_heading_ids.insert(heading_id);
                 }
             }
         }
         for links in backlinks_by_file.values() {
             for link in links {
                 relevant_file_ids.insert(link.file_id);
-                relevant_heading_ids.insert(link.heading_id);
                 if let Some(file_id) = link.target_file_id {
                     relevant_file_ids.insert(file_id);
-                }
-                if let Some(heading_id) = link.target_heading_id {
-                    relevant_heading_ids.insert(heading_id);
                 }
             }
         }
         for links in links_by_heading.values() {
             for link in links {
                 relevant_file_ids.insert(link.file_id);
-                relevant_heading_ids.insert(link.heading_id);
                 if let Some(file_id) = link.target_file_id {
                     relevant_file_ids.insert(file_id);
-                }
-                if let Some(heading_id) = link.target_heading_id {
-                    relevant_heading_ids.insert(heading_id);
                 }
             }
         }
         for links in backlinks_by_heading.values() {
             for link in links {
                 relevant_file_ids.insert(link.file_id);
-                relevant_heading_ids.insert(link.heading_id);
                 if let Some(file_id) = link.target_file_id {
                     relevant_file_ids.insert(file_id);
-                }
-                if let Some(heading_id) = link.target_heading_id {
-                    relevant_heading_ids.insert(heading_id);
                 }
             }
         }
 
         let files = load_files(connection, &relevant_file_ids)?;
+        sort_link_map_groups(&mut links_by_file, &files)?;
+        sort_link_map_groups(&mut backlinks_by_file, &files)?;
+        sort_link_map_groups(&mut links_by_heading, &files)?;
+        sort_link_map_groups(&mut backlinks_by_heading, &files)?;
         let headings = load_headings_for_files(connection, &relevant_file_ids)?;
+        let metadata_heading_ids =
+            matched_metadata_heading_ids(&matched_heading_ids, &matched_file_ids, &files);
+        let direct_property_heading_ids = metadata_heading_ids.clone();
 
         let mut properties = HashMap::new();
         let loaded_properties = if include_set.contains(&QueryInclude::Properties) {
-            Some(load_properties(
-                connection,
-                &matched_heading_ids,
-                &matched_file_ids,
-                &files,
-                include_set.contains(&QueryInclude::EffectiveProperties),
-            )?)
+            Some(load_properties(connection, &direct_property_heading_ids)?)
         } else {
             None
         };
@@ -772,16 +991,14 @@ impl EnrichmentContext {
         }
 
         let effective_properties = if include_set.contains(&QueryInclude::EffectiveProperties) {
-            load_effective_properties(connection, &matched_heading_ids, &matched_file_ids, &files)?
+            load_effective_properties(connection, &metadata_heading_ids)?
         } else {
             HashMap::new()
         };
 
         let mut keywords = HashMap::new();
         if include_set.contains(&QueryInclude::Keywords) {
-            for keyword in
-                load_keywords(connection, &matched_heading_ids, &matched_file_ids, &files)?
-            {
+            for keyword in load_keywords(connection, &metadata_heading_ids)? {
                 keywords
                     .entry(keyword.heading_id)
                     .or_insert_with(Vec::new)
@@ -1133,7 +1350,7 @@ impl EnrichmentContext {
             resolution_status: link.resolution_status.clone(),
             resolution_diagnostic: link.resolution_diagnostic.clone(),
             location: Location {
-                file_path: link.file_path.clone(),
+                file_path: self.file(link.file_id)?.path.clone(),
                 line: Some(link.line),
                 byte_start: Some(link.byte_start),
                 byte_end: Some(link.byte_end),
@@ -1252,12 +1469,17 @@ impl EnrichmentContext {
                 heading.id
             ))
         })?;
+        let outline_path = self
+            .heading_chain_without_root(heading_id)?
+            .into_iter()
+            .map(|id| self.heading(id).map(|entry| entry.title.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(HeadingRef {
             id: heading.id,
             title: heading.title.clone(),
             title_raw,
             level: heading.level,
-            outline_path: strip_root_breadcrumb(&heading.breadcrumbs, heading.level),
+            outline_path,
         })
     }
 
@@ -1473,6 +1695,20 @@ fn collect_matched_ids(rows: &QueryRows) -> (BTreeSet<i64>, BTreeSet<i64>, Vec<L
     }
 }
 
+fn matched_metadata_heading_ids(
+    matched_heading_ids: &BTreeSet<i64>,
+    matched_file_ids: &BTreeSet<i64>,
+    files: &HashMap<i64, StoredFile>,
+) -> BTreeSet<i64> {
+    let mut heading_ids = matched_heading_ids.clone();
+    for file_id in matched_file_ids {
+        if let Some(file) = files.get(file_id) {
+            heading_ids.insert(file.root_heading_id);
+        }
+    }
+    heading_ids
+}
+
 fn load_files(
     connection: &Connection,
     file_ids: &BTreeSet<i64>,
@@ -1481,11 +1717,13 @@ fn load_files(
         return Ok(HashMap::new());
     }
 
+    let chunk_size = id_chunk_capacity(connection, 0);
     let file_ids = file_ids.iter().copied().collect::<Vec<_>>();
     let mut files = HashMap::new();
-    for chunk in file_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in file_ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT
+            "/* orgfdb:enrich-files params={} */
+             SELECT
                 files.id,
                 files.path,
                 files.mtime_ns,
@@ -1498,8 +1736,8 @@ fn load_files(
                 root.line_number
              FROM files
              INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0
-             WHERE files.id IN ({})
-             ORDER BY files.path",
+             WHERE files.id IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection
@@ -1553,10 +1791,13 @@ fn load_file_ids_for_headings(
         return Ok(BTreeSet::new());
     }
 
+    let chunk_size = id_chunk_capacity(connection, 0);
     let mut file_ids = BTreeSet::new();
-    for chunk in heading_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in heading_ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT DISTINCT file_id FROM headings WHERE id IN ({}) ORDER BY file_id",
+            "/* orgfdb:enrich-file-ids params={} */
+             SELECT file_id FROM headings WHERE id IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection.prepare(&sql).map_err(|source| {
@@ -1584,13 +1825,6 @@ fn load_headings_for_files(
     load_headings(connection, "headings.file_id", file_ids)
 }
 
-fn load_headings_by_ids(
-    connection: &Connection,
-    heading_ids: &BTreeSet<i64>,
-) -> Result<HashMap<i64, StoredHeading>, QueryShapeError> {
-    load_headings(connection, "headings.id", heading_ids)
-}
-
 fn load_headings(
     connection: &Connection,
     filter_column: &str,
@@ -1600,11 +1834,13 @@ fn load_headings(
         return Ok(HashMap::new());
     }
 
+    let chunk_size = id_chunk_capacity(connection, 0);
     let ids = ids.iter().copied().collect::<Vec<_>>();
     let mut headings = HashMap::new();
-    for chunk in ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT
+            "/* orgfdb:enrich-headings params={} */
+             SELECT
                 headings.id,
                 headings.file_id,
                 headings.parent_id,
@@ -1628,9 +1864,8 @@ fn load_headings(
                 outline_path.breadcrumbs_json
              FROM headings
              LEFT JOIN outline_path ON outline_path.heading_id = headings.id
-             INNER JOIN files ON files.id = headings.file_id
-             WHERE {filter_column} IN ({})
-             ORDER BY files.path, headings.byte_start, headings.id",
+             WHERE {filter_column} IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection
@@ -1664,27 +1899,79 @@ fn load_headings(
                         archivedp: row.get::<_, i64>(18)? != 0,
                         footnote_section_p: row.get::<_, i64>(19)? != 0,
                         all_tags: Vec::new(),
-                        breadcrumbs: Vec::new(),
                     },
                 ))
             })
             .map_err(|source| QueryShapeError::database("load_headings.query", source))?;
 
-        for row in rows {
-            let (id, breadcrumbs_json, mut heading) =
-                row.map_err(|source| QueryShapeError::database("load_headings.collect", source))?;
+        for heading in rows {
+            let (id, breadcrumbs_json, heading) = heading
+                .map_err(|source| QueryShapeError::database("load_headings.collect", source))?;
             let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
                 QueryShapeError::missing(format!(
                     "missing outline_path row for stored heading id {id}"
                 ))
             })?;
-            heading.breadcrumbs = serde_json::from_str(&breadcrumbs_json)
+            let _: Vec<String> = serde_json::from_str(&breadcrumbs_json)
                 .map_err(|source| QueryShapeError::invalid_json("breadcrumbs_json", id, source))?;
-            headings.insert(id, heading);
+            headings.insert(heading.id, heading);
         }
     }
     load_effective_tags_for_stored_headings(connection, &mut headings)?;
     Ok(headings)
+}
+
+fn validate_outline_path_rows(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<(), QueryShapeError> {
+    if heading_ids.is_empty() {
+        return Ok(());
+    }
+
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let heading_ids = heading_ids.iter().copied().collect::<Vec<_>>();
+    for chunk in heading_ids.chunks(chunk_size) {
+        let sql = format!(
+            "/* orgfdb:validate-outline-path params={} */
+             SELECT heading_id, breadcrumbs_json
+             FROM outline_path
+             WHERE heading_id IN ({})",
+            chunk.len(),
+            placeholders(chunk.len())
+        );
+        let mut statement = connection.prepare(&sql).map_err(|source| {
+            QueryShapeError::database("validate_outline_path_rows.prepare", source)
+        })?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|source| {
+                QueryShapeError::database("validate_outline_path_rows.query", source)
+            })?;
+
+        let mut found = BTreeSet::new();
+        for row in rows {
+            let (heading_id, breadcrumbs_json) = row.map_err(|source| {
+                QueryShapeError::database("validate_outline_path_rows.collect", source)
+            })?;
+            let _: Vec<String> = serde_json::from_str(&breadcrumbs_json).map_err(|source| {
+                QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source)
+            })?;
+            found.insert(heading_id);
+        }
+
+        for heading_id in chunk {
+            if !found.contains(heading_id) {
+                return Err(QueryShapeError::missing(format!(
+                    "missing outline_path row for stored heading id {heading_id}"
+                )));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn load_effective_tags_for_stored_headings(
@@ -1695,13 +1982,36 @@ fn load_effective_tags_for_stored_headings(
         return Ok(());
     }
 
-    let heading_ids = headings.keys().copied().collect::<Vec<_>>();
-    for chunk in heading_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    let heading_ids = headings.keys().copied().collect::<BTreeSet<_>>();
+    for (heading_id, tags) in load_effective_tags_for_heading_ids(connection, &heading_ids)? {
+        let heading = headings.get_mut(&heading_id).ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "effective_tags references unloaded heading id {heading_id}"
+            ))
+        })?;
+        heading.all_tags = tags;
+    }
+    Ok(())
+}
+
+fn load_effective_tags_for_heading_ids(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
+    if heading_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let heading_ids = heading_ids.iter().copied().collect::<Vec<_>>();
+    let mut positioned_tags = HashMap::<i64, Vec<(i64, String)>>::new();
+    for chunk in heading_ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT heading_id, tag
+            "/* orgfdb:enrich-tags params={} */
+             SELECT heading_id, position, tag
              FROM effective_tags
-             WHERE heading_id IN ({})
-             ORDER BY heading_id, position",
+             WHERE heading_id IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection
@@ -1709,64 +2019,55 @@ fn load_effective_tags_for_stored_headings(
             .map_err(|source| QueryShapeError::database("load_effective_tags.prepare", source))?;
         let rows = statement
             .query_map(params_from_iter(chunk.iter()), |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|source| QueryShapeError::database("load_effective_tags.query", source))?;
         for row in rows {
-            let (heading_id, tag) = row.map_err(|source| {
+            let (heading_id, position, tag) = row.map_err(|source| {
                 QueryShapeError::database("load_effective_tags.collect", source)
             })?;
-            let heading = headings.get_mut(&heading_id).ok_or_else(|| {
-                QueryShapeError::missing(format!(
-                    "effective_tags references unloaded heading id {heading_id}"
-                ))
-            })?;
-            heading.all_tags.push(tag);
+            positioned_tags
+                .entry(heading_id)
+                .or_default()
+                .push((position, tag));
         }
     }
-    Ok(())
+
+    Ok(positioned_tags
+        .into_iter()
+        .map(|(heading_id, mut tags)| {
+            tags.sort_by_key(|(position, _)| *position);
+            (
+                heading_id,
+                tags.into_iter().map(|(_, tag)| tag).collect::<Vec<_>>(),
+            )
+        })
+        .collect())
 }
 
 fn load_properties(
     connection: &Connection,
     heading_ids: &BTreeSet<i64>,
-    file_ids: &BTreeSet<i64>,
-    files: &HashMap<i64, StoredFile>,
-    include_all_file_headings: bool,
 ) -> Result<Vec<StoredProperty>, QueryShapeError> {
-    let (filter_column, target_ids) = if include_all_file_headings {
-        if file_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        (
-            "headings.file_id",
-            file_ids.iter().copied().collect::<Vec<_>>(),
-        )
-    } else {
-        let mut target_ids = heading_ids.clone();
-        for file_id in file_ids {
-            if let Some(file) = files.get(file_id) {
-                target_ids.insert(file.root_heading_id);
-            }
-        }
-        if target_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        (
-            "properties.heading_id",
-            target_ids.into_iter().collect::<Vec<_>>(),
-        )
-    };
+    if heading_ids.is_empty() {
+        return Ok(Vec::new());
+    }
 
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let target_ids = heading_ids.iter().copied().collect::<Vec<_>>();
     let mut properties = Vec::new();
-    for chunk in target_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in target_ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT properties.id, properties.heading_id, properties.key, properties.value,
+            "/* orgfdb:enrich-properties params={} */
+             SELECT properties.id, properties.heading_id, properties.key, properties.value,
                     properties.source, properties.append, properties.line_number
              FROM properties
-             INNER JOIN headings ON headings.id = properties.heading_id
-             WHERE {filter_column} IN ({})
-             ORDER BY properties.heading_id, properties.line_number, properties.id",
+             WHERE properties.heading_id IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection
@@ -1775,6 +2076,7 @@ fn load_properties(
         let rows = statement
             .query_map(params_from_iter(chunk.iter()), |row| {
                 Ok(StoredProperty {
+                    id: row.get(0)?,
                     heading_id: row.get(1)?,
                     fact: PropertyFact {
                         key: row.get(2)?,
@@ -1795,6 +2097,7 @@ fn load_properties(
         left.heading_id
             .cmp(&right.heading_id)
             .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
+            .then_with(|| left.id.cmp(&right.id))
     });
     Ok(properties)
 }
@@ -1802,31 +2105,25 @@ fn load_properties(
 fn load_effective_properties(
     connection: &Connection,
     heading_ids: &BTreeSet<i64>,
-    file_ids: &BTreeSet<i64>,
-    files: &HashMap<i64, StoredFile>,
 ) -> Result<HashMap<i64, Vec<EffectivePropertyFact>>, QueryShapeError> {
-    let mut target_ids = heading_ids.clone();
-    for file_id in file_ids {
-        if let Some(file) = files.get(file_id) {
-            target_ids.insert(file.root_heading_id);
-        }
-    }
-    if target_ids.is_empty() {
+    if heading_ids.is_empty() {
         return Ok(HashMap::new());
     }
 
-    let target_ids = target_ids.into_iter().collect::<Vec<_>>();
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let target_ids = heading_ids.iter().copied().collect::<Vec<_>>();
     let mut effective = target_ids
         .iter()
         .copied()
         .map(|heading_id| (heading_id, Vec::new()))
         .collect::<HashMap<_, _>>();
-    for chunk in target_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in target_ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT heading_id, key, effective_value
+            "/* orgfdb:enrich-effective-properties params={} */
+             SELECT heading_id, key, effective_value
              FROM effective_properties
-             WHERE heading_id IN ({})
-             ORDER BY heading_id, key",
+             WHERE heading_id IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection.prepare(&sql).map_err(|source| {
@@ -1852,33 +2149,30 @@ fn load_effective_properties(
             effective.entry(heading_id).or_default().push(fact);
         }
     }
+    for facts in effective.values_mut() {
+        facts.sort_by(|left, right| left.key.cmp(&right.key));
+    }
     Ok(effective)
 }
 
 fn load_keywords(
     connection: &Connection,
     heading_ids: &BTreeSet<i64>,
-    file_ids: &BTreeSet<i64>,
-    files: &HashMap<i64, StoredFile>,
 ) -> Result<Vec<StoredKeyword>, QueryShapeError> {
-    let mut target_ids = heading_ids.clone();
-    for file_id in file_ids {
-        if let Some(file) = files.get(file_id) {
-            target_ids.insert(file.root_heading_id);
-        }
-    }
-    if target_ids.is_empty() {
+    if heading_ids.is_empty() {
         return Ok(Vec::new());
     }
 
-    let target_ids = target_ids.into_iter().collect::<Vec<_>>();
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let target_ids = heading_ids.iter().copied().collect::<Vec<_>>();
     let mut keywords = Vec::new();
-    for chunk in target_ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in target_ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT heading_id, keyword, value, line_number
+            "/* orgfdb:enrich-keywords params={} */
+             SELECT id, heading_id, keyword, value, line_number
              FROM keywords
-             WHERE heading_id IN ({})
-             ORDER BY heading_id, line_number, id",
+             WHERE heading_id IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection
@@ -1887,11 +2181,12 @@ fn load_keywords(
         let rows = statement
             .query_map(params_from_iter(chunk.iter()), |row| {
                 Ok(StoredKeyword {
-                    heading_id: row.get(0)?,
+                    id: row.get(0)?,
+                    heading_id: row.get(1)?,
                     fact: KeywordFact {
-                        keyword: row.get(1)?,
-                        value: row.get(2)?,
-                        line_number: row.get(3)?,
+                        keyword: row.get(2)?,
+                        value: row.get(3)?,
+                        line_number: row.get(4)?,
                     },
                 })
             })
@@ -1905,8 +2200,38 @@ fn load_keywords(
         left.heading_id
             .cmp(&right.heading_id)
             .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
+            .then_with(|| left.id.cmp(&right.id))
     });
     Ok(keywords)
+}
+
+fn sort_link_map_groups(
+    grouped: &mut HashMap<i64, Vec<StoredLink>>,
+    files: &HashMap<i64, StoredFile>,
+) -> Result<(), QueryShapeError> {
+    for links in grouped.values_mut() {
+        if let Some(link) = links.iter().find(|link| !files.contains_key(&link.file_id)) {
+            return Err(QueryShapeError::missing(format!(
+                "missing stored file row for included link {} source file {}",
+                link.id, link.file_id
+            )));
+        }
+        links.sort_by(|left, right| {
+            let left_path = &files
+                .get(&left.file_id)
+                .expect("link source files were checked above")
+                .path;
+            let right_path = &files
+                .get(&right.file_id)
+                .expect("link source files were checked above")
+                .path;
+            left_path
+                .cmp(right_path)
+                .then_with(|| left.byte_start.cmp(&right.byte_start))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+    }
+    Ok(())
 }
 
 fn load_links_by_file(
@@ -1946,16 +2271,16 @@ fn load_link_map(
         return Ok(HashMap::new());
     }
 
+    let chunk_size = id_chunk_capacity(connection, 0);
     let ids = ids.iter().copied().collect::<Vec<_>>();
     let mut grouped = HashMap::<i64, Vec<StoredLink>>::new();
-    for chunk in ids.chunks(QUERY_ENRICHMENT_ID_CHUNK_SIZE) {
+    for chunk in ids.chunks(chunk_size) {
         let sql = format!(
-            "SELECT
+            "/* orgfdb:enrich-links params={} */
+             SELECT
                 links.id,
                 links.file_id,
-                files.path,
                 links.heading_id,
-                headings.level,
                 links.source_context,
                 links.format,
                 links.link_type,
@@ -1976,10 +2301,8 @@ fn load_link_map(
                 links.line,
                 {id_column}
              FROM links
-             INNER JOIN files ON files.id = links.file_id
-             INNER JOIN headings ON headings.id = links.heading_id
-             WHERE {id_column} IN ({})
-             ORDER BY {id_column}, files.path, links.byte_start, links.id",
+             WHERE {id_column} IN ({})",
+            chunk.len(),
             placeholders(chunk.len())
         );
         let mut statement = connection
@@ -1988,30 +2311,29 @@ fn load_link_map(
         let rows = statement
             .query_map(params_from_iter(chunk.iter()), |row| {
                 Ok((
-                    row.get::<_, i64>(23)?,
+                    row.get::<_, i64>(21)?,
                     StoredLink {
                         id: row.get(0)?,
                         file_id: row.get(1)?,
-                        file_path: row.get(2)?,
-                        heading_id: row.get(3)?,
-                        source_context: row.get(5)?,
-                        format: row.get(6)?,
-                        link_type: row.get(7)?,
-                        raw: row.get(8)?,
-                        raw_target: row.get(9)?,
-                        raw_description: row.get(10)?,
-                        link_path: row.get(11)?,
-                        search_option: row.get(12)?,
-                        path_absolute: row.get(13)?,
-                        target_file_id: row.get(14)?,
-                        target_heading_id: row.get(15)?,
-                        target_custom_id: row.get(16)?,
-                        target_id: row.get(17)?,
-                        resolution_status: row.get(18)?,
-                        resolution_diagnostic: row.get(19)?,
-                        byte_start: row.get(20)?,
-                        byte_end: row.get(21)?,
-                        line: row.get(22)?,
+                        heading_id: row.get(2)?,
+                        source_context: row.get(3)?,
+                        format: row.get(4)?,
+                        link_type: row.get(5)?,
+                        raw: row.get(6)?,
+                        raw_target: row.get(7)?,
+                        raw_description: row.get(8)?,
+                        link_path: row.get(9)?,
+                        search_option: row.get(10)?,
+                        path_absolute: row.get(11)?,
+                        target_file_id: row.get(12)?,
+                        target_heading_id: row.get(13)?,
+                        target_custom_id: row.get(14)?,
+                        target_id: row.get(15)?,
+                        resolution_status: row.get(16)?,
+                        resolution_diagnostic: row.get(17)?,
+                        byte_start: row.get(18)?,
+                        byte_end: row.get(19)?,
+                        line: row.get(20)?,
                     },
                 ))
             })
@@ -2029,14 +2351,6 @@ fn placeholders(count: usize) -> String {
     std::iter::repeat_n("?", count)
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn strip_root_breadcrumb(breadcrumbs: &[String], heading_level: i64) -> Vec<String> {
-    if heading_level == 0 {
-        Vec::new()
-    } else {
-        breadcrumbs.iter().skip(1).cloned().collect()
-    }
 }
 
 #[cfg(test)]
@@ -2057,7 +2371,7 @@ mod tests {
         QueryTarget, QueryValidationOptions,
     };
     use crate::tag::derive_effective_tags;
-    use rusqlite::Connection;
+    use rusqlite::{limits::Limit, Connection};
     use serde_json::Value;
     use std::path::Path;
 
@@ -2632,6 +2946,51 @@ mod tests {
         let heading = heading_node(&response.results[0]);
         assert_eq!(heading.id, 11);
         assert_eq!(heading.title, "Query Engine");
+    }
+
+    #[test]
+    fn flat_enrichment_respects_small_runtime_variable_limit() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::EffectiveProperties],
+            ..QueryExecutionOptions::default()
+        };
+        let expected = execute_and_shape_query(&connection, &query, &options)
+            .expect("baseline query should shape");
+
+        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("small variable limit should use more chunks");
+        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn full_enrichment_respects_small_runtime_variable_limit() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![
+                QueryInclude::Path,
+                QueryInclude::Properties,
+                QueryInclude::EffectiveProperties,
+                QueryInclude::Keywords,
+                QueryInclude::Links,
+                QueryInclude::Backlinks,
+            ],
+            ..QueryExecutionOptions::default()
+        };
+        let expected = execute_and_shape_query(&connection, &query, &options)
+            .expect("baseline full enrichment should shape");
+
+        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("full enrichment should respect the small variable limit");
+        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+
+        assert_eq!(actual, expected);
     }
 
     #[test]

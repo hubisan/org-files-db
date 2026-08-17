@@ -4,6 +4,7 @@ pub mod parser;
 mod priority;
 pub mod resolve;
 pub mod result;
+pub(crate) mod sql_support;
 pub mod sqlite;
 pub mod validate;
 

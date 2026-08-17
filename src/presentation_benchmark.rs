@@ -365,6 +365,52 @@ pub fn run(
     .map_err(|error| error.to_string())
 }
 
+pub fn prepare_benchmark_databases(
+    work_dir: &Path,
+    row_counts: &[usize],
+    seed: u64,
+) -> Result<PathBuf, String> {
+    if row_counts.is_empty() || row_counts.contains(&0) {
+        return Err("benchmark row counts must be positive".into());
+    }
+
+    fs::create_dir_all(work_dir).map_err(|error| error.to_string())?;
+    let work_dir = fs::canonicalize(work_dir).map_err(|error| error.to_string())?;
+
+    for target_results in row_counts {
+        let size_dir = work_dir.join(format!("rows-{target_results}"));
+        let source_dir = size_dir.join("corpus");
+        let db_path = size_dir.join("org-files-db.sqlite");
+        let config_path = size_dir.join("org-files-db.toml");
+
+        if db_path.is_file() {
+            continue;
+        }
+
+        if size_dir.exists() {
+            fs::remove_dir_all(&size_dir).map_err(|error| error.to_string())?;
+        }
+        fs::create_dir_all(&size_dir).map_err(|error| error.to_string())?;
+
+        eprintln!("Preparing benchmark database for {target_results} results...");
+        generate_corpus(&source_dir, *target_results, seed)?;
+        let config = benchmark_config(&source_dir, &db_path);
+        let mut connection = open_database_with_schema(
+            &db_path,
+            &SchemaDefinition::new(CURRENT_SCHEMA_VERSION, false),
+        )
+        .map_err(|error| error.to_string())?;
+        Indexer::new(OrgizeAdapter::new())
+            .rebuild(&mut connection, &config)
+            .map_err(|error| error.to_string())?;
+        drop(connection);
+        write_cli_config(&config_path, &source_dir, &db_path)?;
+        eprintln!("Prepared benchmark database for {target_results} results.");
+    }
+
+    Ok(work_dir)
+}
+
 pub fn analyze_payloads(
     output: &Path,
     work_dir: &Path,
@@ -1338,6 +1384,35 @@ fn timing(samples: &[Duration]) -> Timing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepare_benchmark_databases_creates_missing_work_directory() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let work_dir = std::env::temp_dir().join(format!(
+            "orgfdb-presentation-benchmark-test-{}-{unique}",
+            std::process::id()
+        ));
+
+        let prepared = prepare_benchmark_databases(&work_dir, &[2], 1)
+            .expect("missing benchmark databases should be prepared");
+        let db_path = prepared.join("rows-2/org-files-db.sqlite");
+        assert!(db_path.is_file());
+
+        let connection = open_existing_database_read_only(&db_path)
+            .expect("prepared benchmark database should open");
+        let heading_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM headings WHERE level = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("prepared benchmark database should contain headings");
+        assert_eq!(heading_count, 2);
+        drop(connection);
+
+        fs::remove_dir_all(&work_dir).expect("benchmark test directory should be removed");
+    }
 
     #[test]
     fn default_row_counts_cover_requested_sizes() {

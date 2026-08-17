@@ -20,6 +20,7 @@ Use these documents when you use ~orgfdb~ or build a client for its current publ
 - [[./design/parser-risks.org][Parser Risks]] records known parser differences and risk decisions.
 - [[./performance-baseline.org][Performance Baseline]] describes the benchmark framework and historical measurements.
 - [[./presentation-performance.org][Presentation Performance Benchmark]] describes the uncached benchmark, payload analysis, and measurement protocol.
+- [[./query-sql-performance.org][Query SQL Performance]] records the query SQL audit, optimizations, and SQL benchmark protocol.
 
 These documents describe implementation boundaries or detailed internal contracts.
 
