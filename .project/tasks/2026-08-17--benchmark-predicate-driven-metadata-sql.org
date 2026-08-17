@@ -1,0 +1,251 @@
+#+TITLE: Benchmark Predicate-driven SQL for Direct Metadata Filters
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-17 Monday 18:02]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Benchmark predicate-driven SQL for direct metadata filters.
+
+Test direct tags, direct properties, effective properties, and keywords at approximately 1%, 10%, 50%, and 100% selectivity.
+
+Compare the current heading-driven ~EXISTS~ form with relation-driven joins and benchmark-only predicate-first indexes.
+
+Record latency, query plans, statement counts, returned rows, and rows transferred to Rust.
+
+Do not add a persistent index without clear benchmark evidence.
+
+Audit the query compiler for related lookups that stored row state makes impossible.
+
+* Planning
+
+** Problem summary
+
+Several direct metadata predicates start from ~headings~ and use a correlated subquery.
+
+The current query-plan audit reports ~SCAN h0~ for these cases.
+
+Selective metadata can make a relation-first query cheaper because SQLite can start from a small metadata result set.
+
+The current indexes do not provide the same predicate-first access for every metadata family.
+
+** Goals
+
+- Benchmark direct tags, direct properties, effective properties, and keywords.
+- Measure 1%, 10%, 50%, and 100% selectivity.
+- Compare heading-driven ~EXISTS~ with relation-first SQL under current indexes.
+- Compare relation-first SQL with benchmark-only predicate-first indexes.
+- Record query plans and complete one-statement latency through Rust row collection.
+- Record statement count, returned rows, and rows transferred to Rust.
+- Keep experimental indexes outside the production schema.
+- Audit safe compiler short-circuits for impossible related lookups.
+
+** Non-goals
+
+- Do not change production query SQL in this task.
+- Do not add a persistent schema index in this task.
+- Do not change public query output.
+- Do not change metadata semantics.
+- Do not benchmark regular-expression predicates in this task.
+
+** Architecture
+
+Use isolated copies of each existing presentation benchmark database.
+
+Add synthetic benchmark marker rows only to the copies.
+
+Each marker selects a deterministic prefix of level-1 headings.
+
+Use separate marker names for each selectivity so every SQL shape reads the same rows.
+
+Use ~CROSS JOIN~ in the relation-first candidate to keep the metadata relation as the outer loop.
+
+The benchmark-only indexed copy adds predicate-first indexes after all marker rows exist.
+
+Direct property candidates use ~effective_properties.local_value~ because that projection preserves resolved local property semantics.
+
+** Execution plan
+
+1. Extend the SQL benchmark output schema with metadata predicate strategy results.
+2. Create isolated current-index and experimental-index database copies per result size.
+3. Seed deterministic metadata rows for 1%, 10%, 50%, and 100% selectivity.
+4. Measure heading-driven and relation-first SQL on the current-index copy.
+5. Measure the same relation-first SQL on the experimental-index copy.
+6. Require identical heading IDs from all three SQL shapes before timing.
+7. Record ~EXPLAIN QUERY PLAN~ for every strategy and selectivity.
+8. Add structured compiler audit findings to the benchmark output.
+9. Run ~make ci~ when the Rust toolchain is available.
+10. Run the release benchmark and document the measured decision.
+
+** Risks & assumptions
+
+The synthetic metadata rows exist only in benchmark database copies.
+
+The benchmark isolates predicate matching and Rust ID collection.
+
+It does not include later tag enrichment or final result shaping.
+
+SQLite does not expose scanned-row counts through the current benchmark API.
+
+The query plan and returned-row counts remain available for plan analysis.
+
+** Open questions
+
+- Which metadata families benefit from relation-first execution with current indexes?
+- Which families need a predicate-first index before relation-first execution wins?
+- At which selectivity does heading-driven execution become cheaper?
+- Does any experimental index provide enough benefit to justify a separate production task?
+
+** Proposed checks
+
+- ~make ci~
+- Release SQL benchmark with ~--rows 100,1000,10000,50000~.
+- Confirm identical IDs for all SQL shapes before timing.
+- Inspect every metadata strategy query plan.
+- Confirm the production schema has no new index.
+
+* Results
+
+** Approach
+
+The benchmark output schema is now version ~6~.
+
+Each result size adds ~metadata_predicate_strategies~.
+
+The benchmark creates two isolated database copies after normal corpus preparation.
+
+The current-index copy contains synthetic marker rows but no new indexes.
+
+The experimental-index copy adds benchmark-only predicate-first indexes.
+
+Each strategy executes one SQL statement and collects the returned heading IDs in Rust.
+
+The benchmark records ~rows_scanned~ as null because the current API does not expose exact scan counts.
+
+It still records returned rows, Rust transfer rows, and ~EXPLAIN QUERY PLAN~ details.
+
+The top-level ~compiler_audit~ records the safe-lookup audit.
+
+No new metadata short-circuit is justified by the current stored row model.
+
+The existing heading-root static truth analysis already skips guaranteed impossible root work.
+
+** Changed files
+
+- ~src/query_sql_benchmark.rs~
+- ~docs/query-sql-performance.org~
+- ~.project/tasks/todo.org~
+- this task file
+
+** Checks performed
+
+A structural audit compared each candidate SQL shape with the current compiler semantics.
+
+A benchmark unit test checks identical IDs for all four metadata families and all four selectivities.
+
+The test also creates every experimental index and reruns the relation-first candidates.
+
+A local SQLite smoke test executed every SQL shape and every experimental index successfully.
+
+The smoke test confirmed that the experimental indexes produce predicate-first covering-index plans.
+
+The production schema file remains unchanged.
+
+~make ci~ was attempted.
+
+** Test results
+
+The SQLite smoke test passed.
+
+~make ci~ stops at ~cargo fmt --all --check~ because this execution environment does not provide ~cargo~.
+
+The local schema version ~6~ benchmark completed successfully.
+
+At ~50'000~ eligible headings, the median predicate query times are:
+
+| Predicate | Selectivity | ~heading-driven-exists~ | ~relation-driven-current-indexes~ | ~relation-driven-experimental-index~ |
+|-----------+-------------+-------------------------+-----------------------------------+--------------------------------------|
+| direct tag | 1% | 20.490 ms | 0.171 ms | 0.144 ms |
+| direct tag | 10% | 21.066 ms | 1.558 ms | 1.285 ms |
+| direct tag | 50% | 22.949 ms | 9.156 ms | 7.846 ms |
+| direct tag | 100% | 25.477 ms | 18.807 ms | 16.904 ms |
+| direct property | 1% | 24.318 ms | 17.484 ms | 0.157 ms |
+| direct property | 10% | 25.556 ms | 19.542 ms | 1.364 ms |
+| direct property | 50% | 32.655 ms | 25.543 ms | 8.112 ms |
+| direct property | 100% | 42.090 ms | 33.907 ms | 16.675 ms |
+| effective property | 1% | 23.719 ms | 17.190 ms | 0.152 ms |
+| effective property | 10% | 25.242 ms | 18.665 ms | 1.347 ms |
+| effective property | 50% | 32.494 ms | 25.212 ms | 8.237 ms |
+| effective property | 100% | 41.341 ms | 33.543 ms | 16.639 ms |
+| keyword | 1% | 25.866 ms | 11.906 ms | 0.159 ms |
+| keyword | 10% | 26.572 ms | 13.350 ms | 1.496 ms |
+| keyword | 50% | 32.164 ms | 20.158 ms | 8.741 ms |
+| keyword | 100% | 41.488 ms | 29.140 ms | 17.871 ms |
+
+The same strategy order appears at ~100~, ~1'000~, and ~10'000~ eligible headings.
+
+~relation-driven-current-indexes~ beats ~heading-driven-exists~ in all measured cases.
+
+~relation-driven-experimental-index~ is the fastest strategy in all measured cases.
+
+Direct tags already have a useful predicate-first production index through ~idx_tags_tag~.
+
+At ~50'000~ headings, the benchmark-only covering tag index adds only about 10% to 18% over the existing relation-first plan.
+
+This result does not justify another persistent tag index.
+
+Direct and effective properties still scan ~effective_properties~ with the current indexes.
+
+The predicate-first property indexes remove this scan and produce large gains at every selectivity.
+
+Keywords also scan the metadata relation with the current indexes.
+
+The predicate-first keyword index removes this scan and produces large gains at every selectivity.
+
+The property and keyword index candidates remain separate production decisions.
+
+This benchmark measures predicate matching through Rust ID collection.
+
+It does not include later enrichment and final result shaping.
+
+Do not add the persistent property or keyword indexes from this task alone.
+
+Run a complete production query A/B before the schema change.
+
+** Decision
+
+Use relation-driven SQL as the preferred candidate for direct tag equality predicates.
+
+Reuse the existing ~idx_tags_tag~ index for this candidate.
+
+Do not add ~tags(tag, heading_id)~ as another persistent index.
+
+Treat these benchmark-only indexes as strong production candidates:
+
+- ~effective_properties(key, local_value, heading_id) WHERE local_value IS NOT NULL~
+- ~effective_properties(key, effective_value, heading_id)~
+- ~keywords(keyword COLLATE NOCASE, value, heading_id)~
+
+Require one complete production query A/B before adding these indexes to the schema.
+
+The compiler audit found no new safe metadata lookup skip.
+
+Keep the existing root static-truth optimization as the only measured impossible-lookup shortcut.
+
+** Blockers
+
+This execution environment does not provide ~cargo~.
+
+The supplied archive has no Git metadata, so this environment cannot create the task branch.
+
+** Follow-ups
+
+Benchmark complete production metadata-filter queries with the relation-driven SQL candidates.
+
+Use the existing tag index in the direct-tag candidate.
+
+Measure the three property and keyword index candidates before any persistent schema change.

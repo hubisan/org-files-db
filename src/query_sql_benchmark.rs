@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rusqlite::{limits::Limit, params_from_iter, Connection};
+use rusqlite::{limits::Limit, params, params_from_iter, Connection};
 use serde::Serialize;
 
 use crate::{
@@ -32,7 +32,7 @@ use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, execute_sqlite_query_with_relation,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "5";
+pub const OUTPUT_SCHEMA_VERSION: &str = "6";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -63,6 +63,7 @@ pub struct QuerySqlBenchmarkOutput {
     pub environment: QuerySqlBenchmarkEnvironment,
     pub sizes: Vec<QuerySqlSizeResult>,
     pub query_plans: Vec<QueryPlanResult>,
+    pub compiler_audit: Vec<QueryCompilerAuditResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -96,6 +97,7 @@ pub struct QuerySqlSizeResult {
     pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
     pub path_strategies: Vec<PathStrategyResult>,
     pub production_path_strategies: Vec<ProductionPathStrategyResult>,
+    pub metadata_predicate_strategies: Vec<MetadataPredicateStrategyResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,6 +197,31 @@ pub struct ProductionPathStrategyResult {
     pub total_query_time: Timing,
     pub sql_profile: SqlProfileSummary,
     pub direct_phase_profile: DirectPhaseProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetadataPredicateStrategyResult {
+    pub predicate: &'static str,
+    pub selectivity_percent: usize,
+    pub actual_selectivity_percent: f64,
+    pub strategy: &'static str,
+    pub experimental_index: Option<&'static str>,
+    pub eligible_headings: usize,
+    pub matched_headings: usize,
+    pub returned_rows: usize,
+    pub rows_scanned: Option<usize>,
+    pub statement_count_per_sample: usize,
+    pub rows_transferred_to_rust_per_sample: usize,
+    pub total_query_time: Timing,
+    pub query_plan: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryCompilerAuditResult {
+    pub predicate: &'static str,
+    pub current_lookup: &'static str,
+    pub skip_related_lookup: bool,
+    pub finding: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -305,7 +332,7 @@ pub fn run(
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, isolated path loading, complete production path shaping, variable-limit sensitivity, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, isolated path loading, complete production path shaping, metadata predicate SQL shapes, variable-limit sensitivity, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -319,6 +346,7 @@ pub fn run(
         },
         sizes,
         query_plans,
+        compiler_audit: query_compiler_audit(),
     };
 
     if let Some(parent) = output
@@ -386,6 +414,8 @@ fn run_size(
     let path_strategies = measure_path_strategies(&db_path, target_results, options)?;
     let production_path_strategies =
         measure_production_path_strategies(&db_path, target_results, options)?;
+    let metadata_predicate_strategies =
+        measure_metadata_predicate_strategies(&db_path, target_results, options)?;
 
     Ok(QuerySqlSizeResult {
         target_results,
@@ -396,6 +426,7 @@ fn run_size(
         relation_reuse_strategies,
         path_strategies,
         production_path_strategies,
+        metadata_predicate_strategies,
     })
 }
 
@@ -1423,6 +1454,383 @@ fn run_temp_relation_loader(connection: &Connection, table: &str) -> Result<usiz
     Ok(count)
 }
 
+const METADATA_PREDICATE_SELECTIVITIES: &[usize] = &[1, 10, 50, 100];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MetadataPredicateKind {
+    DirectTag,
+    DirectProperty,
+    EffectiveProperty,
+    Keyword,
+}
+
+impl MetadataPredicateKind {
+    const ALL: [Self; 4] = [
+        Self::DirectTag,
+        Self::DirectProperty,
+        Self::EffectiveProperty,
+        Self::Keyword,
+    ];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::DirectTag => "direct-tag",
+            Self::DirectProperty => "direct-property",
+            Self::EffectiveProperty => "effective-property",
+            Self::Keyword => "keyword",
+        }
+    }
+
+    fn marker(self, selectivity_percent: usize) -> String {
+        match self {
+            Self::DirectTag => format!("orgfdb-bench-tag-{selectivity_percent:03}"),
+            Self::DirectProperty => format!("ORGFDB_BENCH_DIRECT_{selectivity_percent:03}"),
+            Self::EffectiveProperty => format!("ORGFDB_BENCH_EFFECTIVE_{selectivity_percent:03}"),
+            Self::Keyword => format!("ORGFDB_BENCH_KEYWORD_{selectivity_percent:03}"),
+        }
+    }
+
+    fn experimental_index(self) -> &'static str {
+        match self {
+            Self::DirectTag => "orgfdb_bench_tags_tag_heading",
+            Self::DirectProperty => "orgfdb_bench_effective_properties_key_local_heading",
+            Self::EffectiveProperty => "orgfdb_bench_effective_properties_key_effective_heading",
+            Self::Keyword => "orgfdb_bench_keywords_keyword_value_heading",
+        }
+    }
+}
+
+fn measure_metadata_predicate_strategies(
+    db_path: &Path,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<MetadataPredicateStrategyResult>, String> {
+    let current_path = db_path.with_file_name("org-files-db-metadata-predicate-current.sqlite");
+    let indexed_path = db_path.with_file_name("org-files-db-metadata-predicate-indexed.sqlite");
+    remove_sqlite_benchmark_clone(&current_path)?;
+    remove_sqlite_benchmark_clone(&indexed_path)?;
+    fs::copy(db_path, &current_path).map_err(|error| error.to_string())?;
+
+    let mut seed_connection = Connection::open(&current_path).map_err(|error| error.to_string())?;
+    let eligible_headings = count_level_one_headings(&seed_connection)?;
+    if eligible_headings != expected_results {
+        return Err(format!(
+            "metadata predicate benchmark found {eligible_headings} level-1 headings, expected {expected_results}"
+        ));
+    }
+    seed_metadata_predicate_rows(&mut seed_connection, eligible_headings)?;
+    drop(seed_connection);
+
+    fs::copy(&current_path, &indexed_path).map_err(|error| error.to_string())?;
+    let current_connection =
+        open_existing_database_read_only(&current_path).map_err(|error| error.to_string())?;
+    let indexed_connection = Connection::open(&indexed_path).map_err(|error| error.to_string())?;
+    create_metadata_predicate_experimental_indexes(&indexed_connection)?;
+
+    let mut results = Vec::with_capacity(
+        MetadataPredicateKind::ALL.len() * METADATA_PREDICATE_SELECTIVITIES.len() * 3,
+    );
+    for kind in MetadataPredicateKind::ALL {
+        for &selectivity_percent in METADATA_PREDICATE_SELECTIVITIES {
+            let expected_matches =
+                selectivity_heading_count(eligible_headings, selectivity_percent);
+            let params = metadata_predicate_params(kind, selectivity_percent);
+            let current_sql = metadata_heading_driven_sql(kind);
+            let relation_sql = metadata_relation_driven_sql(kind);
+
+            let mut current_reference =
+                run_metadata_predicate_statement(&current_connection, current_sql, &params)?;
+            let mut relation_reference =
+                run_metadata_predicate_statement(&current_connection, relation_sql, &params)?;
+            let mut indexed_reference =
+                run_metadata_predicate_statement(&indexed_connection, relation_sql, &params)?;
+            current_reference.sort_unstable();
+            relation_reference.sort_unstable();
+            indexed_reference.sort_unstable();
+            if current_reference.len() != expected_matches {
+                return Err(format!(
+                    "{} at {selectivity_percent}% returned {} headings, expected {expected_matches}",
+                    kind.id(),
+                    current_reference.len()
+                ));
+            }
+            if current_reference != relation_reference || current_reference != indexed_reference {
+                return Err(format!(
+                    "metadata predicate SQL shapes disagree for {} at {selectivity_percent}%",
+                    kind.id()
+                ));
+            }
+
+            results.push(measure_metadata_predicate_strategy(
+                &current_connection,
+                kind,
+                selectivity_percent,
+                eligible_headings,
+                expected_matches,
+                "heading-driven-exists",
+                None,
+                current_sql,
+                &params,
+                options,
+            )?);
+            results.push(measure_metadata_predicate_strategy(
+                &current_connection,
+                kind,
+                selectivity_percent,
+                eligible_headings,
+                expected_matches,
+                "relation-driven-current-indexes",
+                None,
+                relation_sql,
+                &params,
+                options,
+            )?);
+            results.push(measure_metadata_predicate_strategy(
+                &indexed_connection,
+                kind,
+                selectivity_percent,
+                eligible_headings,
+                expected_matches,
+                "relation-driven-experimental-index",
+                Some(kind.experimental_index()),
+                relation_sql,
+                &params,
+                options,
+            )?);
+        }
+    }
+    Ok(results)
+}
+
+fn remove_sqlite_benchmark_clone(path: &Path) -> Result<(), String> {
+    let path_text = path.to_string_lossy();
+    for candidate in [
+        path.to_path_buf(),
+        format!("{path_text}-wal").into(),
+        format!("{path_text}-shm").into(),
+    ] {
+        if candidate.exists() {
+            fs::remove_file(&candidate).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn count_level_one_headings(connection: &Connection) -> Result<usize, String> {
+    let count = connection
+        .query_row("SELECT COUNT(*) FROM headings WHERE level = 1", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|error| error.to_string())?;
+    usize::try_from(count).map_err(|error| error.to_string())
+}
+
+fn selectivity_heading_count(eligible_headings: usize, selectivity_percent: usize) -> usize {
+    if eligible_headings == 0 {
+        return 0;
+    }
+    (eligible_headings * selectivity_percent / 100).max(1)
+}
+
+fn seed_metadata_predicate_rows(
+    connection: &mut Connection,
+    eligible_headings: usize,
+) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    for &selectivity_percent in METADATA_PREDICATE_SELECTIVITIES {
+        let selected = selectivity_heading_count(eligible_headings, selectivity_percent);
+        let selected = i64::try_from(selected).map_err(|error| error.to_string())?;
+
+        let tag = MetadataPredicateKind::DirectTag.marker(selectivity_percent);
+        transaction
+            .execute(
+                "INSERT INTO tags (heading_id, tag)\n                 SELECT id, ?1 FROM headings\n                 WHERE level = 1\n                 ORDER BY id\n                 LIMIT ?2",
+                params![tag, selected],
+            )
+            .map_err(|error| error.to_string())?;
+
+        let direct_key = MetadataPredicateKind::DirectProperty.marker(selectivity_percent);
+        transaction
+            .execute(
+                "INSERT INTO effective_properties\n                     (heading_id, file_id, key, local_value, effective_value)\n                 SELECT id, file_id, ?1, 'match', 'match' FROM headings\n                 WHERE level = 1\n                 ORDER BY id\n                 LIMIT ?2",
+                params![direct_key, selected],
+            )
+            .map_err(|error| error.to_string())?;
+
+        let effective_key = MetadataPredicateKind::EffectiveProperty.marker(selectivity_percent);
+        transaction
+            .execute(
+                "INSERT INTO effective_properties\n                     (heading_id, file_id, key, local_value, effective_value)\n                 SELECT id, file_id, ?1, NULL, 'match' FROM headings\n                 WHERE level = 1\n                 ORDER BY id\n                 LIMIT ?2",
+                params![effective_key, selected],
+            )
+            .map_err(|error| error.to_string())?;
+
+        let keyword = MetadataPredicateKind::Keyword.marker(selectivity_percent);
+        transaction
+            .execute(
+                "INSERT INTO keywords (heading_id, keyword, value, line_number)\n                 SELECT id, ?1, 'match', NULL FROM headings\n                 WHERE level = 1\n                 ORDER BY id\n                 LIMIT ?2",
+                params![keyword, selected],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn create_metadata_predicate_experimental_indexes(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "CREATE INDEX orgfdb_bench_tags_tag_heading\n                 ON tags(tag, heading_id);\n             CREATE INDEX orgfdb_bench_effective_properties_key_local_heading\n                 ON effective_properties(key, local_value, heading_id)\n                 WHERE local_value IS NOT NULL;\n             CREATE INDEX orgfdb_bench_effective_properties_key_effective_heading\n                 ON effective_properties(key, effective_value, heading_id);\n             CREATE INDEX orgfdb_bench_keywords_keyword_value_heading\n                 ON keywords(keyword COLLATE NOCASE, value, heading_id);",
+        )
+        .map_err(|error| error.to_string())
+}
+
+fn metadata_predicate_params(
+    kind: MetadataPredicateKind,
+    selectivity_percent: usize,
+) -> Vec<QueryParam> {
+    let marker = kind.marker(selectivity_percent);
+    match kind {
+        MetadataPredicateKind::DirectTag => vec![QueryParam::Text(marker)],
+        MetadataPredicateKind::DirectProperty
+        | MetadataPredicateKind::EffectiveProperty
+        | MetadataPredicateKind::Keyword => {
+            vec![
+                QueryParam::Text(marker),
+                QueryParam::Text("match".to_string()),
+            ]
+        }
+    }
+}
+
+fn metadata_heading_driven_sql(kind: MetadataPredicateKind) -> &'static str {
+    match kind {
+        MetadataPredicateKind::DirectTag => {
+            "SELECT h.id\n             FROM headings AS h\n             WHERE h.level = 1\n               AND EXISTS (\n                   SELECT 1 FROM tags\n                   WHERE tags.heading_id = h.id\n                     AND tags.tag = ?1\n               )"
+        }
+        MetadataPredicateKind::DirectProperty => {
+            "SELECT h.id\n             FROM headings AS h\n             WHERE h.level = 1\n               AND EXISTS (\n                   SELECT 1 FROM effective_properties\n                   WHERE effective_properties.heading_id = h.id\n                     AND effective_properties.key = ?1\n                     AND effective_properties.local_value IS NOT NULL\n                     AND effective_properties.local_value = ?2\n               )"
+        }
+        MetadataPredicateKind::EffectiveProperty => {
+            "SELECT h.id\n             FROM headings AS h\n             WHERE h.level = 1\n               AND EXISTS (\n                   SELECT 1 FROM effective_properties\n                   WHERE effective_properties.heading_id = h.id\n                     AND effective_properties.key = ?1\n                     AND effective_properties.effective_value = ?2\n               )"
+        }
+        MetadataPredicateKind::Keyword => {
+            "SELECT h.id\n             FROM headings AS h\n             WHERE h.level = 1\n               AND EXISTS (\n                   SELECT 1 FROM keywords\n                   WHERE keywords.heading_id = h.id\n                     AND keywords.keyword = ?1 COLLATE NOCASE\n                     AND keywords.value = ?2\n               )"
+        }
+    }
+}
+
+fn metadata_relation_driven_sql(kind: MetadataPredicateKind) -> &'static str {
+    match kind {
+        MetadataPredicateKind::DirectTag => {
+            "SELECT h.id\n             FROM tags AS metadata\n             CROSS JOIN headings AS h\n             WHERE metadata.tag = ?1\n               AND h.id = metadata.heading_id\n               AND h.level = 1"
+        }
+        MetadataPredicateKind::DirectProperty => {
+            "SELECT h.id\n             FROM effective_properties AS metadata\n             CROSS JOIN headings AS h\n             WHERE metadata.key = ?1\n               AND metadata.local_value IS NOT NULL\n               AND metadata.local_value = ?2\n               AND h.id = metadata.heading_id\n               AND h.level = 1"
+        }
+        MetadataPredicateKind::EffectiveProperty => {
+            "SELECT h.id\n             FROM effective_properties AS metadata\n             CROSS JOIN headings AS h\n             WHERE metadata.key = ?1\n               AND metadata.effective_value = ?2\n               AND h.id = metadata.heading_id\n               AND h.level = 1"
+        }
+        MetadataPredicateKind::Keyword => {
+            "SELECT h.id\n             FROM keywords AS metadata\n             CROSS JOIN headings AS h\n             WHERE metadata.keyword = ?1 COLLATE NOCASE\n               AND metadata.value = ?2\n               AND h.id = metadata.heading_id\n               AND h.level = 1"
+        }
+    }
+}
+
+fn run_metadata_predicate_statement(
+    connection: &Connection,
+    sql: &str,
+    params: &[QueryParam],
+) -> Result<Vec<i64>, String> {
+    let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params_from_iter(params.iter()), |row| row.get::<_, i64>(0))
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn measure_metadata_predicate_strategy(
+    connection: &Connection,
+    kind: MetadataPredicateKind,
+    selectivity_percent: usize,
+    eligible_headings: usize,
+    expected_matches: usize,
+    strategy: &'static str,
+    experimental_index: Option<&'static str>,
+    sql: &str,
+    params: &[QueryParam],
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<MetadataPredicateStrategyResult, String> {
+    let total_query_time = measure(options, || {
+        let rows = run_metadata_predicate_statement(connection, sql, params)?;
+        if rows.len() != expected_matches {
+            return Err(format!(
+                "{} {strategy} result count changed during metadata predicate benchmark",
+                kind.id()
+            ));
+        }
+        std::hint::black_box(rows);
+        Ok(())
+    })?;
+    Ok(MetadataPredicateStrategyResult {
+        predicate: kind.id(),
+        selectivity_percent,
+        actual_selectivity_percent: if eligible_headings == 0 {
+            0.0
+        } else {
+            expected_matches as f64 * 100.0 / eligible_headings as f64
+        },
+        strategy,
+        experimental_index,
+        eligible_headings,
+        matched_headings: expected_matches,
+        returned_rows: expected_matches,
+        rows_scanned: None,
+        statement_count_per_sample: 1,
+        rows_transferred_to_rust_per_sample: expected_matches,
+        total_query_time,
+        query_plan: explain_query_plan(connection, sql, params)?,
+    })
+}
+
+fn query_compiler_audit() -> Vec<QueryCompilerAuditResult> {
+    vec![
+        QueryCompilerAuditResult {
+            predicate: "direct-tags",
+            current_lookup: "tags by heading_id",
+            skip_related_lookup: false,
+            finding: "Direct tags can exist on root and regular headings, so heading level alone cannot eliminate the lookup.",
+        },
+        QueryCompilerAuditResult {
+            predicate: "direct-properties",
+            current_lookup: "effective_properties.local_value by heading_id and key",
+            skip_related_lookup: false,
+            finding: "The local-value projection can exist on root and regular headings and preserves resolved local property semantics.",
+        },
+        QueryCompilerAuditResult {
+            predicate: "effective-properties",
+            current_lookup: "effective_properties.effective_value by heading_id and key",
+            skip_related_lookup: false,
+            finding: "An effective property can exist on any heading where the key is visible, so no heading-level state makes the lookup impossible.",
+        },
+        QueryCompilerAuditResult {
+            predicate: "keywords",
+            current_lookup: "keywords by selected heading_id or root heading_id",
+            skip_related_lookup: false,
+            finding: "Direct and inherited keyword modes use different heading identities, and the stored row model does not make either lookup impossible from heading level alone.",
+        },
+        QueryCompilerAuditResult {
+            predicate: "heading-root-static-truth",
+            current_lookup: "root file relation for heading queries",
+            skip_related_lookup: true,
+            finding: "The compiler already skips the root relation when level predicates exclude level 0 or parent, ancestors, or has-text makes a root match impossible.",
+        },
+    ]
+}
+
 fn collect_query_plans(db_path: &Path) -> Result<Vec<QueryPlanResult>, String> {
     let connection =
         open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
@@ -1614,6 +2022,80 @@ mod tests {
                 .map(|phase| phase.rows),
             Some(3)
         );
+    }
+
+    #[test]
+    fn metadata_predicate_sql_shapes_return_identical_ids() {
+        let mut connection = Connection::open_in_memory().expect("in-memory SQLite should open");
+        connection
+            .execute_batch(
+                "CREATE TABLE headings (id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, level INTEGER NOT NULL);\n                 CREATE TABLE tags (heading_id INTEGER NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (heading_id, tag));\n                 CREATE INDEX idx_tags_tag ON tags(tag);\n                 CREATE TABLE effective_properties (\n                     heading_id INTEGER NOT NULL,\n                     file_id INTEGER NOT NULL,\n                     key TEXT NOT NULL,\n                     local_value TEXT,\n                     effective_value TEXT NOT NULL,\n                     PRIMARY KEY (heading_id, key)\n                 );\n                 CREATE TABLE keywords (\n                     id INTEGER PRIMARY KEY,\n                     heading_id INTEGER NOT NULL,\n                     keyword TEXT NOT NULL,\n                     value TEXT,\n                     line_number INTEGER\n                 );\n                 CREATE INDEX idx_keywords_keyword ON keywords(keyword);",
+            )
+            .expect("benchmark schema should create");
+        for id in 1_i64..=100 {
+            connection
+                .execute(
+                    "INSERT INTO headings (id, file_id, level) VALUES (?1, ?2, 1)",
+                    params![id, id],
+                )
+                .expect("heading should insert");
+        }
+        seed_metadata_predicate_rows(&mut connection, 100)
+            .expect("metadata predicate rows should seed");
+
+        for kind in MetadataPredicateKind::ALL {
+            for &selectivity_percent in METADATA_PREDICATE_SELECTIVITIES {
+                let params = metadata_predicate_params(kind, selectivity_percent);
+                let mut heading_driven = run_metadata_predicate_statement(
+                    &connection,
+                    metadata_heading_driven_sql(kind),
+                    &params,
+                )
+                .expect("heading-driven SQL should run");
+                let mut relation_driven = run_metadata_predicate_statement(
+                    &connection,
+                    metadata_relation_driven_sql(kind),
+                    &params,
+                )
+                .expect("relation-driven SQL should run");
+                heading_driven.sort_unstable();
+                relation_driven.sort_unstable();
+                assert_eq!(heading_driven, relation_driven);
+                assert_eq!(
+                    heading_driven.len(),
+                    selectivity_heading_count(100, selectivity_percent)
+                );
+            }
+        }
+
+        create_metadata_predicate_experimental_indexes(&connection)
+            .expect("experimental indexes should create");
+        for kind in MetadataPredicateKind::ALL {
+            let params = metadata_predicate_params(kind, 10);
+            assert_eq!(
+                run_metadata_predicate_statement(
+                    &connection,
+                    metadata_relation_driven_sql(kind),
+                    &params,
+                )
+                .expect("indexed relation-driven SQL should run")
+                .len(),
+                10
+            );
+        }
+    }
+
+    #[test]
+    fn compiler_audit_skips_only_guaranteed_impossible_root_work() {
+        let audit = query_compiler_audit();
+        assert!(audit
+            .iter()
+            .filter(|entry| entry.predicate != "heading-root-static-truth")
+            .all(|entry| !entry.skip_related_lookup));
+        assert!(audit
+            .iter()
+            .find(|entry| entry.predicate == "heading-root-static-truth")
+            .is_some_and(|entry| entry.skip_related_lookup));
     }
 
     #[test]

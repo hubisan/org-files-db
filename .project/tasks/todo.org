@@ -1049,55 +1049,437 @@ Reconsider the production loader only if the complete same-process A/B favors th
 
 Accept an optimization only when the complete production ~headings.path~ benchmark improves.
 
-* TODO Benchmark predicate-driven SQL for direct metadata filters
+* REVIEW Benchmark predicate-driven SQL for direct metadata filters
 
-Test whether selective metadata relations can drive heading queries instead of scanning all headings with correlated subqueries.
+[[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
 
-The query-plan audit shows ~SCAN h0~ for several direct metadata predicates.
+Benchmark metadata predicates that currently scan headings and use correlated subqueries.
 
-Benchmark alternative SQL shapes for:
+The benchmark compares these predicate families:
 
 - direct tags
 - direct properties
 - effective properties
 - keywords
 
-Compare:
+It compares these SQL strategies:
 
-- current heading-driven ~EXISTS~ predicates
-- relation-driven joins with the current indexes
-- relation-driven joins with an experimental predicate-first index where justified
+- current heading-driven ~EXISTS~
+- relation-driven SQL with current indexes
+- relation-driven SQL with an experimental predicate-first index
 
-Measure different predicate selectivities.
-
-Use at least approximately:
+It measures these predicate selectivities:
 
 - 1 %
 - 10 %
 - 50 %
 - 100 %
 
-Record:
+The benchmark records:
 
-- total query latency
+- query latency
 - query plan
-- rows scanned or returned where available
+- matched and returned rows
 - statement count
 - rows transferred to Rust
+- scanned rows where SQLite exposes them
 
-Do not add a persistent index unless the benchmark shows a clear end-to-end improvement.
+The benchmark uses isolated database copies for experimental indexes.
 
-Also audit the query compiler for predicates where existing row state makes a related lookup impossible.
+It does not change the production schema or production query compiler.
 
-Skip such SQL work only when the data model guarantees that the lookup cannot produce a result.
+** Result
+
+Benchmark schema version ~6~ contains the metadata predicate comparison.
+
+The source benchmark run used:
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-v1.json
+#+end_src
+
+The benchmark JSON is not required for later work.
+
+The important results are recorded here and in ~docs/query-sql-performance.org~.
+
+Across all tested database sizes and selectivities:
+
+- relation-driven SQL with current indexes beat heading-driven ~EXISTS~ in all 64 comparisons
+- relation-driven SQL with the experimental predicate-first index beat heading-driven ~EXISTS~ in all 64 comparisons
+- no tested selectivity produced a crossover where heading-driven ~EXISTS~ became faster
+
+At ~50'000~ eligible headings and ~1 %~ selectivity:
+
+- direct tag:
+  - heading-driven ~EXISTS~: ~20.490 ms~
+  - relation-driven with current indexes: ~0.171 ms~
+  - relation-driven with experimental index: ~0.144 ms~
+- direct property:
+  - heading-driven ~EXISTS~: ~24.318 ms~
+  - relation-driven with current indexes: ~17.484 ms~
+  - relation-driven with experimental index: ~0.157 ms~
+- effective property:
+  - heading-driven ~EXISTS~: ~23.719 ms~
+  - relation-driven with current indexes: ~17.190 ms~
+  - relation-driven with experimental index: ~0.152 ms~
+- keyword:
+  - heading-driven ~EXISTS~: ~25.866 ms~
+  - relation-driven with current indexes: ~11.906 ms~
+  - relation-driven with experimental index: ~0.159 ms~
+
+At ~50'000~ eligible headings and ~100 %~ selectivity:
+
+- direct tag:
+  - heading-driven ~EXISTS~: ~25.477 ms~
+  - relation-driven with current indexes: ~18.807 ms~
+  - relation-driven with experimental index: ~16.904 ms~
+- direct property:
+  - heading-driven ~EXISTS~: ~42.090 ms~
+  - relation-driven with current indexes: ~33.907 ms~
+  - relation-driven with experimental index: ~16.675 ms~
+- effective property:
+  - heading-driven ~EXISTS~: ~41.341 ms~
+  - relation-driven with current indexes: ~33.543 ms~
+  - relation-driven with experimental index: ~16.639 ms~
+- keyword:
+  - heading-driven ~EXISTS~: ~41.488 ms~
+  - relation-driven with current indexes: ~29.140 ms~
+  - relation-driven with experimental index: ~17.871 ms~
+
+The direct-tag relation already has ~idx_tags_tag~.
+
+Its query plan starts from the tag relation and performs heading primary-key lookups.
+
+The experimental tag index has this logical column order:
+
+#+begin_src text
+(tag, heading_id)
+#+end_src
+
+It gives only a moderate improvement over ~idx_tags_tag~.
+
+Do not add another persistent tag index from this benchmark evidence.
+
+The property benchmarks use ~effective_properties~.
+
+Direct-property matching uses ~local_value~.
+
+The useful experimental index shapes are:
+
+#+begin_src text
+(key, local_value, heading_id)
+(key, effective_value, heading_id)
+#+end_src
+
+Without these indexes, relation-driven property SQL still scans the metadata relation.
+
+With these indexes, SQLite uses predicate-first covering-index searches.
+
+The useful experimental keyword index shape is:
+
+#+begin_src text
+(keyword, value, heading_id)
+#+end_src
+
+Without this index, relation-driven keyword SQL scans the keyword relation.
+
+With this index, SQLite uses a predicate-first covering-index search.
+
+The benchmark reports ~rows_scanned~ as unavailable for these SQLite plans.
+
+Use the query plans and measured latency as the scan evidence.
+
+** Query compiler audit
+
+The compiler audit found no new guaranteed metadata lookup that can be skipped safely.
+
+Direct tags and local properties can exist on root and non-root headings.
+
+Effective properties can exist where the effective key is visible.
+
+Keyword behavior depends on the query mode and heading identity.
+
+The existing root static-truth logic already skips the known impossible root cases.
+
+Do not add another shortcut unless the data model proves that the lookup cannot return a result.
+
+** Decision
+
+The microbenchmark strongly supports predicate-driven metadata access.
+
+Do not change the production compiler from this microbenchmark alone.
+
+The next task must measure the candidate strategies through the complete production query pipeline.
+
+For direct tags, test relation-driven SQL with the existing ~idx_tags_tag~ first.
+
+Do not add the experimental tag covering index unless new end-to-end evidence changes this decision.
+
+For direct properties, test this candidate index shape:
+
+#+begin_src text
+(key, local_value, heading_id)
+#+end_src
+
+For effective properties, test this candidate index shape:
+
+#+begin_src text
+(key, effective_value, heading_id)
+#+end_src
+
+For keywords, test this candidate index shape:
+
+#+begin_src text
+(keyword, value, heading_id)
+#+end_src
+
+Create these indexes only on benchmark database copies during the first end-to-end comparison.
+
+Do not add a persistent index before the end-to-end benchmark confirms its value.
+
+* TODO Validate and implement predicate-driven metadata filters end to end
+
+Use the metadata predicate benchmark as the starting evidence.
+
+The previous task shows that heading-driven correlated ~EXISTS~ predicates are expensive.
+
+The previous task also shows that relation-driven SQL is faster in every measured microbenchmark case.
+
+Do not repeat the metadata predicate microbenchmark before starting this task.
+
+Read these sources first:
+
+- [[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
+- ~docs/query-sql-performance.org~
+- the current heading query compiler
+- the current schema and metadata indexes
+
+Goal: determine which predicate-driven strategies improve complete production queries.
+
+The complete comparison must include:
+
+- query compilation
+- matched-heading SQL
+- SQLite row decoding
+- required enrichment
+- Rust grouping and sorting
+- final result shaping
+
+Do not use predicate-match latency alone as the production decision.
+
+** Phase 1 - Add a controlled production A/B benchmark
+
+Extend the existing query SQL benchmark.
+
+Compare the current production query with a candidate predicate-driven production query.
+
+Require identical final query results before recording timings.
+
+Test these predicate families:
+
+- direct tag
+- direct property
+- effective property
+- keyword
+
+Test approximately these selectivities:
+
+- 1 %
+- 10 %
+- 50 %
+- 100 %
+
+Use ~10'000~ and ~50'000~ eligible headings for the main end-to-end comparison.
+
+Use smaller workloads after a retained production change to detect small-query regressions.
+
+Record:
+
+- total production query latency
+- matched result count
+- statement count
+- rows transferred from SQLite
+- query plan
+- direct phase profile
+- final result equality
+
+Keep the benchmark indexes isolated from the production schema during this phase.
+
+** Direct tag candidate
+
+Compare the current heading-driven predicate against relation-driven tag matching.
+
+Use the existing ~idx_tags_tag~.
+
+The previous microbenchmark at ~50'000~ headings and ~1 %~ selectivity measured:
+
+#+begin_src text
+heading-driven EXISTS                 20.490 ms
+relation-driven current index         0.171 ms
+experimental covering index           0.144 ms
+#+end_src
+
+Do not add ~orgfdb_bench_tags_tag_heading~ to the production schema from this evidence.
+
+Test the existing index in the complete pipeline first.
+
+** Direct property candidate
+
+Preserve direct-property semantics through ~effective_properties.local_value~.
+
+Compare:
+
+- current heading-driven ~EXISTS~
+- relation-driven SQL with current indexes
+- relation-driven SQL with a benchmark-only predicate-first index
+
+Start with this candidate index shape:
+
+#+begin_src text
+(key, local_value, heading_id)
+#+end_src
+
+Require exact result equality.
+
+Do not replace direct-property semantics with raw ~properties~ table semantics.
+
+** Effective property candidate
+
+Preserve effective-property semantics through ~effective_properties.effective_value~.
+
+Compare:
+
+- current heading-driven ~EXISTS~
+- relation-driven SQL with current indexes
+- relation-driven SQL with a benchmark-only predicate-first index
+
+Start with this candidate index shape:
+
+#+begin_src text
+(key, effective_value, heading_id)
+#+end_src
+
+Require exact result equality.
+
+** Keyword candidate
+
+Preserve the current keyword query semantics.
+
+Compare:
+
+- current heading-driven ~EXISTS~
+- relation-driven SQL with current indexes
+- relation-driven SQL with a benchmark-only predicate-first index
+
+Start with this candidate index shape:
+
+#+begin_src text
+(keyword, value, heading_id)
+#+end_src
+
+Require exact result equality.
+
+** Boolean query semantics
+
+Do not rewrite an atomic predicate blindly inside every Boolean expression.
+
+Inspect how the compiler represents:
+
+- ~and~
+- ~or~
+- ~not~
+- nested predicate expressions
+
+Use predicate-driven matching only where the compiler can preserve exact Boolean semantics.
+
+Keep the current ~EXISTS~ form for a predicate context that lacks a proven equivalent relation form.
+
+Add regression tests for each production rewrite.
+
+Include positive and negative Boolean contexts where they apply.
+
+** Phase 2 - Decide the production strategy
+
+If relation-driven direct-tag matching wins end to end, use the existing ~idx_tags_tag~ in production.
+
+Do not add a second tag index unless the complete benchmark shows a material additional gain.
+
+If a property or keyword candidate index wins end to end, measure its persistent cost before keeping it.
+
+Measure at least:
+
+- database creation or indexing time
+- database file size
+- representative update cost where practical
+- complete query latency
+
+Measure the two property indexes together if production needs both.
+
+Avoid a query optimization that creates excessive index maintenance or database growth.
+
+** Phase 3 - Implement retained changes
+
+If the end-to-end evidence confirms a candidate, update the production compiler.
+
+If the index cost is acceptable, add the required persistent schema index.
+
+Keep the current strategy for any candidate that lacks clear end-to-end evidence.
+
+Preserve:
+
+- public query syntax
+- normal ~--format json~ output
+- query result ordering
+- query result semantics
+- stored-data validation
+- existing error behavior
+
+Add regression tests for all retained compiler changes.
+
+Update ~docs/query-sql-performance.org~ with the final production decision.
+
+Run:
+
+#+begin_src sh
+make ci
+#+end_src
+
+Re-run the production benchmark after the retained changes.
+
+Record the before and after production measurements.
+
+** Acceptance criteria
+
+- The A/B benchmark compares complete production query results.
+- The compared strategies produce identical results.
+- Predicate-driven SQL is used only in proven equivalent compiler contexts.
+- Direct tags reuse ~idx_tags_tag~ unless stronger evidence justifies another index.
+- Persistent property or keyword indexes have end-to-end benchmark support.
+- Persistent index cost is measured before the schema change becomes permanent.
+- Small workloads have no material regression.
+- Large selective workloads retain a clear improvement.
+- Public query behavior stays unchanged.
+- ~make ci~ passes.
+- Performance documentation records the final strategy and evidence.
 
 * TODO Use shared TEMP matched relations for expensive query reuse
 
-Add a selective shared TEMP matched relation for expensive compiled queries that are reused by several enrichment steps.
+Start this task after the predicate-driven metadata work is settled.
+
+Predicate-driven compilation can change the cost of matched relations.
+
+Re-run the relevant relation-reuse benchmark if the compiler changes materially.
+
+Add a selective shared TEMP matched relation for expensive compiled queries that several enrichment steps reuse.
 
 Do not use a TEMP relation for every query.
 
-The relation-reuse benchmark shows two different cases:
+The existing relation-reuse benchmark shows two different cases:
 
 - simple matched relations are faster when SQLite evaluates them again
 - complex matched relations are much faster when one TEMP relation is reused
@@ -1119,11 +1501,26 @@ Keep all public query output and error behavior unchanged.
 
 Benchmark the production implementation before making the selective strategy permanent.
 
+Acceptance criteria:
+
+- The strategy distinguishes cheap and expensive matched relations.
+- Cheap relations keep repeated query-derived execution.
+- Expensive reused relations use TEMP only when benchmark evidence supports it.
+- Complete query results stay unchanged.
+- Small workloads have no material regression.
+- Representative complex workloads show a measurable end-to-end improvement.
+- ~make ci~ passes.
+- Performance documentation records the final rule.
+
 * TODO Investigate final Rust result shaping cost
 
 Investigate the remaining Rust-side cost of final query result shaping.
 
 The phase benchmark shows that ~final-result-shaping~ becomes significant for large result sets.
+
+The earlier heading-path work already removed path-specific clones and temporary path collections.
+
+Do not repeat that optimization without new evidence.
 
 Do not move additional relational work from SQLite to Rust in this task.
 
@@ -1140,9 +1537,21 @@ Focus on:
 
 Use representative ~50'000~-result workloads.
 
+Include workloads with different enrichment shapes.
+
 Make an optimization only when a benchmark shows a clear end-to-end improvement.
 
 Keep public query results unchanged.
+
+Acceptance criteria:
+
+- Profiling identifies the remaining shaping hotspots.
+- Each retained optimization has benchmark evidence.
+- Query output remains identical.
+- Small workloads have no material regression.
+- Representative large workloads show a measurable improvement.
+- ~make ci~ passes.
+- Performance documentation records the retained changes.
 
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
@@ -1167,7 +1576,7 @@ Evaluate compact representations for repeated cell data.
 Possible options include:
 
 - compact cell arrays instead of repeated object keys
-- omission rules when ~search_text~ and ~display_text~ are identical
+- omission rules where ~search_text~ and ~display_text~ are identical
 - compact semantic role encoding
 - removal of data that already exists through ~result_index~
 - removal of duplicated row-context data where the client can recover it safely
@@ -1227,7 +1636,7 @@ Evaluate parallel execution for measured bottlenecks such as:
 - truncation and padding
 - final row formatting
 
-Use ~rayon~ or another Rust-native solution only when benchmark results justify the dependency and complexity.
+Use ~rayon~ or another Rust-native solution only if benchmark results justify the dependency and complexity.
 
 Do not parallelize the SQLite query by default.
 
@@ -1247,7 +1656,7 @@ Compare sequential and parallel execution with identical benchmark inputs.
 
 Repeat the benchmark for representative small and large result sets after each retained optimization.
 
-Keep sequential execution for small workloads when parallel execution adds more cost than it removes.
+Keep sequential execution for small workloads if parallel execution adds more cost than it removes.
 
 Acceptance criteria:
 
@@ -1256,7 +1665,7 @@ Acceptance criteria:
 - Sequential and parallel execution produce identical output.
 - Result ordering stays deterministic.
 - Small workloads have no material performance regression.
-- Large workloads show a measurable improvement when parallel execution stays enabled.
+- Large workloads show a measurable improvement where parallel execution stays enabled.
 - Benchmark results record the final execution strategy.
 
 * TODO Decide whether Rust-side presentation caching is justified
@@ -1266,7 +1675,7 @@ Acceptance criteria:
 
 Goal: Decide whether Rust needs a presentation cache after the complete pipeline and measured optimizations are available.
 
-Base the decision on the benchmark results from the sequential and optimized presentation pipeline.
+Base the decision on benchmark results from the sequential and optimized presentation pipeline.
 
 Consider:
 
@@ -1343,7 +1752,7 @@ Use public examples that run against the implemented CLI.
 Acceptance criteria:
 
 - Current documentation describes the implemented presentation architecture.
-- Planned sections are converted to implemented documentation where appropriate.
+- Planned sections become implemented documentation where appropriate.
 - Rejected design alternatives are not presented as current architecture.
 - Public examples run against the implemented CLI.
 - The normal JSON compatibility guarantee is explicit.

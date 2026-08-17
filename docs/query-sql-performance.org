@@ -258,6 +258,122 @@ The benchmark records the actual plan details so local results can expose unexpe
 
 Round 2 adds no persistent index before those plans and timings provide evidence.
 
+** Predicate-driven metadata strategy benchmark
+
+Benchmark output schema version ~6~ adds ~metadata_predicate_strategies~ for every result size.
+
+The benchmark covers direct tags, direct properties, effective properties, and keywords.
+
+Each metadata family uses approximately 1%, 10%, 50%, and 100% selectivity.
+
+The benchmark creates isolated copies of the normal corpus database.
+
+Synthetic marker rows exist only in these copies.
+
+Each selectivity uses a separate marker so every SQL shape returns the same deterministic level-1 heading IDs.
+
+The benchmark compares three strategies.
+
+- ~heading-driven-exists~ matches the current compiler shape.
+- ~relation-driven-current-indexes~ starts from the metadata relation and uses the production indexes.
+- ~relation-driven-experimental-index~ uses the same relation-first SQL on a copy with benchmark-only predicate-first indexes.
+
+The relation-first SQL uses ~CROSS JOIN~ so SQLite keeps the metadata relation as the outer loop.
+
+Direct property candidates use ~effective_properties.local_value~.
+
+This matches the current compiler semantics after local duplicate and append resolution.
+
+The experimental indexes are:
+
+- ~tags(tag, heading_id)~
+- ~effective_properties(key, local_value, heading_id) WHERE local_value IS NOT NULL~
+- ~effective_properties(key, effective_value, heading_id)~
+- ~keywords(keyword COLLATE NOCASE, value, heading_id)~
+
+These indexes exist only in the benchmark database copy.
+
+The production schema remains unchanged.
+
+Each strategy result records:
+
+- total one-statement latency through Rust ID collection
+- requested and actual selectivity
+- matched and returned heading rows
+- rows transferred to Rust
+- statement count
+- ~EXPLAIN QUERY PLAN~ details
+- the benchmark-only index name when applicable
+
+The current benchmark API does not expose exact scanned-row counts.
+
+The ~rows_scanned~ field is therefore null.
+
+Use the query plan and returned-row count to interpret scan behavior.
+
+Schema version ~6~ also adds a top-level ~compiler_audit~.
+
+The metadata audit finds no safe new lookup skip based only on heading level or metadata mode.
+
+Direct tags and local properties can exist on root and regular headings.
+
+Effective properties can exist wherever a property key is visible.
+
+Direct and inherited keyword modes use different heading identities.
+
+The existing heading-root static truth logic already skips guaranteed impossible root work.
+
+** Predicate-driven metadata benchmark result
+
+The local schema version ~6~ benchmark used up to ~50'000~ eligible headings.
+
+All three strategies return identical heading IDs before timing.
+
+Each sample uses one SQL statement and transfers only matched heading IDs to Rust.
+
+At ~50'000~ headings, the median times are:
+
+| Predicate | Selectivity | Heading ~EXISTS~ | Relation, current indexes | Relation, experimental index |
+|-----------+-------------+------------------+---------------------------+------------------------------|
+| direct tag | 1% | 20.490 ms | 0.171 ms | 0.144 ms |
+| direct tag | 10% | 21.066 ms | 1.558 ms | 1.285 ms |
+| direct tag | 50% | 22.949 ms | 9.156 ms | 7.846 ms |
+| direct tag | 100% | 25.477 ms | 18.807 ms | 16.904 ms |
+| direct property | 1% | 24.318 ms | 17.484 ms | 0.157 ms |
+| direct property | 10% | 25.556 ms | 19.542 ms | 1.364 ms |
+| direct property | 50% | 32.655 ms | 25.543 ms | 8.112 ms |
+| direct property | 100% | 42.090 ms | 33.907 ms | 16.675 ms |
+| effective property | 1% | 23.719 ms | 17.190 ms | 0.152 ms |
+| effective property | 10% | 25.242 ms | 18.665 ms | 1.347 ms |
+| effective property | 50% | 32.494 ms | 25.212 ms | 8.237 ms |
+| effective property | 100% | 41.341 ms | 33.543 ms | 16.639 ms |
+| keyword | 1% | 25.866 ms | 11.906 ms | 0.159 ms |
+| keyword | 10% | 26.572 ms | 13.350 ms | 1.496 ms |
+| keyword | 50% | 32.164 ms | 20.158 ms | 8.741 ms |
+| keyword | 100% | 41.488 ms | 29.140 ms | 17.871 ms |
+
+The relation-driven current-index strategy beats the heading-driven strategy in every measured case.
+
+The experimental predicate-first strategy is the fastest strategy in every measured case.
+
+Direct tags already use ~idx_tags_tag~ in the relation-driven current-index plan.
+
+The covering tag index adds only a smaller incremental gain.
+
+Do not add another persistent tag index from this result.
+
+The current property relation-first plans still scan ~effective_properties~.
+
+The experimental property indexes replace the scan with a covering predicate-first search.
+
+The current keyword relation-first plan still scans ~keywords~.
+
+The experimental keyword index replaces the scan with a covering predicate-first search.
+
+The benchmark does not include later enrichment or final result shaping.
+
+Require a complete production query A/B before adding the property or keyword indexes to the production schema.
+
 * Existing materialized projections
 
 The schema already stores several expensive derived relations.
@@ -551,6 +667,25 @@ Use the ~headings.path~ entry under ~workloads~ for the end-to-end comparison.
 
 Use its ~direct_phase_profile~ for attribution.
 
+For the metadata predicate benchmark, run the standard result sizes.
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-v1.json
+#+end_src
+
+Use ~metadata_predicate_strategies~ for the SQL-shape comparison.
+
+Use ~compiler_audit~ for the impossible-lookup audit.
+
+Do not add a production index from benchmark infrastructure alone.
+
+Require a clear measured benefit before a separate production index change.
+
 * Benchmark output
 
 Each result size records the runtime SQLite variable limit and resulting ID chunk capacity.
@@ -576,6 +711,10 @@ Schema version ~4~ also records the requested and effective SQLite variable limi
 
 Schema version ~5~ adds a complete production path A/B after match and final shaping costs.
 
+Schema version ~6~ adds metadata predicate SQL-shape measurements at four selectivities.
+
+The top-level ~compiler_audit~ records safe related-lookup findings.
+
 The top-level query-plan section records representative compiled queries and their SQLite plan details.
 
 The broad production workload set contains:
@@ -599,6 +738,12 @@ Simple matched relations favor repeated query-derived joins.
 Complex reused relations favor one shared TEMP relation in the measured workloads.
 
 Selective TEMP relation production logic remains a separate follow-up.
+
+The metadata predicate benchmark favors relation-driven SQL for all four measured predicate families.
+
+Direct tags can use the existing ~idx_tags_tag~ index without another persistent tag index.
+
+Predicate-first property and keyword indexes remain candidates pending complete production query A/B measurements.
 
 The implementation keeps runtime-limit ~IN (...)~ as the safe fallback for Rust-originated ID sets.
 
