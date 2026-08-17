@@ -188,6 +188,24 @@ Both strategies run inside one deferred transaction so they use one stable datab
 
 This comparison shows whether one reusable relation amortizes its setup cost across several enrichments.
 
+** Round 2 local result
+
+The supplied round 2 run uses one benchmark environment for every strategy comparison.
+
+Repeated query-derived joins win every measured simple-match workload.
+
+The shared TEMP relation wins every measured complex-match workload.
+
+At ~50'000~ target results, the simple multi-enrichment median is ~56.8 ms~ for repeated query-derived joins and ~92.6 ms~ for the shared TEMP relation.
+
+At the same size, the complex multi-enrichment median is ~367.8 ms~ for repeated query-derived joins and ~104.7 ms~ for the shared TEMP relation.
+
+This result does not support one global relation-reuse strategy.
+
+Keep repeated query-derived joins for cheap matched relations.
+
+Treat selective TEMP relation reuse for expensive matched relations as a separate follow-up.
+
 * ID transport fallback
 
 Round 1 showed that ~json_each~ beats large dynamic ~IN (...)~ lists on the benchmark system.
@@ -263,9 +281,75 @@ The profile records actual statement counts, bound parameter counts, and SQLite-
 
 The SQLite profile callback has coarse timing resolution on the benchmark system.
 
-Complete workload timings and dedicated relation-strategy timings remain the authoritative latency measurements.
+Complete workload timings and dedicated strategy timings remain the authoritative latency measurements.
 
-* Run the round 2 SQL benchmark
+* Rust and SQLite boundary benchmark
+
+Benchmark output schema version ~3~ adds a separate direct phase profile for each production workload.
+
+The normal latency samples do not enable direct phase instrumentation.
+
+One separate instrumented run records the direct phase data.
+
+This separation keeps fine-grained timers out of the authoritative latency samples.
+
+** Direct phases
+
+The direct profile records these phase families when the current loader exposes a useful boundary:
+
+- ~query-compilation~
+- ~matched-sql-execution~
+- ~enrichment-sql-execution~
+- ~sqlite-row-decoding~
+- ~rust-grouping~
+- ~rust-local-sorting~
+- ~outline-validation~
+- ~heading-path-construction~
+- ~final-result-shaping~
+
+The SQL execution timing includes statement preparation, parameter binding, query execution, and SQLite row stepping.
+
+The row-decoding timing measures Rust extraction from each returned SQLite row.
+
+The direct profile also records statement counts and bound parameter counts where the loader exposes them.
+
+~rows_transferred_from_sqlite~ counts rows returned by recorded matched and enrichment SELECT statements.
+
+A phase-level ~rows~ value is an operation work count. It is not a unique-row count across all phases.
+
+Do not subtract the old SQLite profile duration from total workload time to infer Rust time.
+
+Use the direct phase profile only for attribution. Use ~total_query_time~ for production latency.
+
+** Path strategy experiment
+
+Schema version ~3~ also adds a benchmark-only path strategy comparison.
+
+Both strategies reuse one matched ~headings (level 1)~ result snapshot.
+
+The production reference is ~recursive-query-derived~.
+
+It uses the existing recursive matched relation and loads only required ancestors.
+
+The alternative is ~rust-driven-bulk-ancestors~.
+
+It starts from the matched heading rows, collects parent IDs in Rust, and loads missing ancestors in bounded bulk queries.
+
+The Rust-driven strategy uses the runtime SQLite variable limit for every ID batch.
+
+It keeps ~outline_path~ validation for matched headings and loaded ancestors.
+
+The benchmark requires exact path output equality before it records timings.
+
+The path strategy timing starts after the initial matched query. It measures only path loading and construction.
+
+The direct phase profile for each strategy records SQL transfer, row decoding, Rust grouping, validation, and path construction.
+
+Production path loading does not change in this benchmark task.
+
+Move the strategy to production only when end-to-end measurements show a clear win without excessive row transfer or statement growth.
+
+* Run the SQL benchmark
 
 Build the release benchmark binary.
 
@@ -287,7 +371,7 @@ target/release/orgfdb-query-sql-benchmark \
   --warmups 1 \
   --iterations 3 \
   --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-round2-v1.json
+  --output /tmp/orgfdb-query-sql-benchmark-rust-vs-sqlite-v1.json
 #+end_src
 
 Use a new output path for each benchmark run.
@@ -304,10 +388,14 @@ Each production workload records:
 - total bound parameters
 - maximum bound parameters in one statement
 - SQLite profile duration by stage
+- one direct phase profile
+- rows transferred from SQLite during the direct profile
 
-The original lookup section records ID transport strategy timings.
+The lookup section records ID transport strategy timings.
 
-The new relation-reuse section records simple and complex relation timings for single and multi enrichment.
+The relation-reuse section records simple and complex relation timings for single and multi enrichment.
+
+The path-strategy section compares the recursive query-derived loader with the Rust-driven bulk ancestor loader.
 
 The top-level query-plan section records representative compiled queries and their SQLite plan details.
 
@@ -321,26 +409,22 @@ The broad production workload set contains:
 - ~files.normal~
 - ~files.keywords~
 
-* Round 2 result status
-
-Local round 2 measurements are pending.
-
-Compare the new ~50'000~-result medians with the round 1 values in this document.
-
-Use the reuse measurements to decide between repeated query-derived joins and a shared TEMP result relation.
-
-Keep different strategies when different query shapes have different winners.
-
-Do not select a strategy from statement count alone.
-
 * Current design decision
 
-Round 2 uses query-derived relations in the common production direct-flat path.
+Round 2 keeps query-derived relations in the common production direct-flat path.
+
+The round 2 benchmark does not support one global TEMP relation strategy.
+
+Simple matched relations favor repeated query-derived joins.
+
+Complex reused relations favor one shared TEMP relation in the measured workloads.
+
+Selective TEMP relation production logic remains a separate follow-up.
 
 The implementation keeps runtime-limit ~IN (...)~ as the safe fallback for Rust-originated ID sets.
 
-The path fast path loads only matched headings, containing files, roots, and required ancestors.
+The production path fast path still uses the recursive query-derived ancestor loader.
 
-No new persistent index or materialized table has enough round 2 evidence yet.
+Schema version ~3~ measures whether a Rust-driven bounded ancestor loader can replace that path safely.
 
-The local round 2 benchmark supplies the final evidence for the relation-reuse decision.
+Do not change the production SQLite and Rust boundary until the new benchmark provides that evidence.

@@ -1,0 +1,162 @@
+#+TITLE: Benchmark Rust vs SQLite Query Result Processing
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-17 Monday 12:15]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Continue ~Benchmark Rust vs SQLite query result processing~ from ~todo.org~.
+
+* Planning
+
+** Problem summary
+
+Round 2 reduced avoidable SQLite and Rust ID round trips.
+
+The remaining query cost is not fully attributed between SQLite execution, row decoding, Rust processing, and final result shaping.
+
+The existing SQLite profile callback does not measure the complete Rust and SQLite wall-clock path.
+
+The ~headings.path~ workload remains the main candidate for a boundary experiment because ancestor enrichment is expensive.
+
+** Goals
+
+- Add direct phase timings for representative query execution and result shaping.
+- Record row-transfer and statement metadata where the current architecture exposes it safely.
+- Compare the current recursive ancestor loader with a Rust-driven bounded ancestor loader.
+- Preserve all public query output and stored-data error contracts.
+- Use benchmark evidence before moving production work between SQLite and Rust.
+
+** Non-goals
+
+- Do not change the public query language.
+- Do not change normal ~--format json~ output.
+- Do not change ~presentation-json~.
+- Do not move query matching, relational filtering, ~effective_tags~, or ~effective_properties~ calculation to Rust.
+- Do not add indexes, dependencies, or selective shared TEMP relation production logic.
+
+** Architecture
+
+Keep production behavior unchanged while adding benchmark-only phase instrumentation around existing internal boundaries.
+
+Expose lightweight timing data through internal benchmark hooks instead of public query APIs.
+
+Measure SQL statement execution and row decoding separately when the loader structure permits that split without changing result semantics.
+
+For the path experiment, keep the current recursive relation as one strategy.
+
+Add a benchmark-only Rust-driven strategy that follows parent IDs from matched rows and uses runtime-limit-safe bulk ancestor loads.
+
+Both path strategies reuse the same matched result snapshot and validate the same stored-data invariants.
+
+** Execution plan
+
+1. Inspect the query executor, result shaper, path loader, and current SQL benchmark hooks.
+2. Add internal phase timing and row-transfer instrumentation with no public output changes.
+3. Extend the SQL benchmark output schema with direct Rust and SQLite phase measurements.
+4. Add the Rust-driven ancestor loader as a benchmark-only comparison strategy.
+5. Add regression tests for path equivalence and corruption behavior where practical.
+6. Update ~docs/query-sql-performance.org~ with the new benchmark protocol and decision rules.
+7. Run ~make ci~ and the relevant benchmark smoke checks.
+8. Record results and set the task to ~REVIEW~.
+
+** Risks & assumptions
+
+- Fine-grained timers can perturb small workloads, so phase timings run separately from normal latency samples.
+- SQLite statement stepping and row decoding must be timed at explicit iterator boundaries.
+- The Rust-driven ancestor strategy can lose its advantage if it needs many iterative parent fetches.
+- Existing ~outline_path~ evidence remains authoritative for corruption detection.
+- Benchmark-only hooks must not leak into the public query contract.
+
+** Open questions
+
+- Which existing loader boundaries permit useful SQL-versus-row-decoding timing without invasive refactoring?
+- Does a Rust-driven ancestor strategy reduce end-to-end path latency for large result sets?
+- Does the extra Rust-side grouping cost offset reduced recursive SQL work?
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+- Run a small ~orgfdb-query-sql-benchmark~ smoke benchmark.
+
+* Results
+
+** Approach
+
+The benchmark now has an internal thread-local phase trace.
+
+Normal latency samples keep the existing uninstrumented loader implementations.
+
+One separate phase run records query compilation, SQL execution, row decoding, Rust grouping, sorting, outline validation, path construction, and final shaping.
+
+Benchmark output schema version ~3~ records direct phase summaries, operation details, SQL row transfer counts, statement counts, and bound parameter counts.
+
+The path benchmark compares the production recursive query-derived loader with a benchmark-only Rust-driven bulk ancestor loader.
+
+Both path strategies reuse one matched heading snapshot.
+
+The benchmark requires exact path output equality before it records timings.
+
+The Rust-driven loader follows parent IDs in runtime-limit-safe batches and keeps stored ~outline_path~ validation.
+
+Production query matching, enrichment strategy, public query output, and production path loading remain unchanged.
+
+** Changed files
+
+- ~src/query/benchmark_trace.rs~
+- ~src/query.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/query_sql_benchmark.rs~
+- ~docs/query-sql-performance.org~
+- ~.project/tasks/todo.org~
+- this task file
+
+** Checks performed
+
+A Python SQLite check applied the authoritative schema and executed every new path SQL shape.
+
+The check covered relation-backed outline validation, recursive paths, Rust ancestor loads, root fallback loads, and runtime-ID validation.
+
+A static Rust delimiter and string scan passed for every changed Rust source file.
+
+A source audit compared every renamed uninstrumented loader with the original repository archive.
+
+All eleven uninstrumented loader implementations match the original function bodies exactly after function-name normalization.
+
+The documentation received a Simple English pragmatic audit.
+
+~make ci~ was attempted. It stops at ~cargo fmt --all --check~ because this execution environment does not provide ~cargo~.
+
+** Test results
+
+This execution environment does not provide ~cargo~, ~rustc~, or ~rustfmt~.
+
+The Rust formatter, Clippy, test suite, release benchmark build, and benchmark smoke run need the local Rust environment.
+
+New regression tests cover Rust-driven path equivalence, small SQLite variable limits, cross-file parents, and missing ancestor ~outline_path~ rows.
+
+A benchmark unit test checks that SQL row transfer counts do not double-count row-decoding records.
+
+** Blockers
+
+Run the local Rust checks before accepting the implementation.
+
+Run the schema version ~3~ SQL benchmark before changing the production SQLite and Rust boundary.
+
+** Follow-ups
+
+Compare ~recursive-query-derived~ with ~rust-driven-bulk-ancestors~ for 100, 1'000, 10'000, and 50'000 results.
+
+Review the direct phase profile for ~headings.path~ and the other production workloads.
+
+Move selected path work to Rust only when the end-to-end benchmark gives clear evidence.
+
+Keep selective shared TEMP relation production logic as a separate follow-up.

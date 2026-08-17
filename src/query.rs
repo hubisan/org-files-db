@@ -1,4 +1,5 @@
 pub mod ast;
+pub(crate) mod benchmark_trace;
 pub mod error;
 pub mod parser;
 mod priority;

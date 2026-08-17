@@ -2,12 +2,14 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     path::Path,
+    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
+use super::benchmark_trace;
 use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
     execute_sqlite_query_with_relation, file_relation_columns, heading_relation_columns,
@@ -544,6 +546,7 @@ fn shape_direct_flat_results(
         QueryRows::Links(_) => QueryTarget::Links,
         QueryRows::Files(_) => QueryTarget::Files,
     };
+    let shaping_started = benchmark_trace::active().then(Instant::now);
     let results = match &rows {
         QueryRows::Headings(rows) => rows
             .iter()
@@ -569,6 +572,16 @@ fn shape_direct_flat_results(
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
     };
+    if let Some(started) = shaping_started {
+        benchmark_trace::record(
+            benchmark_trace::FINAL_RESULT_SHAPING,
+            "direct-flat-results",
+            started.elapsed(),
+            results.len(),
+            0,
+            0,
+        );
+    }
 
     Ok(QueryResponse {
         target,
@@ -694,6 +707,56 @@ struct StoredKeyword {
     fact: KeywordFact,
 }
 
+struct ResultTraceTimer {
+    sql_duration: Duration,
+    decode_duration: Duration,
+    rows: usize,
+}
+
+impl ResultTraceTimer {
+    fn new() -> Self {
+        Self {
+            sql_duration: Duration::ZERO,
+            decode_duration: Duration::ZERO,
+            rows: 0,
+        }
+    }
+
+    fn sql<T>(&mut self, operation: impl FnOnce() -> T) -> T {
+        let started = Instant::now();
+        let result = operation();
+        self.sql_duration += started.elapsed();
+        result
+    }
+
+    fn decode<T>(&mut self, operation: impl FnOnce() -> T) -> T {
+        self.rows += 1;
+        let started = Instant::now();
+        let result = operation();
+        self.decode_duration += started.elapsed();
+        result
+    }
+
+    fn record(self, operation: &'static str, statement_count: usize, bound_parameters: usize) {
+        benchmark_trace::record(
+            benchmark_trace::ENRICHMENT_SQL_EXECUTION,
+            operation,
+            self.sql_duration,
+            self.rows,
+            statement_count,
+            bound_parameters,
+        );
+        benchmark_trace::record(
+            benchmark_trace::SQLITE_ROW_DECODING,
+            operation,
+            self.decode_duration,
+            self.rows,
+            0,
+            0,
+        );
+    }
+}
+
 struct FlatMetadataContext {
     properties: HashMap<i64, Vec<PropertyFact>>,
     effective_properties: HashMap<i64, Vec<EffectivePropertyFact>>,
@@ -710,6 +773,7 @@ impl FlatMetadataContext {
         relation: Option<&MatchedSqlRelation>,
     ) -> Result<Self, QueryShapeError> {
         let include_set = includes.iter().copied().collect::<BTreeSet<_>>();
+        let grouping_started = benchmark_trace::active().then(Instant::now);
         let mut metadata_heading_ids = BTreeSet::new();
         let mut root_heading_ids = BTreeSet::new();
         let mut has_heading_rows = false;
@@ -736,6 +800,16 @@ impl FlatMetadataContext {
                 }
             }
             QueryRows::Links(_) => {}
+        }
+        if let Some(started) = grouping_started {
+            benchmark_trace::record(
+                benchmark_trace::RUST_GROUPING,
+                "metadata-heading-ids",
+                started.elapsed(),
+                metadata_heading_ids.len(),
+                0,
+                0,
+            );
         }
         let has_root_rows = !root_heading_ids.is_empty();
 
@@ -768,11 +842,23 @@ impl FlatMetadataContext {
             } else {
                 load_properties(connection, &metadata_heading_ids)?
             };
+            let grouping_started = benchmark_trace::active().then(Instant::now);
+            let loaded_count = loaded.len();
             for property in loaded {
                 properties
                     .entry(property.heading_id)
                     .or_insert_with(Vec::new)
                     .push(property.fact);
+            }
+            if let Some(started) = grouping_started {
+                benchmark_trace::record(
+                    benchmark_trace::RUST_GROUPING,
+                    "properties-map",
+                    started.elapsed(),
+                    loaded_count,
+                    0,
+                    0,
+                );
             }
         }
 
@@ -799,11 +885,23 @@ impl FlatMetadataContext {
             } else {
                 load_keywords(connection, &metadata_heading_ids)?
             };
+            let grouping_started = benchmark_trace::active().then(Instant::now);
+            let loaded_count = loaded.len();
             for keyword in loaded {
                 keywords
                     .entry(keyword.heading_id)
                     .or_insert_with(Vec::new)
                     .push(keyword.fact);
+            }
+            if let Some(started) = grouping_started {
+                benchmark_trace::record(
+                    benchmark_trace::RUST_GROUPING,
+                    "keywords-map",
+                    started.elapsed(),
+                    loaded_count,
+                    0,
+                    0,
+                );
             }
         }
 
@@ -2095,6 +2193,90 @@ fn validate_outline_path_compiled_relation(
     columns: &str,
     heading_id_column: &str,
 ) -> Result<(), QueryShapeError> {
+    if !benchmark_trace::active() {
+        return validate_outline_path_compiled_relation_untraced(
+            connection,
+            compiled,
+            columns,
+            heading_id_column,
+        );
+    }
+    validate_outline_path_compiled_relation_traced(connection, compiled, columns, heading_id_column)
+}
+
+fn validate_outline_path_compiled_relation_traced(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:validate-outline-path params={} */
+         WITH matched({columns}) AS ({})
+         SELECT matched.{heading_id_column}, outline_path.breadcrumbs_json
+         FROM matched
+         LEFT JOIN outline_path
+           ON outline_path.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut timer = ResultTraceTimer::new();
+    let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
+        QueryShapeError::database("validate_outline_path_relation.prepare", source)
+    })?;
+    let mut rows = timer
+        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| {
+            QueryShapeError::database("validate_outline_path_relation.query", source)
+        })?;
+    let mut validation_duration = Duration::ZERO;
+    loop {
+        let row = timer.sql(|| rows.next()).map_err(|source| {
+            QueryShapeError::database("validate_outline_path_relation.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let decoded = timer.decode(|| -> rusqlite::Result<(i64, Option<String>)> {
+            Ok((row.get(0)?, row.get(1)?))
+        });
+        let (heading_id, breadcrumbs_json) = decoded.map_err(|source| {
+            QueryShapeError::database("validate_outline_path_relation.collect", source)
+        })?;
+        let started = Instant::now();
+        let validation = (|| -> Result<(), QueryShapeError> {
+            let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing outline_path row for stored heading id {heading_id}"
+                ))
+            })?;
+            let _: Vec<String> = serde_json::from_str(&breadcrumbs_json).map_err(|source| {
+                QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source)
+            })?;
+            Ok(())
+        })();
+        validation_duration += started.elapsed();
+        validation?;
+    }
+    let loaded_rows = timer.rows;
+    timer.record("validate-outline-path", 1, compiled.params.len());
+    benchmark_trace::record(
+        benchmark_trace::OUTLINE_VALIDATION,
+        "validate-outline-path",
+        validation_duration,
+        loaded_rows,
+        0,
+        0,
+    );
+    Ok(())
+}
+
+fn validate_outline_path_compiled_relation_untraced(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+) -> Result<(), QueryShapeError> {
     let sql = format!(
         "/* orgfdb:validate-outline-path params={} */
          WITH matched({columns}) AS ({})
@@ -2157,16 +2339,105 @@ fn load_properties_from_relation(
             &mut properties,
         )?;
     }
+    let sort_started = benchmark_trace::active().then(Instant::now);
     properties.sort_by(|left, right| {
         left.heading_id
             .cmp(&right.heading_id)
             .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
             .then_with(|| left.id.cmp(&right.id))
     });
+    if let Some(started) = sort_started {
+        benchmark_trace::record(
+            benchmark_trace::RUST_LOCAL_SORTING,
+            "properties",
+            started.elapsed(),
+            properties.len(),
+            0,
+            0,
+        );
+    }
     Ok(properties)
 }
 
 fn load_properties_from_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    properties: &mut Vec<StoredProperty>,
+) -> Result<(), QueryShapeError> {
+    if !benchmark_trace::active() {
+        return load_properties_from_compiled_relation_untraced(
+            connection,
+            compiled,
+            columns,
+            heading_id_column,
+            properties,
+        );
+    }
+    load_properties_from_compiled_relation_traced(
+        connection,
+        compiled,
+        columns,
+        heading_id_column,
+        properties,
+    )
+}
+
+fn load_properties_from_compiled_relation_traced(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    properties: &mut Vec<StoredProperty>,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:enrich-properties params={} */
+         WITH matched({columns}) AS ({})
+         SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                properties.source, properties.append, properties.line_number
+         FROM matched
+         INNER JOIN properties
+           ON properties.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut timer = ResultTraceTimer::new();
+    let mut statement = timer
+        .sql(|| connection.prepare(&sql))
+        .map_err(|source| QueryShapeError::database("load_properties_relation.prepare", source))?;
+    let mut rows = timer
+        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| QueryShapeError::database("load_properties_relation.query", source))?;
+    loop {
+        let row = timer.sql(|| rows.next()).map_err(|source| {
+            QueryShapeError::database("load_properties_relation.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let property = timer.decode(|| -> rusqlite::Result<StoredProperty> {
+            Ok(StoredProperty {
+                id: row.get(0)?,
+                heading_id: row.get(1)?,
+                fact: PropertyFact {
+                    key: row.get(2)?,
+                    value: row.get(3)?,
+                    source: row.get(4)?,
+                    append: row.get::<_, i64>(5)? != 0,
+                    line_number: row.get(6)?,
+                },
+            })
+        });
+        properties.push(property.map_err(|source| {
+            QueryShapeError::database("load_properties_relation.collect", source)
+        })?);
+    }
+    timer.record("enrich-properties", 1, compiled.params.len());
+    Ok(())
+}
+
+fn load_properties_from_compiled_relation_untraced(
     connection: &Connection,
     compiled: &super::CompiledSqlQuery,
     columns: &str,
@@ -2217,11 +2488,22 @@ fn load_effective_properties_from_relation(
     include_headings: bool,
     include_roots: bool,
 ) -> Result<HashMap<i64, Vec<EffectivePropertyFact>>, QueryShapeError> {
+    let grouping_started = benchmark_trace::active().then(Instant::now);
     let mut effective = heading_ids
         .iter()
         .copied()
         .map(|heading_id| (heading_id, Vec::new()))
         .collect::<HashMap<_, _>>();
+    if let Some(started) = grouping_started {
+        benchmark_trace::record(
+            benchmark_trace::RUST_GROUPING,
+            "effective-properties-seed",
+            started.elapsed(),
+            effective.len(),
+            0,
+            0,
+        );
+    }
     if let Some(compiled) = relation.heading_relation().filter(|_| include_headings) {
         load_effective_properties_from_compiled_relation(
             connection,
@@ -2240,13 +2522,115 @@ fn load_effective_properties_from_relation(
             &mut effective,
         )?;
     }
+    let sort_started = benchmark_trace::active().then(Instant::now);
+    let fact_count = effective.values().map(Vec::len).sum();
     for facts in effective.values_mut() {
         facts.sort_by(|left, right| left.key.cmp(&right.key));
+    }
+    if let Some(started) = sort_started {
+        benchmark_trace::record(
+            benchmark_trace::RUST_LOCAL_SORTING,
+            "effective-properties",
+            started.elapsed(),
+            fact_count,
+            0,
+            0,
+        );
     }
     Ok(effective)
 }
 
 fn load_effective_properties_from_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    effective: &mut HashMap<i64, Vec<EffectivePropertyFact>>,
+) -> Result<(), QueryShapeError> {
+    if !benchmark_trace::active() {
+        return load_effective_properties_from_compiled_relation_untraced(
+            connection,
+            compiled,
+            columns,
+            heading_id_column,
+            effective,
+        );
+    }
+    load_effective_properties_from_compiled_relation_traced(
+        connection,
+        compiled,
+        columns,
+        heading_id_column,
+        effective,
+    )
+}
+
+fn load_effective_properties_from_compiled_relation_traced(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    effective: &mut HashMap<i64, Vec<EffectivePropertyFact>>,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:enrich-effective-properties params={} */
+         WITH matched({columns}) AS ({})
+         SELECT effective_properties.heading_id,
+                effective_properties.key,
+                effective_properties.effective_value
+         FROM matched
+         INNER JOIN effective_properties
+           ON effective_properties.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut timer = ResultTraceTimer::new();
+    let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
+        QueryShapeError::database("load_effective_properties_relation.prepare", source)
+    })?;
+    let mut rows = timer
+        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| {
+            QueryShapeError::database("load_effective_properties_relation.query", source)
+        })?;
+    let mut grouping_duration = Duration::ZERO;
+    loop {
+        let row = timer.sql(|| rows.next()).map_err(|source| {
+            QueryShapeError::database("load_effective_properties_relation.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let decoded = timer.decode(|| -> rusqlite::Result<(i64, EffectivePropertyFact)> {
+            Ok((
+                row.get(0)?,
+                EffectivePropertyFact {
+                    key: row.get(1)?,
+                    value: Some(row.get(2)?),
+                },
+            ))
+        });
+        let (heading_id, fact) = decoded.map_err(|source| {
+            QueryShapeError::database("load_effective_properties_relation.collect", source)
+        })?;
+        let started = Instant::now();
+        effective.entry(heading_id).or_default().push(fact);
+        grouping_duration += started.elapsed();
+    }
+    let loaded_rows = timer.rows;
+    timer.record("enrich-effective-properties", 1, compiled.params.len());
+    benchmark_trace::record(
+        benchmark_trace::RUST_GROUPING,
+        "effective-properties",
+        grouping_duration,
+        loaded_rows,
+        0,
+        0,
+    );
+    Ok(())
+}
+
+fn load_effective_properties_from_compiled_relation_untraced(
     connection: &Connection,
     compiled: &super::CompiledSqlQuery,
     columns: &str,
@@ -2315,16 +2699,103 @@ fn load_keywords_from_relation(
             &mut keywords,
         )?;
     }
+    let sort_started = benchmark_trace::active().then(Instant::now);
     keywords.sort_by(|left, right| {
         left.heading_id
             .cmp(&right.heading_id)
             .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
             .then_with(|| left.id.cmp(&right.id))
     });
+    if let Some(started) = sort_started {
+        benchmark_trace::record(
+            benchmark_trace::RUST_LOCAL_SORTING,
+            "keywords",
+            started.elapsed(),
+            keywords.len(),
+            0,
+            0,
+        );
+    }
     Ok(keywords)
 }
 
 fn load_keywords_from_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    keywords: &mut Vec<StoredKeyword>,
+) -> Result<(), QueryShapeError> {
+    if !benchmark_trace::active() {
+        return load_keywords_from_compiled_relation_untraced(
+            connection,
+            compiled,
+            columns,
+            heading_id_column,
+            keywords,
+        );
+    }
+    load_keywords_from_compiled_relation_traced(
+        connection,
+        compiled,
+        columns,
+        heading_id_column,
+        keywords,
+    )
+}
+
+fn load_keywords_from_compiled_relation_traced(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    keywords: &mut Vec<StoredKeyword>,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:enrich-keywords params={} */
+         WITH matched({columns}) AS ({})
+         SELECT keywords.id, keywords.heading_id, keywords.keyword,
+                keywords.value, keywords.line_number
+         FROM matched
+         INNER JOIN keywords
+           ON keywords.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut timer = ResultTraceTimer::new();
+    let mut statement = timer
+        .sql(|| connection.prepare(&sql))
+        .map_err(|source| QueryShapeError::database("load_keywords_relation.prepare", source))?;
+    let mut rows = timer
+        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| QueryShapeError::database("load_keywords_relation.query", source))?;
+    loop {
+        let row = timer.sql(|| rows.next()).map_err(|source| {
+            QueryShapeError::database("load_keywords_relation.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let keyword = timer.decode(|| -> rusqlite::Result<StoredKeyword> {
+            Ok(StoredKeyword {
+                id: row.get(0)?,
+                heading_id: row.get(1)?,
+                fact: KeywordFact {
+                    keyword: row.get(2)?,
+                    value: row.get(3)?,
+                    line_number: row.get(4)?,
+                },
+            })
+        });
+        keywords.push(keyword.map_err(|source| {
+            QueryShapeError::database("load_keywords_relation.collect", source)
+        })?);
+    }
+    timer.record("enrich-keywords", 1, compiled.params.len());
+    Ok(())
+}
+
+fn load_keywords_from_compiled_relation_untraced(
     connection: &Connection,
     compiled: &super::CompiledSqlQuery,
     columns: &str,
@@ -2367,6 +2838,97 @@ fn load_keywords_from_compiled_relation(
 }
 
 fn load_root_tags_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
+    if !benchmark_trace::active() {
+        return load_root_tags_from_relation_untraced(connection, relation);
+    }
+    load_root_tags_from_relation_traced(connection, relation)
+}
+
+fn load_root_tags_from_relation_traced(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
+    let Some(compiled) = relation.root_relation() else {
+        return Ok(HashMap::new());
+    };
+    let sql = format!(
+        "/* orgfdb:enrich-tags params={} */
+         WITH matched({}) AS ({})
+         SELECT matched.root_heading_id, effective_tags.position, effective_tags.tag
+         FROM matched
+         INNER JOIN effective_tags
+           ON effective_tags.heading_id = matched.root_heading_id",
+        compiled.params.len(),
+        file_relation_columns(),
+        compiled.sql,
+    );
+    let mut timer = ResultTraceTimer::new();
+    let mut statement = timer
+        .sql(|| connection.prepare(&sql))
+        .map_err(|source| QueryShapeError::database("load_root_tags_relation.prepare", source))?;
+    let mut rows = timer
+        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| QueryShapeError::database("load_root_tags_relation.query", source))?;
+    let mut positioned = HashMap::<i64, Vec<(i64, String)>>::new();
+    let mut grouping_duration = Duration::ZERO;
+    loop {
+        let row = timer.sql(|| rows.next()).map_err(|source| {
+            QueryShapeError::database("load_root_tags_relation.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let decoded = timer.decode(|| -> rusqlite::Result<(i64, i64, String)> {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        });
+        let (heading_id, position, tag) = decoded.map_err(|source| {
+            QueryShapeError::database("load_root_tags_relation.collect", source)
+        })?;
+        let started = Instant::now();
+        positioned
+            .entry(heading_id)
+            .or_default()
+            .push((position, tag));
+        grouping_duration += started.elapsed();
+    }
+    let loaded_rows = timer.rows;
+    timer.record("enrich-tags", 1, compiled.params.len());
+    benchmark_trace::record(
+        benchmark_trace::RUST_GROUPING,
+        "root-tags",
+        grouping_duration,
+        loaded_rows,
+        0,
+        0,
+    );
+
+    let started = Instant::now();
+    let tag_count = positioned.values().map(Vec::len).sum();
+    let result = positioned
+        .into_iter()
+        .map(|(heading_id, mut tags)| {
+            tags.sort_by_key(|(position, _)| *position);
+            (
+                heading_id,
+                tags.into_iter().map(|(_, tag)| tag).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    benchmark_trace::record(
+        benchmark_trace::RUST_LOCAL_SORTING,
+        "root-tags",
+        started.elapsed(),
+        tag_count,
+        0,
+        0,
+    );
+    Ok(result)
+}
+
+fn load_root_tags_from_relation_untraced(
     connection: &Connection,
     relation: &MatchedSqlRelation,
 ) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
@@ -2418,7 +2980,276 @@ fn load_root_tags_from_relation(
         .collect())
 }
 
-fn load_heading_paths_from_relation(
+pub(crate) fn load_heading_paths_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    rows: &[HeadingQueryMatch],
+) -> Result<HashMap<i64, Vec<PathEntry>>, QueryShapeError> {
+    if !benchmark_trace::active() {
+        return load_heading_paths_from_relation_untraced(connection, relation, rows);
+    }
+    load_heading_paths_from_relation_traced(connection, relation, rows)
+}
+
+fn load_heading_paths_from_relation_traced(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    rows: &[HeadingQueryMatch],
+) -> Result<HashMap<i64, Vec<PathEntry>>, QueryShapeError> {
+    let Some(compiled) = relation.heading_relation() else {
+        return Ok(HashMap::new());
+    };
+    let expected_ids = rows
+        .iter()
+        .filter_map(|row| match row {
+            HeadingQueryMatch::Heading(row) => Some(row.id),
+            HeadingQueryMatch::File(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if expected_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let file_sql = format!(
+        "/* orgfdb:enrich-path-files params={} */
+         WITH matched({}) AS ({})
+         SELECT matched.id, files.id, files.path, root.title, root.title_raw
+         FROM matched
+         INNER JOIN files ON files.id = matched.file_id
+         INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0",
+        compiled.params.len(),
+        heading_relation_columns(),
+        compiled.sql,
+    );
+    let mut file_timer = ResultTraceTimer::new();
+    let mut file_statement = file_timer
+        .sql(|| connection.prepare(&file_sql))
+        .map_err(|source| QueryShapeError::database("load_heading_paths.files.prepare", source))?;
+    let mut file_rows = file_timer
+        .sql(|| file_statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| QueryShapeError::database("load_heading_paths.files.query", source))?;
+    let mut files_by_heading = HashMap::new();
+    let mut file_grouping_duration = Duration::ZERO;
+    loop {
+        let row = file_timer.sql(|| file_rows.next()).map_err(|source| {
+            QueryShapeError::database("load_heading_paths.files.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let decoded = file_timer.decode(|| -> rusqlite::Result<(i64, FilePathEntry)> {
+            Ok((
+                row.get(0)?,
+                FilePathEntry {
+                    id: row.get(1)?,
+                    path: row.get(2)?,
+                    title: row.get(3)?,
+                    title_raw: row.get(4)?,
+                },
+            ))
+        });
+        let (heading_id, file) = decoded.map_err(|source| {
+            QueryShapeError::database("load_heading_paths.files.collect", source)
+        })?;
+        let started = Instant::now();
+        files_by_heading.insert(heading_id, file);
+        file_grouping_duration += started.elapsed();
+    }
+    let file_row_count = file_timer.rows;
+    file_timer.record("enrich-path-files", 1, compiled.params.len());
+    benchmark_trace::record(
+        benchmark_trace::RUST_GROUPING,
+        "path-files",
+        file_grouping_duration,
+        file_row_count,
+        0,
+        0,
+    );
+
+    let chain_sql = format!(
+        "/* orgfdb:enrich-path-headings params={} */
+         WITH RECURSIVE matched({}) AS ({}),
+         chain(origin_id, file_id, id, parent_id, level, title, title_raw, distance) AS (
+             SELECT matched.id, matched.file_id, matched.id, matched.parent_id, matched.level,
+                    matched.title, matched.title_raw, 0
+             FROM matched
+             UNION ALL
+             SELECT chain.origin_id, chain.file_id, parent.id, parent.parent_id, parent.level,
+                    parent.title, parent.title_raw, chain.distance + 1
+             FROM chain
+             INNER JOIN headings AS parent
+               ON parent.id = chain.parent_id
+              AND parent.file_id = chain.file_id
+             WHERE chain.parent_id IS NOT NULL
+         )
+         SELECT chain.origin_id, chain.id, chain.parent_id, chain.level, chain.title,
+                chain.title_raw, chain.distance, outline_path.breadcrumbs_json
+         FROM chain
+         LEFT JOIN outline_path ON outline_path.heading_id = chain.id",
+        compiled.params.len(),
+        heading_relation_columns(),
+        compiled.sql,
+    );
+    let mut chain_timer = ResultTraceTimer::new();
+    let mut chain_statement =
+        chain_timer
+            .sql(|| connection.prepare(&chain_sql))
+            .map_err(|source| {
+                QueryShapeError::database("load_heading_paths.headings.prepare", source)
+            })?;
+    let mut chain_rows = chain_timer
+        .sql(|| chain_statement.query(params_from_iter(compiled.params.iter())))
+        .map_err(|source| QueryShapeError::database("load_heading_paths.headings.query", source))?;
+    let mut headings_by_origin = HashMap::<i64, Vec<(i64, HeadingPathEntry)>>::new();
+    let mut terminal_by_origin = HashMap::<i64, (i64, Option<i64>, i64)>::new();
+    let mut validation_duration = Duration::ZERO;
+    let mut grouping_duration = Duration::ZERO;
+
+    loop {
+        let row = chain_timer.sql(|| chain_rows.next()).map_err(|source| {
+            QueryShapeError::database("load_heading_paths.headings.collect", source)
+        })?;
+        let Some(row) = row else {
+            break;
+        };
+        let decoded = chain_timer.decode(|| -> rusqlite::Result<TracedHeadingPathRow> {
+            Ok(TracedHeadingPathRow {
+                origin_id: row.get(0)?,
+                heading_id: row.get(1)?,
+                parent_id: row.get(2)?,
+                level: row.get(3)?,
+                title: row.get(4)?,
+                title_raw: row.get(5)?,
+                distance: row.get(6)?,
+                breadcrumbs_json: row.get(7)?,
+            })
+        });
+        let TracedHeadingPathRow {
+            origin_id,
+            heading_id,
+            parent_id,
+            level,
+            title,
+            title_raw,
+            distance,
+            breadcrumbs_json,
+        } = decoded.map_err(|source| {
+            QueryShapeError::database("load_heading_paths.headings.collect", source)
+        })?;
+
+        let started = Instant::now();
+        let validation = (|| -> Result<(), QueryShapeError> {
+            let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing outline_path row for stored heading id {heading_id}"
+                ))
+            })?;
+            let _: Vec<String> = serde_json::from_str(&breadcrumbs_json).map_err(|source| {
+                QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source)
+            })?;
+            Ok(())
+        })();
+        validation_duration += started.elapsed();
+        validation?;
+
+        let started = Instant::now();
+        let is_new_terminal = match terminal_by_origin.get(&origin_id) {
+            Some((_, _, current_distance)) => distance > *current_distance,
+            None => true,
+        };
+        if is_new_terminal {
+            terminal_by_origin.insert(origin_id, (level, parent_id, distance));
+        }
+        if level > 0 {
+            let title_raw = title_raw.ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing title_raw for stored heading row {heading_id}"
+                ))
+            })?;
+            headings_by_origin.entry(origin_id).or_default().push((
+                distance,
+                HeadingPathEntry {
+                    id: heading_id,
+                    title,
+                    title_raw,
+                    level,
+                },
+            ));
+        }
+        grouping_duration += started.elapsed();
+    }
+    let chain_row_count = chain_timer.rows;
+    chain_timer.record("enrich-path-headings", 1, compiled.params.len());
+    benchmark_trace::record(
+        benchmark_trace::OUTLINE_VALIDATION,
+        "path-headings",
+        validation_duration,
+        chain_row_count,
+        0,
+        0,
+    );
+    benchmark_trace::record(
+        benchmark_trace::RUST_GROUPING,
+        "path-headings",
+        grouping_duration,
+        chain_row_count,
+        0,
+        0,
+    );
+
+    let mut sorting_duration = Duration::ZERO;
+    let mut construction_duration = Duration::ZERO;
+    let mut paths = HashMap::with_capacity(expected_ids.len());
+    for heading_id in expected_ids {
+        match terminal_by_origin.remove(&heading_id) {
+            Some((level, Some(parent_id), _)) if level > 0 => {
+                return Err(QueryShapeError::missing(format!(
+                    "missing stored heading row for id {parent_id}"
+                )));
+            }
+            _ => {}
+        }
+        let file = files_by_heading.remove(&heading_id).ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing stored file row for heading id {heading_id}"
+            ))
+        })?;
+        let mut headings = headings_by_origin.remove(&heading_id).unwrap_or_default();
+        let started = Instant::now();
+        headings.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        sorting_duration += started.elapsed();
+
+        let started = Instant::now();
+        let mut path = Vec::with_capacity(headings.len() + 1);
+        path.push(PathEntry::File(file));
+        path.extend(
+            headings
+                .into_iter()
+                .map(|(_, heading)| PathEntry::Heading(heading)),
+        );
+        paths.insert(heading_id, path);
+        construction_duration += started.elapsed();
+    }
+    benchmark_trace::record(
+        benchmark_trace::RUST_LOCAL_SORTING,
+        "path-headings",
+        sorting_duration,
+        paths.len(),
+        0,
+        0,
+    );
+    benchmark_trace::record(
+        benchmark_trace::HEADING_PATH_CONSTRUCTION,
+        "recursive-query-derived",
+        construction_duration,
+        paths.len(),
+        0,
+        0,
+    );
+    Ok(paths)
+}
+
+fn load_heading_paths_from_relation_untraced(
     connection: &Connection,
     relation: &MatchedSqlRelation,
     rows: &[HeadingQueryMatch],
@@ -2582,7 +3413,630 @@ fn load_heading_paths_from_relation(
     Ok(paths)
 }
 
+#[derive(Debug)]
+struct TracedHeadingPathRow {
+    origin_id: i64,
+    heading_id: i64,
+    parent_id: Option<i64>,
+    level: i64,
+    title: String,
+    title_raw: Option<String>,
+    distance: i64,
+    breadcrumbs_json: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RustPathAncestor {
+    id: i64,
+    file_id: i64,
+    parent_id: Option<i64>,
+    level: i64,
+    title: String,
+    title_raw: Option<String>,
+}
+
+#[derive(Debug)]
+struct PendingRustPath {
+    origin_id: i64,
+    file_id: i64,
+    file_path: String,
+    file: Option<FilePathEntry>,
+    headings: Vec<HeadingPathEntry>,
+}
+
+pub(crate) fn load_heading_paths_rust_driven(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    rows: &[HeadingQueryMatch],
+) -> Result<HashMap<i64, Vec<PathEntry>>, QueryShapeError> {
+    if relation.heading_relation().is_none() {
+        return Ok(HashMap::new());
+    }
+
+    let trace_active = benchmark_trace::active();
+    let grouping_started = trace_active.then(Instant::now);
+    let matched_by_id = rows
+        .iter()
+        .filter_map(|row| match row {
+            HeadingQueryMatch::Heading(row) => Some((row.id, row)),
+            HeadingQueryMatch::File(_) => None,
+        })
+        .collect::<HashMap<_, _>>();
+    let expected_ids = matched_by_id.keys().copied().collect::<BTreeSet<_>>();
+    if let Some(started) = grouping_started {
+        benchmark_trace::record(
+            benchmark_trace::RUST_GROUPING,
+            "path-rust-matched-headings",
+            started.elapsed(),
+            matched_by_id.len(),
+            0,
+            0,
+        );
+    }
+    if expected_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    validate_outline_path_rows(connection, &expected_ids)?;
+
+    let frontier_started = trace_active.then(Instant::now);
+    let mut frontier = matched_by_id
+        .values()
+        .filter_map(|row| row.parent_id)
+        .collect::<BTreeSet<_>>();
+    let mut expanded = BTreeSet::new();
+    let mut ancestors = HashMap::<i64, RustPathAncestor>::new();
+    if let Some(started) = frontier_started {
+        benchmark_trace::record(
+            benchmark_trace::RUST_GROUPING,
+            "path-rust-parent-frontier",
+            started.elapsed(),
+            frontier.len(),
+            0,
+            0,
+        );
+    }
+
+    while !frontier.is_empty() {
+        let to_load = frontier
+            .iter()
+            .copied()
+            .filter(|heading_id| {
+                !matched_by_id.contains_key(heading_id) && !ancestors.contains_key(heading_id)
+            })
+            .collect::<BTreeSet<_>>();
+        if !to_load.is_empty() {
+            ancestors.extend(load_rust_path_ancestors(connection, &to_load)?);
+        }
+
+        let grouping_started = trace_active.then(Instant::now);
+        let mut next_frontier = BTreeSet::new();
+        for heading_id in frontier {
+            if !expanded.insert(heading_id) {
+                continue;
+            }
+            let (level, parent_id) = if let Some(row) = matched_by_id.get(&heading_id) {
+                (row.level, row.parent_id)
+            } else {
+                let row = ancestors.get(&heading_id).ok_or_else(|| {
+                    QueryShapeError::missing(format!(
+                        "missing stored heading row for id {heading_id}"
+                    ))
+                })?;
+                (row.level, row.parent_id)
+            };
+            if let Some(parent_id) = parent_id.filter(|_| level > 0) {
+                next_frontier.insert(parent_id);
+            }
+        }
+        if let Some(started) = grouping_started {
+            benchmark_trace::record(
+                benchmark_trace::RUST_GROUPING,
+                "path-rust-parent-frontier",
+                started.elapsed(),
+                next_frontier.len(),
+                0,
+                0,
+            );
+        }
+        frontier = next_frontier;
+    }
+
+    let mut pending = Vec::with_capacity(matched_by_id.len());
+    let mut fallback_file_ids = BTreeSet::new();
+    let mut construction_duration = Duration::ZERO;
+    for origin in matched_by_id.values() {
+        let construction_started = trace_active.then(Instant::now);
+        let mut headings = Vec::new();
+        let mut file = None;
+        let mut current_id = Some(origin.id);
+        let mut seen = BTreeSet::new();
+        while let Some(heading_id) = current_id {
+            if !seen.insert(heading_id) {
+                return Err(QueryShapeError::missing(format!(
+                    "cyclic stored heading parent chain at id {heading_id}"
+                )));
+            }
+
+            if let Some(row) = matched_by_id.get(&heading_id) {
+                if heading_id != origin.id && row.file_id != origin.file_id {
+                    return Err(QueryShapeError::missing(format!(
+                        "missing stored heading row for id {heading_id}"
+                    )));
+                }
+                if row.level == 0 {
+                    file = Some(FilePathEntry {
+                        id: origin.file_id,
+                        path: origin.file_path.clone(),
+                        title: row.title.clone(),
+                        title_raw: row.title_raw.clone(),
+                    });
+                    break;
+                }
+                let title_raw = row.title_raw.clone().ok_or_else(|| {
+                    QueryShapeError::missing(format!(
+                        "missing title_raw for stored heading row {heading_id}"
+                    ))
+                })?;
+                headings.push(HeadingPathEntry {
+                    id: row.id,
+                    title: row.title.clone(),
+                    title_raw,
+                    level: row.level,
+                });
+                current_id = row.parent_id;
+                continue;
+            }
+
+            let row = ancestors.get(&heading_id).ok_or_else(|| {
+                QueryShapeError::missing(format!("missing stored heading row for id {heading_id}"))
+            })?;
+            if row.file_id != origin.file_id {
+                return Err(QueryShapeError::missing(format!(
+                    "missing stored heading row for id {heading_id}"
+                )));
+            }
+            if row.level == 0 {
+                file = Some(FilePathEntry {
+                    id: origin.file_id,
+                    path: origin.file_path.clone(),
+                    title: row.title.clone(),
+                    title_raw: row.title_raw.clone(),
+                });
+                break;
+            }
+            let title_raw = row.title_raw.clone().ok_or_else(|| {
+                QueryShapeError::missing(format!(
+                    "missing title_raw for stored heading row {heading_id}"
+                ))
+            })?;
+            headings.push(HeadingPathEntry {
+                id: row.id,
+                title: row.title.clone(),
+                title_raw,
+                level: row.level,
+            });
+            current_id = row.parent_id;
+        }
+        headings.reverse();
+        if file.is_none() {
+            fallback_file_ids.insert(origin.file_id);
+        }
+        pending.push(PendingRustPath {
+            origin_id: origin.id,
+            file_id: origin.file_id,
+            file_path: origin.file_path.clone(),
+            file,
+            headings,
+        });
+        if let Some(started) = construction_started {
+            construction_duration += started.elapsed();
+        }
+    }
+
+    let fallback_roots = if fallback_file_ids.is_empty() {
+        HashMap::new()
+    } else {
+        load_rust_path_file_roots(connection, &fallback_file_ids)?
+    };
+
+    let mut paths = HashMap::with_capacity(pending.len());
+    for pending in pending {
+        let construction_started = trace_active.then(Instant::now);
+        let file = match pending.file {
+            Some(file) => file,
+            None => {
+                let (title, title_raw) = fallback_roots.get(&pending.file_id).ok_or_else(|| {
+                    QueryShapeError::missing(format!(
+                        "missing stored file row for heading id {}",
+                        pending.origin_id
+                    ))
+                })?;
+                FilePathEntry {
+                    id: pending.file_id,
+                    path: pending.file_path,
+                    title: title.clone(),
+                    title_raw: title_raw.clone(),
+                }
+            }
+        };
+        let mut path = Vec::with_capacity(pending.headings.len() + 1);
+        path.push(PathEntry::File(file));
+        path.extend(pending.headings.into_iter().map(PathEntry::Heading));
+        paths.insert(pending.origin_id, path);
+        if let Some(started) = construction_started {
+            construction_duration += started.elapsed();
+        }
+    }
+    benchmark_trace::record(
+        benchmark_trace::HEADING_PATH_CONSTRUCTION,
+        "rust-driven-bulk-ancestors",
+        construction_duration,
+        paths.len(),
+        0,
+        0,
+    );
+    Ok(paths)
+}
+
+fn load_rust_path_ancestors(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<HashMap<i64, RustPathAncestor>, QueryShapeError> {
+    if heading_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    if !benchmark_trace::active() {
+        return load_rust_path_ancestors_untraced(connection, heading_ids);
+    }
+
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let heading_ids = heading_ids.iter().copied().collect::<Vec<_>>();
+    let mut ancestors = HashMap::new();
+    for chunk in heading_ids.chunks(chunk_size) {
+        let sql = format!(
+            "/* orgfdb:benchmark-path-rust-ancestors params={} */
+             SELECT headings.id, headings.file_id, headings.parent_id, headings.level,
+                    headings.title, headings.title_raw, outline_path.breadcrumbs_json
+             FROM headings
+             LEFT JOIN outline_path ON outline_path.heading_id = headings.id
+             WHERE headings.id IN ({})",
+            chunk.len(),
+            placeholders(chunk.len())
+        );
+        let mut timer = ResultTraceTimer::new();
+        let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
+            QueryShapeError::database("load_heading_paths.rust_ancestors.prepare", source)
+        })?;
+        let mut rows = timer
+            .sql(|| statement.query(params_from_iter(chunk.iter())))
+            .map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_ancestors.query", source)
+            })?;
+        let mut found = BTreeSet::new();
+        let mut validation_duration = Duration::ZERO;
+        let mut grouping_duration = Duration::ZERO;
+        loop {
+            let row = timer.sql(|| rows.next()).map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_ancestors.collect", source)
+            })?;
+            let Some(row) = row else {
+                break;
+            };
+            let decoded =
+                timer.decode(|| -> rusqlite::Result<(RustPathAncestor, Option<String>)> {
+                    Ok((
+                        RustPathAncestor {
+                            id: row.get(0)?,
+                            file_id: row.get(1)?,
+                            parent_id: row.get(2)?,
+                            level: row.get(3)?,
+                            title: row.get(4)?,
+                            title_raw: row.get(5)?,
+                        },
+                        row.get(6)?,
+                    ))
+                });
+            let (ancestor, breadcrumbs_json) = decoded.map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_ancestors.collect", source)
+            })?;
+
+            let started = Instant::now();
+            let validation = validate_outline_json(ancestor.id, breadcrumbs_json);
+            validation_duration += started.elapsed();
+            validation?;
+
+            let started = Instant::now();
+            found.insert(ancestor.id);
+            ancestors.insert(ancestor.id, ancestor);
+            grouping_duration += started.elapsed();
+        }
+        let loaded_rows = timer.rows;
+        timer.record("path-rust-ancestors", 1, chunk.len());
+        benchmark_trace::record(
+            benchmark_trace::OUTLINE_VALIDATION,
+            "path-rust-ancestors",
+            validation_duration,
+            loaded_rows,
+            0,
+            0,
+        );
+        benchmark_trace::record(
+            benchmark_trace::RUST_GROUPING,
+            "path-rust-ancestors",
+            grouping_duration,
+            loaded_rows,
+            0,
+            0,
+        );
+        ensure_all_heading_ids_found(chunk, &found)?;
+    }
+    Ok(ancestors)
+}
+
+fn load_rust_path_ancestors_untraced(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<HashMap<i64, RustPathAncestor>, QueryShapeError> {
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let heading_ids = heading_ids.iter().copied().collect::<Vec<_>>();
+    let mut ancestors = HashMap::new();
+    for chunk in heading_ids.chunks(chunk_size) {
+        let sql = format!(
+            "/* orgfdb:benchmark-path-rust-ancestors params={} */
+             SELECT headings.id, headings.file_id, headings.parent_id, headings.level,
+                    headings.title, headings.title_raw, outline_path.breadcrumbs_json
+             FROM headings
+             LEFT JOIN outline_path ON outline_path.heading_id = headings.id
+             WHERE headings.id IN ({})",
+            chunk.len(),
+            placeholders(chunk.len())
+        );
+        let mut statement = connection.prepare(&sql).map_err(|source| {
+            QueryShapeError::database("load_heading_paths.rust_ancestors.prepare", source)
+        })?;
+        let rows = statement
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                Ok((
+                    RustPathAncestor {
+                        id: row.get(0)?,
+                        file_id: row.get(1)?,
+                        parent_id: row.get(2)?,
+                        level: row.get(3)?,
+                        title: row.get(4)?,
+                        title_raw: row.get(5)?,
+                    },
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })
+            .map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_ancestors.query", source)
+            })?;
+        let mut found = BTreeSet::new();
+        for row in rows {
+            let (ancestor, breadcrumbs_json) = row.map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_ancestors.collect", source)
+            })?;
+            validate_outline_json(ancestor.id, breadcrumbs_json)?;
+            found.insert(ancestor.id);
+            ancestors.insert(ancestor.id, ancestor);
+        }
+        ensure_all_heading_ids_found(chunk, &found)?;
+    }
+    Ok(ancestors)
+}
+
+fn ensure_all_heading_ids_found(
+    heading_ids: &[i64],
+    found: &BTreeSet<i64>,
+) -> Result<(), QueryShapeError> {
+    for heading_id in heading_ids {
+        if !found.contains(heading_id) {
+            return Err(QueryShapeError::missing(format!(
+                "missing stored heading row for id {heading_id}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_outline_json(
+    heading_id: i64,
+    breadcrumbs_json: Option<String>,
+) -> Result<(), QueryShapeError> {
+    let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+        QueryShapeError::missing(format!(
+            "missing outline_path row for stored heading id {heading_id}"
+        ))
+    })?;
+    let _: Vec<String> = serde_json::from_str(&breadcrumbs_json)
+        .map_err(|source| QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source))?;
+    Ok(())
+}
+
+fn load_rust_path_file_roots(
+    connection: &Connection,
+    file_ids: &BTreeSet<i64>,
+) -> Result<HashMap<i64, (String, Option<String>)>, QueryShapeError> {
+    if file_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let file_ids = file_ids.iter().copied().collect::<Vec<_>>();
+    let trace_active = benchmark_trace::active();
+    let mut roots = HashMap::new();
+    for chunk in file_ids.chunks(chunk_size) {
+        let sql = format!(
+            "/* orgfdb:benchmark-path-rust-file-roots params={} */
+             SELECT files.id, root.title, root.title_raw
+             FROM files
+             INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0
+             WHERE files.id IN ({})",
+            chunk.len(),
+            placeholders(chunk.len())
+        );
+        if trace_active {
+            let mut timer = ResultTraceTimer::new();
+            let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_file_roots.prepare", source)
+            })?;
+            let mut rows = timer
+                .sql(|| statement.query(params_from_iter(chunk.iter())))
+                .map_err(|source| {
+                    QueryShapeError::database("load_heading_paths.rust_file_roots.query", source)
+                })?;
+            let mut grouping_duration = Duration::ZERO;
+            loop {
+                let row = timer.sql(|| rows.next()).map_err(|source| {
+                    QueryShapeError::database("load_heading_paths.rust_file_roots.collect", source)
+                })?;
+                let Some(row) = row else {
+                    break;
+                };
+                let decoded =
+                    timer.decode(|| -> rusqlite::Result<(i64, String, Option<String>)> {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    });
+                let (file_id, title, title_raw) = decoded.map_err(|source| {
+                    QueryShapeError::database("load_heading_paths.rust_file_roots.collect", source)
+                })?;
+                let started = Instant::now();
+                roots.insert(file_id, (title, title_raw));
+                grouping_duration += started.elapsed();
+            }
+            let loaded_rows = timer.rows;
+            timer.record("path-rust-file-roots", 1, chunk.len());
+            benchmark_trace::record(
+                benchmark_trace::RUST_GROUPING,
+                "path-rust-file-roots",
+                grouping_duration,
+                loaded_rows,
+                0,
+                0,
+            );
+        } else {
+            let mut statement = connection.prepare(&sql).map_err(|source| {
+                QueryShapeError::database("load_heading_paths.rust_file_roots.prepare", source)
+            })?;
+            let rows = statement
+                .query_map(params_from_iter(chunk.iter()), |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })
+                .map_err(|source| {
+                    QueryShapeError::database("load_heading_paths.rust_file_roots.query", source)
+                })?;
+            for row in rows {
+                let (file_id, title, title_raw) = row.map_err(|source| {
+                    QueryShapeError::database("load_heading_paths.rust_file_roots.collect", source)
+                })?;
+                roots.insert(file_id, (title, title_raw));
+            }
+        }
+    }
+    Ok(roots)
+}
+
 fn validate_outline_path_rows(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<(), QueryShapeError> {
+    if !benchmark_trace::active() {
+        return validate_outline_path_rows_untraced(connection, heading_ids);
+    }
+    validate_outline_path_rows_traced(connection, heading_ids)
+}
+
+fn validate_outline_path_rows_traced(
+    connection: &Connection,
+    heading_ids: &BTreeSet<i64>,
+) -> Result<(), QueryShapeError> {
+    if heading_ids.is_empty() {
+        return Ok(());
+    }
+
+    let chunk_size = id_chunk_capacity(connection, 0);
+    let heading_ids = heading_ids.iter().copied().collect::<Vec<_>>();
+    for chunk in heading_ids.chunks(chunk_size) {
+        let sql = format!(
+            "/* orgfdb:validate-outline-path params={} */
+             SELECT heading_id, breadcrumbs_json
+             FROM outline_path
+             WHERE heading_id IN ({})",
+            chunk.len(),
+            placeholders(chunk.len())
+        );
+        let mut timer = ResultTraceTimer::new();
+        let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
+            QueryShapeError::database("validate_outline_path_rows.prepare", source)
+        })?;
+        let mut rows = timer
+            .sql(|| statement.query(params_from_iter(chunk.iter())))
+            .map_err(|source| {
+                QueryShapeError::database("validate_outline_path_rows.query", source)
+            })?;
+        let mut found = BTreeSet::new();
+        let mut validation_duration = Duration::ZERO;
+        let mut grouping_duration = Duration::ZERO;
+        loop {
+            let row = timer.sql(|| rows.next()).map_err(|source| {
+                QueryShapeError::database("validate_outline_path_rows.collect", source)
+            })?;
+            let Some(row) = row else {
+                break;
+            };
+            let decoded = timer
+                .decode(|| -> rusqlite::Result<(i64, String)> { Ok((row.get(0)?, row.get(1)?)) });
+            let (heading_id, breadcrumbs_json) = decoded.map_err(|source| {
+                QueryShapeError::database("validate_outline_path_rows.collect", source)
+            })?;
+            let started = Instant::now();
+            let validation = serde_json::from_str::<Vec<String>>(&breadcrumbs_json)
+                .map(|_| ())
+                .map_err(|source| {
+                    QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source)
+                });
+            validation_duration += started.elapsed();
+            validation?;
+            let started = Instant::now();
+            found.insert(heading_id);
+            grouping_duration += started.elapsed();
+        }
+        let loaded_rows = timer.rows;
+        timer.record("validate-outline-path-runtime-ids", 1, chunk.len());
+        benchmark_trace::record(
+            benchmark_trace::OUTLINE_VALIDATION,
+            "validate-outline-path-runtime-ids",
+            validation_duration,
+            loaded_rows,
+            0,
+            0,
+        );
+        benchmark_trace::record(
+            benchmark_trace::RUST_GROUPING,
+            "validate-outline-path-runtime-ids",
+            grouping_duration,
+            loaded_rows,
+            0,
+            0,
+        );
+        for heading_id in chunk {
+            if !found.contains(heading_id) {
+                return Err(QueryShapeError::missing(format!(
+                    "missing outline_path row for stored heading id {heading_id}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_outline_path_rows_untraced(
     connection: &Connection,
     heading_ids: &BTreeSet<i64>,
 ) -> Result<(), QueryShapeError> {
@@ -3017,9 +4471,9 @@ fn placeholders(count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_and_shape_query, shape_query_results, EffectivePropertyFact, QueryExecutionOptions,
-        QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode,
-        QueryShapeErrorKind,
+        execute_and_shape_query, load_heading_paths_from_relation, load_heading_paths_rust_driven,
+        shape_query_results, EffectivePropertyFact, QueryExecutionOptions, QueryInclude,
+        QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode, QueryShapeErrorKind,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -3027,6 +4481,7 @@ mod tests {
         PropertyRecord, SchemaDefinition, TagRecord,
     };
     use crate::property::{derive_effective_properties, PropertyRow};
+    use crate::query::sqlite::execute_sqlite_query_with_relation;
     use crate::query::{
         execute_sqlite_query, parse_query, validate_query, HeadingQueryMatch, QueryRows,
         QueryTarget, QueryValidationOptions,
@@ -3684,6 +5139,116 @@ mod tests {
             .as_ref()
             .expect("path should exist");
         assert_eq!(path.len(), 3);
+    }
+
+    #[test]
+    fn rust_driven_path_matches_recursive_relation_for_nested_heading() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+        let executed = execute_sqlite_query_with_relation(&connection, &query, &options)
+            .expect("query should execute");
+        let rows = match &executed.rows {
+            QueryRows::Headings(rows) => rows,
+            QueryRows::Links(_) | QueryRows::Files(_) => {
+                panic!("heading query should return headings")
+            }
+        };
+
+        let expected = load_heading_paths_from_relation(&connection, &executed.relation, rows)
+            .expect("recursive path strategy should load");
+        let actual = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+            .expect("Rust-driven path strategy should load");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn rust_driven_path_respects_small_runtime_variable_limit() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+        let executed = execute_sqlite_query_with_relation(&connection, &query, &options)
+            .expect("query should execute");
+        let rows = match &executed.rows {
+            QueryRows::Headings(rows) => rows,
+            QueryRows::Links(_) | QueryRows::Files(_) => {
+                panic!("heading query should return headings")
+            }
+        };
+        let expected = load_heading_paths_from_relation(&connection, &executed.relation, rows)
+            .expect("recursive path strategy should load");
+
+        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let actual = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+            .expect("Rust-driven path strategy should respect the small variable limit");
+        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn rust_driven_path_rejects_cross_file_parent() {
+        let connection = seeded_connection();
+        connection
+            .execute("UPDATE headings SET parent_id = 21 WHERE id = 12", [])
+            .expect("cross-file parent should update");
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+        let executed = execute_sqlite_query_with_relation(&connection, &query, &options)
+            .expect("query should execute");
+        let rows = match &executed.rows {
+            QueryRows::Headings(rows) => rows,
+            QueryRows::Links(_) | QueryRows::Files(_) => {
+                panic!("heading query should return headings")
+            }
+        };
+
+        let error = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+            .expect_err("Rust-driven path strategy should reject a cross-file parent");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error
+            .message
+            .contains("missing stored heading row for id 21"));
+    }
+
+    #[test]
+    fn rust_driven_path_keeps_ancestor_outline_validation() {
+        let connection = seeded_connection();
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 11", [])
+            .expect("ancestor outline path should delete");
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+        let executed = execute_sqlite_query_with_relation(&connection, &query, &options)
+            .expect("query should execute");
+        let rows = match &executed.rows {
+            QueryRows::Headings(rows) => rows,
+            QueryRows::Links(_) | QueryRows::Files(_) => {
+                panic!("heading query should return headings")
+            }
+        };
+
+        let error = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+            .expect_err("Rust-driven path strategy should validate ancestor outline rows");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error
+            .message
+            .contains("missing outline_path row for stored heading id 11"));
     }
 
     #[test]

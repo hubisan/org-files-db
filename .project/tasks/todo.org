@@ -768,7 +768,9 @@ Keep correct behavior with a small configured SQLite variable limit.
 - Query output and ordering remain unchanged.
 - Benchmark results and the final strategy decisions are documented.
   
-* TODO Benchmark Rust vs SQLite query result processing
+* DONE Benchmark Rust vs SQLite query result processing
+
+Task file: [[./2026-08-17--benchmark-rust-vs-sqlite-query-processing.org][Benchmark Rust vs SQLite Query Result Processing]]
 
 Measure the query execution phases before moving more result work from SQLite to Rust.
 
@@ -914,6 +916,190 @@ After this task, decide separately whether to:
 - implement selective shared TEMP relations for expensive matched queries,
 - investigate another measured bottleneck.
   
+* TODO Benchmark heading path with smaller SQLite variable limits
+
+Measure the Rust-driven heading path strategy with smaller SQLite variable limits.
+
+The current benchmark uses ~SQLITE_LIMIT_VARIABLE_NUMBER = 250000~.
+
+The Rust-driven bulk ancestor strategy uses runtime-limit-safe ID batches. Its large-result performance still needs validation with smaller limits.
+
+Benchmark at least:
+
+- ~250000~
+- ~32766~
+- ~999~
+
+Focus on ~50'000~ matched headings.
+
+Compare:
+
+- ~recursive-query-derived~
+- ~rust-driven-bulk-ancestors~
+
+Record:
+
+- total latency
+- statement count
+- maximum bound parameters
+- rows transferred from SQLite
+- SQLite execution time
+- row decoding time
+- Rust path construction time
+
+Keep the Rust-driven strategy only if its end-to-end advantage remains clear with smaller variable limits.
+
+
+* TODO Replace recursive heading path loading with Rust-driven bulk ancestors
+
+Use the benchmarked Rust-driven bulk ancestor loader for direct-flat heading path enrichment.
+
+The benchmark shows a clear latency improvement at every measured result size.
+
+The Rust-driven strategy also transfers fewer rows from SQLite.
+
+Keep query matching and relational filtering in SQLite.
+
+Use Rust to:
+
+- reuse the matched heading rows
+- collect missing ancestor IDs
+- load missing ancestors in runtime-limit-safe batches
+- validate the ancestor chain
+- construct the final heading path
+
+Preserve all current corruption errors.
+
+Do not reload all headings from matched files.
+
+Keep the current recursive query-derived loader until the variable-limit benchmark confirms the production change.
+
+Add regression tests for nested paths, small variable limits, missing ancestors, cross-file parents, and malformed ~outline_path~ data.
+
+
+* TODO Rebenchmark production heading path after Rust ancestor loading
+
+Measure the complete production ~headings.path~ workload after the Rust-driven ancestor loader is active.
+
+Use the standard result sizes:
+
+- 100
+- 1'000
+- 10'000
+- 50'000
+
+Compare the new production measurements with the current benchmark from the same machine and SQLite environment.
+
+Record:
+
+- total query latency
+- SQL statement count
+- rows transferred from SQLite
+- SQLite execution time
+- row decoding time
+- Rust processing time
+- final result shaping time
+
+Confirm that the isolated path benchmark improvement also reduces end-to-end ~headings.path~ latency.
+
+Update ~docs/query-sql-performance.org~ with the result.
+
+* TODO Benchmark predicate-driven SQL for direct metadata filters
+
+Test whether selective metadata relations can drive heading queries instead of scanning all headings with correlated subqueries.
+
+The query-plan audit shows ~SCAN h0~ for several direct metadata predicates.
+
+Benchmark alternative SQL shapes for:
+
+- direct tags
+- direct properties
+- effective properties
+- keywords
+
+Compare:
+
+- current heading-driven ~EXISTS~ predicates
+- relation-driven joins with the current indexes
+- relation-driven joins with an experimental predicate-first index where justified
+
+Measure different predicate selectivities.
+
+Use at least approximately:
+
+- 1 %
+- 10 %
+- 50 %
+- 100 %
+
+Record:
+
+- total query latency
+- query plan
+- rows scanned or returned where available
+- statement count
+- rows transferred to Rust
+
+Do not add a persistent index unless the benchmark shows a clear end-to-end improvement.
+
+Also audit the query compiler for predicates where existing row state makes a related lookup impossible.
+
+Skip such SQL work only when the data model guarantees that the lookup cannot produce a result.
+
+* TODO Use shared TEMP matched relations for expensive query reuse
+
+Add a selective shared TEMP matched relation for expensive compiled queries that are reused by several enrichment steps.
+
+Do not use a TEMP relation for every query.
+
+The relation-reuse benchmark shows two different cases:
+
+- simple matched relations are faster when SQLite evaluates them again
+- complex matched relations are much faster when one TEMP relation is reused
+
+Define a robust internal rule that identifies expensive reusable matched relations.
+
+Do not base the decision only on result count.
+
+Consider:
+
+- compiled predicate shape
+- relation complexity
+- number of enrichment consumers
+- expected repeated query work
+
+Keep repeated query-derived joins for cheap relations.
+
+Keep all public query output and error behavior unchanged.
+
+Benchmark the production implementation before making the selective strategy permanent.
+
+
+* TODO Investigate final Rust result shaping cost
+
+Investigate the remaining Rust-side cost of final query result shaping.
+
+The phase benchmark shows that ~final-result-shaping~ becomes significant for large result sets.
+
+Do not move additional relational work from SQLite to Rust in this task.
+
+Profile the existing Rust shaping path first.
+
+Focus on:
+
+- repeated allocations
+- unnecessary clones
+- temporary collections
+- repeated map lookups
+- avoidable conversions
+- result object construction
+
+Use representative ~50'000~-result workloads.
+
+Make an optimization only when a benchmark shows a clear end-to-end improvement.
+
+Keep public query results unchanged.
+
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded

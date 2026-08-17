@@ -18,14 +18,18 @@ use crate::{
         compile_sqlite_query, execute_and_shape_query, parse_query, resolve_relative_dates,
         resolve_temporal_bounds, sqlite_query_validation_options, validate_query,
         QueryDateResolutionOptions, QueryExecutionOptions, QueryInclude, QueryOutputMode,
-        QueryParam,
+        QueryParam, QueryRows,
     },
 };
 
+use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
+use crate::query::result::{load_heading_paths_from_relation, load_heading_paths_rust_driven};
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
-use crate::query::sqlite::compile_sqlite_query_with_file_restriction;
+use crate::query::sqlite::{
+    compile_sqlite_query_with_file_restriction, execute_sqlite_query_with_relation,
+};
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "2";
+pub const OUTPUT_SCHEMA_VERSION: &str = "3";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -64,6 +68,7 @@ pub struct QuerySqlBenchmarkProtocol {
     pub database_source: &'static str,
     pub timing_policy: &'static str,
     pub profile_policy: &'static str,
+    pub phase_policy: &'static str,
     pub strategy_policy: &'static str,
 }
 
@@ -83,6 +88,7 @@ pub struct QuerySqlSizeResult {
     pub workloads: Vec<QuerySqlWorkloadResult>,
     pub lookup_strategies: Vec<LookupStrategyResult>,
     pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
+    pub path_strategies: Vec<PathStrategyResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -93,6 +99,36 @@ pub struct QuerySqlWorkloadResult {
     pub result_count: usize,
     pub total_query_time: Timing,
     pub sql_profile: SqlProfileSummary,
+    pub direct_phase_profile: DirectPhaseProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectPhaseProfile {
+    pub rows_transferred_from_sqlite: usize,
+    pub statement_count: usize,
+    pub total_bound_parameters: usize,
+    pub max_bound_parameters: usize,
+    pub phases: Vec<DirectPhaseSummary>,
+    pub operations: Vec<DirectPhaseOperation>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectPhaseSummary {
+    pub phase: String,
+    pub duration_ns: u128,
+    pub rows: usize,
+    pub statement_count: usize,
+    pub total_bound_parameters: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectPhaseOperation {
+    pub phase: &'static str,
+    pub operation: &'static str,
+    pub duration_ns: u128,
+    pub rows: usize,
+    pub statement_count: usize,
+    pub bound_parameters: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -131,6 +167,15 @@ pub struct RelationReuseStrategyResult {
     pub returned_rows: usize,
     pub statement_count_per_sample: usize,
     pub timing: Timing,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PathStrategyResult {
+    pub strategy: &'static str,
+    pub matched_heading_ids: usize,
+    pub returned_paths: usize,
+    pub timing: Timing,
+    pub direct_phase_profile: DirectPhaseProfile,
 }
 
 #[derive(Debug, Serialize)]
@@ -239,7 +284,8 @@ pub fn run(
             database_source: "existing or generated orgfdb-presentation-benchmark corpus databases",
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
-            strategy_policy: "lookup microbenchmarks compare ID transport, repeated query-derived joins, shared temporary result relations, and representative query plans",
+            phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
+            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, path-loading strategies, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -310,6 +356,7 @@ fn run_size(
 
     let lookup_strategies = measure_lookup_strategies(&db_path, target_results, options)?;
     let relation_reuse_strategies = measure_relation_reuse_strategies(&db_path, options)?;
+    let path_strategies = measure_path_strategies(&db_path, target_results, options)?;
 
     Ok(QuerySqlSizeResult {
         target_results,
@@ -318,6 +365,7 @@ fn run_size(
         workloads,
         lookup_strategies,
         relation_reuse_strategies,
+        path_strategies,
     })
 }
 
@@ -381,6 +429,19 @@ fn measure_workload(
     }
     let sql_profile = take_profile_summary();
 
+    benchmark_trace::begin();
+    let phase_response = execute_and_shape_query(&connection, &validated, &query_options)
+        .map_err(|error| error.to_string());
+    let phase_records = benchmark_trace::finish();
+    let phase_response = phase_response?;
+    if phase_response.results.len() != expected_results {
+        return Err(format!(
+            "{} result count changed during direct phase profile",
+            workload.id
+        ));
+    }
+    let direct_phase_profile = summarize_direct_phase_profile(phase_records);
+
     connection
         .execute_batch("COMMIT")
         .map_err(|error| error.to_string())?;
@@ -392,6 +453,7 @@ fn measure_workload(
         result_count: expected_results,
         total_query_time,
         sql_profile,
+        direct_phase_profile,
     })
 }
 
@@ -453,6 +515,177 @@ fn take_profile_summary() -> SqlProfileSummary {
         sqlite_profile_ns,
         stages: stages.into_values().collect(),
     }
+}
+
+fn summarize_direct_phase_profile(records: Vec<BenchmarkTraceRecord>) -> DirectPhaseProfile {
+    let rows_transferred_from_sqlite = records
+        .iter()
+        .filter(|record| {
+            record.phase == benchmark_trace::MATCHED_SQL_EXECUTION
+                || record.phase == benchmark_trace::ENRICHMENT_SQL_EXECUTION
+        })
+        .map(|record| record.rows)
+        .sum();
+    let statement_count = records.iter().map(|record| record.statement_count).sum();
+    let total_bound_parameters = records.iter().map(|record| record.bound_parameters).sum();
+    let max_bound_parameters = records
+        .iter()
+        .map(|record| record.bound_parameters)
+        .max()
+        .unwrap_or(0);
+
+    let mut phases = BTreeMap::<String, DirectPhaseSummary>::new();
+    for record in &records {
+        let phase = phases
+            .entry(record.phase.to_string())
+            .or_insert_with(|| DirectPhaseSummary {
+                phase: record.phase.to_string(),
+                duration_ns: 0,
+                rows: 0,
+                statement_count: 0,
+                total_bound_parameters: 0,
+            });
+        phase.duration_ns += record.duration_ns;
+        phase.rows += record.rows;
+        phase.statement_count += record.statement_count;
+        phase.total_bound_parameters += record.bound_parameters;
+    }
+
+    let operations = records
+        .into_iter()
+        .map(|record| DirectPhaseOperation {
+            phase: record.phase,
+            operation: record.operation,
+            duration_ns: record.duration_ns,
+            rows: record.rows,
+            statement_count: record.statement_count,
+            bound_parameters: record.bound_parameters,
+        })
+        .collect();
+
+    DirectPhaseProfile {
+        rows_transferred_from_sqlite,
+        statement_count,
+        total_bound_parameters,
+        max_bound_parameters,
+        phases: phases.into_values().collect(),
+        operations,
+    }
+}
+
+fn measure_path_strategies(
+    db_path: &Path,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<PathStrategyResult>, String> {
+    let connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+
+    let parsed = parse_query("(headings (level 1))").map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(|error| error.to_string())?;
+    let validated =
+        validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+    let query_options = QueryExecutionOptions {
+        output_mode: QueryOutputMode::Flat,
+        includes: vec![QueryInclude::Path],
+        ..Default::default()
+    };
+    let executed = execute_sqlite_query_with_relation(&connection, &validated, &query_options)
+        .map_err(|error| error.to_string())?;
+    let rows = match &executed.rows {
+        QueryRows::Headings(rows) => rows,
+        QueryRows::Links(_) | QueryRows::Files(_) => {
+            return Err("path strategy benchmark requires heading rows".into());
+        }
+    };
+    let matched_heading_ids = rows
+        .iter()
+        .filter(|row| matches!(row, crate::query::HeadingQueryMatch::Heading(_)))
+        .count();
+    if matched_heading_ids != expected_results {
+        return Err(format!(
+            "path strategy benchmark matched {matched_heading_ids} headings, expected {expected_results}"
+        ));
+    }
+
+    let recursive_reference =
+        load_heading_paths_from_relation(&connection, &executed.relation, rows)
+            .map_err(|error| error.to_string())?;
+    let rust_reference = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        .map_err(|error| error.to_string())?;
+    if recursive_reference != rust_reference {
+        return Err("Rust-driven path strategy changed heading path output".into());
+    }
+    if recursive_reference.len() != expected_results {
+        return Err(format!(
+            "path strategy benchmark returned {} paths, expected {expected_results}",
+            recursive_reference.len()
+        ));
+    }
+
+    let recursive_timing = measure(options, || {
+        let paths = load_heading_paths_from_relation(&connection, &executed.relation, rows)
+            .map_err(|error| error.to_string())?;
+        if paths.len() != expected_results {
+            return Err("recursive path result count changed during benchmark".into());
+        }
+        std::hint::black_box(paths);
+        Ok(())
+    })?;
+    benchmark_trace::begin();
+    let recursive_profiled =
+        load_heading_paths_from_relation(&connection, &executed.relation, rows)
+            .map_err(|error| error.to_string());
+    let recursive_records = benchmark_trace::finish();
+    let recursive_profiled = recursive_profiled?;
+    if recursive_profiled.len() != expected_results {
+        return Err("recursive path result count changed during phase profile".into());
+    }
+    let recursive_profile = summarize_direct_phase_profile(recursive_records);
+
+    let rust_timing = measure(options, || {
+        let paths = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+            .map_err(|error| error.to_string())?;
+        if paths.len() != expected_results {
+            return Err("Rust-driven path result count changed during benchmark".into());
+        }
+        std::hint::black_box(paths);
+        Ok(())
+    })?;
+    benchmark_trace::begin();
+    let rust_profiled = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        .map_err(|error| error.to_string());
+    let rust_records = benchmark_trace::finish();
+    let rust_profiled = rust_profiled?;
+    if rust_profiled.len() != expected_results {
+        return Err("Rust-driven path result count changed during phase profile".into());
+    }
+    let rust_profile = summarize_direct_phase_profile(rust_records);
+
+    connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+
+    Ok(vec![
+        PathStrategyResult {
+            strategy: "recursive-query-derived",
+            matched_heading_ids,
+            returned_paths: expected_results,
+            timing: recursive_timing,
+            direct_phase_profile: recursive_profile,
+        },
+        PathStrategyResult {
+            strategy: "rust-driven-bulk-ancestors",
+            matched_heading_ids,
+            returned_paths: expected_results,
+            timing: rust_timing,
+            direct_phase_profile: rust_profile,
+        },
+    ])
 }
 
 fn measure_lookup_strategies(
@@ -1131,6 +1364,50 @@ mod tests {
                 "/* orgfdb:enrich-keywords params=17 */ SELECT heading_id FROM keywords"
             ),
             Some(("enrich-keywords".to_string(), 17))
+        );
+    }
+
+    #[test]
+    fn direct_phase_summary_counts_sql_transfer_without_row_decode_duplication() {
+        let summary = summarize_direct_phase_profile(vec![
+            BenchmarkTraceRecord {
+                phase: benchmark_trace::MATCHED_SQL_EXECUTION,
+                operation: "match-headings",
+                duration_ns: 10,
+                rows: 3,
+                statement_count: 1,
+                bound_parameters: 1,
+            },
+            BenchmarkTraceRecord {
+                phase: benchmark_trace::SQLITE_ROW_DECODING,
+                operation: "match-headings",
+                duration_ns: 5,
+                rows: 3,
+                statement_count: 0,
+                bound_parameters: 0,
+            },
+            BenchmarkTraceRecord {
+                phase: benchmark_trace::ENRICHMENT_SQL_EXECUTION,
+                operation: "enrich-properties",
+                duration_ns: 20,
+                rows: 6,
+                statement_count: 1,
+                bound_parameters: 2,
+            },
+        ]);
+
+        assert_eq!(summary.rows_transferred_from_sqlite, 9);
+        assert_eq!(summary.statement_count, 2);
+        assert_eq!(summary.total_bound_parameters, 3);
+        assert_eq!(summary.max_bound_parameters, 2);
+        assert_eq!(summary.operations.len(), 3);
+        assert_eq!(
+            summary
+                .phases
+                .iter()
+                .find(|phase| phase.phase == benchmark_trace::SQLITE_ROW_DECODING)
+                .map(|phase| phase.rows),
+            Some(3)
         );
     }
 
