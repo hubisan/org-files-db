@@ -9,10 +9,13 @@ use rusqlite::{params_from_iter, Connection};
 use serde::Serialize;
 
 use super::sql_support::id_chunk_capacity;
-use super::sqlite::HeadingQueryMatch;
+use super::sqlite::{
+    execute_sqlite_query_with_relation, file_relation_columns, heading_relation_columns,
+    HeadingQueryMatch, MatchedSqlRelation,
+};
 use super::{
-    execute_sqlite_query_with_options, FileQueryRow, HeadingQueryRow, LinkQueryRow,
-    QueryExecutionError, QueryRows, QueryTarget, ValidatedQuery,
+    FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
+    ValidatedQuery,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -402,8 +405,39 @@ pub fn execute_and_shape_query(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let rows = execute_sqlite_query_with_options(connection, query, options)?;
-    shape_query_results(connection, rows, options)
+    let owns_snapshot = connection.is_autocommit();
+    if owns_snapshot {
+        connection
+            .execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(|source| QueryShapeError::database("query_snapshot.begin", source))?;
+    }
+
+    let result = execute_and_shape_query_in_snapshot(connection, query, options);
+    if !owns_snapshot {
+        return result;
+    }
+
+    match result {
+        Ok(response) => {
+            connection
+                .execute_batch("COMMIT")
+                .map_err(|source| QueryShapeError::database("query_snapshot.commit", source))?;
+            Ok(response)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+fn execute_and_shape_query_in_snapshot(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+) -> Result<QueryResponse, QueryShapeError> {
+    let executed = execute_sqlite_query_with_relation(connection, query, options)?;
+    shape_query_results_internal(connection, executed.rows, options, Some(&executed.relation))
 }
 
 pub fn shape_query_results(
@@ -411,9 +445,20 @@ pub fn shape_query_results(
     rows: QueryRows,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
+    shape_query_results_internal(connection, rows, options, None)
+}
+
+fn shape_query_results_internal(
+    connection: &Connection,
+    rows: QueryRows,
+    options: &QueryExecutionOptions,
+    relation: Option<&MatchedSqlRelation>,
+) -> Result<QueryResponse, QueryShapeError> {
     let includes = normalized_includes(&options.includes);
-    if options.output_mode == QueryOutputMode::Flat && supports_direct_flat_shaping(&includes) {
-        return shape_direct_flat_results(connection, rows, includes);
+    if options.output_mode == QueryOutputMode::Flat
+        && supports_direct_flat_shaping(&rows, &includes, relation.is_some())
+    {
+        return shape_direct_flat_results(connection, rows, includes, relation);
     }
 
     let context = EnrichmentContext::load(connection, &rows, &includes)?;
@@ -473,12 +518,17 @@ pub fn shape_query_results(
     })
 }
 
-fn supports_direct_flat_shaping(includes: &[QueryInclude]) -> bool {
+fn supports_direct_flat_shaping(
+    rows: &QueryRows,
+    includes: &[QueryInclude],
+    has_relation: bool,
+) -> bool {
+    let supports_path = has_relation && !matches!(rows, QueryRows::Links(_));
     includes.iter().all(|include| {
         matches!(
             include,
             QueryInclude::Properties | QueryInclude::EffectiveProperties | QueryInclude::Keywords
-        )
+        ) || (supports_path && *include == QueryInclude::Path)
     })
 }
 
@@ -486,8 +536,9 @@ fn shape_direct_flat_results(
     connection: &Connection,
     rows: QueryRows,
     includes: Vec<QueryInclude>,
+    relation: Option<&MatchedSqlRelation>,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let metadata = FlatMetadataContext::load(connection, &rows, &includes)?;
+    let metadata = FlatMetadataContext::load(connection, &rows, &includes, relation)?;
     let target = match &rows {
         QueryRows::Headings(_) => QueryTarget::Headings,
         QueryRows::Links(_) => QueryTarget::Links,
@@ -648,6 +699,7 @@ struct FlatMetadataContext {
     effective_properties: HashMap<i64, Vec<EffectivePropertyFact>>,
     keywords: HashMap<i64, Vec<KeywordFact>>,
     root_tags: HashMap<i64, Vec<String>>,
+    heading_paths: HashMap<i64, Vec<PathEntry>>,
 }
 
 impl FlatMetadataContext {
@@ -655,10 +707,12 @@ impl FlatMetadataContext {
         connection: &Connection,
         rows: &QueryRows,
         includes: &[QueryInclude],
+        relation: Option<&MatchedSqlRelation>,
     ) -> Result<Self, QueryShapeError> {
         let include_set = includes.iter().copied().collect::<BTreeSet<_>>();
         let mut metadata_heading_ids = BTreeSet::new();
         let mut root_heading_ids = BTreeSet::new();
+        let mut has_heading_rows = false;
 
         match rows {
             QueryRows::Headings(rows) => {
@@ -670,6 +724,7 @@ impl FlatMetadataContext {
                         }
                         HeadingQueryMatch::Heading(row) => {
                             metadata_heading_ids.insert(row.id);
+                            has_heading_rows = true;
                         }
                     }
                 }
@@ -682,12 +737,38 @@ impl FlatMetadataContext {
             }
             QueryRows::Links(_) => {}
         }
+        let has_root_rows = !root_heading_ids.is_empty();
 
-        validate_outline_path_rows(connection, &metadata_heading_ids)?;
+        if let Some(relation) = relation {
+            if include_set.contains(&QueryInclude::Path) && matches!(rows, QueryRows::Headings(_)) {
+                if has_root_rows {
+                    validate_outline_path_root_relation(connection, relation)?;
+                }
+            } else {
+                validate_outline_path_relation(
+                    connection,
+                    relation,
+                    has_heading_rows,
+                    has_root_rows,
+                )?;
+            }
+        } else {
+            validate_outline_path_rows(connection, &metadata_heading_ids)?;
+        }
 
         let mut properties = HashMap::new();
         if include_set.contains(&QueryInclude::Properties) {
-            for property in load_properties(connection, &metadata_heading_ids)? {
+            let loaded = if let Some(relation) = relation {
+                load_properties_from_relation(
+                    connection,
+                    relation,
+                    has_heading_rows,
+                    has_root_rows,
+                )?
+            } else {
+                load_properties(connection, &metadata_heading_ids)?
+            };
+            for property in loaded {
                 properties
                     .entry(property.heading_id)
                     .or_insert_with(Vec::new)
@@ -696,14 +777,29 @@ impl FlatMetadataContext {
         }
 
         let effective_properties = if include_set.contains(&QueryInclude::EffectiveProperties) {
-            load_effective_properties(connection, &metadata_heading_ids)?
+            if let Some(relation) = relation {
+                load_effective_properties_from_relation(
+                    connection,
+                    relation,
+                    &metadata_heading_ids,
+                    has_heading_rows,
+                    has_root_rows,
+                )?
+            } else {
+                load_effective_properties(connection, &metadata_heading_ids)?
+            }
         } else {
             HashMap::new()
         };
 
         let mut keywords = HashMap::new();
         if include_set.contains(&QueryInclude::Keywords) {
-            for keyword in load_keywords(connection, &metadata_heading_ids)? {
+            let loaded = if let Some(relation) = relation {
+                load_keywords_from_relation(connection, relation, has_heading_rows, has_root_rows)?
+            } else {
+                load_keywords(connection, &metadata_heading_ids)?
+            };
+            for keyword in loaded {
                 keywords
                     .entry(keyword.heading_id)
                     .or_insert_with(Vec::new)
@@ -711,11 +807,34 @@ impl FlatMetadataContext {
             }
         }
 
+        let root_tags = if let Some(relation) = relation {
+            if has_root_rows {
+                load_root_tags_from_relation(connection, relation)?
+            } else {
+                HashMap::new()
+            }
+        } else {
+            load_effective_tags_for_heading_ids(connection, &root_heading_ids)?
+        };
+
+        let heading_paths = if include_set.contains(&QueryInclude::Path) {
+            match (rows, relation) {
+                (QueryRows::Headings(rows), Some(relation)) => {
+                    load_heading_paths_from_relation(connection, relation, rows)?
+                }
+                (QueryRows::Headings(_), None) => HashMap::new(),
+                (QueryRows::Files(_), _) | (QueryRows::Links(_), _) => HashMap::new(),
+            }
+        } else {
+            HashMap::new()
+        };
+
         Ok(Self {
             properties,
             effective_properties,
             keywords,
-            root_tags: load_effective_tags_for_heading_ids(connection, &root_heading_ids)?,
+            root_tags,
+            heading_paths,
         })
     }
 
@@ -763,7 +882,14 @@ impl FlatMetadataContext {
                 .get(&row.root_heading_id)
                 .cloned()
                 .unwrap_or_default(),
-            node_path: None,
+            node_path: includes.contains(&QueryInclude::Path).then(|| {
+                vec![PathEntry::File(FilePathEntry {
+                    id: row.id,
+                    path: row.path.clone(),
+                    title: row.root_title.clone(),
+                    title_raw: row.root_title_raw.clone(),
+                })]
+            }),
             properties: includes.contains(&QueryInclude::Properties).then(|| {
                 self.properties
                     .get(&row.root_heading_id)
@@ -824,7 +950,9 @@ impl FlatMetadataContext {
                 byte_start: Some(row.byte_start),
                 byte_end: Some(row.byte_end),
             },
-            node_path: None,
+            node_path: includes
+                .contains(&QueryInclude::Path)
+                .then(|| self.heading_paths.get(&row.id).cloned().unwrap_or_default()),
             properties: includes
                 .contains(&QueryInclude::Properties)
                 .then(|| self.properties.get(&row.id).cloned().unwrap_or_default()),
@@ -1921,6 +2049,539 @@ fn load_headings(
     Ok(headings)
 }
 
+fn validate_outline_path_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    include_headings: bool,
+    include_roots: bool,
+) -> Result<(), QueryShapeError> {
+    if let Some(compiled) = relation.heading_relation().filter(|_| include_headings) {
+        validate_outline_path_compiled_relation(
+            connection,
+            compiled,
+            heading_relation_columns(),
+            "id",
+        )?;
+    }
+    if let Some(compiled) = relation.root_relation().filter(|_| include_roots) {
+        validate_outline_path_compiled_relation(
+            connection,
+            compiled,
+            file_relation_columns(),
+            "root_heading_id",
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_outline_path_root_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+) -> Result<(), QueryShapeError> {
+    if let Some(compiled) = relation.root_relation() {
+        validate_outline_path_compiled_relation(
+            connection,
+            compiled,
+            file_relation_columns(),
+            "root_heading_id",
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_outline_path_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:validate-outline-path params={} */
+         WITH matched({columns}) AS ({})
+         SELECT matched.{heading_id_column}, outline_path.breadcrumbs_json
+         FROM matched
+         LEFT JOIN outline_path
+           ON outline_path.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut statement = connection.prepare(&sql).map_err(|source| {
+        QueryShapeError::database("validate_outline_path_relation.prepare", source)
+    })?;
+    let rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+        })
+        .map_err(|source| {
+            QueryShapeError::database("validate_outline_path_relation.query", source)
+        })?;
+
+    for row in rows {
+        let (heading_id, breadcrumbs_json) = row.map_err(|source| {
+            QueryShapeError::database("validate_outline_path_relation.collect", source)
+        })?;
+        let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing outline_path row for stored heading id {heading_id}"
+            ))
+        })?;
+        let _: Vec<String> = serde_json::from_str(&breadcrumbs_json).map_err(|source| {
+            QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source)
+        })?;
+    }
+    Ok(())
+}
+
+fn load_properties_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    include_headings: bool,
+    include_roots: bool,
+) -> Result<Vec<StoredProperty>, QueryShapeError> {
+    let mut properties = Vec::new();
+    if let Some(compiled) = relation.heading_relation().filter(|_| include_headings) {
+        load_properties_from_compiled_relation(
+            connection,
+            compiled,
+            heading_relation_columns(),
+            "id",
+            &mut properties,
+        )?;
+    }
+    if let Some(compiled) = relation.root_relation().filter(|_| include_roots) {
+        load_properties_from_compiled_relation(
+            connection,
+            compiled,
+            file_relation_columns(),
+            "root_heading_id",
+            &mut properties,
+        )?;
+    }
+    properties.sort_by(|left, right| {
+        left.heading_id
+            .cmp(&right.heading_id)
+            .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(properties)
+}
+
+fn load_properties_from_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    properties: &mut Vec<StoredProperty>,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:enrich-properties params={} */
+         WITH matched({columns}) AS ({})
+         SELECT properties.id, properties.heading_id, properties.key, properties.value,
+                properties.source, properties.append, properties.line_number
+         FROM matched
+         INNER JOIN properties
+           ON properties.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|source| QueryShapeError::database("load_properties_relation.prepare", source))?;
+    let rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok(StoredProperty {
+                id: row.get(0)?,
+                heading_id: row.get(1)?,
+                fact: PropertyFact {
+                    key: row.get(2)?,
+                    value: row.get(3)?,
+                    source: row.get(4)?,
+                    append: row.get::<_, i64>(5)? != 0,
+                    line_number: row.get(6)?,
+                },
+            })
+        })
+        .map_err(|source| QueryShapeError::database("load_properties_relation.query", source))?;
+    properties.extend(
+        rows.collect::<Result<Vec<_>, _>>().map_err(|source| {
+            QueryShapeError::database("load_properties_relation.collect", source)
+        })?,
+    );
+    Ok(())
+}
+
+fn load_effective_properties_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    heading_ids: &BTreeSet<i64>,
+    include_headings: bool,
+    include_roots: bool,
+) -> Result<HashMap<i64, Vec<EffectivePropertyFact>>, QueryShapeError> {
+    let mut effective = heading_ids
+        .iter()
+        .copied()
+        .map(|heading_id| (heading_id, Vec::new()))
+        .collect::<HashMap<_, _>>();
+    if let Some(compiled) = relation.heading_relation().filter(|_| include_headings) {
+        load_effective_properties_from_compiled_relation(
+            connection,
+            compiled,
+            heading_relation_columns(),
+            "id",
+            &mut effective,
+        )?;
+    }
+    if let Some(compiled) = relation.root_relation().filter(|_| include_roots) {
+        load_effective_properties_from_compiled_relation(
+            connection,
+            compiled,
+            file_relation_columns(),
+            "root_heading_id",
+            &mut effective,
+        )?;
+    }
+    for facts in effective.values_mut() {
+        facts.sort_by(|left, right| left.key.cmp(&right.key));
+    }
+    Ok(effective)
+}
+
+fn load_effective_properties_from_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    effective: &mut HashMap<i64, Vec<EffectivePropertyFact>>,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:enrich-effective-properties params={} */
+         WITH matched({columns}) AS ({})
+         SELECT effective_properties.heading_id,
+                effective_properties.key,
+                effective_properties.effective_value
+         FROM matched
+         INNER JOIN effective_properties
+           ON effective_properties.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut statement = connection.prepare(&sql).map_err(|source| {
+        QueryShapeError::database("load_effective_properties_relation.prepare", source)
+    })?;
+    let rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                EffectivePropertyFact {
+                    key: row.get(1)?,
+                    value: Some(row.get(2)?),
+                },
+            ))
+        })
+        .map_err(|source| {
+            QueryShapeError::database("load_effective_properties_relation.query", source)
+        })?;
+    for row in rows {
+        let (heading_id, fact) = row.map_err(|source| {
+            QueryShapeError::database("load_effective_properties_relation.collect", source)
+        })?;
+        effective.entry(heading_id).or_default().push(fact);
+    }
+    Ok(())
+}
+
+fn load_keywords_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    include_headings: bool,
+    include_roots: bool,
+) -> Result<Vec<StoredKeyword>, QueryShapeError> {
+    let mut keywords = Vec::new();
+    if let Some(compiled) = relation.heading_relation().filter(|_| include_headings) {
+        load_keywords_from_compiled_relation(
+            connection,
+            compiled,
+            heading_relation_columns(),
+            "id",
+            &mut keywords,
+        )?;
+    }
+    if let Some(compiled) = relation.root_relation().filter(|_| include_roots) {
+        load_keywords_from_compiled_relation(
+            connection,
+            compiled,
+            file_relation_columns(),
+            "root_heading_id",
+            &mut keywords,
+        )?;
+    }
+    keywords.sort_by(|left, right| {
+        left.heading_id
+            .cmp(&right.heading_id)
+            .then_with(|| left.fact.line_number.cmp(&right.fact.line_number))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(keywords)
+}
+
+fn load_keywords_from_compiled_relation(
+    connection: &Connection,
+    compiled: &super::CompiledSqlQuery,
+    columns: &str,
+    heading_id_column: &str,
+    keywords: &mut Vec<StoredKeyword>,
+) -> Result<(), QueryShapeError> {
+    let sql = format!(
+        "/* orgfdb:enrich-keywords params={} */
+         WITH matched({columns}) AS ({})
+         SELECT keywords.id, keywords.heading_id, keywords.keyword,
+                keywords.value, keywords.line_number
+         FROM matched
+         INNER JOIN keywords
+           ON keywords.heading_id = matched.{heading_id_column}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|source| QueryShapeError::database("load_keywords_relation.prepare", source))?;
+    let rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok(StoredKeyword {
+                id: row.get(0)?,
+                heading_id: row.get(1)?,
+                fact: KeywordFact {
+                    keyword: row.get(2)?,
+                    value: row.get(3)?,
+                    line_number: row.get(4)?,
+                },
+            })
+        })
+        .map_err(|source| QueryShapeError::database("load_keywords_relation.query", source))?;
+    keywords.extend(
+        rows.collect::<Result<Vec<_>, _>>().map_err(|source| {
+            QueryShapeError::database("load_keywords_relation.collect", source)
+        })?,
+    );
+    Ok(())
+}
+
+fn load_root_tags_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+) -> Result<HashMap<i64, Vec<String>>, QueryShapeError> {
+    let Some(compiled) = relation.root_relation() else {
+        return Ok(HashMap::new());
+    };
+    let sql = format!(
+        "/* orgfdb:enrich-tags params={} */
+         WITH matched({}) AS ({})
+         SELECT matched.root_heading_id, effective_tags.position, effective_tags.tag
+         FROM matched
+         INNER JOIN effective_tags
+           ON effective_tags.heading_id = matched.root_heading_id",
+        compiled.params.len(),
+        file_relation_columns(),
+        compiled.sql,
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|source| QueryShapeError::database("load_root_tags_relation.prepare", source))?;
+    let rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|source| QueryShapeError::database("load_root_tags_relation.query", source))?;
+    let mut positioned = HashMap::<i64, Vec<(i64, String)>>::new();
+    for row in rows {
+        let (heading_id, position, tag) = row.map_err(|source| {
+            QueryShapeError::database("load_root_tags_relation.collect", source)
+        })?;
+        positioned
+            .entry(heading_id)
+            .or_default()
+            .push((position, tag));
+    }
+    Ok(positioned
+        .into_iter()
+        .map(|(heading_id, mut tags)| {
+            tags.sort_by_key(|(position, _)| *position);
+            (
+                heading_id,
+                tags.into_iter().map(|(_, tag)| tag).collect::<Vec<_>>(),
+            )
+        })
+        .collect())
+}
+
+fn load_heading_paths_from_relation(
+    connection: &Connection,
+    relation: &MatchedSqlRelation,
+    rows: &[HeadingQueryMatch],
+) -> Result<HashMap<i64, Vec<PathEntry>>, QueryShapeError> {
+    let Some(compiled) = relation.heading_relation() else {
+        return Ok(HashMap::new());
+    };
+    let expected_ids = rows
+        .iter()
+        .filter_map(|row| match row {
+            HeadingQueryMatch::Heading(row) => Some(row.id),
+            HeadingQueryMatch::File(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
+    if expected_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let file_sql = format!(
+        "/* orgfdb:enrich-path-files params={} */
+         WITH matched({}) AS ({})
+         SELECT matched.id, files.id, files.path, root.title, root.title_raw
+         FROM matched
+         INNER JOIN files ON files.id = matched.file_id
+         INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0",
+        compiled.params.len(),
+        heading_relation_columns(),
+        compiled.sql,
+    );
+    let mut file_statement = connection
+        .prepare(&file_sql)
+        .map_err(|source| QueryShapeError::database("load_heading_paths.files.prepare", source))?;
+    let file_rows = file_statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                FilePathEntry {
+                    id: row.get(1)?,
+                    path: row.get(2)?,
+                    title: row.get(3)?,
+                    title_raw: row.get(4)?,
+                },
+            ))
+        })
+        .map_err(|source| QueryShapeError::database("load_heading_paths.files.query", source))?;
+    let mut files_by_heading = HashMap::new();
+    for row in file_rows {
+        let (heading_id, file) = row.map_err(|source| {
+            QueryShapeError::database("load_heading_paths.files.collect", source)
+        })?;
+        files_by_heading.insert(heading_id, file);
+    }
+
+    let chain_sql = format!(
+        "/* orgfdb:enrich-path-headings params={} */
+         WITH RECURSIVE matched({}) AS ({}),
+         chain(origin_id, file_id, id, parent_id, level, title, title_raw, distance) AS (
+             SELECT matched.id, matched.file_id, matched.id, matched.parent_id, matched.level,
+                    matched.title, matched.title_raw, 0
+             FROM matched
+             UNION ALL
+             SELECT chain.origin_id, chain.file_id, parent.id, parent.parent_id, parent.level,
+                    parent.title, parent.title_raw, chain.distance + 1
+             FROM chain
+             INNER JOIN headings AS parent
+               ON parent.id = chain.parent_id
+              AND parent.file_id = chain.file_id
+             WHERE chain.parent_id IS NOT NULL
+         )
+         SELECT chain.origin_id, chain.id, chain.parent_id, chain.level, chain.title,
+                chain.title_raw, chain.distance, outline_path.breadcrumbs_json
+         FROM chain
+         LEFT JOIN outline_path ON outline_path.heading_id = chain.id",
+        compiled.params.len(),
+        heading_relation_columns(),
+        compiled.sql,
+    );
+    let mut chain_statement = connection.prepare(&chain_sql).map_err(|source| {
+        QueryShapeError::database("load_heading_paths.headings.prepare", source)
+    })?;
+    let chain_rows = chain_statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, Option<String>>(7)?,
+            ))
+        })
+        .map_err(|source| QueryShapeError::database("load_heading_paths.headings.query", source))?;
+    let mut headings_by_origin = HashMap::<i64, Vec<(i64, HeadingPathEntry)>>::new();
+    let mut terminal_by_origin = HashMap::<i64, (i64, Option<i64>, i64)>::new();
+    for row in chain_rows {
+        let (origin_id, heading_id, parent_id, level, title, title_raw, distance, breadcrumbs_json) =
+            row.map_err(|source| {
+                QueryShapeError::database("load_heading_paths.headings.collect", source)
+            })?;
+        if terminal_by_origin
+            .get(&origin_id)
+            .is_none_or(|(_, _, current_distance)| distance > *current_distance)
+        {
+            terminal_by_origin.insert(origin_id, (level, parent_id, distance));
+        }
+        let breadcrumbs_json = breadcrumbs_json.ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing outline_path row for stored heading id {heading_id}"
+            ))
+        })?;
+        let _: Vec<String> = serde_json::from_str(&breadcrumbs_json).map_err(|source| {
+            QueryShapeError::invalid_json("breadcrumbs_json", heading_id, source)
+        })?;
+        if level == 0 {
+            continue;
+        }
+        let title_raw = title_raw.ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing title_raw for stored heading row {heading_id}"
+            ))
+        })?;
+        headings_by_origin.entry(origin_id).or_default().push((
+            distance,
+            HeadingPathEntry {
+                id: heading_id,
+                title,
+                title_raw,
+                level,
+            },
+        ));
+    }
+
+    let mut paths = HashMap::with_capacity(expected_ids.len());
+    for heading_id in expected_ids {
+        match terminal_by_origin.remove(&heading_id) {
+            Some((level, Some(parent_id), _)) if level > 0 => {
+                return Err(QueryShapeError::missing(format!(
+                    "missing stored heading row for id {parent_id}"
+                )));
+            }
+            _ => {}
+        }
+        let file = files_by_heading.remove(&heading_id).ok_or_else(|| {
+            QueryShapeError::missing(format!(
+                "missing stored file row for heading id {heading_id}"
+            ))
+        })?;
+        let mut headings = headings_by_origin.remove(&heading_id).unwrap_or_default();
+        headings.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        let mut path = Vec::with_capacity(headings.len() + 1);
+        path.push(PathEntry::File(file));
+        path.extend(
+            headings
+                .into_iter()
+                .map(|(_, heading)| PathEntry::Heading(heading)),
+        );
+        paths.insert(heading_id, path);
+    }
+    Ok(paths)
+}
+
 fn validate_outline_path_rows(
     connection: &Connection,
     heading_ids: &BTreeSet<i64>,
@@ -2946,6 +3607,170 @@ mod tests {
         let heading = heading_node(&response.results[0]);
         assert_eq!(heading.id, 11);
         assert_eq!(heading.title, "Query Engine");
+    }
+
+    #[test]
+    fn relation_backed_flat_path_matches_standalone_shaping() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let expected = shape_query_results(&connection, rows, &options)
+            .expect("standalone shaping should work");
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("relation-backed shaping should work");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn relation_backed_metadata_matches_standalone_shaping() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![
+                QueryInclude::Properties,
+                QueryInclude::EffectiveProperties,
+                QueryInclude::Keywords,
+            ],
+            ..QueryExecutionOptions::default()
+        };
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let expected = shape_query_results(&connection, rows, &options)
+            .expect("standalone shaping should work");
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("relation-backed shaping should work");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn relation_backed_complex_match_metadata_matches_standalone_shaping() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (tags "project"))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::EffectiveProperties],
+            ..QueryExecutionOptions::default()
+        };
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let expected = shape_query_results(&connection, rows, &options)
+            .expect("standalone shaping should work");
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("relation-backed shaping should work");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn relation_backed_nested_path_matches_standalone_shaping() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let expected = shape_query_results(&connection, rows, &options)
+            .expect("standalone shaping should work");
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("relation-backed shaping should work");
+
+        assert_eq!(actual, expected);
+        let path = heading_node(&actual.results[0])
+            .node_path
+            .as_ref()
+            .expect("path should exist");
+        assert_eq!(path.len(), 3);
+    }
+
+    #[test]
+    fn relation_backed_root_heading_metadata_matches_standalone_shaping() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (title "Alpha Index" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![
+                QueryInclude::Path,
+                QueryInclude::Properties,
+                QueryInclude::EffectiveProperties,
+                QueryInclude::Keywords,
+            ],
+            ..QueryExecutionOptions::default()
+        };
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let expected = shape_query_results(&connection, rows, &options)
+            .expect("standalone shaping should work");
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("relation-backed shaping should work");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn relation_backed_file_metadata_matches_standalone_shaping() {
+        let connection = seeded_connection();
+        let query = validated(r#"(files (file-title "Alpha Index" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![
+                QueryInclude::Path,
+                QueryInclude::Properties,
+                QueryInclude::EffectiveProperties,
+                QueryInclude::Keywords,
+            ],
+            ..QueryExecutionOptions::default()
+        };
+        let rows = execute_sqlite_query(&connection, &query).expect("query should execute");
+        let expected = shape_query_results(&connection, rows, &options)
+            .expect("standalone shaping should work");
+        let actual = execute_and_shape_query(&connection, &query, &options)
+            .expect("relation-backed shaping should work");
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn relation_backed_path_rejects_cross_file_parent() {
+        let connection = seeded_connection();
+        connection
+            .execute("UPDATE headings SET parent_id = 21 WHERE id = 12", [])
+            .expect("cross-file parent should update");
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+
+        let error = execute_and_shape_query(&connection, &query, &options)
+            .expect_err("path shaping should reject a cross-file parent");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error
+            .message
+            .contains("missing stored heading row for id 21"));
+    }
+
+    #[test]
+    fn relation_backed_path_keeps_ancestor_outline_validation() {
+        let connection = seeded_connection();
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 11", [])
+            .expect("ancestor outline path should delete");
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+
+        let error = execute_and_shape_query(&connection, &query, &options)
+            .expect_err("path shaping should validate the ancestor outline row");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error
+            .message
+            .contains("missing outline_path row for stored heading id 11"));
+        assert!(connection.is_autocommit());
     }
 
     #[test]

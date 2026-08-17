@@ -51,6 +51,50 @@ pub enum QueryRows {
     Files(Vec<FileQueryRow>),
 }
 
+const HEADING_RELATION_COLUMNS: &str = "id, file_id, file_path, parent_id, level, line_number, byte_start, byte_end, title, title_raw, todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, deadline_raw, deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p";
+const FILE_RELATION_COLUMNS: &str = "id, path, mtime_ns, size, content_hash, indexed_at, root_heading_id, root_title, root_title_raw, root_line_number";
+
+#[derive(Debug, Clone)]
+pub(crate) enum MatchedSqlRelation {
+    Headings {
+        headings: CompiledSqlQuery,
+        roots: Option<CompiledSqlQuery>,
+    },
+    Links,
+    Files(CompiledSqlQuery),
+}
+
+impl MatchedSqlRelation {
+    pub(crate) fn heading_relation(&self) -> Option<&CompiledSqlQuery> {
+        match self {
+            Self::Headings { headings, .. } => Some(headings),
+            Self::Links | Self::Files(_) => None,
+        }
+    }
+
+    pub(crate) fn root_relation(&self) -> Option<&CompiledSqlQuery> {
+        match self {
+            Self::Headings { roots, .. } => roots.as_ref(),
+            Self::Files(compiled) => Some(compiled),
+            Self::Links => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ExecutedSqliteQuery {
+    pub(crate) rows: QueryRows,
+    pub(crate) relation: MatchedSqlRelation,
+}
+
+pub(crate) fn heading_relation_columns() -> &'static str {
+    HEADING_RELATION_COLUMNS
+}
+
+pub(crate) fn file_relation_columns() -> &'static str {
+    FILE_RELATION_COLUMNS
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)] // Source-preserving heading fields intentionally remain inline.
@@ -340,7 +384,7 @@ pub fn compile_sqlite_query(
     compile_sqlite_query_with_file_restriction(query, false)
 }
 
-fn compile_sqlite_query_with_file_restriction(
+pub(crate) fn compile_sqlite_query_with_file_restriction(
     query: &ValidatedQuery,
     restrict_files: bool,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
@@ -520,6 +564,40 @@ pub fn execute_sqlite_query_with_options(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryRows, QueryExecutionError> {
+    let owns_snapshot = connection.is_autocommit();
+    if owns_snapshot {
+        connection
+            .execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(|source| {
+                QueryExecutionError::database(query.target, "query_snapshot.begin", source)
+            })?;
+    }
+
+    let result = execute_sqlite_query_with_relation(connection, query, options)
+        .map(|executed| executed.rows);
+    if !owns_snapshot {
+        return result;
+    }
+
+    match result {
+        Ok(rows) => {
+            connection.execute_batch("COMMIT").map_err(|source| {
+                QueryExecutionError::database(query.target, "query_snapshot.commit", source)
+            })?;
+            Ok(rows)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+pub(crate) fn execute_sqlite_query_with_relation(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
     let resolved_relative_dates = resolve_relative_dates(
         query,
         &QueryDateResolutionOptions {
@@ -554,15 +632,50 @@ pub fn execute_sqlite_query_with_options(
     if let Some(paths) = options.restricted_file_paths.as_deref() {
         prepare_file_restriction(connection, resolved.target, paths)?;
     }
+
     match resolved.target {
-        QueryTarget::Headings => execute_headings_query(connection, &resolved, restrict_files),
+        QueryTarget::Headings => {
+            let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
+            let mut rows = execute_heading_rows_query(connection, &compiled)?
+                .into_iter()
+                .map(HeadingQueryMatch::Heading)
+                .collect::<Vec<_>>();
+            let root_compiled =
+                if heading_root_truth(resolved.predicate.as_ref()) != StaticTruth::False {
+                    let root_compiled = compile_heading_root_file_query(&resolved, restrict_files)?;
+                    rows.extend(
+                        execute_file_rows_query(connection, &root_compiled)?
+                            .into_iter()
+                            .map(HeadingQueryMatch::File),
+                    );
+                    Some(root_compiled)
+                } else {
+                    None
+                };
+            rows.sort_by(compare_heading_query_matches);
+            Ok(ExecutedSqliteQuery {
+                rows: QueryRows::Headings(rows),
+                relation: MatchedSqlRelation::Headings {
+                    headings: compiled,
+                    roots: root_compiled,
+                },
+            })
+        }
         QueryTarget::Links => {
             let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
-            execute_links_query(connection, &compiled)
+            let rows = execute_links_query(connection, &compiled)?;
+            Ok(ExecutedSqliteQuery {
+                rows,
+                relation: MatchedSqlRelation::Links,
+            })
         }
         QueryTarget::Files => {
             let compiled = compile_sqlite_query_with_file_restriction(&resolved, restrict_files)?;
-            execute_files_query(connection, &compiled)
+            let rows = execute_files_query(connection, &compiled)?;
+            Ok(ExecutedSqliteQuery {
+                rows,
+                relation: MatchedSqlRelation::Files(compiled),
+            })
         }
     }
 }
@@ -574,30 +687,6 @@ pub fn sqlite_query_validation_options(
         body_text_available: sqlite_body_text_available(connection)?,
         regexp_matching_supported: true,
     })
-}
-
-fn execute_headings_query(
-    connection: &Connection,
-    query: &ValidatedQuery,
-    restrict_files: bool,
-) -> Result<QueryRows, QueryExecutionError> {
-    let compiled = compile_sqlite_query_with_file_restriction(query, restrict_files)?;
-    let mut rows = execute_heading_rows_query(connection, &compiled)?
-        .into_iter()
-        .map(HeadingQueryMatch::Heading)
-        .collect::<Vec<_>>();
-
-    if heading_root_truth(query.predicate.as_ref()) != StaticTruth::False {
-        let root_compiled = compile_heading_root_file_query(query, restrict_files)?;
-        rows.extend(
-            execute_file_rows_query(connection, &root_compiled)?
-                .into_iter()
-                .map(HeadingQueryMatch::File),
-        );
-    }
-
-    rows.sort_by(compare_heading_query_matches);
-    Ok(QueryRows::Headings(rows))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -722,55 +811,55 @@ fn execute_heading_rows_query(
     let mut rows = rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))?;
-    load_effective_tags_for_heading_rows(connection, compiled.target, &mut rows)?;
+    load_effective_tags_for_heading_rows(connection, compiled, &mut rows)?;
     Ok(rows)
 }
 
 fn load_effective_tags_for_heading_rows(
     connection: &Connection,
-    target: QueryTarget,
+    compiled: &CompiledSqlQuery,
     rows: &mut [HeadingQueryRow],
 ) -> Result<(), QueryExecutionError> {
     if rows.is_empty() {
         return Ok(());
     }
 
-    let chunk_size = id_chunk_capacity(connection, 0);
-    let ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
-    let mut by_heading = std::collections::HashMap::<i64, Vec<(i64, String)>>::new();
-    for chunk in ids.chunks(chunk_size) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
-        let sql = format!(
-            "/* orgfdb:query-heading-tags params={} */
-             SELECT heading_id, position, tag
-             FROM effective_tags
-             WHERE heading_id IN ({placeholders})",
-            chunk.len()
-        );
-        let mut statement = connection.prepare(&sql).map_err(|source| {
-            QueryExecutionError::database(target, "load_effective_tags.prepare", source)
+    let sql = format!(
+        "/* orgfdb:query-heading-tags params={} */
+         WITH matched({}) AS ({})
+         SELECT effective_tags.heading_id, effective_tags.position, effective_tags.tag
+         FROM matched
+         INNER JOIN effective_tags
+           ON effective_tags.heading_id = matched.id",
+        compiled.params.len(),
+        HEADING_RELATION_COLUMNS,
+        compiled.sql
+    );
+    let mut statement = connection.prepare(&sql).map_err(|source| {
+        QueryExecutionError::database(compiled.target, "load_effective_tags.prepare", source)
+    })?;
+    let tag_rows = statement
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|source| {
+            QueryExecutionError::database(compiled.target, "load_effective_tags.query", source)
         })?;
-        let tag_rows = statement
-            .query_map(params_from_iter(chunk.iter()), |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(|source| {
-                QueryExecutionError::database(target, "load_effective_tags.query", source)
-            })?;
-        for tag_row in tag_rows {
-            let (heading_id, position, tag) = tag_row.map_err(|source| {
-                QueryExecutionError::database(target, "load_effective_tags.collect", source)
-            })?;
-            by_heading
-                .entry(heading_id)
-                .or_default()
-                .push((position, tag));
-        }
+    let mut by_heading = std::collections::HashMap::<i64, Vec<(i64, String)>>::new();
+    for tag_row in tag_rows {
+        let (heading_id, position, tag) = tag_row.map_err(|source| {
+            QueryExecutionError::database(compiled.target, "load_effective_tags.collect", source)
+        })?;
+        by_heading
+            .entry(heading_id)
+            .or_default()
+            .push((position, tag));
     }
+
     for row in rows {
         let mut positioned_tags = by_heading.remove(&row.id).unwrap_or_default();
         positioned_tags.sort_by_key(|(position, _)| *position);

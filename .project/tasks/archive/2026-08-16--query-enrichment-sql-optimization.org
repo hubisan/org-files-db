@@ -2,7 +2,7 @@
 #+STARTUP: showall
 #+TEMPLATE_VERSION: 0.8.0
 #+TASK_STARTED: [2026-08-16 Sunday 23:19]
-#+TASK_COMPLETED:
+#+TASK_COMPLETED: [2026-08-17 Monday 10:45]
 
 * Original Task (User only)
 :PROPERTIES:
@@ -353,14 +353,26 @@ The SQL benchmark now creates the work directory and missing corpus databases it
 
 Existing compatible databases remain reusable, so later runs avoid another rebuild.
 
+** Local benchmark result
+
+The local benchmark used ~SQLITE_LIMIT_VARIABLE_NUMBER = 32766~.
+
+At ~50'000~ results, the production medians were ~354.2 ms~ for normal headings and ~352.1 ms~ for heading tags.
+
+Effective-property headings used ~492.2 ms~. File keywords used ~361.2 ms~.
+
+The common presentation workloads improved by about ~56%~ to ~65%~ against the original database-query baseline.
+
+The ~50'000~-heading lookup comparison measured ~23.7 ms~ for a query-derived join and ~58.0 ms~ for runtime-limit ~IN (...)~.
+
+These measurements motivate the result-relation work in the next SQL task.
+
 ** Blockers
 
-Local benchmark measurements remain required before the final SQL strategy decision.
+None.
 
 ** Follow-ups
 
-Run the SQL benchmark from ~docs/query-sql-performance.org~.
+Continue with the round 2 result-relation task.
 
-Use its production timings and strategy comparison to select the final ID-relation strategy.
-
-Add persistent materialized data only if the measurements show a remaining predicate bottleneck.
+Keep new persistent materialized data out of the design until later measurements justify it.

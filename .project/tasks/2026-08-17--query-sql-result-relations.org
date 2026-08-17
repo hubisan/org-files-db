@@ -1,0 +1,204 @@
+#+TITLE: Query SQL Result Relations
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-17 Monday 10:45]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement ~Optimize query SQL round 2 with SQLite result relations~ from ~todo.org~.
+
+Review the complete query SQL path carefully. This part is important because query execution is the current bottleneck.
+
+* Planning
+
+** Problem summary
+
+Round 1 reduced the ~50'000~-result query baseline substantially.
+
+Large matched ID sets still cross the SQLite and Rust boundary several times.
+
+The round 1 benchmark also shows that query-derived joins beat large dynamic ~IN (...)~ lookups at every measured size.
+
+The full enrichment path still reloads matched heading data for path output.
+
+** Goals
+
+- Keep matched result relations inside SQLite when this reduces measured work.
+- Remove the large-ID round trip from heading tag loading.
+- Remove separate large-ID outline validation from the production direct-flat path.
+- Use query-derived relations for direct properties, effective properties, keywords, and root tags.
+- Reuse matched heading rows during path enrichment instead of reloading them.
+- Load only required ancestor headings for heading path output.
+- Keep ~runtime-limit-in~ as the safe fallback for IDs that originate in Rust.
+- Extend the SQL benchmark for relation reuse, complex matches, ~json_each~, and query plans.
+- Preserve every public query result and stored-data error contract.
+
+** Non-goals
+
+- Do not change the public query language.
+- Do not change normal ~--format json~ output.
+- Do not change ~presentation-json~.
+- Do not add a persistent materialized table without benchmark evidence.
+- Do not add presentation caching or parallel execution.
+- Do not change dependencies.
+
+** Architecture
+
+Add an internal execution result that carries the compiled matched SQL relation with the normal query rows.
+
+The public row-only execution functions keep their existing API and discard the internal relation metadata.
+
+The production execute-and-shape path passes the matched relation to result shaping.
+
+Direct-flat metadata loaders join against the compiled matched relation instead of sending matched IDs back through large ~IN (...)~ clauses.
+
+Heading tag loading uses the same compiled heading relation.
+
+The direct-flat path validates ~outline_path~ through the matched relation and keeps the current corruption errors.
+
+The flat heading path reuses the matched query relation instead of loading all headings from matched files.
+
+A recursive query-derived ancestor loader fetches only missing ancestors required to construct paths.
+
+Fallback shaping from caller-supplied ~QueryRows~ keeps the existing ID-based loaders.
+
+** Execution plan
+
+1. Archive the completed round 1 task and create this active task file.
+2. Add internal matched-relation metadata to SQLite query execution.
+3. Change heading tag loading from Rust ID lists to the compiled matched relation.
+4. Add relation-based direct-flat outline validation and metadata loaders.
+5. Preserve ID-based fallback loaders for standalone result shaping.
+6. Add a direct-flat path fast path that loads matched headings and only required ancestors.
+7. Keep broader full enrichment for link, backlink, source, target, and outline cases that need file-wide context.
+8. Extend the benchmark with reusable relation strategies and complex query-derived joins.
+9. Add representative ~EXPLAIN QUERY PLAN~ output for important predicate families.
+10. Add regression tests for relation-backed shaping and small SQLite variable limits.
+11. Update query SQL performance documentation.
+12. Run available static checks and record the missing local Rust checks.
+
+** Risks & assumptions
+
+- Re-evaluating a complex matched query for several enrichments can cost more than one shared temporary relation.
+- Query-derived joins must use the exact compiled predicate and file restriction semantics.
+- Root-file matches need a separate relation from real heading matches.
+- Path construction must not lose corruption detection for missing or invalid ~outline_path~ rows.
+- Large link includes can introduce different relation shapes and remain on safe fallbacks without benchmark evidence.
+- The benchmark decides whether shared temporary relations belong in production after this implementation.
+
+** Open questions
+
+- Does one shared temporary matched relation beat repeated query-derived joins for workloads with several includes?
+- Does ~json_each~ beat runtime-limit ~IN (...)~ enough for IDs that truly originate in Rust?
+- Are any new indexes justified after the query-plan audit?
+
+** Proposed checks
+
+- ~cargo fmt --all --check~
+- ~cargo clippy --all-targets --all-features -- -D warnings~
+- ~cargo test --all-targets --all-features~
+- ~make ci~
+- Run ~orgfdb-query-sql-benchmark~ for 100, 1'000, 10'000, and 50'000 results.
+
+* Results
+
+** Approach
+
+The query executor now carries the exact compiled matched relation beside the normal query rows.
+
+The public row-only query APIs keep their existing result types.
+
+The production execute-and-shape path uses one read snapshot and passes the matched relation to direct-flat shaping.
+
+Heading tag loading now joins ~effective_tags~ directly against the compiled matched heading relation.
+
+Direct properties, effective properties, keywords, root tags, and outline validation use query-derived relations when available.
+
+Caller-supplied ~QueryRows~ keep the runtime-limit ID loaders as a safe fallback.
+
+Flat heading path output uses a recursive matched relation and loads only required ancestors.
+
+The path fast path keeps missing ~outline_path~, malformed JSON, and missing ~title_raw~ errors.
+
+Complex link and outline contexts keep the broader enrichment path to avoid unmeasured join fan-out.
+
+The SQL benchmark now compares repeated query-derived joins with one reusable TEMP matched relation.
+
+It uses simple and complex matched relations with single and multi enrichment workloads.
+
+The benchmark also records ~EXPLAIN QUERY PLAN~ output from representative real compiled queries.
+
+No new persistent index or materialized table was added.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/query_sql_benchmark.rs~
+- ~docs/query-sql-performance.org~
+- ~.project/tasks/todo.org~
+- this task file
+- the archived round 1 SQL task
+
+** Checks performed
+
+A Python SQLite check applied the authoritative schema and validated the new query-derived SQL shapes.
+
+The check covered tags, outline validation, properties, effective properties, keywords, file path data, and recursive ancestor loading.
+
+A separate SQLite check validated every representative query-plan SQL shape against the authoritative schema.
+
+Static Rust delimiter checks passed for every changed Rust source file.
+
+A source audit found and corrected an invalid ~files.root_heading_id~ reference before delivery.
+
+The benchmark relation loaders now use real ~heading_id~ columns instead of relying on SQLite ~rowid~ aliases.
+
+The relation-reuse benchmark runs both strategies in one deferred transaction for a stable snapshot.
+
+The query-plan case list received a static tuple-shape audit and one malformed entry was corrected.
+
+The documentation received a Simple English pragmatic audit.
+
+A local Clippy review found one ~unnecessary_sort_by~ warning in the recursive path loader.
+The review fix now uses ~sort_by_key~ with ~std::cmp::Reverse~ and keeps the same descending distance order.
+
+** Test results
+
+This execution environment does not provide ~cargo~, ~rustc~, or ~rustfmt~.
+
+~make ci~ stops at ~cargo fmt --all --check~ with ~cargo: No such file or directory~.
+
+The Rust formatter, Clippy, tests, and release benchmark build need the local Rust environment.
+
+New regression tests compare relation-backed heading paths and metadata with standalone shaping.
+
+A complex effective-tag match test covers query-derived metadata enrichment with a nontrivial predicate.
+
+A nested path test covers recursive ancestor loading.
+
+Root-heading and file metadata tests cover path, properties, effective properties, and keywords.
+
+Corruption tests cover a missing ancestor ~outline_path~ row, a cross-file parent, and query snapshot cleanup.
+
+Existing small-variable-limit tests remain in place for the ID-based fallback path.
+
+** Blockers
+
+Local ~make ci~ and the round 2 SQL benchmark remain required before the final relation-reuse strategy decision.
+
+** Follow-ups
+
+Run the round 2 SQL benchmark from ~docs/query-sql-performance.org~.
+
+Compare repeated query-derived joins with the shared TEMP relation for simple and complex workloads.
+
+Review the recorded query plans for unexpected scans or temporary B-trees.
+
+If the shared TEMP relation wins clearly for multi-enrichment, continue this task with that production change.
+
+If repeated query-derived joins remain best, keep the current direct-flat production strategy.

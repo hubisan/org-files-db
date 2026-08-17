@@ -379,12 +379,14 @@ Acceptance criteria:
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-16--query-enrichment-sql-optimization.org][Query Enrichment SQL Optimization]]
+Task file: [[./archive/2026-08-16--query-enrichment-sql-optimization.org][Query Enrichment SQL Optimization]]
 
-* TODO Optimize query SQL round 2 with SQLite result relations
+* DONE Optimize query SQL round 2 with SQLite result relations
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-17--query-sql-result-relations.org][Query SQL Result Relations]]
 
 Goal: Remove avoidable SQL work after a query matches a large result set.
 
@@ -765,7 +767,7 @@ Keep correct behavior with a small configured SQLite variable limit.
 - Tests cover all changed query and enrichment paths.
 - Query output and ordering remain unchanged.
 - Benchmark results and the final strategy decisions are documented.
-  
+
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded

@@ -15,14 +15,17 @@ use crate::{
     db::open_existing_database_read_only,
     presentation_benchmark::{prepare_benchmark_databases, Timing},
     query::{
-        execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
-        QueryExecutionOptions, QueryInclude, QueryOutputMode,
+        compile_sqlite_query, execute_and_shape_query, parse_query, resolve_relative_dates,
+        resolve_temporal_bounds, sqlite_query_validation_options, validate_query,
+        QueryDateResolutionOptions, QueryExecutionOptions, QueryInclude, QueryOutputMode,
+        QueryParam,
     },
 };
 
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
+use crate::query::sqlite::compile_sqlite_query_with_file_restriction;
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "1";
+pub const OUTPUT_SCHEMA_VERSION: &str = "2";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -50,6 +53,7 @@ pub struct QuerySqlBenchmarkOutput {
     pub protocol: QuerySqlBenchmarkProtocol,
     pub environment: QuerySqlBenchmarkEnvironment,
     pub sizes: Vec<QuerySqlSizeResult>,
+    pub query_plans: Vec<QueryPlanResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -78,6 +82,7 @@ pub struct QuerySqlSizeResult {
     pub id_chunk_capacity: usize,
     pub workloads: Vec<QuerySqlWorkloadResult>,
     pub lookup_strategies: Vec<LookupStrategyResult>,
+    pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,6 +121,23 @@ pub struct LookupStrategyResult {
     pub statement_count_per_sample: usize,
     pub max_bound_parameters: usize,
     pub timing: Timing,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RelationReuseStrategyResult {
+    pub workload: &'static str,
+    pub strategy: &'static str,
+    pub matched_heading_ids: usize,
+    pub returned_rows: usize,
+    pub statement_count_per_sample: usize,
+    pub timing: Timing,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryPlanResult {
+    pub id: &'static str,
+    pub query: &'static str,
+    pub details: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -198,6 +220,15 @@ pub fn run(
     for target_results in &options.row_counts {
         sizes.push(run_size(&work_dir, *target_results, &options)?);
     }
+    let plan_size = *options
+        .row_counts
+        .iter()
+        .max()
+        .expect("validated benchmark row counts are non-empty");
+    let plan_db = work_dir
+        .join(format!("rows-{plan_size}"))
+        .join("org-files-db.sqlite");
+    let query_plans = collect_query_plans(&plan_db)?;
 
     let result = QuerySqlBenchmarkOutput {
         output_schema_version: OUTPUT_SCHEMA_VERSION,
@@ -208,7 +239,7 @@ pub fn run(
             database_source: "existing or generated orgfdb-presentation-benchmark corpus databases",
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
-            strategy_policy: "lookup microbenchmarks compare runtime-limit IN, CTE VALUES, json_each, temporary ID relations, and a query-derived join",
+            strategy_policy: "lookup microbenchmarks compare ID transport, repeated query-derived joins, shared temporary result relations, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -221,6 +252,7 @@ pub fn run(
             architecture: std::env::consts::ARCH,
         },
         sizes,
+        query_plans,
     };
 
     if let Some(parent) = output
@@ -277,6 +309,7 @@ fn run_size(
     }
 
     let lookup_strategies = measure_lookup_strategies(&db_path, target_results, options)?;
+    let relation_reuse_strategies = measure_relation_reuse_strategies(&db_path, options)?;
 
     Ok(QuerySqlSizeResult {
         target_results,
@@ -284,6 +317,7 @@ fn run_size(
         id_chunk_capacity: chunk_capacity,
         workloads,
         lookup_strategies,
+        relation_reuse_strategies,
     })
 }
 
@@ -729,6 +763,333 @@ fn run_temp_table_lookup(connection: &Connection, heading_ids: &[i64]) -> Result
         row_count += 1;
     }
     Ok(row_count)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelationReuseWorkload {
+    Single,
+    Multi,
+}
+
+impl RelationReuseWorkload {
+    fn id(self, complex: bool) -> &'static str {
+        match (self, complex) {
+            (Self::Single, false) => "simple.single-effective-properties",
+            (Self::Multi, false) => "simple.multi-enrichment",
+            (Self::Single, true) => "complex.single-effective-properties",
+            (Self::Multi, true) => "complex.multi-enrichment",
+        }
+    }
+
+    fn loader_count(self) -> usize {
+        match self {
+            Self::Single => 1,
+            Self::Multi => 4,
+        }
+    }
+}
+
+fn measure_relation_reuse_strategies(
+    db_path: &Path,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<RelationReuseStrategyResult>, String> {
+    let connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS orgfdb_sql_benchmark_matched (
+                 id INTEGER PRIMARY KEY
+             ) WITHOUT ROWID;
+             BEGIN DEFERRED TRANSACTION;",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let mut results = Vec::new();
+    for complex in [false, true] {
+        for workload in [RelationReuseWorkload::Single, RelationReuseWorkload::Multi] {
+            let relation_sql = relation_source_sql(complex);
+            let matched_heading_ids = count_relation_headings(&connection, relation_sql)?;
+            let expected_rows = run_repeated_derived_relation(&connection, relation_sql, workload)?;
+
+            let derived_timing = measure(options, || {
+                let rows = run_repeated_derived_relation(&connection, relation_sql, workload)?;
+                if rows != expected_rows {
+                    return Err("query-derived relation reuse row count changed".into());
+                }
+                Ok(())
+            })?;
+            results.push(RelationReuseStrategyResult {
+                workload: workload.id(complex),
+                strategy: "repeated-query-derived",
+                matched_heading_ids,
+                returned_rows: expected_rows,
+                statement_count_per_sample: workload.loader_count(),
+                timing: derived_timing,
+            });
+
+            let temp_timing = measure(options, || {
+                let rows = run_shared_temp_relation(&connection, relation_sql, workload)?;
+                if rows != expected_rows {
+                    return Err("shared TEMP relation reuse row count changed".into());
+                }
+                Ok(())
+            })?;
+            results.push(RelationReuseStrategyResult {
+                workload: workload.id(complex),
+                strategy: "shared-temp-query-relation",
+                matched_heading_ids,
+                returned_rows: expected_rows,
+                statement_count_per_sample: 2 + workload.loader_count(),
+                timing: temp_timing,
+            });
+        }
+    }
+    connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+    Ok(results)
+}
+
+fn relation_source_sql(complex: bool) -> &'static str {
+    if complex {
+        "SELECT headings.id
+         FROM headings
+         WHERE headings.level = 1
+           AND EXISTS (
+               SELECT 1
+               FROM effective_tags
+               WHERE effective_tags.heading_id = headings.id
+                 AND effective_tags.tag = 'project'
+           )
+           AND EXISTS (
+               SELECT 1
+               FROM effective_properties
+               WHERE effective_properties.heading_id = headings.id
+                 AND effective_properties.key = 'GROUP'
+                 AND effective_properties.effective_value = 'group0'
+           )"
+    } else {
+        "SELECT headings.id FROM headings WHERE headings.level = 1"
+    }
+}
+
+fn count_relation_headings(connection: &Connection, relation_sql: &str) -> Result<usize, String> {
+    let sql = format!("SELECT COUNT(*) FROM ({relation_sql}) AS matched");
+    connection
+        .query_row(&sql, [], |row| row.get::<_, i64>(0))
+        .map_err(|error| error.to_string())
+        .and_then(|count| usize::try_from(count).map_err(|error| error.to_string()))
+}
+
+fn run_repeated_derived_relation(
+    connection: &Connection,
+    relation_sql: &str,
+    workload: RelationReuseWorkload,
+) -> Result<usize, String> {
+    let mut total = run_relation_loader(
+        connection,
+        relation_sql,
+        "effective_properties",
+        "effective_properties.heading_id = matched.id",
+    )?;
+    if workload == RelationReuseWorkload::Multi {
+        total += run_relation_loader(
+            connection,
+            relation_sql,
+            "effective_tags",
+            "effective_tags.heading_id = matched.id",
+        )?;
+        total += run_relation_loader(
+            connection,
+            relation_sql,
+            "properties",
+            "properties.heading_id = matched.id",
+        )?;
+        total += run_relation_loader(
+            connection,
+            relation_sql,
+            "outline_path",
+            "outline_path.heading_id = matched.id",
+        )?;
+    }
+    Ok(total)
+}
+
+fn run_relation_loader(
+    connection: &Connection,
+    relation_sql: &str,
+    table: &str,
+    join_condition: &str,
+) -> Result<usize, String> {
+    let sql = format!(
+        "WITH matched(id) AS ({relation_sql})
+         SELECT {table}.heading_id
+         FROM matched
+         INNER JOIN {table} ON {join_condition}"
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |_| Ok(()))
+        .map_err(|error| error.to_string())?;
+    let mut count = 0usize;
+    for row in rows {
+        row.map_err(|error| error.to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn run_shared_temp_relation(
+    connection: &Connection,
+    relation_sql: &str,
+    workload: RelationReuseWorkload,
+) -> Result<usize, String> {
+    connection
+        .execute("DELETE FROM temp.orgfdb_sql_benchmark_matched", [])
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute(
+            &format!("INSERT INTO temp.orgfdb_sql_benchmark_matched (id) {relation_sql}"),
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+
+    let mut total = run_temp_relation_loader(connection, "effective_properties")?;
+    if workload == RelationReuseWorkload::Multi {
+        total += run_temp_relation_loader(connection, "effective_tags")?;
+        total += run_temp_relation_loader(connection, "properties")?;
+        total += run_temp_relation_loader(connection, "outline_path")?;
+    }
+    Ok(total)
+}
+
+fn run_temp_relation_loader(connection: &Connection, table: &str) -> Result<usize, String> {
+    let sql = format!(
+        "SELECT {table}.heading_id
+         FROM temp.orgfdb_sql_benchmark_matched AS matched
+         INNER JOIN {table} ON {table}.heading_id = matched.id"
+    );
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |_| Ok(()))
+        .map_err(|error| error.to_string())?;
+    let mut count = 0usize;
+    for row in rows {
+        row.map_err(|error| error.to_string())?;
+        count += 1;
+    }
+    Ok(count)
+}
+
+fn collect_query_plans(db_path: &Path) -> Result<Vec<QueryPlanResult>, String> {
+    let connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS orgfdb_query_file_restriction (
+                 path TEXT PRIMARY KEY
+             );",
+        )
+        .map_err(|error| error.to_string())?;
+
+    let cases = [
+        ("heading-level", "(headings (level 1))"),
+        (
+            "heading-title",
+            "(headings (title \"Project 00000\" :exact t))",
+        ),
+        (
+            "file-path",
+            "(files (file-path \"/tmp/example.org\" :exact t))",
+        ),
+        ("direct-tag", "(headings (tags \"project\" :inherit nil))"),
+        ("effective-tag", "(headings (tags \"project\"))"),
+        (
+            "direct-property",
+            "(headings (property \"GROUP\" \"group0\" :inherit nil))",
+        ),
+        (
+            "effective-property",
+            "(headings (property \"GROUP\" \"group0\"))",
+        ),
+        (
+            "keyword",
+            "(headings (keyword \"AUTHOR\" \"Alice\" :inherit nil))",
+        ),
+        ("hierarchy-parent", "(headings (parent))"),
+        ("link-source", "(links (source (headings (level 1))))"),
+        ("link-target", "(links (target (headings (level 1))))"),
+        (
+            "scheduled-time",
+            "(headings (scheduled :from \"2026-01-01\" :to \"2026-12-31\"))",
+        ),
+    ];
+
+    let mut plans = cases
+        .into_iter()
+        .map(|(id, query)| compiled_query_plan(&connection, id, query, false))
+        .collect::<Result<Vec<_>, _>>()?;
+    plans.push(compiled_query_plan(
+        &connection,
+        "file-restriction",
+        "(headings (level 1))",
+        true,
+    )?);
+    Ok(plans)
+}
+
+fn compiled_query_plan(
+    connection: &Connection,
+    id: &'static str,
+    query: &'static str,
+    restrict_files: bool,
+) -> Result<QueryPlanResult, String> {
+    let parsed = parse_query(query).map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(connection).map_err(|error| error.to_string())?;
+    let validated =
+        validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+    let date_options = QueryDateResolutionOptions {
+        timezone: Some("UTC".to_string()),
+        ..Default::default()
+    };
+    let resolved_relative =
+        resolve_relative_dates(&validated, &date_options).map_err(|error| error.to_string())?;
+    let resolved = resolve_temporal_bounds(&resolved_relative, &date_options)
+        .map_err(|error| error.to_string())?;
+    let compiled = if restrict_files {
+        compile_sqlite_query_with_file_restriction(&resolved, true)
+    } else {
+        compile_sqlite_query(&resolved)
+    }
+    .map_err(|error| error.to_string())?;
+
+    Ok(QueryPlanResult {
+        id,
+        query,
+        details: explain_query_plan(connection, &compiled.sql, &compiled.params)?,
+    })
+}
+
+fn explain_query_plan(
+    connection: &Connection,
+    sql: &str,
+    params: &[QueryParam],
+) -> Result<Vec<String>, String> {
+    let mut statement = connection
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params_from_iter(params.iter()), |row| {
+            row.get::<_, String>(3)
+        })
+        .map_err(|error| error.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())
 }
 
 fn measure<F>(options: &QuerySqlBenchmarkOptions, mut operation: F) -> Result<Timing, String>
