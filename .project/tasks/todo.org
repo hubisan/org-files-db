@@ -381,6 +381,391 @@ Acceptance criteria:
 
 Task file: [[./2026-08-16--query-enrichment-sql-optimization.org][Query Enrichment SQL Optimization]]
 
+* TODO Optimize query SQL round 2 with SQLite result relations
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Goal: Remove avoidable SQL work after a query matches a large result set.
+
+The first SQL optimization round removed the fixed ~900~ parameter chunks.
+
+It also reduced unnecessary enrichment work and uses the SQLite runtime variable limit.
+
+The remaining main pattern is now:
+
+#+begin_example
+SQLite matches result IDs
+  -> Rust collects result IDs
+  -> Rust sends the same IDs back to SQLite
+  -> SQLite loads enrichment data
+#+end_example
+
+Avoid this round trip where SQLite can keep the result relation and join against it directly.
+
+Keep Rust post-processing when it is simpler or faster after SQLite returns the required data.
+
+** Current baseline
+
+Use the completed SQL benchmark as the round 2 baseline.
+
+For ~50'000~ results:
+
+- ~headings.normal~: approximately ~354 ms~
+- ~headings.tags~: approximately ~352 ms~
+- ~headings.properties~: approximately ~481 ms~
+- ~headings.effective-properties~: approximately ~492 ms~
+- ~headings.path~: approximately ~846 ms~
+- ~files.normal~: approximately ~179 ms~
+- ~files.keywords~: approximately ~361 ms~
+
+The current SQLite variable limit is ~32766~ on the benchmark system.
+
+The runtime-limit ~IN (...)~ implementation now uses this limit correctly.
+
+The lookup microbenchmark for ~50'000~ heading IDs reports:
+
+#+begin_example
+query-derived-join       ~23.7 ms
+json-each-relation       ~39.5 ms
+runtime-limit-in         ~58.0 ms
+temporary-id-relation    ~74.7 ms
+cte-values              ~102.9 ms
+#+end_example
+
+The query-derived join wins at all measured result sizes.
+
+Use these results as evidence, not as a requirement to use one strategy everywhere.
+
+** Keep matched results inside SQLite
+
+Review each enrichment stage that receives IDs from Rust.
+
+Check whether the stage can join directly against the original matched result relation.
+
+Focus first on:
+
+- heading tags
+- direct properties
+- effective properties
+- keywords
+- outline path validation
+- files required by heading results
+- headings required by path output
+- tags required by path output
+- links and backlinks when their enrichment uses large ID lists
+
+Do not send a large result ID set back to SQLite when the same set is already available as a SQL relation.
+
+Keep ~runtime-limit-in~ for cases where the IDs originate in Rust.
+
+** Query-derived joins
+
+Evaluate query-derived joins for enrichment stages.
+
+For example:
+
+#+begin_example
+matched headings
+  -> JOIN effective_tags
+#+end_example
+
+instead of:
+
+#+begin_example
+matched headings
+  -> collect heading IDs in Rust
+  -> SELECT ... WHERE heading_id IN (...)
+#+end_example
+
+Reuse the compiled query semantics.
+
+Do not duplicate query logic manually.
+
+Keep all data for one public query inside the same database snapshot.
+
+Measure the cost when a complex match query is evaluated again for several enrichment stages.
+
+Do not assume that repeating a complex query is cheaper than materializing its result once.
+
+** Shared temporary result relation
+
+Add a production-level comparison for a shared temporary result relation.
+
+The current microbenchmark measures one lookup after temporary relation setup.
+
+Round 2 must also measure reuse of one temporary relation across several enrichment stages.
+
+Compare a flow such as:
+
+#+begin_example
+match query
+  -> populate temporary matched-result relation once
+  -> join tags
+  -> join properties
+  -> join effective properties
+  -> join keywords
+  -> validate outline paths
+#+end_example
+
+against repeated query-derived joins.
+
+Include the temporary relation setup cost in the total time.
+
+Measure workloads with one enrichment stage and several enrichment stages.
+
+Do not select the temporary relation strategy from the existing single-lookup benchmark alone.
+
+** Avoid join fan-out
+
+Do not create one large join that multiplies independent one-to-many relations.
+
+For example, joining tags and properties together can create:
+
+#+begin_example
+tag count * property count
+#+end_example
+
+rows for one heading.
+
+Keep independent enrichment relations separate when a combined join increases row count.
+
+Prefer several efficient joins over one query with large fan-out.
+
+Measure returned SQL row counts for candidate strategies.
+
+** Outline path validation
+
+Remove the separate large-ID validation round trip where practical.
+
+Keep the existing corruption contract.
+
+A missing or invalid required ~outline_path~ row must still produce the current query error.
+
+Evaluate integration of the validation into:
+
+- the matched heading query
+- a query-derived relation
+- a shared temporary result relation
+- an enrichment query that already reads ~outline_path~
+
+Do not load unrelated headings only to validate their outline paths.
+
+** Heading tags
+
+The ~query-heading-tags~ stage costs approximately ~67 ms~ at ~50'000~ headings.
+
+Replace or compare its current ID-list lookup with a query-derived join.
+
+Also compare it with a shared temporary result relation.
+
+Preserve tag order and existing result semantics.
+
+** Properties and effective properties
+
+The ~50'000~ result profile reports approximately:
+
+#+begin_example
+enrich-properties             ~96 ms
+enrich-effective-properties   ~88 ms
+#+end_example
+
+Evaluate direct joins against the matched result relation.
+
+Keep the existing ~effective_properties~ materialization.
+
+Do not add another persistent materialized table without new benchmark evidence.
+
+Preserve property ordering, duplicate handling, inheritance semantics, and empty values.
+
+** Keywords
+
+The ~files.keywords~ workload reports approximately ~103 ms~ in the keyword enrichment stage at ~50'000~ files.
+
+Evaluate a direct join from the matched file relation to the required root heading and keyword rows.
+
+Avoid collecting root heading IDs in Rust and sending them back to SQLite where practical.
+
+Preserve duplicate keywords, source order, and empty values.
+
+** Path enrichment
+
+The ~headings.path~ workload remains the slowest measured query at approximately ~846 ms~ for ~50'000~ results.
+
+Its SQL profile includes approximately:
+
+#+begin_example
+enrich-files      ~95 ms
+enrich-headings  ~205 ms
+enrich-tags       ~83 ms
+match-headings    ~89 ms
+#+end_example
+
+Review this path in detail.
+
+Find data that the original match already provides.
+
+Avoid reloading the same heading or file facts.
+
+Keep outline construction in Rust when Rust can combine already loaded rows efficiently.
+
+Do not move outline construction into complex SQL without benchmark evidence.
+
+** ~json_each~ fallback
+
+Evaluate ~json_each~ for large ID sets that genuinely originate in Rust.
+
+The microbenchmark shows better large-set performance than dynamic ~IN (...)~ lists.
+
+Compare:
+
+- execution time
+- JSON serialization cost in Rust
+- SQLite JSON parsing cost
+- memory use
+- availability in the supported SQLite build
+- behavior for small result sets
+
+Keep the runtime-limit ~IN (...)~ implementation as a portable fallback unless project requirements guarantee ~json_each~.
+
+Do not replace small ~IN (...)~ lookups when measurements show no useful gain.
+
+** SQLite query plans
+
+Review the SQL plans for important query predicate families.
+
+Use ~EXPLAIN QUERY PLAN~ for representative queries.
+
+Cover at least:
+
+- heading level and title predicates
+- file predicates
+- direct tags
+- effective tags
+- direct properties
+- effective properties
+- keywords
+- hierarchy predicates
+- link source and target predicates
+- temporal predicates
+- file restrictions
+
+Check that SQLite uses the intended indexes.
+
+Record unexpected table scans and temporary B-tree use.
+
+Add or change persistent indexes only when measurements show a useful improvement.
+
+Include index write cost and database size in the decision.
+
+** Measurement
+
+Keep the existing result sizes:
+
+- 100
+- 1'000
+- 10'000
+- 50'000
+
+Measure the same production workloads before and after round 2.
+
+Record:
+
+- complete query latency
+- SQL statement count
+- bound parameter count
+- rows returned by major SQL stages
+- wall-clock time for each enrichment stage
+- SQLite profile time
+- Rust time outside SQLite where practical
+
+The SQLite profile callback has coarse timing resolution.
+
+Use direct wall-clock stage measurements when more precise attribution is required.
+
+Measure each candidate with warmups and several iterations.
+
+Do not use a single run to select the final strategy.
+
+** Strategy decision
+
+Select strategies based on the complete production query cost.
+
+A lower SQL statement count alone is not sufficient.
+
+Prefer a strategy that reduces:
+
+- repeated query evaluation
+- large parameter binding
+- SQLite to Rust ID transfer
+- Rust to SQLite ID transfer
+- duplicate row decoding
+- unnecessary SQL sorting
+- join fan-out
+
+Keep different strategies for different data sources when measurements support that design.
+
+A single universal ID transport strategy is not required.
+
+** Materialized tables
+
+Do not add new persistent materialized tables in this round unless the measurements require them.
+
+The existing materialized relations already cover important derived data.
+
+First optimize access to those relations.
+
+If a new materialized table still looks useful, document:
+
+- the exact query cost it removes
+- rebuild cost
+- incremental update cost
+- database size increase
+- write amplification
+- schema complexity
+- measured query improvement
+
+Treat a new materialized table as a separate design decision if the evidence is not clear.
+
+** Compatibility
+
+Do not change public query semantics.
+
+Do not change result ordering.
+
+Do not change corruption detection.
+
+Do not change the existing ~--format json~ contract.
+
+Do not change ~presentation-json~ in this task.
+
+Do not add presentation caching.
+
+Do not add presentation parallelism.
+
+Keep ~SQLITE_LIMIT_VARIABLE_NUMBER~ handling from round 1.
+
+Keep correct behavior with a small configured SQLite variable limit.
+
+** Acceptance criteria
+
+- Large matched ID sets stay inside SQLite where this gives a measured benefit.
+- The selected strategy beats or matches the round 1 production baseline.
+- ~query-heading-tags~ no longer uses avoidable large ID round trips.
+- Outline path validation keeps the existing error contract.
+- Properties and effective properties use the fastest measured safe relation strategy.
+- Keyword enrichment uses the fastest measured safe relation strategy.
+- The ~headings.path~ workload receives a dedicated optimization review.
+- Shared temporary result relations are benchmarked with reuse across several enrichment stages.
+- Query-derived joins are benchmarked with simple and complex match queries.
+- ~json_each~ is evaluated for IDs that originate in Rust.
+- Important predicate families receive an ~EXPLAIN QUERY PLAN~ review.
+- New indexes require benchmark evidence.
+- New persistent materialized tables require benchmark evidence.
+- Tests cover all changed query and enrichment paths.
+- Query output and ordering remain unchanged.
+- Benchmark results and the final strategy decisions are documented.
+  
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded
