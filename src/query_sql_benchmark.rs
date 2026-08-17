@@ -23,7 +23,9 @@ use crate::{
 };
 
 use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
-use crate::query::result::{load_heading_paths_from_relation, load_heading_paths_rust_driven};
+use crate::query::result::{
+    load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
+};
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
 use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, execute_sqlite_query_with_relation,
@@ -659,9 +661,9 @@ fn measure_path_strategies_at_limit(
     }
 
     let recursive_reference =
-        load_heading_paths_from_relation(&connection, &executed.relation, rows)
+        load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
             .map_err(|error| error.to_string())?;
-    let rust_reference = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+    let rust_reference = load_heading_paths_from_relation(&connection, &executed.relation, rows)
         .map_err(|error| error.to_string())?;
     if recursive_reference != rust_reference {
         return Err(format!(
@@ -676,8 +678,9 @@ fn measure_path_strategies_at_limit(
     }
 
     let recursive_timing = measure(options, || {
-        let paths = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-            .map_err(|error| error.to_string())?;
+        let paths =
+            load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
+                .map_err(|error| error.to_string())?;
         if paths.len() != expected_results {
             return Err("recursive path result count changed during benchmark".into());
         }
@@ -686,7 +689,7 @@ fn measure_path_strategies_at_limit(
     })?;
     benchmark_trace::begin();
     let recursive_profiled =
-        load_heading_paths_from_relation(&connection, &executed.relation, rows)
+        load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
             .map_err(|error| error.to_string());
     let recursive_records = benchmark_trace::finish();
     let recursive_profiled = recursive_profiled?;
@@ -696,7 +699,7 @@ fn measure_path_strategies_at_limit(
     let recursive_profile = summarize_direct_phase_profile(recursive_records);
 
     let rust_timing = measure(options, || {
-        let paths = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        let paths = load_heading_paths_from_relation(&connection, &executed.relation, rows)
             .map_err(|error| error.to_string())?;
         if paths.len() != expected_results {
             return Err("Rust-driven path result count changed during benchmark".into());
@@ -705,7 +708,7 @@ fn measure_path_strategies_at_limit(
         Ok(())
     })?;
     benchmark_trace::begin();
-    let rust_profiled = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+    let rust_profiled = load_heading_paths_from_relation(&connection, &executed.relation, rows)
         .map_err(|error| error.to_string());
     let rust_records = benchmark_trace::finish();
     let rust_profiled = rust_profiled?;

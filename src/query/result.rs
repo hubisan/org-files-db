@@ -2980,18 +2980,18 @@ fn load_root_tags_from_relation_untraced(
         .collect())
 }
 
-pub(crate) fn load_heading_paths_from_relation(
+pub(crate) fn load_heading_paths_recursive_from_relation(
     connection: &Connection,
     relation: &MatchedSqlRelation,
     rows: &[HeadingQueryMatch],
 ) -> Result<HashMap<i64, Vec<PathEntry>>, QueryShapeError> {
     if !benchmark_trace::active() {
-        return load_heading_paths_from_relation_untraced(connection, relation, rows);
+        return load_heading_paths_recursive_from_relation_untraced(connection, relation, rows);
     }
-    load_heading_paths_from_relation_traced(connection, relation, rows)
+    load_heading_paths_recursive_from_relation_traced(connection, relation, rows)
 }
 
-fn load_heading_paths_from_relation_traced(
+fn load_heading_paths_recursive_from_relation_traced(
     connection: &Connection,
     relation: &MatchedSqlRelation,
     rows: &[HeadingQueryMatch],
@@ -3249,7 +3249,7 @@ fn load_heading_paths_from_relation_traced(
     Ok(paths)
 }
 
-fn load_heading_paths_from_relation_untraced(
+fn load_heading_paths_recursive_from_relation_untraced(
     connection: &Connection,
     relation: &MatchedSqlRelation,
     rows: &[HeadingQueryMatch],
@@ -3444,7 +3444,7 @@ struct PendingRustPath {
     headings: Vec<HeadingPathEntry>,
 }
 
-pub(crate) fn load_heading_paths_rust_driven(
+pub(crate) fn load_heading_paths_from_relation(
     connection: &Connection,
     relation: &MatchedSqlRelation,
     rows: &[HeadingQueryMatch],
@@ -3696,7 +3696,7 @@ fn load_rust_path_ancestors(
     let mut ancestors = HashMap::new();
     for chunk in heading_ids.chunks(chunk_size) {
         let sql = format!(
-            "/* orgfdb:benchmark-path-rust-ancestors params={} */
+            "/* orgfdb:enrich-path-rust-ancestors params={} */
              SELECT headings.id, headings.file_id, headings.parent_id, headings.level,
                     headings.title, headings.title_raw, outline_path.breadcrumbs_json
              FROM headings
@@ -3784,7 +3784,7 @@ fn load_rust_path_ancestors_untraced(
     let mut ancestors = HashMap::new();
     for chunk in heading_ids.chunks(chunk_size) {
         let sql = format!(
-            "/* orgfdb:benchmark-path-rust-ancestors params={} */
+            "/* orgfdb:enrich-path-rust-ancestors params={} */
              SELECT headings.id, headings.file_id, headings.parent_id, headings.level,
                     headings.title, headings.title_raw, outline_path.breadcrumbs_json
              FROM headings
@@ -3869,7 +3869,7 @@ fn load_rust_path_file_roots(
     let mut roots = HashMap::new();
     for chunk in file_ids.chunks(chunk_size) {
         let sql = format!(
-            "/* orgfdb:benchmark-path-rust-file-roots params={} */
+            "/* orgfdb:enrich-path-rust-file-roots params={} */
              SELECT files.id, root.title, root.title_raw
              FROM files
              INNER JOIN headings AS root ON root.file_id = files.id AND root.level = 0
@@ -4471,9 +4471,10 @@ fn placeholders(count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_and_shape_query, load_heading_paths_from_relation, load_heading_paths_rust_driven,
-        shape_query_results, EffectivePropertyFact, QueryExecutionOptions, QueryInclude,
-        QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode, QueryShapeErrorKind,
+        execute_and_shape_query, load_heading_paths_from_relation,
+        load_heading_paths_recursive_from_relation, shape_query_results, EffectivePropertyFact,
+        QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind,
+        QueryResultNode, QueryShapeErrorKind,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -5158,9 +5159,10 @@ mod tests {
             }
         };
 
-        let expected = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-            .expect("recursive path strategy should load");
-        let actual = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        let expected =
+            load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
+                .expect("recursive path strategy should load");
+        let actual = load_heading_paths_from_relation(&connection, &executed.relation, rows)
             .expect("Rust-driven path strategy should load");
 
         assert_eq!(actual, expected);
@@ -5182,11 +5184,12 @@ mod tests {
                 panic!("heading query should return headings")
             }
         };
-        let expected = load_heading_paths_from_relation(&connection, &executed.relation, rows)
-            .expect("recursive path strategy should load");
+        let expected =
+            load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
+                .expect("recursive path strategy should load");
 
         let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
-        let actual = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        let actual = load_heading_paths_from_relation(&connection, &executed.relation, rows)
             .expect("Rust-driven path strategy should respect the small variable limit");
         connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
 
@@ -5213,7 +5216,7 @@ mod tests {
             }
         };
 
-        let error = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        let error = load_heading_paths_from_relation(&connection, &executed.relation, rows)
             .expect_err("Rust-driven path strategy should reject a cross-file parent");
 
         assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
@@ -5242,7 +5245,7 @@ mod tests {
             }
         };
 
-        let error = load_heading_paths_rust_driven(&connection, &executed.relation, rows)
+        let error = load_heading_paths_from_relation(&connection, &executed.relation, rows)
             .expect_err("Rust-driven path strategy should validate ancestor outline rows");
 
         assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
@@ -5335,6 +5338,59 @@ mod tests {
         assert!(error
             .message
             .contains("missing outline_path row for stored heading id 11"));
+        assert!(connection.is_autocommit());
+    }
+
+    #[test]
+    fn relation_backed_path_rejects_missing_ancestor() {
+        let connection = seeded_connection();
+        connection
+            .execute_batch(
+                r#"
+PRAGMA foreign_keys = OFF;
+UPDATE headings SET parent_id = 999 WHERE id = 12;
+PRAGMA foreign_keys = ON;
+"#,
+            )
+            .expect("missing ancestor parent should update");
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+
+        let error = execute_and_shape_query(&connection, &query, &options)
+            .expect_err("path shaping should reject a missing ancestor");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+        assert!(error
+            .message
+            .contains("missing stored heading row for id 999"));
+        assert!(connection.is_autocommit());
+    }
+
+    #[test]
+    fn relation_backed_path_rejects_malformed_ancestor_outline_json() {
+        let connection = seeded_connection();
+        connection
+            .execute(
+                "UPDATE outline_path SET breadcrumbs_json = 'not json' WHERE heading_id = 11",
+                [],
+            )
+            .expect("ancestor outline path should update");
+        let query = validated(r#"(headings (title "Nested" :exact t))"#);
+        let options = QueryExecutionOptions {
+            includes: vec![QueryInclude::Path],
+            ..QueryExecutionOptions::default()
+        };
+
+        let error = execute_and_shape_query(&connection, &query, &options)
+            .expect_err("path shaping should reject malformed ancestor outline JSON");
+
+        assert_eq!(error.kind, QueryShapeErrorKind::InvalidStoredJson);
+        assert!(error
+            .message
+            .contains("failed to decode stored JSON field breadcrumbs_json for row 11"));
         assert!(connection.is_autocommit());
     }
 

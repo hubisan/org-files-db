@@ -951,7 +951,9 @@ Record:
 
 Keep the Rust-driven strategy only if its end-to-end advantage remains clear with smaller variable limits.
 
-* TODO Replace recursive heading path loading with Rust-driven bulk ancestors
+* REVIEW Replace recursive heading path loading with Rust-driven bulk ancestors
+
+Task file: [[./2026-08-17--replace-recursive-heading-path-loading.org][Replace Recursive Heading Path Loading with Rust-Driven Bulk Ancestors]]
 
 Use the benchmarked Rust-driven bulk ancestor loader for direct-flat heading path enrichment.
 

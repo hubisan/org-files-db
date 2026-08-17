@@ -136,15 +136,19 @@ The old runtime-limit ID loaders remain available for data sets that originate i
 
 ** Path enrichment
 
-Flat heading path output no longer loads every heading from each matched file.
+Flat heading path output no longer uses the recursive query-derived CTE in production.
 
-A query-derived recursive CTE starts with the matched headings and follows only required parent rows.
+The production loader reuses matched heading rows that are already in Rust.
 
-A separate query-derived join loads the containing file and synthetic root for each matched heading.
+Rust collects missing parent IDs and loads only required ancestors with runtime-limit-safe ID batches.
 
-The recursive path query validates ~outline_path~ rows for matched headings and required ancestors.
+The loader validates ~outline_path~ rows for matched headings and loaded ancestors.
+
+Rust then constructs the final file and heading path from the matched rows and loaded ancestors.
 
 The current missing-row and malformed-JSON errors remain unchanged.
+
+The recursive query-derived loader remains available as a benchmark reference.
 
 Flat file path output needs only the matched file and its synthetic-root data.
 
@@ -327,11 +331,11 @@ Schema version ~3~ also adds a benchmark-only path strategy comparison.
 
 Both strategies reuse one matched ~headings (level 1)~ result snapshot.
 
-The production reference is ~recursive-query-derived~.
+The benchmark reference is ~recursive-query-derived~.
 
-It uses the existing recursive matched relation and loads only required ancestors.
+It uses the recursive matched relation and loads only required ancestors.
 
-The alternative is ~rust-driven-bulk-ancestors~.
+The production strategy is ~rust-driven-bulk-ancestors~.
 
 It starts from the matched heading rows, collects parent IDs in Rust, and loads missing ancestors in bounded bulk queries.
 
@@ -345,9 +349,9 @@ The path strategy timing starts after the initial matched query. It measures onl
 
 The direct phase profile for each strategy records SQL transfer, row decoding, Rust grouping, validation, and path construction.
 
-Production path loading does not change in this benchmark task.
+The path strategy benchmark first kept production path loading unchanged.
 
-Move the strategy to production only when end-to-end measurements show a clear win without excessive row transfer or statement growth.
+The result-size and variable-limit measurements later justified the Rust-driven production switch.
 
 ** Path variable-limit sensitivity
 
@@ -373,6 +377,20 @@ SQLite can clamp a requested limit to its compile-time maximum.
 The requested and effective values therefore remain separate in the output.
 
 If ~--path-variable-limits~ is absent, the benchmark keeps the previous behavior and measures the connection default once.
+
+** Path variable-limit result
+
+The ~50'000~-heading sensitivity run keeps ~rust-driven-bulk-ancestors~ faster at every tested limit.
+
+- ~250000~: ~339.0 ms~ recursive and ~264.8 ms~ Rust-driven.
+- ~32766~: ~343.2 ms~ recursive and ~278.2 ms~ Rust-driven.
+- ~999~: ~299.0 ms~ recursive and ~285.5 ms~ Rust-driven.
+
+At ~999~, the Rust-driven loader uses ~102~ statements but still avoids an end-to-end regression.
+
+The Rust-driven loader transfers ~100'000~ rows instead of ~150'000~ rows for all three limits.
+
+This result supports the production switch while keeping runtime-limit-safe chunking.
 
 * Run the SQL benchmark
 
