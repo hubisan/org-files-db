@@ -14,7 +14,7 @@ use super::{
     DB_METADATA_FTS_SCHEMA_VERSION_KEY,
 };
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 12;
+pub const CURRENT_SCHEMA_VERSION: u32 = 13;
 const EFFECTIVE_PROPERTIES_SCHEMA_VERSION: u32 = 10;
 const EFFECTIVE_TAGS_SCHEMA_VERSION: u32 = 11;
 const EFFECTIVE_TAGS_ORDER_BACKUP_TABLE: &str = "orgfdb_effective_tags_order_backup";
@@ -207,7 +207,7 @@ impl SchemaDefinition {
 
         // Preserve the public effective-tag order only when schema work may
         // rebuild headings, canonical tags, or effective_tags. Healthy
-        // schema-version-12 opens must not scan and reserialize every tag.
+        // schema-version-13 opens must not scan and reserialize every tag.
         if needs_effective_tags_backfill
             || headings_need_migration
             || effective_tags_need_fk_repair

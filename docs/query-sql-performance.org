@@ -374,6 +374,53 @@ The benchmark does not include later enrichment or final result shaping.
 
 Require a complete production query A/B before adding the property or keyword indexes to the production schema.
 
+** Complete production metadata A/B
+
+Benchmark output schema version ~7~ adds ~production_metadata_predicate_strategies~.
+
+This section runs only for result sizes of at least ~10'000~ headings.
+
+It reuses the isolated metadata benchmark database copies.
+
+The current strategy keeps correlated ~EXISTS~ predicates.
+
+The candidate strategy uses an equivalent ~heading_id IN (SELECT ...)~ predicate for non-regexp metadata equality.
+
+This form keeps the surrounding Boolean expression unchanged.
+
+It therefore preserves ~and~, ~or~, ~not~, and nested expression composition at the predicate boundary.
+
+The candidate remains benchmark-only until the end-to-end result supports a production change.
+
+Direct tags use the existing production indexes in this comparison.
+
+The benchmark does not test another persistent tag index.
+
+Direct properties use ~effective_properties.local_value~.
+
+Effective properties use ~effective_properties.effective_value~.
+
+Keywords preserve the current case-insensitive key match and exact value match.
+
+For properties and keywords, the indexed candidate runs on the benchmark-only predicate-first index copy.
+
+Before timing, the benchmark requires identical complete ~QueryResponse~ values.
+
+Each retained timing record includes:
+
+- complete production query latency
+- final result count
+- SQL profile summary
+- direct phase profile
+- rows transferred from SQLite
+- statement and parameter counts
+- the compiled match query plan
+- the benchmark-only index name where applicable
+
+The complete timing includes normal match execution, row decoding, required enrichment, Rust grouping, sorting, and final shaping.
+
+Do not add the property or keyword indexes to ~sql/schema.sql~ before these results are reviewed.
+
 * Existing materialized projections
 
 The schema already stores several expensive derived relations.
@@ -682,9 +729,57 @@ Use ~metadata_predicate_strategies~ for the SQL-shape comparison.
 
 Use ~compiler_audit~ for the impossible-lookup audit.
 
-Do not add a production index from benchmark infrastructure alone.
+For the complete metadata production A/B, use the same standard result sizes.
 
-Require a clear measured benefit before a separate production index change.
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-e2e-v1.json
+#+end_src
+
+Schema version ~7~ records ~production_metadata_predicate_strategies~ for ~10'000~ and ~50'000~ headings.
+
+Use that section as the production latency decision input.
+
+Schema version ~8~ adds ~metadata_index_costs~ at ~50'000~ headings.
+
+For the index-cost gate, run only the largest result size:
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-predicate-index-cost-v1.json
+#+end_src
+
+The cost section records logical database size, index build time, and one representative ~1'000~-row metadata write.
+
+The local schema version ~8~ cost run accepts the three persistent candidates.
+
+At ~50'000~ headings, the two property indexes add ~19.23 MiB~, or approximately ~11.45%~.
+
+Their median build time is approximately ~603.75 ms~.
+
+Their representative ~1'000~-row write increases from ~6.169 ms~ to ~7.759 ms~.
+
+The absolute median write increase is approximately ~1.589 ms~.
+
+The keyword index adds ~7.75 MiB~, or approximately ~4.61%~.
+
+Its median build time is approximately ~688.61 ms~.
+
+The representative keyword write shows no measured regression in this run.
+
+All three indexes together add ~26.98 MiB~, or approximately ~16.07%~.
+
+Their combined median build time is approximately ~1.157 s~.
+
+The query latency gains justify these measured storage and maintenance costs.
 
 * Benchmark output
 
@@ -712,6 +807,16 @@ Schema version ~4~ also records the requested and effective SQLite variable limi
 Schema version ~5~ adds a complete production path A/B after match and final shaping costs.
 
 Schema version ~6~ adds metadata predicate SQL-shape measurements at four selectivities.
+
+Schema version ~7~ adds complete production metadata A/B measurements for the primary large result sizes.
+
+Schema version ~8~ adds persistent metadata index cost measurements for the ~50'000~-heading corpus.
+
+Schema version ~9~ keeps the pre-change metadata A/B reproducible after the production indexes exist.
+
+Its benchmark copies remove the production predicate indexes before they recreate the legacy and indexed comparison.
+
+Schema version ~9~ also records complete metadata production A/B results for small result sizes.
 
 The top-level ~compiler_audit~ records safe related-lookup findings.
 
@@ -741,9 +846,47 @@ Selective TEMP relation production logic remains a separate follow-up.
 
 The metadata predicate benchmark favors relation-driven SQL for all four measured predicate families.
 
-Direct tags can use the existing ~idx_tags_tag~ index without another persistent tag index.
+The complete production A/B confirms large selective-query gains at ~10'000~ and ~50'000~ headings.
 
-Predicate-first property and keyword indexes remain candidates pending complete production query A/B measurements.
+At ~50'000~ headings and ~1%~ selectivity, the predicate-driven candidates reduce complete query latency by approximately ~95-96%~ with the required indexes.
+
+The indexed direct-property, effective-property, and keyword candidates remain faster at ~100%~ selectivity.
+
+Their ~50'000~-heading gains at ~100%~ are approximately ~10.0%~, ~7.9%~, and ~7.4%~.
+
+Direct tags use the existing ~idx_tags_tag~ index and need no additional tag index.
+
+The direct-tag candidate is approximately ~2.1%~ slower at ~50'000~ headings and ~100%~ selectivity.
+
+Do not treat predicate-driven direct-tag matching as an unconditional win for every selectivity.
+
+The schema version ~8~ cost gate accepts both property indexes and the keyword index.
+
+Production schema version ~13~ adds these indexes:
+
+- ~idx_effective_properties_key_local_heading~
+- ~idx_effective_properties_key_effective_heading~
+- ~idx_keywords_keyword_value_heading~
+
+Production heading queries use predicate-driven ~IN (SELECT ...)~ for non-regexp direct tags, properties, effective properties, and keywords.
+
+Direct tags reuse ~idx_tags_tag~ and add no second tag index.
+
+Regexp metadata predicates keep the heading-driven ~EXISTS~ form.
+
+The final schema version ~9~ run measures the ~50'000~-heading direct-tag ~100%~ case at approximately ~2.62%~ slower.
+
+The retained strategy accepts this narrow nonselective regression because selective direct-tag queries improve much more.
+
+The final small-result run covers ~100~, ~1'000~, and ~10'000~ eligible headings.
+
+At ~100~ headings, direct tag at ~100%~ selectivity changes from ~0.803 ms~ to ~0.809 ms~, or approximately ~0.68%~ slower.
+
+All other retained ~100~-heading cases improve.
+
+At ~1'000~ and ~10'000~ headings, every retained candidate improves at every measured selectivity.
+
+The small-result evidence therefore shows no material regression.
 
 The implementation keeps runtime-limit ~IN (...)~ as the safe fallback for Rust-originated ID sets.
 

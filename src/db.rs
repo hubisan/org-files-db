@@ -442,6 +442,8 @@ mod tests {
         [
             "files_identity_unique",
             "idx_effective_properties_file",
+            "idx_effective_properties_key_effective_heading",
+            "idx_effective_properties_key_local_heading",
             "idx_effective_tags_file",
             "idx_effective_tags_tag_heading",
             "idx_files_hash",
@@ -455,6 +457,7 @@ mod tests {
             "idx_headings_todo",
             "idx_headings_todo_type",
             "idx_keywords_keyword",
+            "idx_keywords_keyword_value_heading",
             "idx_links_heading",
             "idx_links_path",
             "idx_links_target_file",
@@ -686,12 +689,41 @@ PRAGMA user_version = 8;
         let version = read_schema_version(&connection).expect("schema version should load");
 
         assert_eq!(version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(CURRENT_SCHEMA_VERSION, 12);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
         assert_eq!(
             explicit_index_names(&connection),
             expected_current_explicit_indexes()
         );
         assert!(foreign_key_check_rows(&connection).is_empty());
+    }
+
+    #[test]
+    fn migrates_version_12_database_to_metadata_predicate_indexes() {
+        let test_dir = TestDir::new("version-12-metadata-predicate-indexes");
+        let db_path = test_dir.path().join("db.sqlite");
+
+        {
+            let connection = open_database(&db_path).expect("database should initialize");
+            connection
+                .execute_batch(
+                    r#"
+DROP INDEX idx_effective_properties_key_local_heading;
+DROP INDEX idx_effective_properties_key_effective_heading;
+DROP INDEX idx_keywords_keyword_value_heading;
+PRAGMA user_version = 12;
+"#,
+                )
+                .expect("version-12 metadata index state should seed");
+        }
+
+        let connection = open_database(&db_path).expect("version-12 database should migrate");
+        let version = read_schema_version(&connection).expect("schema version should load");
+
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            explicit_index_names(&connection),
+            expected_current_explicit_indexes()
+        );
     }
 
     #[test]
@@ -723,6 +755,35 @@ PRAGMA user_version = 8;
         assert!(title_plan
             .iter()
             .any(|detail| detail.contains("idx_headings_title_lower")));
+
+        let metadata_plans = [
+            (
+                "SELECT heading_id FROM effective_properties WHERE key = ?1 AND local_value IS NOT NULL AND local_value = ?2",
+                "idx_effective_properties_key_local_heading",
+            ),
+            (
+                "SELECT heading_id FROM effective_properties WHERE key = ?1 AND effective_value = ?2",
+                "idx_effective_properties_key_effective_heading",
+            ),
+            (
+                "SELECT heading_id FROM keywords WHERE keyword = ?1 COLLATE NOCASE AND value = ?2",
+                "idx_keywords_keyword_value_heading",
+            ),
+        ];
+        for (sql, expected_index) in metadata_plans {
+            let mut statement = connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .expect("metadata plan should prepare");
+            let plan = statement
+                .query_map(["KEY", "value"], |row| row.get::<_, String>(3))
+                .expect("metadata plan should query")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("metadata plan should decode");
+            assert!(
+                plan.iter().any(|detail| detail.contains(expected_index)),
+                "expected {expected_index} in metadata plan: {plan:?}"
+            );
+        }
     }
 
     #[test]

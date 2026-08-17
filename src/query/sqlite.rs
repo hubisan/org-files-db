@@ -32,6 +32,15 @@ pub struct CompiledSqlQuery {
     pub params: Vec<QueryParam>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MetadataPredicateSqlStrategy {
+    HeadingDrivenExists,
+    PredicateDrivenIn,
+}
+
+pub(crate) const PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY: MetadataPredicateSqlStrategy =
+    MetadataPredicateSqlStrategy::PredicateDrivenIn;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryParam {
     Integer(i64),
@@ -356,12 +365,20 @@ impl QueryScope {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct AliasAllocator {
     next_scope_id: usize,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 }
 
 impl AliasAllocator {
+    fn with_metadata_predicate_strategy(strategy: MetadataPredicateSqlStrategy) -> Self {
+        Self {
+            next_scope_id: 0,
+            metadata_predicate_strategy: strategy,
+        }
+    }
+
     fn next_scope(&mut self, target: QueryTarget) -> QueryScope {
         let scope = QueryScope::new(target, self.next_scope_id);
         self.next_scope_id += 1;
@@ -384,12 +401,28 @@ impl AliasAllocator {
 pub fn compile_sqlite_query(
     query: &ValidatedQuery,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    compile_sqlite_query_with_file_restriction(query, false)
+    compile_sqlite_query_with_metadata_strategy(
+        query,
+        false,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    )
 }
 
 pub(crate) fn compile_sqlite_query_with_file_restriction(
     query: &ValidatedQuery,
     restrict_files: bool,
+) -> Result<CompiledSqlQuery, QueryExecutionError> {
+    compile_sqlite_query_with_metadata_strategy(
+        query,
+        restrict_files,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    )
+}
+
+pub(crate) fn compile_sqlite_query_with_metadata_strategy(
+    query: &ValidatedQuery,
+    restrict_files: bool,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
     ensure_relative_dates_resolved(query).map_err(|error| {
         QueryExecutionError::date_resolution(
@@ -398,7 +431,7 @@ pub(crate) fn compile_sqlite_query_with_file_restriction(
             error.to_string(),
         )
     })?;
-    let mut aliases = AliasAllocator::default();
+    let mut aliases = AliasAllocator::with_metadata_predicate_strategy(metadata_predicate_strategy);
     let scope = aliases.next_scope(query.target);
     let where_clause = add_file_restriction(
         compile_query_match_filter(query, &scope, &mut aliases)?,
@@ -601,6 +634,20 @@ pub(crate) fn execute_sqlite_query_with_relation(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
+    execute_sqlite_query_with_relation_and_metadata_strategy(
+        connection,
+        query,
+        options,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    )
+}
+
+pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
     let resolved_relative_dates = resolve_relative_dates(
         query,
         &QueryDateResolutionOptions {
@@ -639,7 +686,11 @@ pub(crate) fn execute_sqlite_query_with_relation(
     match resolved.target {
         QueryTarget::Headings => {
             let (compiled, compile_duration) = benchmark_trace::timed(|| {
-                compile_sqlite_query_with_file_restriction(&resolved, restrict_files)
+                compile_sqlite_query_with_metadata_strategy(
+                    &resolved,
+                    restrict_files,
+                    metadata_predicate_strategy,
+                )
             });
             let compiled = compiled?;
             benchmark_trace::record(
@@ -657,7 +708,11 @@ pub(crate) fn execute_sqlite_query_with_relation(
             let root_compiled =
                 if heading_root_truth(resolved.predicate.as_ref()) != StaticTruth::False {
                     let (root_compiled, compile_duration) = benchmark_trace::timed(|| {
-                        compile_heading_root_file_query(&resolved, restrict_files)
+                        compile_heading_root_file_query(
+                            &resolved,
+                            restrict_files,
+                            metadata_predicate_strategy,
+                        )
                     });
                     let root_compiled = root_compiled?;
                     benchmark_trace::record(
@@ -1659,9 +1714,17 @@ fn compile_heading_predicate(
             &predicate.options,
             true,
         ),
-        "tags" => compile_heading_tags_predicate(scope, predicate),
-        "property" => compile_heading_property_predicate(scope, predicate),
-        "keyword" => compile_heading_keyword_predicate(scope, predicate),
+        "tags" => {
+            compile_heading_tags_predicate(scope, predicate, aliases.metadata_predicate_strategy)
+        }
+        "property" => compile_heading_property_predicate(
+            scope,
+            predicate,
+            aliases.metadata_predicate_strategy,
+        ),
+        "keyword" => {
+            compile_heading_keyword_predicate(scope, predicate, aliases.metadata_predicate_strategy)
+        }
         "scheduled" => compile_date_predicate(
             QueryTarget::Headings,
             "scheduled",
@@ -2019,9 +2082,12 @@ fn compile_file_predicate(
         ),
         "tags" => compile_file_tags_predicate(scope, predicate),
         "property" => compile_file_property_predicate(scope, predicate),
-        "keyword" => {
-            compile_keyword_predicate(QueryTarget::Files, predicate, &scope.root_col("id"))
-        }
+        "keyword" => compile_keyword_predicate(
+            QueryTarget::Files,
+            predicate,
+            &scope.root_col("id"),
+            MetadataPredicateSqlStrategy::HeadingDrivenExists,
+        ),
         "has-link" => compile_has_link_predicate(scope, aliases, predicate),
         "links-to" => compile_links_to_predicate(scope, aliases, predicate),
         "linked-from" => compile_linked_from_predicate(scope, aliases, predicate),
@@ -2287,9 +2353,15 @@ fn sqlite_file_dir_expr(path_sql: &str) -> String {
 fn compile_heading_tags_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     if !option_bool_with_default(&predicate.options, "inherit", true)? {
-        return compile_tags_exists(QueryTarget::Headings, predicate, &scope.heading_col("id"));
+        return compile_tags_predicate(
+            QueryTarget::Headings,
+            predicate,
+            &scope.heading_col("id"),
+            metadata_predicate_strategy,
+        );
     }
 
     compile_heading_effective_tags_exists(scope, predicate)
@@ -2358,13 +2430,19 @@ fn compile_file_tags_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    compile_tags_exists(QueryTarget::Files, predicate, &scope.root_col("id"))
+    compile_tags_predicate(
+        QueryTarget::Files,
+        predicate,
+        &scope.root_col("id"),
+        MetadataPredicateSqlStrategy::HeadingDrivenExists,
+    )
 }
 
-fn compile_tags_exists(
+fn compile_tags_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let match_all = matches!(
@@ -2380,6 +2458,8 @@ fn compile_tags_exists(
             QueryExecutionError::unsupported_backend_feature(target, "tags", message)
         })?;
 
+    let predicate_driven =
+        metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
     let mut parts = Vec::new();
     let mut params = Vec::new();
     if match_all {
@@ -2390,9 +2470,15 @@ fn compile_tags_exists(
             } else {
                 "tags.tag = ?".to_string()
             };
-            parts.push(format!(
-                "EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND {match_sql})"
-            ));
+            if predicate_driven {
+                parts.push(format!(
+                    "{heading_id_sql} IN (SELECT tags.heading_id FROM tags WHERE {match_sql})"
+                ));
+            } else {
+                parts.push(format!(
+                    "EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND {match_sql})"
+                ));
+            }
             params.push(QueryParam::Text(tag));
         }
         return Ok(SqlFragment {
@@ -2418,24 +2504,30 @@ fn compile_tags_exists(
     } else {
         let placeholders = vec!["?"; tags.len()].join(", ");
         params.extend(tags.into_iter().map(QueryParam::Text));
-        Ok(SqlFragment {
-            sql: format!(
+        let sql = if predicate_driven {
+            format!(
+                "({heading_id_sql} IN (SELECT tags.heading_id FROM tags WHERE tags.tag IN ({placeholders})))"
+            )
+        } else {
+            format!(
                 "(EXISTS (SELECT 1 FROM tags WHERE tags.heading_id = {heading_id_sql} AND tags.tag IN ({placeholders})))"
-            ),
-            params,
-        })
+            )
+        };
+        Ok(SqlFragment { sql, params })
     }
 }
 
 fn compile_heading_property_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     compile_resolved_property_predicate(
         QueryTarget::Headings,
         predicate,
         &scope.heading_col("id"),
         option_bool_with_default(&predicate.options, "inherit", true)?,
+        metadata_predicate_strategy,
     )
 }
 
@@ -2443,7 +2535,13 @@ fn compile_file_property_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
 ) -> Result<SqlFragment, QueryExecutionError> {
-    compile_resolved_property_predicate(QueryTarget::Files, predicate, &scope.root_col("id"), false)
+    compile_resolved_property_predicate(
+        QueryTarget::Files,
+        predicate,
+        &scope.root_col("id"),
+        false,
+        MetadataPredicateSqlStrategy::HeadingDrivenExists,
+    )
 }
 
 fn compile_resolved_property_predicate(
@@ -2451,6 +2549,7 @@ fn compile_resolved_property_predicate(
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
     inherit: bool,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
@@ -2462,9 +2561,15 @@ fn compile_resolved_property_predicate(
     } else {
         "local_value"
     };
-    let mut sql = format!(
-        "(EXISTS (SELECT 1 FROM effective_properties WHERE heading_id = {heading_id_sql} AND key = ?"
-    );
+    let predicate_driven =
+        metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
+    let mut sql = if predicate_driven {
+        format!("({heading_id_sql} IN (SELECT heading_id FROM effective_properties WHERE key = ?")
+    } else {
+        format!(
+            "(EXISTS (SELECT 1 FROM effective_properties WHERE heading_id = {heading_id_sql} AND key = ?"
+        )
+    };
     let mut params = vec![QueryParam::Text(key)];
     if !inherit {
         sql.push_str(" AND local_value IS NOT NULL");
@@ -2489,14 +2594,23 @@ fn compile_keyword_predicate(
     target: QueryTarget,
     predicate: &ValidatedPredicate,
     heading_id_sql: &str,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let regexp = option_bool(&predicate.options, "regexp")?;
     let key = arg_as_string(&predicate.args[0]).map_err(|message| {
         QueryExecutionError::unsupported_backend_feature(target, "keyword", message)
     })?;
-    let mut sql = format!(
-        "(EXISTS (SELECT 1 FROM keywords WHERE keywords.heading_id = {heading_id_sql} AND keywords.keyword = ? COLLATE NOCASE"
-    );
+    let predicate_driven =
+        metadata_predicate_strategy == MetadataPredicateSqlStrategy::PredicateDrivenIn && !regexp;
+    let mut sql = if predicate_driven {
+        format!(
+            "({heading_id_sql} IN (SELECT keywords.heading_id FROM keywords WHERE keywords.keyword = ? COLLATE NOCASE"
+        )
+    } else {
+        format!(
+            "(EXISTS (SELECT 1 FROM keywords WHERE keywords.heading_id = {heading_id_sql} AND keywords.keyword = ? COLLATE NOCASE"
+        )
+    };
     let mut params = vec![QueryParam::Text(key)];
     if let Some(value) = predicate.args.get(1) {
         let value = arg_as_string(value).map_err(|message| {
@@ -2517,13 +2631,19 @@ fn compile_keyword_predicate(
 fn compile_heading_keyword_predicate(
     scope: &QueryScope,
     predicate: &ValidatedPredicate,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<SqlFragment, QueryExecutionError> {
     let heading_id = if option_bool_with_default(&predicate.options, "inherit", true)? {
         scope.root_col("id")
     } else {
         scope.heading_col("id")
     };
-    compile_keyword_predicate(QueryTarget::Headings, predicate, &heading_id)
+    compile_keyword_predicate(
+        QueryTarget::Headings,
+        predicate,
+        &heading_id,
+        metadata_predicate_strategy,
+    )
 }
 
 fn validate_regexp_pattern(
@@ -3248,8 +3368,9 @@ fn file_from_clause(scope: &QueryScope, include_root: bool) -> String {
 fn compile_heading_root_file_query(
     query: &ValidatedQuery,
     restrict_files: bool,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<CompiledSqlQuery, QueryExecutionError> {
-    let mut aliases = AliasAllocator::default();
+    let mut aliases = AliasAllocator::with_metadata_predicate_strategy(metadata_predicate_strategy);
     let scope = aliases.next_heading_root_scope();
     let where_clause = add_file_restriction(
         compile_query_match_filter(query, &scope, &mut aliases)?,
@@ -3346,10 +3467,12 @@ fn target_name(target: QueryTarget) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        compile_sqlite_query, execute_sqlite_query, execute_sqlite_query_with_options,
+        compile_sqlite_query, compile_sqlite_query_with_metadata_strategy, execute_sqlite_query,
+        execute_sqlite_query_with_options,
+        execute_sqlite_query_with_relation_and_metadata_strategy,
         expand_leading_home_path_with_home, params_from_iter, sqlite_query_validation_options,
-        FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow, QueryExecutionErrorKind,
-        QueryParam, QueryRows,
+        FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow,
+        MetadataPredicateSqlStrategy, QueryExecutionErrorKind, QueryParam, QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord,
@@ -4676,6 +4799,100 @@ mod tests {
             assert!(!compiled.sql.contains("lineage_up"));
             assert!(!compiled.sql.contains("local_summary"));
         }
+    }
+
+    #[test]
+    fn production_predicate_driven_metadata_strategy_preserves_boolean_query_rows() {
+        let connection = seeded_connection();
+        for query in [
+            r#"(headings (and (level 1) (tags "urgent" :inherit nil)))"#,
+            r#"(headings (and (level 1) (property "OWNER" "Bob" :inherit nil)))"#,
+            r#"(headings (and (level 1) (property "CATEGORY" "work" :inherit t)))"#,
+            r#"(headings (and (level 1) (keyword "AUTHOR" "Alice" :inherit nil)))"#,
+            r#"(headings (and (level 1) (not (property "OWNER" "Bob" :inherit nil))))"#,
+            r#"(headings (and (level 1) (or (tags "urgent" :inherit nil) (property "OWNER" "Bob" :inherit nil))))"#,
+        ] {
+            let validated = validated(query);
+            let legacy = execute_sqlite_query_with_relation_and_metadata_strategy(
+                &connection,
+                &validated,
+                &QueryExecutionOptions::default(),
+                MetadataPredicateSqlStrategy::HeadingDrivenExists,
+            )
+            .expect("heading-driven metadata query should execute")
+            .rows;
+            let production = execute_sqlite_query(&connection, &validated)
+                .expect("production metadata query should execute");
+            assert_eq!(legacy, production, "query changed result: {query}");
+        }
+    }
+
+    #[test]
+    fn production_metadata_strategy_compiles_indexable_equality_subqueries() {
+        let tag = compile_sqlite_query(&validated(
+            r#"(headings (and (level 1) (tags "urgent" :inherit nil)))"#,
+        ))
+        .expect("production tag query should compile");
+        assert!(tag
+            .sql
+            .contains("IN (SELECT tags.heading_id FROM tags WHERE tags.tag IN"));
+
+        let property = compile_sqlite_query(&validated(
+            r#"(headings (and (level 1) (property "OWNER" "Bob" :inherit nil)))"#,
+        ))
+        .expect("production property query should compile");
+        assert!(property.sql.contains(
+            "IN (SELECT heading_id FROM effective_properties WHERE key = ? AND local_value IS NOT NULL AND local_value = ?"
+        ));
+
+        let keyword = compile_sqlite_query(&validated(
+            r#"(headings (and (level 1) (keyword "AUTHOR" "Alice" :inherit nil)))"#,
+        ))
+        .expect("production keyword query should compile");
+        assert!(keyword.sql.contains(
+            "IN (SELECT keywords.heading_id FROM keywords WHERE keywords.keyword = ? COLLATE NOCASE AND keywords.value = ?"
+        ));
+
+        let regexp = compile_sqlite_query(&validated(
+            r#"(headings (property "OWNER" "B.*" :regexp t :inherit nil))"#,
+        ))
+        .expect("regexp property query should compile");
+        assert!(regexp
+            .sql
+            .contains("EXISTS (SELECT 1 FROM effective_properties"));
+    }
+
+    #[test]
+    fn predicate_driven_metadata_strategy_compiles_indexable_subqueries() {
+        let tag = compile_sqlite_query_with_metadata_strategy(
+            &validated(r#"(headings (and (level 1) (tags "urgent" :inherit nil)))"#),
+            false,
+            MetadataPredicateSqlStrategy::PredicateDrivenIn,
+        )
+        .expect("predicate-driven tag query should compile");
+        assert!(tag
+            .sql
+            .contains("IN (SELECT tags.heading_id FROM tags WHERE tags.tag IN"));
+
+        let property = compile_sqlite_query_with_metadata_strategy(
+            &validated(r#"(headings (and (level 1) (property "OWNER" "Bob" :inherit nil)))"#),
+            false,
+            MetadataPredicateSqlStrategy::PredicateDrivenIn,
+        )
+        .expect("predicate-driven property query should compile");
+        assert!(property.sql.contains(
+            "IN (SELECT heading_id FROM effective_properties WHERE key = ? AND local_value IS NOT NULL AND local_value = ?"
+        ));
+
+        let keyword = compile_sqlite_query_with_metadata_strategy(
+            &validated(r#"(headings (and (level 1) (keyword "AUTHOR" "Alice" :inherit nil)))"#),
+            false,
+            MetadataPredicateSqlStrategy::PredicateDrivenIn,
+        )
+        .expect("predicate-driven keyword query should compile");
+        assert!(keyword.sql.contains(
+            "IN (SELECT keywords.heading_id FROM keywords WHERE keywords.keyword = ? COLLATE NOCASE AND keywords.value = ?"
+        ));
     }
 
     #[test]

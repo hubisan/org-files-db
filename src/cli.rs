@@ -4999,9 +4999,10 @@ db_path = "./old.sqlite"
             config_path.display().to_string(),
         ])
         .expect_err("status should not migrate an old database");
-        assert!(error
-            .to_string()
-            .contains("run an indexing command to migrate it to version 12"));
+        assert!(error.to_string().contains(&format!(
+            "run an indexing command to migrate it to version {}",
+            CURRENT_SCHEMA_VERSION
+        )));
 
         let version = Connection::open(&db_path)
             .expect("legacy database should reopen")

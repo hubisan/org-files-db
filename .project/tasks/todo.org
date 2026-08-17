@@ -1049,7 +1049,7 @@ Reconsider the production loader only if the complete same-process A/B favors th
 
 Accept an optimization only when the complete production ~headings.path~ benchmark improves.
 
-* REVIEW Benchmark predicate-driven SQL for direct metadata filters
+* DONE Benchmark predicate-driven SQL for direct metadata filters
 
 [[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
 
@@ -1242,7 +1242,9 @@ Create these indexes only on benchmark database copies during the first end-to-e
 
 Do not add a persistent index before the end-to-end benchmark confirms its value.
 
-* TODO Validate and implement predicate-driven metadata filters end to end
+* DONE Validate and implement predicate-driven metadata filters end to end
+
+[[./2026-08-17--predicate-driven-metadata-filters-end-to-end.org]]
 
 Use the metadata predicate benchmark as the starting evidence.
 

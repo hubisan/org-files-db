@@ -1002,6 +1002,9 @@ CREATE INDEX IF NOT EXISTS idx_todo_keywords_file_state
 CREATE INDEX IF NOT EXISTS idx_keywords_keyword
     ON keywords(keyword);
 
+CREATE INDEX IF NOT EXISTS idx_keywords_keyword_value_heading
+    ON keywords(keyword COLLATE NOCASE, value, heading_id);
+
 --------------------------------------------------
 -- INDEXES: PROPERTIES
 --------------------------------------------------
@@ -1021,6 +1024,13 @@ CREATE INDEX IF NOT EXISTS idx_properties_custom_id_lookup
 
 CREATE INDEX IF NOT EXISTS idx_effective_properties_file
     ON effective_properties(file_id);
+
+CREATE INDEX IF NOT EXISTS idx_effective_properties_key_local_heading
+    ON effective_properties(key, local_value, heading_id)
+    WHERE local_value IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_effective_properties_key_effective_heading
+    ON effective_properties(key, effective_value, heading_id);
 
 --------------------------------------------------
 -- INDEXES: TAGS

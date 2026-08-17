@@ -12,8 +12,9 @@ use serde::Serialize;
 use super::benchmark_trace;
 use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
-    execute_sqlite_query_with_relation, file_relation_columns, heading_relation_columns,
-    HeadingQueryMatch, MatchedSqlRelation,
+    execute_sqlite_query_with_relation_and_metadata_strategy, file_relation_columns,
+    heading_relation_columns, HeadingQueryMatch, MatchedSqlRelation, MetadataPredicateSqlStrategy,
+    PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
 };
 use super::{
     FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
@@ -413,11 +414,12 @@ pub fn execute_and_shape_query(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<QueryResponse, QueryShapeError> {
-    execute_and_shape_query_with_path_strategy(
+    execute_and_shape_query_with_strategies(
         connection,
         query,
         options,
         HeadingPathStrategy::RustDrivenBulkAncestors,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
     )
 }
 
@@ -427,6 +429,37 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
     options: &QueryExecutionOptions,
     path_strategy: HeadingPathStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
+    execute_and_shape_query_with_strategies(
+        connection,
+        query,
+        options,
+        path_strategy,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    )
+}
+
+pub(crate) fn execute_and_shape_query_with_metadata_strategy(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+) -> Result<QueryResponse, QueryShapeError> {
+    execute_and_shape_query_with_strategies(
+        connection,
+        query,
+        options,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+        metadata_predicate_strategy,
+    )
+}
+
+fn execute_and_shape_query_with_strategies(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    path_strategy: HeadingPathStrategy,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+) -> Result<QueryResponse, QueryShapeError> {
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
         connection
@@ -434,7 +467,13 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
             .map_err(|source| QueryShapeError::database("query_snapshot.begin", source))?;
     }
 
-    let result = execute_and_shape_query_in_snapshot(connection, query, options, path_strategy);
+    let result = execute_and_shape_query_in_snapshot(
+        connection,
+        query,
+        options,
+        path_strategy,
+        metadata_predicate_strategy,
+    );
     if !owns_snapshot {
         return result;
     }
@@ -458,8 +497,14 @@ fn execute_and_shape_query_in_snapshot(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
     path_strategy: HeadingPathStrategy,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let executed = execute_sqlite_query_with_relation(connection, query, options)?;
+    let executed = execute_sqlite_query_with_relation_and_metadata_strategy(
+        connection,
+        query,
+        options,
+        metadata_predicate_strategy,
+    )?;
     shape_query_results_internal(
         connection,
         executed.rows,

@@ -24,15 +24,17 @@ use crate::{
 
 use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
 use crate::query::result::{
-    execute_and_shape_query_with_path_strategy, load_heading_paths_from_relation,
-    load_heading_paths_recursive_from_relation, HeadingPathStrategy,
+    execute_and_shape_query_with_metadata_strategy, execute_and_shape_query_with_path_strategy,
+    load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
+    HeadingPathStrategy,
 };
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
 use crate::query::sqlite::{
-    compile_sqlite_query_with_file_restriction, execute_sqlite_query_with_relation,
+    compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
+    execute_sqlite_query_with_relation, MetadataPredicateSqlStrategy,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "6";
+pub const OUTPUT_SCHEMA_VERSION: &str = "9";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -98,6 +100,8 @@ pub struct QuerySqlSizeResult {
     pub path_strategies: Vec<PathStrategyResult>,
     pub production_path_strategies: Vec<ProductionPathStrategyResult>,
     pub metadata_predicate_strategies: Vec<MetadataPredicateStrategyResult>,
+    pub production_metadata_predicate_strategies: Vec<ProductionMetadataPredicateStrategyResult>,
+    pub metadata_index_costs: Vec<MetadataIndexCostResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -200,6 +204,21 @@ pub struct ProductionPathStrategyResult {
 }
 
 #[derive(Debug, Serialize)]
+pub struct ProductionMetadataPredicateStrategyResult {
+    pub predicate: &'static str,
+    pub selectivity_percent: usize,
+    pub actual_selectivity_percent: f64,
+    pub strategy: &'static str,
+    pub experimental_index: Option<&'static str>,
+    pub eligible_headings: usize,
+    pub result_count: usize,
+    pub total_query_time: Timing,
+    pub sql_profile: SqlProfileSummary,
+    pub direct_phase_profile: DirectPhaseProfile,
+    pub query_plan: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct MetadataPredicateStrategyResult {
     pub predicate: &'static str,
     pub selectivity_percent: usize,
@@ -214,6 +233,27 @@ pub struct MetadataPredicateStrategyResult {
     pub rows_transferred_to_rust_per_sample: usize,
     pub total_query_time: Timing,
     pub query_plan: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetadataIndexCostResult {
+    pub index_set: &'static str,
+    pub indexes: Vec<&'static str>,
+    pub database_size_before_bytes: u64,
+    pub database_size_after_bytes: u64,
+    pub database_size_delta_bytes: u64,
+    pub database_size_delta_percent: f64,
+    pub build_time: Timing,
+    pub representative_write: Option<MetadataIndexWriteCostResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetadataIndexWriteCostResult {
+    pub table: &'static str,
+    pub rows: usize,
+    pub operation: &'static str,
+    pub without_indexes: Timing,
+    pub with_indexes: Timing,
 }
 
 #[derive(Debug, Serialize)]
@@ -332,7 +372,7 @@ pub fn run(
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, isolated path loading, complete production path shaping, metadata predicate SQL shapes, variable-limit sensitivity, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -416,6 +456,13 @@ fn run_size(
         measure_production_path_strategies(&db_path, target_results, options)?;
     let metadata_predicate_strategies =
         measure_metadata_predicate_strategies(&db_path, target_results, options)?;
+    let production_metadata_predicate_strategies =
+        measure_production_metadata_predicate_strategies(&db_path, target_results, options)?;
+    let metadata_index_costs = if target_results >= 50_000 {
+        measure_metadata_index_costs(&db_path, target_results, options)?
+    } else {
+        Vec::new()
+    };
 
     Ok(QuerySqlSizeResult {
         target_results,
@@ -427,6 +474,8 @@ fn run_size(
         path_strategies,
         production_path_strategies,
         metadata_predicate_strategies,
+        production_metadata_predicate_strategies,
+        metadata_index_costs,
     })
 }
 
@@ -1519,6 +1568,7 @@ fn measure_metadata_predicate_strategies(
         ));
     }
     seed_metadata_predicate_rows(&mut seed_connection, eligible_headings)?;
+    drop_production_metadata_predicate_indexes(&seed_connection)?;
     drop(seed_connection);
 
     fs::copy(&current_path, &indexed_path).map_err(|error| error.to_string())?;
@@ -1602,6 +1652,255 @@ fn measure_metadata_predicate_strategies(
     Ok(results)
 }
 
+fn measure_production_metadata_predicate_strategies(
+    db_path: &Path,
+    eligible_headings: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<ProductionMetadataPredicateStrategyResult>, String> {
+    let current_path = db_path.with_file_name("org-files-db-metadata-predicate-current.sqlite");
+    let indexed_path = db_path.with_file_name("org-files-db-metadata-predicate-indexed.sqlite");
+    if !current_path.is_file() || !indexed_path.is_file() {
+        return Err(
+            "metadata predicate production benchmark requires the prepared predicate database copies"
+                .into(),
+        );
+    }
+
+    let mut current_connection =
+        open_existing_database_read_only(&current_path).map_err(|error| error.to_string())?;
+    let mut indexed_connection =
+        open_existing_database_read_only(&indexed_path).map_err(|error| error.to_string())?;
+    current_connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+    indexed_connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+
+    let query_options = QueryExecutionOptions {
+        output_mode: QueryOutputMode::Flat,
+        includes: Vec::new(),
+        ..Default::default()
+    };
+    let mut results = Vec::new();
+
+    for kind in MetadataPredicateKind::ALL {
+        for &selectivity_percent in METADATA_PREDICATE_SELECTIVITIES {
+            let expected_matches =
+                selectivity_heading_count(eligible_headings, selectivity_percent);
+            let query_text = metadata_production_query(kind, selectivity_percent);
+            let parsed = parse_query(&query_text).map_err(|error| error.to_string())?;
+            let validation_options = sqlite_query_validation_options(&current_connection)
+                .map_err(|error| error.to_string())?;
+            let validated =
+                validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+
+            let current_reference = execute_and_shape_query_with_metadata_strategy(
+                &current_connection,
+                &validated,
+                &query_options,
+                MetadataPredicateSqlStrategy::HeadingDrivenExists,
+            )
+            .map_err(|error| error.to_string())?;
+            let candidate_reference = execute_and_shape_query_with_metadata_strategy(
+                &current_connection,
+                &validated,
+                &query_options,
+                MetadataPredicateSqlStrategy::PredicateDrivenIn,
+            )
+            .map_err(|error| error.to_string())?;
+            if current_reference != candidate_reference {
+                return Err(format!(
+                    "complete production metadata strategies changed query output for {} at {selectivity_percent}%",
+                    kind.id()
+                ));
+            }
+            if current_reference.results.len() != expected_matches {
+                return Err(format!(
+                    "complete production metadata benchmark returned {} results for {} at {selectivity_percent}%, expected {expected_matches}",
+                    current_reference.results.len(),
+                    kind.id()
+                ));
+            }
+
+            results.push(measure_production_metadata_predicate_strategy(
+                &mut current_connection,
+                &validated,
+                &query_options,
+                kind,
+                selectivity_percent,
+                eligible_headings,
+                expected_matches,
+                MetadataPredicateSqlStrategy::HeadingDrivenExists,
+                "heading-driven-exists",
+                None,
+                options,
+            )?);
+            results.push(measure_production_metadata_predicate_strategy(
+                &mut current_connection,
+                &validated,
+                &query_options,
+                kind,
+                selectivity_percent,
+                eligible_headings,
+                expected_matches,
+                MetadataPredicateSqlStrategy::PredicateDrivenIn,
+                "predicate-driven-in-current-indexes",
+                None,
+                options,
+            )?);
+
+            if kind != MetadataPredicateKind::DirectTag {
+                let indexed_reference = execute_and_shape_query_with_metadata_strategy(
+                    &indexed_connection,
+                    &validated,
+                    &query_options,
+                    MetadataPredicateSqlStrategy::PredicateDrivenIn,
+                )
+                .map_err(|error| error.to_string())?;
+                if current_reference != indexed_reference {
+                    return Err(format!(
+                        "indexed complete production metadata strategy changed query output for {} at {selectivity_percent}%",
+                        kind.id()
+                    ));
+                }
+                results.push(measure_production_metadata_predicate_strategy(
+                    &mut indexed_connection,
+                    &validated,
+                    &query_options,
+                    kind,
+                    selectivity_percent,
+                    eligible_headings,
+                    expected_matches,
+                    MetadataPredicateSqlStrategy::PredicateDrivenIn,
+                    "predicate-driven-in-experimental-index",
+                    Some(kind.experimental_index()),
+                    options,
+                )?);
+            }
+        }
+    }
+
+    current_connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+    indexed_connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+    Ok(results)
+}
+
+fn metadata_production_query(kind: MetadataPredicateKind, selectivity_percent: usize) -> String {
+    let marker = kind.marker(selectivity_percent);
+    match kind {
+        MetadataPredicateKind::DirectTag => {
+            format!("(headings (and (level 1) (tags \"{marker}\" :inherit nil)))")
+        }
+        MetadataPredicateKind::DirectProperty => {
+            format!("(headings (and (level 1) (property \"{marker}\" \"match\" :inherit nil)))")
+        }
+        MetadataPredicateKind::EffectiveProperty => {
+            format!("(headings (and (level 1) (property \"{marker}\" \"match\" :inherit t)))")
+        }
+        MetadataPredicateKind::Keyword => {
+            format!("(headings (and (level 1) (keyword \"{marker}\" \"match\" :inherit nil)))")
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn measure_production_metadata_predicate_strategy(
+    connection: &mut Connection,
+    validated: &crate::query::ValidatedQuery,
+    query_options: &QueryExecutionOptions,
+    kind: MetadataPredicateKind,
+    selectivity_percent: usize,
+    eligible_headings: usize,
+    expected_matches: usize,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+    strategy_name: &'static str,
+    experimental_index: Option<&'static str>,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<ProductionMetadataPredicateStrategyResult, String> {
+    let total_query_time = measure(options, || {
+        let response = execute_and_shape_query_with_metadata_strategy(
+            connection,
+            validated,
+            query_options,
+            metadata_predicate_strategy,
+        )
+        .map_err(|error| error.to_string())?;
+        if response.results.len() != expected_matches {
+            return Err(format!(
+                "{} {strategy_name} complete production result count changed during benchmark",
+                kind.id()
+            ));
+        }
+        std::hint::black_box(response);
+        Ok(())
+    })?;
+
+    PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
+    connection.profile(Some(profile_callback));
+    let profiled = execute_and_shape_query_with_metadata_strategy(
+        connection,
+        validated,
+        query_options,
+        metadata_predicate_strategy,
+    )
+    .map_err(|error| error.to_string());
+    connection.profile(None);
+    let profiled = profiled?;
+    if profiled.results.len() != expected_matches {
+        return Err(format!(
+            "{} {strategy_name} complete production result count changed during SQL profile",
+            kind.id()
+        ));
+    }
+    let sql_profile = take_profile_summary();
+
+    benchmark_trace::begin();
+    let phase_response = execute_and_shape_query_with_metadata_strategy(
+        connection,
+        validated,
+        query_options,
+        metadata_predicate_strategy,
+    )
+    .map_err(|error| error.to_string());
+    let phase_records = benchmark_trace::finish();
+    let phase_response = phase_response?;
+    if phase_response.results.len() != expected_matches {
+        return Err(format!(
+            "{} {strategy_name} complete production result count changed during phase profile",
+            kind.id()
+        ));
+    }
+    let direct_phase_profile = summarize_direct_phase_profile(phase_records);
+
+    let compiled =
+        compile_sqlite_query_with_metadata_strategy(validated, false, metadata_predicate_strategy)
+            .map_err(|error| error.to_string())?;
+    let query_plan = explain_query_plan(connection, &compiled.sql, &compiled.params)?;
+
+    Ok(ProductionMetadataPredicateStrategyResult {
+        predicate: kind.id(),
+        selectivity_percent,
+        actual_selectivity_percent: if eligible_headings == 0 {
+            0.0
+        } else {
+            expected_matches as f64 * 100.0 / eligible_headings as f64
+        },
+        strategy: strategy_name,
+        experimental_index,
+        eligible_headings,
+        result_count: expected_matches,
+        total_query_time,
+        sql_profile,
+        direct_phase_profile,
+        query_plan,
+    })
+}
+
 fn remove_sqlite_benchmark_clone(path: &Path) -> Result<(), String> {
     let path_text = path.to_string_lossy();
     for candidate in [
@@ -1678,12 +1977,341 @@ fn seed_metadata_predicate_rows(
     transaction.commit().map_err(|error| error.to_string())
 }
 
-fn create_metadata_predicate_experimental_indexes(connection: &Connection) -> Result<(), String> {
+const BENCH_TAG_PREDICATE_INDEX_SQL: &str =
+    "CREATE INDEX orgfdb_bench_tags_tag_heading ON tags(tag, heading_id);";
+const BENCH_PROPERTY_PREDICATE_INDEXES_SQL: &str =
+    "CREATE INDEX orgfdb_bench_effective_properties_key_local_heading
+         ON effective_properties(key, local_value, heading_id)
+         WHERE local_value IS NOT NULL;
+     CREATE INDEX orgfdb_bench_effective_properties_key_effective_heading
+         ON effective_properties(key, effective_value, heading_id);";
+const BENCH_KEYWORD_PREDICATE_INDEX_SQL: &str =
+    "CREATE INDEX orgfdb_bench_keywords_keyword_value_heading
+         ON keywords(keyword COLLATE NOCASE, value, heading_id);";
+const BENCH_COMBINED_PREDICATE_INDEXES_SQL: &str =
+    "CREATE INDEX orgfdb_bench_effective_properties_key_local_heading
+         ON effective_properties(key, local_value, heading_id)
+         WHERE local_value IS NOT NULL;
+     CREATE INDEX orgfdb_bench_effective_properties_key_effective_heading
+         ON effective_properties(key, effective_value, heading_id);
+     CREATE INDEX orgfdb_bench_keywords_keyword_value_heading
+         ON keywords(keyword COLLATE NOCASE, value, heading_id);";
+
+fn drop_production_metadata_predicate_indexes(connection: &Connection) -> Result<(), String> {
     connection
         .execute_batch(
-            "CREATE INDEX orgfdb_bench_tags_tag_heading\n                 ON tags(tag, heading_id);\n             CREATE INDEX orgfdb_bench_effective_properties_key_local_heading\n                 ON effective_properties(key, local_value, heading_id)\n                 WHERE local_value IS NOT NULL;\n             CREATE INDEX orgfdb_bench_effective_properties_key_effective_heading\n                 ON effective_properties(key, effective_value, heading_id);\n             CREATE INDEX orgfdb_bench_keywords_keyword_value_heading\n                 ON keywords(keyword COLLATE NOCASE, value, heading_id);",
+            "DROP INDEX IF EXISTS idx_effective_properties_key_local_heading;
+             DROP INDEX IF EXISTS idx_effective_properties_key_effective_heading;
+             DROP INDEX IF EXISTS idx_keywords_keyword_value_heading;",
         )
         .map_err(|error| error.to_string())
+}
+
+fn create_metadata_predicate_experimental_indexes(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(BENCH_TAG_PREDICATE_INDEX_SQL)
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(BENCH_PROPERTY_PREDICATE_INDEXES_SQL)
+        .map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(BENCH_KEYWORD_PREDICATE_INDEX_SQL)
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MetadataIndexWriteKind {
+    EffectiveProperties,
+    Keywords,
+}
+
+fn measure_metadata_index_costs(
+    db_path: &Path,
+    eligible_headings: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<MetadataIndexCostResult>, String> {
+    let base_path = db_path.with_file_name("org-files-db-metadata-predicate-current.sqlite");
+    if !base_path.is_file() {
+        return Err(
+            "metadata index cost benchmark requires the prepared predicate database copy".into(),
+        );
+    }
+
+    let base_connection = Connection::open(&base_path).map_err(|error| error.to_string())?;
+    base_connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())?;
+    let base_size = database_logical_size_bytes(&base_connection)?;
+    drop(base_connection);
+
+    let write_rows = eligible_headings.min(1_000);
+    let property = measure_metadata_index_cost_set(
+        &base_path,
+        base_size,
+        "effective-properties-predicate-indexes",
+        vec![
+            "orgfdb_bench_effective_properties_key_local_heading",
+            "orgfdb_bench_effective_properties_key_effective_heading",
+        ],
+        BENCH_PROPERTY_PREDICATE_INDEXES_SQL,
+        Some(MetadataIndexWriteKind::EffectiveProperties),
+        write_rows,
+        options,
+    )?;
+    let keyword = measure_metadata_index_cost_set(
+        &base_path,
+        base_size,
+        "keyword-predicate-index",
+        vec!["orgfdb_bench_keywords_keyword_value_heading"],
+        BENCH_KEYWORD_PREDICATE_INDEX_SQL,
+        Some(MetadataIndexWriteKind::Keywords),
+        write_rows,
+        options,
+    )?;
+    let combined = measure_metadata_index_cost_set(
+        &base_path,
+        base_size,
+        "combined-persistent-candidates",
+        vec![
+            "orgfdb_bench_effective_properties_key_local_heading",
+            "orgfdb_bench_effective_properties_key_effective_heading",
+            "orgfdb_bench_keywords_keyword_value_heading",
+        ],
+        BENCH_COMBINED_PREDICATE_INDEXES_SQL,
+        None,
+        write_rows,
+        options,
+    )?;
+
+    Ok(vec![property, keyword, combined])
+}
+
+#[allow(clippy::too_many_arguments)]
+fn measure_metadata_index_cost_set(
+    base_path: &Path,
+    base_size: u64,
+    index_set: &'static str,
+    indexes: Vec<&'static str>,
+    index_sql: &'static str,
+    write_kind: Option<MetadataIndexWriteKind>,
+    write_rows: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<MetadataIndexCostResult, String> {
+    let build_time = measure_metadata_index_build_time(base_path, index_set, index_sql, options)?;
+    let indexed_path = base_path.with_file_name(format!(
+        "org-files-db-metadata-index-cost-{index_set}-indexed.sqlite"
+    ));
+    prepare_sqlite_benchmark_clone(base_path, &indexed_path)?;
+    let indexed_connection = Connection::open(&indexed_path).map_err(|error| error.to_string())?;
+    indexed_connection
+        .execute_batch(index_sql)
+        .map_err(|error| error.to_string())?;
+    indexed_connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())?;
+    let indexed_size = database_logical_size_bytes(&indexed_connection)?;
+    drop(indexed_connection);
+
+    let representative_write = if let Some(kind) = write_kind {
+        let without_indexes = measure_metadata_index_write_time(
+            base_path,
+            index_set,
+            "without-indexes",
+            kind,
+            write_rows,
+            options,
+        )?;
+        let with_indexes = measure_metadata_index_write_time(
+            &indexed_path,
+            index_set,
+            "with-indexes",
+            kind,
+            write_rows,
+            options,
+        )?;
+        Some(MetadataIndexWriteCostResult {
+            table: match kind {
+                MetadataIndexWriteKind::EffectiveProperties => "effective_properties",
+                MetadataIndexWriteKind::Keywords => "keywords",
+            },
+            rows: write_rows,
+            operation: "insert-and-commit benchmark marker rows",
+            without_indexes,
+            with_indexes,
+        })
+    } else {
+        None
+    };
+
+    remove_sqlite_benchmark_clone(&indexed_path)?;
+    let database_size_delta_bytes = indexed_size.saturating_sub(base_size);
+    let database_size_delta_percent = if base_size == 0 {
+        0.0
+    } else {
+        database_size_delta_bytes as f64 * 100.0 / base_size as f64
+    };
+
+    Ok(MetadataIndexCostResult {
+        index_set,
+        indexes,
+        database_size_before_bytes: base_size,
+        database_size_after_bytes: indexed_size,
+        database_size_delta_bytes,
+        database_size_delta_percent,
+        build_time,
+        representative_write,
+    })
+}
+
+fn measure_metadata_index_build_time(
+    base_path: &Path,
+    index_set: &str,
+    index_sql: &str,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Timing, String> {
+    for sample in 0..options.warmups {
+        run_metadata_index_build_sample(base_path, index_set, "warmup", sample, index_sql)?;
+    }
+
+    let mut samples = Vec::with_capacity(options.iterations);
+    for sample in 0..options.iterations {
+        samples.push(run_metadata_index_build_sample(
+            base_path, index_set, "sample", sample, index_sql,
+        )?);
+    }
+    samples.sort();
+    Ok(timing(&samples))
+}
+
+fn run_metadata_index_build_sample(
+    base_path: &Path,
+    index_set: &str,
+    phase: &str,
+    sample: usize,
+    index_sql: &str,
+) -> Result<Duration, String> {
+    let sample_path = base_path.with_file_name(format!(
+        "org-files-db-metadata-index-cost-{index_set}-{phase}-{sample}.sqlite"
+    ));
+    prepare_sqlite_benchmark_clone(base_path, &sample_path)?;
+    let connection = Connection::open(&sample_path).map_err(|error| error.to_string())?;
+    let start = Instant::now();
+    connection
+        .execute_batch(index_sql)
+        .map_err(|error| error.to_string())?;
+    let elapsed = start.elapsed();
+    drop(connection);
+    remove_sqlite_benchmark_clone(&sample_path)?;
+    Ok(elapsed)
+}
+
+fn measure_metadata_index_write_time(
+    template_path: &Path,
+    index_set: &str,
+    variant: &str,
+    kind: MetadataIndexWriteKind,
+    rows: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Timing, String> {
+    for sample in 0..options.warmups {
+        run_metadata_index_write_sample(
+            template_path,
+            index_set,
+            variant,
+            "warmup",
+            sample,
+            kind,
+            rows,
+        )?;
+    }
+
+    let mut samples = Vec::with_capacity(options.iterations);
+    for sample in 0..options.iterations {
+        samples.push(run_metadata_index_write_sample(
+            template_path,
+            index_set,
+            variant,
+            "sample",
+            sample,
+            kind,
+            rows,
+        )?);
+    }
+    samples.sort();
+    Ok(timing(&samples))
+}
+
+fn run_metadata_index_write_sample(
+    template_path: &Path,
+    index_set: &str,
+    variant: &str,
+    phase: &str,
+    sample: usize,
+    kind: MetadataIndexWriteKind,
+    rows: usize,
+) -> Result<Duration, String> {
+    let sample_path = template_path.with_file_name(format!(
+        "org-files-db-metadata-index-write-{index_set}-{variant}-{phase}-{sample}.sqlite"
+    ));
+    prepare_sqlite_benchmark_clone(template_path, &sample_path)?;
+    let mut connection = Connection::open(&sample_path).map_err(|error| error.to_string())?;
+    let rows = i64::try_from(rows).map_err(|error| error.to_string())?;
+    let start = Instant::now();
+    {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        match kind {
+            MetadataIndexWriteKind::EffectiveProperties => {
+                transaction
+                    .execute(
+                        "INSERT INTO effective_properties
+                             (heading_id, file_id, key, local_value, effective_value)
+                         SELECT id, file_id, 'ORGFDB_BENCH_INDEX_COST_WRITE', 'match', 'match'
+                         FROM headings
+                         WHERE level = 1
+                         ORDER BY id
+                         LIMIT ?1",
+                        params![rows],
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+            MetadataIndexWriteKind::Keywords => {
+                transaction
+                    .execute(
+                        "INSERT INTO keywords (heading_id, keyword, value, line_number)
+                         SELECT id, 'ORGFDB_BENCH_INDEX_COST_WRITE', 'match', -1
+                         FROM headings
+                         WHERE level = 1
+                         ORDER BY id
+                         LIMIT ?1",
+                        params![rows],
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
+    let elapsed = start.elapsed();
+    drop(connection);
+    remove_sqlite_benchmark_clone(&sample_path)?;
+    Ok(elapsed)
+}
+
+fn prepare_sqlite_benchmark_clone(source: &Path, destination: &Path) -> Result<(), String> {
+    remove_sqlite_benchmark_clone(destination)?;
+    fs::copy(source, destination).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn database_logical_size_bytes(connection: &Connection) -> Result<u64, String> {
+    let page_count = connection
+        .query_row("PRAGMA page_count", [], |row| row.get::<_, u64>(0))
+        .map_err(|error| error.to_string())?;
+    let page_size = connection
+        .query_row("PRAGMA page_size", [], |row| row.get::<_, u64>(0))
+        .map_err(|error| error.to_string())?;
+    Ok(page_count.saturating_mul(page_size))
 }
 
 fn metadata_predicate_params(

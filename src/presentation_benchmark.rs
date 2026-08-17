@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::{
     config::{Config, ConfiguredDir, SearchConfig},
     db::{
-        open_database_with_schema, open_existing_database_read_only, read_index_state,
+        open_database_with_schema, open_existing_database_read_only, read_index_state, DbError,
         SchemaDefinition, CURRENT_SCHEMA_VERSION,
     },
     indexer::Indexer,
@@ -384,7 +384,22 @@ pub fn prepare_benchmark_databases(
         let config_path = size_dir.join("org-files-db.toml");
 
         if db_path.is_file() {
-            continue;
+            match open_existing_database_read_only(&db_path) {
+                Ok(connection) => {
+                    drop(connection);
+                    continue;
+                }
+                Err(DbError::OutdatedSchemaVersion {
+                    on_disk_version,
+                    required_version,
+                    ..
+                }) => {
+                    eprintln!(
+                        "Rebuilding benchmark database for {target_results} results: schema version {on_disk_version} is older than required version {required_version}."
+                    );
+                }
+                Err(error) => return Err(error.to_string()),
+            }
         }
 
         if size_dir.exists() {
@@ -1409,6 +1424,41 @@ mod tests {
             })
             .expect("prepared benchmark database should contain headings");
         assert_eq!(heading_count, 2);
+        drop(connection);
+
+        fs::remove_dir_all(&work_dir).expect("benchmark test directory should be removed");
+    }
+
+    #[test]
+    fn prepare_benchmark_databases_rebuilds_outdated_database() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let work_dir = std::env::temp_dir().join(format!(
+            "orgfdb-presentation-benchmark-outdated-test-{}-{unique}",
+            std::process::id()
+        ));
+
+        let prepared = prepare_benchmark_databases(&work_dir, &[2], 1)
+            .expect("benchmark database should be prepared");
+        let db_path = prepared.join("rows-2/org-files-db.sqlite");
+
+        let connection =
+            rusqlite::Connection::open(&db_path).expect("benchmark database should open");
+        connection
+            .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION - 1)
+            .expect("outdated schema version should persist");
+        drop(connection);
+
+        let prepared = prepare_benchmark_databases(&work_dir, &[2], 1)
+            .expect("outdated benchmark database should be rebuilt");
+        let connection =
+            open_existing_database_read_only(prepared.join("rows-2/org-files-db.sqlite"))
+                .expect("rebuilt benchmark database should use the current schema");
+        let version =
+            crate::db::read_schema_version(&connection).expect("schema version should load");
+        assert_eq!(version, CURRENT_SCHEMA_VERSION);
         drop(connection);
 
         fs::remove_dir_all(&work_dir).expect("benchmark test directory should be removed");
