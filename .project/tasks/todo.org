@@ -424,6 +424,357 @@ Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matche
 
 Task file: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
 
+* TODO Record and compare the SQLite runtime used by query benchmarks
+
+Start this task before further SQLite query optimization work.
+
+Query benchmark results are not fully comparable unless the SQLite runtime is known.
+
+The current build normally uses the system SQLite library.
+
+Different Linux distributions, WSL environments, and machines can therefore use different SQLite versions and build configurations even when the Rust source is identical.
+
+Goal: make the SQLite runtime part of every query performance result and determine whether a newer SQLite runtime materially changes current production query performance.
+
+Do not change the production SQLite linking strategy only to complete this task.
+
+In particular, do not switch permanently to bundled SQLite without separate evidence that it provides all SQLite functionality required by orgfdb.
+
+** Phase 1 - Record SQLite runtime information
+
+Extend ~orgfdb-query-sql-benchmark~ so every benchmark output records the SQLite runtime used for that run.
+
+Record at least:
+
+- ~sqlite_version()~
+- ~sqlite_source_id()~
+- relevant SQLite compile options
+- whether the benchmark is using the normal system-linked build or an explicitly selected comparison build
+
+Keep this information in the benchmark environment metadata.
+
+Do not require manual notes outside the benchmark JSON to determine which SQLite runtime produced a result.
+
+If the existing general benchmark already records useful SQLite runtime information, reuse the same representation where practical.
+
+Keep the benchmark schema explicit when new environment fields are added.
+
+** Phase 2 - Verify required SQLite capabilities
+
+Before comparing an alternative SQLite build, identify the SQLite capabilities required by the current orgfdb implementation and test suite.
+
+Do not assume that a default bundled SQLite configuration provides everything orgfdb requires.
+
+Verify the comparison runtime against the required:
+
+- SQLite functions
+- extensions or compile-time capabilities
+- limits used by orgfdb
+- query behavior required by the current implementation
+
+A comparison runtime is valid only if it can run the relevant orgfdb tests and query workloads correctly.
+
+Do not weaken orgfdb functionality only to make an alternative SQLite build work.
+
+** Phase 3 - Compare runtimes
+
+Compare the normal current SQLite runtime with a recent controlled SQLite runtime.
+
+Use the same:
+
+- orgfdb source
+- release build profile
+- benchmark corpus
+- benchmark parameters
+- machine and operating environment
+
+Change only the SQLite runtime or build configuration required for the comparison.
+
+The comparison may use bundled SQLite or another controlled linking method.
+
+The task does not prescribe the mechanism.
+
+If bundled SQLite lacks required functionality, use another comparison method or record that limitation.
+
+Run representative query workloads including:
+
+- normal headings
+- headings with properties
+- headings with effective properties
+- headings with path
+- representative expensive predicate queries
+- representative file queries
+
+Measure complete query latency.
+
+Also compare query plans when the runtime changes them.
+
+Do not retain a SQLite runtime change only because an isolated SQL operation improves.
+
+Require useful production-level evidence.
+
+If the newer SQLite runtime gives no material benefit, keep the current linking strategy.
+
+If it gives a material benefit, document the result and create a separate implementation decision before changing the production linking strategy.
+
+Do not combine that production packaging decision with this investigation.
+
+Update ~docs/query-sql-performance.org~ with:
+
+- SQLite runtime metadata requirements
+- compared SQLite versions
+- relevant compile-option differences
+- benchmark results
+- query-plan differences where relevant
+- the final decision
+
+Acceptance criteria:
+
+- Query SQL benchmark JSON records the actual SQLite version.
+- Query SQL benchmark JSON records the SQLite source ID.
+- Relevant SQLite compile options are recorded.
+- Benchmark results clearly identify system-linked versus comparison runtimes.
+- Required orgfdb SQLite capabilities are checked before accepting a comparison runtime.
+- A recent SQLite runtime is compared on the same machine and benchmark corpus.
+- Complete query latency is the final comparison metric.
+- Query-plan changes are recorded when relevant.
+- No production linking strategy changes without separate evidence and a separate decision.
+- A no-change result is allowed.
+- ~make ci~ passes.
+
+
+* TODO Investigate SQLite-side aggregation for enrichment rows
+
+Start this task after the SQLite runtime comparison above is complete.
+
+Use one stable SQLite runtime for all candidate measurements.
+
+The current large-result profiles show that substantial query time is spent transferring, decoding, grouping, sorting, and attaching enrichment rows.
+
+At ~50'000~ results, some enrichment stages transfer several rows per result from SQLite to Rust.
+
+Examples include:
+
+- heading tags
+- properties
+- effective properties
+- file keywords
+
+The current Rust path can therefore perform significant work on intermediate rows that exist only to construct one final collection per result.
+
+Goal: determine whether selected enrichment relations should be aggregated in SQLite before crossing the SQLite/Rust boundary.
+
+Do not change predicate compilation in this task.
+
+Do not change shared TEMP relation selection in this task.
+
+Do not move final presentation formatting into SQLite.
+
+Keep normal public query results unchanged.
+
+** Phase 1 - Establish the current row-transfer baseline
+
+Refresh representative large-workload measurements.
+
+Record for each tested enrichment:
+
+- result count
+- enrichment rows transferred from SQLite
+- SQLite execution time
+- SQLite row decoding time
+- Rust grouping time
+- Rust local sorting time
+- final result shaping time
+- complete query latency
+
+Start with heading tags.
+
+Use representative ~50'000~-result workloads.
+
+Do not optimize all enrichment types at once.
+
+** Phase 2 - Prototype aggregated heading tags
+
+Implement an isolated candidate that returns one aggregated tag value per heading instead of one SQLite row per tag where practical.
+
+Preserve the current tag ordering exactly.
+
+Preserve all current tag semantics.
+
+The exact SQL representation is not prescribed.
+
+A candidate may use SQLite aggregate functions or another SQLite-side representation when it remains deterministic and simple.
+
+Avoid a representation that requires expensive encode/decode work that merely moves the same cost elsewhere.
+
+Pay particular attention to the current intermediate tag representation.
+
+Do not introduce a new JSON encode/decode round trip unless benchmark evidence shows that it is still beneficial.
+
+Compare:
+
+- current row-per-tag enrichment
+- SQLite-side aggregated enrichment
+
+Require exact public query result equality.
+
+Measure:
+
+- rows transferred from SQLite
+- payload bytes crossing the SQLite/Rust boundary where practical
+- SQLite execution
+- SQLite decoding
+- Rust grouping
+- final shaping
+- complete query latency
+
+Complete query latency is the final decision metric.
+
+** Phase 3 - Decide whether to generalize
+
+If aggregated heading tags give a clear end-to-end improvement, investigate the same pattern independently for:
+
+- properties
+- effective properties
+- file keywords
+
+Apply and benchmark one logical enrichment change at a time.
+
+Do not assume that all enrichment types benefit from the same representation.
+
+Properties and effective properties may have different ownership, ordering, inheritance, or validation requirements.
+
+Keep a candidate only when its own end-to-end benchmark supports it.
+
+Do not retain aggregation merely because it reduces transferred row count.
+
+Avoid complex SQL encodings for small gains.
+
+A valid result is to retain aggregation only for some enrichment types.
+
+A valid result is also no production change if reduced row transfer does not improve complete query latency.
+
+Update ~docs/query-sql-performance.org~ with:
+
+- row-transfer baselines
+- tested aggregate representations
+- exact semantic-equivalence checks
+- retained and rejected candidates
+- complete query latency results
+
+Acceptance criteria:
+
+- Heading tags are tested first as an isolated aggregation candidate.
+- Current and candidate result values and ordering are identical.
+- Row-transfer differences are measured.
+- SQLite execution and Rust processing costs are measured separately for attribution.
+- Complete query latency determines whether a candidate is retained.
+- Other enrichment types are tested only if the first result justifies continuing.
+- Each retained enrichment aggregation has independent benchmark evidence.
+- Small workloads have no material regression.
+- Representative ~50'000~-result workloads improve measurably for retained changes.
+- No query compiler or TEMP relation strategy changes are included.
+- Performance documentation records retained and rejected candidates.
+- A no-change result is allowed.
+- ~make ci~ passes.
+
+
+* TODO Investigate SQLite planner statistics for production queries
+
+Start this task after the SQLite runtime and enrichment-aggregation investigations are settled.
+
+Use the final production query implementation and one stable SQLite runtime as the baseline.
+
+SQLite can use persistent planner statistics to choose indexes and join orders.
+
+The current controlled query benchmarks should therefore test whether planner statistics provide a useful production benefit for orgfdb data distributions.
+
+Goal: determine whether ~ANALYZE~ or ~PRAGMA optimize~ should be part of the orgfdb database lifecycle.
+
+This is an investigation task.
+
+Do not enable automatic production optimization before benchmark evidence exists.
+
+Do not change query semantics.
+
+Do not add new indexes in this task.
+
+** Phase 1 - Establish comparable database states
+
+Create comparable benchmark databases with identical indexed data.
+
+Compare at least:
+
+- the normal current database state
+- the same database after the selected SQLite statistics operation
+
+Record the resulting relevant ~sqlite_stat*~ state where practical.
+
+Use the same SQLite runtime for both cases.
+
+Do not compare statistics results across different SQLite versions in this task.
+
+** Phase 2 - Benchmark representative queries
+
+Measure workloads where planner decisions can matter.
+
+Include:
+
+- cheap heading queries
+- selective metadata predicates
+- less selective metadata predicates
+- expensive multi-predicate queries
+- queries that use the selective shared TEMP strategy
+- representative enrichment-heavy queries
+
+Record:
+
+- complete query latency
+- query plan
+- relevant statement counts
+- matched result counts
+
+Use repeated samples.
+
+If a query plan changes, record whether the change improves or regresses complete query latency.
+
+Do not infer a benefit only from a query plan that looks better.
+
+** Phase 3 - Decide lifecycle behavior
+
+If planner statistics provide a clear and stable benefit, determine the smallest safe lifecycle integration.
+
+Consider when statistics would need refreshing after substantial index changes.
+
+Do not run expensive statistics work after every small update unless benchmarks justify it.
+
+Prefer SQLite's supported optimization mechanism over custom statistics management when it provides the required behavior.
+
+If statistics provide no useful production benefit, keep the current lifecycle unchanged.
+
+Document the no-change result.
+
+Update ~docs/query-sql-performance.org~ with:
+
+- tested database states
+- SQLite runtime used
+- statistics operation used
+- changed query plans
+- complete query latency results
+- the final lifecycle decision
+
+Acceptance criteria:
+
+- Statistics are tested on identical data with one SQLite runtime.
+- Representative selective and non-selective queries are included.
+- Query-plan changes are recorded where they occur.
+- Complete query latency determines the decision.
+- No new indexes or compiler changes are mixed into the experiment.
+- Any retained lifecycle integration has measured production benefit.
+- Statistics refresh behavior is explicit if retained.
+- A no-change result is allowed.
+- ~make ci~ passes.
+
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded
