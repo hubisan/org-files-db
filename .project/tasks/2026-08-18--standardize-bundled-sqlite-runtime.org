@@ -320,6 +320,87 @@ Schema version ~13~ still records:
 
 The default runtime labels now describe the normal bundled build.
 
+** Bundled capability result
+
+The schema version ~13~ benchmark reports:
+
+- SQLite ~3.53.2~
+- runtime kind ~bundled~
+- runtime label ~rusqlite-bundled~
+- JSON available
+- FTS5 available
+- DBSTAT available
+- variable-number limit ~32766~
+
+The benchmark result counts match the previous system-runtime benchmark for all primary workloads.
+
+The compiler audit also matches the previous benchmark.
+
+The previous system runtime used SQLite ~3.45.1~ with a variable-number limit of ~250000~.
+
+The bundled runtime has fewer optional compile features but keeps all capabilities required by this task.
+
+The bundled runtime also enables ~DEFAULT_FOREIGN_KEYS~, ~ENABLE_API_ARMOR~, ~ENABLE_MEMORY_MANAGEMENT~, and ~ENABLE_STAT4~.
+
+orgfdb already enables foreign keys explicitly when it opens normal database connections.
+
+** Bundled performance baseline
+
+The primary complete-query medians at 50000 results are:
+
+| Workload | System SQLite 3.45.1 | Bundled SQLite 3.53.2 | Change |
+|----------+----------------------+-----------------------+--------|
+| headings.normal | 209.481 ms | 189.553 ms | -9.5% |
+| headings.tags | 244.509 ms | 188.439 ms | -22.9% |
+| headings.properties | 408.382 ms | 298.967 ms | -26.8% |
+| headings.effective-properties | 314.415 ms | 273.617 ms | -13.0% |
+| headings.path | 411.178 ms | 390.317 ms | -5.1% |
+| files.normal | 120.974 ms | 134.772 ms | +11.4% |
+| files.keywords | 263.100 ms | 251.132 ms | -4.5% |
+
+All seven 10000-result primary workloads improve.
+
+Six of seven 50000-result primary workloads improve.
+
+The 50000-result ~files.normal~ median regresses by about ~11.4%~.
+
+Its separate direct-phase profile moves in the opposite direction.
+
+Bundled SQLite reduces its matched SQL execution, enrichment SQL execution, row decoding, and final result shaping in that profile.
+
+The current evidence therefore does not identify a bundled SQLite operation that causes the complete-query increase.
+
+A focused 50000-result repeat with more timing samples is required before this task moves to ~REVIEW~.
+
+The small-result differences are mixed.
+
+The largest absolute increase at 1000 results is about ~2.23 ms~.
+
+** Variable-limit result
+
+The bundled limit of ~32766~ exercises the existing runtime chunking.
+
+At 50000 results, ~headings.path~ uses six direct-profile statements instead of four.
+
+Its maximum bound-parameter count drops from ~50000~ to ~32766~.
+
+The complete-query median still improves by about ~5.1%~.
+
+** Query-plan result
+
+Nine of 13 representative plans stay unchanged.
+
+The bundled runtime changes four recorded plans:
+
+- ~hierarchy-parent~
+- ~link-source~
+- ~link-target~
+- ~file-restriction~
+
+SQLite ~3.53.2~ reports ~SEARCH ... EXISTS~ for these cases instead of the correlated scalar-subquery form from SQLite ~3.45.1~.
+
+No result-count or compiler-audit difference accompanies these plan changes.
+
 ** Changed files
 
 - ~Cargo.toml~
@@ -340,6 +421,12 @@ The default runtime labels now describe the normal bundled build.
 - Kept ~hashbrown 0.14.5~ because ~rowan~ still uses it.
 - Reviewed all query benchmark profiling call sites after the ~trace_v2~ migration.
 - Made the benchmark environment test require JSON, FTS5, and DBSTAT from the bundled runtime.
+- Reviewed the schema version ~13~ bundled benchmark output.
+- Confirmed SQLite ~3.53.2~ and the expected bundled runtime labels from the benchmark itself.
+- Confirmed JSON, FTS5, and DBSTAT capability probes from the bundled runtime.
+- Confirmed the ~32766~ variable-number limit and successful 50000-result query chunking.
+- Compared primary complete-query medians with the previous system-runtime schema version ~13~ result.
+- Compared all 13 representative query plans.
 - Reviewed the first user-side ~make ci~ failure from the ~rusqlite 0.40.2~ API changes.
 - Updated all project ~set_limit~ call sites for the fallible API.
 - Updated affected SQLite integer decodes to use signed SQLite integer types before Rust conversion.
@@ -347,15 +434,24 @@ The default runtime labels now describe the normal bundled build.
 
 ** Blockers
 
-The user-side bundled build checks are still required.
+The bundled benchmark now confirms the runtime identity and required SQLite capabilities.
 
-Run ~make ci~ first.
+One large-workload timing still needs a focused repeat.
 
-Then run the schema version ~13~ query SQL benchmark.
+Run:
 
-The benchmark output must confirm the actual bundled runtime and required SQLite capabilities.
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 50000 \
+  --warmups 2 \
+  --iterations 7 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-bundled-50000-repeat-v13.json
+#+end_src
 
-The complete query timings must show no material unexplained regression before this task moves to ~REVIEW~.
+Use the repeat to decide whether the ~files.normal~ increase is stable or run-level variance.
+
+The final user-side ~make ci~ result also needs explicit confirmation before this task moves to ~REVIEW~.
 
 ** Follow-ups
 

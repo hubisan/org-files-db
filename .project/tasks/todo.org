@@ -424,7 +424,7 @@ Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matche
 
 Task file: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
 
-* BUILD Standardize and record the bundled SQLite runtime
+* DONE Standardize and record the bundled SQLite runtime
 
 Task file: [[./2026-08-18--standardize-bundled-sqlite-runtime.org][Standardize Bundled SQLite Runtime]]
 
@@ -527,6 +527,12 @@ Acceptance criteria:
 - No material unexplained performance regression remains.
 - ~make ci~ passes.
 
+Decision:
+- Keep the bundled SQLite default ~MAX_VARIABLE_NUMBER=32766~.
+- Do not add a project-specific SQLite variable-limit override.
+- orgfdb already chunks larger parameter sets against the runtime limit.
+- Treat the bundled SQLite 3.53.2 schema-v13 benchmark with the default limit as the new performance baseline.
+- The 250000-variable repeat was investigative only and is not the retained baseline.
 
 * TODO Review and update direct Rust dependencies
 
@@ -1185,4 +1191,4 @@ Acceptance criteria:
   
 * TODO Auto rename > resolve link mode
 
-The watcher automatically fixes links upon renaming files (filename, dir, path). This would be cool, no more having to worry about this. Should be a configuration flat in the toml.
+The watcher automatically fixes links upon renaming files (filename, dir, path). This would be cool, no more having to worry about this. Should be a configuration option in the toml.

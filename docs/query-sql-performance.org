@@ -1177,7 +1177,93 @@ The benchmark profiler now uses ~trace_v2~ with only ~SQLITE_TRACE_PROFILE~ even
 
 This replaces the deprecated ~rusqlite~ ~profile~ callback without changing measured query behavior.
 
-The bundled build still needs user-side capability checks and a schema version ~13~ performance baseline.
+The bundled build now has a schema version ~13~ runtime and performance baseline.
+
+** Bundled schema version 13 baseline
+
+The bundled benchmark reports SQLite ~3.53.2~ with source ID ~2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24~.
+
+The runtime probes report:
+
+- runtime kind ~bundled~
+- runtime label ~rusqlite-bundled~
+- JSON available
+- FTS5 available
+- DBSTAT available
+- variable-number limit ~32766~
+
+The previous system runtime used SQLite ~3.45.1~ with a variable-number limit of ~250000~.
+
+The bundled runtime adds compile options that include ~DEFAULT_FOREIGN_KEYS~, ~ENABLE_API_ARMOR~, ~ENABLE_MEMORY_MANAGEMENT~, and ~ENABLE_STAT4~.
+
+The system runtime had extra optional features that orgfdb does not require, including FTS4, math functions, session support, and statement virtual tables.
+
+The required JSON, FTS5, and DBSTAT capabilities are present in the bundled runtime.
+
+The standard schema version ~13~ complete-query medians compare as follows.
+
+| Results | Workload | System SQLite 3.45.1 | Bundled SQLite 3.53.2 | Change |
+|---------+----------+----------------------+-----------------------+--------|
+| 100 | headings.normal | 0.623 ms | 0.463 ms | -25.7% |
+| 100 | headings.tags | 0.411 ms | 0.567 ms | +38.0% |
+| 100 | headings.properties | 0.694 ms | 0.912 ms | +31.4% |
+| 100 | headings.effective-properties | 0.847 ms | 0.716 ms | -15.5% |
+| 100 | headings.path | 0.774 ms | 0.857 ms | +10.7% |
+| 100 | files.normal | 0.302 ms | 0.536 ms | +77.8% |
+| 100 | files.keywords | 0.393 ms | 0.418 ms | +6.5% |
+| 1000 | headings.normal | 3.093 ms | 4.894 ms | +58.2% |
+| 1000 | headings.tags | 3.860 ms | 4.241 ms | +9.9% |
+| 1000 | headings.properties | 5.114 ms | 7.347 ms | +43.7% |
+| 1000 | headings.effective-properties | 5.991 ms | 4.911 ms | -18.0% |
+| 1000 | headings.path | 5.276 ms | 6.148 ms | +16.5% |
+| 1000 | files.normal | 2.065 ms | 3.866 ms | +87.2% |
+| 1000 | files.keywords | 3.264 ms | 4.485 ms | +37.4% |
+| 10000 | headings.normal | 45.673 ms | 34.969 ms | -23.4% |
+| 10000 | headings.tags | 58.629 ms | 38.858 ms | -33.7% |
+| 10000 | headings.properties | 102.200 ms | 70.709 ms | -30.8% |
+| 10000 | headings.effective-properties | 66.456 ms | 49.428 ms | -25.6% |
+| 10000 | headings.path | 71.296 ms | 66.103 ms | -7.3% |
+| 10000 | files.normal | 28.731 ms | 20.888 ms | -27.3% |
+| 10000 | files.keywords | 48.901 ms | 39.057 ms | -20.1% |
+| 50000 | headings.normal | 209.481 ms | 189.553 ms | -9.5% |
+| 50000 | headings.tags | 244.509 ms | 188.439 ms | -22.9% |
+| 50000 | headings.properties | 408.382 ms | 298.967 ms | -26.8% |
+| 50000 | headings.effective-properties | 314.415 ms | 273.617 ms | -13.0% |
+| 50000 | headings.path | 411.178 ms | 390.317 ms | -5.1% |
+| 50000 | files.normal | 120.974 ms | 134.772 ms | +11.4% |
+| 50000 | files.keywords | 263.100 ms | 251.132 ms | -4.5% |
+
+The small-result comparisons are mixed, but the largest absolute increase at 1000 results is about ~2.23 ms~.
+
+All seven 10000-result workloads improve in this run.
+
+Six of seven 50000-result workloads improve.
+
+The 50000-result ~files.normal~ workload is the only large-workload regression in the primary complete-query samples.
+
+Its median increases from ~120.974 ms~ to ~134.772 ms~, or about ~11.4%~.
+
+The separate direct-phase profile does not show the same regression.
+
+For ~files.normal~, bundled SQLite reduces matched SQL execution, enrichment SQL execution, row decoding, and final result shaping in that profile.
+
+This mismatch is consistent with run-level variance outside the isolated attribution sample.
+
+Run one focused 50000-result repeat with more timing samples before treating the ~files.normal~ increase as a bundled-runtime regression.
+
+The lower variable-number limit is handled correctly by the existing query chunking.
+
+For the 50000-result ~headings.path~ workload, the direct profile increases from four statements with a maximum of 50000 bound parameters to six statements with a maximum of 32766.
+
+The complete-query median still improves by about ~5.1%~.
+
+Four of the 13 representative query plans change under SQLite ~3.53.2~.
+
+The changed plans are ~hierarchy-parent~, ~link-source~, ~link-target~, and ~file-restriction~.
+
+SQLite ~3.53.2~ uses explicit ~SEARCH ... EXISTS~ plan entries where SQLite ~3.45.1~ reported correlated scalar subqueries.
+
+The other nine recorded plans stay unchanged.
 
 ** Invalid controlled-runtime attempt
 
@@ -1197,7 +1283,7 @@ This result confirms why runtime identity belongs in the benchmark output.
 
 The external shared-library comparison procedure is no longer part of the project plan.
 
-The bundled runtime will get a new schema version ~13~ performance baseline after capability checks pass.
+The bundled schema version ~13~ baseline above replaces this invalid comparison.
 
 * Benchmark output
 
