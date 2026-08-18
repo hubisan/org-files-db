@@ -11,6 +11,41 @@
 
 Continue ~Benchmark heading path with smaller SQLite variable limits~ from ~todo.org~.
 
+** DONE Benchmark heading path with smaller SQLite variable limits
+
+Task file: [[./2026-08-17--benchmark-heading-path-variable-limits.org][Benchmark Heading Path with Smaller SQLite Variable Limits]]
+
+Measure the Rust-driven heading path strategy with smaller SQLite variable limits.
+
+The current benchmark uses ~SQLITE_LIMIT_VARIABLE_NUMBER = 250000~.
+
+The Rust-driven bulk ancestor strategy uses runtime-limit-safe ID batches. Its large-result performance still needs validation with smaller limits.
+
+Benchmark at least:
+
+- ~250000~
+- ~32766~
+- ~999~
+
+Focus on ~50'000~ matched headings.
+
+Compare:
+
+- ~recursive-query-derived~
+- ~rust-driven-bulk-ancestors~
+
+Record:
+
+- total latency
+- statement count
+- maximum bound parameters
+- rows transferred from SQLite
+- SQLite execution time
+- row decoding time
+- Rust path construction time
+
+Keep the Rust-driven strategy only if its end-to-end advantage remains clear with smaller variable limits.
+
 * Planning
 
 ** Problem summary

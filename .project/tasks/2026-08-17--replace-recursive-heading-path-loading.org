@@ -11,6 +11,34 @@
 
 Continue ~Replace recursive heading path loading with Rust-driven bulk ancestors~ from ~todo.org~.
 
+** DONE Replace recursive heading path loading with Rust-driven bulk ancestors
+
+Task file: [[./2026-08-17--replace-recursive-heading-path-loading.org][Replace Recursive Heading Path Loading with Rust-Driven Bulk Ancestors]]
+
+Use the benchmarked Rust-driven bulk ancestor loader for direct-flat heading path enrichment.
+
+The benchmark shows a clear latency improvement at every measured result size.
+
+The Rust-driven strategy also transfers fewer rows from SQLite.
+
+Keep query matching and relational filtering in SQLite.
+
+Use Rust to:
+
+- reuse the matched heading rows
+- collect missing ancestor IDs
+- load missing ancestors in runtime-limit-safe batches
+- validate the ancestor chain
+- construct the final heading path
+
+Preserve all current corruption errors.
+
+Do not reload all headings from matched files.
+
+Keep the current recursive query-derived loader until the variable-limit benchmark confirms the production change.
+
+Add regression tests for nested paths, small variable limits, missing ancestors, cross-file parents, and malformed ~outline_path~ data.
+
 * Planning
 
 ** Problem summary

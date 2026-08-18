@@ -388,1293 +388,37 @@ Task file: [[./archive/2026-08-16--query-enrichment-sql-optimization.org][Query 
 
 Task file: [[./2026-08-17--query-sql-result-relations.org][Query SQL Result Relations]]
 
-Goal: Remove avoidable SQL work after a query matches a large result set.
-
-The first SQL optimization round removed the fixed ~900~ parameter chunks.
-
-It also reduced unnecessary enrichment work and uses the SQLite runtime variable limit.
-
-The remaining main pattern is now:
-
-#+begin_example
-SQLite matches result IDs
-  -> Rust collects result IDs
-  -> Rust sends the same IDs back to SQLite
-  -> SQLite loads enrichment data
-#+end_example
-
-Avoid this round trip where SQLite can keep the result relation and join against it directly.
-
-Keep Rust post-processing when it is simpler or faster after SQLite returns the required data.
-
-** Current baseline
-
-Use the completed SQL benchmark as the round 2 baseline.
-
-For ~50'000~ results:
-
-- ~headings.normal~: approximately ~354 ms~
-- ~headings.tags~: approximately ~352 ms~
-- ~headings.properties~: approximately ~481 ms~
-- ~headings.effective-properties~: approximately ~492 ms~
-- ~headings.path~: approximately ~846 ms~
-- ~files.normal~: approximately ~179 ms~
-- ~files.keywords~: approximately ~361 ms~
-
-The current SQLite variable limit is ~32766~ on the benchmark system.
-
-The runtime-limit ~IN (...)~ implementation now uses this limit correctly.
-
-The lookup microbenchmark for ~50'000~ heading IDs reports:
-
-#+begin_example
-query-derived-join       ~23.7 ms
-json-each-relation       ~39.5 ms
-runtime-limit-in         ~58.0 ms
-temporary-id-relation    ~74.7 ms
-cte-values              ~102.9 ms
-#+end_example
-
-The query-derived join wins at all measured result sizes.
-
-Use these results as evidence, not as a requirement to use one strategy everywhere.
-
-** Keep matched results inside SQLite
-
-Review each enrichment stage that receives IDs from Rust.
-
-Check whether the stage can join directly against the original matched result relation.
-
-Focus first on:
-
-- heading tags
-- direct properties
-- effective properties
-- keywords
-- outline path validation
-- files required by heading results
-- headings required by path output
-- tags required by path output
-- links and backlinks when their enrichment uses large ID lists
-
-Do not send a large result ID set back to SQLite when the same set is already available as a SQL relation.
-
-Keep ~runtime-limit-in~ for cases where the IDs originate in Rust.
-
-** Query-derived joins
-
-Evaluate query-derived joins for enrichment stages.
-
-For example:
-
-#+begin_example
-matched headings
-  -> JOIN effective_tags
-#+end_example
-
-instead of:
-
-#+begin_example
-matched headings
-  -> collect heading IDs in Rust
-  -> SELECT ... WHERE heading_id IN (...)
-#+end_example
-
-Reuse the compiled query semantics.
-
-Do not duplicate query logic manually.
-
-Keep all data for one public query inside the same database snapshot.
-
-Measure the cost when a complex match query is evaluated again for several enrichment stages.
-
-Do not assume that repeating a complex query is cheaper than materializing its result once.
-
-** Shared temporary result relation
-
-Add a production-level comparison for a shared temporary result relation.
-
-The current microbenchmark measures one lookup after temporary relation setup.
-
-Round 2 must also measure reuse of one temporary relation across several enrichment stages.
-
-Compare a flow such as:
-
-#+begin_example
-match query
-  -> populate temporary matched-result relation once
-  -> join tags
-  -> join properties
-  -> join effective properties
-  -> join keywords
-  -> validate outline paths
-#+end_example
-
-against repeated query-derived joins.
-
-Include the temporary relation setup cost in the total time.
-
-Measure workloads with one enrichment stage and several enrichment stages.
-
-Do not select the temporary relation strategy from the existing single-lookup benchmark alone.
-
-** Avoid join fan-out
-
-Do not create one large join that multiplies independent one-to-many relations.
-
-For example, joining tags and properties together can create:
-
-#+begin_example
-tag count * property count
-#+end_example
-
-rows for one heading.
-
-Keep independent enrichment relations separate when a combined join increases row count.
-
-Prefer several efficient joins over one query with large fan-out.
-
-Measure returned SQL row counts for candidate strategies.
-
-** Outline path validation
-
-Remove the separate large-ID validation round trip where practical.
-
-Keep the existing corruption contract.
-
-A missing or invalid required ~outline_path~ row must still produce the current query error.
-
-Evaluate integration of the validation into:
-
-- the matched heading query
-- a query-derived relation
-- a shared temporary result relation
-- an enrichment query that already reads ~outline_path~
-
-Do not load unrelated headings only to validate their outline paths.
-
-** Heading tags
-
-The ~query-heading-tags~ stage costs approximately ~67 ms~ at ~50'000~ headings.
-
-Replace or compare its current ID-list lookup with a query-derived join.
-
-Also compare it with a shared temporary result relation.
-
-Preserve tag order and existing result semantics.
-
-** Properties and effective properties
-
-The ~50'000~ result profile reports approximately:
-
-#+begin_example
-enrich-properties             ~96 ms
-enrich-effective-properties   ~88 ms
-#+end_example
-
-Evaluate direct joins against the matched result relation.
-
-Keep the existing ~effective_properties~ materialization.
-
-Do not add another persistent materialized table without new benchmark evidence.
-
-Preserve property ordering, duplicate handling, inheritance semantics, and empty values.
-
-** Keywords
-
-The ~files.keywords~ workload reports approximately ~103 ms~ in the keyword enrichment stage at ~50'000~ files.
-
-Evaluate a direct join from the matched file relation to the required root heading and keyword rows.
-
-Avoid collecting root heading IDs in Rust and sending them back to SQLite where practical.
-
-Preserve duplicate keywords, source order, and empty values.
-
-** Path enrichment
-
-The ~headings.path~ workload remains the slowest measured query at approximately ~846 ms~ for ~50'000~ results.
-
-Its SQL profile includes approximately:
-
-#+begin_example
-enrich-files      ~95 ms
-enrich-headings  ~205 ms
-enrich-tags       ~83 ms
-match-headings    ~89 ms
-#+end_example
-
-Review this path in detail.
-
-Find data that the original match already provides.
-
-Avoid reloading the same heading or file facts.
-
-Keep outline construction in Rust when Rust can combine already loaded rows efficiently.
-
-Do not move outline construction into complex SQL without benchmark evidence.
-
-** ~json_each~ fallback
-
-Evaluate ~json_each~ for large ID sets that genuinely originate in Rust.
-
-The microbenchmark shows better large-set performance than dynamic ~IN (...)~ lists.
-
-Compare:
-
-- execution time
-- JSON serialization cost in Rust
-- SQLite JSON parsing cost
-- memory use
-- availability in the supported SQLite build
-- behavior for small result sets
-
-Keep the runtime-limit ~IN (...)~ implementation as a portable fallback unless project requirements guarantee ~json_each~.
-
-Do not replace small ~IN (...)~ lookups when measurements show no useful gain.
-
-** SQLite query plans
-
-Review the SQL plans for important query predicate families.
-
-Use ~EXPLAIN QUERY PLAN~ for representative queries.
-
-Cover at least:
-
-- heading level and title predicates
-- file predicates
-- direct tags
-- effective tags
-- direct properties
-- effective properties
-- keywords
-- hierarchy predicates
-- link source and target predicates
-- temporal predicates
-- file restrictions
-
-Check that SQLite uses the intended indexes.
-
-Record unexpected table scans and temporary B-tree use.
-
-Add or change persistent indexes only when measurements show a useful improvement.
-
-Include index write cost and database size in the decision.
-
-** Measurement
-
-Keep the existing result sizes:
-
-- 100
-- 1'000
-- 10'000
-- 50'000
-
-Measure the same production workloads before and after round 2.
-
-Record:
-
-- complete query latency
-- SQL statement count
-- bound parameter count
-- rows returned by major SQL stages
-- wall-clock time for each enrichment stage
-- SQLite profile time
-- Rust time outside SQLite where practical
-
-The SQLite profile callback has coarse timing resolution.
-
-Use direct wall-clock stage measurements when more precise attribution is required.
-
-Measure each candidate with warmups and several iterations.
-
-Do not use a single run to select the final strategy.
-
-** Strategy decision
-
-Select strategies based on the complete production query cost.
-
-A lower SQL statement count alone is not sufficient.
-
-Prefer a strategy that reduces:
-
-- repeated query evaluation
-- large parameter binding
-- SQLite to Rust ID transfer
-- Rust to SQLite ID transfer
-- duplicate row decoding
-- unnecessary SQL sorting
-- join fan-out
-
-Keep different strategies for different data sources when measurements support that design.
-
-A single universal ID transport strategy is not required.
-
-** Materialized tables
-
-Do not add new persistent materialized tables in this round unless the measurements require them.
-
-The existing materialized relations already cover important derived data.
-
-First optimize access to those relations.
-
-If a new materialized table still looks useful, document:
-
-- the exact query cost it removes
-- rebuild cost
-- incremental update cost
-- database size increase
-- write amplification
-- schema complexity
-- measured query improvement
-
-Treat a new materialized table as a separate design decision if the evidence is not clear.
-
-** Compatibility
-
-Do not change public query semantics.
-
-Do not change result ordering.
-
-Do not change corruption detection.
-
-Do not change the existing ~--format json~ contract.
-
-Do not change ~presentation-json~ in this task.
-
-Do not add presentation caching.
-
-Do not add presentation parallelism.
-
-Keep ~SQLITE_LIMIT_VARIABLE_NUMBER~ handling from round 1.
-
-Keep correct behavior with a small configured SQLite variable limit.
-
-** Acceptance criteria
-
-- Large matched ID sets stay inside SQLite where this gives a measured benefit.
-- The selected strategy beats or matches the round 1 production baseline.
-- ~query-heading-tags~ no longer uses avoidable large ID round trips.
-- Outline path validation keeps the existing error contract.
-- Properties and effective properties use the fastest measured safe relation strategy.
-- Keyword enrichment uses the fastest measured safe relation strategy.
-- The ~headings.path~ workload receives a dedicated optimization review.
-- Shared temporary result relations are benchmarked with reuse across several enrichment stages.
-- Query-derived joins are benchmarked with simple and complex match queries.
-- ~json_each~ is evaluated for IDs that originate in Rust.
-- Important predicate families receive an ~EXPLAIN QUERY PLAN~ review.
-- New indexes require benchmark evidence.
-- New persistent materialized tables require benchmark evidence.
-- Tests cover all changed query and enrichment paths.
-- Query output and ordering remain unchanged.
-- Benchmark results and the final strategy decisions are documented.
-  
 * DONE Benchmark Rust vs SQLite query result processing
 
 Task file: [[./2026-08-17--benchmark-rust-vs-sqlite-query-processing.org][Benchmark Rust vs SQLite Query Result Processing]]
 
-Measure the query execution phases before moving more result work from SQLite to Rust.
-
-Round 2 improved the SQLite query path and removed large ID round trips for query-derived relations.
-
-The remaining query cost is not fully attributed between SQLite execution, row decoding, Rust processing, and final result shaping.
-
-The current SQLite profiler is useful for SQL stages, but it does not give precise wall-clock attribution for the complete Rust and SQLite path.
-
-The ~headings.path~ workload is the main candidate for further investigation. At 50'000 results, ~enrich-path-headings~ is the most expensive recorded SQL stage.
-
-** Goals
-
-- Measure the main query execution and result-shaping phases with direct wall-clock timings.
-- Separate SQLite execution cost from Rust-side processing cost.
-- Measure the cost of row decoding, grouping, sorting, validation, path construction, and final shaping.
-- Determine whether selected work can move from SQLite to Rust without increasing data transfer significantly.
-- Compare the current recursive ancestor loader with a Rust-driven ancestor loading strategy.
-- Identify optimizations that have measurable value before changing the architecture.
-
-** Non-goals
-
-- Do not change the public query language.
-- Do not change normal ~--format json~ output.
-- Do not change ~presentation-json~.
-- Do not move query matching or relational filtering from SQLite to Rust.
-- Do not move ~effective_tags~ or ~effective_properties~ inheritance calculation to Rust.
-- Do not add new indexes without separate benchmark evidence.
-- Do not implement the selective shared TEMP relation in this task.
-- Do not add dependencies.
-
-** Benchmark phases
-
-Add direct timing around representative phases where the current architecture permits a useful boundary.
-
-Measure at least:
-
-- query compilation
-- matched-row SQL execution
-- enrichment SQL execution
-- SQLite row decoding
-- Rust grouping
-- Rust local sorting
-- outline validation
-- heading path construction
-- final result shaping
-
-Keep the measurements separate from the existing SQLite profile callbacks.
-
-Do not infer Rust time by subtracting SQLite profile time from total query time.
-
-** Workloads
-
-Measure the existing representative result sizes:
-
-- 100
-- 1'000
-- 10'000
-- 50'000
-
-Include at least:
-
-- ~headings.normal~
-- ~headings.properties~
-- ~headings.effective-properties~
-- ~headings.path~
-- ~files.normal~
-- ~files.keywords~
-
-Focus the detailed path analysis on ~headings.path~.
-
-** Path experiment
-
-Compare the current recursive query-derived ancestor loader with an alternative Rust-driven loader.
-
-Current strategy:
-
-1. Keep the matched heading relation in SQLite.
-2. Use recursive SQL to load only required missing ancestors.
-3. Build the final heading path in Rust.
-
-Alternative strategy:
-
-1. Load matched headings and their stored outline evidence.
-2. Collect required ancestor IDs in Rust.
-3. Load missing ancestor heading rows with one or more bounded bulk queries.
-4. Build and validate the final heading path in Rust.
-
-The alternative must preserve all current corruption errors.
-
-It must not reload all headings from every matched file.
-
-Keep the existing runtime-limit-safe ID loader for IDs that originate in Rust.
-
-** Evaluation
-
-For each experiment, record:
-
-- total wall-clock time
-- SQLite execution time where directly measurable
-- row decoding time
-- Rust processing time by phase
-- SQL statement count
-- rows transferred from SQLite to Rust
-- bound parameter count where relevant
-- result count
-
-Prefer an optimization only when the benchmark shows a clear improvement.
-
-Reject an optimization that reduces SQLite work but transfers substantially more unused data to Rust.
-
-** Decision criteria
-
-Keep work in SQLite when it depends on:
-
-- indexed filtering
-- relational matching
-- joins
-- ~EXISTS~ predicates
-- ~effective_tags~
-- ~effective_properties~
-- reusable matched relations
-
-Prefer Rust when the required rows are already loaded and the work consists mainly of:
-
-- grouping
-- local sorting
-- deduplication
-- validation
-- path construction
-- final result shaping
-
-For heading paths, choose the Rust-driven ancestor loader only if it improves measured end-to-end latency without weakening corruption detection.
-
-** Follow-up
-
-Use the benchmark result together with the round 2 relation-reuse benchmark.
-
-After this task, decide separately whether to:
-
-- keep the current SQLite/Rust boundary,
-- move selected shaping or path work to Rust,
-- implement selective shared TEMP relations for expensive matched queries,
-- investigate another measured bottleneck.
-  
 * DONE Benchmark heading path with smaller SQLite variable limits
 
 Task file: [[./2026-08-17--benchmark-heading-path-variable-limits.org][Benchmark Heading Path with Smaller SQLite Variable Limits]]
-
-Measure the Rust-driven heading path strategy with smaller SQLite variable limits.
-
-The current benchmark uses ~SQLITE_LIMIT_VARIABLE_NUMBER = 250000~.
-
-The Rust-driven bulk ancestor strategy uses runtime-limit-safe ID batches. Its large-result performance still needs validation with smaller limits.
-
-Benchmark at least:
-
-- ~250000~
-- ~32766~
-- ~999~
-
-Focus on ~50'000~ matched headings.
-
-Compare:
-
-- ~recursive-query-derived~
-- ~rust-driven-bulk-ancestors~
-
-Record:
-
-- total latency
-- statement count
-- maximum bound parameters
-- rows transferred from SQLite
-- SQLite execution time
-- row decoding time
-- Rust path construction time
-
-Keep the Rust-driven strategy only if its end-to-end advantage remains clear with smaller variable limits.
 
 * DONE Replace recursive heading path loading with Rust-driven bulk ancestors
 
 Task file: [[./2026-08-17--replace-recursive-heading-path-loading.org][Replace Recursive Heading Path Loading with Rust-Driven Bulk Ancestors]]
 
-Use the benchmarked Rust-driven bulk ancestor loader for direct-flat heading path enrichment.
-
-The benchmark shows a clear latency improvement at every measured result size.
-
-The Rust-driven strategy also transfers fewer rows from SQLite.
-
-Keep query matching and relational filtering in SQLite.
-
-Use Rust to:
-
-- reuse the matched heading rows
-- collect missing ancestor IDs
-- load missing ancestors in runtime-limit-safe batches
-- validate the ancestor chain
-- construct the final heading path
-
-Preserve all current corruption errors.
-
-Do not reload all headings from matched files.
-
-Keep the current recursive query-derived loader until the variable-limit benchmark confirms the production change.
-
-Add regression tests for nested paths, small variable limits, missing ancestors, cross-file parents, and malformed ~outline_path~ data.
-
 * DONE Rebenchmark production heading path after Rust ancestor loading
 
 Task file: [[./2026-08-17--rebenchmark-production-heading-path.org][Rebenchmark Production Heading Path after Rust Ancestor Loading]]
-
-Measure the complete production ~headings.path~ workload after the Rust-driven ancestor loader is active.
-
-Use the standard result sizes:
-
-- 100
-- 1'000
-- 10'000
-- 50'000
-
-Compare the new production measurements with the current benchmark from the same machine and SQLite environment.
-
-Record:
-
-- total query latency
-- SQL statement count
-- rows transferred from SQLite
-- SQLite execution time
-- row decoding time
-- Rust processing time
-- final result shaping time
-
-Confirm that the isolated path benchmark improvement also reduces end-to-end ~headings.path~ latency.
-
-Update ~docs/query-sql-performance.org~ with the result.
 
 * DONE Optimize production heading path Rust construction and shaping
 
 [[./2026-08-17--optimize-production-heading-path-rust-shaping.org]]
 
-Remove the large-result Rust overhead that remains after the bulk ancestor loader switch.
-
-The isolated ~rust-driven-bulk-ancestors~ loader is faster than the recursive loader at ~50'000~ headings.
-
-The complete production ~headings.path~ workload still regresses against the pre-switch baseline at ~50'000~ results.
-
-Keep the current Rust-driven production strategy while this task measures the integration cost.
-
-First add a benchmark-only same-process A/B for the complete production ~headings.path~ workload.
-
-Run the full match, tag enrichment, path enrichment, and final shaping with both path loaders.
-
-Use that result to confirm whether the production composition still favors the Rust-driven loader.
-
-Profile the production composition around:
-
-- heading path construction
-- cloning ~heading_paths~ into final result nodes
-- temporary ~BTreeSet~ and ~HashMap~ allocations
-- repeated path entry string clones
-- interaction with already loaded tag data
-- final direct-flat result shaping
-
-Test whether final shaping can move each path into its result instead of cloning the complete ~Vec<PathEntry>~.
-
-Add direct timing only where the existing phase profile cannot isolate the cost.
-
-Use ~50'000~ results as the primary benchmark.
-
-Also rerun 100, 1'000, and 10'000 results to prevent small-result regressions.
-
-Keep public query output, ordering, validation errors, and the recursive benchmark reference unchanged.
-
-Reconsider the production loader only if the complete same-process A/B favors the recursive strategy.
-
-Accept an optimization only when the complete production ~headings.path~ benchmark improves.
-
 * DONE Benchmark predicate-driven SQL for direct metadata filters
 
 [[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
-
-Benchmark metadata predicates that currently scan headings and use correlated subqueries.
-
-The benchmark compares these predicate families:
-
-- direct tags
-- direct properties
-- effective properties
-- keywords
-
-It compares these SQL strategies:
-
-- current heading-driven ~EXISTS~
-- relation-driven SQL with current indexes
-- relation-driven SQL with an experimental predicate-first index
-
-It measures these predicate selectivities:
-
-- 1 %
-- 10 %
-- 50 %
-- 100 %
-
-The benchmark records:
-
-- query latency
-- query plan
-- matched and returned rows
-- statement count
-- rows transferred to Rust
-- scanned rows where SQLite exposes them
-
-The benchmark uses isolated database copies for experimental indexes.
-
-It does not change the production schema or production query compiler.
-
-** Result
-
-Benchmark schema version ~6~ contains the metadata predicate comparison.
-
-The source benchmark run used:
-
-#+begin_src sh
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-v1.json
-#+end_src
-
-The benchmark JSON is not required for later work.
-
-The important results are recorded here and in ~docs/query-sql-performance.org~.
-
-Across all tested database sizes and selectivities:
-
-- relation-driven SQL with current indexes beat heading-driven ~EXISTS~ in all 64 comparisons
-- relation-driven SQL with the experimental predicate-first index beat heading-driven ~EXISTS~ in all 64 comparisons
-- no tested selectivity produced a crossover where heading-driven ~EXISTS~ became faster
-
-At ~50'000~ eligible headings and ~1 %~ selectivity:
-
-- direct tag:
-  - heading-driven ~EXISTS~: ~20.490 ms~
-  - relation-driven with current indexes: ~0.171 ms~
-  - relation-driven with experimental index: ~0.144 ms~
-- direct property:
-  - heading-driven ~EXISTS~: ~24.318 ms~
-  - relation-driven with current indexes: ~17.484 ms~
-  - relation-driven with experimental index: ~0.157 ms~
-- effective property:
-  - heading-driven ~EXISTS~: ~23.719 ms~
-  - relation-driven with current indexes: ~17.190 ms~
-  - relation-driven with experimental index: ~0.152 ms~
-- keyword:
-  - heading-driven ~EXISTS~: ~25.866 ms~
-  - relation-driven with current indexes: ~11.906 ms~
-  - relation-driven with experimental index: ~0.159 ms~
-
-At ~50'000~ eligible headings and ~100 %~ selectivity:
-
-- direct tag:
-  - heading-driven ~EXISTS~: ~25.477 ms~
-  - relation-driven with current indexes: ~18.807 ms~
-  - relation-driven with experimental index: ~16.904 ms~
-- direct property:
-  - heading-driven ~EXISTS~: ~42.090 ms~
-  - relation-driven with current indexes: ~33.907 ms~
-  - relation-driven with experimental index: ~16.675 ms~
-- effective property:
-  - heading-driven ~EXISTS~: ~41.341 ms~
-  - relation-driven with current indexes: ~33.543 ms~
-  - relation-driven with experimental index: ~16.639 ms~
-- keyword:
-  - heading-driven ~EXISTS~: ~41.488 ms~
-  - relation-driven with current indexes: ~29.140 ms~
-  - relation-driven with experimental index: ~17.871 ms~
-
-The direct-tag relation already has ~idx_tags_tag~.
-
-Its query plan starts from the tag relation and performs heading primary-key lookups.
-
-The experimental tag index has this logical column order:
-
-#+begin_src text
-(tag, heading_id)
-#+end_src
-
-It gives only a moderate improvement over ~idx_tags_tag~.
-
-Do not add another persistent tag index from this benchmark evidence.
-
-The property benchmarks use ~effective_properties~.
-
-Direct-property matching uses ~local_value~.
-
-The useful experimental index shapes are:
-
-#+begin_src text
-(key, local_value, heading_id)
-(key, effective_value, heading_id)
-#+end_src
-
-Without these indexes, relation-driven property SQL still scans the metadata relation.
-
-With these indexes, SQLite uses predicate-first covering-index searches.
-
-The useful experimental keyword index shape is:
-
-#+begin_src text
-(keyword, value, heading_id)
-#+end_src
-
-Without this index, relation-driven keyword SQL scans the keyword relation.
-
-With this index, SQLite uses a predicate-first covering-index search.
-
-The benchmark reports ~rows_scanned~ as unavailable for these SQLite plans.
-
-Use the query plans and measured latency as the scan evidence.
-
-** Query compiler audit
-
-The compiler audit found no new guaranteed metadata lookup that can be skipped safely.
-
-Direct tags and local properties can exist on root and non-root headings.
-
-Effective properties can exist where the effective key is visible.
-
-Keyword behavior depends on the query mode and heading identity.
-
-The existing root static-truth logic already skips the known impossible root cases.
-
-Do not add another shortcut unless the data model proves that the lookup cannot return a result.
-
-** Decision
-
-The microbenchmark strongly supports predicate-driven metadata access.
-
-Do not change the production compiler from this microbenchmark alone.
-
-The next task must measure the candidate strategies through the complete production query pipeline.
-
-For direct tags, test relation-driven SQL with the existing ~idx_tags_tag~ first.
-
-Do not add the experimental tag covering index unless new end-to-end evidence changes this decision.
-
-For direct properties, test this candidate index shape:
-
-#+begin_src text
-(key, local_value, heading_id)
-#+end_src
-
-For effective properties, test this candidate index shape:
-
-#+begin_src text
-(key, effective_value, heading_id)
-#+end_src
-
-For keywords, test this candidate index shape:
-
-#+begin_src text
-(keyword, value, heading_id)
-#+end_src
-
-Create these indexes only on benchmark database copies during the first end-to-end comparison.
-
-Do not add a persistent index before the end-to-end benchmark confirms its value.
 
 * DONE Validate and implement predicate-driven metadata filters end to end
 
 [[./2026-08-17--predicate-driven-metadata-filters-end-to-end.org]]
 
-Use the metadata predicate benchmark as the starting evidence.
-
-The previous task shows that heading-driven correlated ~EXISTS~ predicates are expensive.
-
-The previous task also shows that relation-driven SQL is faster in every measured microbenchmark case.
-
-Do not repeat the metadata predicate microbenchmark before starting this task.
-
-Read these sources first:
-
-- [[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
-- ~docs/query-sql-performance.org~
-- the current heading query compiler
-- the current schema and metadata indexes
-
-Goal: determine which predicate-driven strategies improve complete production queries.
-
-The complete comparison must include:
-
-- query compilation
-- matched-heading SQL
-- SQLite row decoding
-- required enrichment
-- Rust grouping and sorting
-- final result shaping
-
-Do not use predicate-match latency alone as the production decision.
-
-** Phase 1 - Add a controlled production A/B benchmark
-
-Extend the existing query SQL benchmark.
-
-Compare the current production query with a candidate predicate-driven production query.
-
-Require identical final query results before recording timings.
-
-Test these predicate families:
-
-- direct tag
-- direct property
-- effective property
-- keyword
-
-Test approximately these selectivities:
-
-- 1 %
-- 10 %
-- 50 %
-- 100 %
-
-Use ~10'000~ and ~50'000~ eligible headings for the main end-to-end comparison.
-
-Use smaller workloads after a retained production change to detect small-query regressions.
-
-Record:
-
-- total production query latency
-- matched result count
-- statement count
-- rows transferred from SQLite
-- query plan
-- direct phase profile
-- final result equality
-
-Keep the benchmark indexes isolated from the production schema during this phase.
-
-** Direct tag candidate
-
-Compare the current heading-driven predicate against relation-driven tag matching.
-
-Use the existing ~idx_tags_tag~.
-
-The previous microbenchmark at ~50'000~ headings and ~1 %~ selectivity measured:
-
-#+begin_src text
-heading-driven EXISTS                 20.490 ms
-relation-driven current index         0.171 ms
-experimental covering index           0.144 ms
-#+end_src
-
-Do not add ~orgfdb_bench_tags_tag_heading~ to the production schema from this evidence.
-
-Test the existing index in the complete pipeline first.
-
-** Direct property candidate
-
-Preserve direct-property semantics through ~effective_properties.local_value~.
-
-Compare:
-
-- current heading-driven ~EXISTS~
-- relation-driven SQL with current indexes
-- relation-driven SQL with a benchmark-only predicate-first index
-
-Start with this candidate index shape:
-
-#+begin_src text
-(key, local_value, heading_id)
-#+end_src
-
-Require exact result equality.
-
-Do not replace direct-property semantics with raw ~properties~ table semantics.
-
-** Effective property candidate
-
-Preserve effective-property semantics through ~effective_properties.effective_value~.
-
-Compare:
-
-- current heading-driven ~EXISTS~
-- relation-driven SQL with current indexes
-- relation-driven SQL with a benchmark-only predicate-first index
-
-Start with this candidate index shape:
-
-#+begin_src text
-(key, effective_value, heading_id)
-#+end_src
-
-Require exact result equality.
-
-** Keyword candidate
-
-Preserve the current keyword query semantics.
-
-Compare:
-
-- current heading-driven ~EXISTS~
-- relation-driven SQL with current indexes
-- relation-driven SQL with a benchmark-only predicate-first index
-
-Start with this candidate index shape:
-
-#+begin_src text
-(keyword, value, heading_id)
-#+end_src
-
-Require exact result equality.
-
-** Boolean query semantics
-
-Do not rewrite an atomic predicate blindly inside every Boolean expression.
-
-Inspect how the compiler represents:
-
-- ~and~
-- ~or~
-- ~not~
-- nested predicate expressions
-
-Use predicate-driven matching only where the compiler can preserve exact Boolean semantics.
-
-Keep the current ~EXISTS~ form for a predicate context that lacks a proven equivalent relation form.
-
-Add regression tests for each production rewrite.
-
-Include positive and negative Boolean contexts where they apply.
-
-** Phase 2 - Decide the production strategy
-
-If relation-driven direct-tag matching wins end to end, use the existing ~idx_tags_tag~ in production.
-
-Do not add a second tag index unless the complete benchmark shows a material additional gain.
-
-If a property or keyword candidate index wins end to end, measure its persistent cost before keeping it.
-
-Measure at least:
-
-- database creation or indexing time
-- database file size
-- representative update cost where practical
-- complete query latency
-
-Measure the two property indexes together if production needs both.
-
-Avoid a query optimization that creates excessive index maintenance or database growth.
-
-** Phase 3 - Implement retained changes
-
-If the end-to-end evidence confirms a candidate, update the production compiler.
-
-If the index cost is acceptable, add the required persistent schema index.
-
-Keep the current strategy for any candidate that lacks clear end-to-end evidence.
-
-Preserve:
-
-- public query syntax
-- normal ~--format json~ output
-- query result ordering
-- query result semantics
-- stored-data validation
-- existing error behavior
-
-Add regression tests for all retained compiler changes.
-
-Update ~docs/query-sql-performance.org~ with the final production decision.
-
-Run:
-
-#+begin_src sh
-make ci
-#+end_src
-
-Re-run the production benchmark after the retained changes.
-
-Record the before and after production measurements.
-
-** Acceptance criteria
-
-- The A/B benchmark compares complete production query results.
-- The compared strategies produce identical results.
-- Predicate-driven SQL is used only in proven equivalent compiler contexts.
-- Direct tags reuse ~idx_tags_tag~ unless stronger evidence justifies another index.
-- Persistent property or keyword indexes have end-to-end benchmark support.
-- Persistent index cost is measured before the schema change becomes permanent.
-- Small workloads have no material regression.
-- Large selective workloads retain a clear improvement.
-- Public query behavior stays unchanged.
-- ~make ci~ passes.
-- Performance documentation records the final strategy and evidence.
-
-* REVIEW Use shared TEMP matched relations for expensive query reuse
+* DONE Use shared TEMP matched relations for expensive query reuse
 
 Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matched Relations]]
-
-The predicate-driven metadata work is complete.
-
-Production now uses predicate-driven metadata filters and schema version ~13~.
-
-Read these sources before changing code:
-
-- ~docs/query-sql-performance.org~
-- the relation-reuse benchmark in ~src/query_sql_benchmark.rs~
-- the current query compiler
-- the current query result and enrichment pipeline
-
-The latest ~50'000~-row v9 relation-reuse benchmark gives these median times:
-
-- simple single enrichment:
-  - repeated query-derived relation: ~19.591 ms~
-  - shared TEMP relation: ~47.660 ms~
-- simple multiple enrichments:
-  - repeated query-derived relation: ~73.729 ms~
-  - shared TEMP relation: ~115.901 ms~
-- complex single enrichment:
-  - repeated query-derived relation: ~133.233 ms~
-  - shared TEMP relation: ~75.230 ms~
-- complex multiple enrichments:
-  - repeated query-derived relation: ~427.689 ms~
-  - shared TEMP relation: ~118.034 ms~
-
-These results show that result count alone cannot select the strategy.
-
-They also show that consumer count alone cannot select the strategy.
-
-A complex relation can benefit from TEMP materialization with only one downstream consumer.
-
-A simple relation can remain faster without TEMP materialization with several consumers.
-
-The predicate-driven compiler changed query costs after the original relation-reuse work.
-
-Re-run the relevant relation-reuse benchmark against the current production compiler before implementation.
-
-Use the existing benchmark workloads as the baseline.
-
-Goal: materialize a matched heading relation only when this reduces complete query cost.
-
-Keep repeated query-derived execution for cheap matched relations.
-
-Use a shared TEMP relation only for expensive matched relations with measured benefit.
-
-Do not create a TEMP relation for every query.
-
-Do not select the strategy only from:
-
-- result count
-- database size
-- number of enrichment consumers
-
-Investigate deterministic signals from the compiled relation.
-
-Consider:
-
-- predicate tree shape
-- nested Boolean structure
-- number and type of relational predicates
-- correlated subqueries
-- joins or subqueries that SQLite must repeat
-- predicate-driven metadata relations
-- number of downstream relation consumers
-- expected repeated SQLite work
-
-Prefer a simple deterministic classification over runtime calibration.
-
-Do not add per-query timing calibration unless benchmarks prove that a static rule is insufficient.
-
-** Phase 1 - Refresh the relation-reuse benchmark
-
-Run the existing simple and complex relation-reuse workloads with the current compiler.
-
-Test representative sizes:
-
-- ~100~
-- ~1'000~
-- ~10'000~
-- ~50'000~
-
-Compare:
-
-- repeated query-derived execution
-- one materialized TEMP matched relation
-
-Include the full TEMP cost.
-
-Measure:
-
-- TEMP table creation
-- TEMP table population
-- downstream queries
-- TEMP cleanup where applicable
-
-Record:
-
-- total strategy latency
-- statement count
-- matched heading count
-- rows transferred from SQLite
-- query plans where useful
-
-Keep benchmark output identical between both strategies.
-
-** Phase 2 - Define the selection rule
-
-Use the refreshed benchmark to define a small internal relation-cost classification.
-
-The rule must describe properties of the compiled query.
-
-Do not encode individual public query strings as special cases.
-
-Do not use result count as the primary classification input.
-
-Keep the rule understandable from the compiler code.
-
-Document why each input to the rule predicts repeated SQLite work.
-
-Allow the rule to select TEMP with one consumer if the relation is expensive enough.
-
-Allow the rule to reject TEMP with several consumers if the relation is cheap.
-
-** Phase 3 - Implement production TEMP reuse
-
-Materialize the matched heading relation once when the rule selects TEMP.
-
-Reuse the same relation for applicable enrichment queries.
-
-Keep TEMP state local to the current database connection and query execution.
-
-Do not reuse TEMP state across independent public queries.
-
-Do not leave stale matched relations after a failed query.
-
-Keep query snapshot semantics unchanged.
-
-Keep the existing query-derived path for relations that do not select TEMP.
-
-Preserve:
-
-- public query syntax
-- result semantics
-- result ordering
-- normal ~--format json~ output
-- stored-data validation
-- current error behavior
-
-** Phase 4 - Benchmark the production implementation
-
-Compare production queries with TEMP selection enabled and disabled.
-
-Use identical database contents and query inputs.
-
-Require exact public result equality before comparing latency.
-
-Include representative:
-
-- cheap queries
-- expensive queries
-- single-enrichment queries
-- multiple-enrichment queries
-- selective queries
-- broad queries
-
-Test small and large workloads.
-
-Record:
-
-- complete query latency
-- TEMP materialization cost
-- enrichment SQL cost
-- statement count
-- rows transferred from SQLite
-- direct phase profile
-
-Keep the selective TEMP strategy only if the end-to-end benchmark supports it.
-
-Update ~docs/query-sql-performance.org~ with the final rule and benchmark evidence.
-
-Run:
-
-#+begin_src sh
-make ci
-#+end_src
-
-Acceptance criteria:
-
-- The refreshed benchmark uses the current predicate-driven compiler.
-- The strategy distinguishes cheap and expensive matched relations.
-- The strategy does not depend only on result count.
-- The strategy does not depend only on consumer count.
-- Cheap relations keep repeated query-derived execution.
-- Expensive relations use TEMP only with benchmark evidence.
-- TEMP state cannot leak between public queries.
-- Error paths cannot leave stale TEMP state for later queries.
-- Complete query results remain identical.
-- Small workloads have no material regression.
-- Representative complex workloads show a measurable end-to-end improvement.
-- ~make ci~ passes.
-- Performance documentation records the final rule and evidence.
 
 * TODO Investigate final Rust result shaping cost
 
@@ -1792,7 +536,7 @@ Acceptance criteria:
 - A no-change decision is allowed when benchmarks reject all candidates.
 - ~make ci~ passes.
 - Performance documentation records the final result.
-
+  
 * TODO Reduce presentation JSON payload size
 :PROPERTIES:
 :VISIBILITY: folded
@@ -1830,21 +574,63 @@ Keep these semantic guarantees:
 - ~database_id~ keeps its current meaning
 - ~generation~ keeps its current meaning
 
-Evaluate compact representations for repeated cell data.
+Evaluate compact representations for repeated presentation data.
 
 Candidate techniques include:
 
-- compact cell arrays instead of repeated object keys
+- positional arrays instead of repeated object keys
+- shared field schemas emitted once per payload for positional arrays
 - omission rules where ~search_text~ and ~display_text~ are identical
 - compact semantic role encoding
 - removal of data already available through ~result_index~
 - removal of duplicated row-context data that the documented format can recover safely
+- short wire-only field names for remaining frequently repeated objects where arrays are not suitable
+
+Prefer positional arrays for high-volume repeated structures when they give a clear payload benefit.
+
+If positional arrays are used, prefer a shared schema that is emitted once in the payload.
+
+For example, the payload can describe a cell array once as:
+
+#+begin_src json
+{
+  "cell_fields": ["search_text", "display_text", "role"]
+}
+#+end_src
+
+Individual cells can then use the documented positions without repeating the field names.
+
+The exact representation is not prescribed by this example.
+
+Benchmark alternative representations before selecting the final format.
+
+A positional representation must remain explicit and deterministic.
+
+Do not require the Emacs client to guess the meaning of an array position.
+
+Do not depend only on undocumented positional knowledge in the client.
+
+If a shared schema is emitted in the payload:
+
+- define the exact meaning and order of every field
+- emit the schema once instead of repeating field names for each object
+- keep the schema stable within one wire-format version
+- do not silently change positional meanings
+- version the wire format if an incompatible positional change is required
+
+If an optional array value is omitted, its meaning must remain unambiguous.
+
+Do not shift later positional values when an earlier optional value is absent unless the wire format defines a separate explicit array shape.
+
+For example, a missing ~display_text~ can use a documented sentinel or another explicit compact representation.
+
+Do not make the client infer whether a value is ~display_text~ or ~role~ from its contents.
 
 Prefer simple wire rules over complex compression logic.
 
-Every omission rule must be explicit in the wire-format documentation.
+Every compact representation and omission rule must be explicit in the wire-format documentation.
 
-Do not require the client to infer information from undocumented assumptions.
+Keep compact field names and positional representations limited to ~presentation-json~.
 
 Keep the normal ~--format json~ contract unchanged.
 
@@ -1858,6 +644,17 @@ Compare the old and candidate presentation formats with identical input.
 
 Require semantic equality before comparing performance.
 
+Compare at least:
+
+- current object representation
+- positional arrays with shared schemas
+- useful omission rules
+- short object keys where objects remain and the saving is material
+
+Do not keep a compact representation only because its raw JSON is smaller.
+
+Also consider parsing simplicity and complete presentation processing cost.
+
 Measure:
 
 - payload bytes
@@ -1865,7 +662,18 @@ Measure:
 - presentation processing time
 - total CLI time
 
+Record enough information to show which representation provides each reduction.
+
 Update the wire-format documentation after the final representation is selected.
+
+Document:
+
+- every shared schema
+- every positional field and its index
+- every omission rule
+- every sentinel or compact value encoding
+- wire-format versioning rules for positional layouts
+- which compact rules apply only to ~presentation-json~
 
 Acceptance criteria:
 
@@ -1874,10 +682,15 @@ Acceptance criteria:
 - Payload size decreases materially for large result sets.
 - Expanded-row workloads also decrease materially.
 - Small workloads have no material regression.
+- Repeated high-volume objects use a compact representation when benchmarks support it.
+- Positional arrays are self-describing through a shared payload schema when that representation is selected.
+- The Emacs client does not need undocumented knowledge to interpret array positions.
+- Optional positional values cannot make later positions ambiguous.
 - The representation remains simple for an Emacs client to parse.
 - Benchmark results record old and new payload sizes.
-- Benchmark results record serialization and total CLI time.
+- Benchmark results record serialization, presentation processing, and total CLI time.
 - Wire-format documentation defines every compact representation and omission rule.
+- Incompatible positional changes require an explicit wire-format version change.
 - ~make ci~ passes.
 
 * TODO Evaluate presentation pipeline parallelism

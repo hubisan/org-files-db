@@ -192,7 +192,9 @@ Both strategies run inside one deferred transaction so they use one stable datab
 
 This comparison shows whether one reusable relation amortizes its setup cost across several enrichments.
 
-** Round 2 local result
+** Historical round 2 local result
+
+This section records the earlier pre-predicate-driven relation-reuse result. The schema version ~10~ selective-reuse evidence below supersedes it for the current production selector.
 
 The supplied round 2 run uses one benchmark environment for every strategy comparison.
 
@@ -228,22 +230,77 @@ It records matched heading count, rows returned to Rust, statement count, SQLite
 
 The production A/B first requires exact public result equality, then measures complete query latency and the direct phase profile for cheap and expensive relations with single and multiple enrichment workloads.
 
-** Latest supplied evidence
+** Schema version 10 relation-reuse result
 
-The latest supplied schema version ~9~ relation-reuse run at ~50'000~ headings reports these median strategy latencies:
+The supplied schema version ~10~ run uses the current production compiler at ~100~, ~1'000~, ~10'000~, and ~50'000~ target results.
 
-| Workload | Repeated query-derived | Shared TEMP |
-|----------+------------------------+-------------|
-| simple single enrichment | ~19.591 ms~ | ~47.660 ms~ |
-| simple multiple enrichments | ~73.729 ms~ | ~115.901 ms~ |
-| complex single enrichment | ~133.233 ms~ | ~75.230 ms~ |
-| complex multiple enrichments | ~427.689 ms~ | ~118.034 ms~ |
+The isolated relation-reuse medians are:
 
-This evidence rules out result count and consumer count as sufficient selectors.
+| Target results | Simple single: derived | Simple single: TEMP | Simple multi: derived | Simple multi: TEMP | Complex single: derived | Complex single: TEMP | Complex multi: derived | Complex multi: TEMP |
+|----------------+------------------------+---------------------+-----------------------+--------------------+-------------------------+----------------------+------------------------+---------------------|
+| 100 | 0.146 ms | 0.227 ms | 0.536 ms | 0.360 ms | 0.177 ms | 0.259 ms | 0.704 ms | 0.319 ms |
+| 1'000 | 0.636 ms | 1.013 ms | 2.162 ms | 2.309 ms | 0.518 ms | 0.806 ms | 2.033 ms | 1.389 ms |
+| 10'000 | 7.013 ms | 10.967 ms | 24.355 ms | 26.601 ms | 5.647 ms | 8.792 ms | 22.211 ms | 15.968 ms |
+| 50'000 | 37.935 ms | 59.579 ms | 130.842 ms | 141.935 ms | 32.969 ms | 52.064 ms | 130.250 ms | 95.124 ms |
 
-The complex relation benefits from materialization with only one downstream enrichment, while the simple relation remains faster query-derived with several enrichments.
+The refreshed isolated benchmark changes the interpretation of the old schema version ~9~ result.
 
-A schema version ~10~ rerun is required after this implementation because the previous isolated benchmark did not compile its workload through the current predicate-driven compiler.
+TEMP does not win every workload that contains the complex tag-plus-property relation.
+
+The complex single-loader workload remains faster query-derived at every measured size.
+
+The complex multi-loader workload remains faster with TEMP at every measured size, with a ~27.0%~ advantage at ~50'000~ target results.
+
+The simple multi-loader workload also shows that consumer count alone is not a stable selector: TEMP wins at ~100~ target results but loses at ~1'000~, ~10'000~, and ~50'000~.
+
+Use the complete production A/B as the authoritative selector evidence because production always includes the initial matched-row read and required relation-backed validation and enrichment in addition to explicitly requested includes.
+
+** Schema version 10 production A/B
+
+The production benchmark compares the same public query with selective TEMP reuse disabled and enabled.
+
+Exact complete ~QueryResponse~ equality is required before timing.
+
+The medians are:
+
+| Target results | Workload | Query-derived | Selective production | Change | TEMP selected |
+|----------------+----------+---------------+----------------------+--------+---------------|
+| 100 | cheap single | 1.003 ms | 1.005 ms | +0.1% | no |
+| 100 | cheap multi | 1.447 ms | 1.455 ms | +0.5% | no |
+| 100 | expensive single | 0.945 ms | 0.436 ms | -53.9% | yes |
+| 100 | expensive multi | 1.153 ms | 0.530 ms | -54.0% | yes |
+| 1'000 | cheap single | 6.850 ms | 6.870 ms | +0.3% | no |
+| 1'000 | cheap multi | 9.449 ms | 9.537 ms | +0.9% | no |
+| 1'000 | expensive single | 2.411 ms | 1.981 ms | -17.8% | yes |
+| 1'000 | expensive multi | 3.581 ms | 2.895 ms | -19.2% | yes |
+| 10'000 | cheap single | 84.264 ms | 85.399 ms | +1.3% | no |
+| 10'000 | cheap multi | 111.587 ms | 111.059 ms | -0.5% | no |
+| 10'000 | expensive single | 27.407 ms | 23.793 ms | -13.2% | yes |
+| 10'000 | expensive multi | 40.275 ms | 35.826 ms | -11.0% | yes |
+| 50'000 | cheap single | 481.312 ms | 496.198 ms | +3.1% | no |
+| 50'000 | cheap multi | 602.482 ms | 604.321 ms | +0.3% | no |
+| 50'000 | expensive single | 157.770 ms | 133.787 ms | -15.2% | yes |
+| 50'000 | expensive multi | 230.889 ms | 200.708 ms | -13.1% | yes |
+
+The measured production result supports the current static selector.
+
+Every expensive workload selects TEMP and improves complete query latency at every measured size.
+
+This includes the single-include workload, so the selector does not need a minimum downstream consumer count.
+
+The expensive query matches only ~7~, ~76~, ~769~, and ~3'846~ headings as the target corpus grows, but the selector does not use those result counts.
+
+Every cheap workload remains query-derived.
+
+At ~100~ and ~1'000~ target results, the selective path differs from the disabled path by at most ~0.9%~, so the measured small-workload comparison shows no material regression.
+
+The ~50'000~ cheap-single medians differ by ~3.1%~ even though both records report ~temp_selected=false~ and use the same query-derived strategy. With three timing samples, that pair does not provide evidence of a TEMP-induced regression.
+
+For the ~50'000~ expensive single workload, TEMP materialization costs about ~33.8 ms~, but complete latency still falls from ~157.8 ms~ to ~133.8 ms~ because repeated relation-backed SQL work is reduced.
+
+For the ~50'000~ expensive multi workload, materialization costs about ~34.0 ms~, while complete latency falls from ~230.9 ms~ to ~200.7 ms~.
+
+The schema version ~10~ result therefore supports keeping the conservative two-metadata-relation selector without runtime calibration.
 
 ** Production selection rule
 

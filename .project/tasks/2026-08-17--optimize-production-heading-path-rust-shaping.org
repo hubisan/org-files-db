@@ -11,6 +11,47 @@
 
 Optimize production heading path Rust construction and shaping.
 
+** DONE Optimize production heading path Rust construction and shaping
+
+[[./2026-08-17--optimize-production-heading-path-rust-shaping.org]]
+
+Remove the large-result Rust overhead that remains after the bulk ancestor loader switch.
+
+The isolated ~rust-driven-bulk-ancestors~ loader is faster than the recursive loader at ~50'000~ headings.
+
+The complete production ~headings.path~ workload still regresses against the pre-switch baseline at ~50'000~ results.
+
+Keep the current Rust-driven production strategy while this task measures the integration cost.
+
+First add a benchmark-only same-process A/B for the complete production ~headings.path~ workload.
+
+Run the full match, tag enrichment, path enrichment, and final shaping with both path loaders.
+
+Use that result to confirm whether the production composition still favors the Rust-driven loader.
+
+Profile the production composition around:
+
+- heading path construction
+- cloning ~heading_paths~ into final result nodes
+- temporary ~BTreeSet~ and ~HashMap~ allocations
+- repeated path entry string clones
+- interaction with already loaded tag data
+- final direct-flat result shaping
+
+Test whether final shaping can move each path into its result instead of cloning the complete ~Vec<PathEntry>~.
+
+Add direct timing only where the existing phase profile cannot isolate the cost.
+
+Use ~50'000~ results as the primary benchmark.
+
+Also rerun 100, 1'000, and 10'000 results to prevent small-result regressions.
+
+Keep public query output, ordering, validation errors, and the recursive benchmark reference unchanged.
+
+Reconsider the production loader only if the complete same-process A/B favors the recursive strategy.
+
+Accept an optimization only when the complete production ~headings.path~ benchmark improves.
+
 * Planning
 
 ** Problem summary

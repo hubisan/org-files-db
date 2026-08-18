@@ -13,6 +13,213 @@ Implement selective shared TEMP matched-heading relation reuse after predicate-d
 
 Refresh the relation-reuse benchmark against the current compiler, define a deterministic compiled-query cost rule, use TEMP only for expensive relations with measured benefit, preserve public query semantics, and benchmark the complete production strategy.
 
+** DONE Use shared TEMP matched relations for expensive query reuse
+
+Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matched Relations]]
+
+The predicate-driven metadata work is complete.
+
+Production now uses predicate-driven metadata filters and schema version ~13~.
+
+Read these sources before changing code:
+
+- ~docs/query-sql-performance.org~
+- the relation-reuse benchmark in ~src/query_sql_benchmark.rs~
+- the current query compiler
+- the current query result and enrichment pipeline
+
+The latest ~50'000~-row v9 relation-reuse benchmark gives these median times:
+
+- simple single enrichment:
+  - repeated query-derived relation: ~19.591 ms~
+  - shared TEMP relation: ~47.660 ms~
+- simple multiple enrichments:
+  - repeated query-derived relation: ~73.729 ms~
+  - shared TEMP relation: ~115.901 ms~
+- complex single enrichment:
+  - repeated query-derived relation: ~133.233 ms~
+  - shared TEMP relation: ~75.230 ms~
+- complex multiple enrichments:
+  - repeated query-derived relation: ~427.689 ms~
+  - shared TEMP relation: ~118.034 ms~
+
+These results show that result count alone cannot select the strategy.
+
+They also show that consumer count alone cannot select the strategy.
+
+A complex relation can benefit from TEMP materialization with only one downstream consumer.
+
+A simple relation can remain faster without TEMP materialization with several consumers.
+
+The predicate-driven compiler changed query costs after the original relation-reuse work.
+
+Re-run the relevant relation-reuse benchmark against the current production compiler before implementation.
+
+Use the existing benchmark workloads as the baseline.
+
+Goal: materialize a matched heading relation only when this reduces complete query cost.
+
+Keep repeated query-derived execution for cheap matched relations.
+
+Use a shared TEMP relation only for expensive matched relations with measured benefit.
+
+Do not create a TEMP relation for every query.
+
+Do not select the strategy only from:
+
+- result count
+- database size
+- number of enrichment consumers
+
+Investigate deterministic signals from the compiled relation.
+
+Consider:
+
+- predicate tree shape
+- nested Boolean structure
+- number and type of relational predicates
+- correlated subqueries
+- joins or subqueries that SQLite must repeat
+- predicate-driven metadata relations
+- number of downstream relation consumers
+- expected repeated SQLite work
+
+Prefer a simple deterministic classification over runtime calibration.
+
+Do not add per-query timing calibration unless benchmarks prove that a static rule is insufficient.
+
+*** Phase 1 - Refresh the relation-reuse benchmark
+
+Run the existing simple and complex relation-reuse workloads with the current compiler.
+
+Test representative sizes:
+
+- ~100~
+- ~1'000~
+- ~10'000~
+- ~50'000~
+
+Compare:
+
+- repeated query-derived execution
+- one materialized TEMP matched relation
+
+Include the full TEMP cost.
+
+Measure:
+
+- TEMP table creation
+- TEMP table population
+- downstream queries
+- TEMP cleanup where applicable
+
+Record:
+
+- total strategy latency
+- statement count
+- matched heading count
+- rows transferred from SQLite
+- query plans where useful
+
+Keep benchmark output identical between both strategies.
+
+*** Phase 2 - Define the selection rule
+
+Use the refreshed benchmark to define a small internal relation-cost classification.
+
+The rule must describe properties of the compiled query.
+
+Do not encode individual public query strings as special cases.
+
+Do not use result count as the primary classification input.
+
+Keep the rule understandable from the compiler code.
+
+Document why each input to the rule predicts repeated SQLite work.
+
+Allow the rule to select TEMP with one consumer if the relation is expensive enough.
+
+Allow the rule to reject TEMP with several consumers if the relation is cheap.
+
+*** Phase 3 - Implement production TEMP reuse
+
+Materialize the matched heading relation once when the rule selects TEMP.
+
+Reuse the same relation for applicable enrichment queries.
+
+Keep TEMP state local to the current database connection and query execution.
+
+Do not reuse TEMP state across independent public queries.
+
+Do not leave stale matched relations after a failed query.
+
+Keep query snapshot semantics unchanged.
+
+Keep the existing query-derived path for relations that do not select TEMP.
+
+Preserve:
+
+- public query syntax
+- result semantics
+- result ordering
+- normal ~--format json~ output
+- stored-data validation
+- current error behavior
+
+*** Phase 4 - Benchmark the production implementation
+
+Compare production queries with TEMP selection enabled and disabled.
+
+Use identical database contents and query inputs.
+
+Require exact public result equality before comparing latency.
+
+Include representative:
+
+- cheap queries
+- expensive queries
+- single-enrichment queries
+- multiple-enrichment queries
+- selective queries
+- broad queries
+
+Test small and large workloads.
+
+Record:
+
+- complete query latency
+- TEMP materialization cost
+- enrichment SQL cost
+- statement count
+- rows transferred from SQLite
+- direct phase profile
+
+Keep the selective TEMP strategy only if the end-to-end benchmark supports it.
+
+Update ~docs/query-sql-performance.org~ with the final rule and benchmark evidence.
+
+Run:
+
+#+begin_src sh
+make ci
+#+end_src
+
+Acceptance criteria:
+
+- The refreshed benchmark uses the current predicate-driven compiler.
+- The strategy distinguishes cheap and expensive matched relations.
+- The strategy does not depend only on result count.
+- The strategy does not depend only on consumer count.
+- Cheap relations keep repeated query-derived execution.
+- Expensive relations use TEMP only with benchmark evidence.
+- TEMP state cannot leak between public queries.
+- Error paths cannot leave stale TEMP state for later queries.
+- Complete query results remain identical.
+- Small workloads have no material regression.
+- Representative complex workloads show a measurable end-to-end improvement.
+- ~make ci~ passes.
+- Performance documentation records the final rule and evidence.
+
 * Planning
 
 ** Problem summary
@@ -114,6 +321,42 @@ Root-file matching remains query-derived. The measured expensive reuse case conc
 - Added cleanup after success, shaping errors, heading execution errors, and failed TEMP population.
 - Added production A/B benchmark workloads for cheap/expensive relations with single/multiple enrichment.
 
+** Supplied schema version 10 benchmark
+
+The user ran the required release benchmark with ~100~, ~1'000~, ~10'000~, and ~50'000~ target results.
+
+The refreshed isolated benchmark shows that the current compiler changed the old schema version ~9~ pattern.
+
+- Simple single-loader TEMP loses at every measured size.
+- Simple multi-loader TEMP wins only at ~100~ and loses from ~1'000~ upward.
+- Complex single-loader TEMP loses at every measured size.
+- Complex multi-loader TEMP wins at every measured size and is about ~27.0%~ faster at ~50'000~.
+
+This confirms that isolated consumer count is not a sufficient selector.
+
+The complete production A/B supports the implemented static rule:
+
+| Target results | Expensive single: derived | Expensive single: selective TEMP | Change | Expensive multi: derived | Expensive multi: selective TEMP | Change |
+|----------------+---------------------------+----------------------------------+--------+--------------------------+---------------------------------+--------|
+| 100 | 0.945 ms | 0.436 ms | -53.9% | 1.153 ms | 0.530 ms | -54.0% |
+| 1'000 | 2.411 ms | 1.981 ms | -17.8% | 3.581 ms | 2.895 ms | -19.2% |
+| 10'000 | 27.407 ms | 23.793 ms | -13.2% | 40.275 ms | 35.826 ms | -11.0% |
+| 50'000 | 157.770 ms | 133.787 ms | -15.2% | 230.889 ms | 200.708 ms | -13.1% |
+
+Every expensive workload selects TEMP and improves complete query latency.
+
+Every cheap workload remains query-derived.
+
+At ~100~ and ~1'000~ target results, cheap selective-versus-disabled medians differ by at most ~0.9%~.
+
+The ~50'000~ cheap-single pair differs by ~3.1%~, but both benchmark records report ~temp_selected=false~ and therefore do not attribute that difference to TEMP execution.
+
+The ~50'000~ expensive single TEMP materialization costs about ~33.8 ms~ and still reduces complete latency by about ~24.0 ms~.
+
+The ~50'000~ expensive multi TEMP materialization costs about ~34.0 ms~ and reduces complete latency by about ~30.2 ms~.
+
+The current rule therefore remains unchanged: at least two predicate-driven metadata relations classify the matched heading relation as expensive.
+
 ** Changed files
 
 - ~src/query/sqlite.rs~
@@ -132,6 +375,8 @@ Root-file matching remains query-derived. The measured expensive reuse case conc
 - Used Python SQLite to verify that a read-only main database permits connection-local TEMP create/populate/drop inside a deferred transaction.
 - Used the same SQLite smoke check to verify the benchmark's ~WITH ... INSERT ... SELECT~ TEMP population syntax.
 - Confirmed the old hand-written relation source is removed from the relation-reuse benchmark.
+- Reviewed the supplied schema version ~10~ benchmark output and compared isolated relation reuse with complete production A/B at every requested size.
+- Confirmed the production benchmark selects TEMP only for the expensive class and records exact public result equality before latency comparison.
 
 ** Test results
 
@@ -147,25 +392,16 @@ New Rust tests cover:
 
 ** Blockers
 
-The required schema version ~10~ benchmark refresh cannot be measured in this environment because ~cargo~, ~rustc~, and ~rustfmt~ are unavailable.
+The schema version ~10~ relation-reuse benchmark is complete and supports the implemented selector.
 
-The supplied schema version ~9~ timings remain the evidence for enabling the conservative two-metadata-relation selector. The refreshed schema version ~10~ run must confirm that result on the current predicate-driven compiler and complete production A/B.
+A successful full local ~make ci~ run after the test-only helper fix is still not recorded in this task.
 
 ** Follow-ups
 
 Run:
 
 #+begin_src sh
-cargo build --release --bin orgfdb-query-sql-benchmark
-
-target/release/orgfdb-query-sql-benchmark \
-  --rows 100,1000,10000,50000 \
-  --warmups 1 \
-  --iterations 3 \
-  --work-dir /tmp/orgfdb-presentation-benchmark-work \
-  --output /tmp/orgfdb-query-sql-benchmark-relation-reuse-v10.json
-
 make ci
 #+end_src
 
-Keep the production selector only if ~production_relation_reuse_strategies~ confirms no material small-workload regression and a measurable complete-query improvement for the expensive workloads.
+If it passes, the implementation and benchmark evidence satisfy the remaining acceptance check and are ready for final user approval.

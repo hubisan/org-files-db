@@ -11,6 +11,154 @@
 
 Continue ~Benchmark Rust vs SQLite query result processing~ from ~todo.org~.
 
+** DONE Benchmark Rust vs SQLite query result processing
+
+Task file: [[./2026-08-17--benchmark-rust-vs-sqlite-query-processing.org][Benchmark Rust vs SQLite Query Result Processing]]
+
+Measure the query execution phases before moving more result work from SQLite to Rust.
+
+Round 2 improved the SQLite query path and removed large ID round trips for query-derived relations.
+
+The remaining query cost is not fully attributed between SQLite execution, row decoding, Rust processing, and final result shaping.
+
+The current SQLite profiler is useful for SQL stages, but it does not give precise wall-clock attribution for the complete Rust and SQLite path.
+
+The ~headings.path~ workload is the main candidate for further investigation. At 50'000 results, ~enrich-path-headings~ is the most expensive recorded SQL stage.
+
+*** Goals
+
+- Measure the main query execution and result-shaping phases with direct wall-clock timings.
+- Separate SQLite execution cost from Rust-side processing cost.
+- Measure the cost of row decoding, grouping, sorting, validation, path construction, and final shaping.
+- Determine whether selected work can move from SQLite to Rust without increasing data transfer significantly.
+- Compare the current recursive ancestor loader with a Rust-driven ancestor loading strategy.
+- Identify optimizations that have measurable value before changing the architecture.
+
+*** Non-goals
+
+- Do not change the public query language.
+- Do not change normal ~--format json~ output.
+- Do not change ~presentation-json~.
+- Do not move query matching or relational filtering from SQLite to Rust.
+- Do not move ~effective_tags~ or ~effective_properties~ inheritance calculation to Rust.
+- Do not add new indexes without separate benchmark evidence.
+- Do not implement the selective shared TEMP relation in this task.
+- Do not add dependencies.
+
+*** Benchmark phases
+
+Add direct timing around representative phases where the current architecture permits a useful boundary.
+
+Measure at least:
+
+- query compilation
+- matched-row SQL execution
+- enrichment SQL execution
+- SQLite row decoding
+- Rust grouping
+- Rust local sorting
+- outline validation
+- heading path construction
+- final result shaping
+
+Keep the measurements separate from the existing SQLite profile callbacks.
+
+Do not infer Rust time by subtracting SQLite profile time from total query time.
+
+*** Workloads
+
+Measure the existing representative result sizes:
+
+- 100
+- 1'000
+- 10'000
+- 50'000
+
+Include at least:
+
+- ~headings.normal~
+- ~headings.properties~
+- ~headings.effective-properties~
+- ~headings.path~
+- ~files.normal~
+- ~files.keywords~
+
+Focus the detailed path analysis on ~headings.path~.
+
+*** Path experiment
+
+Compare the current recursive query-derived ancestor loader with an alternative Rust-driven loader.
+
+Current strategy:
+
+1. Keep the matched heading relation in SQLite.
+2. Use recursive SQL to load only required missing ancestors.
+3. Build the final heading path in Rust.
+
+Alternative strategy:
+
+1. Load matched headings and their stored outline evidence.
+2. Collect required ancestor IDs in Rust.
+3. Load missing ancestor heading rows with one or more bounded bulk queries.
+4. Build and validate the final heading path in Rust.
+
+The alternative must preserve all current corruption errors.
+
+It must not reload all headings from every matched file.
+
+Keep the existing runtime-limit-safe ID loader for IDs that originate in Rust.
+
+*** Evaluation
+
+For each experiment, record:
+
+- total wall-clock time
+- SQLite execution time where directly measurable
+- row decoding time
+- Rust processing time by phase
+- SQL statement count
+- rows transferred from SQLite to Rust
+- bound parameter count where relevant
+- result count
+
+Prefer an optimization only when the benchmark shows a clear improvement.
+
+Reject an optimization that reduces SQLite work but transfers substantially more unused data to Rust.
+
+*** Decision criteria
+
+Keep work in SQLite when it depends on:
+
+- indexed filtering
+- relational matching
+- joins
+- ~EXISTS~ predicates
+- ~effective_tags~
+- ~effective_properties~
+- reusable matched relations
+
+Prefer Rust when the required rows are already loaded and the work consists mainly of:
+
+- grouping
+- local sorting
+- deduplication
+- validation
+- path construction
+- final result shaping
+
+For heading paths, choose the Rust-driven ancestor loader only if it improves measured end-to-end latency without weakening corruption detection.
+
+*** Follow-up
+
+Use the benchmark result together with the round 2 relation-reuse benchmark.
+
+After this task, decide separately whether to:
+
+- keep the current SQLite/Rust boundary,
+- move selected shaping or path work to Rust,
+- implement selective shared TEMP relations for expensive matched queries,
+- investigate another measured bottleneck.
+  
 * Planning
 
 ** Problem summary

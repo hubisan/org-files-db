@@ -21,6 +21,199 @@ Do not add a persistent index without clear benchmark evidence.
 
 Audit the query compiler for related lookups that stored row state makes impossible.
 
+** DONE Benchmark predicate-driven SQL for direct metadata filters
+
+[[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
+
+Benchmark metadata predicates that currently scan headings and use correlated subqueries.
+
+The benchmark compares these predicate families:
+
+- direct tags
+- direct properties
+- effective properties
+- keywords
+
+It compares these SQL strategies:
+
+- current heading-driven ~EXISTS~
+- relation-driven SQL with current indexes
+- relation-driven SQL with an experimental predicate-first index
+
+It measures these predicate selectivities:
+
+- 1 %
+- 10 %
+- 50 %
+- 100 %
+
+The benchmark records:
+
+- query latency
+- query plan
+- matched and returned rows
+- statement count
+- rows transferred to Rust
+- scanned rows where SQLite exposes them
+
+The benchmark uses isolated database copies for experimental indexes.
+
+It does not change the production schema or production query compiler.
+
+*** Result
+
+Benchmark schema version ~6~ contains the metadata predicate comparison.
+
+The source benchmark run used:
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-predicate-driven-v1.json
+#+end_src
+
+The benchmark JSON is not required for later work.
+
+The important results are recorded here and in ~docs/query-sql-performance.org~.
+
+Across all tested database sizes and selectivities:
+
+- relation-driven SQL with current indexes beat heading-driven ~EXISTS~ in all 64 comparisons
+- relation-driven SQL with the experimental predicate-first index beat heading-driven ~EXISTS~ in all 64 comparisons
+- no tested selectivity produced a crossover where heading-driven ~EXISTS~ became faster
+
+At ~50'000~ eligible headings and ~1 %~ selectivity:
+
+- direct tag:
+  - heading-driven ~EXISTS~: ~20.490 ms~
+  - relation-driven with current indexes: ~0.171 ms~
+  - relation-driven with experimental index: ~0.144 ms~
+- direct property:
+  - heading-driven ~EXISTS~: ~24.318 ms~
+  - relation-driven with current indexes: ~17.484 ms~
+  - relation-driven with experimental index: ~0.157 ms~
+- effective property:
+  - heading-driven ~EXISTS~: ~23.719 ms~
+  - relation-driven with current indexes: ~17.190 ms~
+  - relation-driven with experimental index: ~0.152 ms~
+- keyword:
+  - heading-driven ~EXISTS~: ~25.866 ms~
+  - relation-driven with current indexes: ~11.906 ms~
+  - relation-driven with experimental index: ~0.159 ms~
+
+At ~50'000~ eligible headings and ~100 %~ selectivity:
+
+- direct tag:
+  - heading-driven ~EXISTS~: ~25.477 ms~
+  - relation-driven with current indexes: ~18.807 ms~
+  - relation-driven with experimental index: ~16.904 ms~
+- direct property:
+  - heading-driven ~EXISTS~: ~42.090 ms~
+  - relation-driven with current indexes: ~33.907 ms~
+  - relation-driven with experimental index: ~16.675 ms~
+- effective property:
+  - heading-driven ~EXISTS~: ~41.341 ms~
+  - relation-driven with current indexes: ~33.543 ms~
+  - relation-driven with experimental index: ~16.639 ms~
+- keyword:
+  - heading-driven ~EXISTS~: ~41.488 ms~
+  - relation-driven with current indexes: ~29.140 ms~
+  - relation-driven with experimental index: ~17.871 ms~
+
+The direct-tag relation already has ~idx_tags_tag~.
+
+Its query plan starts from the tag relation and performs heading primary-key lookups.
+
+The experimental tag index has this logical column order:
+
+#+begin_src text
+(tag, heading_id)
+#+end_src
+
+It gives only a moderate improvement over ~idx_tags_tag~.
+
+Do not add another persistent tag index from this benchmark evidence.
+
+The property benchmarks use ~effective_properties~.
+
+Direct-property matching uses ~local_value~.
+
+The useful experimental index shapes are:
+
+#+begin_src text
+(key, local_value, heading_id)
+(key, effective_value, heading_id)
+#+end_src
+
+Without these indexes, relation-driven property SQL still scans the metadata relation.
+
+With these indexes, SQLite uses predicate-first covering-index searches.
+
+The useful experimental keyword index shape is:
+
+#+begin_src text
+(keyword, value, heading_id)
+#+end_src
+
+Without this index, relation-driven keyword SQL scans the keyword relation.
+
+With this index, SQLite uses a predicate-first covering-index search.
+
+The benchmark reports ~rows_scanned~ as unavailable for these SQLite plans.
+
+Use the query plans and measured latency as the scan evidence.
+
+*** Query compiler audit
+
+The compiler audit found no new guaranteed metadata lookup that can be skipped safely.
+
+Direct tags and local properties can exist on root and non-root headings.
+
+Effective properties can exist where the effective key is visible.
+
+Keyword behavior depends on the query mode and heading identity.
+
+The existing root static-truth logic already skips the known impossible root cases.
+
+Do not add another shortcut unless the data model proves that the lookup cannot return a result.
+
+*** Decision
+
+The microbenchmark strongly supports predicate-driven metadata access.
+
+Do not change the production compiler from this microbenchmark alone.
+
+The next task must measure the candidate strategies through the complete production query pipeline.
+
+For direct tags, test relation-driven SQL with the existing ~idx_tags_tag~ first.
+
+Do not add the experimental tag covering index unless new end-to-end evidence changes this decision.
+
+For direct properties, test this candidate index shape:
+
+#+begin_src text
+(key, local_value, heading_id)
+#+end_src
+
+For effective properties, test this candidate index shape:
+
+#+begin_src text
+(key, effective_value, heading_id)
+#+end_src
+
+For keywords, test this candidate index shape:
+
+#+begin_src text
+(keyword, value, heading_id)
+#+end_src
+
+Create these indexes only on benchmark database copies during the first end-to-end comparison.
+
+Do not add a persistent index before the end-to-end benchmark confirms its value.
+
 * Planning
 
 ** Problem summary
