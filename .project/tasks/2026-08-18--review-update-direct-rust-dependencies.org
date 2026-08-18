@@ -91,8 +91,8 @@ Audit date: ~2026-08-18~.
 | ~rusqlite~ | ~0.40.2~ | ~0.40.2~ | Keep the release selected by the bundled SQLite task. |
 | ~serde~ | ~1.0.229~ | ~1.0.229~ | Accepted in the compatible group. |
 | ~serde_json~ | ~1.0.151~ | ~1.0.151~ | Accepted in the compatible group. |
-| ~signal-hook~ | ~0.3.18~ | ~0.4.4~ | Test as an isolated breaking migration. |
-| ~sha2~ | ~0.10.9~ | ~0.11.0~ | Test as an isolated breaking migration. |
+| ~signal-hook~ | ~0.3.18~ | ~0.4.4~ | Start the isolated breaking migration. |
+| ~sha2~ | ~0.11.0~ | ~0.11.0~ | Accepted after the isolated migration passed ~make ci~. |
 | ~toml~ | ~0.8.23~ | ~1.1.4+spec-1.1.0~ | Test as an isolated breaking migration. |
 
 The ~orgize~ registry has no newer ~0.10~ pre-release after ~0.10.0-alpha.10~.
@@ -222,12 +222,24 @@ The first ~sha2 0.11.0~ gate failed only at SHA-256 lowercase formatting sites b
 
 The first formatting compatibility-fix gate found one missing test-module import for ~encode_lower~.
 
-The scope fix still needs the isolated ~make ci~ gate.
+The final ~sha2 0.11.0~ compatibility fix passed the isolated ~make ci~ gate.
+
+** signal-hook 0.4 migration
+
+The project uses only ~flag::register~, ~SigId~, and ~low_level::unregister~.
+
+These APIs remain available with the same required types in ~signal-hook 0.4.4~.
+
+The ~0.4.0~ breaking change affects ~low_level::pipe~ ownership and does not affect the project.
+
+Update the manifest to ~signal-hook 0.4.4~ without source changes.
+
+Keep watcher signal registration, cleanup, and graceful shutdown behavior unchanged.
 
 ** Blockers
 
-Run ~make ci~ after applying the SHA-256 formatting compatibility fix.
+Run ~cargo update -p signal-hook~ and ~make ci~ for the isolated migration.
 
 ** Follow-ups
 
-If the ~sha2 0.11.0~ gate passes, migrate ~signal-hook~ to ~0.4.4~ next.
+If the ~signal-hook 0.4.4~ gate passes, migrate ~toml~ to ~1.1.4+spec-1.1.0~ next.
