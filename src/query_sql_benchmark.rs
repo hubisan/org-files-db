@@ -23,7 +23,7 @@ use crate::{
         compile_sqlite_query, execute_and_shape_query, parse_query, resolve_relative_dates,
         resolve_temporal_bounds, sqlite_query_validation_options, validate_query, CompiledSqlQuery,
         QueryDateResolutionOptions, QueryExecutionOptions, QueryInclude, QueryOutputMode,
-        QueryParam, QueryRows,
+        QueryParam, QueryResponse, QueryRows,
     },
 };
 
@@ -39,12 +39,16 @@ use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
     execute_sqlite_query_with_relation, heading_matched_relation_cost, heading_relation_columns,
     MatchedRelationCost, MatchedRelationReuseStrategy, MetadataPredicateSqlStrategy,
+    PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
 };
 
 pub const OUTPUT_SCHEMA_VERSION: &str = "13";
+pub const PLANNER_STATISTICS_OUTPUT_SCHEMA_VERSION: &str = "2";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
+pub const DEFAULT_PLANNER_STATISTICS_ROWS: usize = 50_000;
+pub const DEFAULT_PLANNER_STATISTICS_ITERATIONS: usize = 3;
 
 #[derive(Debug, Clone)]
 pub struct QuerySqlBenchmarkOptions {
@@ -65,6 +69,76 @@ impl Default for QuerySqlBenchmarkOptions {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct PlannerStatisticsBenchmarkOptions {
+    pub rows: usize,
+    pub warmups: usize,
+    pub iterations: usize,
+    pub candidate: PlannerStatisticsCandidate,
+}
+
+impl Default for PlannerStatisticsBenchmarkOptions {
+    fn default() -> Self {
+        Self {
+            rows: DEFAULT_PLANNER_STATISTICS_ROWS,
+            warmups: DEFAULT_WARMUPS,
+            iterations: DEFAULT_PLANNER_STATISTICS_ITERATIONS,
+            candidate: PlannerStatisticsCandidate::FullAnalyze,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlannerStatisticsCandidate {
+    FullAnalyze,
+    Optimize,
+}
+
+impl PlannerStatisticsCandidate {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "analyze" => Ok(Self::FullAnalyze),
+            "optimize" => Ok(Self::Optimize),
+            _ => Err("--candidate must be analyze or optimize".into()),
+        }
+    }
+
+    fn file_suffix(self) -> &'static str {
+        match self {
+            Self::FullAnalyze => "analyzed",
+            Self::Optimize => "optimized",
+        }
+    }
+
+    fn operation(self) -> &'static str {
+        match self {
+            Self::FullAnalyze => "ANALYZE",
+            Self::Optimize => "PRAGMA optimize",
+        }
+    }
+
+    fn operation_sql(self) -> &'static str {
+        match self {
+            Self::FullAnalyze => "ANALYZE;",
+            Self::Optimize => "PRAGMA optimize;",
+        }
+    }
+
+    fn protocol_description(self) -> &'static str {
+        match self {
+            Self::FullAnalyze => "full ANALYZE on an identical database copy",
+            Self::Optimize => "PRAGMA optimize on an identical database copy",
+        }
+    }
+
+    fn state_label(self) -> &'static str {
+        match self {
+            Self::FullAnalyze => "analyzed",
+            Self::Optimize => "optimized",
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct QuerySqlBenchmarkOutput {
     pub output_schema_version: &'static str,
@@ -73,6 +147,89 @@ pub struct QuerySqlBenchmarkOutput {
     pub sizes: Vec<QuerySqlSizeResult>,
     pub query_plans: Vec<QueryPlanResult>,
     pub compiler_audit: Vec<QueryCompilerAuditResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStatisticsBenchmarkOutput {
+    pub output_schema_version: &'static str,
+    pub protocol: PlannerStatisticsBenchmarkProtocol,
+    pub environment: QuerySqlBenchmarkEnvironment,
+    pub database: PlannerStatisticsDatabaseResult,
+    pub candidate: PlannerStatisticsOperationResult,
+    pub workloads: Vec<PlannerStatisticsWorkloadResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStatisticsBenchmarkProtocol {
+    pub rows: usize,
+    pub warmups: usize,
+    pub iterations: usize,
+    pub samples_per_state: usize,
+    pub database_source: &'static str,
+    pub baseline_state: &'static str,
+    pub candidate_operation: &'static str,
+    pub write_connection_policy: &'static str,
+    pub operation_timing_policy: &'static str,
+    pub timing_policy: &'static str,
+    pub equality_policy: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStatisticsDatabaseResult {
+    pub target_results: usize,
+    pub eligible_level_one_headings: usize,
+    pub baseline_statistics: PlannerStatisticsState,
+    pub baseline_database_size_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStatisticsOperationResult {
+    pub operation: &'static str,
+    pub duration_ns: u128,
+    pub database_size_before_bytes: u64,
+    pub database_size_after_bytes: u64,
+    pub database_size_delta_bytes: i128,
+    pub statistics: PlannerStatisticsState,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStatisticsState {
+    pub tables: Vec<String>,
+    pub sqlite_stat1_rows: usize,
+    pub sqlite_stat4_rows: usize,
+    pub sqlite_stat1: Vec<PlannerStat1Entry>,
+    pub sqlite_stat4_indexes: Vec<PlannerStat4IndexEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStat1Entry {
+    pub table: String,
+    pub index: Option<String>,
+    pub stat: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStat4IndexEntry {
+    pub table: String,
+    pub index: String,
+    pub samples: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlannerStatisticsWorkloadResult {
+    pub id: &'static str,
+    pub query: &'static str,
+    pub includes: Vec<QueryInclude>,
+    pub relation_cost: &'static str,
+    pub temp_selected: bool,
+    pub result_count: usize,
+    pub baseline_matched_relation_query_plan: Vec<String>,
+    pub candidate_matched_relation_query_plan: Vec<String>,
+    pub matched_relation_query_plan_changed: bool,
+    pub baseline_total_query_time: Timing,
+    pub candidate_total_query_time: Timing,
+    pub baseline_sql_profile: SqlProfileSummary,
+    pub candidate_sql_profile: SqlProfileSummary,
 }
 
 #[derive(Debug, Serialize)]
@@ -330,6 +487,17 @@ const PROPERTIES_INCLUDE: &[QueryInclude] = &[QueryInclude::Properties];
 const EFFECTIVE_PROPERTIES_INCLUDE: &[QueryInclude] = &[QueryInclude::EffectiveProperties];
 const KEYWORDS_INCLUDE: &[QueryInclude] = &[QueryInclude::Keywords];
 const PATH_INCLUDE: &[QueryInclude] = &[QueryInclude::Path];
+const PLANNER_STATISTICS_MULTI_INCLUDES: &[QueryInclude] = &[
+    QueryInclude::Properties,
+    QueryInclude::EffectiveProperties,
+    QueryInclude::Keywords,
+];
+const PLANNER_STATISTICS_HEAVY_INCLUDES: &[QueryInclude] = &[
+    QueryInclude::Path,
+    QueryInclude::Properties,
+    QueryInclude::EffectiveProperties,
+    QueryInclude::Keywords,
+];
 
 const WORKLOADS: &[Workload] = &[
     Workload {
@@ -366,6 +534,34 @@ const WORKLOADS: &[Workload] = &[
         id: "files.keywords",
         query: "(files)",
         includes: KEYWORDS_INCLUDE,
+    },
+];
+
+const PLANNER_STATISTICS_WORKLOADS: &[Workload] = &[
+    Workload {
+        id: "cheap.heading-level",
+        query: "(headings (level 1))",
+        includes: NO_INCLUDES,
+    },
+    Workload {
+        id: "selective.direct-property-1",
+        query: "(headings (and (level 1) (property \"ORGFDB_BENCH_DIRECT_001\" \"match\" :inherit nil)))",
+        includes: NO_INCLUDES,
+    },
+    Workload {
+        id: "nonselective.effective-property-100",
+        query: "(headings (and (level 1) (property \"ORGFDB_BENCH_EFFECTIVE_100\" \"match\" :inherit t)))",
+        includes: NO_INCLUDES,
+    },
+    Workload {
+        id: "expensive.multi-metadata-10",
+        query: "(headings (and (level 1) (tags \"orgfdb-bench-tag-010\" :inherit nil) (property \"ORGFDB_BENCH_DIRECT_010\" \"match\" :inherit nil)))",
+        includes: PLANNER_STATISTICS_MULTI_INCLUDES,
+    },
+    Workload {
+        id: "enrichment-heavy.heading-level",
+        query: "(headings (level 1))",
+        includes: PLANNER_STATISTICS_HEAVY_INCLUDES,
     },
 ];
 
@@ -442,6 +638,458 @@ pub fn run(
         serde_json::to_vec_pretty(&result).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())
+}
+
+pub fn run_planner_statistics_experiment(
+    output: &Path,
+    work_dir: &Path,
+    options: PlannerStatisticsBenchmarkOptions,
+) -> Result<(), String> {
+    validate_planner_statistics_options(&options)?;
+    if output.exists() {
+        return Err(format!(
+            "planner statistics benchmark output must not already exist: {}",
+            output.display()
+        ));
+    }
+
+    let environment = query_sql_benchmark_environment()?;
+    let work_dir = prepare_benchmark_databases(work_dir, &[options.rows], 1)?;
+    let size_dir = work_dir.join(format!("rows-{}", options.rows));
+    let source_path = size_dir.join("org-files-db.sqlite");
+    let baseline_path = size_dir.join("org-files-db-planner-statistics-baseline.sqlite");
+    let candidate_path = size_dir.join(format!(
+        "org-files-db-planner-statistics-{}.sqlite",
+        options.candidate.file_suffix()
+    ));
+
+    let source =
+        open_existing_database_read_only(&source_path).map_err(|error| error.to_string())?;
+    let source_statistics = planner_statistics_state(&source)?;
+    if !source_statistics.tables.is_empty() {
+        return Err(format!(
+            "planner statistics baseline already contains statistics tables: {}. Use a fresh benchmark work directory",
+            source_statistics.tables.join(", ")
+        ));
+    }
+    drop(source);
+
+    let source = open_planner_statistics_write_connection(&source_path)?;
+    source
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())?;
+    drop(source);
+
+    prepare_sqlite_benchmark_clone(&source_path, &baseline_path)?;
+    let mut baseline = open_planner_statistics_write_connection(&baseline_path)?;
+    let eligible_headings = count_level_one_headings(&baseline)?;
+    if eligible_headings != options.rows {
+        return Err(format!(
+            "planner statistics baseline contains {eligible_headings} level-one headings, expected {}",
+            options.rows
+        ));
+    }
+    seed_metadata_predicate_rows(&mut baseline, eligible_headings)?;
+    baseline
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())?;
+    let baseline_statistics = planner_statistics_state(&baseline)?;
+    if !baseline_statistics.tables.is_empty() {
+        return Err(format!(
+            "planner statistics baseline unexpectedly contains statistics tables after seeding: {}",
+            baseline_statistics.tables.join(", ")
+        ));
+    }
+    let baseline_database_size_bytes = database_logical_size_bytes(&baseline)?;
+    drop(baseline);
+
+    prepare_sqlite_benchmark_clone(&baseline_path, &candidate_path)?;
+    let candidate = open_planner_statistics_write_connection(&candidate_path)?;
+    let candidate_database_size_before_bytes = database_logical_size_bytes(&candidate)?;
+    let operation_started = Instant::now();
+    candidate
+        .execute_batch(options.candidate.operation_sql())
+        .map_err(|error| error.to_string())?;
+    let operation_duration_ns = operation_started.elapsed().as_nanos();
+    candidate
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|error| error.to_string())?;
+    let candidate_database_size_after_bytes = database_logical_size_bytes(&candidate)?;
+    let candidate_statistics = planner_statistics_state(&candidate)?;
+    drop(candidate);
+
+    let baseline_connection =
+        open_existing_database_read_only(&baseline_path).map_err(|error| error.to_string())?;
+    let candidate_connection =
+        open_existing_database_read_only(&candidate_path).map_err(|error| error.to_string())?;
+    baseline_connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+    candidate_connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+
+    let mut workloads = Vec::with_capacity(PLANNER_STATISTICS_WORKLOADS.len());
+    for workload in PLANNER_STATISTICS_WORKLOADS {
+        workloads.push(measure_planner_statistics_workload(
+            &baseline_connection,
+            &candidate_connection,
+            *workload,
+            &options,
+        )?);
+    }
+
+    baseline_connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+    candidate_connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+
+    let result = PlannerStatisticsBenchmarkOutput {
+        output_schema_version: PLANNER_STATISTICS_OUTPUT_SCHEMA_VERSION,
+        protocol: PlannerStatisticsBenchmarkProtocol {
+            rows: options.rows,
+            warmups: options.warmups,
+            iterations: options.iterations,
+            samples_per_state: options.iterations * 2,
+            database_source: "existing or generated orgfdb-presentation-benchmark corpus database",
+            baseline_state: "identical seeded data with no sqlite_stat1 or sqlite_stat4 tables",
+            candidate_operation: options.candidate.protocol_description(),
+            write_connection_policy: "foreign_keys=ON, journal_mode=WAL, synchronous=NORMAL",
+            operation_timing_policy: "statistics operation only; post-operation WAL checkpoint is excluded",
+            timing_policy: "paired baseline/candidate order with profile callbacks disabled during latency samples",
+            equality_policy: "exact QueryResponse equality before timing and for every measured sample",
+        },
+        environment,
+        database: PlannerStatisticsDatabaseResult {
+            target_results: options.rows,
+            eligible_level_one_headings: eligible_headings,
+            baseline_statistics,
+            baseline_database_size_bytes,
+        },
+        candidate: PlannerStatisticsOperationResult {
+            operation: options.candidate.operation(),
+            duration_ns: operation_duration_ns,
+            database_size_before_bytes: candidate_database_size_before_bytes,
+            database_size_after_bytes: candidate_database_size_after_bytes,
+            database_size_delta_bytes: i128::from(candidate_database_size_after_bytes)
+                - i128::from(candidate_database_size_before_bytes),
+            statistics: candidate_statistics,
+        },
+        workloads,
+    };
+
+    if let Some(parent) = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(
+        output,
+        serde_json::to_vec_pretty(&result).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn validate_planner_statistics_options(
+    options: &PlannerStatisticsBenchmarkOptions,
+) -> Result<(), String> {
+    if options.rows == 0 {
+        return Err("--rows must be positive".into());
+    }
+    if options.iterations == 0 {
+        return Err("--iterations must be positive".into());
+    }
+    Ok(())
+}
+
+fn open_planner_statistics_write_connection(path: &Path) -> Result<Connection, String> {
+    let connection = Connection::open(path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys = ON;
+             PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;",
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(connection)
+}
+
+fn planner_statistics_state(connection: &Connection) -> Result<PlannerStatisticsState, String> {
+    let stat1_exists = sqlite_table_exists(connection, "sqlite_stat1")?;
+    let stat4_exists = sqlite_table_exists(connection, "sqlite_stat4")?;
+    let mut tables = Vec::with_capacity(2);
+    if stat1_exists {
+        tables.push("sqlite_stat1".to_string());
+    }
+    if stat4_exists {
+        tables.push("sqlite_stat4".to_string());
+    }
+
+    let sqlite_stat1 = if stat1_exists {
+        let mut statement = connection
+            .prepare("SELECT tbl, idx, stat FROM sqlite_stat1 ORDER BY tbl, idx")
+            .map_err(|error| error.to_string())?;
+        let entries = statement
+            .query_map([], |row| {
+                Ok(PlannerStat1Entry {
+                    table: row.get(0)?,
+                    index: row.get(1)?,
+                    stat: row.get(2)?,
+                })
+            })
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        entries
+    } else {
+        Vec::new()
+    };
+    let (sqlite_stat4_rows, sqlite_stat4_indexes) = if stat4_exists {
+        let count = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_stat4", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|error| error.to_string())?;
+        let count = usize::try_from(count).map_err(|error| error.to_string())?;
+        let mut statement = connection
+            .prepare(
+                "SELECT tbl, idx, COUNT(*)
+                 FROM sqlite_stat4
+                 GROUP BY tbl, idx
+                 ORDER BY tbl, idx",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(|error| error.to_string())?;
+        let mut indexes = Vec::new();
+        for row in rows {
+            let (table, index, samples) = row.map_err(|error| error.to_string())?;
+            indexes.push(PlannerStat4IndexEntry {
+                table,
+                index,
+                samples: usize::try_from(samples).map_err(|error| error.to_string())?,
+            });
+        }
+        (count, indexes)
+    } else {
+        (0, Vec::new())
+    };
+
+    Ok(PlannerStatisticsState {
+        tables,
+        sqlite_stat1_rows: sqlite_stat1.len(),
+        sqlite_stat4_rows,
+        sqlite_stat1,
+        sqlite_stat4_indexes,
+    })
+}
+
+fn sqlite_table_exists(connection: &Connection, table: &str) -> Result<bool, String> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)",
+            params![table],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|error| error.to_string())
+}
+
+fn measure_planner_statistics_workload(
+    baseline_connection: &Connection,
+    candidate_connection: &Connection,
+    workload: Workload,
+    options: &PlannerStatisticsBenchmarkOptions,
+) -> Result<PlannerStatisticsWorkloadResult, String> {
+    let parsed = parse_query(workload.query).map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(baseline_connection).map_err(|error| error.to_string())?;
+    let validated =
+        validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+    let query_options = QueryExecutionOptions {
+        output_mode: QueryOutputMode::Flat,
+        includes: workload.includes.to_vec(),
+        ..Default::default()
+    };
+
+    let baseline_response =
+        execute_and_shape_query(baseline_connection, &validated, &query_options)
+            .map_err(|error| error.to_string())?;
+    let candidate_response =
+        execute_and_shape_query(candidate_connection, &validated, &query_options)
+            .map_err(|error| error.to_string())?;
+    if candidate_response != baseline_response {
+        return Err(format!(
+            "planner statistics candidate changed public query output for {}",
+            workload.id
+        ));
+    }
+    let expected_response = baseline_response;
+
+    let compiled = compile_sqlite_query(&validated).map_err(|error| error.to_string())?;
+    let baseline_matched_relation_query_plan =
+        explain_query_plan(baseline_connection, &compiled.sql, &compiled.params)?;
+    let candidate_matched_relation_query_plan =
+        explain_query_plan(candidate_connection, &compiled.sql, &compiled.params)?;
+
+    let (baseline_total_query_time, candidate_total_query_time) =
+        measure_planner_statistics_paired(
+            options,
+            || {
+                execute_and_compare_planner_statistics_query(
+                    baseline_connection,
+                    &validated,
+                    &query_options,
+                    &expected_response,
+                    workload.id,
+                    "baseline",
+                )
+            },
+            || {
+                execute_and_compare_planner_statistics_query(
+                    candidate_connection,
+                    &validated,
+                    &query_options,
+                    &expected_response,
+                    workload.id,
+                    options.candidate.state_label(),
+                )
+            },
+        )?;
+
+    let baseline_sql_profile = profile_planner_statistics_query(
+        baseline_connection,
+        &validated,
+        &query_options,
+        &expected_response,
+        workload.id,
+        "baseline",
+    )?;
+    let candidate_sql_profile = profile_planner_statistics_query(
+        candidate_connection,
+        &validated,
+        &query_options,
+        &expected_response,
+        workload.id,
+        options.candidate.state_label(),
+    )?;
+
+    let relation_cost = heading_matched_relation_cost(&validated);
+    Ok(PlannerStatisticsWorkloadResult {
+        id: workload.id,
+        query: workload.query,
+        includes: workload.includes.to_vec(),
+        relation_cost: match relation_cost {
+            MatchedRelationCost::Cheap => "cheap",
+            MatchedRelationCost::Expensive => "expensive",
+        },
+        temp_selected: PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY
+            == MatchedRelationReuseStrategy::SelectiveTemp
+            && relation_cost == MatchedRelationCost::Expensive,
+        result_count: expected_response.results.len(),
+        matched_relation_query_plan_changed: baseline_matched_relation_query_plan
+            != candidate_matched_relation_query_plan,
+        baseline_matched_relation_query_plan,
+        candidate_matched_relation_query_plan,
+        baseline_total_query_time,
+        candidate_total_query_time,
+        baseline_sql_profile,
+        candidate_sql_profile,
+    })
+}
+
+fn execute_and_compare_planner_statistics_query(
+    connection: &Connection,
+    validated: &crate::query::ValidatedQuery,
+    query_options: &QueryExecutionOptions,
+    expected_response: &QueryResponse,
+    workload: &str,
+    state: &str,
+) -> Result<(), String> {
+    let response = execute_and_shape_query(connection, validated, query_options)
+        .map_err(|error| error.to_string())?;
+    if response != *expected_response {
+        return Err(format!(
+            "planner statistics {state} output changed during timing for {workload}"
+        ));
+    }
+    std::hint::black_box(response);
+    Ok(())
+}
+
+fn profile_planner_statistics_query(
+    connection: &Connection,
+    validated: &crate::query::ValidatedQuery,
+    query_options: &QueryExecutionOptions,
+    expected_response: &QueryResponse,
+    workload: &str,
+    state: &str,
+) -> Result<SqlProfileSummary, String> {
+    PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
+    connection.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(profile_trace_callback),
+    );
+    let response = execute_and_shape_query(connection, validated, query_options)
+        .map_err(|error| error.to_string());
+    connection.trace_v2(TraceEventCodes::empty(), None);
+    let response = response?;
+    if response != *expected_response {
+        return Err(format!(
+            "planner statistics {state} output changed during SQL profile for {workload}"
+        ));
+    }
+    Ok(take_profile_summary())
+}
+
+fn measure_planner_statistics_paired<F, G>(
+    options: &PlannerStatisticsBenchmarkOptions,
+    mut baseline: F,
+    mut candidate: G,
+) -> Result<(Timing, Timing), String>
+where
+    F: FnMut() -> Result<(), String>,
+    G: FnMut() -> Result<(), String>,
+{
+    for _ in 0..options.warmups {
+        baseline()?;
+        candidate()?;
+        candidate()?;
+        baseline()?;
+    }
+
+    let mut baseline_samples = Vec::with_capacity(options.iterations * 2);
+    let mut candidate_samples = Vec::with_capacity(options.iterations * 2);
+    for _ in 0..options.iterations {
+        let started = Instant::now();
+        baseline()?;
+        baseline_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        candidate()?;
+        candidate_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        candidate()?;
+        candidate_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        baseline()?;
+        baseline_samples.push(started.elapsed());
+    }
+
+    baseline_samples.sort();
+    candidate_samples.sort();
+    Ok((timing(&baseline_samples), timing(&candidate_samples)))
 }
 
 fn query_sql_benchmark_environment() -> Result<QuerySqlBenchmarkEnvironment, String> {

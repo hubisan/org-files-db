@@ -436,7 +436,9 @@ Task file: [[./archive/2026-08-18--review-update-direct-rust-dependencies.org][R
 
 Task file: [[./archive/2026-08-18--investigate-sqlite-side-enrichment-aggregation.org][Investigate SQLite-side Aggregation for Enrichment Rows]]
 
-* TODO Investigate SQLite planner statistics for production queries
+* BUILD Investigate SQLite planner statistics for production queries
+
+Task file: [[./2026-08-18--investigate-sqlite-planner-statistics.org][Investigate SQLite Planner Statistics]]
 
 Start this task after the bundled SQLite runtime and enrichment-aggregation investigations are settled.
 

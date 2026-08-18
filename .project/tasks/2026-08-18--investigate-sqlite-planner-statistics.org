@@ -1,0 +1,258 @@
+#+TITLE: Investigate SQLite Planner Statistics
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-18 Tue 23:30]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+* Planning
+
+** Problem summary
+
+The production database lifecycle does not run ~ANALYZE~ or ~PRAGMA optimize~.
+
+Schema creation creates the production indexes but does not create planner statistics.
+
+A full rebuild can replace all indexed Org data without refreshing planner statistics.
+
+Incremental indexing can also change table and index distributions without refreshing planner statistics.
+
+The bundled SQLite runtime enables ~SQLITE_ENABLE_STAT4~.
+
+The task must determine whether planner statistics improve real production queries enough to justify lifecycle work.
+
+** Goals
+
+- Compare the current no-statistics baseline with the same indexed data after a statistics operation.
+- Require exact public query-result equality before timing each workload.
+- Measure complete production query latency and query plans.
+- Include cheap, selective, non-selective, expensive, and enrichment-heavy production queries.
+- Record relevant ~sqlite_stat1~ and ~sqlite_stat4~ state.
+- Measure the observed cost and database-size change of each tested statistics operation.
+- Decide whether the production database lifecycle needs a statistics refresh policy.
+
+** Non-goals
+
+- Do not change public query output or error behavior.
+- Do not add indexes.
+- Do not change the query compiler.
+- Do not update dependencies.
+- Do not add production ~ANALYZE~ or ~PRAGMA optimize~ before benchmark evidence exists.
+- Do not expand the experiment if the first gate gives a clear no-change result.
+
+** Architecture
+
+Use a dedicated measurement-only benchmark entry point in the existing query SQL benchmark module.
+
+Keep the normal query SQL benchmark at output schema version ~13~.
+
+The first experiment uses one prepared ~50'000~-result production benchmark database.
+
+Create two benchmark copies from identical seeded data:
+
+- baseline: current database state with no planner statistics
+- candidate: the same database after full ~ANALYZE~
+
+Full ~ANALYZE~ is the first gate because the bundled runtime enables ~SQLITE_ENABLE_STAT4~.
+
+This gate tests the strongest available statistics state before lifecycle integration work starts.
+
+If full ~ANALYZE~ gives no material benefit, stop the statistics experiment unless the data gives a specific reason to test another state.
+
+If full ~ANALYZE~ gives a clear benefit, test ~PRAGMA optimize~ next as the lifecycle candidate.
+
+SQLite recommends ~PRAGMA optimize~ for application-managed statistics refreshes.
+
+The later comparison must include its bounded analysis cost and its resulting statistics state.
+
+The experiment runner uses a neutral candidate state for this comparison.
+
+Planner-statistics output schema version ~2~ records either ~ANALYZE~ or ~PRAGMA optimize~ as that candidate.
+
+** Repository audit
+
+~open_database_with_schema~ configures the writable SQLite connection and applies the schema.
+
+~SchemaDefinition::apply~ creates the schema and production indexes.
+
+Neither path runs ~ANALYZE~ or ~PRAGMA optimize~.
+
+The full rebuild replaces indexed Org data and resolves links before commit.
+
+The incremental indexer can replace, add, or delete substantial indexed data before commit.
+
+Neither indexing path refreshes planner statistics.
+
+The query CLI opens the existing database read-only for query execution.
+
+The production query compiler uses predicate-driven metadata relations.
+
+The production result path uses selective shared TEMP matched relations for expensive reused heading queries.
+
+The normal query SQL benchmark remains output schema version ~13~.
+
+It already records SQLite runtime identity, compile options, capabilities, statement profiles, and query plans.
+
+It also has deterministic metadata-selectivity seed data and paired timing support.
+
+** SQLite documentation findings
+
+The official [[https://www.sqlite.org/lang_analyze.html][SQLite ANALYZE documentation]] says that statistics are optional planner input.
+
+Statistics from ~ANALYZE~ are not refreshed automatically when database content changes.
+
+The bundled build reports ~ENABLE_STAT4~.
+
+Full ~ANALYZE~ can therefore create both ~sqlite_stat1~ and ~sqlite_stat4~ data.
+
+SQLite cannot compute ~sqlite_stat4~ with a non-zero analysis limit.
+
+The official [[https://www.sqlite.org/pragma.html#pragma_optimize][PRAGMA optimize documentation]] recommends ~PRAGMA optimize~ for current applications.
+
+Since SQLite 3.46.0, ~PRAGMA optimize~ uses a temporary analysis limit when it runs analysis work.
+
+Its decision can also depend on query history from the current connection.
+
+This behavior matters because orgfdb query connections are short-lived and read-only.
+
+** Execution plan
+
+1. Add a dedicated planner-statistics benchmark binary.
+2. Reuse the current presentation benchmark corpus and database preparation.
+3. Reject a baseline database that already contains ~sqlite_stat1~ or ~sqlite_stat4~.
+4. Seed deterministic benchmark-only metadata selectivity rows into one baseline copy.
+5. Copy that baseline so both database states contain identical indexed data.
+6. Open benchmark write copies with the production WAL and synchronous settings.
+7. Run only the selected statistics operation on the candidate copy.
+8. Use full ~ANALYZE~ for the first gate.
+9. Use normal ~PRAGMA optimize;~ only after the first gate justifies it.
+10. Record statistics tables, ~sqlite_stat1~ entries, ~sqlite_stat4~ index sample counts, operation time, and database size.
+11. Compare five production workloads with paired sample ordering.
+12. Require exact public ~QueryResponse~ equality before and during timing.
+13. Record complete latency, statement profiles, compiled match plans, result counts, and TEMP-relation classification.
+14. Review the evidence before any production lifecycle change.
+
+** Risks & assumptions
+
+The uploaded repository archive has no ~.git~ directory.
+
+Branch state cannot be inspected from this archive, so this patch does not perform branch operations.
+
+The current environment has no Rust toolchain.
+
+The user will run the release benchmark and ~make ci~ locally.
+
+A reused benchmark work directory can contain manual statistics from an earlier experiment.
+
+The planner-statistics benchmark rejects that state instead of silently using it as the baseline.
+
+The first ~ANALYZE~ cost is one observed operation, not the final lifecycle cost model.
+
+If query gains justify more work, a later step will measure lifecycle cost with repeated database copies.
+
+** Open questions
+
+- Does full ~ANALYZE~ change any representative production query plan?
+- Do changed plans improve complete query latency?
+- Does ~sqlite_stat4~ provide useful selectivity information for the current metadata indexes?
+- If statistics help, does ~PRAGMA optimize~ retain the gain with lower update cost?
+- If statistics help, which indexing event is the smallest safe refresh point?
+
+** Proposed checks
+
+- Build ~orgfdb-query-planner-statistics-benchmark~ in release mode.
+- Run the planner-statistics benchmark at ~50'000~ results.
+- Inspect exact output equality, query-plan changes, complete latency, and statement counts.
+- Inspect ~sqlite_stat1~ and ~sqlite_stat4~ state in both database copies.
+- Run ~make ci~ after the benchmark code compiles locally.
+
+* Results
+
+** Approach
+
+The first patch adds only the isolated full-~ANALYZE~ gate.
+
+No production database or query lifecycle code changes in this patch.
+
+** Changed files
+
+The first patch changed:
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-18--investigate-sqlite-planner-statistics.org~
+- ~src/query_sql_benchmark.rs~
+- ~src/bin/orgfdb-query-planner-statistics-benchmark.rs~
+
+The optimize-candidate patch changes only:
+
+- ~.project/tasks/2026-08-18--investigate-sqlite-planner-statistics.org~
+- ~src/query_sql_benchmark.rs~
+- ~src/bin/orgfdb-query-planner-statistics-benchmark.rs~
+
+** Checks performed
+
+Repository instructions, schema creation, index creation, full rebuild, incremental indexing, query execution, and benchmark code were inspected.
+
+Official SQLite documentation for ~ANALYZE~, ~PRAGMA optimize~, query planning, and ~SQLITE_ENABLE_STAT4~ was reviewed.
+
+** Test results
+
+The local release benchmark completed after the v2 lifetime correction.
+
+The full-~ANALYZE~ candidate used SQLite 3.53.2 with ~ENABLE_STAT4~.
+
+The operation took 641.8 ms on the 50'000-result benchmark database.
+
+The logical database size increased by 94'208 bytes.
+
+It created 41 ~sqlite_stat1~ rows and 787 ~sqlite_stat4~ rows.
+
+No recorded matched-relation query plan changed.
+
+Median complete query latency changed as follows:
+
+- ~cheap.heading-level~: 417.6 ms -> 293.8 ms (-29.65 %)
+- ~selective.direct-property-1~: 3.29 ms -> 3.35 ms (+1.69 %)
+- ~nonselective.effective-property-100~: 400.9 ms -> 401.7 ms (+0.19 %)
+- ~expensive.multi-metadata-10~: 150.0 ms -> 148.2 ms (-1.19 %)
+- ~enrichment-heavy.heading-level~: 1619.0 ms -> 1633.6 ms (+0.90 %)
+
+The result is mixed.
+
+One representative 50'000-result query has a large complete-latency gain.
+
+The other four workloads have no material complete-latency gain.
+
+This evidence does not justify full ~ANALYZE~ in production.
+
+It also does not justify rejecting planner statistics yet.
+
+The gate therefore permits one final lifecycle-candidate experiment with normal ~PRAGMA optimize;~.
+
+SQLite recommends ~PRAGMA optimize~ for application-managed statistics.
+
+Since SQLite 3.46.0, normal ~PRAGMA optimize~ applies a temporary analysis limit when it runs analysis work.
+
+A non-zero analysis limit does not generate ~sqlite_stat4~.
+
+The next experiment must record the resulting statistics state and operation cost.
+
+The next experiment uses the same five workloads and the same exact-output checks.
+
+Do not add another statistics candidate unless this comparison gives a specific reason.
+
+** Blockers
+
+No implementation blocker is known.
+
+** Follow-ups
+
+Run the same planner-statistics benchmark with ~--candidate optimize~.
+
+Compare its operation cost and complete query latency against the no-statistics baseline.
+
+Use the result to decide whether any production lifecycle change is justified.
