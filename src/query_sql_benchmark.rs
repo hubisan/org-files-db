@@ -36,7 +36,7 @@ use crate::query::sqlite::{
     MatchedRelationCost, MatchedRelationReuseStrategy, MetadataPredicateSqlStrategy,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "12";
+pub const OUTPUT_SCHEMA_VERSION: &str = "13";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -89,6 +89,15 @@ pub struct QuerySqlBenchmarkEnvironment {
     pub build_profile: &'static str,
     pub operating_system: &'static str,
     pub architecture: &'static str,
+    pub sqlite_runtime_kind: &'static str,
+    pub sqlite_runtime_label: &'static str,
+    pub sqlite_version: String,
+    pub sqlite_source_id: String,
+    pub sqlite_compile_options: Vec<String>,
+    pub sqlite_json_available: bool,
+    pub sqlite_fts5_available: bool,
+    pub sqlite_dbstat_available: bool,
+    pub sqlite_variable_limit: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -378,6 +387,10 @@ pub fn run(
             output.display()
         ));
     }
+    let environment = query_sql_benchmark_environment()?;
+    if !environment.sqlite_json_available {
+        return Err("query SQL benchmark requires SQLite JSON SQL functions".into());
+    }
     let work_dir = prepare_benchmark_databases(work_dir, &options.row_counts, 1)?;
 
     let mut sizes = Vec::with_capacity(options.row_counts.len());
@@ -407,16 +420,7 @@ pub fn run(
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
             strategy_policy: "lookup microbenchmarks compare ID transport, compiler-derived relation reuse, selective production TEMP reuse, paired final shaping baseline versus owned moves, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
         },
-        environment: QuerySqlBenchmarkEnvironment {
-            command_arguments: std::env::args().collect(),
-            build_profile: if cfg!(debug_assertions) {
-                "debug"
-            } else {
-                "release"
-            },
-            operating_system: std::env::consts::OS,
-            architecture: std::env::consts::ARCH,
-        },
+        environment,
         sizes,
         query_plans,
         compiler_audit: query_compiler_audit(),
@@ -433,6 +437,57 @@ pub fn run(
         serde_json::to_vec_pretty(&result).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())
+}
+
+fn query_sql_benchmark_environment() -> Result<QuerySqlBenchmarkEnvironment, String> {
+    let connection = Connection::open_in_memory().map_err(|error| error.to_string())?;
+    let sqlite_version = connection
+        .query_row("SELECT sqlite_version()", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    let sqlite_source_id = connection
+        .query_row("SELECT sqlite_source_id()", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare("PRAGMA compile_options")
+        .map_err(|error| error.to_string())?;
+    let mut sqlite_compile_options = statement
+        .query_map([], |row| row.get(0))
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|error| error.to_string())?;
+    sqlite_compile_options.sort();
+
+    let sqlite_json_available = connection
+        .query_row("SELECT COUNT(*) FROM json_each('[1]')", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .is_ok();
+    let sqlite_fts5_available =
+        crate::db::sqlite_supports_fts5(&connection).map_err(|error| error.to_string())?;
+    let sqlite_dbstat_available = connection
+        .prepare("SELECT name FROM dbstat LIMIT 0")
+        .is_ok();
+
+    Ok(QuerySqlBenchmarkEnvironment {
+        command_arguments: std::env::args().collect(),
+        build_profile: if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+        operating_system: std::env::consts::OS,
+        architecture: std::env::consts::ARCH,
+        sqlite_runtime_kind: option_env!("ORGFDB_SQLITE_RUNTIME_KIND").unwrap_or("system-linked"),
+        sqlite_runtime_label: option_env!("ORGFDB_SQLITE_RUNTIME_LABEL")
+            .unwrap_or("system-default"),
+        sqlite_version,
+        sqlite_source_id,
+        sqlite_compile_options,
+        sqlite_json_available,
+        sqlite_fts5_available,
+        sqlite_dbstat_available,
+        sqlite_variable_limit: variable_number_limit(&connection),
+    })
 }
 
 fn validate_options(options: &QuerySqlBenchmarkOptions) -> Result<(), String> {
@@ -3214,6 +3269,20 @@ mod tests {
             .iter()
             .find(|entry| entry.predicate == "heading-root-static-truth")
             .is_some_and(|entry| entry.skip_related_lookup));
+    }
+
+    #[test]
+    fn query_sql_benchmark_environment_records_sqlite_runtime() {
+        let environment =
+            query_sql_benchmark_environment().expect("SQLite runtime metadata should load");
+
+        assert!(!environment.sqlite_version.is_empty());
+        assert!(!environment.sqlite_source_id.is_empty());
+        assert!(!environment.sqlite_compile_options.is_empty());
+        assert!(environment.sqlite_json_available);
+        assert!(environment.sqlite_variable_limit > 0);
+        assert!(!environment.sqlite_runtime_kind.is_empty());
+        assert!(!environment.sqlite_runtime_label.is_empty());
     }
 
     #[test]

@@ -1110,6 +1110,85 @@ Their combined median build time is approximately ~1.157 s~.
 
 The query latency gains justify these measured storage and maintenance costs.
 
+
+* SQLite runtime identity
+
+Query SQL benchmark schema version ~13~ records the effective SQLite runtime in the top-level environment.
+
+The environment records:
+
+- ~sqlite_runtime_kind~
+- ~sqlite_runtime_label~
+- ~sqlite_version~
+- ~sqlite_source_id~
+- ~sqlite_compile_options~
+- ~sqlite_json_available~
+- ~sqlite_fts5_available~
+- ~sqlite_dbstat_available~
+- ~sqlite_variable_limit~
+
+The runtime values come from the linked SQLite library.
+
+Treat ~sqlite_version~ and ~sqlite_source_id~ as the authoritative runtime identity.
+
+Treat ~sqlite_runtime_kind~ and ~sqlite_runtime_label~ as descriptive build metadata.
+
+This distinction prevents a build label from hiding an unexpected linked library.
+
+** Required SQLite capabilities
+
+Current query execution uses SQLite JSON SQL functions, including ~json_each~.
+
+Search uses FTS5 when ~[search].fts5_enabled~ is true.
+
+This option is enabled by default.
+
+The general performance benchmark can use the DBSTAT virtual table for storage measurements.
+
+The benchmark records probes for JSON, FTS5, and DBSTAT.
+
+The Rust ~orgfdb_regexp~ function is registered through ~rusqlite~.
+
+It does not require a SQLite regexp extension.
+
+The benchmark also records the SQLite variable-number limit.
+
+This limit affects ID chunk capacity in query execution.
+
+** Bundled runtime direction
+
+orgfdb will standardize on the SQLite runtime supplied through ~rusqlite~ and ~libsqlite3-sys~.
+
+The normal build will use bundled SQLite after the runtime task completes.
+
+This keeps the SQLite version and compile configuration tied to the Rust dependency lock file.
+
+The implementation must keep JSON, FTS5, DBSTAT, and the required variable limit behavior available.
+
+A ~rusqlite~ update can require small API migrations before bundled SQLite becomes the production runtime.
+
+Record the effective SQLite metadata for every performance result after this change.
+
+** Invalid controlled-runtime attempt
+
+The first schema version ~13~ runtime comparison exposed a build error in the comparison procedure.
+
+The file labeled ~system-default~ reported SQLite ~3.45.1~.
+
+The file labeled ~sqlite-3.53.4-amalgamation~ also reported SQLite ~3.45.1~.
+
+Both files reported the same ~sqlite_source_id~ and compile options.
+
+The second binary therefore did not load SQLite ~3.53.4~.
+
+Do not use those timing differences as SQLite version evidence.
+
+This result confirms why runtime identity belongs in the benchmark output.
+
+The external shared-library comparison procedure is no longer part of the project plan.
+
+The bundled runtime will get a new schema version ~13~ performance baseline after capability checks pass.
+
 * Benchmark output
 
 Each result size records the runtime SQLite variable limit and resulting ID chunk capacity.
@@ -1152,6 +1231,8 @@ Schema version ~10~ refreshes relation-reuse workloads through the current produ
 Schema version ~11~ adds measurement-only direct-flat final shaping detail for the remaining Rust result-construction investigation.
 
 Schema version ~12~ adds a paired in-process production A/B between the pre-candidate clone behavior and the ownership-transfer candidate.
+
+Schema version ~13~ adds SQLite runtime identity, compile options, capability probes, the variable limit, and descriptive build labels.
 
 The top-level ~compiler_audit~ records safe related-lookup findings.
 

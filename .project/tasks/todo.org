@@ -424,128 +424,154 @@ Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matche
 
 Task file: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
 
-* TODO Record and compare the SQLite runtime used by query benchmarks
+* BUILD Standardize and record the bundled SQLite runtime
+
+Task file: [[./2026-08-18--standardize-bundled-sqlite-runtime.org][Standardize Bundled SQLite Runtime]]
 
 Start this task before further SQLite query optimization work.
 
-Query benchmark results are not fully comparable unless the SQLite runtime is known.
+Query benchmarks must identify the effective SQLite runtime.
 
-The current build normally uses the system SQLite library.
+The project will use bundled SQLite instead of depending on the host system library.
 
-Different Linux distributions, WSL environments, and machines can therefore use different SQLite versions and build configurations even when the Rust source is identical.
+Goal: pin SQLite through ~rusqlite~ and verify the final bundled runtime before new performance work.
 
-Goal: make the SQLite runtime part of every query performance result and determine whether a newer SQLite runtime materially changes current production query performance.
+Keep query behavior unchanged.
 
-Do not change the production SQLite linking strategy only to complete this task.
+Do not combine unrelated dependency updates or query optimizations with this task.
 
-In particular, do not switch permanently to bundled SQLite without separate evidence that it provides all SQLite functionality required by orgfdb.
+** Phase 1 - Keep runtime identity in benchmark output
 
-** Phase 1 - Record SQLite runtime information
-
-Extend ~orgfdb-query-sql-benchmark~ so every benchmark output records the SQLite runtime used for that run.
+Keep schema version ~13~ and its SQLite environment fields.
 
 Record at least:
 
-- ~sqlite_version()~
-- ~sqlite_source_id()~
-- relevant SQLite compile options
-- whether the benchmark is using the normal system-linked build or an explicitly selected comparison build
+- ~sqlite_runtime_kind~
+- ~sqlite_runtime_label~
+- ~sqlite_version~
+- ~sqlite_source_id~
+- ~sqlite_compile_options~
+- JSON availability
+- FTS5 availability
+- DBSTAT availability
+- SQLite variable-number limit
 
-Keep this information in the benchmark environment metadata.
+Treat ~sqlite_version~ and ~sqlite_source_id~ as authoritative.
 
-Do not require manual notes outside the benchmark JSON to determine which SQLite runtime produced a result.
+Treat runtime labels as descriptive metadata only.
 
-If the existing general benchmark already records useful SQLite runtime information, reuse the same representation where practical.
+The failed comparison already showed why this distinction matters.
 
-Keep the benchmark schema explicit when new environment fields are added.
+Both comparison files reported SQLite ~3.45.1~ despite different runtime labels.
 
-** Phase 2 - Verify required SQLite capabilities
+** Phase 2 - Update rusqlite and enable bundled SQLite
 
-Before comparing an alternative SQLite build, identify the SQLite capabilities required by the current orgfdb implementation and test suite.
+Select a suitable current stable ~rusqlite~ release.
 
-Do not assume that a default bundled SQLite configuration provides everything orgfdb requires.
+Prefer its normal bundled SQLite version through ~libsqlite3-sys~.
 
-Verify the comparison runtime against the required:
+Enable bundled SQLite together with the required existing ~rusqlite~ features.
 
-- SQLite functions
-- extensions or compile-time capabilities
-- limits used by orgfdb
-- query behavior required by the current implementation
+Do not maintain a separate external SQLite shared library.
 
-A comparison runtime is valid only if it can run the relevant orgfdb tests and query workloads correctly.
+Keep the selected versions reproducible through ~Cargo.lock~.
 
-Do not weaken orgfdb functionality only to make an alternative SQLite build work.
+Apply only API migrations that the dependency update requires.
 
-** Phase 3 - Compare runtimes
+** Phase 3 - Verify required SQLite capabilities
 
-Compare the normal current SQLite runtime with a recent controlled SQLite runtime.
+Verify the actual bundled runtime before performance measurements.
 
-Use the same:
+Check at least:
 
-- orgfdb source
-- release build profile
-- benchmark corpus
-- benchmark parameters
-- machine and operating environment
+- JSON SQL functions such as ~json_each~
+- FTS5
+- DBSTAT
+- SQLite variable-number limit
+- custom ~orgfdb_regexp~ registration
+- search behavior with FTS5 enabled
+- representative query behavior
+- index creation and update behavior
 
-Change only the SQLite runtime or build configuration required for the comparison.
+Do not weaken orgfdb behavior to accept the bundled runtime.
 
-The comparison may use bundled SQLite or another controlled linking method.
+Record relevant compile-option differences from the previous system runtime.
 
-The task does not prescribe the mechanism.
+** Phase 4 - Establish the bundled baseline
 
-If bundled SQLite lacks required functionality, use another comparison method or record that limitation.
+Run ~make ci~ with the final bundled build.
 
-Run representative query workloads including:
+Run the standard query SQL benchmark with ~100,1000,10000,50000~ results.
 
-- normal headings
-- headings with properties
-- headings with effective properties
-- headings with path
-- representative expensive predicate queries
-- representative file queries
+Confirm the runtime identity in the JSON before interpreting performance data.
 
-Measure complete query latency.
+Record complete query latency for the representative workloads.
 
-Also compare query plans when the runtime changes them.
+Compare against the previous stable production baseline only to detect material regressions.
 
-Do not retain a SQLite runtime change only because an isolated SQL operation improves.
+Do not use the invalid system-versus-3.53.4 timings as evidence.
 
-Require useful production-level evidence.
-
-If the newer SQLite runtime gives no material benefit, keep the current linking strategy.
-
-If it gives a material benefit, document the result and create a separate implementation decision before changing the production linking strategy.
-
-Do not combine that production packaging decision with this investigation.
-
-Update ~docs/query-sql-performance.org~ with:
-
-- SQLite runtime metadata requirements
-- compared SQLite versions
-- relevant compile-option differences
-- benchmark results
-- query-plan differences where relevant
-- the final decision
+Update ~docs/query-sql-performance.org~ with the final bundled runtime and baseline.
 
 Acceptance criteria:
 
 - Query SQL benchmark JSON records the actual SQLite version.
 - Query SQL benchmark JSON records the SQLite source ID.
 - Relevant SQLite compile options are recorded.
-- Benchmark results clearly identify system-linked versus comparison runtimes.
-- Required orgfdb SQLite capabilities are checked before accepting a comparison runtime.
-- A recent SQLite runtime is compared on the same machine and benchmark corpus.
-- Complete query latency is the final comparison metric.
-- Query-plan changes are recorded when relevant.
-- No production linking strategy changes without separate evidence and a separate decision.
-- A no-change result is allowed.
+- The normal orgfdb build uses bundled SQLite.
+- ~rusqlite~ uses a suitable current stable release.
+- JSON, FTS5, and DBSTAT capability probes pass.
+- Required query, search, index, and update behavior stays unchanged.
+- The SQLite variable-number limit is recorded and supported by query chunking.
+- A fresh bundled query performance baseline is recorded.
+- No material unexplained performance regression remains.
+- ~make ci~ passes.
+
+
+* TODO Review and update direct Rust dependencies
+
+Start this task after the bundled SQLite runtime is stable.
+
+Goal: update direct Rust dependencies without mixing unrelated behavior changes.
+
+Audit every direct dependency in ~Cargo.toml~ against current stable releases.
+
+Do not repeat the ~rusqlite~ migration from the bundled SQLite task.
+
+Update compatible patch and minor releases in small logical groups.
+
+Test breaking major-version updates one dependency at a time.
+
+Treat pre-release dependencies, including ~orgize~, as separate decisions.
+
+Keep each dependency on the newest release that passes project compatibility checks.
+
+If a current release requires an unwanted behavior change, record why the dependency stays pinned.
+
+Do not refactor project code beyond changes required by dependency APIs.
+
+Update ~Cargo.lock~ after the final dependency selection.
+
+Run ~make ci~ after each breaking dependency migration.
+
+Run the final complete ~make ci~ after all accepted updates.
+
+Repeat a performance benchmark only if an updated dependency affects query execution or benchmark behavior.
+
+Acceptance criteria:
+
+- Every direct dependency has a recorded update decision.
+- Compatible updates are applied.
+- Breaking updates are isolated and tested.
+- Held-back dependencies have a concrete reason.
+- ~Cargo.lock~ matches the final dependency set.
+- No unrelated refactor is mixed into the task.
 - ~make ci~ passes.
 
 
 * TODO Investigate SQLite-side aggregation for enrichment rows
 
-Start this task after the SQLite runtime comparison above is complete.
+Start this task after the bundled SQLite runtime and dependency review above are complete.
 
 Use one stable SQLite runtime for all candidate measurements.
 
@@ -681,7 +707,7 @@ Acceptance criteria:
 
 * TODO Investigate SQLite planner statistics for production queries
 
-Start this task after the SQLite runtime and enrichment-aggregation investigations are settled.
+Start this task after the bundled SQLite runtime and enrichment-aggregation investigations are settled.
 
 Use the final production query implementation and one stable SQLite runtime as the baseline.
 
