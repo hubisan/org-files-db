@@ -426,45 +426,61 @@ Start this task after the shared TEMP relation task is complete.
 
 The query execution strategy must be stable before measuring the remaining Rust shaping cost.
 
+Use the selective shared TEMP implementation as the production baseline.
+
 Read:
 
 - ~docs/query-sql-performance.org~
 - the current direct phase profiling code
 - the final query result construction path
+- the current result and enrichment data structures
 
-The current ~50'000~-result v9 profiles show significant ~final-result-shaping~ cost.
+The current ~50'000~-result v10 profiles still show significant
+~final-result-shaping~ cost.
 
-Representative values are approximately:
+Representative direct phase values are approximately:
 
-- normal headings: ~35 ms~
-- headings with properties: ~50 ms~
-- headings with effective properties: ~47 ms~
-- headings with path: ~44 ms~
+- normal headings: ~44 ms~
+- headings with properties: ~57 ms~
+- headings with effective properties: ~58 ms~
+- headings with path: ~49 ms~
 
-Treat these values as a starting baseline.
+Treat these values as the current starting evidence.
 
-Measure the current code again before retaining an optimization.
+Refresh the measurements before retaining an optimization.
 
 The earlier heading-path work already removed path-specific clones and temporary path collections.
 
 Do not repeat that work without new profiling evidence.
 
-Do not move relational work from SQLite to Rust in this task.
+The shared TEMP relation work changed SQL execution but did not target final Rust result construction.
 
-Do not change the query compiler in this task.
+Keep that query strategy unchanged in this task.
 
-Goal: reduce Rust result construction cost without changing public results.
+Do not move relational work from SQLite to Rust.
+
+Do not change the query compiler.
+
+Do not change relation-reuse selection.
+
+Do not optimize JSON serialization or ~presentation-json~ in this task.
+
+Goal: reduce Rust result construction cost without changing public results, ordering, validation, or errors.
 
 ** Phase 1 - Profile final shaping
 
 Profile ~final-result-shaping~ separately from:
 
+- query compilation
+- TEMP relation materialization
 - SQLite execution
 - SQLite row decoding
 - enrichment
+- grouping
+- local sorting
 - outline validation
 - path construction
-- local sorting
+- serialization
 
 Use representative ~50'000~-result workloads.
 
@@ -475,30 +491,87 @@ Include at least:
 - headings with effective properties
 - headings with path
 
-Identify concrete costs before changing code.
+Also inspect a representative file workload if changed shaping code is shared with file results.
+
+Do not expand the task into unrelated file-specific optimization.
+
+Identify concrete costs before changing production code.
 
 Inspect:
 
 - repeated allocations
+- vector growth that can use known capacities
 - unnecessary clones
+- cloned strings
+- cloned metadata collections
 - temporary vectors or maps
 - repeated map lookups
+- repeated hash lookups for the same result
 - repeated string conversions
 - avoidable ownership conversions
 - result object construction
 - values that can move instead of clone
+- data structures that are built only to be consumed immediately
+
+Pay special attention to work performed once per result.
+
+A small per-result cost can become significant at ~50'000~ results.
 
 Do not optimize code only because it looks inefficient.
 
 Require profiling evidence for each candidate.
 
-** Phase 2 - Benchmark candidate changes
+If the existing ~final-result-shaping~ phase is too coarse to identify a concrete cost, add temporary measurement-only subphase instrumentation.
+
+Keep such instrumentation out of normal latency samples.
+
+Do not add a new production dependency only for profiling.
+
+External profiling tools can be used when available, but the task must not depend on them.
+
+** Phase 2 - Define candidates
+
+Write down each candidate before implementing it.
+
+For each candidate, record:
+
+- the measured cost it targets
+- why the current code performs that work
+- the proposed ownership or data-flow change
+- which result types can be affected
+- which public semantics can be affected if the change is wrong
+
+Prefer local ownership and allocation changes over architecture changes.
+
+Examples include:
+
+- moving owned values instead of cloning them
+- consuming a local map when no later stage needs it
+- preallocating a result vector from the known result count
+- avoiding repeated lookups for data already available in the current iteration
+- constructing the final result object directly instead of through a temporary object
+
+Do not consume or mutate shared enrichment data only to avoid a clone.
+
+Only move a value when ownership is local and no later result or validation path needs it.
+
+** Phase 3 - Benchmark candidate changes
 
 Apply one logical optimization at a time.
 
-Compare the candidate against the same baseline workload.
+Compare each candidate against the same production baseline.
 
-Require exact public query result equality.
+Use identical database contents and query inputs.
+
+Require exact public query result equality before comparing performance.
+
+Preserve:
+
+- result contents
+- result ordering
+- stored-data validation
+- current error behavior
+- normal ~--format json~ semantics
 
 Measure complete query latency as the final decision metric.
 
@@ -510,14 +583,42 @@ Test:
 
 - small workloads
 - representative ~50'000~-result workloads
+- every result type affected by the candidate
 
-Keep an optimization only when it gives a clear measured benefit.
+Use enough samples to distinguish a candidate from benchmark noise.
 
-A valid result for this task is also no production change.
+If a candidate shows only a small difference, increase the sample count before deciding.
+
+Do not retain a candidate based only on one faster run.
+
+Record:
+
+- complete query latency
+- ~final-result-shaping~ duration
+- affected shaping subphase duration where measured
+- result count
+- allocation or clone evidence where available
+
+Keep an optimization only when it gives a clear measured end-to-end benefit.
+
+A reduction in ~final-result-shaping~ alone is not sufficient if complete query latency does not improve.
+
+Avoid extra code complexity for a negligible result.
+
+A valid result for this task is no production change.
 
 Use that result if no candidate gives a useful end-to-end improvement.
 
-Update ~docs/query-sql-performance.org~ with retained changes or the no-change decision.
+Remove temporary diagnostic instrumentation that is not useful for future performance work.
+
+Update ~docs/query-sql-performance.org~ with:
+
+- the refreshed baseline
+- identified shaping costs
+- tested candidates
+- retained or rejected changes
+- end-to-end benchmark evidence
+- the no-change decision when applicable
 
 Run:
 
@@ -527,12 +628,18 @@ make ci
 
 Acceptance criteria:
 
-- Profiling identifies concrete final-shaping costs.
-- Each retained optimization has profiling evidence.
+- The baseline uses the stable selective TEMP production implementation.
+- Current profiling identifies concrete final-shaping costs.
+- Coarse profiling is refined when necessary to identify a candidate.
+- Each retained optimization targets a measured cost.
 - Each retained optimization has end-to-end benchmark evidence.
 - Public query results remain identical.
+- Result ordering remains identical.
+- Stored-data validation and current error behavior remain unchanged.
 - Small workloads have no material regression.
-- Representative large workloads show a measurable improvement for retained changes.
+- Representative large workloads show a measurable end-to-end improvement for retained changes.
+- Shared result-building paths do not regress other result types.
+- Temporary diagnostic instrumentation is removed unless it remains generally useful.
 - A no-change decision is allowed when benchmarks reject all candidates.
 - ~make ci~ passes.
 - Performance documentation records the final result.
