@@ -65,6 +65,32 @@ pub enum QueryRows {
 
 const HEADING_RELATION_COLUMNS: &str = "id, file_id, file_path, parent_id, level, line_number, byte_start, byte_end, title, title_raw, todo_keyword, todo_type, priority, scheduled_raw, scheduled_ts, deadline_raw, deadline_ts, closed_raw, closed_ts, archivedp, footnote_section_p";
 const FILE_RELATION_COLUMNS: &str = "id, path, mtime_ns, size, content_hash, indexed_at, root_heading_id, root_title, root_title_raw, root_line_number";
+const QUERY_MATCHED_HEADINGS_TABLE: &str = "orgfdb_query_matched_headings";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MatchedRelationReuseStrategy {
+    QueryDerived,
+    SelectiveTemp,
+}
+
+pub(crate) const PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY: MatchedRelationReuseStrategy =
+    MatchedRelationReuseStrategy::SelectiveTemp;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MatchedRelationCost {
+    Cheap,
+    Expensive,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct MatchedRelationCostProfile {
+    predicate_driven_metadata_relations: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TemporaryMatchedRelation {
+    Headings,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum MatchedSqlRelation {
@@ -97,6 +123,7 @@ impl MatchedSqlRelation {
 pub(crate) struct ExecutedSqliteQuery {
     pub(crate) rows: QueryRows,
     pub(crate) relation: MatchedSqlRelation,
+    pub(crate) temporary_relation: Option<TemporaryMatchedRelation>,
 }
 
 pub(crate) fn heading_relation_columns() -> &'static str {
@@ -105,6 +132,56 @@ pub(crate) fn heading_relation_columns() -> &'static str {
 
 pub(crate) fn file_relation_columns() -> &'static str {
     FILE_RELATION_COLUMNS
+}
+
+pub(crate) fn heading_matched_relation_cost(query: &ValidatedQuery) -> MatchedRelationCost {
+    let profile = query.predicate.as_ref().map_or_else(
+        MatchedRelationCostProfile::default,
+        matched_relation_cost_profile,
+    );
+
+    if profile.predicate_driven_metadata_relations >= 2 {
+        MatchedRelationCost::Expensive
+    } else {
+        MatchedRelationCost::Cheap
+    }
+}
+
+fn matched_relation_cost_profile(expr: &ValidatedExpr) -> MatchedRelationCostProfile {
+    match expr {
+        ValidatedExpr::And(children) | ValidatedExpr::Or(children) => {
+            let mut profile = MatchedRelationCostProfile::default();
+            for child in children {
+                profile.add(matched_relation_cost_profile(child));
+            }
+            profile
+        }
+        ValidatedExpr::Not(child) => matched_relation_cost_profile(child),
+        ValidatedExpr::Predicate(predicate) => matched_predicate_cost_profile(predicate),
+    }
+}
+
+fn matched_predicate_cost_profile(predicate: &ValidatedPredicate) -> MatchedRelationCostProfile {
+    let mut profile = MatchedRelationCostProfile::default();
+    if matches!(predicate.name.as_str(), "tags" | "property" | "keyword") {
+        profile.predicate_driven_metadata_relations += 1;
+    }
+
+    for arg in &predicate.args {
+        if let ValidatedArg::NestedQuery(query) = arg {
+            if let Some(expr) = query.predicate.as_ref() {
+                profile.add(matched_relation_cost_profile(expr));
+            }
+        }
+    }
+
+    profile
+}
+
+impl MatchedRelationCostProfile {
+    fn add(&mut self, other: Self) {
+        self.predicate_driven_metadata_relations += other.predicate_driven_metadata_relations;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -634,19 +711,37 @@ pub(crate) fn execute_sqlite_query_with_relation(
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
-    execute_sqlite_query_with_relation_and_metadata_strategy(
+    execute_sqlite_query_with_relation_and_strategies(
         connection,
         query,
         options,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+        MatchedRelationReuseStrategy::QueryDerived,
     )
 }
 
+#[cfg(test)]
 pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
     connection: &Connection,
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
+    execute_sqlite_query_with_relation_and_strategies(
+        connection,
+        query,
+        options,
+        metadata_predicate_strategy,
+        MatchedRelationReuseStrategy::QueryDerived,
+    )
+}
+
+pub(crate) fn execute_sqlite_query_with_relation_and_strategies(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+    relation_reuse_strategy: MatchedRelationReuseStrategy,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
     let resolved_relative_dates = resolve_relative_dates(
         query,
@@ -684,72 +779,13 @@ pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
     }
 
     match resolved.target {
-        QueryTarget::Headings => {
-            let (compiled, compile_duration) = benchmark_trace::timed(|| {
-                compile_sqlite_query_with_metadata_strategy(
-                    &resolved,
-                    restrict_files,
-                    metadata_predicate_strategy,
-                )
-            });
-            let compiled = compiled?;
-            benchmark_trace::record(
-                benchmark_trace::QUERY_COMPILATION,
-                "match-headings",
-                compile_duration,
-                0,
-                0,
-                0,
-            );
-            let mut rows = execute_heading_rows_query(connection, &compiled)?
-                .into_iter()
-                .map(HeadingQueryMatch::Heading)
-                .collect::<Vec<_>>();
-            let root_compiled =
-                if heading_root_truth(resolved.predicate.as_ref()) != StaticTruth::False {
-                    let (root_compiled, compile_duration) = benchmark_trace::timed(|| {
-                        compile_heading_root_file_query(
-                            &resolved,
-                            restrict_files,
-                            metadata_predicate_strategy,
-                        )
-                    });
-                    let root_compiled = root_compiled?;
-                    benchmark_trace::record(
-                        benchmark_trace::QUERY_COMPILATION,
-                        "match-heading-roots",
-                        compile_duration,
-                        0,
-                        0,
-                        0,
-                    );
-                    rows.extend(
-                        execute_file_rows_query(connection, &root_compiled)?
-                            .into_iter()
-                            .map(HeadingQueryMatch::File),
-                    );
-                    Some(root_compiled)
-                } else {
-                    None
-                };
-            let ((), sort_duration) =
-                benchmark_trace::timed(|| rows.sort_by(compare_heading_query_matches));
-            benchmark_trace::record(
-                benchmark_trace::RUST_LOCAL_SORTING,
-                "matched-heading-order",
-                sort_duration,
-                rows.len(),
-                0,
-                0,
-            );
-            Ok(ExecutedSqliteQuery {
-                rows: QueryRows::Headings(rows),
-                relation: MatchedSqlRelation::Headings {
-                    headings: compiled,
-                    roots: root_compiled,
-                },
-            })
-        }
+        QueryTarget::Headings => execute_heading_query_with_relation_strategy(
+            connection,
+            &resolved,
+            restrict_files,
+            metadata_predicate_strategy,
+            relation_reuse_strategy,
+        ),
         QueryTarget::Links => {
             let (compiled, compile_duration) = benchmark_trace::timed(|| {
                 compile_sqlite_query_with_file_restriction(&resolved, restrict_files)
@@ -767,6 +803,7 @@ pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
             Ok(ExecutedSqliteQuery {
                 rows,
                 relation: MatchedSqlRelation::Links,
+                temporary_relation: None,
             })
         }
         QueryTarget::Files => {
@@ -786,6 +823,255 @@ pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
             Ok(ExecutedSqliteQuery {
                 rows,
                 relation: MatchedSqlRelation::Files(compiled),
+                temporary_relation: None,
+            })
+        }
+    }
+}
+
+fn execute_heading_query_with_relation_strategy(
+    connection: &Connection,
+    resolved: &ValidatedQuery,
+    restrict_files: bool,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+    relation_reuse_strategy: MatchedRelationReuseStrategy,
+) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
+    let (compiled, compile_duration) = benchmark_trace::timed(|| {
+        compile_sqlite_query_with_metadata_strategy(
+            resolved,
+            restrict_files,
+            metadata_predicate_strategy,
+        )
+    });
+    let compiled = compiled?;
+    benchmark_trace::record(
+        benchmark_trace::QUERY_COMPILATION,
+        "match-headings",
+        compile_duration,
+        0,
+        0,
+        0,
+    );
+
+    let materialize = relation_reuse_strategy == MatchedRelationReuseStrategy::SelectiveTemp
+        && heading_matched_relation_cost(resolved) == MatchedRelationCost::Expensive;
+    let (heading_relation, temporary_relation) = if materialize {
+        (
+            materialize_heading_relation(connection, &compiled)?,
+            Some(TemporaryMatchedRelation::Headings),
+        )
+    } else {
+        (compiled, None)
+    };
+
+    let result = (|| {
+        let mut rows = execute_heading_rows_query(connection, &heading_relation)?
+            .into_iter()
+            .map(HeadingQueryMatch::Heading)
+            .collect::<Vec<_>>();
+        let root_compiled = if heading_root_truth(resolved.predicate.as_ref()) != StaticTruth::False
+        {
+            let (root_compiled, compile_duration) = benchmark_trace::timed(|| {
+                compile_heading_root_file_query(
+                    resolved,
+                    restrict_files,
+                    metadata_predicate_strategy,
+                )
+            });
+            let root_compiled = root_compiled?;
+            benchmark_trace::record(
+                benchmark_trace::QUERY_COMPILATION,
+                "match-heading-roots",
+                compile_duration,
+                0,
+                0,
+                0,
+            );
+            rows.extend(
+                execute_file_rows_query(connection, &root_compiled)?
+                    .into_iter()
+                    .map(HeadingQueryMatch::File),
+            );
+            Some(root_compiled)
+        } else {
+            None
+        };
+        let ((), sort_duration) =
+            benchmark_trace::timed(|| rows.sort_by(compare_heading_query_matches));
+        benchmark_trace::record(
+            benchmark_trace::RUST_LOCAL_SORTING,
+            "matched-heading-order",
+            sort_duration,
+            rows.len(),
+            0,
+            0,
+        );
+        Ok(ExecutedSqliteQuery {
+            rows: QueryRows::Headings(rows),
+            relation: MatchedSqlRelation::Headings {
+                headings: heading_relation,
+                roots: root_compiled,
+            },
+            temporary_relation,
+        })
+    })();
+
+    if result.is_err() {
+        if let Some(temporary_relation) = temporary_relation {
+            let _ = cleanup_temporary_matched_relation(connection, temporary_relation);
+        }
+    }
+    result
+}
+
+fn materialize_heading_relation(
+    connection: &Connection,
+    compiled: &CompiledSqlQuery,
+) -> Result<CompiledSqlQuery, QueryExecutionError> {
+    reset_temporary_heading_relation(connection)?;
+
+    let create_sql = format!(
+        "/* orgfdb:temp-matched-headings-create params=0 */
+         CREATE TEMP TABLE temp.{QUERY_MATCHED_HEADINGS_TABLE} (
+             id INTEGER PRIMARY KEY,
+             file_id INTEGER NOT NULL,
+             file_path TEXT NOT NULL,
+             parent_id INTEGER,
+             level INTEGER NOT NULL,
+             line_number INTEGER,
+             byte_start INTEGER NOT NULL,
+             byte_end INTEGER NOT NULL,
+             title TEXT NOT NULL,
+             title_raw TEXT,
+             todo_keyword TEXT,
+             todo_type TEXT,
+             priority TEXT,
+             scheduled_raw TEXT,
+             scheduled_ts INTEGER,
+             deadline_raw TEXT,
+             deadline_ts INTEGER,
+             closed_raw TEXT,
+             closed_ts INTEGER,
+             archivedp INTEGER NOT NULL,
+             footnote_section_p INTEGER NOT NULL
+         ) WITHOUT ROWID"
+    );
+    let (create_result, create_duration) =
+        benchmark_trace::timed(|| connection.execute_batch(&create_sql));
+    benchmark_trace::record(
+        benchmark_trace::TEMP_RELATION_MATERIALIZATION,
+        "temp-matched-headings-create",
+        create_duration,
+        0,
+        1,
+        0,
+    );
+    create_result.map_err(|source| {
+        QueryExecutionError::database(
+            QueryTarget::Headings,
+            "materialize_heading_relation.create",
+            source,
+        )
+    })?;
+
+    let populate_sql = format!(
+        "/* orgfdb:temp-matched-headings-populate params={} */
+         INSERT INTO temp.{QUERY_MATCHED_HEADINGS_TABLE} ({HEADING_RELATION_COLUMNS}) {}",
+        compiled.params.len(),
+        compiled.sql,
+    );
+    let (populate_result, populate_duration) = benchmark_trace::timed(|| {
+        connection.execute(&populate_sql, params_from_iter(compiled.params.iter()))
+    });
+    match populate_result {
+        Ok(inserted_rows) => {
+            benchmark_trace::record(
+                benchmark_trace::TEMP_RELATION_MATERIALIZATION,
+                "temp-matched-headings-populate",
+                populate_duration,
+                inserted_rows,
+                1,
+                compiled.params.len(),
+            );
+        }
+        Err(source) => {
+            benchmark_trace::record(
+                benchmark_trace::TEMP_RELATION_MATERIALIZATION,
+                "temp-matched-headings-populate",
+                populate_duration,
+                0,
+                1,
+                compiled.params.len(),
+            );
+            let _ =
+                cleanup_temporary_matched_relation(connection, TemporaryMatchedRelation::Headings);
+            return Err(QueryExecutionError::database(
+                QueryTarget::Headings,
+                "materialize_heading_relation.populate",
+                source,
+            ));
+        }
+    }
+
+    Ok(CompiledSqlQuery {
+        target: QueryTarget::Headings,
+        sql: format!(
+            "/* orgfdb:match-headings-temp params=0 */
+             SELECT {HEADING_RELATION_COLUMNS}
+             FROM temp.{QUERY_MATCHED_HEADINGS_TABLE}"
+        ),
+        params: Vec::new(),
+    })
+}
+
+fn reset_temporary_heading_relation(connection: &Connection) -> Result<(), QueryExecutionError> {
+    let sql = format!(
+        "/* orgfdb:temp-matched-headings-reset params=0 */
+         DROP TABLE IF EXISTS temp.{QUERY_MATCHED_HEADINGS_TABLE}"
+    );
+    let (result, duration) = benchmark_trace::timed(|| connection.execute_batch(&sql));
+    benchmark_trace::record(
+        benchmark_trace::TEMP_RELATION_MATERIALIZATION,
+        "temp-matched-headings-reset",
+        duration,
+        0,
+        1,
+        0,
+    );
+    result.map_err(|source| {
+        QueryExecutionError::database(
+            QueryTarget::Headings,
+            "materialize_heading_relation.reset",
+            source,
+        )
+    })
+}
+
+pub(crate) fn cleanup_temporary_matched_relation(
+    connection: &Connection,
+    relation: TemporaryMatchedRelation,
+) -> Result<(), QueryExecutionError> {
+    match relation {
+        TemporaryMatchedRelation::Headings => {
+            let sql = format!(
+                "/* orgfdb:temp-matched-headings-drop params=0 */
+                 DROP TABLE IF EXISTS temp.{QUERY_MATCHED_HEADINGS_TABLE}"
+            );
+            let (result, duration) = benchmark_trace::timed(|| connection.execute_batch(&sql));
+            benchmark_trace::record(
+                benchmark_trace::TEMP_RELATION_MATERIALIZATION,
+                "temp-matched-headings-drop",
+                duration,
+                0,
+                1,
+                0,
+            );
+            result.map_err(|source| {
+                QueryExecutionError::database(
+                    QueryTarget::Headings,
+                    "materialize_heading_relation.cleanup",
+                    source,
+                )
             })
         }
     }
@@ -3470,9 +3756,10 @@ mod tests {
         compile_sqlite_query, compile_sqlite_query_with_metadata_strategy, execute_sqlite_query,
         execute_sqlite_query_with_options,
         execute_sqlite_query_with_relation_and_metadata_strategy,
-        expand_leading_home_path_with_home, params_from_iter, sqlite_query_validation_options,
-        FileQueryRow, HeadingQueryMatch, HeadingQueryRow, LinkQueryRow,
-        MetadataPredicateSqlStrategy, QueryExecutionErrorKind, QueryParam, QueryRows,
+        expand_leading_home_path_with_home, heading_matched_relation_cost, params_from_iter,
+        sqlite_query_validation_options, FileQueryRow, HeadingQueryMatch, HeadingQueryRow,
+        LinkQueryRow, MatchedRelationCost, MetadataPredicateSqlStrategy, QueryExecutionErrorKind,
+        QueryParam, QueryRows,
     };
     use crate::db::{
         open_database, open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord,
@@ -3553,6 +3840,32 @@ mod tests {
             },
         )
         .expect("temporal bounds should resolve")
+    }
+
+    #[test]
+    fn matched_relation_cost_requires_measured_predicate_driven_metadata_shape() {
+        assert_eq!(
+            heading_matched_relation_cost(&validated(r#"(headings (level 1))"#)),
+            MatchedRelationCost::Cheap
+        );
+        assert_eq!(
+            heading_matched_relation_cost(&validated(
+                r#"(headings (and (level 1) (or (title "Task") (tags "project"))))"#
+            )),
+            MatchedRelationCost::Cheap
+        );
+        assert_eq!(
+            heading_matched_relation_cost(&validated(
+                r#"(headings (and (level 1) (tags "project") (property "GROUP" "group0")))"#
+            )),
+            MatchedRelationCost::Expensive
+        );
+        assert_eq!(
+            heading_matched_relation_cost(&validated(
+                r#"(headings (ancestors (headings (title "Task"))))"#
+            )),
+            MatchedRelationCost::Cheap
+        );
     }
 
     #[test]

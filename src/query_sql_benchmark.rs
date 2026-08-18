@@ -16,7 +16,7 @@ use crate::{
     presentation_benchmark::{prepare_benchmark_databases, Timing},
     query::{
         compile_sqlite_query, execute_and_shape_query, parse_query, resolve_relative_dates,
-        resolve_temporal_bounds, sqlite_query_validation_options, validate_query,
+        resolve_temporal_bounds, sqlite_query_validation_options, validate_query, CompiledSqlQuery,
         QueryDateResolutionOptions, QueryExecutionOptions, QueryInclude, QueryOutputMode,
         QueryParam, QueryRows,
     },
@@ -25,16 +25,17 @@ use crate::{
 use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
 use crate::query::result::{
     execute_and_shape_query_with_metadata_strategy, execute_and_shape_query_with_path_strategy,
-    load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
-    HeadingPathStrategy,
+    execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
+    load_heading_paths_recursive_from_relation, HeadingPathStrategy,
 };
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
 use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
-    execute_sqlite_query_with_relation, MetadataPredicateSqlStrategy,
+    execute_sqlite_query_with_relation, heading_matched_relation_cost, heading_relation_columns,
+    MatchedRelationCost, MatchedRelationReuseStrategy, MetadataPredicateSqlStrategy,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "9";
+pub const OUTPUT_SCHEMA_VERSION: &str = "10";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -97,6 +98,7 @@ pub struct QuerySqlSizeResult {
     pub workloads: Vec<QuerySqlWorkloadResult>,
     pub lookup_strategies: Vec<LookupStrategyResult>,
     pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
+    pub production_relation_reuse_strategies: Vec<ProductionRelationReuseStrategyResult>,
     pub path_strategies: Vec<PathStrategyResult>,
     pub production_path_strategies: Vec<ProductionPathStrategyResult>,
     pub metadata_predicate_strategies: Vec<MetadataPredicateStrategyResult>,
@@ -178,8 +180,25 @@ pub struct RelationReuseStrategyResult {
     pub strategy: &'static str,
     pub matched_heading_ids: usize,
     pub returned_rows: usize,
+    pub rows_transferred_to_rust_per_sample: usize,
     pub statement_count_per_sample: usize,
     pub timing: Timing,
+    pub sql_profile: SqlProfileSummary,
+    pub query_plan: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProductionRelationReuseStrategyResult {
+    pub workload: &'static str,
+    pub query: &'static str,
+    pub includes: Vec<QueryInclude>,
+    pub relation_cost: &'static str,
+    pub strategy: &'static str,
+    pub temp_selected: bool,
+    pub result_count: usize,
+    pub total_query_time: Timing,
+    pub sql_profile: SqlProfileSummary,
+    pub direct_phase_profile: DirectPhaseProfile,
 }
 
 #[derive(Debug, Serialize)]
@@ -372,7 +391,7 @@ pub fn run(
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, relation reuse, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, compiler-derived relation reuse, selective production TEMP reuse, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -451,6 +470,8 @@ fn run_size(
 
     let lookup_strategies = measure_lookup_strategies(&db_path, target_results, options)?;
     let relation_reuse_strategies = measure_relation_reuse_strategies(&db_path, options)?;
+    let production_relation_reuse_strategies =
+        measure_production_relation_reuse_strategies(&db_path, options)?;
     let path_strategies = measure_path_strategies(&db_path, target_results, options)?;
     let production_path_strategies =
         measure_production_path_strategies(&db_path, target_results, options)?;
@@ -471,6 +492,7 @@ fn run_size(
         workloads,
         lookup_strategies,
         relation_reuse_strategies,
+        production_relation_reuse_strategies,
         path_strategies,
         production_path_strategies,
         metadata_predicate_strategies,
@@ -1311,54 +1333,64 @@ fn measure_relation_reuse_strategies(
     db_path: &Path,
     options: &QuerySqlBenchmarkOptions,
 ) -> Result<Vec<RelationReuseStrategyResult>, String> {
-    let connection =
+    let mut connection =
         open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
     connection
-        .execute_batch(
-            "CREATE TEMP TABLE IF NOT EXISTS orgfdb_sql_benchmark_matched (
-                 id INTEGER PRIMARY KEY
-             ) WITHOUT ROWID;
-             BEGIN DEFERRED TRANSACTION;",
-        )
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
         .map_err(|error| error.to_string())?;
 
     let mut results = Vec::new();
     for complex in [false, true] {
+        let compiled = compile_relation_reuse_source(&connection, complex)?;
+        let matched_heading_ids = count_relation_headings(&connection, &compiled)?;
+        let query_plan = explain_query_plan(&connection, &compiled.sql, &compiled.params)?;
         for workload in [RelationReuseWorkload::Single, RelationReuseWorkload::Multi] {
-            let relation_sql = relation_source_sql(complex);
-            let matched_heading_ids = count_relation_headings(&connection, relation_sql)?;
-            let expected_rows = run_repeated_derived_relation(&connection, relation_sql, workload)?;
+            let expected_rows = run_repeated_derived_relation(&connection, &compiled, workload)?;
 
             let derived_timing = measure(options, || {
-                let rows = run_repeated_derived_relation(&connection, relation_sql, workload)?;
+                let rows = run_repeated_derived_relation(&connection, &compiled, workload)?;
                 if rows != expected_rows {
-                    return Err("query-derived relation reuse row count changed".into());
+                    return Err("query-derived relation reuse output changed".into());
                 }
                 Ok(())
             })?;
+            let derived_profile =
+                profile_relation_reuse_strategy(&mut connection, &compiled, workload, false)?;
             results.push(RelationReuseStrategyResult {
                 workload: workload.id(complex),
                 strategy: "repeated-query-derived",
                 matched_heading_ids,
-                returned_rows: expected_rows,
+                returned_rows: expected_rows.len(),
+                rows_transferred_to_rust_per_sample: expected_rows.len(),
                 statement_count_per_sample: workload.loader_count(),
                 timing: derived_timing,
+                sql_profile: derived_profile,
+                query_plan: query_plan.clone(),
             });
 
+            let temp_reference = run_shared_temp_relation(&connection, &compiled, workload)?;
+            if temp_reference != expected_rows {
+                return Err("shared TEMP relation reuse output changed".into());
+            }
             let temp_timing = measure(options, || {
-                let rows = run_shared_temp_relation(&connection, relation_sql, workload)?;
+                let rows = run_shared_temp_relation(&connection, &compiled, workload)?;
                 if rows != expected_rows {
-                    return Err("shared TEMP relation reuse row count changed".into());
+                    return Err("shared TEMP relation reuse output changed".into());
                 }
                 Ok(())
             })?;
+            let temp_profile =
+                profile_relation_reuse_strategy(&mut connection, &compiled, workload, true)?;
             results.push(RelationReuseStrategyResult {
                 workload: workload.id(complex),
                 strategy: "shared-temp-query-relation",
                 matched_heading_ids,
-                returned_rows: expected_rows,
-                statement_count_per_sample: 2 + workload.loader_count(),
+                returned_rows: expected_rows.len(),
+                rows_transferred_to_rust_per_sample: expected_rows.len(),
+                statement_count_per_sample: 4 + workload.loader_count(),
                 timing: temp_timing,
+                sql_profile: temp_profile,
+                query_plan: query_plan.clone(),
             });
         }
     }
@@ -1368,124 +1400,147 @@ fn measure_relation_reuse_strategies(
     Ok(results)
 }
 
-fn relation_source_sql(complex: bool) -> &'static str {
-    if complex {
-        "SELECT headings.id
-         FROM headings
-         WHERE headings.level = 1
-           AND EXISTS (
-               SELECT 1
-               FROM effective_tags
-               WHERE effective_tags.heading_id = headings.id
-                 AND effective_tags.tag = 'project'
-           )
-           AND EXISTS (
-               SELECT 1
-               FROM effective_properties
-               WHERE effective_properties.heading_id = headings.id
-                 AND effective_properties.key = 'GROUP'
-                 AND effective_properties.effective_value = 'group0'
-           )"
+fn compile_relation_reuse_source(
+    connection: &Connection,
+    complex: bool,
+) -> Result<CompiledSqlQuery, String> {
+    let query = if complex {
+        r#"(headings (and (level 1) (tags "project") (property "GROUP" "group0")))"#
     } else {
-        "SELECT headings.id FROM headings WHERE headings.level = 1"
-    }
+        "(headings (level 1))"
+    };
+    let parsed = parse_query(query).map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(connection).map_err(|error| error.to_string())?;
+    let validated =
+        validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+    compile_sqlite_query(&validated).map_err(|error| error.to_string())
 }
 
-fn count_relation_headings(connection: &Connection, relation_sql: &str) -> Result<usize, String> {
-    let sql = format!("SELECT COUNT(*) FROM ({relation_sql}) AS matched");
+fn count_relation_headings(
+    connection: &Connection,
+    compiled: &CompiledSqlQuery,
+) -> Result<usize, String> {
+    let sql = format!("SELECT COUNT(*) FROM ({}) AS matched", compiled.sql);
     connection
-        .query_row(&sql, [], |row| row.get::<_, i64>(0))
+        .query_row(&sql, params_from_iter(compiled.params.iter()), |row| {
+            row.get::<_, i64>(0)
+        })
         .map_err(|error| error.to_string())
         .and_then(|count| usize::try_from(count).map_err(|error| error.to_string()))
 }
 
 fn run_repeated_derived_relation(
     connection: &Connection,
-    relation_sql: &str,
+    compiled: &CompiledSqlQuery,
     workload: RelationReuseWorkload,
-) -> Result<usize, String> {
-    let mut total = run_relation_loader(
-        connection,
-        relation_sql,
-        "effective_properties",
-        "effective_properties.heading_id = matched.id",
-    )?;
+) -> Result<Vec<(u8, i64)>, String> {
+    let mut rows = run_relation_loader(connection, compiled, 0, "effective_properties")?;
     if workload == RelationReuseWorkload::Multi {
-        total += run_relation_loader(
+        rows.extend(run_relation_loader(
             connection,
-            relation_sql,
+            compiled,
+            1,
             "effective_tags",
-            "effective_tags.heading_id = matched.id",
-        )?;
-        total += run_relation_loader(
+        )?);
+        rows.extend(run_relation_loader(connection, compiled, 2, "properties")?);
+        rows.extend(run_relation_loader(
             connection,
-            relation_sql,
-            "properties",
-            "properties.heading_id = matched.id",
-        )?;
-        total += run_relation_loader(
-            connection,
-            relation_sql,
+            compiled,
+            3,
             "outline_path",
-            "outline_path.heading_id = matched.id",
-        )?;
+        )?);
     }
-    Ok(total)
+    rows.sort_unstable();
+    Ok(rows)
 }
 
 fn run_relation_loader(
     connection: &Connection,
-    relation_sql: &str,
+    compiled: &CompiledSqlQuery,
+    loader_id: u8,
     table: &str,
-    join_condition: &str,
-) -> Result<usize, String> {
+) -> Result<Vec<(u8, i64)>, String> {
     let sql = format!(
-        "WITH matched(id) AS ({relation_sql})
+        "/* orgfdb:relation-reuse-derived params={} */
+         WITH matched({}) AS ({})
          SELECT {table}.heading_id
          FROM matched
-         INNER JOIN {table} ON {join_condition}"
+         INNER JOIN {table} ON {table}.heading_id = matched.id",
+        compiled.params.len(),
+        heading_relation_columns(),
+        compiled.sql,
     );
     let mut statement = connection
         .prepare(&sql)
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([], |_| Ok(()))
+        .query_map(params_from_iter(compiled.params.iter()), |row| {
+            row.get::<_, i64>(0)
+        })
         .map_err(|error| error.to_string())?;
-    let mut count = 0usize;
-    for row in rows {
-        row.map_err(|error| error.to_string())?;
-        count += 1;
-    }
-    Ok(count)
+    rows.map(|row| {
+        row.map(|heading_id| (loader_id, heading_id))
+            .map_err(|error| error.to_string())
+    })
+    .collect()
 }
 
 fn run_shared_temp_relation(
     connection: &Connection,
-    relation_sql: &str,
+    compiled: &CompiledSqlQuery,
     workload: RelationReuseWorkload,
-) -> Result<usize, String> {
+) -> Result<Vec<(u8, i64)>, String> {
+    drop_relation_reuse_temp_table(connection, "relation-reuse-temp-reset")?;
     connection
-        .execute("DELETE FROM temp.orgfdb_sql_benchmark_matched", [])
-        .map_err(|error| error.to_string())?;
-    connection
-        .execute(
-            &format!("INSERT INTO temp.orgfdb_sql_benchmark_matched (id) {relation_sql}"),
-            [],
+        .execute_batch(
+            "/* orgfdb:relation-reuse-temp-create params=0 */
+             CREATE TEMP TABLE temp.orgfdb_sql_benchmark_matched (
+                 id INTEGER PRIMARY KEY
+             ) WITHOUT ROWID",
         )
         .map_err(|error| error.to_string())?;
-
-    let mut total = run_temp_relation_loader(connection, "effective_properties")?;
-    if workload == RelationReuseWorkload::Multi {
-        total += run_temp_relation_loader(connection, "effective_tags")?;
-        total += run_temp_relation_loader(connection, "properties")?;
-        total += run_temp_relation_loader(connection, "outline_path")?;
+    let populate_sql = format!(
+        "/* orgfdb:relation-reuse-temp-populate params={} */
+         WITH matched({}) AS ({})
+         INSERT INTO temp.orgfdb_sql_benchmark_matched (id)
+         SELECT matched.id FROM matched",
+        compiled.params.len(),
+        heading_relation_columns(),
+        compiled.sql,
+    );
+    if let Err(error) = connection.execute(&populate_sql, params_from_iter(compiled.params.iter()))
+    {
+        let _ = drop_relation_reuse_temp_table(connection, "relation-reuse-temp-drop");
+        return Err(error.to_string());
     }
-    Ok(total)
+
+    let result = (|| {
+        let mut rows = run_temp_relation_loader(connection, 0, "effective_properties")?;
+        if workload == RelationReuseWorkload::Multi {
+            rows.extend(run_temp_relation_loader(connection, 1, "effective_tags")?);
+            rows.extend(run_temp_relation_loader(connection, 2, "properties")?);
+            rows.extend(run_temp_relation_loader(connection, 3, "outline_path")?);
+        }
+        rows.sort_unstable();
+        Ok(rows)
+    })();
+    let cleanup = drop_relation_reuse_temp_table(connection, "relation-reuse-temp-drop");
+    match (result, cleanup) {
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error),
+        (Ok(rows), Ok(())) => Ok(rows),
+    }
 }
 
-fn run_temp_relation_loader(connection: &Connection, table: &str) -> Result<usize, String> {
+fn run_temp_relation_loader(
+    connection: &Connection,
+    loader_id: u8,
+    table: &str,
+) -> Result<Vec<(u8, i64)>, String> {
     let sql = format!(
-        "SELECT {table}.heading_id
+        "/* orgfdb:relation-reuse-temp-load params=0 */
+         SELECT {table}.heading_id
          FROM temp.orgfdb_sql_benchmark_matched AS matched
          INNER JOIN {table} ON {table}.heading_id = matched.id"
     );
@@ -1493,14 +1548,208 @@ fn run_temp_relation_loader(connection: &Connection, table: &str) -> Result<usiz
         .prepare(&sql)
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([], |_| Ok(()))
+        .query_map([], |row| row.get::<_, i64>(0))
         .map_err(|error| error.to_string())?;
-    let mut count = 0usize;
-    for row in rows {
-        row.map_err(|error| error.to_string())?;
-        count += 1;
+    rows.map(|row| {
+        row.map(|heading_id| (loader_id, heading_id))
+            .map_err(|error| error.to_string())
+    })
+    .collect()
+}
+
+fn drop_relation_reuse_temp_table(
+    connection: &Connection,
+    marker: &'static str,
+) -> Result<(), String> {
+    connection
+        .execute_batch(&format!(
+            "/* orgfdb:{marker} params=0 */ DROP TABLE IF EXISTS temp.orgfdb_sql_benchmark_matched"
+        ))
+        .map_err(|error| error.to_string())
+}
+
+fn profile_relation_reuse_strategy(
+    connection: &mut Connection,
+    compiled: &CompiledSqlQuery,
+    workload: RelationReuseWorkload,
+    use_temp: bool,
+) -> Result<SqlProfileSummary, String> {
+    PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
+    connection.profile(Some(profile_callback));
+    let result = if use_temp {
+        run_shared_temp_relation(connection, compiled, workload).map(|_| ())
+    } else {
+        run_repeated_derived_relation(connection, compiled, workload).map(|_| ())
+    };
+    connection.profile(None);
+    result?;
+    Ok(take_profile_summary())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProductionRelationReuseWorkload {
+    id: &'static str,
+    query: &'static str,
+    includes: &'static [QueryInclude],
+}
+
+const RELATION_REUSE_MULTI_INCLUDES: &[QueryInclude] = &[
+    QueryInclude::Properties,
+    QueryInclude::EffectiveProperties,
+    QueryInclude::Keywords,
+];
+
+const PRODUCTION_RELATION_REUSE_WORKLOADS: &[ProductionRelationReuseWorkload] = &[
+    ProductionRelationReuseWorkload {
+        id: "cheap.single-effective-properties",
+        query: "(headings (level 1))",
+        includes: EFFECTIVE_PROPERTIES_INCLUDE,
+    },
+    ProductionRelationReuseWorkload {
+        id: "cheap.multi-enrichment",
+        query: "(headings (level 1))",
+        includes: RELATION_REUSE_MULTI_INCLUDES,
+    },
+    ProductionRelationReuseWorkload {
+        id: "expensive.single-effective-properties",
+        query: r#"(headings (and (level 1) (tags "project") (property "GROUP" "group0")))"#,
+        includes: EFFECTIVE_PROPERTIES_INCLUDE,
+    },
+    ProductionRelationReuseWorkload {
+        id: "expensive.multi-enrichment",
+        query: r#"(headings (and (level 1) (tags "project") (property "GROUP" "group0")))"#,
+        includes: RELATION_REUSE_MULTI_INCLUDES,
+    },
+];
+
+fn measure_production_relation_reuse_strategies(
+    db_path: &Path,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<ProductionRelationReuseStrategyResult>, String> {
+    let mut connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(|error| error.to_string())?;
+    let mut results = Vec::new();
+
+    for workload in PRODUCTION_RELATION_REUSE_WORKLOADS {
+        let parsed = parse_query(workload.query).map_err(|error| error.to_string())?;
+        let validated =
+            validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+        let query_options = QueryExecutionOptions {
+            output_mode: QueryOutputMode::Flat,
+            includes: workload.includes.to_vec(),
+            ..Default::default()
+        };
+        let relation_cost = heading_matched_relation_cost(&validated);
+        let derived = execute_and_shape_query_with_relation_reuse_strategy(
+            &connection,
+            &validated,
+            &query_options,
+            MatchedRelationReuseStrategy::QueryDerived,
+        )
+        .map_err(|error| error.to_string())?;
+        let selective = execute_and_shape_query_with_relation_reuse_strategy(
+            &connection,
+            &validated,
+            &query_options,
+            MatchedRelationReuseStrategy::SelectiveTemp,
+        )
+        .map_err(|error| error.to_string())?;
+        if derived != selective {
+            return Err(format!(
+                "production relation reuse changed public output for {}",
+                workload.id
+            ));
+        }
+
+        for strategy in [
+            MatchedRelationReuseStrategy::QueryDerived,
+            MatchedRelationReuseStrategy::SelectiveTemp,
+        ] {
+            let timing = measure(options, || {
+                let response = execute_and_shape_query_with_relation_reuse_strategy(
+                    &connection,
+                    &validated,
+                    &query_options,
+                    strategy,
+                )
+                .map_err(|error| error.to_string())?;
+                if response != derived {
+                    return Err(format!(
+                        "production relation reuse output changed during timing for {}",
+                        workload.id
+                    ));
+                }
+                std::hint::black_box(response);
+                Ok(())
+            })?;
+
+            PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
+            connection.profile(Some(profile_callback));
+            let profiled = execute_and_shape_query_with_relation_reuse_strategy(
+                &connection,
+                &validated,
+                &query_options,
+                strategy,
+            )
+            .map_err(|error| error.to_string());
+            connection.profile(None);
+            let profiled = profiled?;
+            if profiled != derived {
+                return Err(format!(
+                    "production relation reuse output changed during SQL profile for {}",
+                    workload.id
+                ));
+            }
+            let sql_profile = take_profile_summary();
+
+            benchmark_trace::begin();
+            let phase_response = execute_and_shape_query_with_relation_reuse_strategy(
+                &connection,
+                &validated,
+                &query_options,
+                strategy,
+            )
+            .map_err(|error| error.to_string());
+            let phase_records = benchmark_trace::finish();
+            let phase_response = phase_response?;
+            if phase_response != derived {
+                return Err(format!(
+                    "production relation reuse output changed during direct phase profile for {}",
+                    workload.id
+                ));
+            }
+
+            results.push(ProductionRelationReuseStrategyResult {
+                workload: workload.id,
+                query: workload.query,
+                includes: workload.includes.to_vec(),
+                relation_cost: match relation_cost {
+                    MatchedRelationCost::Cheap => "cheap",
+                    MatchedRelationCost::Expensive => "expensive",
+                },
+                strategy: match strategy {
+                    MatchedRelationReuseStrategy::QueryDerived => "query-derived-disabled",
+                    MatchedRelationReuseStrategy::SelectiveTemp => "selective-production",
+                },
+                temp_selected: strategy == MatchedRelationReuseStrategy::SelectiveTemp
+                    && relation_cost == MatchedRelationCost::Expensive,
+                result_count: derived.results.len(),
+                total_query_time: timing,
+                sql_profile,
+                direct_phase_profile: summarize_direct_phase_profile(phase_records),
+            });
+        }
     }
-    Ok(count)
+
+    connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+    Ok(results)
 }
 
 const METADATA_PREDICATE_SELECTIVITIES: &[usize] = &[1, 10, 50, 100];
@@ -2628,6 +2877,14 @@ mod tests {
                 bound_parameters: 0,
             },
             BenchmarkTraceRecord {
+                phase: benchmark_trace::TEMP_RELATION_MATERIALIZATION,
+                operation: "temp-matched-headings-populate",
+                duration_ns: 8,
+                rows: 3,
+                statement_count: 1,
+                bound_parameters: 2,
+            },
+            BenchmarkTraceRecord {
                 phase: benchmark_trace::ENRICHMENT_SQL_EXECUTION,
                 operation: "enrich-properties",
                 duration_ns: 20,
@@ -2638,10 +2895,10 @@ mod tests {
         ]);
 
         assert_eq!(summary.rows_transferred_from_sqlite, 9);
-        assert_eq!(summary.statement_count, 2);
-        assert_eq!(summary.total_bound_parameters, 3);
+        assert_eq!(summary.statement_count, 3);
+        assert_eq!(summary.total_bound_parameters, 5);
         assert_eq!(summary.max_bound_parameters, 2);
-        assert_eq!(summary.operations.len(), 3);
+        assert_eq!(summary.operations.len(), 4);
         assert_eq!(
             summary
                 .phases

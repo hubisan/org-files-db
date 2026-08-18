@@ -1,0 +1,171 @@
+#+TITLE: Shared TEMP Matched Relations
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-17 Monday 23:36]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Implement selective shared TEMP matched-heading relation reuse after predicate-driven metadata compilation.
+
+Refresh the relation-reuse benchmark against the current compiler, define a deterministic compiled-query cost rule, use TEMP only for expensive relations with measured benefit, preserve public query semantics, and benchmark the complete production strategy.
+
+* Planning
+
+** Problem summary
+
+Production enrichment currently wraps the exact compiled matched-heading query again for each relation-backed loader.
+
+The existing v9 benchmark shows opposite outcomes for simple and complex matched relations.
+
+Simple relations remain faster when SQLite repeats them, while the complex tag-plus-property relation is substantially faster when materialized once and reused.
+
+The current relation-reuse benchmark still hard-codes an older SQL relation instead of compiling the workload through the current predicate-driven production compiler.
+
+** Goals
+
+- Refresh relation reuse through the current production compiler.
+- Keep cheap compiled heading relations query-derived.
+- Materialize expensive compiled heading relations once per complete public query.
+- Reuse the materialized relation for base heading tag loading and direct-flat enrichment.
+- Keep TEMP data local to the connection and current query.
+- Clean TEMP state after success and every error path.
+- Add complete production A/B coverage with exact result equality.
+- Preserve public syntax, results, ordering, validation, and errors.
+
+** Non-goals
+
+- Do not materialize every query.
+- Do not choose TEMP from result count or database size.
+- Do not add runtime timing calibration.
+- Do not add persistent schema objects.
+- Do not change link or file relation execution in this task.
+
+** Architecture
+
+Classify the validated heading predicate tree into a small internal relation-reuse cost.
+
+Treat predicate-driven metadata relations as repeated relational work. The supplied evidence covers the tag-plus-property shape, so the initial production selector requires at least two such relations.
+
+Hierarchy, link, timestamp, body-text, and outline subqueries remain query-derived until refreshed benchmark evidence justifies adding them as expensive signals.
+
+Select TEMP when the measured static rule classifies the relation as expensive.
+
+A cheap relation stays query-derived regardless of result count or several enrichment consumers.
+
+An expensive relation may select TEMP with the base effective-tag loader as its only downstream consumer.
+
+When selected, create one TEMP table from the exact compiled heading relation, then expose a parameter-free compiled relation that reads the same columns from that TEMP table.
+
+The initial heading row read, effective-tag load, outline validation, and relation-backed metadata loaders can then reuse that same relation without recompiling public query semantics.
+
+Drop the TEMP table before returning from the complete query path.
+
+** Execution plan
+
+1. Replace the hand-written relation-reuse benchmark relation with current production compilation.
+2. Include TEMP table creation, population, downstream statements, and cleanup in the benchmark sample.
+3. Record statement/transfer counts, SQL profile data, and the compiled relation query plan.
+4. Add an internal heading relation cost profile based on validated predicate shape.
+5. Add a benchmark-selectable relation reuse strategy while keeping production on selective static classification.
+6. Materialize the expensive heading relation before the initial heading row read so every applicable consumer can reuse it.
+7. Guarantee cleanup after shaping success, shaping failure, and materialization failure.
+8. Add tests for cheap/expensive classification, result equality, and stale TEMP cleanup.
+9. Add production A/B benchmark workloads for cheap/expensive and single/multiple enrichment cases.
+10. Update query SQL performance documentation.
+
+** Risks & assumptions
+
+The supplied v9 measurements are the available benchmark evidence in this environment.
+
+This environment has no Rust toolchain, so the refreshed benchmark cannot be executed here. The benchmark implementation must therefore make the local rerun reproducible and must not claim new timing results that were not measured.
+
+The TEMP table uses an internal fixed name because one rusqlite connection executes one query at a time. Cleanup still runs before and after materialization so prior failed state cannot influence a later public query.
+
+Root-file matching remains query-derived. The measured expensive reuse case concerns the real matched-heading relation.
+
+** Open questions
+
+- Does the current predicate-driven compiler keep the same large complex-relation TEMP advantage in a fresh local run?
+- Does complete production A/B support materializing heavy hierarchy and outline predicates as well as two-or-more metadata relations?
+
+** Proposed checks
+
+- Static source checks available without Rust.
+- ~make ci~ on the user machine.
+- Release query SQL benchmark for ~100~, ~1'000~, ~10'000~, and ~50'000~ rows.
+- Compare exact complete production results before every relation-reuse timing.
+
+* Results
+
+** Approach
+
+- Replaced the hand-written relation-reuse benchmark relation with the exact current production compiler output for the existing simple and complex public queries.
+- Included TEMP reset, creation, population, downstream loading, and cleanup in every TEMP benchmark sample.
+- Added exact row-multiset equality to the isolated benchmark and exact public ~QueryResponse~ equality to the complete production A/B before timing.
+- Added a conservative static relation-cost classifier over the validated predicate tree consumed by the compiler.
+- Marked a heading relation expensive only when it contains at least two predicate-driven metadata relations (~tags~, ~property~, or ~keyword~), which is the compiled shape covered by the supplied TEMP-win evidence.
+- Kept hierarchy, link, timestamp, body-text, and outline correlated subqueries query-derived until benchmark evidence supports adding them to the expensive class.
+- Materialized expensive matched heading relations before the first heading-row read so the initial read, effective tags, outline validation, and applicable metadata enrichments reuse the same TEMP-backed relation.
+- Kept root-file matching and all cheap heading relations query-derived.
+- Added cleanup after success, shaping errors, heading execution errors, and failed TEMP population.
+- Added production A/B benchmark workloads for cheap/expensive relations with single/multiple enrichment.
+
+** Changed files
+
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/query/benchmark_trace.rs~
+- ~src/query_sql_benchmark.rs~
+- ~docs/query-sql-performance.org~
+- ~CHANGELOG.org~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-17--shared-temp-matched-relations.org~
+
+** Checks performed
+
+- Inspected the current predicate-driven compiler and the complete query shaping/enrichment path.
+- Checked the patch for whitespace errors with ~git diff --no-index --check~ against the supplied archive.
+- Used Python SQLite to verify that a read-only main database permits connection-local TEMP create/populate/drop inside a deferred transaction.
+- Used the same SQLite smoke check to verify the benchmark's ~WITH ... INSERT ... SELECT~ TEMP population syntax.
+- Confirmed the old hand-written relation source is removed from the relation-reuse benchmark.
+
+** Test results
+
+No Rust toolchain is installed in this environment, so Rust tests, formatting, Clippy, the release benchmark, and ~make ci~ were not run here.
+
+New Rust tests cover:
+
+- cheap versus measured-expensive relation classification
+- exact query-derived versus selective-TEMP public output equality
+- TEMP cleanup after successful shaping
+- TEMP cleanup after a shaping error
+- direct-phase accounting that excludes TEMP population rows from rows transferred to Rust
+
+** Blockers
+
+The required schema version ~10~ benchmark refresh cannot be measured in this environment because ~cargo~, ~rustc~, and ~rustfmt~ are unavailable.
+
+The supplied schema version ~9~ timings remain the evidence for enabling the conservative two-metadata-relation selector. The refreshed schema version ~10~ run must confirm that result on the current predicate-driven compiler and complete production A/B.
+
+** Follow-ups
+
+Run:
+
+#+begin_src sh
+cargo build --release --bin orgfdb-query-sql-benchmark
+
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-relation-reuse-v10.json
+
+make ci
+#+end_src
+
+Keep the production selector only if ~production_relation_reuse_strategies~ confirms no material small-workload regression and a measurable complete-query improvement for the expensive workloads.

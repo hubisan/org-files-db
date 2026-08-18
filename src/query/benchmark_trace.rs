@@ -5,6 +5,7 @@ use std::{
 
 pub(crate) const QUERY_COMPILATION: &str = "query-compilation";
 pub(crate) const MATCHED_SQL_EXECUTION: &str = "matched-sql-execution";
+pub(crate) const TEMP_RELATION_MATERIALIZATION: &str = "temp-relation-materialization";
 pub(crate) const ENRICHMENT_SQL_EXECUTION: &str = "enrichment-sql-execution";
 pub(crate) const SQLITE_ROW_DECODING: &str = "sqlite-row-decoding";
 pub(crate) const RUST_GROUPING: &str = "rust-grouping";

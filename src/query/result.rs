@@ -12,9 +12,10 @@ use serde::Serialize;
 use super::benchmark_trace;
 use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
-    execute_sqlite_query_with_relation_and_metadata_strategy, file_relation_columns,
-    heading_relation_columns, HeadingQueryMatch, MatchedSqlRelation, MetadataPredicateSqlStrategy,
-    PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+    cleanup_temporary_matched_relation, execute_sqlite_query_with_relation_and_strategies,
+    file_relation_columns, heading_relation_columns, HeadingQueryMatch,
+    MatchedRelationReuseStrategy, MatchedSqlRelation, MetadataPredicateSqlStrategy,
+    PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
 };
 use super::{
     FileQueryRow, HeadingQueryRow, LinkQueryRow, QueryExecutionError, QueryRows, QueryTarget,
@@ -420,6 +421,7 @@ pub fn execute_and_shape_query(
         options,
         HeadingPathStrategy::RustDrivenBulkAncestors,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
     )
 }
 
@@ -435,6 +437,7 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
         options,
         path_strategy,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
     )
 }
 
@@ -450,6 +453,23 @@ pub(crate) fn execute_and_shape_query_with_metadata_strategy(
         options,
         HeadingPathStrategy::RustDrivenBulkAncestors,
         metadata_predicate_strategy,
+        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+    )
+}
+
+pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    relation_reuse_strategy: MatchedRelationReuseStrategy,
+) -> Result<QueryResponse, QueryShapeError> {
+    execute_and_shape_query_with_strategies(
+        connection,
+        query,
+        options,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+        relation_reuse_strategy,
     )
 }
 
@@ -459,6 +479,7 @@ fn execute_and_shape_query_with_strategies(
     options: &QueryExecutionOptions,
     path_strategy: HeadingPathStrategy,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+    relation_reuse_strategy: MatchedRelationReuseStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
@@ -473,6 +494,7 @@ fn execute_and_shape_query_with_strategies(
         options,
         path_strategy,
         metadata_predicate_strategy,
+        relation_reuse_strategy,
     );
     if !owns_snapshot {
         return result;
@@ -498,20 +520,34 @@ fn execute_and_shape_query_in_snapshot(
     options: &QueryExecutionOptions,
     path_strategy: HeadingPathStrategy,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+    relation_reuse_strategy: MatchedRelationReuseStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
-    let executed = execute_sqlite_query_with_relation_and_metadata_strategy(
+    let executed = execute_sqlite_query_with_relation_and_strategies(
         connection,
         query,
         options,
         metadata_predicate_strategy,
+        relation_reuse_strategy,
     )?;
-    shape_query_results_internal(
-        connection,
-        executed.rows,
-        options,
-        Some(&executed.relation),
-        path_strategy,
-    )
+    let super::sqlite::ExecutedSqliteQuery {
+        rows,
+        relation,
+        temporary_relation,
+    } = executed;
+    let shaped =
+        shape_query_results_internal(connection, rows, options, Some(&relation), path_strategy);
+    let cleanup = match temporary_relation {
+        Some(temporary_relation) => {
+            cleanup_temporary_matched_relation(connection, temporary_relation)
+        }
+        None => Ok(()),
+    };
+
+    match (shaped, cleanup) {
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error.into()),
+        (Ok(response), Ok(())) => Ok(response),
+    }
 }
 
 pub fn shape_query_results(
@@ -4560,10 +4596,10 @@ fn placeholders(count: usize) -> String {
 mod tests {
     use super::{
         execute_and_shape_query, execute_and_shape_query_with_path_strategy,
-        load_heading_paths_from_relation, load_heading_paths_recursive_from_relation,
-        shape_query_results, EffectivePropertyFact, HeadingPathStrategy, QueryExecutionOptions,
-        QueryInclude, QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode,
-        QueryShapeErrorKind,
+        execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
+        load_heading_paths_recursive_from_relation, shape_query_results, EffectivePropertyFact,
+        HeadingPathStrategy, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse,
+        QueryResultKind, QueryResultNode, QueryShapeErrorKind,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -4571,7 +4607,7 @@ mod tests {
         PropertyRecord, SchemaDefinition, TagRecord,
     };
     use crate::property::{derive_effective_properties, PropertyRow};
-    use crate::query::sqlite::execute_sqlite_query_with_relation;
+    use crate::query::sqlite::{execute_sqlite_query_with_relation, MatchedRelationReuseStrategy};
     use crate::query::{
         execute_sqlite_query, parse_query, validate_query, HeadingQueryMatch, QueryRows,
         QueryTarget, QueryValidationOptions,
@@ -5802,6 +5838,76 @@ PRAGMA foreign_keys = ON;
         .expect("enriched query should shape");
 
         assert_eq!(matched_heading_ids(&plain), matched_heading_ids(&enriched));
+    }
+
+    #[test]
+    fn selective_temp_relation_matches_query_derived_output_and_cleans_up() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (and (tags "project") (property "AREA" "infra")))"#);
+        let options = QueryExecutionOptions {
+            output_mode: QueryOutputMode::Flat,
+            includes: vec![
+                QueryInclude::Properties,
+                QueryInclude::EffectiveProperties,
+                QueryInclude::Keywords,
+            ],
+            ..QueryExecutionOptions::default()
+        };
+
+        let derived = execute_and_shape_query_with_relation_reuse_strategy(
+            &connection,
+            &query,
+            &options,
+            MatchedRelationReuseStrategy::QueryDerived,
+        )
+        .expect("query-derived result should shape");
+        let selective = execute_and_shape_query_with_relation_reuse_strategy(
+            &connection,
+            &query,
+            &options,
+            MatchedRelationReuseStrategy::SelectiveTemp,
+        )
+        .expect("selective TEMP result should shape");
+
+        assert_eq!(derived, selective);
+        let temp_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_temp_master WHERE type = 'table' AND name = 'orgfdb_query_matched_headings'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("TEMP catalog query should work");
+        assert_eq!(temp_count, 0);
+    }
+
+    #[test]
+    fn selective_temp_relation_cleans_up_after_shaping_error() {
+        let connection = seeded_connection();
+        connection
+            .execute("DELETE FROM outline_path WHERE heading_id = 11", [])
+            .expect("outline row should delete");
+        let query = validated(r#"(headings (and (tags "project") (property "AREA" "infra")))"#);
+        let error = execute_and_shape_query_with_relation_reuse_strategy(
+            &connection,
+            &query,
+            &QueryExecutionOptions {
+                output_mode: QueryOutputMode::Flat,
+                includes: vec![QueryInclude::EffectiveProperties],
+                ..QueryExecutionOptions::default()
+            },
+            MatchedRelationReuseStrategy::SelectiveTemp,
+        )
+        .expect_err("missing outline data should still fail shaping");
+        assert_eq!(error.kind, QueryShapeErrorKind::MissingStoredData);
+
+        let temp_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_temp_master WHERE type = 'table' AND name = 'orgfdb_query_matched_headings'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("TEMP catalog query should work");
+        assert_eq!(temp_count, 0);
     }
 
     #[test]

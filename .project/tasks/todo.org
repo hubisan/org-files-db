@@ -1469,7 +1469,9 @@ Record the before and after production measurements.
 - ~make ci~ passes.
 - Performance documentation records the final strategy and evidence.
 
-* TODO Use shared TEMP matched relations for expensive query reuse
+* REVIEW Use shared TEMP matched relations for expensive query reuse
+
+Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matched Relations]]
 
 The predicate-driven metadata work is complete.
 
@@ -2037,6 +2039,10 @@ Acceptance criteria:
 - A no-cache decision requires no further implementation task.
 - A cache decision creates separate focused implementation TODOs.
 - Performance documentation records the decision.
+
+* TODO Benchmark-Sachen entfernen?
+
+Muss man nicht mehr notwendige Benchmark-Sachen entfernen. Oder A/B-Vergleiche?
 
 * TODO Finalize presentation architecture documentation
 :PROPERTIES:
