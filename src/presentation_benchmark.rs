@@ -16,6 +16,7 @@ use crate::{
         open_database_with_schema, open_existing_database_read_only, read_index_state, DbError,
         SchemaDefinition, CURRENT_SCHEMA_VERSION,
     },
+    hex_encoding::encode_lower,
     indexer::Indexer,
     parser::OrgizeAdapter,
     presentation::{
@@ -1025,7 +1026,7 @@ fn generate_corpus(directory: &Path, rows: usize, seed: u64) -> Result<String, S
             .map_err(|error| error.to_string())?;
         fs::write(path, content).map_err(|error| error.to_string())?;
     }
-    Ok(format!("sha256:{:x}", digest.finalize()))
+    Ok(format!("sha256:{}", encode_lower(digest.finalize())))
 }
 
 fn measure_workload(

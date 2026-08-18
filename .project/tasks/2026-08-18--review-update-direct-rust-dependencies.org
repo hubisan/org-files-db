@@ -83,17 +83,17 @@ Audit date: ~2026-08-18~.
 |------------+------------------+-----------------+----------|
 | ~chrono~ | ~0.4.45~ | ~0.4.45~ | Keep the current release. |
 | ~chrono-tz~ | ~0.10.4~ | ~0.10.4~ | Keep the current release. |
-| ~clap~ | ~4.6.1~ | ~4.6.5~ | Update in the compatible group. |
-| ~globset~ | ~0.4.18~ | ~0.4.19~ | Update in the compatible group. |
+| ~clap~ | ~4.6.6~ | ~4.6.6~ | Accepted in the compatible group. |
+| ~globset~ | ~0.4.20~ | ~0.4.20~ | Accepted in the compatible group. |
 | ~notify~ | ~8.2.0~ | ~8.2.0~ | Keep the current release. |
 | ~orgize~ | ~0.10.0-alpha.10~ | ~0.10.0-alpha.10~ | Keep the latest ~0.10~ pre-release. Stable ~0.9.0~ is older. |
 | ~regex~ | ~1.13.1~ | ~1.13.1~ | Keep the current release. |
 | ~rusqlite~ | ~0.40.2~ | ~0.40.2~ | Keep the release selected by the bundled SQLite task. |
-| ~serde~ | ~1.0.228~ | ~1.0.229~ | Update in the compatible group. |
-| ~serde_json~ | ~1.0.150~ | ~1.0.151~ | Update in the compatible group. |
+| ~serde~ | ~1.0.229~ | ~1.0.229~ | Accepted in the compatible group. |
+| ~serde_json~ | ~1.0.151~ | ~1.0.151~ | Accepted in the compatible group. |
 | ~signal-hook~ | ~0.3.18~ | ~0.4.4~ | Test as an isolated breaking migration. |
 | ~sha2~ | ~0.10.9~ | ~0.11.0~ | Test as an isolated breaking migration. |
-| ~toml~ | ~0.8.23~ | ~1.1.3+spec-1.1.0~ | Test as an isolated breaking migration. |
+| ~toml~ | ~0.8.23~ | ~1.1.4+spec-1.1.0~ | Test as an isolated breaking migration. |
 
 The ~orgize~ registry has no newer ~0.10~ pre-release after ~0.10.0-alpha.10~.
 
@@ -105,9 +105,9 @@ Moving back to stable ~0.9.0~ is not an update.
 
 *** Phase 1 - Compatible release group
 
-Raise manifest minimums to the current accepted releases in the existing API lines.
+Update compatible manifest requirements in the existing API lines.
 
-Update the lockfile for ~clap~, ~globset~, ~serde~, and ~serde_json~.
+Let Cargo resolve the newest compatible lockfile releases.
 
 Run ~make ci~ before any breaking migration.
 
@@ -129,7 +129,7 @@ Run ~make ci~ before continuing.
 
 *** Phase 4 - toml 1.1
 
-Update only ~toml~ to ~1.1.3+spec-1.1.0~.
+Update only ~toml~ to ~1.1.4+spec-1.1.0~.
 
 Keep configuration parsing and generated benchmark configuration unchanged.
 
@@ -153,46 +153,81 @@ The three breaking migrations can require source changes even when their common 
 
 ** Proposed checks
 
-For the compatible group, update only the selected lockfile packages:
+Use Cargo to update all releases allowed by the current manifest.
 
 #+begin_src shell
-cargo update -p clap --precise 4.6.5
-cargo update -p globset --precise 0.4.19
-cargo update -p serde --precise 1.0.229
-cargo update -p serde_json --precise 1.0.151
+cargo update
 make ci
 #+end_src
+
+Test each incompatible direct dependency in its own migration.
 
 * Results
 
 ** Approach
 
-Started with a complete direct-dependency audit.
+Completed the compatible dependency update first.
 
-Prepared the first compatible release group without changing production APIs.
+Cargo selected the newest compatible lockfile releases, including ~clap 4.6.6~ and ~globset 0.4.20~.
 
-Deferred ~sha2~, ~signal-hook~, and ~toml~ until the compatible group passes ~make ci~.
+The compatible update passed ~make ci~ in the user's Rust environment.
+
+Started ~sha2 0.11.0~ as the first isolated breaking migration.
+
+** sha2 0.11 migration
+
+The project uses the standard ~Sha256~ and ~Digest~ APIs.
+
+The hash operations still compile with ~sha2 0.11.0~, but lowercase output formatting changed through the ~digest 0.11~ output type.
+
+The resolved digest output no longer implements ~LowerHex~, so the existing ~{:x}~ formatting fails to compile.
+
+Keep the existing lowercase hexadecimal representation with a small crate-local byte encoder.
+
+Do not add another dependency only for hexadecimal encoding.
+
+Use the encoder for all SHA-256 strings in production code and benchmark support.
+
+Existing content-hash tests continue to define the expected hash strings.
 
 ** Changed files
 
-- ~Cargo.toml~
-- ~.project/tasks/todo.org~
+- ~Cargo.toml~ from the previous ~sha2 0.11.0~ migration step
+- ~src/hex_encoding.rs~
+- ~src/lib.rs~
+- ~src/benchmark.rs~
+- ~src/indexer.rs~
+- ~src/indexing_context.rs~
+- ~src/presentation_benchmark.rs~
 - ~.project/tasks/2026-08-18--review-update-direct-rust-dependencies.org~
 
 ** Checks performed
 
-- Compared every direct dependency with its current published release.
-- Inspected the current resolved direct versions in ~Cargo.lock~.
-- Inspected project usage of ~sha2~, ~signal-hook~, and ~toml~ before their migrations.
+- Reviewed the successful compatible dependency gate reported by the user.
+- Corrected the audit to ~clap 4.6.6~ and ~globset 0.4.20~.
+- Corrected the current ~toml~ release to ~1.1.4+spec-1.1.0~.
+- Inspected every project use of ~Sha256~ and ~Digest~.
+- Reviewed the ~sha2 0.11.0~ and ~digest 0.11~ APIs.
+- Reviewed the compiler failure from the first isolated ~sha2 0.11.0~ gate.
+- Replaced all five SHA-256 ~LowerHex~ formatting sites.
+- Added a focused unit test for lowercase two-digit byte encoding.
+- Fixed the ~indexer~ test-module scope for the shared ~encode_lower~ helper after the first compatibility-fix gate.
+- Rust checks were not run in the assistant environment because it has no Rust toolchain.
 
 ** Test results
 
-~make ci~ is pending on the user's Rust environment for the compatible release group.
+The compatible dependency update passed ~make ci~.
+
+The first ~sha2 0.11.0~ gate failed only at SHA-256 lowercase formatting sites because the new digest output type does not implement ~LowerHex~.
+
+The first formatting compatibility-fix gate found one missing test-module import for ~encode_lower~.
+
+The scope fix still needs the isolated ~make ci~ gate.
 
 ** Blockers
 
-The local assistant environment has no Rust toolchain, so it cannot regenerate ~Cargo.lock~ or run ~make ci~.
+Run ~make ci~ after applying the SHA-256 formatting compatibility fix.
 
 ** Follow-ups
 
-After the compatible group passes, migrate ~sha2~ to ~0.11.0~ as the first isolated breaking update.
+If the ~sha2 0.11.0~ gate passes, migrate ~signal-hook~ to ~0.4.4~ next.

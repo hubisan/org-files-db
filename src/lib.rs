@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 mod exclusions;
 mod file_identity;
+mod hex_encoding;
 pub mod indexer;
 mod indexing_context;
 mod link_resolver;

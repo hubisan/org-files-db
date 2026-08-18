@@ -23,6 +23,7 @@ use crate::{
     },
     exclusions::ExclusionMatcher,
     file_identity::{display_path, FileIdentity},
+    hex_encoding::encode_lower,
     indexing_context::{IndexInvalidationSet, IndexingContext, IndexingContextComparison},
     link_resolver::IndexedUniverse,
     link_resolver::LinkResolver,
@@ -1841,7 +1842,7 @@ fn capture_stable_source_with(
             continue;
         }
 
-        let content_hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+        let content_hash = format!("sha256:{}", encode_lower(Sha256::digest(&bytes)));
         return Ok(CapturedSource {
             bytes,
             snapshot: FileSnapshot {
@@ -2866,6 +2867,7 @@ mod tests {
             DB_METADATA_SOURCE_ROOT_EVIDENCE_VERSION_KEY,
         },
         file_identity::FileIdentity,
+        hex_encoding::encode_lower,
         link_resolver::{
             CUSTOM_ID_MISSING_DIAGNOSTIC, DUPLICATE_ID_DIAGNOSTIC, FILE_MISSING_DIAGNOSTIC,
             FILE_OUTSIDE_UNIVERSE_DIAGNOSTIC, HEADING_TITLE_MISSING_DIAGNOSTIC,
@@ -9814,7 +9816,7 @@ index_body_text = false
 
         let path = PathBuf::from("/tmp/change-plan-captured-metadata.org");
         let bytes = b"* Same\n".to_vec();
-        let hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+        let hash = format!("sha256:{}", encode_lower(Sha256::digest(&bytes)));
         let discovered = DiscoveredOrgFile {
             identity: FileIdentity::from_canonical_path(&path),
             path: path.clone(),

@@ -22,6 +22,7 @@ use crate::{
         DB_METADATA_INDEXING_SEMANTICS_FINGERPRINT_KEY, DB_METADATA_INDEXING_SEMANTICS_VERSION_KEY,
         FTS_SCHEMA_CONTRACT_VERSION,
     },
+    hex_encoding::encode_lower,
     parser::TodoKeyword,
 };
 
@@ -353,7 +354,7 @@ impl FingerprintEncoder {
     }
 
     fn finish(self) -> String {
-        format!("{:x}", self.hasher.finalize())
+        encode_lower(self.hasher.finalize())
     }
 }
 

@@ -22,6 +22,7 @@ use crate::{
         CURRENT_SCHEMA_VERSION, DB_METADATA_FTS_AVAILABLE_KEY, DB_METADATA_FTS_BODY_INDEXED_KEY,
         DB_METADATA_FTS_SCHEMA_VERSION_KEY, FTS_SCHEMA_CONTRACT_VERSION,
     },
+    hex_encoding::encode_lower,
     indexer::Indexer,
     parser::OrgizeAdapter,
     query::{
@@ -473,7 +474,7 @@ pub fn generate_corpus(
         seed,
         expected_headings: files * 4 + files.div_ceil(8) * 11 + files.div_ceil(10) * 3,
         expected_links: files + files.div_ceil(11),
-        fingerprint: format!("sha256:{:x}", digest.finalize()),
+        fingerprint: format!("sha256:{}", encode_lower(digest.finalize())),
         generation_duration_ns: 0,
     })
 }
