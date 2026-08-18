@@ -4,6 +4,8 @@ This file records completed changes.
 
 * Unreleased
 
+- =CHANGED= Direct-flat query result shaping now moves row-owned values and local metadata into final results instead of cloning them, reducing broad query latency.
+
 - =CHANGED= Expensive heading queries now reuse one per-query TEMP matched relation while cheap matches stay query-derived.
 
 - =CHANGED= Selective heading metadata filters now use predicate-driven SQLite matching with measured property and keyword indexes.

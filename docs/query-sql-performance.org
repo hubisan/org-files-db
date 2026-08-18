@@ -658,6 +658,148 @@ Inspect ~final-result-shaping-detail~ operations for ~headings.normal~, ~heading
 
 Inspect ~files.normal~ only if the selected candidate changes shared file-result shaping.
 
+*** Schema version 11 local baseline
+
+The schema version ~11~ run was measured under WSL after the benchmark environment changed.
+
+Use this run only as the baseline for later candidate runs in the same WSL environment.
+
+Do not compare its absolute latency with earlier host runs.
+
+The ~50'000~-result direct profile reports:
+
+| Workload | Complete median | Final shaping | Main measured shaping costs |
+|----------+-----------------+---------------+-----------------------------|
+| ~headings.normal~ | ~263.5 ms~ | ~35.4 ms~ | node build ~16.4 ms~, tags JSON ~9.5 ms~ |
+| ~headings.properties~ | ~363.9 ms~ | ~47.4 ms~ | metadata attach ~19.3 ms~, node build ~8.4 ms~ |
+| ~headings.effective-properties~ | ~362.5 ms~ | ~103.9 ms~ | metadata attach ~37.1 ms~, node build ~36.9 ms~ |
+| ~headings.path~ | ~777.8 ms~ | ~72.1 ms~ | node build ~33.1 ms~, tags JSON ~15.3 ms~ |
+| ~files.normal~ | ~164.1 ms~ | ~24.8 ms~ | path components ~6.8 ms~, node build ~6.7 ms~ |
+| ~files.keywords~ | ~387.9 ms~ | ~48.9 ms~ | metadata attach ~20.8 ms~, node build ~8.2 ms~ |
+
+The measurements identify one local ownership candidate that affects both heading and file result shaping.
+
+The direct-flat shaper owns ~QueryRows~, but it iterates through row references and clones row-owned strings into final result nodes.
+
+The metadata maps are also local to the direct-flat shaper.
+
+Properties, effective properties, keywords, and root tags are cloned from these maps before the maps are discarded.
+
+Test one candidate that consumes direct-flat rows and removes local metadata entries from their maps.
+
+This candidate must only move values whose ownership is local to one result.
+
+Keep ~all_tags_json~ parsing unchanged because the profile measures it separately and the final public result needs decoded tags.
+
+Use the schema version ~11~ baseline above and a candidate run from the same WSL environment for the decision.
+
+The first ownership candidate run shows the expected direct shaping reductions at ~50'000~ results.
+
+Representative detail changes are:
+
+| Workload | Baseline shaping | Candidate shaping | Main candidate change |
+|----------+------------------+-------------------+-----------------------|
+| ~headings.normal~ | ~35.4 ms~ | ~31.3 ms~ | node build ~16.4 -> 1.3 ms~ |
+| ~headings.properties~ | ~47.4 ms~ | ~32.7 ms~ | metadata attach ~19.3 -> 4.4 ms~ |
+| ~headings.effective-properties~ | ~103.9 ms~ | ~34.7 ms~ | metadata attach ~37.1 -> 6.2 ms~, node build ~36.9 -> 1.1 ms~ |
+| ~headings.path~ | ~72.1 ms~ | ~51.7 ms~ | node build ~33.1 -> 1.4 ms~ |
+| ~files.keywords~ | ~48.9 ms~ | ~31.3 ms~ | metadata attach ~20.8 -> 7.3 ms~, node build ~8.2 -> 1.8 ms~ |
+
+Do not use the complete latency difference between these two separate benchmark runs as retention evidence.
+
+Several unchanged SQL, row-decoding, grouping, and sorting phases also changed materially between the runs.
+
+At ~50'000~ results some unchanged phases differ by approximately ~30-40%~.
+
+This means that the separate-run complete latency change contains run-to-run environment or cache drift in addition to the shaping change.
+
+Schema version ~12~ therefore adds a paired production shaping comparison inside one benchmark process.
+
+For each broad workload it compares:
+
+- ~clone-baseline~, which reproduces the pre-candidate direct-flat clone behavior;
+- ~move-owned~, which consumes row-owned strings and removes local metadata vectors from their maps.
+
+The paired benchmark:
+
+- uses the same database, validated query, connection, and transaction;
+- requires exact ~QueryResponse~ equality before timing;
+- alternates baseline-first and candidate-first sample order;
+- records complete query latency for both strategies;
+- records one separate direct phase profile for both strategies;
+- keeps direct phase instrumentation out of latency samples.
+
+Run:
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-final-shaping-paired-v12.json
+#+end_src
+
+Inspect ~final_shaping_strategies~ for the retention decision.
+
+Keep the candidate only if the paired complete query latency improves without a material small-workload regression.
+
+If a paired difference is small, rerun with more iterations before deciding.
+
+*** Schema version 12 paired retention result
+
+The schema version ~12~ paired benchmark completed under the same WSL environment as the candidate work.
+
+The benchmark requires exact public ~QueryResponse~ equality before timing and alternates which strategy runs first.
+
+With ~--iterations 3~, each strategy has six paired latency samples per workload.
+
+The median complete-query changes are:
+
+| Workload | ~100~ | ~1'000~ | ~10'000~ | ~50'000~ |
+|----------+-------+---------+----------+----------|
+| ~headings.normal~ | ~-2.4%~ | ~-14.6%~ | ~-6.8%~ | ~235.1 -> 232.5 ms (-1.1%)~ |
+| ~headings.tags~ | ~-8.4%~ | ~-5.5%~ | ~-23.9%~ | ~219.9 -> 212.3 ms (-3.4%)~ |
+| ~headings.properties~ | ~-9.5%~ | ~-8.4%~ | ~-14.0%~ | ~342.5 -> 293.3 ms (-14.3%)~ |
+| ~headings.effective-properties~ | ~-3.5%~ | ~-13.1%~ | ~-16.0%~ | ~366.1 -> 324.9 ms (-11.3%)~ |
+| ~headings.path~ | ~-4.1%~ | ~-2.9%~ | ~-5.6%~ | ~447.1 -> 419.2 ms (-6.2%)~ |
+| ~files.normal~ | ~+4.4%~ | ~-7.3%~ | ~-6.1%~ | ~119.1 -> 112.7 ms (-5.3%)~ |
+| ~files.keywords~ | ~-4.4%~ | ~-20.9%~ | ~-10.3%~ | ~274.1 -> 241.5 ms (-11.9%)~ |
+
+The only small-workload median regression is ~files.normal~ at ~100~ results: approximately ~0.191 -> 0.199 ms~, an absolute increase of about ~0.008 ms~.
+
+At ~1'000~ results the same workload improves by approximately ~7.3%~.
+
+Treat the ~100~-result difference as non-material.
+
+All seven representative ~50'000~-result workloads improve end to end.
+
+The strongest broad improvements are the metadata-heavy paths: ~headings.properties~ improves by approximately ~14.3%~, ~headings.effective-properties~ by approximately ~11.3%~, and ~files.keywords~ by approximately ~11.9%~.
+
+The separate direct phase profiles also attribute the expected work reduction to the targeted ownership changes.
+
+At ~50'000~ results, representative detail operations change as follows:
+
+- ~headings.properties~ metadata attach: approximately ~12.6 -> 5.0 ms~; node build: approximately ~6.0 -> 1.1 ms~.
+- ~headings.effective-properties~ metadata attach: approximately ~14.5 -> 6.1 ms~; node build: approximately ~7.0 -> 1.1 ms~.
+- ~files.keywords~ metadata attach: approximately ~14.9 -> 6.7 ms~; node build: approximately ~5.9 -> 1.8 ms~.
+
+Some one-shot direct phase samples still fluctuate in unrelated work and in the complete ~final-result-shaping~ phase.
+
+Do not use those single profiled runs as the retention metric.
+
+The paired complete-query medians are authoritative for this decision.
+
+Retain ~move-owned~ as the production direct-flat shaping strategy.
+
+Do not add a second shaping optimization in this task.
+
+The first local ownership change already provides measurable end-to-end benefit across every representative large workload without a material small-workload regression.
+
+Keep the shaping detail profile and paired shaping strategy benchmark as performance regression tools.
+
+They are measurement-only and remain outside normal latency samples and public query behavior.
+
 ** Path strategy experiment
 
 Schema version ~3~ also adds a benchmark-only path strategy comparison.
@@ -1008,6 +1150,8 @@ Schema version ~9~ also records complete metadata production A/B results for sma
 Schema version ~10~ refreshes relation-reuse workloads through the current production compiler, includes the complete TEMP lifecycle in the isolated comparison, and adds complete production A/B results for selective matched-relation reuse.
 
 Schema version ~11~ adds measurement-only direct-flat final shaping detail for the remaining Rust result-construction investigation.
+
+Schema version ~12~ adds a paired in-process production A/B between the pre-candidate clone behavior and the ownership-transfer candidate.
 
 The top-level ~compiler_audit~ records safe related-lookup findings.
 

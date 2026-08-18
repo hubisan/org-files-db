@@ -120,6 +120,15 @@ pub(crate) enum HeadingPathStrategy {
     RustDrivenBulkAncestors,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DirectFlatShapingStrategy {
+    CloneBaseline,
+    MoveOwned,
+}
+
+const PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY: DirectFlatShapingStrategy =
+    DirectFlatShapingStrategy::MoveOwned;
+
 fn public_result_kind(domain: ResultDomain, heading_level: i64) -> QueryResultKind {
     match domain {
         ResultDomain::Files => QueryResultKind::File,
@@ -422,6 +431,7 @@ pub fn execute_and_shape_query(
         HeadingPathStrategy::RustDrivenBulkAncestors,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
         PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
     )
 }
 
@@ -438,6 +448,7 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
         path_strategy,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
         PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
     )
 }
 
@@ -454,6 +465,7 @@ pub(crate) fn execute_and_shape_query_with_metadata_strategy(
         HeadingPathStrategy::RustDrivenBulkAncestors,
         metadata_predicate_strategy,
         PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
     )
 }
 
@@ -470,6 +482,24 @@ pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
         HeadingPathStrategy::RustDrivenBulkAncestors,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
         relation_reuse_strategy,
+        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
+    )
+}
+
+pub(crate) fn execute_and_shape_query_with_direct_flat_shaping_strategy(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    shaping_strategy: DirectFlatShapingStrategy,
+) -> Result<QueryResponse, QueryShapeError> {
+    execute_and_shape_query_with_strategies(
+        connection,
+        query,
+        options,
+        HeadingPathStrategy::RustDrivenBulkAncestors,
+        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+        shaping_strategy,
     )
 }
 
@@ -480,6 +510,7 @@ fn execute_and_shape_query_with_strategies(
     path_strategy: HeadingPathStrategy,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
     relation_reuse_strategy: MatchedRelationReuseStrategy,
+    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
@@ -495,6 +526,7 @@ fn execute_and_shape_query_with_strategies(
         path_strategy,
         metadata_predicate_strategy,
         relation_reuse_strategy,
+        shaping_strategy,
     );
     if !owns_snapshot {
         return result;
@@ -521,6 +553,7 @@ fn execute_and_shape_query_in_snapshot(
     path_strategy: HeadingPathStrategy,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
     relation_reuse_strategy: MatchedRelationReuseStrategy,
+    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let executed = execute_sqlite_query_with_relation_and_strategies(
         connection,
@@ -534,8 +567,14 @@ fn execute_and_shape_query_in_snapshot(
         relation,
         temporary_relation,
     } = executed;
-    let shaped =
-        shape_query_results_internal(connection, rows, options, Some(&relation), path_strategy);
+    let shaped = shape_query_results_internal(
+        connection,
+        rows,
+        options,
+        Some(&relation),
+        path_strategy,
+        shaping_strategy,
+    );
     let cleanup = match temporary_relation {
         Some(temporary_relation) => {
             cleanup_temporary_matched_relation(connection, temporary_relation)
@@ -561,6 +600,7 @@ pub fn shape_query_results(
         options,
         None,
         HeadingPathStrategy::RustDrivenBulkAncestors,
+        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
     )
 }
 
@@ -570,12 +610,20 @@ fn shape_query_results_internal(
     options: &QueryExecutionOptions,
     relation: Option<&MatchedSqlRelation>,
     path_strategy: HeadingPathStrategy,
+    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let includes = normalized_includes(&options.includes);
     if options.output_mode == QueryOutputMode::Flat
         && supports_direct_flat_shaping(&rows, &includes, relation.is_some())
     {
-        return shape_direct_flat_results(connection, rows, includes, relation, path_strategy);
+        return shape_direct_flat_results(
+            connection,
+            rows,
+            includes,
+            relation,
+            path_strategy,
+            shaping_strategy,
+        );
     }
 
     let context = EnrichmentContext::load(connection, &rows, &includes)?;
@@ -655,6 +703,7 @@ fn shape_direct_flat_results(
     includes: Vec<QueryInclude>,
     relation: Option<&MatchedSqlRelation>,
     path_strategy: HeadingPathStrategy,
+    shaping_strategy: DirectFlatShapingStrategy,
 ) -> Result<QueryResponse, QueryShapeError> {
     let mut metadata =
         FlatMetadataContext::load(connection, &rows, &includes, relation, path_strategy)?;
@@ -664,30 +713,57 @@ fn shape_direct_flat_results(
         QueryRows::Files(_) => QueryTarget::Files,
     };
     let shaping_started = benchmark_trace::active().then(Instant::now);
-    let results = match &rows {
-        QueryRows::Headings(rows) => rows
-            .iter()
-            .map(|row| match row {
-                HeadingQueryMatch::File(row) => metadata
-                    .shape_file_row(row, ResultDomain::Headings, &includes)
-                    .map(QueryResultNode::File),
-                HeadingQueryMatch::Heading(row) => metadata
-                    .shape_heading_row(row, &includes)
-                    .map(QueryResultNode::Heading),
-            })
-            .collect::<Result<Vec<_>, QueryShapeError>>()?,
-        QueryRows::Links(rows) => rows
-            .iter()
-            .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
-            .collect(),
-        QueryRows::Files(rows) => rows
-            .iter()
-            .map(|row| {
-                metadata
-                    .shape_file_row(row, ResultDomain::Files, &includes)
-                    .map(QueryResultNode::File)
-            })
-            .collect::<Result<Vec<_>, QueryShapeError>>()?,
+    let results = match shaping_strategy {
+        DirectFlatShapingStrategy::CloneBaseline => match &rows {
+            QueryRows::Headings(rows) => rows
+                .iter()
+                .map(|row| match row {
+                    HeadingQueryMatch::File(row) => metadata
+                        .shape_file_row_cloned(row, ResultDomain::Headings, &includes)
+                        .map(QueryResultNode::File),
+                    HeadingQueryMatch::Heading(row) => metadata
+                        .shape_heading_row_cloned(row, &includes)
+                        .map(QueryResultNode::Heading),
+                })
+                .collect::<Result<Vec<_>, QueryShapeError>>()?,
+            QueryRows::Links(rows) => rows
+                .iter()
+                .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
+                .collect(),
+            QueryRows::Files(rows) => rows
+                .iter()
+                .map(|row| {
+                    metadata
+                        .shape_file_row_cloned(row, ResultDomain::Files, &includes)
+                        .map(QueryResultNode::File)
+                })
+                .collect::<Result<Vec<_>, QueryShapeError>>()?,
+        },
+        DirectFlatShapingStrategy::MoveOwned => match rows {
+            QueryRows::Headings(rows) => rows
+                .into_iter()
+                .map(|row| match row {
+                    HeadingQueryMatch::File(row) => metadata
+                        .shape_file_row(row, ResultDomain::Headings, &includes)
+                        .map(QueryResultNode::File),
+                    HeadingQueryMatch::Heading(row) => metadata
+                        .shape_heading_row(row, &includes)
+                        .map(QueryResultNode::Heading),
+                })
+                .collect::<Result<Vec<_>, QueryShapeError>>()?,
+            QueryRows::Links(rows) => rows
+                .iter()
+                .map(|row| QueryResultNode::Link(Box::new(metadata.shape_link_row(row))))
+                .collect(),
+            QueryRows::Files(rows) => rows
+                .into_iter()
+                .map(|row| {
+                    metadata
+                        .shape_file_row(row, ResultDomain::Files, &includes)
+                        .map(QueryResultNode::File)
+                })
+                .collect::<Result<Vec<_>, QueryShapeError>>()?,
+        },
     };
     let shaping_duration = shaping_started.map(|started| started.elapsed());
     metadata.record_shaping_detail();
@@ -1144,7 +1220,7 @@ impl FlatMetadataContext {
         })
     }
 
-    fn shape_file_row(
+    fn shape_file_row_cloned(
         &mut self,
         row: &FileQueryRow,
         domain: ResultDomain,
@@ -1243,7 +1319,7 @@ impl FlatMetadataContext {
         Ok(node)
     }
 
-    fn shape_heading_row(
+    fn shape_heading_row_cloned(
         &mut self,
         row: &HeadingQueryRow,
         includes: &[QueryInclude],
@@ -1302,6 +1378,178 @@ impl FlatMetadataContext {
             all_tags,
             location: Location {
                 file_path: row.file_path.clone(),
+                line: row.line_number,
+                byte_start: Some(row.byte_start),
+                byte_end: Some(row.byte_end),
+            },
+            node_path,
+            properties,
+            effective_properties,
+            keywords,
+            links: None,
+            backlinks: None,
+            children: None,
+        };
+        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
+            detail.heading_node_duration += started.elapsed();
+            detail.heading_rows += 1;
+        }
+        Ok(node)
+    }
+
+    fn shape_file_row(
+        &mut self,
+        row: FileQueryRow,
+        domain: ResultDomain,
+        includes: &[QueryInclude],
+    ) -> Result<FileResultNode, QueryShapeError> {
+        let path_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let path_ref = Path::new(&row.path);
+        let name = path_ref
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(row.path.as_str())
+            .to_string();
+        let dir = path_ref
+            .parent()
+            .and_then(|value| value.to_str())
+            .unwrap_or(".")
+            .to_string();
+        if let (Some(started), Some(detail)) = (path_started, self.shaping_detail.as_mut()) {
+            detail.file_path_components_duration += started.elapsed();
+        }
+
+        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let tags = self
+            .root_tags
+            .remove(&row.root_heading_id)
+            .unwrap_or_default();
+        let node_path = includes.contains(&QueryInclude::Path).then(|| {
+            vec![PathEntry::File(FilePathEntry {
+                id: row.id,
+                path: row.path.clone(),
+                title: row.root_title.clone(),
+                title_raw: row.root_title_raw.clone(),
+            })]
+        });
+        let properties = includes.contains(&QueryInclude::Properties).then(|| {
+            self.properties
+                .remove(&row.root_heading_id)
+                .unwrap_or_default()
+        });
+        let effective_properties =
+            includes
+                .contains(&QueryInclude::EffectiveProperties)
+                .then(|| {
+                    self.effective_properties
+                        .remove(&row.root_heading_id)
+                        .unwrap_or_default()
+                });
+        let keywords = includes.contains(&QueryInclude::Keywords).then(|| {
+            self.keywords
+                .remove(&row.root_heading_id)
+                .unwrap_or_default()
+        });
+        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
+            detail.file_metadata_duration += started.elapsed();
+        }
+
+        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node = FileResultNode {
+            kind: public_result_kind(domain, 0),
+            matched: true,
+            id: row.id,
+            level: 0,
+            path: row.path.clone(),
+            name,
+            dir,
+            title: row.root_title,
+            title_raw: row.root_title_raw,
+            root_heading_id: row.root_heading_id,
+            mtime_ns: row.mtime_ns,
+            size: row.size,
+            content_hash: row.content_hash,
+            indexed_at: row.indexed_at,
+            location: Location {
+                file_path: row.path,
+                line: row.root_line_number,
+                byte_start: None,
+                byte_end: None,
+            },
+            tags,
+            node_path,
+            properties,
+            effective_properties,
+            keywords,
+            links: None,
+            backlinks: None,
+            children: None,
+        };
+        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
+            detail.file_node_duration += started.elapsed();
+            detail.file_rows += 1;
+        }
+        Ok(node)
+    }
+
+    fn shape_heading_row(
+        &mut self,
+        row: HeadingQueryRow,
+        includes: &[QueryInclude],
+    ) -> Result<HeadingResultNode, QueryShapeError> {
+        let tags_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let all_tags = serde_json::from_str(&row.all_tags_json)
+            .map_err(|source| QueryShapeError::invalid_json("all_tags_json", row.id, source))?;
+        if let (Some(started), Some(detail)) = (tags_started, self.shaping_detail.as_mut()) {
+            detail.heading_tags_json_duration += started.elapsed();
+        }
+
+        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node_path = includes
+            .contains(&QueryInclude::Path)
+            .then(|| self.heading_paths.remove(&row.id).unwrap_or_default());
+        let properties = includes
+            .contains(&QueryInclude::Properties)
+            .then(|| self.properties.remove(&row.id).unwrap_or_default());
+        let effective_properties =
+            includes
+                .contains(&QueryInclude::EffectiveProperties)
+                .then(|| {
+                    self.effective_properties
+                        .remove(&row.id)
+                        .unwrap_or_default()
+                });
+        let keywords = includes
+            .contains(&QueryInclude::Keywords)
+            .then(|| self.keywords.remove(&row.id).unwrap_or_default());
+        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
+            detail.heading_metadata_duration += started.elapsed();
+        }
+
+        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node = HeadingResultNode {
+            kind: public_result_kind(ResultDomain::Headings, row.level),
+            matched: true,
+            id: row.id,
+            file_id: row.file_id,
+            parent_id: row.parent_id,
+            level: row.level,
+            title: row.title,
+            title_raw: row.title_raw,
+            todo_keyword: row.todo_keyword,
+            todo_type: row.todo_type,
+            priority: row.priority,
+            scheduled_raw: row.scheduled_raw,
+            scheduled_ts: row.scheduled_ts,
+            deadline_raw: row.deadline_raw,
+            deadline_ts: row.deadline_ts,
+            closed_raw: row.closed_raw,
+            closed_ts: row.closed_ts,
+            archivedp: row.archivedp,
+            footnote_section_p: row.footnote_section_p,
+            all_tags,
+            location: Location {
+                file_path: row.file_path,
                 line: row.line_number,
                 byte_start: Some(row.byte_start),
                 byte_end: Some(row.byte_end),
@@ -4734,11 +4982,12 @@ fn placeholders(count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        execute_and_shape_query, execute_and_shape_query_with_path_strategy,
+        execute_and_shape_query, execute_and_shape_query_with_direct_flat_shaping_strategy,
+        execute_and_shape_query_with_path_strategy,
         execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
-        load_heading_paths_recursive_from_relation, shape_query_results, EffectivePropertyFact,
-        HeadingPathStrategy, QueryExecutionOptions, QueryInclude, QueryOutputMode, QueryResponse,
-        QueryResultKind, QueryResultNode, QueryShapeErrorKind,
+        load_heading_paths_recursive_from_relation, shape_query_results, DirectFlatShapingStrategy,
+        EffectivePropertyFact, HeadingPathStrategy, QueryExecutionOptions, QueryInclude,
+        QueryOutputMode, QueryResponse, QueryResultKind, QueryResultNode, QueryShapeErrorKind,
     };
     use crate::db::{
         open_in_memory_database_with_schema, DbWriter, EffectivePropertyRecord, EffectiveTagRecord,
@@ -5977,6 +6226,39 @@ PRAGMA foreign_keys = ON;
         .expect("enriched query should shape");
 
         assert_eq!(matched_heading_ids(&plain), matched_heading_ids(&enriched));
+    }
+
+    #[test]
+    fn direct_flat_owned_shaping_matches_clone_baseline() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (tags "project"))"#);
+        let options = QueryExecutionOptions {
+            output_mode: QueryOutputMode::Flat,
+            includes: vec![
+                QueryInclude::Path,
+                QueryInclude::Properties,
+                QueryInclude::EffectiveProperties,
+                QueryInclude::Keywords,
+            ],
+            ..QueryExecutionOptions::default()
+        };
+
+        let baseline = execute_and_shape_query_with_direct_flat_shaping_strategy(
+            &connection,
+            &query,
+            &options,
+            DirectFlatShapingStrategy::CloneBaseline,
+        )
+        .expect("clone baseline should shape");
+        let owned = execute_and_shape_query_with_direct_flat_shaping_strategy(
+            &connection,
+            &query,
+            &options,
+            DirectFlatShapingStrategy::MoveOwned,
+        )
+        .expect("owned candidate should shape");
+
+        assert_eq!(baseline, owned);
     }
 
     #[test]

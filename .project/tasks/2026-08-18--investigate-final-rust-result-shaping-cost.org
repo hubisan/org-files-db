@@ -231,6 +231,232 @@ Acceptance criteria:
 - ~make ci~ passes.
 - Performance documentation records the final result.
 
+** DONE Investigate final Rust result shaping cost
+
+Task file: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
+
+Start this task after the shared TEMP relation task is complete.
+
+The query execution strategy must be stable before measuring the remaining Rust shaping cost.
+
+Use the selective shared TEMP implementation as the production baseline.
+
+Read:
+
+- ~docs/query-sql-performance.org~
+- the current direct phase profiling code
+- the final query result construction path
+- the current result and enrichment data structures
+
+The current ~50'000~-result v10 profiles still show significant
+~final-result-shaping~ cost.
+
+Representative direct phase values are approximately:
+
+- normal headings: ~44 ms~
+- headings with properties: ~57 ms~
+- headings with effective properties: ~58 ms~
+- headings with path: ~49 ms~
+
+Treat these values as the current starting evidence.
+
+Refresh the measurements before retaining an optimization.
+
+The earlier heading-path work already removed path-specific clones and temporary path collections.
+
+Do not repeat that work without new profiling evidence.
+
+The shared TEMP relation work changed SQL execution but did not target final Rust result construction.
+
+Keep that query strategy unchanged in this task.
+
+Do not move relational work from SQLite to Rust.
+
+Do not change the query compiler.
+
+Do not change relation-reuse selection.
+
+Do not optimize JSON serialization or ~presentation-json~ in this task.
+
+Goal: reduce Rust result construction cost without changing public results, ordering, validation, or errors.
+
+*** Phase 1 - Profile final shaping
+
+Profile ~final-result-shaping~ separately from:
+
+- query compilation
+- TEMP relation materialization
+- SQLite execution
+- SQLite row decoding
+- enrichment
+- grouping
+- local sorting
+- outline validation
+- path construction
+- serialization
+
+Use representative ~50'000~-result workloads.
+
+Include at least:
+
+- normal headings
+- headings with properties
+- headings with effective properties
+- headings with path
+
+Also inspect a representative file workload if changed shaping code is shared with file results.
+
+Do not expand the task into unrelated file-specific optimization.
+
+Identify concrete costs before changing production code.
+
+Inspect:
+
+- repeated allocations
+- vector growth that can use known capacities
+- unnecessary clones
+- cloned strings
+- cloned metadata collections
+- temporary vectors or maps
+- repeated map lookups
+- repeated hash lookups for the same result
+- repeated string conversions
+- avoidable ownership conversions
+- result object construction
+- values that can move instead of clone
+- data structures that are built only to be consumed immediately
+
+Pay special attention to work performed once per result.
+
+A small per-result cost can become significant at ~50'000~ results.
+
+Do not optimize code only because it looks inefficient.
+
+Require profiling evidence for each candidate.
+
+If the existing ~final-result-shaping~ phase is too coarse to identify a concrete cost, add temporary measurement-only subphase instrumentation.
+
+Keep such instrumentation out of normal latency samples.
+
+Do not add a new production dependency only for profiling.
+
+External profiling tools can be used when available, but the task must not depend on them.
+
+*** Phase 2 - Define candidates
+
+Write down each candidate before implementing it.
+
+For each candidate, record:
+
+- the measured cost it targets
+- why the current code performs that work
+- the proposed ownership or data-flow change
+- which result types can be affected
+- which public semantics can be affected if the change is wrong
+
+Prefer local ownership and allocation changes over architecture changes.
+
+Examples include:
+
+- moving owned values instead of cloning them
+- consuming a local map when no later stage needs it
+- preallocating a result vector from the known result count
+- avoiding repeated lookups for data already available in the current iteration
+- constructing the final result object directly instead of through a temporary object
+
+Do not consume or mutate shared enrichment data only to avoid a clone.
+
+Only move a value when ownership is local and no later result or validation path needs it.
+
+*** Phase 3 - Benchmark candidate changes
+
+Apply one logical optimization at a time.
+
+Compare each candidate against the same production baseline.
+
+Use identical database contents and query inputs.
+
+Require exact public query result equality before comparing performance.
+
+Preserve:
+
+- result contents
+- result ordering
+- stored-data validation
+- current error behavior
+- normal ~--format json~ semantics
+
+Measure complete query latency as the final decision metric.
+
+Use direct phase profiling only for attribution.
+
+Do not add profiling instrumentation to latency samples.
+
+Test:
+
+- small workloads
+- representative ~50'000~-result workloads
+- every result type affected by the candidate
+
+Use enough samples to distinguish a candidate from benchmark noise.
+
+If a candidate shows only a small difference, increase the sample count before deciding.
+
+Do not retain a candidate based only on one faster run.
+
+Record:
+
+- complete query latency
+- ~final-result-shaping~ duration
+- affected shaping subphase duration where measured
+- result count
+- allocation or clone evidence where available
+
+Keep an optimization only when it gives a clear measured end-to-end benefit.
+
+A reduction in ~final-result-shaping~ alone is not sufficient if complete query latency does not improve.
+
+Avoid extra code complexity for a negligible result.
+
+A valid result for this task is no production change.
+
+Use that result if no candidate gives a useful end-to-end improvement.
+
+Remove temporary diagnostic instrumentation that is not useful for future performance work.
+
+Update ~docs/query-sql-performance.org~ with:
+
+- the refreshed baseline
+- identified shaping costs
+- tested candidates
+- retained or rejected changes
+- end-to-end benchmark evidence
+- the no-change decision when applicable
+
+Run:
+
+#+begin_src sh
+make ci
+#+end_src
+
+Acceptance criteria:
+
+- The baseline uses the stable selective TEMP production implementation.
+- Current profiling identifies concrete final-shaping costs.
+- Coarse profiling is refined when necessary to identify a candidate.
+- Each retained optimization targets a measured cost.
+- Each retained optimization has end-to-end benchmark evidence.
+- Public query results remain identical.
+- Result ordering remains identical.
+- Stored-data validation and current error behavior remain unchanged.
+- Small workloads have no material regression.
+- Representative large workloads show a measurable end-to-end improvement for retained changes.
+- Shared result-building paths do not regress other result types.
+- Temporary diagnostic instrumentation is removed unless it remains generally useful.
+- A no-change decision is allowed when benchmarks reject all candidates.
+- ~make ci~ passes.
+- Performance documentation records the final result.
+  
 * Planning
 
 ** Problem summary
@@ -318,10 +544,121 @@ Detail timers run only while the existing benchmark trace is active. Normal late
 
 ** Approach
 
-Phase 1 adds measurement-only direct-flat shaping detail before any production optimization is retained.
+Phase 1 added measurement-only direct-flat shaping detail before any production optimization was retained.
+
+The user ran schema version ~11~ under WSL after the benchmark environment changed.
+
+Use this WSL run only as the baseline for the candidate comparison.
+
+Do not compare its absolute timings with earlier host runs.
+
+At ~50'000~ results, the refreshed profile reports:
+
+| Workload | Complete median | Final shaping | Important detail |
+|----------+-----------------+---------------+------------------|
+| ~headings.normal~ | ~263.5 ms~ | ~35.4 ms~ | node build ~16.4 ms~, tags JSON ~9.5 ms~ |
+| ~headings.properties~ | ~363.9 ms~ | ~47.4 ms~ | metadata attach ~19.3 ms~ |
+| ~headings.effective-properties~ | ~362.5 ms~ | ~103.9 ms~ | metadata attach ~37.1 ms~, node build ~36.9 ms~ |
+| ~headings.path~ | ~777.8 ms~ | ~72.1 ms~ | node build ~33.1 ms~, tags JSON ~15.3 ms~ |
+| ~files.normal~ | ~164.1 ms~ | ~24.8 ms~ | path components ~6.8 ms~, node build ~6.7 ms~ |
+| ~files.keywords~ | ~387.9 ms~ | ~48.9 ms~ | metadata attach ~20.8 ms~ |
+
+The profile gives direct evidence for one ownership candidate.
+
+The direct-flat shaper already owns ~QueryRows~, but the old shaping loop borrowed each row and cloned row-owned strings into final result nodes.
+
+The properties, effective-properties, keywords, and root-tag maps are also local to one shaping call.
+
+The candidate consumes heading and file rows and removes per-result metadata vectors from those local maps instead of cloning them.
+
+This change targets the measured ~heading-node-build~, ~heading-metadata-attach~, ~file-node-build~, and ~file-metadata-attach~ costs.
+
+It does not change tag JSON decoding, SQL, query compilation, relation reuse, path loading, or presentation serialization.
+
+The first candidate benchmark was run under the same WSL environment as the schema version ~11~ baseline.
+
+At ~50'000~ results, direct shaping attribution shows the intended ownership effect:
+
+- ~headings.normal~ node build falls from approximately ~16.4 ms~ to ~1.3 ms~.
+- ~headings.properties~ metadata attach falls from approximately ~19.3 ms~ to ~4.4 ms~.
+- ~headings.effective-properties~ metadata attach falls from approximately ~37.1 ms~ to ~6.2 ms~, and node build falls from approximately ~36.9 ms~ to ~1.1 ms~.
+- ~headings.path~ node build falls from approximately ~33.1 ms~ to ~1.4 ms~.
+- ~files.keywords~ metadata attach falls from approximately ~20.8 ms~ to ~7.3 ms~, and node build falls from approximately ~8.2 ms~ to ~1.8 ms~.
+
+The separate-run complete query medians also improve for all ~50'000~-result broad workloads.
+
+Do not use those complete latency differences as retention evidence yet.
+
+Unchanged SQL, row-decoding, grouping, and sorting phases also changed materially between the two runs.
+
+Some unchanged ~50'000~-result phases differ by approximately ~30-40%~.
+
+This run-to-run drift is large enough that the task still needs an in-process A/B for the final decision.
+
+Schema version ~12~ adds that comparison.
+
+For each broad workload it executes both ~clone-baseline~ and ~move-owned~ on the same connection and transaction.
+
+It requires exact public ~QueryResponse~ equality before timing.
+
+Latency samples alternate which strategy runs first.
+
+The benchmark records complete paired timings plus separate direct phase profiles for both strategies under ~final_shaping_strategies~.
+
+The supplied schema version ~12~ run completed successfully under the same WSL environment.
+
+The benchmark output exists only after exact ~QueryResponse~ equality succeeds for each paired workload.
+
+With three requested iterations, each strategy records six alternating-order latency samples.
+
+The paired median complete-query results are:
+
+| Workload | ~100~ | ~1'000~ | ~10'000~ | ~50'000~ |
+|----------+-------+---------+----------+----------|
+| ~headings.normal~ | ~-2.4%~ | ~-14.6%~ | ~-6.8%~ | ~-1.1%~ |
+| ~headings.tags~ | ~-8.4%~ | ~-5.5%~ | ~-23.9%~ | ~-3.4%~ |
+| ~headings.properties~ | ~-9.5%~ | ~-8.4%~ | ~-14.0%~ | ~-14.3%~ |
+| ~headings.effective-properties~ | ~-3.5%~ | ~-13.1%~ | ~-16.0%~ | ~-11.3%~ |
+| ~headings.path~ | ~-4.1%~ | ~-2.9%~ | ~-5.6%~ | ~-6.2%~ |
+| ~files.normal~ | ~+4.4%~ | ~-7.3%~ | ~-6.1%~ | ~-5.3%~ |
+| ~files.keywords~ | ~-4.4%~ | ~-20.9%~ | ~-10.3%~ | ~-11.9%~ |
+
+At ~100~ results, ~files.normal~ is the only median regression: approximately ~0.191 -> 0.199 ms~, or about ~0.008 ms~ absolute.
+
+The same workload improves by approximately ~7.3%~ at ~1'000~ results.
+
+Treat the ~100~-result difference as non-material.
+
+All seven representative ~50'000~-result workloads improve end to end.
+
+At ~50'000~, representative complete medians are:
+
+- ~headings.properties~: approximately ~342.5 -> 293.3 ms~ (~-14.3%~).
+- ~headings.effective-properties~: approximately ~366.1 -> 324.9 ms~ (~-11.3%~).
+- ~headings.path~: approximately ~447.1 -> 419.2 ms~ (~-6.2%~).
+- ~files.keywords~: approximately ~274.1 -> 241.5 ms~ (~-11.9%~).
+
+The direct profiles continue to attribute the intended work reduction to metadata transfer and final node construction.
+
+Representative ~50'000~-result detail changes include:
+
+- ~headings.properties~ metadata attach ~12.6 -> 5.0 ms~ and node build ~6.0 -> 1.1 ms~.
+- ~headings.effective-properties~ metadata attach ~14.5 -> 6.1 ms~ and node build ~7.0 -> 1.1 ms~.
+- ~files.keywords~ metadata attach ~14.9 -> 6.7 ms~ and node build ~5.9 -> 1.8 ms~.
+
+Some one-shot direct phase totals fluctuate, so they remain attribution-only.
+
+The paired complete-query medians are the retention evidence.
+
+Retain the ownership candidate.
+
+Do not add another production shaping optimization in this task.
+
+The shaping detail and paired baseline benchmark remain useful measurement-only regression tools and do not affect normal query execution.
 
 ** Changed files
 
+- ~CHANGELOG.org~
 - ~src/query/benchmark_trace.rs~
 - ~src/query/result.rs~
 - ~src/query_sql_benchmark.rs~
@@ -336,15 +673,47 @@ Phase 1 adds measurement-only direct-flat shaping detail before any production o
 - Checked that schema version ~11~ changes only benchmark output metadata and direct shaping attribution.
 - Checked that query compilation and selective TEMP relation selection are unchanged.
 - Checked that authoritative latency samples still run without benchmark trace timing.
+- Read the schema version ~11~ WSL result and isolated the ~50'000~-result shaping detail.
+- Confirmed that the selected candidate moves only data owned by the direct-flat shaping call.
+- Confirmed that the query compiler and selective TEMP code are unchanged by the candidate.
+- Confirmed that existing result tests cover direct-flat headings, metadata, path, root-file metadata, and file metadata.
+- Compared the schema version ~11~ baseline and ownership-candidate runs only within the same WSL environment.
+- Confirmed that direct shaping subphases show the expected clone-removal effect.
+- Confirmed that unrelated phases also drift enough between separate runs to block a reliable end-to-end attribution.
+- Added a paired in-process baseline-versus-candidate benchmark with exact result equality and alternating sample order.
+- Added a direct result test that compares ~clone-baseline~ with ~move-owned~ output.
+- Reviewed the supplied schema version ~12~ paired WSL benchmark.
+- Confirmed all seven representative ~50'000~-result paired workloads improve in complete median query latency.
+- Confirmed the only ~100~-result median regression is ~files.normal~ at about ~0.008 ms~ absolute and that the same workload improves at ~1'000~ results.
+- Confirmed the paired benchmark requires exact public result equality before recording timings.
+- Retained the ownership candidate from paired end-to-end evidence and stopped before adding a second optimization.
 
 ** Test results
 
-The local environment has no Rust toolchain. Rust checks and benchmark execution must run on the user machine.
+The user completed the schema version ~11~ baseline and candidate runs under WSL.
+
+The user then completed the schema version ~12~ paired benchmark under the same WSL environment.
+
+The paired benchmark retained ~move-owned~ from exact-result-equality-gated end-to-end measurements.
+
+The local execution environment still has no Rust toolchain.
+
+A successful full user-side ~make ci~ after the final retained implementation has not been explicitly recorded in this task yet.
 
 ** Blockers
 
-Production optimization is intentionally blocked until the new shaping detail profile is measured.
+The performance decision is complete and the ownership candidate is retained.
+
+The only remaining acceptance item is explicit confirmation of a successful full local ~make ci~ on the retained implementation.
 
 ** Follow-ups
 
-Use the Phase 1 benchmark output to select or reject the owned-row move candidate.
+Run:
+
+#+begin_src sh
+make ci
+#+end_src
+
+Then review the retained implementation and benchmark evidence.
+
+No second result-shaping optimization is recommended for this task.

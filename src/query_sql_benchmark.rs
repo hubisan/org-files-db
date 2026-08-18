@@ -24,9 +24,10 @@ use crate::{
 
 use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
 use crate::query::result::{
+    execute_and_shape_query_with_direct_flat_shaping_strategy,
     execute_and_shape_query_with_metadata_strategy, execute_and_shape_query_with_path_strategy,
     execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
-    load_heading_paths_recursive_from_relation, HeadingPathStrategy,
+    load_heading_paths_recursive_from_relation, DirectFlatShapingStrategy, HeadingPathStrategy,
 };
 use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
 use crate::query::sqlite::{
@@ -35,7 +36,7 @@ use crate::query::sqlite::{
     MatchedRelationCost, MatchedRelationReuseStrategy, MetadataPredicateSqlStrategy,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "11";
+pub const OUTPUT_SCHEMA_VERSION: &str = "12";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -96,6 +97,7 @@ pub struct QuerySqlSizeResult {
     pub sqlite_variable_limit: usize,
     pub id_chunk_capacity: usize,
     pub workloads: Vec<QuerySqlWorkloadResult>,
+    pub final_shaping_strategies: Vec<FinalShapingStrategyResult>,
     pub lookup_strategies: Vec<LookupStrategyResult>,
     pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
     pub production_relation_reuse_strategies: Vec<ProductionRelationReuseStrategyResult>,
@@ -115,6 +117,18 @@ pub struct QuerySqlWorkloadResult {
     pub total_query_time: Timing,
     pub sql_profile: SqlProfileSummary,
     pub direct_phase_profile: DirectPhaseProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FinalShapingStrategyResult {
+    pub workload: &'static str,
+    pub result_count: usize,
+    pub baseline_strategy: &'static str,
+    pub candidate_strategy: &'static str,
+    pub baseline_total_query_time: Timing,
+    pub candidate_total_query_time: Timing,
+    pub baseline_direct_phase_profile: DirectPhaseProfile,
+    pub candidate_direct_phase_profile: DirectPhaseProfile,
 }
 
 #[derive(Debug, Serialize)]
@@ -391,7 +405,7 @@ pub fn run(
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, compiler-derived relation reuse, selective production TEMP reuse, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, compiler-derived relation reuse, selective production TEMP reuse, paired final shaping baseline versus owned moves, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
         },
         environment: QuerySqlBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -468,6 +482,9 @@ fn run_size(
         )?);
     }
 
+    let final_shaping_strategies =
+        measure_final_shaping_strategies(&db_path, target_results, options)?;
+
     let lookup_strategies = measure_lookup_strategies(&db_path, target_results, options)?;
     let relation_reuse_strategies = measure_relation_reuse_strategies(&db_path, options)?;
     let production_relation_reuse_strategies =
@@ -490,6 +507,7 @@ fn run_size(
         sqlite_variable_limit,
         id_chunk_capacity: chunk_capacity,
         workloads,
+        final_shaping_strategies,
         lookup_strategies,
         relation_reuse_strategies,
         production_relation_reuse_strategies,
@@ -587,6 +605,150 @@ fn measure_workload(
         sql_profile,
         direct_phase_profile,
     })
+}
+
+fn measure_final_shaping_strategies(
+    db_path: &Path,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<FinalShapingStrategyResult>, String> {
+    let mut results = Vec::with_capacity(WORKLOADS.len());
+
+    for workload in WORKLOADS {
+        let connection =
+            open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+        connection
+            .execute_batch("BEGIN DEFERRED TRANSACTION")
+            .map_err(|error| error.to_string())?;
+        let parsed = parse_query(workload.query).map_err(|error| error.to_string())?;
+        let validation_options =
+            sqlite_query_validation_options(&connection).map_err(|error| error.to_string())?;
+        let validated =
+            validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+        let query_options = QueryExecutionOptions {
+            output_mode: QueryOutputMode::Flat,
+            includes: workload.includes.to_vec(),
+            ..Default::default()
+        };
+
+        let baseline_reference = execute_and_shape_query_with_direct_flat_shaping_strategy(
+            &connection,
+            &validated,
+            &query_options,
+            DirectFlatShapingStrategy::CloneBaseline,
+        )
+        .map_err(|error| error.to_string())?;
+        let candidate_reference = execute_and_shape_query_with_direct_flat_shaping_strategy(
+            &connection,
+            &validated,
+            &query_options,
+            DirectFlatShapingStrategy::MoveOwned,
+        )
+        .map_err(|error| error.to_string())?;
+        if baseline_reference != candidate_reference {
+            return Err(format!(
+                "{} final shaping strategies returned different public query results",
+                workload.id
+            ));
+        }
+        if baseline_reference.results.len() != expected_results {
+            return Err(format!(
+                "{} final shaping strategy comparison returned {} results, expected {}",
+                workload.id,
+                baseline_reference.results.len(),
+                expected_results
+            ));
+        }
+
+        let (baseline_total_query_time, candidate_total_query_time) = measure_paired(
+            options,
+            || {
+                let response = execute_and_shape_query_with_direct_flat_shaping_strategy(
+                    &connection,
+                    &validated,
+                    &query_options,
+                    DirectFlatShapingStrategy::CloneBaseline,
+                )
+                .map_err(|error| error.to_string())?;
+                if response.results.len() != expected_results {
+                    return Err(format!(
+                        "{} clone baseline result count changed during paired benchmark",
+                        workload.id
+                    ));
+                }
+                std::hint::black_box(response);
+                Ok(())
+            },
+            || {
+                let response = execute_and_shape_query_with_direct_flat_shaping_strategy(
+                    &connection,
+                    &validated,
+                    &query_options,
+                    DirectFlatShapingStrategy::MoveOwned,
+                )
+                .map_err(|error| error.to_string())?;
+                if response.results.len() != expected_results {
+                    return Err(format!(
+                        "{} owned candidate result count changed during paired benchmark",
+                        workload.id
+                    ));
+                }
+                std::hint::black_box(response);
+                Ok(())
+            },
+        )?;
+
+        benchmark_trace::begin();
+        let baseline_phase = execute_and_shape_query_with_direct_flat_shaping_strategy(
+            &connection,
+            &validated,
+            &query_options,
+            DirectFlatShapingStrategy::CloneBaseline,
+        )
+        .map_err(|error| error.to_string());
+        let baseline_phase_records = benchmark_trace::finish();
+        let baseline_phase = baseline_phase?;
+        if baseline_phase.results.len() != expected_results {
+            return Err(format!(
+                "{} clone baseline result count changed during direct phase profile",
+                workload.id
+            ));
+        }
+
+        benchmark_trace::begin();
+        let candidate_phase = execute_and_shape_query_with_direct_flat_shaping_strategy(
+            &connection,
+            &validated,
+            &query_options,
+            DirectFlatShapingStrategy::MoveOwned,
+        )
+        .map_err(|error| error.to_string());
+        let candidate_phase_records = benchmark_trace::finish();
+        let candidate_phase = candidate_phase?;
+        if candidate_phase.results.len() != expected_results {
+            return Err(format!(
+                "{} owned candidate result count changed during direct phase profile",
+                workload.id
+            ));
+        }
+
+        connection
+            .execute_batch("COMMIT")
+            .map_err(|error| error.to_string())?;
+
+        results.push(FinalShapingStrategyResult {
+            workload: workload.id,
+            result_count: expected_results,
+            baseline_strategy: "clone-baseline",
+            candidate_strategy: "move-owned",
+            baseline_total_query_time,
+            candidate_total_query_time,
+            baseline_direct_phase_profile: summarize_direct_phase_profile(baseline_phase_records),
+            candidate_direct_phase_profile: summarize_direct_phase_profile(candidate_phase_records),
+        });
+    }
+
+    Ok(results)
 }
 
 fn profile_callback(sql: &str, duration: Duration) {
@@ -2832,6 +2994,47 @@ where
     Ok(timing(&samples))
 }
 
+fn measure_paired<F, G>(
+    options: &QuerySqlBenchmarkOptions,
+    mut baseline: F,
+    mut candidate: G,
+) -> Result<(Timing, Timing), String>
+where
+    F: FnMut() -> Result<(), String>,
+    G: FnMut() -> Result<(), String>,
+{
+    for _ in 0..options.warmups {
+        baseline()?;
+        candidate()?;
+        candidate()?;
+        baseline()?;
+    }
+
+    let mut baseline_samples = Vec::with_capacity(options.iterations * 2);
+    let mut candidate_samples = Vec::with_capacity(options.iterations * 2);
+    for _ in 0..options.iterations {
+        let started = Instant::now();
+        baseline()?;
+        baseline_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        candidate()?;
+        candidate_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        candidate()?;
+        candidate_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        baseline()?;
+        baseline_samples.push(started.elapsed());
+    }
+
+    baseline_samples.sort();
+    candidate_samples.sort();
+    Ok((timing(&baseline_samples), timing(&candidate_samples)))
+}
+
 fn timing(samples: &[Duration]) -> Timing {
     let ns = |index: usize| samples[index].as_nanos();
     Timing {
@@ -2855,6 +3058,36 @@ mod tests {
             ),
             Some(("enrich-keywords".to_string(), 17))
         );
+    }
+
+    #[test]
+    fn paired_measurement_balances_sample_order() {
+        let options = QuerySqlBenchmarkOptions {
+            row_counts: vec![1],
+            warmups: 1,
+            iterations: 3,
+            path_variable_limits: Vec::new(),
+        };
+        let mut baseline_calls = 0usize;
+        let mut candidate_calls = 0usize;
+
+        let (baseline, candidate) = measure_paired(
+            &options,
+            || {
+                baseline_calls += 1;
+                Ok(())
+            },
+            || {
+                candidate_calls += 1;
+                Ok(())
+            },
+        )
+        .expect("paired measurement should run");
+
+        assert_eq!(baseline.samples, 6);
+        assert_eq!(candidate.samples, 6);
+        assert_eq!(baseline_calls, 8);
+        assert_eq!(candidate_calls, 8);
     }
 
     #[test]
