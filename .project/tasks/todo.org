@@ -386,55 +386,55 @@ Task file: [[./archive/2026-08-16--query-enrichment-sql-optimization.org][Query 
 :VISIBILITY: folded
 :END:
 
-Task file: [[./2026-08-17--query-sql-result-relations.org][Query SQL Result Relations]]
+Task file: [[./archive/2026-08-17--query-sql-result-relations.org][Query SQL Result Relations]]
 
 * DONE Benchmark Rust vs SQLite query result processing
 
-Task file: [[./2026-08-17--benchmark-rust-vs-sqlite-query-processing.org][Benchmark Rust vs SQLite Query Result Processing]]
+Task file: [[./archive/2026-08-17--benchmark-rust-vs-sqlite-query-processing.org][Benchmark Rust vs SQLite Query Result Processing]]
 
 * DONE Benchmark heading path with smaller SQLite variable limits
 
-Task file: [[./2026-08-17--benchmark-heading-path-variable-limits.org][Benchmark Heading Path with Smaller SQLite Variable Limits]]
+Task file: [[./archive/2026-08-17--benchmark-heading-path-variable-limits.org][Benchmark Heading Path with Smaller SQLite Variable Limits]]
 
 * DONE Replace recursive heading path loading with Rust-driven bulk ancestors
 
-Task file: [[./2026-08-17--replace-recursive-heading-path-loading.org][Replace Recursive Heading Path Loading with Rust-Driven Bulk Ancestors]]
+Task file: [[./archive/2026-08-17--replace-recursive-heading-path-loading.org][Replace Recursive Heading Path Loading with Rust-Driven Bulk Ancestors]]
 
 * DONE Rebenchmark production heading path after Rust ancestor loading
 
-Task file: [[./2026-08-17--rebenchmark-production-heading-path.org][Rebenchmark Production Heading Path after Rust Ancestor Loading]]
+Task file: [[./archive/2026-08-17--rebenchmark-production-heading-path.org][Rebenchmark Production Heading Path after Rust Ancestor Loading]]
 
 * DONE Optimize production heading path Rust construction and shaping
 
-[[./2026-08-17--optimize-production-heading-path-rust-shaping.org]]
+[[./archive/2026-08-17--optimize-production-heading-path-rust-shaping.org]]
 
 * DONE Benchmark predicate-driven SQL for direct metadata filters
 
-[[./2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
+[[./archive/2026-08-17--benchmark-predicate-driven-metadata-sql.org]]
 
 * DONE Validate and implement predicate-driven metadata filters end to end
 
-[[./2026-08-17--predicate-driven-metadata-filters-end-to-end.org]]
+[[./archive/2026-08-17--predicate-driven-metadata-filters-end-to-end.org]]
 
 * DONE Use shared TEMP matched relations for expensive query reuse
 
-Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matched Relations]]
+Task file: [[./archive/2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matched Relations]]
 
 * DONE Investigate final Rust result shaping cost
 
-Task file: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
+Task file: [[./archive/2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
 
 * DONE Standardize and record the bundled SQLite runtime
 
-Task file: [[./2026-08-18--standardize-bundled-sqlite-runtime.org][Standardize Bundled SQLite Runtime]]
+Task file: [[./archive/2026-08-18--standardize-bundled-sqlite-runtime.org][Standardize Bundled SQLite Runtime]]
 
 * DONE Review and update direct Rust dependencies
 
-Task file: [[./2026-08-18--review-update-direct-rust-dependencies.org][Review and Update Direct Rust Dependencies]]
+Task file: [[./archive/2026-08-18--review-update-direct-rust-dependencies.org][Review and Update Direct Rust Dependencies]]
 
 * DONE Investigate SQLite-side aggregation for enrichment rows
 
-Task file: [[./2026-08-18--investigate-sqlite-side-enrichment-aggregation.org][Investigate SQLite-side Aggregation for Enrichment Rows]]
+Task file: [[./archive/2026-08-18--investigate-sqlite-side-enrichment-aggregation.org][Investigate SQLite-side Aggregation for Enrichment Rows]]
 
 * TODO Investigate SQLite planner statistics for production queries
 
