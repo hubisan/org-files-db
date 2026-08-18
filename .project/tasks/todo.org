@@ -420,7 +420,9 @@ Task file: [[./2026-08-17--rebenchmark-production-heading-path.org][Rebenchmark 
 
 Task file: [[./2026-08-17--shared-temp-matched-relations.org][Shared TEMP Matched Relations]]
 
-* TODO Investigate final Rust result shaping cost
+* BUILD Investigate final Rust result shaping cost
+
+Task file: [[./2026-08-18--investigate-final-rust-result-shaping-cost.org][Investigate Final Rust Result Shaping Cost]]
 
 Start this task after the shared TEMP relation task is complete.
 

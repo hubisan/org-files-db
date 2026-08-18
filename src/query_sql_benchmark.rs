@@ -35,7 +35,7 @@ use crate::query::sqlite::{
     MatchedRelationCost, MatchedRelationReuseStrategy, MetadataPredicateSqlStrategy,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "10";
+pub const OUTPUT_SCHEMA_VERSION: &str = "11";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];

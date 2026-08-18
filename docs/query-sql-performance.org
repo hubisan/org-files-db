@@ -612,6 +612,52 @@ Do not subtract the old SQLite profile duration from total workload time to infe
 
 Use the direct phase profile only for attribution. Use ~total_query_time~ for production latency.
 
+** Final result shaping detail
+
+Schema version ~11~ keeps the existing ~final-result-shaping~ phase and adds a separate ~final-result-shaping-detail~ attribution phase for direct-flat queries.
+
+The detail phase records aggregate timings instead of one record per result.
+
+Heading detail operations are:
+
+- ~heading-tags-json~ for ~all_tags_json~ decoding
+- ~heading-metadata-attach~ for already loaded path and metadata lookup or transfer into the result
+- ~heading-node-build~ for final node construction, including clones from the matched row
+
+File detail operations are:
+
+- ~file-path-components~ for deriving ~name~ and ~dir~ from the stored path
+- ~file-metadata-attach~ for tags, path, and optional metadata lookup or transfer
+- ~file-node-build~ for final node construction.
+
+Link detail records ~link-node-build~ when the direct-flat link path is used.
+
+These detail timers run only during the existing benchmark trace run. They are not active during authoritative latency samples.
+
+The detail phase is diagnostic. Use it to select a concrete shaping candidate, then use ~total_query_time~ to decide whether to retain that candidate.
+
+The schema version ~10~ ~50'000~-result direct profiles provide the starting evidence for this investigation:
+
+- normal headings: approximately ~44 ms~ final shaping;
+- headings with properties: approximately ~57 ms~;
+- headings with effective properties: approximately ~58 ms~;
+- headings with path: approximately ~49 ms~.
+
+Refresh these workloads with schema version ~11~ before changing production shaping.
+
+#+begin_src sh
+target/release/orgfdb-query-sql-benchmark \
+  --rows 100,1000,10000,50000 \
+  --warmups 1 \
+  --iterations 3 \
+  --work-dir /tmp/orgfdb-presentation-benchmark-work \
+  --output /tmp/orgfdb-query-sql-benchmark-final-shaping-v11.json
+#+end_src
+
+Inspect ~final-result-shaping-detail~ operations for ~headings.normal~, ~headings.properties~, ~headings.effective-properties~, and ~headings.path~.
+
+Inspect ~files.normal~ only if the selected candidate changes shared file-result shaping.
+
 ** Path strategy experiment
 
 Schema version ~3~ also adds a benchmark-only path strategy comparison.
@@ -961,6 +1007,8 @@ Schema version ~9~ also records complete metadata production A/B results for sma
 
 Schema version ~10~ refreshes relation-reuse workloads through the current production compiler, includes the complete TEMP lifecycle in the isolated comparison, and adds complete production A/B results for selective matched-relation reuse.
 
+Schema version ~11~ adds measurement-only direct-flat final shaping detail for the remaining Rust result-construction investigation.
+
 The top-level ~compiler_audit~ records safe related-lookup findings.
 
 The top-level query-plan section records representative compiled queries and their SQLite plan details.
@@ -987,7 +1035,7 @@ Complex reused relations favor one shared TEMP relation, including the measured 
 
 The current static rule therefore classifies repeated relational work from the predicate tree rather than result count or consumer count.
 
-The schema version ~10~ benchmark must be rerun locally before treating the selective strategy as permanently validated against the current predicate-driven compiler.
+The supplied schema version ~10~ local benchmark validates the selective strategy against the current predicate-driven compiler.
 
 The metadata predicate benchmark favors relation-driven SQL for all four measured predicate families.
 

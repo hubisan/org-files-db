@@ -13,6 +13,7 @@ pub(crate) const RUST_LOCAL_SORTING: &str = "rust-local-sorting";
 pub(crate) const OUTLINE_VALIDATION: &str = "outline-validation";
 pub(crate) const HEADING_PATH_CONSTRUCTION: &str = "heading-path-construction";
 pub(crate) const FINAL_RESULT_SHAPING: &str = "final-result-shaping";
+pub(crate) const FINAL_RESULT_SHAPING_DETAIL: &str = "final-result-shaping-detail";
 
 #[derive(Debug, Clone)]
 pub(crate) struct BenchmarkTraceRecord {

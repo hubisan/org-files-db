@@ -689,11 +689,13 @@ fn shape_direct_flat_results(
             })
             .collect::<Result<Vec<_>, QueryShapeError>>()?,
     };
-    if let Some(started) = shaping_started {
+    let shaping_duration = shaping_started.map(|started| started.elapsed());
+    metadata.record_shaping_detail();
+    if let Some(duration) = shaping_duration {
         benchmark_trace::record(
             benchmark_trace::FINAL_RESULT_SHAPING,
             "direct-flat-results",
-            started.elapsed(),
+            duration,
             results.len(),
             0,
             0,
@@ -874,12 +876,94 @@ impl ResultTraceTimer {
     }
 }
 
+#[derive(Default)]
+struct FlatShapingDetail {
+    heading_tags_json_duration: Duration,
+    heading_metadata_duration: Duration,
+    heading_node_duration: Duration,
+    heading_rows: usize,
+    file_path_components_duration: Duration,
+    file_metadata_duration: Duration,
+    file_node_duration: Duration,
+    file_rows: usize,
+    link_node_duration: Duration,
+    link_rows: usize,
+}
+
+impl FlatShapingDetail {
+    fn record(&self) {
+        if self.heading_rows > 0 {
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "heading-tags-json",
+                self.heading_tags_json_duration,
+                self.heading_rows,
+                0,
+                0,
+            );
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "heading-metadata-attach",
+                self.heading_metadata_duration,
+                self.heading_rows,
+                0,
+                0,
+            );
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "heading-node-build",
+                self.heading_node_duration,
+                self.heading_rows,
+                0,
+                0,
+            );
+        }
+        if self.file_rows > 0 {
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "file-path-components",
+                self.file_path_components_duration,
+                self.file_rows,
+                0,
+                0,
+            );
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "file-metadata-attach",
+                self.file_metadata_duration,
+                self.file_rows,
+                0,
+                0,
+            );
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "file-node-build",
+                self.file_node_duration,
+                self.file_rows,
+                0,
+                0,
+            );
+        }
+        if self.link_rows > 0 {
+            benchmark_trace::record(
+                benchmark_trace::FINAL_RESULT_SHAPING_DETAIL,
+                "link-node-build",
+                self.link_node_duration,
+                self.link_rows,
+                0,
+                0,
+            );
+        }
+    }
+}
+
 struct FlatMetadataContext {
     properties: HashMap<i64, Vec<PropertyFact>>,
     effective_properties: HashMap<i64, Vec<EffectivePropertyFact>>,
     keywords: HashMap<i64, Vec<KeywordFact>>,
     root_tags: HashMap<i64, Vec<String>>,
     heading_paths: HashMap<i64, Vec<PathEntry>>,
+    shaping_detail: Option<FlatShapingDetail>,
 }
 
 impl FlatMetadataContext {
@@ -1056,15 +1140,17 @@ impl FlatMetadataContext {
             keywords,
             root_tags,
             heading_paths,
+            shaping_detail: benchmark_trace::active().then(FlatShapingDetail::default),
         })
     }
 
     fn shape_file_row(
-        &self,
+        &mut self,
         row: &FileQueryRow,
         domain: ResultDomain,
         includes: &[QueryInclude],
     ) -> Result<FileResultNode, QueryShapeError> {
+        let path_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let path_ref = Path::new(&row.path);
         let name = path_ref
             .file_name()
@@ -1076,8 +1162,51 @@ impl FlatMetadataContext {
             .and_then(|value| value.to_str())
             .unwrap_or(".")
             .to_string();
+        if let (Some(started), Some(detail)) = (path_started, self.shaping_detail.as_mut()) {
+            detail.file_path_components_duration += started.elapsed();
+        }
 
-        Ok(FileResultNode {
+        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let tags = self
+            .root_tags
+            .get(&row.root_heading_id)
+            .cloned()
+            .unwrap_or_default();
+        let node_path = includes.contains(&QueryInclude::Path).then(|| {
+            vec![PathEntry::File(FilePathEntry {
+                id: row.id,
+                path: row.path.clone(),
+                title: row.root_title.clone(),
+                title_raw: row.root_title_raw.clone(),
+            })]
+        });
+        let properties = includes.contains(&QueryInclude::Properties).then(|| {
+            self.properties
+                .get(&row.root_heading_id)
+                .cloned()
+                .unwrap_or_default()
+        });
+        let effective_properties =
+            includes
+                .contains(&QueryInclude::EffectiveProperties)
+                .then(|| {
+                    self.effective_properties
+                        .get(&row.root_heading_id)
+                        .cloned()
+                        .unwrap_or_default()
+                });
+        let keywords = includes.contains(&QueryInclude::Keywords).then(|| {
+            self.keywords
+                .get(&row.root_heading_id)
+                .cloned()
+                .unwrap_or_default()
+        });
+        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
+            detail.file_metadata_duration += started.elapsed();
+        }
+
+        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node = FileResultNode {
             kind: public_result_kind(domain, 0),
             matched: true,
             id: row.id,
@@ -1098,43 +1227,20 @@ impl FlatMetadataContext {
                 byte_start: None,
                 byte_end: None,
             },
-            tags: self
-                .root_tags
-                .get(&row.root_heading_id)
-                .cloned()
-                .unwrap_or_default(),
-            node_path: includes.contains(&QueryInclude::Path).then(|| {
-                vec![PathEntry::File(FilePathEntry {
-                    id: row.id,
-                    path: row.path.clone(),
-                    title: row.root_title.clone(),
-                    title_raw: row.root_title_raw.clone(),
-                })]
-            }),
-            properties: includes.contains(&QueryInclude::Properties).then(|| {
-                self.properties
-                    .get(&row.root_heading_id)
-                    .cloned()
-                    .unwrap_or_default()
-            }),
-            effective_properties: includes.contains(&QueryInclude::EffectiveProperties).then(
-                || {
-                    self.effective_properties
-                        .get(&row.root_heading_id)
-                        .cloned()
-                        .unwrap_or_default()
-                },
-            ),
-            keywords: includes.contains(&QueryInclude::Keywords).then(|| {
-                self.keywords
-                    .get(&row.root_heading_id)
-                    .cloned()
-                    .unwrap_or_default()
-            }),
+            tags,
+            node_path,
+            properties,
+            effective_properties,
+            keywords,
             links: None,
             backlinks: None,
             children: None,
-        })
+        };
+        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
+            detail.file_node_duration += started.elapsed();
+            detail.file_rows += 1;
+        }
+        Ok(node)
     }
 
     fn shape_heading_row(
@@ -1142,9 +1248,38 @@ impl FlatMetadataContext {
         row: &HeadingQueryRow,
         includes: &[QueryInclude],
     ) -> Result<HeadingResultNode, QueryShapeError> {
+        let tags_started = self.shaping_detail.as_ref().map(|_| Instant::now());
         let all_tags = serde_json::from_str(&row.all_tags_json)
             .map_err(|source| QueryShapeError::invalid_json("all_tags_json", row.id, source))?;
-        Ok(HeadingResultNode {
+        if let (Some(started), Some(detail)) = (tags_started, self.shaping_detail.as_mut()) {
+            detail.heading_tags_json_duration += started.elapsed();
+        }
+
+        let metadata_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node_path = includes
+            .contains(&QueryInclude::Path)
+            .then(|| self.heading_paths.remove(&row.id).unwrap_or_default());
+        let properties = includes
+            .contains(&QueryInclude::Properties)
+            .then(|| self.properties.get(&row.id).cloned().unwrap_or_default());
+        let effective_properties =
+            includes
+                .contains(&QueryInclude::EffectiveProperties)
+                .then(|| {
+                    self.effective_properties
+                        .get(&row.id)
+                        .cloned()
+                        .unwrap_or_default()
+                });
+        let keywords = includes
+            .contains(&QueryInclude::Keywords)
+            .then(|| self.keywords.get(&row.id).cloned().unwrap_or_default());
+        if let (Some(started), Some(detail)) = (metadata_started, self.shaping_detail.as_mut()) {
+            detail.heading_metadata_duration += started.elapsed();
+        }
+
+        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node = HeadingResultNode {
             kind: public_result_kind(ResultDomain::Headings, row.level),
             matched: true,
             id: row.id,
@@ -1171,31 +1306,24 @@ impl FlatMetadataContext {
                 byte_start: Some(row.byte_start),
                 byte_end: Some(row.byte_end),
             },
-            node_path: includes
-                .contains(&QueryInclude::Path)
-                .then(|| self.heading_paths.remove(&row.id).unwrap_or_default()),
-            properties: includes
-                .contains(&QueryInclude::Properties)
-                .then(|| self.properties.get(&row.id).cloned().unwrap_or_default()),
-            effective_properties: includes.contains(&QueryInclude::EffectiveProperties).then(
-                || {
-                    self.effective_properties
-                        .get(&row.id)
-                        .cloned()
-                        .unwrap_or_default()
-                },
-            ),
-            keywords: includes
-                .contains(&QueryInclude::Keywords)
-                .then(|| self.keywords.get(&row.id).cloned().unwrap_or_default()),
+            node_path,
+            properties,
+            effective_properties,
+            keywords,
             links: None,
             backlinks: None,
             children: None,
-        })
+        };
+        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
+            detail.heading_node_duration += started.elapsed();
+            detail.heading_rows += 1;
+        }
+        Ok(node)
     }
 
-    fn shape_link_row(&self, row: &LinkQueryRow) -> LinkResultNode {
-        LinkResultNode {
+    fn shape_link_row(&mut self, row: &LinkQueryRow) -> LinkResultNode {
+        let node_started = self.shaping_detail.as_ref().map(|_| Instant::now());
+        let node = LinkResultNode {
             kind: QueryResultKind::Link,
             matched: true,
             id: row.id,
@@ -1226,6 +1354,17 @@ impl FlatMetadataContext {
             node_path: None,
             source: None,
             target: None,
+        };
+        if let (Some(started), Some(detail)) = (node_started, self.shaping_detail.as_mut()) {
+            detail.link_node_duration += started.elapsed();
+            detail.link_rows += 1;
+        }
+        node
+    }
+
+    fn record_shaping_detail(&self) {
+        if let Some(detail) = &self.shaping_detail {
+            detail.record();
         }
     }
 }
