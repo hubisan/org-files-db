@@ -266,48 +266,97 @@ Update ~docs/query-sql-performance.org~ with the final bundled runtime and basel
 
 * Results
 
-** Current state
+** Implemented bundled runtime selection
 
-Schema version ~13~ already records SQLite runtime identity, compile options, capability probes, and the variable limit.
+The dependency now selects ~rusqlite 0.40.2~ with ~default-features = false~.
 
-The first controlled-runtime attempt produced two benchmark files.
+The enabled features are ~bundled~, ~functions~, ~limits~, and ~trace~.
 
-Both files reported SQLite ~3.45.1~ and the same ~sqlite_source_id~.
+This keeps the existing required rusqlite features and excludes unrelated new defaults.
 
-The controlled file only had a different runtime label.
+~Cargo.lock~ now selects ~libsqlite3-sys 0.38.2~.
 
-The attempted SQLite ~3.53.4~ comparison is therefore invalid and provides no version performance evidence.
+The stable bundle contains SQLite ~3.53.2~.
 
-The project decision now favors bundled SQLite for a reproducible runtime.
+SQLite ~3.53.4~ is newer upstream.
 
-** Retained changes
+This task does not vendor a custom SQLite source to follow the upstream patch release.
 
-- Keep schema version ~13~ runtime metadata.
-- Keep JSON, FTS5, DBSTAT, and variable-limit probes.
-- Keep runtime kind and label fields as descriptive metadata.
+The schema version ~13~ runtime identity remains authoritative after the build.
 
-** Removed direction
+** Required API migration
 
-- Do not continue the external shared-library comparison procedure.
-- Do not use the invalid system-versus-3.53.4 timings for a decision.
+~rusqlite 0.40.2~ deprecates the old ~Connection::profile~ interface.
 
-** Changed files for this redirect
+The query SQL benchmark now uses ~trace_v2~ with ~SQLITE_TRACE_PROFILE~ only.
 
+The existing stage marker and duration aggregation stay unchanged.
+
+Normal query execution does not enable the trace callback.
+
+The updated limits API returns ~Result<i32>~ from ~limit~ and ~set_limit~.
+
+The runtime variable-limit helper now handles that result explicitly.
+
+Tests restore changed limits only after the calls succeed.
+
+SQLite integer values now decode through signed integer types before conversion to ~usize~ or ~u64~.
+
+This applies to benchmark counts and database page metrics.
+
+** Retained runtime checks
+
+Schema version ~13~ still records:
+
+- ~sqlite_runtime_kind~
+- ~sqlite_runtime_label~
+- ~sqlite_version~
+- ~sqlite_source_id~
+- ~sqlite_compile_options~
+- JSON availability
+- FTS5 availability
+- DBSTAT availability
+- the SQLite variable-number limit
+
+The default runtime labels now describe the normal bundled build.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~Cargo.lock~
+- ~src/query_sql_benchmark.rs~
+- ~src/benchmark.rs~
+- ~src/query/sql_support.rs~
+- ~src/query/result.rs~
+- ~src/query/sqlite.rs~
 - ~docs/query-sql-performance.org~
-- ~.project/tasks/todo.org~
 - ~.project/tasks/2026-08-18--standardize-bundled-sqlite-runtime.org~
-- removed ~.project/tasks/2026-08-18--record-compare-sqlite-runtime.org~
 
 ** Checks performed
 
-- Confirmed that both uploaded schema version ~13~ results report SQLite ~3.45.1~.
-- Confirmed that both results report the same SQLite source ID.
-- Confirmed that schema version ~13~ exposed the invalid comparison correctly.
+- Reviewed the ~rusqlite 0.40.2~ feature and API definitions.
+- Reviewed the ~libsqlite3-sys 0.38.2~ bundled dependency configuration.
+- Removed the obsolete ~hashlink~ lock entry from the old rusqlite dependency graph.
+- Kept ~hashbrown 0.14.5~ because ~rowan~ still uses it.
+- Reviewed all query benchmark profiling call sites after the ~trace_v2~ migration.
+- Made the benchmark environment test require JSON, FTS5, and DBSTAT from the bundled runtime.
+- Reviewed the first user-side ~make ci~ failure from the ~rusqlite 0.40.2~ API changes.
+- Updated all project ~set_limit~ call sites for the fallible API.
+- Updated affected SQLite integer decodes to use signed SQLite integer types before Rust conversion.
+- Did not run Rust checks because this environment has no Rust toolchain.
 
 ** Blockers
 
-The bundled implementation and its final ~make ci~ run are still pending.
+The user-side bundled build checks are still required.
+
+Run ~make ci~ first.
+
+Then run the schema version ~13~ query SQL benchmark.
+
+The benchmark output must confirm the actual bundled runtime and required SQLite capabilities.
+
+The complete query timings must show no material unexplained regression before this task moves to ~REVIEW~.
 
 ** Follow-ups
 
-After this task, review the remaining direct Rust dependencies in a separate update task.
+After this task, review the remaining direct Rust dependencies in the separate dependency update task.

@@ -5728,10 +5728,14 @@ mod tests {
             load_heading_paths_recursive_from_relation(&connection, &executed.relation, rows)
                 .expect("recursive path strategy should load");
 
-        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let previous = connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2)
+            .expect("runtime variable limit should change");
         let actual = load_heading_paths_from_relation(&connection, &executed.relation, rows)
             .expect("Rust-driven path strategy should respect the small variable limit");
-        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+        connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous)
+            .expect("runtime variable limit should restore");
 
         assert_eq!(actual, expected);
     }
@@ -5945,10 +5949,14 @@ PRAGMA foreign_keys = ON;
         let expected = execute_and_shape_query(&connection, &query, &options)
             .expect("baseline query should shape");
 
-        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let previous = connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2)
+            .expect("runtime variable limit should change");
         let actual = execute_and_shape_query(&connection, &query, &options)
             .expect("small variable limit should use more chunks");
-        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+        connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous)
+            .expect("runtime variable limit should restore");
 
         assert_eq!(actual, expected);
     }
@@ -5971,10 +5979,14 @@ PRAGMA foreign_keys = ON;
         let expected = execute_and_shape_query(&connection, &query, &options)
             .expect("baseline full enrichment should shape");
 
-        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let previous = connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2)
+            .expect("runtime variable limit should change");
         let actual = execute_and_shape_query(&connection, &query, &options)
             .expect("full enrichment should respect the small variable limit");
-        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+        connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous)
+            .expect("runtime variable limit should restore");
 
         assert_eq!(actual, expected);
     }

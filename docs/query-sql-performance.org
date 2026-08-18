@@ -1157,17 +1157,27 @@ This limit affects ID chunk capacity in query execution.
 
 ** Bundled runtime direction
 
-orgfdb will standardize on the SQLite runtime supplied through ~rusqlite~ and ~libsqlite3-sys~.
+The implementation now selects ~rusqlite 0.40.2~ with ~libsqlite3-sys 0.38.2~.
 
-The normal build will use bundled SQLite after the runtime task completes.
+The ~rusqlite~ dependency disables default features.
 
-This keeps the SQLite version and compile configuration tied to the Rust dependency lock file.
+It enables only ~bundled~, ~functions~, ~limits~, and ~trace~.
 
-The implementation must keep JSON, FTS5, DBSTAT, and the required variable limit behavior available.
+This keeps the existing orgfdb feature set and avoids unrelated default dependencies.
 
-A ~rusqlite~ update can require small API migrations before bundled SQLite becomes the production runtime.
+The stable ~libsqlite3-sys 0.38.2~ bundle contains SQLite ~3.53.2~.
 
-Record the effective SQLite metadata for every performance result after this change.
+SQLite ~3.53.4~ is newer upstream, but this task does not maintain a custom SQLite source.
+
+The actual ~sqlite_version~ and ~sqlite_source_id~ remain authoritative for each benchmark run.
+
+The normal benchmark labels now default to ~bundled~ and ~rusqlite-bundled~.
+
+The benchmark profiler now uses ~trace_v2~ with only ~SQLITE_TRACE_PROFILE~ events.
+
+This replaces the deprecated ~rusqlite~ ~profile~ callback without changing measured query behavior.
+
+The bundled build still needs user-side capability checks and a schema version ~13~ performance baseline.
 
 ** Invalid controlled-runtime attempt
 

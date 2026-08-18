@@ -8,7 +8,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rusqlite::{limits::Limit, params, params_from_iter, Connection};
+use rusqlite::{
+    limits::Limit,
+    params, params_from_iter,
+    trace::{TraceEvent, TraceEventCodes},
+    Connection,
+};
 use serde::Serialize;
 
 use crate::{
@@ -477,9 +482,9 @@ fn query_sql_benchmark_environment() -> Result<QuerySqlBenchmarkEnvironment, Str
         },
         operating_system: std::env::consts::OS,
         architecture: std::env::consts::ARCH,
-        sqlite_runtime_kind: option_env!("ORGFDB_SQLITE_RUNTIME_KIND").unwrap_or("system-linked"),
+        sqlite_runtime_kind: option_env!("ORGFDB_SQLITE_RUNTIME_KIND").unwrap_or("bundled"),
         sqlite_runtime_label: option_env!("ORGFDB_SQLITE_RUNTIME_LABEL")
-            .unwrap_or("system-default"),
+            .unwrap_or("rusqlite-bundled"),
         sqlite_version,
         sqlite_source_id,
         sqlite_compile_options,
@@ -580,7 +585,7 @@ fn measure_workload(
     expected_results: usize,
     options: &QuerySqlBenchmarkOptions,
 ) -> Result<QuerySqlWorkloadResult, String> {
-    let mut connection =
+    let connection =
         open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
     connection
         .execute_batch("BEGIN DEFERRED TRANSACTION")
@@ -621,10 +626,13 @@ fn measure_workload(
     })?;
 
     PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
-    connection.profile(Some(profile_callback));
+    connection.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(profile_trace_callback),
+    );
     let profiled = execute_and_shape_query(&connection, &validated, &query_options)
         .map_err(|error| error.to_string());
-    connection.profile(None);
+    connection.trace_v2(TraceEventCodes::empty(), None);
     let profiled = profiled?;
     if profiled.results.len() != expected_results {
         return Err(format!(
@@ -806,6 +814,13 @@ fn measure_final_shaping_strategies(
     Ok(results)
 }
 
+fn profile_trace_callback(event: TraceEvent<'_>) {
+    if let TraceEvent::Profile(statement, duration) = event {
+        let sql = statement.sql();
+        profile_callback(sql.as_ref(), duration);
+    }
+}
+
 fn profile_callback(sql: &str, duration: Duration) {
     let (stage, bound_parameters) =
         parse_profile_marker(sql).unwrap_or_else(|| ("unclassified".to_string(), 0));
@@ -956,7 +971,9 @@ fn measure_path_strategies_at_limit(
     if let Some(limit) = requested_limit {
         let limit = i32::try_from(limit)
             .map_err(|_| "path variable limit must fit a signed 32-bit integer")?;
-        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, limit);
+        connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, limit)
+            .map_err(|error| error.to_string())?;
     }
     let sqlite_variable_limit = variable_number_limit(&connection);
     let chunk_capacity = id_chunk_capacity(&connection, 0);
@@ -1177,11 +1194,14 @@ fn measure_production_path_strategy(
     })?;
 
     PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
-    connection.profile(Some(profile_callback));
+    connection.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(profile_trace_callback),
+    );
     let profiled =
         execute_and_shape_query_with_path_strategy(connection, validated, query_options, strategy)
             .map_err(|error| error.to_string());
-    connection.profile(None);
+    connection.trace_v2(TraceEventCodes::empty(), None);
     let profiled = profiled?;
     if profiled.results.len() != expected_results {
         return Err(format!(
@@ -1792,13 +1812,16 @@ fn profile_relation_reuse_strategy(
     use_temp: bool,
 ) -> Result<SqlProfileSummary, String> {
     PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
-    connection.profile(Some(profile_callback));
+    connection.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(profile_trace_callback),
+    );
     let result = if use_temp {
         run_shared_temp_relation(connection, compiled, workload).map(|_| ())
     } else {
         run_repeated_derived_relation(connection, compiled, workload).map(|_| ())
     };
-    connection.profile(None);
+    connection.trace_v2(TraceEventCodes::empty(), None);
     result?;
     Ok(take_profile_summary())
 }
@@ -1843,7 +1866,7 @@ fn measure_production_relation_reuse_strategies(
     db_path: &Path,
     options: &QuerySqlBenchmarkOptions,
 ) -> Result<Vec<ProductionRelationReuseStrategyResult>, String> {
-    let mut connection =
+    let connection =
         open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
     connection
         .execute_batch("BEGIN DEFERRED TRANSACTION")
@@ -1906,7 +1929,10 @@ fn measure_production_relation_reuse_strategies(
             })?;
 
             PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
-            connection.profile(Some(profile_callback));
+            connection.trace_v2(
+                TraceEventCodes::SQLITE_TRACE_PROFILE,
+                Some(profile_trace_callback),
+            );
             let profiled = execute_and_shape_query_with_relation_reuse_strategy(
                 &connection,
                 &validated,
@@ -1914,7 +1940,7 @@ fn measure_production_relation_reuse_strategies(
                 strategy,
             )
             .map_err(|error| error.to_string());
-            connection.profile(None);
+            connection.trace_v2(TraceEventCodes::empty(), None);
             let profiled = profiled?;
             if profiled != derived {
                 return Err(format!(
@@ -2307,7 +2333,10 @@ fn measure_production_metadata_predicate_strategy(
     })?;
 
     PROFILE_RECORDS.with(|records| records.borrow_mut().clear());
-    connection.profile(Some(profile_callback));
+    connection.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_PROFILE,
+        Some(profile_trace_callback),
+    );
     let profiled = execute_and_shape_query_with_metadata_strategy(
         connection,
         validated,
@@ -2315,7 +2344,7 @@ fn measure_production_metadata_predicate_strategy(
         metadata_predicate_strategy,
     )
     .map_err(|error| error.to_string());
-    connection.profile(None);
+    connection.trace_v2(TraceEventCodes::empty(), None);
     let profiled = profiled?;
     if profiled.results.len() != expected_matches {
         return Err(format!(
@@ -2772,11 +2801,15 @@ fn prepare_sqlite_benchmark_clone(source: &Path, destination: &Path) -> Result<(
 
 fn database_logical_size_bytes(connection: &Connection) -> Result<u64, String> {
     let page_count = connection
-        .query_row("PRAGMA page_count", [], |row| row.get::<_, u64>(0))
+        .query_row("PRAGMA page_count", [], |row| row.get::<_, i64>(0))
         .map_err(|error| error.to_string())?;
+    let page_count = u64::try_from(page_count)
+        .map_err(|_| "PRAGMA page_count returned a negative value".to_string())?;
     let page_size = connection
-        .query_row("PRAGMA page_size", [], |row| row.get::<_, u64>(0))
+        .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))
         .map_err(|error| error.to_string())?;
+    let page_size = u64::try_from(page_size)
+        .map_err(|_| "PRAGMA page_size returned a negative value".to_string())?;
     Ok(page_count.saturating_mul(page_size))
 }
 
@@ -3280,6 +3313,8 @@ mod tests {
         assert!(!environment.sqlite_source_id.is_empty());
         assert!(!environment.sqlite_compile_options.is_empty());
         assert!(environment.sqlite_json_available);
+        assert!(environment.sqlite_fts5_available);
+        assert!(environment.sqlite_dbstat_available);
         assert!(environment.sqlite_variable_limit > 0);
         assert!(!environment.sqlite_runtime_kind.is_empty());
         assert!(!environment.sqlite_runtime_label.is_empty());

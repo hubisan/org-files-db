@@ -4524,7 +4524,9 @@ mod tests {
             "/tmp/query-beta.org".to_string(),
             "/tmp/query-gamma.org".to_string(),
         ];
-        let previous = connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2);
+        let previous = connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, 2)
+            .expect("runtime variable limit should change");
 
         let rows = execute_sqlite_query_with_options(
             &connection,
@@ -4535,7 +4537,9 @@ mod tests {
             },
         )
         .expect("restricted query should batch inserts below the variable limit");
-        connection.set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous);
+        connection
+            .set_limit(Limit::SQLITE_LIMIT_VARIABLE_NUMBER, previous)
+            .expect("runtime variable limit should restore");
 
         assert_eq!(file_paths(rows), restricted);
     }
@@ -6356,14 +6360,18 @@ mod tests {
             panic!("expected heading rows");
         };
 
-        let expected_file_count: usize = connection
-            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        let expected_file_count = connection
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get::<_, i64>(0))
             .expect("file count should load");
-        let expected_heading_count: usize = connection
+        let expected_file_count =
+            usize::try_from(expected_file_count).expect("file count should fit usize");
+        let expected_heading_count = connection
             .query_row("SELECT COUNT(*) FROM headings WHERE level > 0", [], |row| {
-                row.get(0)
+                row.get::<_, i64>(0)
             })
             .expect("real heading count should load");
+        let expected_heading_count =
+            usize::try_from(expected_heading_count).expect("heading count should fit usize");
 
         let file_rows = rows
             .iter()

@@ -2470,12 +2470,16 @@ mod tests {
         let connection =
             open_existing_database_read_only(work_dir.join("no-fts-baseline-v8.sqlite"))
                 .expect("read-only database");
-        let headings: usize = connection
-            .query_row("SELECT COUNT(*) FROM headings", [], |row| row.get(0))
+        let headings = connection
+            .query_row("SELECT COUNT(*) FROM headings", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .expect("heading count");
-        let links: usize = connection
-            .query_row("SELECT COUNT(*) FROM links", [], |row| row.get(0))
+        let headings = usize::try_from(headings).expect("heading count should fit usize");
+        let links = connection
+            .query_row("SELECT COUNT(*) FROM links", [], |row| row.get::<_, i64>(0))
             .expect("link count");
+        let links = usize::try_from(links).expect("link count should fit usize");
         assert_eq!(headings, 24);
         assert_eq!(links, 3);
         let file_path_counts = variants
