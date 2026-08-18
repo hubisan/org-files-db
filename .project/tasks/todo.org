@@ -534,7 +534,9 @@ Decision:
 - Treat the bundled SQLite 3.53.2 schema-v13 benchmark with the default limit as the new performance baseline.
 - The 250000-variable repeat was investigative only and is not the retained baseline.
 
-* TODO Review and update direct Rust dependencies
+* BUILD Review and update direct Rust dependencies
+
+Task file: [[./2026-08-18--review-update-direct-rust-dependencies.org][Review and Update Direct Rust Dependencies]]
 
 Start this task after the bundled SQLite runtime is stable.
 

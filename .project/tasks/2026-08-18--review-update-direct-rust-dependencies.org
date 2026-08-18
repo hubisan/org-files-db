@@ -1,0 +1,198 @@
+#+TITLE: Review and Update Direct Rust Dependencies
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-18 Tuesday 21:44]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Review and update direct Rust dependencies
+
+Start this task after the bundled SQLite runtime is stable.
+
+Goal: update direct Rust dependencies without mixing unrelated behavior changes.
+
+Audit every direct dependency in ~Cargo.toml~ against current stable releases.
+
+Do not repeat the ~rusqlite~ migration from the bundled SQLite task.
+
+Update compatible patch and minor releases in small logical groups.
+
+Test breaking major-version updates one dependency at a time.
+
+Treat pre-release dependencies, including ~orgize~, as separate decisions.
+
+Keep each dependency on the newest release that passes project compatibility checks.
+
+If a current release requires an unwanted behavior change, record why the dependency stays pinned.
+
+Do not refactor project code beyond changes required by dependency APIs.
+
+Update ~Cargo.lock~ after the final dependency selection.
+
+Run ~make ci~ after each breaking dependency migration.
+
+Run the final complete ~make ci~ after all accepted updates.
+
+Repeat a performance benchmark only if an updated dependency affects query execution or benchmark behavior.
+
+Acceptance criteria:
+
+- Every direct dependency has a recorded update decision.
+- Compatible updates are applied.
+- Breaking updates are isolated and tested.
+- Held-back dependencies have a concrete reason.
+- ~Cargo.lock~ matches the final dependency set.
+- No unrelated refactor is mixed into the task.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+Most direct dependencies already resolve to current releases within their existing version ranges.
+
+A small compatible group has newer releases in the same API line.
+
+Three dependencies require isolated breaking migrations: ~sha2~, ~signal-hook~, and ~toml~.
+
+~orgize~ needs a separate pre-release decision because the project uses the ~0.10.0-alpha~ API.
+
+** Goals
+
+- Record one update decision for every direct dependency.
+- Apply compatible updates before breaking migrations.
+- Test each breaking migration separately.
+- Keep the final dependency set reproducible through ~Cargo.lock~.
+
+** Non-goals
+
+- Do not repeat the completed ~rusqlite~ migration.
+- Do not refactor code that is unrelated to dependency APIs.
+- Do not replace ~orgize~ with another Org parser.
+- Do not change query behavior as part of this task.
+
+** Dependency audit
+
+Audit date: ~2026-08-18~.
+
+| Dependency | Current resolved | Current release | Decision |
+|------------+------------------+-----------------+----------|
+| ~chrono~ | ~0.4.45~ | ~0.4.45~ | Keep the current release. |
+| ~chrono-tz~ | ~0.10.4~ | ~0.10.4~ | Keep the current release. |
+| ~clap~ | ~4.6.1~ | ~4.6.5~ | Update in the compatible group. |
+| ~globset~ | ~0.4.18~ | ~0.4.19~ | Update in the compatible group. |
+| ~notify~ | ~8.2.0~ | ~8.2.0~ | Keep the current release. |
+| ~orgize~ | ~0.10.0-alpha.10~ | ~0.10.0-alpha.10~ | Keep the latest ~0.10~ pre-release. Stable ~0.9.0~ is older. |
+| ~regex~ | ~1.13.1~ | ~1.13.1~ | Keep the current release. |
+| ~rusqlite~ | ~0.40.2~ | ~0.40.2~ | Keep the release selected by the bundled SQLite task. |
+| ~serde~ | ~1.0.228~ | ~1.0.229~ | Update in the compatible group. |
+| ~serde_json~ | ~1.0.150~ | ~1.0.151~ | Update in the compatible group. |
+| ~signal-hook~ | ~0.3.18~ | ~0.4.4~ | Test as an isolated breaking migration. |
+| ~sha2~ | ~0.10.9~ | ~0.11.0~ | Test as an isolated breaking migration. |
+| ~toml~ | ~0.8.23~ | ~1.1.3+spec-1.1.0~ | Test as an isolated breaking migration. |
+
+The ~orgize~ registry has no newer ~0.10~ pre-release after ~0.10.0-alpha.10~.
+
+The project already depends on ~0.10.0-alpha.10~ parser behavior and syntax-tree APIs.
+
+Moving back to stable ~0.9.0~ is not an update.
+
+** Execution plan
+
+*** Phase 1 - Compatible release group
+
+Raise manifest minimums to the current accepted releases in the existing API lines.
+
+Update the lockfile for ~clap~, ~globset~, ~serde~, and ~serde_json~.
+
+Run ~make ci~ before any breaking migration.
+
+*** Phase 2 - sha2 0.11
+
+Update only ~sha2~ to ~0.11.0~.
+
+Apply only API changes required by the new release.
+
+Run ~make ci~ before continuing.
+
+*** Phase 3 - signal-hook 0.4
+
+Update only ~signal-hook~ to ~0.4.4~.
+
+Keep watcher shutdown behavior unchanged.
+
+Run ~make ci~ before continuing.
+
+*** Phase 4 - toml 1.1
+
+Update only ~toml~ to ~1.1.3+spec-1.1.0~.
+
+Keep configuration parsing and generated benchmark configuration unchanged.
+
+Run ~make ci~ before continuing.
+
+*** Phase 5 - Finalize
+
+Update ~Cargo.lock~ to the accepted final dependency set.
+
+Run the final ~make ci~.
+
+Do not repeat a query benchmark unless a migration changes measured query or benchmark behavior.
+
+** Risks & assumptions
+
+The compatible group can still expose a compiler or lint change.
+
+The three breaking migrations can require source changes even when their common APIs look unchanged.
+
+~toml~ is the highest behavior risk because it parses user configuration files.
+
+** Proposed checks
+
+For the compatible group, update only the selected lockfile packages:
+
+#+begin_src shell
+cargo update -p clap --precise 4.6.5
+cargo update -p globset --precise 0.4.19
+cargo update -p serde --precise 1.0.229
+cargo update -p serde_json --precise 1.0.151
+make ci
+#+end_src
+
+* Results
+
+** Approach
+
+Started with a complete direct-dependency audit.
+
+Prepared the first compatible release group without changing production APIs.
+
+Deferred ~sha2~, ~signal-hook~, and ~toml~ until the compatible group passes ~make ci~.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-18--review-update-direct-rust-dependencies.org~
+
+** Checks performed
+
+- Compared every direct dependency with its current published release.
+- Inspected the current resolved direct versions in ~Cargo.lock~.
+- Inspected project usage of ~sha2~, ~signal-hook~, and ~toml~ before their migrations.
+
+** Test results
+
+~make ci~ is pending on the user's Rust environment for the compatible release group.
+
+** Blockers
+
+The local assistant environment has no Rust toolchain, so it cannot regenerate ~Cargo.lock~ or run ~make ci~.
+
+** Follow-ups
+
+After the compatible group passes, migrate ~sha2~ to ~0.11.0~ as the first isolated breaking update.
