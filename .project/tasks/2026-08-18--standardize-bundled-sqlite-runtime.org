@@ -125,6 +125,116 @@ Acceptance criteria:
 - A no-change result is allowed.
 - ~make ci~ passes.
 
+** DONE Standardize and record the bundled SQLite runtime
+
+Task file: [[./2026-08-18--standardize-bundled-sqlite-runtime.org][Standardize Bundled SQLite Runtime]]
+
+Start this task before further SQLite query optimization work.
+
+Query benchmarks must identify the effective SQLite runtime.
+
+The project will use bundled SQLite instead of depending on the host system library.
+
+Goal: pin SQLite through ~rusqlite~ and verify the final bundled runtime before new performance work.
+
+Keep query behavior unchanged.
+
+Do not combine unrelated dependency updates or query optimizations with this task.
+
+*** Phase 1 - Keep runtime identity in benchmark output
+
+Keep schema version ~13~ and its SQLite environment fields.
+
+Record at least:
+
+- ~sqlite_runtime_kind~
+- ~sqlite_runtime_label~
+- ~sqlite_version~
+- ~sqlite_source_id~
+- ~sqlite_compile_options~
+- JSON availability
+- FTS5 availability
+- DBSTAT availability
+- SQLite variable-number limit
+
+Treat ~sqlite_version~ and ~sqlite_source_id~ as authoritative.
+
+Treat runtime labels as descriptive metadata only.
+
+The failed comparison already showed why this distinction matters.
+
+Both comparison files reported SQLite ~3.45.1~ despite different runtime labels.
+
+*** Phase 2 - Update rusqlite and enable bundled SQLite
+
+Select a suitable current stable ~rusqlite~ release.
+
+Prefer its normal bundled SQLite version through ~libsqlite3-sys~.
+
+Enable bundled SQLite together with the required existing ~rusqlite~ features.
+
+Do not maintain a separate external SQLite shared library.
+
+Keep the selected versions reproducible through ~Cargo.lock~.
+
+Apply only API migrations that the dependency update requires.
+
+*** Phase 3 - Verify required SQLite capabilities
+
+Verify the actual bundled runtime before performance measurements.
+
+Check at least:
+
+- JSON SQL functions such as ~json_each~
+- FTS5
+- DBSTAT
+- SQLite variable-number limit
+- custom ~orgfdb_regexp~ registration
+- search behavior with FTS5 enabled
+- representative query behavior
+- index creation and update behavior
+
+Do not weaken orgfdb behavior to accept the bundled runtime.
+
+Record relevant compile-option differences from the previous system runtime.
+
+*** Phase 4 - Establish the bundled baseline
+
+Run ~make ci~ with the final bundled build.
+
+Run the standard query SQL benchmark with ~100,1000,10000,50000~ results.
+
+Confirm the runtime identity in the JSON before interpreting performance data.
+
+Record complete query latency for the representative workloads.
+
+Compare against the previous stable production baseline only to detect material regressions.
+
+Do not use the invalid system-versus-3.53.4 timings as evidence.
+
+Update ~docs/query-sql-performance.org~ with the final bundled runtime and baseline.
+
+Acceptance criteria:
+
+- Query SQL benchmark JSON records the actual SQLite version.
+- Query SQL benchmark JSON records the SQLite source ID.
+- Relevant SQLite compile options are recorded.
+- The normal orgfdb build uses bundled SQLite.
+- ~rusqlite~ uses a suitable current stable release.
+- JSON, FTS5, and DBSTAT capability probes pass.
+- Required query, search, index, and update behavior stays unchanged.
+- The SQLite variable-number limit is recorded and supported by query chunking.
+- A fresh bundled query performance baseline is recorded.
+- No material unexplained performance regression remains.
+- ~make ci~ passes.
+
+Decision:
+- Keep the bundled SQLite default ~MAX_VARIABLE_NUMBER=32766~.
+- Do not add a project-specific SQLite variable-limit override.
+- orgfdb already chunks larger parameter sets against the runtime limit.
+- Treat the bundled SQLite 3.53.2 schema-v13 benchmark with the default limit as the new performance baseline.
+- The 250000-variable repeat was investigative only and is not the retained baseline.
+
 * Planning
 
 ** Decision update

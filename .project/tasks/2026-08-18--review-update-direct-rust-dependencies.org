@@ -49,6 +49,49 @@ Acceptance criteria:
 - No unrelated refactor is mixed into the task.
 - ~make ci~ passes.
 
+** DONE Review and update direct Rust dependencies
+
+Task file: [[./2026-08-18--review-update-direct-rust-dependencies.org][Review and Update Direct Rust Dependencies]]
+
+Start this task after the bundled SQLite runtime is stable.
+
+Goal: update direct Rust dependencies without mixing unrelated behavior changes.
+
+Audit every direct dependency in ~Cargo.toml~ against current stable releases.
+
+Do not repeat the ~rusqlite~ migration from the bundled SQLite task.
+
+Update compatible patch and minor releases in small logical groups.
+
+Test breaking major-version updates one dependency at a time.
+
+Treat pre-release dependencies, including ~orgize~, as separate decisions.
+
+Keep each dependency on the newest release that passes project compatibility checks.
+
+If a current release requires an unwanted behavior change, record why the dependency stays pinned.
+
+Do not refactor project code beyond changes required by dependency APIs.
+
+Update ~Cargo.lock~ after the final dependency selection.
+
+Run ~make ci~ after each breaking dependency migration.
+
+Run the final complete ~make ci~ after all accepted updates.
+
+Repeat a performance benchmark only if an updated dependency affects query execution or benchmark behavior.
+
+Acceptance criteria:
+
+- Every direct dependency has a recorded update decision.
+- Compatible updates are applied.
+- Breaking updates are isolated and tested.
+- Held-back dependencies have a concrete reason.
+- ~Cargo.lock~ matches the final dependency set.
+- No unrelated refactor is mixed into the task.
+- ~make ci~ passes.
+
+
 * Planning
 
 ** Problem summary
@@ -91,9 +134,9 @@ Audit date: ~2026-08-18~.
 | ~rusqlite~ | ~0.40.2~ | ~0.40.2~ | Keep the release selected by the bundled SQLite task. |
 | ~serde~ | ~1.0.229~ | ~1.0.229~ | Accepted in the compatible group. |
 | ~serde_json~ | ~1.0.151~ | ~1.0.151~ | Accepted in the compatible group. |
-| ~signal-hook~ | ~0.3.18~ | ~0.4.4~ | Start the isolated breaking migration. |
+| ~signal-hook~ | ~0.4.4~ | ~0.4.4~ | Accepted after the isolated migration passed ~make ci~. |
 | ~sha2~ | ~0.11.0~ | ~0.11.0~ | Accepted after the isolated migration passed ~make ci~. |
-| ~toml~ | ~0.8.23~ | ~1.1.4+spec-1.1.0~ | Test as an isolated breaking migration. |
+| ~toml~ | ~0.8.23~ | ~1.1.4+spec-1.1.0~ | Start the isolated breaking migration with manifest requirement ~1.1.4~. |
 
 The ~orgize~ registry has no newer ~0.10~ pre-release after ~0.10.0-alpha.10~.
 
@@ -236,10 +279,36 @@ Update the manifest to ~signal-hook 0.4.4~ without source changes.
 
 Keep watcher signal registration, cleanup, and graceful shutdown behavior unchanged.
 
+** signal-hook 0.4 migration result
+
+The isolated ~signal-hook 0.4.4~ migration passed ~make ci~ in the user's Rust environment.
+
+No source changes were required.
+
+** toml 1.1 migration
+
+The project uses ~toml::from_str~ to parse configuration documents into ~toml::Value~.
+
+It then uses ~Value::try_into~ to deserialize the validated value into ~RawConfig~.
+
+The presentation benchmark uses ~Value::String(...).to_string()~ to quote generated path values.
+
+These APIs remain available in ~toml 1.1.4+spec-1.1.0~ with the default features.
+
+The main breaking changes arrived in ~toml 0.9~ with the new parser and writer.
+
+The project does not use the changed ~Value::from_str~, serializer constructors, or order-preservation behavior.
+
+Use manifest requirement ~1.1.4~.
+
+Do not include ~+spec-1.1.0~ because Cargo ignores build metadata in version requirements.
+
+Keep configuration parsing and benchmark configuration output unchanged.
+
 ** Blockers
 
-Run ~cargo update -p signal-hook~ and ~make ci~ for the isolated migration.
+Run ~cargo update -p toml~ and ~make ci~ for the isolated migration.
 
 ** Follow-ups
 
-If the ~signal-hook 0.4.4~ gate passes, migrate ~toml~ to ~1.1.4+spec-1.1.0~ next.
+If the ~toml 1.1~ gate passes, update the final dependency decisions and run the final complete ~make ci~.
