@@ -432,7 +432,9 @@ Task file: [[./2026-08-18--standardize-bundled-sqlite-runtime.org][Standardize B
 
 Task file: [[./2026-08-18--review-update-direct-rust-dependencies.org][Review and Update Direct Rust Dependencies]]
 
-* TODO Investigate SQLite-side aggregation for enrichment rows
+* BUILD Investigate SQLite-side aggregation for enrichment rows
+
+Task file: [[./2026-08-18--investigate-sqlite-side-enrichment-aggregation.org][Investigate SQLite-side Aggregation for Enrichment Rows]]
 
 Start this task after the bundled SQLite runtime and dependency review above are complete.
 

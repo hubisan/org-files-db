@@ -14,7 +14,8 @@ use super::sql_support::id_chunk_capacity;
 use super::sqlite::{
     cleanup_temporary_matched_relation, execute_sqlite_query_with_relation_and_strategies,
     file_relation_columns, heading_relation_columns, HeadingQueryMatch,
-    MatchedRelationReuseStrategy, MatchedSqlRelation, MetadataPredicateSqlStrategy,
+    HeadingTagEnrichmentStrategy, MatchedRelationReuseStrategy, MatchedSqlRelation,
+    MetadataPredicateSqlStrategy, PRODUCTION_HEADING_TAG_ENRICHMENT_STRATEGY,
     PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY, PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
 };
 use super::{
@@ -128,6 +129,27 @@ pub(crate) enum DirectFlatShapingStrategy {
 
 const PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY: DirectFlatShapingStrategy =
     DirectFlatShapingStrategy::MoveOwned;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct QueryExecutionStrategies {
+    path_strategy: HeadingPathStrategy,
+    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
+    relation_reuse_strategy: MatchedRelationReuseStrategy,
+    heading_tag_strategy: HeadingTagEnrichmentStrategy,
+    shaping_strategy: DirectFlatShapingStrategy,
+}
+
+impl QueryExecutionStrategies {
+    const fn production() -> Self {
+        Self {
+            path_strategy: HeadingPathStrategy::RustDrivenBulkAncestors,
+            metadata_predicate_strategy: PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
+            relation_reuse_strategy: PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
+            heading_tag_strategy: PRODUCTION_HEADING_TAG_ENRICHMENT_STRATEGY,
+            shaping_strategy: PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
+        }
+    }
+}
 
 fn public_result_kind(domain: ResultDomain, heading_level: i64) -> QueryResultKind {
     match domain {
@@ -428,10 +450,7 @@ pub fn execute_and_shape_query(
         connection,
         query,
         options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
+        QueryExecutionStrategies::production(),
     )
 }
 
@@ -445,10 +464,10 @@ pub(crate) fn execute_and_shape_query_with_path_strategy(
         connection,
         query,
         options,
-        path_strategy,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
+        QueryExecutionStrategies {
+            path_strategy,
+            ..QueryExecutionStrategies::production()
+        },
     )
 }
 
@@ -462,10 +481,10 @@ pub(crate) fn execute_and_shape_query_with_metadata_strategy(
         connection,
         query,
         options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        metadata_predicate_strategy,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
+        QueryExecutionStrategies {
+            metadata_predicate_strategy,
+            ..QueryExecutionStrategies::production()
+        },
     )
 }
 
@@ -479,10 +498,27 @@ pub(crate) fn execute_and_shape_query_with_relation_reuse_strategy(
         connection,
         query,
         options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        relation_reuse_strategy,
-        PRODUCTION_DIRECT_FLAT_SHAPING_STRATEGY,
+        QueryExecutionStrategies {
+            relation_reuse_strategy,
+            ..QueryExecutionStrategies::production()
+        },
+    )
+}
+
+pub(crate) fn execute_and_shape_query_with_heading_tag_enrichment_strategy(
+    connection: &Connection,
+    query: &ValidatedQuery,
+    options: &QueryExecutionOptions,
+    heading_tag_strategy: HeadingTagEnrichmentStrategy,
+) -> Result<QueryResponse, QueryShapeError> {
+    execute_and_shape_query_with_strategies(
+        connection,
+        query,
+        options,
+        QueryExecutionStrategies {
+            heading_tag_strategy,
+            ..QueryExecutionStrategies::production()
+        },
     )
 }
 
@@ -496,10 +532,10 @@ pub(crate) fn execute_and_shape_query_with_direct_flat_shaping_strategy(
         connection,
         query,
         options,
-        HeadingPathStrategy::RustDrivenBulkAncestors,
-        PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
-        PRODUCTION_MATCHED_RELATION_REUSE_STRATEGY,
-        shaping_strategy,
+        QueryExecutionStrategies {
+            shaping_strategy,
+            ..QueryExecutionStrategies::production()
+        },
     )
 }
 
@@ -507,10 +543,7 @@ fn execute_and_shape_query_with_strategies(
     connection: &Connection,
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
-    path_strategy: HeadingPathStrategy,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
-    shaping_strategy: DirectFlatShapingStrategy,
+    strategies: QueryExecutionStrategies,
 ) -> Result<QueryResponse, QueryShapeError> {
     let owns_snapshot = connection.is_autocommit();
     if owns_snapshot {
@@ -519,15 +552,7 @@ fn execute_and_shape_query_with_strategies(
             .map_err(|source| QueryShapeError::database("query_snapshot.begin", source))?;
     }
 
-    let result = execute_and_shape_query_in_snapshot(
-        connection,
-        query,
-        options,
-        path_strategy,
-        metadata_predicate_strategy,
-        relation_reuse_strategy,
-        shaping_strategy,
-    );
+    let result = execute_and_shape_query_in_snapshot(connection, query, options, strategies);
     if !owns_snapshot {
         return result;
     }
@@ -550,17 +575,15 @@ fn execute_and_shape_query_in_snapshot(
     connection: &Connection,
     query: &ValidatedQuery,
     options: &QueryExecutionOptions,
-    path_strategy: HeadingPathStrategy,
-    metadata_predicate_strategy: MetadataPredicateSqlStrategy,
-    relation_reuse_strategy: MatchedRelationReuseStrategy,
-    shaping_strategy: DirectFlatShapingStrategy,
+    strategies: QueryExecutionStrategies,
 ) -> Result<QueryResponse, QueryShapeError> {
     let executed = execute_sqlite_query_with_relation_and_strategies(
         connection,
         query,
         options,
-        metadata_predicate_strategy,
-        relation_reuse_strategy,
+        strategies.metadata_predicate_strategy,
+        strategies.relation_reuse_strategy,
+        strategies.heading_tag_strategy,
     )?;
     let super::sqlite::ExecutedSqliteQuery {
         rows,
@@ -572,8 +595,8 @@ fn execute_and_shape_query_in_snapshot(
         rows,
         options,
         Some(&relation),
-        path_strategy,
-        shaping_strategy,
+        strategies.path_strategy,
+        strategies.shaping_strategy,
     );
     let cleanup = match temporary_relation {
         Some(temporary_relation) => {
@@ -4983,6 +5006,7 @@ fn placeholders(count: usize) -> String {
 mod tests {
     use super::{
         execute_and_shape_query, execute_and_shape_query_with_direct_flat_shaping_strategy,
+        execute_and_shape_query_with_heading_tag_enrichment_strategy,
         execute_and_shape_query_with_path_strategy,
         execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
         load_heading_paths_recursive_from_relation, shape_query_results, DirectFlatShapingStrategy,
@@ -4995,7 +5019,10 @@ mod tests {
         PropertyRecord, SchemaDefinition, TagRecord,
     };
     use crate::property::{derive_effective_properties, PropertyRow};
-    use crate::query::sqlite::{execute_sqlite_query_with_relation, MatchedRelationReuseStrategy};
+    use crate::query::sqlite::{
+        execute_sqlite_query_with_relation, HeadingTagEnrichmentStrategy,
+        MatchedRelationReuseStrategy,
+    };
     use crate::query::{
         execute_sqlite_query, parse_query, validate_query, HeadingQueryMatch, QueryRows,
         QueryTarget, QueryValidationOptions,
@@ -6238,6 +6265,30 @@ PRAGMA foreign_keys = ON;
         .expect("enriched query should shape");
 
         assert_eq!(matched_heading_ids(&plain), matched_heading_ids(&enriched));
+    }
+
+    #[test]
+    fn sqlite_json_tag_aggregation_matches_row_per_tag_output() {
+        let connection = seeded_connection();
+        let query = validated(r#"(headings (level 1))"#);
+        let options = QueryExecutionOptions::default();
+
+        let baseline = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+            &connection,
+            &query,
+            &options,
+            HeadingTagEnrichmentStrategy::RowPerTag,
+        )
+        .expect("row-per-tag query should shape");
+        let aggregated = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+            &connection,
+            &query,
+            &options,
+            HeadingTagEnrichmentStrategy::JsonAggregate,
+        )
+        .expect("aggregated tag query should shape");
+
+        assert_eq!(baseline, aggregated);
     }
 
     #[test]

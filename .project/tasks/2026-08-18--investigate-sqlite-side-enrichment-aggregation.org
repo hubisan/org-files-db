@@ -1,0 +1,164 @@
+#+TITLE: Investigate SQLite-side Aggregation for Enrichment Rows
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-18 Tuesday 22:26]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Investigate SQLite-side aggregation for enrichment rows.
+
+Start with heading tags.
+
+Compare the current row-per-tag enrichment with one SQLite-side aggregated value per heading.
+
+Keep public query results unchanged.
+
+Use complete query latency as the final decision metric.
+
+Test other enrichment types only if heading tags justify continuing.
+
+* Planning
+
+** Problem summary
+
+Large heading queries transfer one SQLite row for every effective tag.
+
+The benchmark corpus has three effective tags for each level-1 heading.
+
+A ~50'000~-heading query therefore transfers about ~150'000~ tag rows before Rust builds ~50'000~ final tag collections.
+
+Rust also groups the rows, sorts them by stored position, and serializes each tag vector to JSON.
+
+The flat result shaper then parses that JSON into the public ~Vec<String>~.
+
+** Goals
+
+- Measure the current heading-tag row transfer with the bundled SQLite runtime.
+- Compare one isolated SQLite aggregation candidate with the current production path.
+- Require exact public result equality before timing the candidate.
+- Record SQLite execution, row decoding, Rust grouping, local sorting, final shaping, and complete latency.
+- Record tag text payload bytes where the trace can measure them directly.
+- Keep only a candidate that improves complete query latency at ~50'000~ results without a material small-workload regression.
+
+** Non-goals
+
+- Do not change predicate compilation.
+- Do not change shared TEMP relation selection.
+- Do not move final presentation formatting into SQLite.
+- Do not change properties, effective properties, or keywords before the heading-tag result justifies more work.
+
+** Architecture
+
+Keep the current row-per-tag loader as the production strategy during measurement.
+
+Add an internal benchmark-only strategy selector for heading-tag enrichment.
+
+The candidate uses SQLite ~json_group_array(tag ORDER BY position)~ and returns one JSON value for each heading that has tags.
+
+The candidate writes this JSON value directly into ~HeadingQueryRow.all_tags_json~.
+
+This avoids a new JSON decode and encode round trip in the enrichment loader.
+
+The existing final result shaper remains the only JSON decoder for heading tags.
+
+Headings without tags keep the existing ~[]~ value and do not require an aggregate row.
+
+** Execution plan
+
+*** Phase 1 - Measurement harness
+
+Add a paired heading-tag strategy benchmark to the existing query SQL benchmark.
+
+Run the current and candidate paths against the same validated query and database snapshot.
+
+Require exact ~QueryResponse~ equality before collecting latency samples.
+
+Record separate direct phase profiles for both strategies.
+
+Record tag text payload bytes in the enrichment trace.
+
+*** Phase 2 - Benchmark heading tags
+
+Run representative small workloads and the ~50'000~-result workload with the bundled SQLite runtime.
+
+Compare complete latency first.
+
+Use phase data only to explain the result.
+
+*** Phase 3 - Production decision
+
+If the candidate gives a clear end-to-end improvement, make it the production heading-tag strategy.
+
+If the gain is small or negative, remove the candidate from the production path and record the rejection.
+
+Investigate the next enrichment type only if the heading-tag result justifies it.
+
+** Risks & assumptions
+
+SQLite aggregation can reduce row decoding while increasing SQLite work.
+
+JSON aggregation increases the text bytes for tag values because it adds JSON syntax.
+
+The candidate remains useful only if fewer SQLite rows and less Rust work offset that cost.
+
+The bundled SQLite runtime provides JSON aggregate functions and ordered aggregate arguments.
+
+** Proposed checks
+
+Run the focused query and result tests after the measurement code compiles.
+
+Run the query SQL benchmark at ~100~, ~1'000~, ~10'000~, and ~50'000~ rows.
+
+Run ~make ci~ before the task moves to ~REVIEW~.
+
+* Results
+
+** Approach
+
+Started with heading tags only.
+
+The first implementation adds an isolated JSON aggregation candidate and a paired end-to-end benchmark.
+
+Production query execution remains on the existing row-per-tag strategy until benchmark evidence selects the candidate.
+
+** Changed files
+
+- ~src/query/benchmark_trace.rs~
+- ~src/query/sqlite.rs~
+- ~src/query/result.rs~
+- ~src/query_sql_benchmark.rs~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-18--investigate-sqlite-side-enrichment-aggregation.org~
+
+** Checks performed
+
+- Inspected the current heading-tag enrichment path and direct phase tracing.
+- Confirmed that ~HeadingQueryRow.all_tags_json~ already carries the intermediate tag representation into final shaping.
+- Confirmed that the benchmark corpus creates three direct tags per level-1 heading.
+- Rust checks were not run in the assistant environment because it has no Rust toolchain.
+
+** Test results
+
+The first user-side ~make ci~ reached Clippy and failed before tests.
+
+The benchmark strategy selector added an eighth argument to two internal result functions.
+
+Clippy rejected both functions with ~clippy::too_many_arguments~.
+
+The follow-up groups internal query strategies in one private value instead of suppressing the lint.
+
+The benchmark and production strategy choices stay unchanged.
+
+A new user-side ~make ci~ run is pending.
+
+** Blockers
+
+The production decision requires paired benchmark results from the stable bundled SQLite runtime.
+
+** Follow-ups
+
+Do not test other enrichment types until the heading-tag benchmark result is known.

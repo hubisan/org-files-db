@@ -30,6 +30,7 @@ use crate::{
 use crate::query::benchmark_trace::{self, BenchmarkTraceRecord};
 use crate::query::result::{
     execute_and_shape_query_with_direct_flat_shaping_strategy,
+    execute_and_shape_query_with_heading_tag_enrichment_strategy,
     execute_and_shape_query_with_metadata_strategy, execute_and_shape_query_with_path_strategy,
     execute_and_shape_query_with_relation_reuse_strategy, load_heading_paths_from_relation,
     load_heading_paths_recursive_from_relation, DirectFlatShapingStrategy, HeadingPathStrategy,
@@ -38,10 +39,11 @@ use crate::query::sql_support::{id_chunk_capacity, variable_number_limit};
 use crate::query::sqlite::{
     compile_sqlite_query_with_file_restriction, compile_sqlite_query_with_metadata_strategy,
     execute_sqlite_query_with_relation, heading_matched_relation_cost, heading_relation_columns,
-    MatchedRelationCost, MatchedRelationReuseStrategy, MetadataPredicateSqlStrategy,
+    HeadingTagEnrichmentStrategy, MatchedRelationCost, MatchedRelationReuseStrategy,
+    MetadataPredicateSqlStrategy,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "13";
+pub const OUTPUT_SCHEMA_VERSION: &str = "14";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -111,6 +113,7 @@ pub struct QuerySqlSizeResult {
     pub sqlite_variable_limit: usize,
     pub id_chunk_capacity: usize,
     pub workloads: Vec<QuerySqlWorkloadResult>,
+    pub heading_tag_aggregation_strategies: Vec<HeadingTagAggregationStrategyResult>,
     pub final_shaping_strategies: Vec<FinalShapingStrategyResult>,
     pub lookup_strategies: Vec<LookupStrategyResult>,
     pub relation_reuse_strategies: Vec<RelationReuseStrategyResult>,
@@ -131,6 +134,23 @@ pub struct QuerySqlWorkloadResult {
     pub total_query_time: Timing,
     pub sql_profile: SqlProfileSummary,
     pub direct_phase_profile: DirectPhaseProfile,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HeadingTagAggregationStrategyResult {
+    pub workload: &'static str,
+    pub query: &'static str,
+    pub result_count: usize,
+    pub baseline_strategy: &'static str,
+    pub candidate_strategy: &'static str,
+    pub baseline_tag_rows_transferred_from_sqlite: usize,
+    pub candidate_tag_rows_transferred_from_sqlite: usize,
+    pub baseline_tag_text_payload_bytes: usize,
+    pub candidate_tag_text_payload_bytes: usize,
+    pub baseline_total_query_time: Timing,
+    pub candidate_total_query_time: Timing,
+    pub baseline_direct_phase_profile: DirectPhaseProfile,
+    pub candidate_direct_phase_profile: DirectPhaseProfile,
 }
 
 #[derive(Debug, Serialize)]
@@ -162,6 +182,7 @@ pub struct DirectPhaseSummary {
     pub rows: usize,
     pub statement_count: usize,
     pub total_bound_parameters: usize,
+    pub payload_bytes: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -172,6 +193,7 @@ pub struct DirectPhaseOperation {
     pub rows: usize,
     pub statement_count: usize,
     pub bound_parameters: usize,
+    pub payload_bytes: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -423,7 +445,7 @@ pub fn run(
             timing_policy: "profile callbacks are disabled during latency samples",
             profile_policy: "one separate profiled production query records statement stages and bound parameters",
             phase_policy: "one separate instrumented production query records direct Rust and SQLite boundary timings; latency samples run without phase instrumentation",
-            strategy_policy: "lookup microbenchmarks compare ID transport, compiler-derived relation reuse, selective production TEMP reuse, paired final shaping baseline versus owned moves, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
+            strategy_policy: "lookup microbenchmarks compare ID transport, compiler-derived relation reuse, selective production TEMP reuse, paired heading-tag row aggregation, paired final shaping baseline versus owned moves, isolated path loading, complete production path shaping, metadata predicate SQL shapes, complete production metadata shaping, persistent metadata index costs, variable-limit sensitivity, and representative query plans",
         },
         environment,
         sizes,
@@ -542,6 +564,8 @@ fn run_size(
         )?);
     }
 
+    let heading_tag_aggregation_strategies =
+        measure_heading_tag_aggregation_strategies(&db_path, target_results, options)?;
     let final_shaping_strategies =
         measure_final_shaping_strategies(&db_path, target_results, options)?;
 
@@ -567,6 +591,7 @@ fn run_size(
         sqlite_variable_limit,
         id_chunk_capacity: chunk_capacity,
         workloads,
+        heading_tag_aggregation_strategies,
         final_shaping_strategies,
         lookup_strategies,
         relation_reuse_strategies,
@@ -668,6 +693,169 @@ fn measure_workload(
         sql_profile,
         direct_phase_profile,
     })
+}
+
+fn measure_heading_tag_aggregation_strategies(
+    db_path: &Path,
+    expected_results: usize,
+    options: &QuerySqlBenchmarkOptions,
+) -> Result<Vec<HeadingTagAggregationStrategyResult>, String> {
+    let workload = WORKLOADS
+        .iter()
+        .find(|workload| workload.id == "headings.tags")
+        .copied()
+        .expect("heading tag benchmark workload should exist");
+    let connection =
+        open_existing_database_read_only(db_path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch("BEGIN DEFERRED TRANSACTION")
+        .map_err(|error| error.to_string())?;
+    let parsed = parse_query(workload.query).map_err(|error| error.to_string())?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(|error| error.to_string())?;
+    let validated =
+        validate_query(parsed, &validation_options).map_err(|error| error.to_string())?;
+    let query_options = QueryExecutionOptions {
+        output_mode: QueryOutputMode::Flat,
+        includes: workload.includes.to_vec(),
+        ..Default::default()
+    };
+
+    let baseline_reference = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+        &connection,
+        &validated,
+        &query_options,
+        HeadingTagEnrichmentStrategy::RowPerTag,
+    )
+    .map_err(|error| error.to_string())?;
+    let candidate_reference = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+        &connection,
+        &validated,
+        &query_options,
+        HeadingTagEnrichmentStrategy::JsonAggregate,
+    )
+    .map_err(|error| error.to_string())?;
+    if baseline_reference != candidate_reference {
+        return Err(
+            "heading tag aggregation strategies returned different public query results".into(),
+        );
+    }
+    if baseline_reference.results.len() != expected_results {
+        return Err(format!(
+            "heading tag aggregation comparison returned {} results, expected {expected_results}",
+            baseline_reference.results.len()
+        ));
+    }
+
+    let (baseline_total_query_time, candidate_total_query_time) = measure_paired(
+        options,
+        || {
+            let response = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+                &connection,
+                &validated,
+                &query_options,
+                HeadingTagEnrichmentStrategy::RowPerTag,
+            )
+            .map_err(|error| error.to_string())?;
+            if response.results.len() != expected_results {
+                return Err(
+                    "row-per-tag heading aggregation result count changed during benchmark".into(),
+                );
+            }
+            std::hint::black_box(response);
+            Ok(())
+        },
+        || {
+            let response = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+                &connection,
+                &validated,
+                &query_options,
+                HeadingTagEnrichmentStrategy::JsonAggregate,
+            )
+            .map_err(|error| error.to_string())?;
+            if response.results.len() != expected_results {
+                return Err(
+                    "JSON heading aggregation result count changed during benchmark".into(),
+                );
+            }
+            std::hint::black_box(response);
+            Ok(())
+        },
+    )?;
+
+    benchmark_trace::begin();
+    let baseline_phase = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+        &connection,
+        &validated,
+        &query_options,
+        HeadingTagEnrichmentStrategy::RowPerTag,
+    )
+    .map_err(|error| error.to_string());
+    let baseline_phase_records = benchmark_trace::finish();
+    let baseline_phase = baseline_phase?;
+    if baseline_phase != baseline_reference {
+        return Err("row-per-tag heading phase profile changed public query results".into());
+    }
+    let baseline_direct_phase_profile = summarize_direct_phase_profile(baseline_phase_records);
+
+    benchmark_trace::begin();
+    let candidate_phase = execute_and_shape_query_with_heading_tag_enrichment_strategy(
+        &connection,
+        &validated,
+        &query_options,
+        HeadingTagEnrichmentStrategy::JsonAggregate,
+    )
+    .map_err(|error| error.to_string());
+    let candidate_phase_records = benchmark_trace::finish();
+    let candidate_phase = candidate_phase?;
+    if candidate_phase != baseline_reference {
+        return Err("JSON heading phase profile changed public query results".into());
+    }
+    let candidate_direct_phase_profile = summarize_direct_phase_profile(candidate_phase_records);
+
+    let (baseline_tag_rows_transferred_from_sqlite, baseline_tag_text_payload_bytes) =
+        direct_phase_operation_transfer(&baseline_direct_phase_profile, "query-heading-tags");
+    let (candidate_tag_rows_transferred_from_sqlite, candidate_tag_text_payload_bytes) =
+        direct_phase_operation_transfer(
+            &candidate_direct_phase_profile,
+            "query-heading-tags-json-aggregate",
+        );
+
+    connection
+        .execute_batch("COMMIT")
+        .map_err(|error| error.to_string())?;
+
+    Ok(vec![HeadingTagAggregationStrategyResult {
+        workload: workload.id,
+        query: workload.query,
+        result_count: expected_results,
+        baseline_strategy: "row-per-tag",
+        candidate_strategy: "json-group-array",
+        baseline_tag_rows_transferred_from_sqlite,
+        candidate_tag_rows_transferred_from_sqlite,
+        baseline_tag_text_payload_bytes,
+        candidate_tag_text_payload_bytes,
+        baseline_total_query_time,
+        candidate_total_query_time,
+        baseline_direct_phase_profile,
+        candidate_direct_phase_profile,
+    }])
+}
+
+fn direct_phase_operation_transfer(
+    profile: &DirectPhaseProfile,
+    operation: &str,
+) -> (usize, usize) {
+    profile
+        .operations
+        .iter()
+        .filter(|record| {
+            record.phase == benchmark_trace::ENRICHMENT_SQL_EXECUTION
+                && record.operation == operation
+        })
+        .fold((0usize, 0usize), |(rows, payload_bytes), record| {
+            (rows + record.rows, payload_bytes + record.payload_bytes)
+        })
 }
 
 fn measure_final_shaping_strategies(
@@ -908,11 +1096,13 @@ fn summarize_direct_phase_profile(records: Vec<BenchmarkTraceRecord>) -> DirectP
                 rows: 0,
                 statement_count: 0,
                 total_bound_parameters: 0,
+                payload_bytes: 0,
             });
         phase.duration_ns += record.duration_ns;
         phase.rows += record.rows;
         phase.statement_count += record.statement_count;
         phase.total_bound_parameters += record.bound_parameters;
+        phase.payload_bytes += record.payload_bytes;
     }
 
     let operations = records
@@ -924,6 +1114,7 @@ fn summarize_direct_phase_profile(records: Vec<BenchmarkTraceRecord>) -> DirectP
             rows: record.rows,
             statement_count: record.statement_count,
             bound_parameters: record.bound_parameters,
+            payload_bytes: record.payload_bytes,
         })
         .collect();
 
@@ -3188,6 +3379,7 @@ mod tests {
                 rows: 3,
                 statement_count: 1,
                 bound_parameters: 1,
+                payload_bytes: 0,
             },
             BenchmarkTraceRecord {
                 phase: benchmark_trace::SQLITE_ROW_DECODING,
@@ -3196,6 +3388,7 @@ mod tests {
                 rows: 3,
                 statement_count: 0,
                 bound_parameters: 0,
+                payload_bytes: 0,
             },
             BenchmarkTraceRecord {
                 phase: benchmark_trace::TEMP_RELATION_MATERIALIZATION,
@@ -3204,6 +3397,7 @@ mod tests {
                 rows: 3,
                 statement_count: 1,
                 bound_parameters: 2,
+                payload_bytes: 0,
             },
             BenchmarkTraceRecord {
                 phase: benchmark_trace::ENRICHMENT_SQL_EXECUTION,
@@ -3212,6 +3406,7 @@ mod tests {
                 rows: 6,
                 statement_count: 1,
                 bound_parameters: 2,
+                payload_bytes: 42,
             },
         ]);
 
@@ -3220,6 +3415,14 @@ mod tests {
         assert_eq!(summary.total_bound_parameters, 5);
         assert_eq!(summary.max_bound_parameters, 2);
         assert_eq!(summary.operations.len(), 4);
+        assert_eq!(
+            summary
+                .phases
+                .iter()
+                .find(|phase| phase.phase == benchmark_trace::ENRICHMENT_SQL_EXECUTION)
+                .map(|phase| phase.payload_bytes),
+            Some(42)
+        );
         assert_eq!(
             summary
                 .phases
