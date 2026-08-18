@@ -1285,6 +1285,56 @@ The external shared-library comparison procedure is no longer part of the projec
 
 The bundled schema version ~13~ baseline above replaces this invalid comparison.
 
+* Heading-tag SQLite aggregation investigation
+
+A temporary schema version ~14~ benchmark tested SQLite-side aggregation for heading tags.
+
+The production baseline returned one row per effective tag and grouped tags in Rust.
+
+The candidate used ~json_group_array(tag ORDER BY position)~ and returned one aggregate row per heading.
+
+The benchmark required exact public ~QueryResponse~ equality before it collected timing samples.
+
+The bundled SQLite runtime was ~3.53.2~ with ~MAX_VARIABLE_NUMBER=32766~.
+
+The paired complete-query medians are:
+
+| Results | Row-per-tag | JSON aggregate | Change |
+|---------+-------------+----------------+--------|
+| 100 | 0.715 ms | 0.757 ms | +6.0% |
+| 1'000 | 4.532 ms | 4.616 ms | +1.8% |
+| 50'000 | 261.575 ms | 261.046 ms | -0.2% |
+
+At ~50'000~ results, tag rows fall from ~150'000~ to ~50'000~.
+
+Total SQLite-to-Rust rows fall from ~250'000~ to ~150'000~.
+
+The tag payload grows from ~950 KB~ to ~1.45 MB~ because the aggregate carries JSON syntax.
+
+The ~50'000~-result tag phase explains the neutral complete-query result:
+
+| Phase | Row-per-tag | JSON aggregate |
+|-------+-------------+----------------|
+| SQLite execution | 45.574 ms | 78.150 ms |
+| SQLite row decoding | 26.893 ms | 8.186 ms |
+| Rust grouping | 10.469 ms | 8.483 ms |
+| Rust local sorting | 11.251 ms | 0 ms |
+| Total | 94.187 ms | 94.818 ms |
+
+SQLite aggregation reduces boundary rows and Rust work, but the aggregate SQL costs more.
+
+The end-to-end gain at ~50'000~ results is only about ~0.2%~.
+
+The candidate is slower at ~100~ and ~1'000~ results.
+
+Reject the candidate and keep the existing row-per-tag production strategy.
+
+Do not generalize the pattern to properties, effective properties, or file keywords from this result.
+
+The temporary schema version ~14~ strategy harness was removed after the decision.
+
+The retained query SQL benchmark output remains schema version ~13~.
+
 * Benchmark output
 
 Each result size records the runtime SQLite variable limit and resulting ID chunk capacity.

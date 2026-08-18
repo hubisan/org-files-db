@@ -41,15 +41,6 @@ pub(crate) enum MetadataPredicateSqlStrategy {
 pub(crate) const PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY: MetadataPredicateSqlStrategy =
     MetadataPredicateSqlStrategy::PredicateDrivenIn;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeadingTagEnrichmentStrategy {
-    RowPerTag,
-    JsonAggregate,
-}
-
-pub(crate) const PRODUCTION_HEADING_TAG_ENRICHMENT_STRATEGY: HeadingTagEnrichmentStrategy =
-    HeadingTagEnrichmentStrategy::RowPerTag;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryParam {
     Integer(i64),
@@ -726,7 +717,6 @@ pub(crate) fn execute_sqlite_query_with_relation(
         options,
         PRODUCTION_METADATA_PREDICATE_SQL_STRATEGY,
         MatchedRelationReuseStrategy::QueryDerived,
-        PRODUCTION_HEADING_TAG_ENRICHMENT_STRATEGY,
     )
 }
 
@@ -743,7 +733,6 @@ pub(crate) fn execute_sqlite_query_with_relation_and_metadata_strategy(
         options,
         metadata_predicate_strategy,
         MatchedRelationReuseStrategy::QueryDerived,
-        PRODUCTION_HEADING_TAG_ENRICHMENT_STRATEGY,
     )
 }
 
@@ -753,7 +742,6 @@ pub(crate) fn execute_sqlite_query_with_relation_and_strategies(
     options: &QueryExecutionOptions,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
     relation_reuse_strategy: MatchedRelationReuseStrategy,
-    heading_tag_strategy: HeadingTagEnrichmentStrategy,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
     let resolved_relative_dates = resolve_relative_dates(
         query,
@@ -797,7 +785,6 @@ pub(crate) fn execute_sqlite_query_with_relation_and_strategies(
             restrict_files,
             metadata_predicate_strategy,
             relation_reuse_strategy,
-            heading_tag_strategy,
         ),
         QueryTarget::Links => {
             let (compiled, compile_duration) = benchmark_trace::timed(|| {
@@ -848,7 +835,6 @@ fn execute_heading_query_with_relation_strategy(
     restrict_files: bool,
     metadata_predicate_strategy: MetadataPredicateSqlStrategy,
     relation_reuse_strategy: MatchedRelationReuseStrategy,
-    heading_tag_strategy: HeadingTagEnrichmentStrategy,
 ) -> Result<ExecutedSqliteQuery, QueryExecutionError> {
     let (compiled, compile_duration) = benchmark_trace::timed(|| {
         compile_sqlite_query_with_metadata_strategy(
@@ -879,11 +865,10 @@ fn execute_heading_query_with_relation_strategy(
     };
 
     let result = (|| {
-        let mut rows =
-            execute_heading_rows_query(connection, &heading_relation, heading_tag_strategy)?
-                .into_iter()
-                .map(HeadingQueryMatch::Heading)
-                .collect::<Vec<_>>();
+        let mut rows = execute_heading_rows_query(connection, &heading_relation)?
+            .into_iter()
+            .map(HeadingQueryMatch::Heading)
+            .collect::<Vec<_>>();
         let root_compiled = if heading_root_truth(resolved.predicate.as_ref()) != StaticTruth::False
         {
             let (root_compiled, compile_duration) = benchmark_trace::timed(|| {
@@ -1221,25 +1206,13 @@ impl SqliteTraceTimer {
         statement_count: usize,
         bound_parameters: usize,
     ) {
-        self.record_with_payload(phase, operation, statement_count, bound_parameters, 0);
-    }
-
-    fn record_with_payload(
-        self,
-        phase: &'static str,
-        operation: &'static str,
-        statement_count: usize,
-        bound_parameters: usize,
-        payload_bytes: usize,
-    ) {
-        benchmark_trace::record_with_payload(
+        benchmark_trace::record(
             phase,
             operation,
             self.sql_duration,
             self.rows,
             statement_count,
             bound_parameters,
-            payload_bytes,
         );
         benchmark_trace::record(
             benchmark_trace::SQLITE_ROW_DECODING,
@@ -1255,18 +1228,16 @@ impl SqliteTraceTimer {
 fn execute_heading_rows_query(
     connection: &Connection,
     compiled: &CompiledSqlQuery,
-    heading_tag_strategy: HeadingTagEnrichmentStrategy,
 ) -> Result<Vec<HeadingQueryRow>, QueryExecutionError> {
     if !benchmark_trace::active() {
-        return execute_heading_rows_query_untraced(connection, compiled, heading_tag_strategy);
+        return execute_heading_rows_query_untraced(connection, compiled);
     }
-    execute_heading_rows_query_traced(connection, compiled, heading_tag_strategy)
+    execute_heading_rows_query_traced(connection, compiled)
 }
 
 fn execute_heading_rows_query_traced(
     connection: &Connection,
     compiled: &CompiledSqlQuery,
-    heading_tag_strategy: HeadingTagEnrichmentStrategy,
 ) -> Result<Vec<HeadingQueryRow>, QueryExecutionError> {
     let mut timer = SqliteTraceTimer::new();
     let mut statement = timer
@@ -1322,14 +1293,13 @@ fn execute_heading_rows_query_traced(
         1,
         compiled.params.len(),
     );
-    load_effective_tags_for_heading_rows(connection, compiled, &mut rows, heading_tag_strategy)?;
+    load_effective_tags_for_heading_rows(connection, compiled, &mut rows)?;
     Ok(rows)
 }
 
 fn execute_heading_rows_query_untraced(
     connection: &Connection,
     compiled: &CompiledSqlQuery,
-    heading_tag_strategy: HeadingTagEnrichmentStrategy,
 ) -> Result<Vec<HeadingQueryRow>, QueryExecutionError> {
     let mut statement = connection
         .prepare(&compiled.sql)
@@ -1366,7 +1336,7 @@ fn execute_heading_rows_query_untraced(
     let mut rows = rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(|source| QueryExecutionError::database(compiled.target, "collect", source))?;
-    load_effective_tags_for_heading_rows(connection, compiled, &mut rows, heading_tag_strategy)?;
+    load_effective_tags_for_heading_rows(connection, compiled, &mut rows)?;
     Ok(rows)
 }
 
@@ -1374,22 +1344,11 @@ fn load_effective_tags_for_heading_rows(
     connection: &Connection,
     compiled: &CompiledSqlQuery,
     rows: &mut [HeadingQueryRow],
-    heading_tag_strategy: HeadingTagEnrichmentStrategy,
 ) -> Result<(), QueryExecutionError> {
-    match (benchmark_trace::active(), heading_tag_strategy) {
-        (true, HeadingTagEnrichmentStrategy::RowPerTag) => {
-            load_effective_tags_for_heading_rows_traced(connection, compiled, rows)
-        }
-        (false, HeadingTagEnrichmentStrategy::RowPerTag) => {
-            load_effective_tags_for_heading_rows_untraced(connection, compiled, rows)
-        }
-        (true, HeadingTagEnrichmentStrategy::JsonAggregate) => {
-            load_aggregated_effective_tags_for_heading_rows_traced(connection, compiled, rows)
-        }
-        (false, HeadingTagEnrichmentStrategy::JsonAggregate) => {
-            load_aggregated_effective_tags_for_heading_rows_untraced(connection, compiled, rows)
-        }
+    if !benchmark_trace::active() {
+        return load_effective_tags_for_heading_rows_untraced(connection, compiled, rows);
     }
+    load_effective_tags_for_heading_rows_traced(connection, compiled, rows)
 }
 
 fn load_effective_tags_for_heading_rows_traced(
@@ -1423,7 +1382,6 @@ fn load_effective_tags_for_heading_rows_traced(
         })?;
     let mut by_heading = std::collections::HashMap::<i64, Vec<(i64, String)>>::new();
     let mut grouping_duration = Duration::ZERO;
-    let mut payload_bytes = 0usize;
     loop {
         let row = timer.sql(|| tag_rows.next()).map_err(|source| {
             QueryExecutionError::database(compiled.target, "load_effective_tags.collect", source)
@@ -1437,7 +1395,6 @@ fn load_effective_tags_for_heading_rows_traced(
         let (heading_id, position, tag) = decoded.map_err(|source| {
             QueryExecutionError::database(compiled.target, "load_effective_tags.collect", source)
         })?;
-        payload_bytes += tag.len();
         let started = Instant::now();
         by_heading
             .entry(heading_id)
@@ -1446,12 +1403,11 @@ fn load_effective_tags_for_heading_rows_traced(
         grouping_duration += started.elapsed();
     }
     let loaded_rows = timer.rows;
-    timer.record_with_payload(
+    timer.record(
         benchmark_trace::ENRICHMENT_SQL_EXECUTION,
         "query-heading-tags",
         1,
         compiled.params.len(),
-        payload_bytes,
     );
     benchmark_trace::record(
         benchmark_trace::RUST_GROUPING,
@@ -1540,168 +1496,6 @@ fn load_effective_tags_for_heading_rows_untraced(
             .collect::<Vec<_>>();
         row.all_tags_json = serde_json::to_string(&tags)
             .expect("serializing effective tag strings to JSON cannot fail");
-    }
-    Ok(())
-}
-
-fn load_aggregated_effective_tags_for_heading_rows_traced(
-    connection: &Connection,
-    compiled: &CompiledSqlQuery,
-    rows: &mut [HeadingQueryRow],
-) -> Result<(), QueryExecutionError> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-
-    let sql = format!(
-        "/* orgfdb:query-heading-tags-json-aggregate params={} */
-         WITH matched({}) AS ({})
-         SELECT matched.id,
-                json_group_array(effective_tags.tag ORDER BY effective_tags.position)
-         FROM matched
-         INNER JOIN effective_tags
-           ON effective_tags.heading_id = matched.id
-         GROUP BY matched.id",
-        compiled.params.len(),
-        HEADING_RELATION_COLUMNS,
-        compiled.sql
-    );
-    let mut timer = SqliteTraceTimer::new();
-    let mut statement = timer.sql(|| connection.prepare(&sql)).map_err(|source| {
-        QueryExecutionError::database(
-            compiled.target,
-            "load_aggregated_effective_tags.prepare",
-            source,
-        )
-    })?;
-    let mut tag_rows = timer
-        .sql(|| statement.query(params_from_iter(compiled.params.iter())))
-        .map_err(|source| {
-            QueryExecutionError::database(
-                compiled.target,
-                "load_aggregated_effective_tags.query",
-                source,
-            )
-        })?;
-    let mut by_heading = std::collections::HashMap::<i64, String>::new();
-    let mut grouping_duration = Duration::ZERO;
-    let mut payload_bytes = 0usize;
-    loop {
-        let row = timer.sql(|| tag_rows.next()).map_err(|source| {
-            QueryExecutionError::database(
-                compiled.target,
-                "load_aggregated_effective_tags.collect",
-                source,
-            )
-        })?;
-        let Some(row) = row else {
-            break;
-        };
-        let decoded =
-            timer.decode(|| -> rusqlite::Result<(i64, String)> { Ok((row.get(0)?, row.get(1)?)) });
-        let (heading_id, tags_json) = decoded.map_err(|source| {
-            QueryExecutionError::database(
-                compiled.target,
-                "load_aggregated_effective_tags.collect",
-                source,
-            )
-        })?;
-        payload_bytes += tags_json.len();
-        let started = Instant::now();
-        by_heading.insert(heading_id, tags_json);
-        grouping_duration += started.elapsed();
-    }
-    let loaded_rows = timer.rows;
-    timer.record_with_payload(
-        benchmark_trace::ENRICHMENT_SQL_EXECUTION,
-        "query-heading-tags-json-aggregate",
-        1,
-        compiled.params.len(),
-        payload_bytes,
-    );
-
-    let started = Instant::now();
-    for row in rows {
-        if let Some(tags_json) = by_heading.remove(&row.id) {
-            row.all_tags_json = tags_json;
-        }
-    }
-    grouping_duration += started.elapsed();
-    benchmark_trace::record(
-        benchmark_trace::RUST_GROUPING,
-        "query-heading-tags-json-aggregate",
-        grouping_duration,
-        loaded_rows,
-        0,
-        0,
-    );
-    benchmark_trace::record(
-        benchmark_trace::RUST_LOCAL_SORTING,
-        "query-heading-tags-json-aggregate",
-        Duration::ZERO,
-        0,
-        0,
-        0,
-    );
-    Ok(())
-}
-
-fn load_aggregated_effective_tags_for_heading_rows_untraced(
-    connection: &Connection,
-    compiled: &CompiledSqlQuery,
-    rows: &mut [HeadingQueryRow],
-) -> Result<(), QueryExecutionError> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-
-    let sql = format!(
-        "/* orgfdb:query-heading-tags-json-aggregate params={} */
-         WITH matched({}) AS ({})
-         SELECT matched.id,
-                json_group_array(effective_tags.tag ORDER BY effective_tags.position)
-         FROM matched
-         INNER JOIN effective_tags
-           ON effective_tags.heading_id = matched.id
-         GROUP BY matched.id",
-        compiled.params.len(),
-        HEADING_RELATION_COLUMNS,
-        compiled.sql
-    );
-    let mut statement = connection.prepare(&sql).map_err(|source| {
-        QueryExecutionError::database(
-            compiled.target,
-            "load_aggregated_effective_tags.prepare",
-            source,
-        )
-    })?;
-    let tag_rows = statement
-        .query_map(params_from_iter(compiled.params.iter()), |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|source| {
-            QueryExecutionError::database(
-                compiled.target,
-                "load_aggregated_effective_tags.query",
-                source,
-            )
-        })?;
-    let mut by_heading = std::collections::HashMap::<i64, String>::new();
-    for tag_row in tag_rows {
-        let (heading_id, tags_json) = tag_row.map_err(|source| {
-            QueryExecutionError::database(
-                compiled.target,
-                "load_aggregated_effective_tags.collect",
-                source,
-            )
-        })?;
-        by_heading.insert(heading_id, tags_json);
-    }
-
-    for row in rows {
-        if let Some(tags_json) = by_heading.remove(&row.id) {
-            row.all_tags_json = tags_json;
-        }
     }
     Ok(())
 }

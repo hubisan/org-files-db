@@ -23,7 +23,6 @@ pub(crate) struct BenchmarkTraceRecord {
     pub(crate) rows: usize,
     pub(crate) statement_count: usize,
     pub(crate) bound_parameters: usize,
-    pub(crate) payload_bytes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -73,26 +72,6 @@ pub(crate) fn record(
     statement_count: usize,
     bound_parameters: usize,
 ) {
-    record_with_payload(
-        phase,
-        operation,
-        duration,
-        rows,
-        statement_count,
-        bound_parameters,
-        0,
-    );
-}
-
-pub(crate) fn record_with_payload(
-    phase: &'static str,
-    operation: &'static str,
-    duration: Duration,
-    rows: usize,
-    statement_count: usize,
-    bound_parameters: usize,
-    payload_bytes: usize,
-) {
     if !active() {
         return;
     }
@@ -104,7 +83,6 @@ pub(crate) fn record_with_payload(
             rows,
             statement_count,
             bound_parameters,
-            payload_bytes,
         });
     });
 }
