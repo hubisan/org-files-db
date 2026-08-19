@@ -71,7 +71,9 @@ The later comparison must include its bounded analysis cost and its resulting st
 
 The experiment runner uses a neutral candidate state for this comparison.
 
-Planner-statistics output schema version ~2~ records either ~ANALYZE~ or ~PRAGMA optimize~ as that candidate.
+Planner-statistics output schema version ~3~ records either ~ANALYZE~ or ~PRAGMA optimize~ as that candidate.
+
+Schema version ~3~ also records downstream heading-tag and outline-validation plans for cheap non-TEMP heading relations.
 
 ** Repository audit
 
@@ -112,6 +114,8 @@ Full ~ANALYZE~ can therefore create both ~sqlite_stat1~ and ~sqlite_stat4~ data.
 SQLite cannot compute ~sqlite_stat4~ with a non-zero analysis limit.
 
 The official [[https://www.sqlite.org/pragma.html#pragma_optimize][PRAGMA optimize documentation]] recommends ~PRAGMA optimize~ for current applications.
+
+SQLite recommends it before closing short-lived database connections and after schema changes, especially after ~CREATE INDEX~.
 
 Since SQLite 3.46.0, ~PRAGMA optimize~ uses a temporary analysis limit when it runs analysis work.
 
@@ -156,11 +160,9 @@ If query gains justify more work, a later step will measure lifecycle cost with 
 
 ** Open questions
 
-- Does full ~ANALYZE~ change any representative production query plan?
-- Do changed plans improve complete query latency?
-- Does ~sqlite_stat4~ provide useful selectivity information for the current metadata indexes?
-- If statistics help, does ~PRAGMA optimize~ retain the gain with lower update cost?
-- If statistics help, which indexing event is the smallest safe refresh point?
+- Which downstream query plan explains the large simple-heading latency gain?
+- Does ~sqlite_stat4~ provide useful selectivity information beyond ~sqlite_stat1~ for these workloads?
+- If the downstream plan confirms a planner benefit, which indexing event is the smallest safe refresh point?
 
 ** Proposed checks
 
@@ -192,6 +194,11 @@ The optimize-candidate patch changes only:
 - ~.project/tasks/2026-08-18--investigate-sqlite-planner-statistics.org~
 - ~src/query_sql_benchmark.rs~
 - ~src/bin/orgfdb-query-planner-statistics-benchmark.rs~
+
+The downstream-plan verification patch changes only:
+
+- ~.project/tasks/2026-08-18--investigate-sqlite-planner-statistics.org~
+- ~src/query_sql_benchmark.rs~
 
 ** Checks performed
 
@@ -239,11 +246,41 @@ Since SQLite 3.46.0, normal ~PRAGMA optimize~ applies a temporary analysis limit
 
 A non-zero analysis limit does not generate ~sqlite_stat4~.
 
-The next experiment must record the resulting statistics state and operation cost.
+The ~PRAGMA optimize~ experiment completed with the same five workloads and exact-output checks.
 
-The next experiment uses the same five workloads and the same exact-output checks.
+The operation took 38.3 ms on the 50'000-result benchmark database.
 
-Do not add another statistics candidate unless this comparison gives a specific reason.
+The logical database size increased by 8'192 bytes.
+
+It created 39 ~sqlite_stat1~ rows and no ~sqlite_stat4~ rows.
+
+No recorded matched-relation query plan changed.
+
+Median complete query latency changed as follows:
+
+- ~cheap.heading-level~: 415.1 ms -> 292.1 ms (-29.63 %)
+- ~selective.direct-property-1~: 3.25 ms -> 3.28 ms (+0.85 %)
+- ~nonselective.effective-property-100~: 400.4 ms -> 398.0 ms (-0.60 %)
+- ~expensive.multi-metadata-10~: 152.2 ms -> 151.1 ms (-0.76 %)
+- ~enrichment-heavy.heading-level~: 1604.2 ms -> 1623.9 ms (+1.23 %)
+
+This result repeats the large simple-heading gain from full ~ANALYZE~.
+
+The other four workloads remain effectively neutral.
+
+The cheaper operation retains the only material gain without ~sqlite_stat4~.
+
+This result makes ~PRAGMA optimize~ a viable lifecycle candidate.
+
+The current plan evidence is incomplete.
+
+The benchmark records the matched-relation plan, but that plan does not change for the improved workload.
+
+The SQL profile places the improvement in ~query-heading-tags~ and ~validate-outline-path~.
+
+Add one final plan-only extension for those downstream statements on cheap non-TEMP heading relations.
+
+Do not add another statistics candidate.
 
 ** Blockers
 
@@ -251,8 +288,10 @@ No implementation blocker is known.
 
 ** Follow-ups
 
-Run the same planner-statistics benchmark with ~--candidate optimize~.
+Run the planner-statistics benchmark again with ~--candidate optimize~ after the plan-only extension.
 
-Compare its operation cost and complete query latency against the no-statistics baseline.
+Inspect the heading-tag and outline-validation plan differences for the simple 50'000-result workload.
 
-Use the result to decide whether any production lifecycle change is justified.
+If those plans explain the repeated latency gain, implement the smallest safe ~PRAGMA optimize~ lifecycle hook.
+
+If they do not explain the gain, keep production unchanged and record the rejection.

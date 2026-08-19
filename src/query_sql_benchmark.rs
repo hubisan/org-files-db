@@ -43,7 +43,7 @@ use crate::query::sqlite::{
 };
 
 pub const OUTPUT_SCHEMA_VERSION: &str = "13";
-pub const PLANNER_STATISTICS_OUTPUT_SCHEMA_VERSION: &str = "2";
+pub const PLANNER_STATISTICS_OUTPUT_SCHEMA_VERSION: &str = "3";
 pub const DEFAULT_WARMUPS: usize = 1;
 pub const DEFAULT_ITERATIONS: usize = 3;
 pub const DEFAULT_ROW_COUNTS: &[usize] = &[100, 1_000, 10_000, 50_000];
@@ -171,6 +171,7 @@ pub struct PlannerStatisticsBenchmarkProtocol {
     pub write_connection_policy: &'static str,
     pub operation_timing_policy: &'static str,
     pub timing_policy: &'static str,
+    pub query_plan_policy: &'static str,
     pub equality_policy: &'static str,
 }
 
@@ -226,6 +227,12 @@ pub struct PlannerStatisticsWorkloadResult {
     pub baseline_matched_relation_query_plan: Vec<String>,
     pub candidate_matched_relation_query_plan: Vec<String>,
     pub matched_relation_query_plan_changed: bool,
+    pub baseline_heading_tags_query_plan: Option<Vec<String>>,
+    pub candidate_heading_tags_query_plan: Option<Vec<String>>,
+    pub heading_tags_query_plan_changed: Option<bool>,
+    pub baseline_outline_validation_query_plan: Option<Vec<String>>,
+    pub candidate_outline_validation_query_plan: Option<Vec<String>>,
+    pub outline_validation_query_plan_changed: Option<bool>,
     pub baseline_total_query_time: Timing,
     pub candidate_total_query_time: Timing,
     pub baseline_sql_profile: SqlProfileSummary,
@@ -759,6 +766,7 @@ pub fn run_planner_statistics_experiment(
             write_connection_policy: "foreign_keys=ON, journal_mode=WAL, synchronous=NORMAL",
             operation_timing_policy: "statistics operation only; post-operation WAL checkpoint is excluded",
             timing_policy: "paired baseline/candidate order with profile callbacks disabled during latency samples",
+            query_plan_policy: "matched relation plans for every workload; heading-tag and outline-validation plans for cheap non-TEMP heading relations",
             equality_policy: "exact QueryResponse equality before timing and for every measured sample",
         },
         environment,
@@ -941,6 +949,23 @@ fn measure_planner_statistics_workload(
     let candidate_matched_relation_query_plan =
         explain_query_plan(candidate_connection, &compiled.sql, &compiled.params)?;
 
+    let relation_cost = heading_matched_relation_cost(&validated);
+    let (baseline_downstream_plans, candidate_downstream_plans) =
+        if relation_cost == MatchedRelationCost::Cheap {
+            (
+                Some(planner_statistics_downstream_query_plans(
+                    baseline_connection,
+                    &compiled,
+                )?),
+                Some(planner_statistics_downstream_query_plans(
+                    candidate_connection,
+                    &compiled,
+                )?),
+            )
+        } else {
+            (None, None)
+        };
+
     let (baseline_total_query_time, candidate_total_query_time) =
         measure_planner_statistics_paired(
             options,
@@ -983,7 +1008,31 @@ fn measure_planner_statistics_workload(
         options.candidate.state_label(),
     )?;
 
-    let relation_cost = heading_matched_relation_cost(&validated);
+    let (
+        baseline_heading_tags_query_plan,
+        candidate_heading_tags_query_plan,
+        heading_tags_query_plan_changed,
+        baseline_outline_validation_query_plan,
+        candidate_outline_validation_query_plan,
+        outline_validation_query_plan_changed,
+    ) = match (baseline_downstream_plans, candidate_downstream_plans) {
+        (Some(baseline), Some(candidate)) => {
+            let heading_tags_changed = baseline.heading_tags != candidate.heading_tags;
+            let outline_validation_changed =
+                baseline.outline_validation != candidate.outline_validation;
+            (
+                Some(baseline.heading_tags),
+                Some(candidate.heading_tags),
+                Some(heading_tags_changed),
+                Some(baseline.outline_validation),
+                Some(candidate.outline_validation),
+                Some(outline_validation_changed),
+            )
+        }
+        (None, None) => (None, None, None, None, None, None),
+        _ => return Err("planner statistics downstream plan state mismatch".into()),
+    };
+
     Ok(PlannerStatisticsWorkloadResult {
         id: workload.id,
         query: workload.query,
@@ -1000,10 +1049,54 @@ fn measure_planner_statistics_workload(
             != candidate_matched_relation_query_plan,
         baseline_matched_relation_query_plan,
         candidate_matched_relation_query_plan,
+        baseline_heading_tags_query_plan,
+        candidate_heading_tags_query_plan,
+        heading_tags_query_plan_changed,
+        baseline_outline_validation_query_plan,
+        candidate_outline_validation_query_plan,
+        outline_validation_query_plan_changed,
         baseline_total_query_time,
         candidate_total_query_time,
         baseline_sql_profile,
         candidate_sql_profile,
+    })
+}
+
+#[derive(Debug)]
+struct PlannerStatisticsDownstreamQueryPlans {
+    heading_tags: Vec<String>,
+    outline_validation: Vec<String>,
+}
+
+fn planner_statistics_downstream_query_plans(
+    connection: &Connection,
+    compiled: &CompiledSqlQuery,
+) -> Result<PlannerStatisticsDownstreamQueryPlans, String> {
+    let columns = heading_relation_columns();
+    let heading_tags_sql = format!(
+        "WITH matched({columns}) AS ({})
+         SELECT effective_tags.heading_id, effective_tags.position, effective_tags.tag
+         FROM matched
+         INNER JOIN effective_tags
+           ON effective_tags.heading_id = matched.id",
+        compiled.sql
+    );
+    let outline_validation_sql = format!(
+        "WITH matched({columns}) AS ({})
+         SELECT matched.id, outline_path.breadcrumbs_json
+         FROM matched
+         LEFT JOIN outline_path
+           ON outline_path.heading_id = matched.id",
+        compiled.sql
+    );
+
+    Ok(PlannerStatisticsDownstreamQueryPlans {
+        heading_tags: explain_query_plan(connection, &heading_tags_sql, &compiled.params)?,
+        outline_validation: explain_query_plan(
+            connection,
+            &outline_validation_sql,
+            &compiled.params,
+        )?,
     })
 }
 
