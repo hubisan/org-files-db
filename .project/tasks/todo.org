@@ -447,10 +447,12 @@ Task file: [[./2026-08-18--investigate-sqlite-planner-statistics.org][Investigat
 
 Task file: [[./2026-08-19--reduce-presentation-json-payload-size.org][Reduce Presentation JSON Payload Size]]
 
-* TODO Evaluate presentation pipeline parallelism
+* BUILD Evaluate presentation pipeline parallelism
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-19--evaluate-presentation-pipeline-parallelism.org][Evaluate Presentation Pipeline Parallelism]]
 
 Start this task after presentation payload optimization is complete.
 

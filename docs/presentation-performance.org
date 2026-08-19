@@ -500,3 +500,103 @@ Version 2 keeps these objects unchanged to keep the action boundary simple.
 
 A separate payload task can benchmark result-object compaction if the extra contract is acceptable.
 
+
+* Parallelism evaluation baseline
+
+The final ~presentation-json~ version 2 production run is the sequential baseline for the parallelism task.
+
+The baseline already measures all relevant presentation stages on 100, 1,000, 10,000, and 50,000 original results.
+
+At 50,000 original results, expanded workloads create 150,000 presentation rows.
+
+Their median isolated sorting time is:
+
+| Workload | Rows | Sorting |
+|----------+------+---------|
+| ~headings.tags~ | 150,000 | 219.10 ms |
+| ~headings.effective-properties~ | 150,000 | 301.79 ms |
+| ~files.keywords~ | 150,000 | 264.35 ms |
+
+The wide non-expanded workload creates 50,000 rows and 550,000 cells.
+
+Its median value extraction time is 51.87 ms.
+
+Its median truncation, padding, and row formatting time is 64.53 ms.
+
+These measurements identify CPU-bound work before the project adds a parallel dependency.
+
+The first parallel experiment uses Rayon 1.12.0 through the optional ~presentation-parallel-benchmark~ feature.
+
+The production ~PresentationSpec::build_response~ path stays sequential during this experiment.
+
+The experiment compares:
+
+- sequential and parallel sort-key creation
+- sequential and parallel sorting
+- sequential and parallel value extraction with deterministic width reduction
+- sequential and parallel final row formatting
+- complete sequential presentation processing
+- complete processing with parallel sort work only
+- complete processing with parallel layout work only
+- complete processing with all measured candidate stages in parallel
+
+The experiment forces the parallel candidates at every requested result size.
+
+This exposes coordination overhead at 100 and 1,000 results before a production threshold is selected.
+
+Every parallel candidate must produce the exact same ~PresentationResponse~ as the sequential baseline.
+
+SQLite query loading stays sequential and outside the candidate timing.
+
+Complete CLI timing remains a final production gate after the benchmark selects a strategy and threshold.
+
+
+* Parallel candidate v1 results
+
+The first candidate benchmark runs on 14 available CPUs with 14 Rayon worker threads.
+
+It forces parallel work at every requested size to expose coordination overhead.
+
+All parallel responses equal the sequential response.
+
+At 100 and 1,000 results, forced parallel work loses clearly.
+
+At 10,000 results, ~headings.wide~ is the only strong complete-pipeline winner.
+
+Its layout-only candidate changes complete presentation time by -44.6 %.
+
+At 50,000 results, the complete candidates change as follows:
+
+| Workload | Sort only | Layout only | All parallel |
+|----------+-----------+-------------+--------------|
+| ~headings.narrow~ | -25.6 % | +13.1 % | +5.1 % |
+| ~headings.normal~ | +17.1 % | -10.8 % | -12.7 % |
+| ~headings.wide~ | +11.4 % | -40.7 % | -33.0 % |
+| ~headings.tags~ | -3.7 % | +4.9 % | -4.4 % |
+| ~headings.effective-properties~ | -2.2 % | +11.4 % | -4.1 % |
+| ~files.keywords~ | -16.3 % | -4.4 % | -23.5 % |
+
+The stage data explains why one global mode is not suitable.
+
+At 50,000 results, parallel value extraction improves every workload except ~headings.narrow~.
+
+Parallel formatting strongly improves ~headings.normal~ and ~headings.wide~, but it loses for expanded tag and effective-property rows.
+
+Parallel sorting strongly improves the isolated 150,000-row expanded sorting stage.
+
+The second candidate benchmark therefore tests one selective strategy.
+
+The strategy uses these thresholds:
+
+- parallel sort at 100,000 presentation rows
+- parallel extraction at 200,000 cells
+- parallel extraction at 100,000 cells when the presentation has at least 8 columns
+- parallel formatting only for one-row-per-result presentations that meet an extraction threshold
+
+These thresholds keep small workloads sequential.
+
+They also keep expanded-row formatting sequential when v1 shows a loss.
+
+The v2 benchmark measures extraction-only and formatting-only totals in addition to the previous candidates.
+
+Production remains sequential until this selective candidate passes the complete-presentation benchmark.

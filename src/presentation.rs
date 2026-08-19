@@ -1,5 +1,7 @@
 use std::{cmp::Ordering, error::Error, fmt, path::Path};
 
+#[cfg(feature = "presentation-parallel-benchmark")]
+use rayon::prelude::*;
 use serde::{
     ser::{SerializeMap, SerializeSeq},
     Deserialize, Serialize, Serializer,
@@ -453,17 +455,79 @@ impl PresentationSpec {
     }
 
     pub(crate) fn finish_sort_rows(&self, mut plan: PresentationSortPlan) -> Vec<PresentationRow> {
-        plan.rows.sort_by(|left, right| {
-            for (index, sort) in self.sort.iter().enumerate() {
-                let ordering =
-                    compare_sort_values(&left.keys[index], &right.keys[index], sort.direction);
-                if ordering != Ordering::Equal {
-                    return ordering;
-                }
-            }
-            left.original_index.cmp(&right.original_index)
-        });
+        plan.rows
+            .sort_by(|left, right| self.compare_sortable_rows(left, right));
         plan.rows.into_iter().map(|entry| entry.row).collect()
+    }
+
+    #[cfg(feature = "presentation-parallel-benchmark")]
+    pub(crate) fn prepare_sort_rows_parallel(
+        &self,
+        results: &[QueryResultNode],
+        rows: Vec<PresentationRow>,
+    ) -> Result<PresentationSortPlan, PresentationSortError> {
+        let prepared = rows
+            .into_par_iter()
+            .enumerate()
+            .map(|(original_index, row)| {
+                let result = results.get(row.result_index).ok_or_else(|| {
+                    PresentationSortError::new(format!(
+                        "presentation row {original_index} references missing result_index {}",
+                        row.result_index
+                    ))
+                })?;
+                let mut keys = Vec::with_capacity(self.sort.len());
+                for (sort_index, sort) in self.sort.iter().enumerate() {
+                    let extracted = self
+                        .extract_value(sort.column, result, row.row_context.as_ref())
+                        .map_err(|source| {
+                            PresentationSortError::new(format!(
+                                "failed to extract sort[{sort_index}] column `{}` for row {original_index}: {source}",
+                                sort.column.as_str()
+                            ))
+                        })?;
+                    keys.push(extracted.value);
+                }
+                Ok(PresentationSortableRow {
+                    original_index,
+                    row,
+                    keys,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let mut sortable_rows = Vec::with_capacity(prepared.len());
+        for prepared_row in prepared {
+            sortable_rows.push(prepared_row?);
+        }
+        Ok(PresentationSortPlan {
+            rows: sortable_rows,
+        })
+    }
+
+    #[cfg(feature = "presentation-parallel-benchmark")]
+    pub(crate) fn finish_sort_rows_parallel(
+        &self,
+        mut plan: PresentationSortPlan,
+    ) -> Vec<PresentationRow> {
+        plan.rows
+            .par_sort_by(|left, right| self.compare_sortable_rows(left, right));
+        plan.rows.into_iter().map(|entry| entry.row).collect()
+    }
+
+    fn compare_sortable_rows(
+        &self,
+        left: &PresentationSortableRow,
+        right: &PresentationSortableRow,
+    ) -> Ordering {
+        for (index, sort) in self.sort.iter().enumerate() {
+            let ordering =
+                compare_sort_values(&left.keys[index], &right.keys[index], sort.direction);
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+        }
+        left.original_index.cmp(&right.original_index)
     }
 
     pub fn layout_rows(
@@ -522,6 +586,64 @@ impl PresentationSpec {
         })
     }
 
+    #[cfg(feature = "presentation-parallel-benchmark")]
+    pub(crate) fn prepare_layout_rows_parallel(
+        &self,
+        results: &[QueryResultNode],
+        rows: Vec<PresentationRow>,
+    ) -> Result<PresentationLayoutPlan, PresentationLayoutError> {
+        let prepared = rows
+            .into_par_iter()
+            .enumerate()
+            .map(|(row_index, mut row)| {
+                let result = results.get(row.result_index).ok_or_else(|| {
+                    PresentationLayoutError::new(format!(
+                        "presentation row {row_index} references missing result_index {}",
+                        row.result_index
+                    ))
+                })?;
+                let mut cells = Vec::with_capacity(self.columns.len());
+                let mut row_widths = Vec::with_capacity(self.columns.len());
+
+                for (column_index, column) in self.columns.iter().enumerate() {
+                    let extracted = column
+                        .extract_value(result, row.row_context.as_ref())
+                        .map_err(|source| {
+                            PresentationLayoutError::new(format!(
+                                "failed to extract columns[{column_index}] `{}` for row {row_index}: {source}",
+                                column.name.as_str()
+                            ))
+                        })?;
+                    let search_text = extracted.search_text();
+                    row_widths.push(presentation_text_width(&search_text));
+                    cells.push(PresentationCell {
+                        search_text,
+                        display_text: String::new(),
+                        role: extracted.role,
+                    });
+                }
+
+                row.cells = cells;
+                Ok((row, row_widths))
+            })
+            .collect::<Vec<_>>();
+
+        let mut natural_widths = vec![0; self.columns.len()];
+        let mut prepared_rows = Vec::with_capacity(prepared.len());
+        for prepared_row in prepared {
+            let (row, row_widths) = prepared_row?;
+            for (column_index, width) in row_widths.into_iter().enumerate() {
+                natural_widths[column_index] = natural_widths[column_index].max(width);
+            }
+            prepared_rows.push(row);
+        }
+
+        Ok(PresentationLayoutPlan {
+            rows: prepared_rows,
+            natural_widths,
+        })
+    }
+
     pub(crate) fn resolve_layout_widths(
         &self,
         natural_widths: &[usize],
@@ -542,15 +664,32 @@ impl PresentationSpec {
     ) -> Vec<PresentationRow> {
         debug_assert_eq!(widths.len(), self.columns.len());
         for row in &mut plan.rows {
-            for (column_index, cell) in row.cells.iter_mut().enumerate() {
-                cell.display_text = fit_cell_text(
-                    &cell.search_text,
-                    widths[column_index],
-                    self.columns[column_index].truncate.as_ref(),
-                );
-            }
+            self.format_row(row, widths);
         }
         plan.rows
+    }
+
+    #[cfg(feature = "presentation-parallel-benchmark")]
+    pub(crate) fn finish_layout_rows_parallel(
+        &self,
+        mut plan: PresentationLayoutPlan,
+        widths: &[usize],
+    ) -> Vec<PresentationRow> {
+        debug_assert_eq!(widths.len(), self.columns.len());
+        plan.rows
+            .par_iter_mut()
+            .for_each(|row| self.format_row(row, widths));
+        plan.rows
+    }
+
+    fn format_row(&self, row: &mut PresentationRow, widths: &[usize]) {
+        for (column_index, cell) in row.cells.iter_mut().enumerate() {
+            cell.display_text = fit_cell_text(
+                &cell.search_text,
+                widths[column_index],
+                self.columns[column_index].truncate.as_ref(),
+            );
+        }
     }
 
     pub fn expand_rows(
@@ -3622,6 +3761,64 @@ mod tests {
             error.to_string(),
             "failed to expand presentation rows: row_source kind `effective-properties` requires query include `effective_properties` for result_index 0"
         );
+    }
+
+    #[cfg(feature = "presentation-parallel-benchmark")]
+    #[test]
+    fn parallel_candidate_stages_match_sequential_output() {
+        let mut first = file_result(1, "Alpha");
+        let mut second = file_result(2, "Beta");
+        let QueryResultNode::File(first_node) = &mut first else {
+            unreachable!("file_result should return a file");
+        };
+        let QueryResultNode::File(second_node) = &mut second else {
+            unreachable!("file_result should return a file");
+        };
+        first_node.tags = vec!["zeta".into(), "alpha".into()];
+        second_node.tags = vec!["beta".into(), "alpha".into()];
+        let results = vec![first, second];
+        let spec = PresentationSpec::parse_json(
+            r#"{
+                "columns":[
+                    {"name":"file-name","width":{"mode":"max","value":12}},
+                    {"name":"tag","width":{"mode":"fixed","value":6}}
+                ],
+                "sort":[
+                    {"column":"tag","direction":"asc"},
+                    {"column":"file-name","direction":"asc"}
+                ],
+                "row_source":{"kind":"tags"}
+            }"#,
+        )
+        .expect("parallel candidate presentation should parse");
+
+        let expanded = spec.expand_rows(&results).expect("rows should expand");
+        let sequential_sort_plan = spec
+            .prepare_sort_rows(&results, expanded.clone())
+            .expect("sequential sort keys should build");
+        let parallel_sort_plan = spec
+            .prepare_sort_rows_parallel(&results, expanded)
+            .expect("parallel sort keys should build");
+        let sequential_sorted = spec.finish_sort_rows(sequential_sort_plan);
+        let parallel_sorted = spec.finish_sort_rows_parallel(parallel_sort_plan);
+        assert_eq!(parallel_sorted, sequential_sorted);
+
+        let sequential_layout_plan = spec
+            .prepare_layout_rows(&results, sequential_sorted.clone())
+            .expect("sequential layout should build");
+        let parallel_layout_plan = spec
+            .prepare_layout_rows_parallel(&results, sequential_sorted)
+            .expect("parallel layout should build");
+        assert_eq!(
+            parallel_layout_plan.natural_widths(),
+            sequential_layout_plan.natural_widths()
+        );
+        let widths = spec
+            .resolve_layout_widths(sequential_layout_plan.natural_widths())
+            .expect("layout widths should resolve");
+        let sequential_rows = spec.finish_layout_rows(sequential_layout_plan, &widths);
+        let parallel_rows = spec.finish_layout_rows_parallel(parallel_layout_plan, &widths);
+        assert_eq!(parallel_rows, sequential_rows);
     }
 
     #[test]
