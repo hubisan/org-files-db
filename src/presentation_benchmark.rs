@@ -29,8 +29,8 @@ use crate::{
     },
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "1";
-pub const PAYLOAD_ANALYSIS_SCHEMA_VERSION: &str = "1";
+pub const OUTPUT_SCHEMA_VERSION: &str = "2";
+pub const PAYLOAD_ANALYSIS_SCHEMA_VERSION: &str = "2";
 pub const CORPUS_CONTRACT_VERSION: &str = "1";
 pub const DEFAULT_WARMUPS: usize = 3;
 pub const DEFAULT_ITERATIONS: usize = 10;
@@ -70,6 +70,7 @@ pub struct PresentationBenchmarkProtocol {
     pub warmups: usize,
     pub iterations: usize,
     pub row_counts: Vec<usize>,
+    pub presentation_wire_format: &'static str,
     pub query_connection: &'static str,
     pub cli_measurement: &'static str,
     pub process_startup_measurement: &'static str,
@@ -255,13 +256,17 @@ pub struct PresentationPayloadRepetition {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct PresentationWorkload {
-    id: &'static str,
-    query: &'static str,
-    presentation_spec_json: &'static str,
+pub(crate) struct PresentationWorkload {
+    pub(crate) id: &'static str,
+    pub(crate) query: &'static str,
+    pub(crate) presentation_spec_json: &'static str,
 }
 
+const NARROW_SPEC: &str = r#"{"columns":[{"name":"title","width":{"mode":"max","value":48},"truncate":{"position":"middle","marker":"…"}}],"sort":[{"column":"file-name","direction":"asc"},{"column":"line-number","direction":"desc"}]}"#;
+
 const NORMAL_SPEC: &str = r#"{"columns":[{"name":"title","width":{"mode":"max","value":48},"truncate":{"position":"middle","marker":"…"}},{"name":"todo-keyword","width":{"mode":"fixed","value":5}},{"name":"tags","width":{"mode":"max","value":32}},{"name":"file-name","width":{"mode":"max","value":28}}],"sort":[{"column":"file-name","direction":"asc"},{"column":"line-number","direction":"desc"}]}"#;
+
+const WIDE_SPEC: &str = r#"{"columns":[{"name":"title","width":{"mode":"max","value":48},"truncate":{"position":"middle","marker":"…"}},{"name":"todo-keyword","width":{"mode":"fixed","value":5}},{"name":"todo-type","width":{"mode":"max","value":8}},{"name":"priority","width":{"mode":"fixed","value":1}},{"name":"tags","width":{"mode":"max","value":32}},{"name":"scheduled-raw","width":{"mode":"max","value":24}},{"name":"deadline-raw","width":{"mode":"max","value":24}},{"name":"closed-raw","width":{"mode":"max","value":24}},{"name":"file-name","width":{"mode":"max","value":28}},{"name":"file-path","width":{"mode":"max","value":64},"truncate":{"position":"middle","marker":"…"}},{"name":"line-number","width":{"mode":"max","value":8}}],"sort":[{"column":"file-name","direction":"asc"},{"column":"line-number","direction":"desc"}]}"#;
 
 const TAGS_SPEC: &str = r#"{"columns":[{"name":"title","width":{"mode":"max","value":44}},{"name":"tag","width":{"mode":"max","value":20}},{"name":"file-name","width":{"mode":"max","value":28}}],"sort":[{"column":"tag","direction":"asc"},{"column":"title","direction":"asc"}],"row_source":{"kind":"tags"}}"#;
 
@@ -269,11 +274,21 @@ const EFFECTIVE_PROPERTIES_SPEC: &str = r#"{"columns":[{"name":"title","width":{
 
 const KEYWORDS_SPEC: &str = r#"{"columns":[{"name":"file-name","width":{"mode":"max","value":28}},{"name":"keyword-name","width":{"mode":"fixed","value":10}},{"name":"keyword-value","width":{"mode":"max","value":32}}],"sort":[{"column":"keyword-name","direction":"asc"},{"column":"file-name","direction":"asc"}],"row_source":{"kind":"keywords"}}"#;
 
-const WORKLOADS: &[PresentationWorkload] = &[
+pub(crate) const WORKLOADS: &[PresentationWorkload] = &[
+    PresentationWorkload {
+        id: "headings.narrow",
+        query: "(headings (level 1))",
+        presentation_spec_json: NARROW_SPEC,
+    },
     PresentationWorkload {
         id: "headings.normal",
         query: "(headings (level 1))",
         presentation_spec_json: NORMAL_SPEC,
+    },
+    PresentationWorkload {
+        id: "headings.wide",
+        query: "(headings (level 1))",
+        presentation_spec_json: WIDE_SPEC,
     },
     PresentationWorkload {
         id: "headings.tags",
@@ -329,6 +344,7 @@ pub fn run(
             warmups: options.warmups,
             iterations: options.iterations,
             row_counts: options.row_counts.clone(),
+            presentation_wire_format: "presentation-json version 2 positional rows and cells",
             query_connection: "one warmed read-only connection and one deferred read transaction per workload",
             cli_measurement: "fresh orgfdb process per sample; stdout is captured through a pipe",
             process_startup_measurement: "fresh orgfdb --help process; includes help generation; stdout and stderr are discarded",
@@ -452,7 +468,7 @@ pub fn analyze_payloads(
         protocol: PresentationPayloadAnalysisProtocol {
             row_counts: options.row_counts,
             source: "existing orgfdb-presentation-benchmark work directory",
-            public_wire_format: "unchanged presentation-json version 1",
+            public_wire_format: "presentation-json version 2 positional rows and cells",
             compression: "none",
             streaming: "none",
             cache_policy: "no presentation cache",
@@ -521,7 +537,7 @@ fn analyze_payload_size(
     })
 }
 
-fn load_workload_response(
+pub(crate) fn load_workload_response(
     db_path: &Path,
     workload: PresentationWorkload,
     expected_results: usize,
@@ -571,16 +587,25 @@ fn analyze_payload_response(
     response: &PresentationResponse,
 ) -> Result<PresentationPayloadAnalysisWorkloadResult, String> {
     let compact_json = serde_json::to_vec(response).map_err(|error| error.to_string())?;
+    let wire_value: serde_json::Value =
+        serde_json::from_slice(&compact_json).map_err(|error| error.to_string())?;
     let results_json = serde_json::to_vec(&response.results).map_err(|error| error.to_string())?;
-    let rows_json = serde_json::to_vec(&response.rows).map_err(|error| error.to_string())?;
+    let wire_rows = wire_value
+        .get("rows")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("presentation wire rows must be an array")?;
+    if wire_rows.len() != response.rows.len() {
+        return Err("presentation wire row count differs from semantic rows".into());
+    }
+    let rows_json = serde_json::to_vec(wire_rows).map_err(|error| error.to_string())?;
 
     let mut row_context_bytes = 0usize;
     let mut cells_bytes = 0usize;
     let mut search_text_bytes = 0usize;
     let mut display_text_bytes = 0usize;
     let mut semantic_role_bytes = 0usize;
-    let mut row_context_field_name_bytes = 0usize;
-    let mut cell_field_name_bytes = 0usize;
+    let row_context_field_name_bytes = 0usize;
+    let cell_field_name_bytes = 0usize;
     let mut cell_count = 0usize;
     let mut search_display_equal_cells = 0usize;
     let mut search_display_duplicate_bytes = 0usize;
@@ -590,15 +615,29 @@ fn analyze_payload_response(
     let mut row_context_values_repeated_in_cells = 0usize;
     let mut row_context_cell_duplicate_bytes = 0usize;
 
-    for row in &response.rows {
+    for (row_index, (row, wire_row)) in response.rows.iter().zip(wire_rows).enumerate() {
+        let wire_fields = wire_row
+            .as_array()
+            .ok_or_else(|| format!("presentation wire row {row_index} must be an array"))?;
+        if wire_fields.len() != 3 {
+            return Err(format!(
+                "presentation wire row {row_index} must contain 3 fields"
+            ));
+        }
         let context_json =
-            serde_json::to_vec(&row.row_context).map_err(|error| error.to_string())?;
+            serde_json::to_vec(&wire_fields[1]).map_err(|error| error.to_string())?;
         row_context_bytes += context_json.len();
-        row_context_field_name_bytes += count_json_field_name_bytes(&context_json);
 
-        let row_cells_json = serde_json::to_vec(&row.cells).map_err(|error| error.to_string())?;
+        let wire_cells = wire_fields[2]
+            .as_array()
+            .ok_or_else(|| format!("presentation wire row {row_index} cells must be an array"))?;
+        if wire_cells.len() != row.cells.len() {
+            return Err(format!(
+                "presentation wire row {row_index} cell count differs"
+            ));
+        }
+        let row_cells_json = serde_json::to_vec(wire_cells).map_err(|error| error.to_string())?;
         cells_bytes += row_cells_json.len();
-        cell_field_name_bytes += count_json_field_name_bytes(&row_cells_json);
 
         let context_values = row_context_scalar_values(row.row_context.as_ref());
         row_context_values += context_values.len();
@@ -613,11 +652,23 @@ fn analyze_payload_response(
             }
         }
 
-        for cell in &row.cells {
+        for (cell_index, (cell, wire_cell)) in row.cells.iter().zip(wire_cells).enumerate() {
+            let wire_cell_fields = wire_cell.as_array().ok_or_else(|| {
+                format!("presentation wire row {row_index} cell {cell_index} must be an array")
+            })?;
+            if wire_cell_fields.len() != 3 {
+                return Err(format!(
+                    "presentation wire row {row_index} cell {cell_index} must contain 3 fields"
+                ));
+            }
             cell_count += 1;
-            search_text_bytes += json_string_bytes(&cell.search_text)?;
-            display_text_bytes += json_string_bytes(&cell.display_text)?;
-            semantic_role_bytes += serde_json::to_vec(&cell.role)
+            search_text_bytes += serde_json::to_vec(&wire_cell_fields[0])
+                .map_err(|error| error.to_string())?
+                .len();
+            display_text_bytes += serde_json::to_vec(&wire_cell_fields[1])
+                .map_err(|error| error.to_string())?
+                .len();
+            semantic_role_bytes += serde_json::to_vec(&wire_cell_fields[2])
                 .map_err(|error| error.to_string())?
                 .len();
             if cell.search_text == cell.display_text {
@@ -1569,8 +1620,13 @@ mod tests {
                 }],
             }],
         );
-        let analysis = analyze_payload_response(WORKLOADS[1], &response)
-            .expect("payload analysis should succeed");
+        let workload = WORKLOADS
+            .iter()
+            .copied()
+            .find(|workload| workload.id == "headings.tags")
+            .expect("tag workload should exist");
+        let analysis =
+            analyze_payload_response(workload, &response).expect("payload analysis should succeed");
 
         assert_eq!(
             analysis.compact_json_bytes,
@@ -1602,5 +1658,10 @@ mod tests {
         assert_eq!(analysis.repetition.search_display_equal_cells, 1);
         assert_eq!(analysis.repetition.row_context_values_repeated_in_cells, 1);
         assert_eq!(analysis.repetition.cells_matching_result_scalars, 1);
+        assert_eq!(analysis.field_names.row_metadata_bytes, 0);
+        assert_eq!(analysis.field_names.row_context_bytes, 0);
+        assert_eq!(analysis.field_names.cells_bytes, 0);
+        assert_eq!(analysis.sections.display_text_bytes, 4);
+        assert_eq!(analysis.sections.semantic_role_bytes, 1);
     }
 }

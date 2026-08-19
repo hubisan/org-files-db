@@ -1,0 +1,662 @@
+#+TITLE: Reduce Presentation JSON Payload Size
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-19 Wed 13:27]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+** TODO Reduce presentation JSON payload size
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after the query-side performance tasks above are complete.
+
+Use the stable query implementation as the presentation benchmark baseline.
+
+Goal: reduce ~presentation-json~ payload size without changing presentation semantics.
+
+Read the current presentation wire-format documentation and serializer first.
+
+Establish a fresh payload baseline before changing the format.
+
+Do not depend only on estimates from earlier benchmark runs.
+
+Measure representative:
+
+- small result sets
+- large result sets
+- expanded rows
+- narrow presentations
+- wide presentations
+
+Keep these semantic guarantees:
+
+- each original query result appears once
+- rows reference results through ~result_index~
+- ~search_text~ preserves the complete logical value
+- ~display_text~ preserves the final visible value
+- cells retain their semantic roles
+- several rows can reference one result
+- row contexts retain required data
+- ~database_id~ keeps its current meaning
+- ~generation~ keeps its current meaning
+
+Evaluate compact representations for repeated presentation data.
+
+Candidate techniques include:
+
+- positional arrays instead of repeated object keys
+- shared field schemas emitted once per payload for positional arrays
+- omission rules where ~search_text~ and ~display_text~ are identical
+- compact semantic role encoding
+- removal of data already available through ~result_index~
+- removal of duplicated row-context data that the documented format can recover safely
+- short wire-only field names for remaining frequently repeated objects where arrays are not suitable
+
+Prefer positional arrays for high-volume repeated structures when they give a clear payload benefit.
+
+If positional arrays are used, prefer a shared schema that is emitted once in the payload.
+
+For example, the payload can describe a cell array once as:
+
+#+begin_src json
+{
+  "cell_fields": ["search_text", "display_text", "role"]
+}
+#+end_src
+
+Individual cells can then use the documented positions without repeating the field names.
+
+The exact representation is not prescribed by this example.
+
+Benchmark alternative representations before selecting the final format.
+
+A positional representation must remain explicit and deterministic.
+
+Do not require the Emacs client to guess the meaning of an array position.
+
+Do not depend only on undocumented positional knowledge in the client.
+
+If a shared schema is emitted in the payload:
+
+- define the exact meaning and order of every field
+- emit the schema once instead of repeating field names for each object
+- keep the schema stable within one wire-format version
+- do not silently change positional meanings
+- version the wire format if an incompatible positional change is required
+
+If an optional array value is omitted, its meaning must remain unambiguous.
+
+Do not shift later positional values when an earlier optional value is absent unless the wire format defines a separate explicit array shape.
+
+For example, a missing ~display_text~ can use a documented sentinel or another explicit compact representation.
+
+Do not make the client infer whether a value is ~display_text~ or ~role~ from its contents.
+
+Prefer simple wire rules over complex compression logic.
+
+Every compact representation and omission rule must be explicit in the wire-format documentation.
+
+Keep compact field names and positional representations limited to ~presentation-json~.
+
+Keep the normal ~--format json~ contract unchanged.
+
+Do not add JSONL in this task.
+
+Do not add streaming in this task.
+
+Do not add a presentation cache in this task.
+
+Compare the old and candidate presentation formats with identical input.
+
+Require semantic equality before comparing performance.
+
+Compare at least:
+
+- current object representation
+- positional arrays with shared schemas
+- useful omission rules
+- short object keys where objects remain and the saving is material
+
+Do not keep a compact representation only because its raw JSON is smaller.
+
+Also consider parsing simplicity and complete presentation processing cost.
+
+Measure:
+
+- payload bytes
+- serialization time
+- presentation processing time
+- total CLI time
+
+Record enough information to show which representation provides each reduction.
+
+Update the wire-format documentation after the final representation is selected.
+
+Document:
+
+- every shared schema
+- every positional field and its index
+- every omission rule
+- every sentinel or compact value encoding
+- wire-format versioning rules for positional layouts
+- which compact rules apply only to ~presentation-json~
+
+Acceptance criteria:
+
+- The optimized format preserves all required presentation semantics.
+- Normal ~--format json~ remains unchanged.
+- Payload size decreases materially for large result sets.
+- Expanded-row workloads also decrease materially.
+- Small workloads have no material regression.
+- Repeated high-volume objects use a compact representation when benchmarks support it.
+- Positional arrays are self-describing through a shared payload schema when that representation is selected.
+- The Emacs client does not need undocumented knowledge to interpret array positions.
+- Optional positional values cannot make later positions ambiguous.
+- The representation remains simple for an Emacs client to parse.
+- Benchmark results record old and new payload sizes.
+- Benchmark results record serialization, presentation processing, and total CLI time.
+- Wire-format documentation defines every compact representation and omission rule.
+- Incompatible positional changes require an explicit wire-format version change.
+- ~make ci~ passes.
+
+** DONE Reduce presentation JSON payload size
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Task file: [[./2026-08-19--reduce-presentation-json-payload-size.org][Reduce Presentation JSON Payload Size]]
+
+Start this task after the query-side performance tasks above are complete.
+
+Use the stable query implementation as the presentation benchmark baseline.
+
+Goal: reduce ~presentation-json~ payload size without changing presentation semantics.
+
+Read the current presentation wire-format documentation and serializer first.
+
+Establish a fresh payload baseline before changing the format.
+
+Do not depend only on estimates from earlier benchmark runs.
+
+Measure representative:
+
+- small result sets
+- large result sets
+- expanded rows
+- narrow presentations
+- wide presentations
+
+Keep these semantic guarantees:
+
+- each original query result appears once
+- rows reference results through ~result_index~
+- ~search_text~ preserves the complete logical value
+- ~display_text~ preserves the final visible value
+- cells retain their semantic roles
+- several rows can reference one result
+- row contexts retain required data
+- ~database_id~ keeps its current meaning
+- ~generation~ keeps its current meaning
+
+Evaluate compact representations for repeated presentation data.
+
+Candidate techniques include:
+
+- positional arrays instead of repeated object keys
+- shared field schemas emitted once per payload for positional arrays
+- omission rules where ~search_text~ and ~display_text~ are identical
+- compact semantic role encoding
+- removal of data already available through ~result_index~
+- removal of duplicated row-context data that the documented format can recover safely
+- short wire-only field names for remaining frequently repeated objects where arrays are not suitable
+
+Prefer positional arrays for high-volume repeated structures when they give a clear payload benefit.
+
+If positional arrays are used, prefer a shared schema that is emitted once in the payload.
+
+For example, the payload can describe a cell array once as:
+
+#+begin_src json
+{
+  "cell_fields": ["search_text", "display_text", "role"]
+}
+#+end_src
+
+Individual cells can then use the documented positions without repeating the field names.
+
+The exact representation is not prescribed by this example.
+
+Benchmark alternative representations before selecting the final format.
+
+A positional representation must remain explicit and deterministic.
+
+Do not require the Emacs client to guess the meaning of an array position.
+
+Do not depend only on undocumented positional knowledge in the client.
+
+If a shared schema is emitted in the payload:
+
+- define the exact meaning and order of every field
+- emit the schema once instead of repeating field names for each object
+- keep the schema stable within one wire-format version
+- do not silently change positional meanings
+- version the wire format if an incompatible positional change is required
+
+If an optional array value is omitted, its meaning must remain unambiguous.
+
+Do not shift later positional values when an earlier optional value is absent unless the wire format defines a separate explicit array shape.
+
+For example, a missing ~display_text~ can use a documented sentinel or another explicit compact representation.
+
+Do not make the client infer whether a value is ~display_text~ or ~role~ from its contents.
+
+Prefer simple wire rules over complex compression logic.
+
+Every compact representation and omission rule must be explicit in the wire-format documentation.
+
+Keep compact field names and positional representations limited to ~presentation-json~.
+
+Keep the normal ~--format json~ contract unchanged.
+
+Do not add JSONL in this task.
+
+Do not add streaming in this task.
+
+Do not add a presentation cache in this task.
+
+Compare the old and candidate presentation formats with identical input.
+
+Require semantic equality before comparing performance.
+
+Compare at least:
+
+- current object representation
+- positional arrays with shared schemas
+- useful omission rules
+- short object keys where objects remain and the saving is material
+
+Do not keep a compact representation only because its raw JSON is smaller.
+
+Also consider parsing simplicity and complete presentation processing cost.
+
+Measure:
+
+- payload bytes
+- serialization time
+- presentation processing time
+- total CLI time
+
+Record enough information to show which representation provides each reduction.
+
+Update the wire-format documentation after the final representation is selected.
+
+Document:
+
+- every shared schema
+- every positional field and its index
+- every omission rule
+- every sentinel or compact value encoding
+- wire-format versioning rules for positional layouts
+- which compact rules apply only to ~presentation-json~
+
+Acceptance criteria:
+
+- The optimized format preserves all required presentation semantics.
+- Normal ~--format json~ remains unchanged.
+- Payload size decreases materially for large result sets.
+- Expanded-row workloads also decrease materially.
+- Small workloads have no material regression.
+- Repeated high-volume objects use a compact representation when benchmarks support it.
+- Positional arrays are self-describing through a shared payload schema when that representation is selected.
+- The Emacs client does not need undocumented knowledge to interpret array positions.
+- Optional positional values cannot make later positions ambiguous.
+- The representation remains simple for an Emacs client to parse.
+- Benchmark results record old and new payload sizes.
+- Benchmark results record serialization, presentation processing, and total CLI time.
+- Wire-format documentation defines every compact representation and omission rule.
+- Incompatible positional changes require an explicit wire-format version change.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+The current ~presentation-json~ response repeats object keys and presentation values for every row and cell.
+
+The existing payload analysis shows that large presentation responses can reach tens of megabytes.
+
+The task must reduce wire size without changing presentation semantics or normal ~--format json~ output.
+
+A fresh baseline is required before any wire-format candidate is implemented.
+
+** Goals
+
+- Establish a fresh baseline with the stable query implementation.
+- Cover small, large, expanded, narrow, and wide presentations.
+- Measure payload bytes, serialization time, presentation processing time, and total CLI time.
+- Compare compact wire candidates on identical ~PresentationResponse~ input.
+- Require semantic equality before performance comparison.
+- Keep the final wire format explicit and simple for an Emacs client.
+- Update the presentation wire-format documentation after the final representation is selected.
+
+** Non-goals
+
+- Do not change normal ~--format json~.
+- Do not add JSONL.
+- Do not add streaming.
+- Do not add a presentation cache.
+- Do not add presentation parallelism.
+- Do not change query semantics.
+- Do not mix unrelated query or indexing work into this task.
+
+** Architecture
+
+Keep the production ~PresentationResponse~ as the semantic source during the investigation.
+
+Use the existing ~orgfdb-presentation-benchmark~ for timing and complete CLI measurements.
+
+Use ~orgfdb-presentation-payload-analysis~ for exact byte attribution.
+
+The existing workload set covers normal and expanded presentations but has no explicit narrow or wide presentation case.
+
+Add two benchmark-only workloads before the fresh baseline:
+
+- ~headings.narrow~ uses one displayed cell per result.
+- ~headings.wide~ uses many displayed heading cells per result without row expansion.
+
+Run both workloads at the same result sizes as the existing normal and expanded workloads.
+
+Do not change ~presentation-json~ in the baseline patch.
+
+After the baseline is recorded, add candidate serializers only inside measurement infrastructure first.
+
+Compare current objects, positional arrays with shared schemas, useful omission rules, and short remaining object keys.
+
+Promote one representation to production only after semantic equality and end-to-end measurements support it.
+
+** Execution plan
+
+1. Add explicit narrow and wide presentation benchmark workloads.
+2. Run one fresh release timing baseline on new benchmark databases.
+3. Run the payload analyzer on the same benchmark databases.
+4. Record payload sections and repetition for small and large results.
+5. Select the smallest useful candidate set from the measured byte attribution.
+6. Add isolated candidate serialization with semantic decode/equality checks.
+7. Compare payload size, serialization time, presentation processing time, and total CLI time.
+8. Select one simple representation only when the measurements justify it.
+9. Update production ~presentation-json~ and wire-format documentation.
+10. Remove experiment-only candidate code before review.
+
+** Risks & assumptions
+
+The uploaded repository archive has no ~.git~ directory.
+
+Branch state cannot be inspected from this archive.
+
+The current environment has no Rust toolchain.
+
+The user will run the release baseline and ~make ci~ locally.
+
+The previous presentation timing table is historical evidence only.
+
+It is not the fresh payload baseline for this task.
+
+A wider benchmark can request more displayed cells without changing the benchmark corpus.
+
+** Open questions
+
+No implementation question remains for this task.
+
+The production version 2 run confirms the selected representation.
+
+The normal ~--format json~ contract stays unchanged.
+
+** Proposed checks
+
+- Run ~cargo fmt --all~.
+- Run ~make ci~ after the review patch.
+
+* Build
+
+The first patch changed measurement coverage only.
+
+It added explicit narrow and wide benchmark workloads.
+
+The fresh baseline is complete.
+
+The second patch adds an isolated wire-candidate benchmark.
+
+The candidate benchmark does not change production ~presentation-json~ or normal ~--format json~.
+
+It serializes the same in-memory ~PresentationResponse~ with five representations:
+
+- current objects
+- short keys for repeated row, row-context, and cell objects
+- positional row, row-context, and cell arrays with shared schemas
+- positional arrays with an explicit ~display_text = null~ equality sentinel
+- the display-null representation with shared semantic-role indexes
+
+All positional arrays keep fixed field positions.
+
+The shared schema defines every row, row-context, and cell position once per payload.
+
+A null ~display_text~ means exactly ~display_text == search_text~.
+
+The role-index candidate emits one ordered ~role_values~ table.
+
+A role value is either ~null~ or an index into that table.
+
+The benchmark parses every candidate once before timing.
+
+It compares metadata, original results, row references, row contexts, cell text, and roles with the source response.
+
+The candidate gate selected positional arrays with the null display sentinel and role indexes.
+
+The production patch changes ~presentation-json~ to wire version 2.
+
+Version 2 keeps ~results~ as original query-result objects.
+
+It emits one shared schema and uses positional arrays for rows, row contexts, and cells.
+
+A cell always has three positions.
+
+A null value at ~display_text~ means exactly ~display_text == search_text~.
+
+A role is ~null~ or an integer index into the shared ~role_values~ table.
+
+The production serializer is implemented on ~PresentationResponse~ so internal benchmarks measure the same wire path as the CLI.
+
+The payload analyzer now measures the version 2 positional row and cell representation.
+
+The temporary wire-candidate benchmark is removed after selection.
+
+* Results
+
+** Approach
+
+Prepare the benchmark coverage first, then collect the baseline before any wire-format experiment.
+
+** Changed files
+
+The baseline-preparation patch changes:
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-19--reduce-presentation-json-payload-size.org~
+- ~src/presentation_benchmark.rs~
+- ~docs/presentation-performance.org~
+
+The wire-candidate patch changes:
+
+- ~.project/tasks/2026-08-19--reduce-presentation-json-payload-size.org~
+- ~docs/presentation-performance.org~
+- ~src/lib.rs~
+- ~src/presentation_benchmark.rs~
+- ~src/presentation_wire_benchmark.rs~
+- ~src/bin/orgfdb-presentation-wire-benchmark.rs~
+
+The production wire patch changes:
+
+- ~.project/tasks/2026-08-19--reduce-presentation-json-payload-size.org~
+- ~docs/cli.org~
+- ~docs/design/presentation.org~
+- ~docs/presentation-performance.org~
+- ~src/cli.rs~
+- ~src/lib.rs~
+- ~src/presentation.rs~
+- ~src/presentation_benchmark.rs~
+
+It removes:
+
+- ~src/presentation_wire_benchmark.rs~
+- ~src/bin/orgfdb-presentation-wire-benchmark.rs~
+
+The review patch changes documentation only:
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-19--reduce-presentation-json-payload-size.org~
+- ~docs/presentation-performance.org~
+
+** Checks performed
+
+Repository instructions, the task entry, presentation wire documentation, serializer, CLI output path, benchmark, and payload analyzer were inspected.
+
+The fresh timing and payload-analysis outputs were reviewed before candidate implementation.
+
+The second patch was checked statically for scope, schema determinism, and semantic validation paths.
+
+The final production timing and payload-analysis outputs were compared with the fresh version 1 baseline.
+
+** Test results
+
+The fresh release baseline completed on Linux x86_64.
+
+It used 100, 1,000, 10,000, and 50,000 original results.
+
+At 50,000 results, compact payload sizes range from 36.0 MB for ~headings.narrow~ to 95.9 MB for ~files.keywords~.
+
+Field names alone use 16.8 MB to 39.1 MB across the 50,000-result workloads.
+
+Field names use about 38 % to 47 % of each complete payload.
+
+Field names plus JSON syntax use about 48 % to 58 % of each complete payload.
+
+At 50,000 results, ~headings.wide~ uses 22.6 MB for cell structure.
+
+Each 150,000-row expanded workload uses 18.6 MB for cell structure.
+
+Exact duplicate ~search_text~ and ~display_text~ values use 0.75 MB to 5.1 MB across the same workloads.
+
+The byte data makes repeated object structure the first candidate target.
+
+The baseline also records complete presentation, serialization, and CLI timing for every workload.
+
+At 50,000 results, serialization medians range from 68.4 ms to 181.4 ms.
+
+Complete presentation medians range from 33.3 ms to 577.7 ms.
+
+Complete CLI medians range from 782.0 ms to 2,007.0 ms.
+
+The wire-candidate benchmark completed on Linux x86_64.
+
+Every candidate passed semantic equality checks at 100 and 50,000 results.
+
+At 50,000 results, the selected representation reduces payload size by 12.50 % to 40.84 % across the six workloads.
+
+The absolute reduction ranges from 4.50 MB to 32.90 MB.
+
+The null display sentinel adds 0.55 MB to 3.70 MB beyond positional arrays.
+
+Role indexes add another 0.30 MB to 5.40 MB.
+
+The selected representation serializes faster than version 1 for every 50,000-result workload in the candidate run.
+
+The 100-result workloads also have smaller payloads and no serialization regression.
+
+The production version 2 timing and payload-analysis runs completed on Linux x86_64.
+
+The runs use the same corpus fingerprints as the version 1 baseline at 100, 1,000, 10,000, and 50,000 results.
+
+At 50,000 results, the production payload changes are:
+
+| Workload | Version 1 bytes | Version 2 bytes | Reduction |
+|----------+-----------------+-----------------+-----------|
+| ~headings.narrow~ | 36,000,126 | 31,600,618 | 12.22 % |
+| ~headings.normal~ | 47,800,126 | 35,500,618 | 25.73 % |
+| ~headings.wide~ | 76,233,458 | 49,267,286 | 35.37 % |
+| ~headings.tags~ | 75,177,906 | 44,578,398 | 40.70 % |
+| ~headings.effective-properties~ | 87,847,198 | 56,256,785 | 35.96 % |
+| ~files.keywords~ | 95,925,520 | 63,326,012 | 33.98 % |
+
+The absolute reduction ranges from 4.40 MB to 32.60 MB per payload.
+
+At 100 results, payload reduction ranges from 11.73 % to 40.84 %.
+
+All six 100-result serialization medians are lower with version 2.
+
+The only 100-result CLI increase is ~headings.narrow~ at 3.25 ms to 3.27 ms.
+
+This 0.5 % change is not material.
+
+At 50,000 results, median serialization time changes as follows:
+
+| Workload | Version 1 | Version 2 | Change |
+|----------+-----------+-----------+--------|
+| ~headings.narrow~ | 68.44 ms | 51.09 ms | -25.4 % |
+| ~headings.normal~ | 71.58 ms | 42.15 ms | -41.1 % |
+| ~headings.wide~ | 103.75 ms | 43.86 ms | -57.7 % |
+| ~headings.tags~ | 127.65 ms | 71.96 ms | -43.6 % |
+| ~headings.effective-properties~ | 140.45 ms | 87.48 ms | -37.7 % |
+| ~files.keywords~ | 181.41 ms | 80.59 ms | -55.6 % |
+
+At 50,000 results, median complete presentation processing changes as follows:
+
+| Workload | Version 1 | Version 2 | Change |
+|----------+-----------+-----------+--------|
+| ~headings.narrow~ | 33.26 ms | 30.16 ms | -9.3 % |
+| ~headings.normal~ | 64.31 ms | 44.82 ms | -30.3 % |
+| ~headings.wide~ | 157.43 ms | 109.62 ms | -30.4 % |
+| ~headings.tags~ | 256.80 ms | 227.96 ms | -11.2 % |
+| ~headings.effective-properties~ | 577.68 ms | 347.48 ms | -39.8 % |
+| ~files.keywords~ | 349.58 ms | 232.34 ms | -33.5 % |
+
+At 50,000 results, every median complete CLI time is lower with version 2.
+
+The CLI reduction ranges from 18.0 % to 39.8 %.
+
+The isolated candidate benchmark remains the strongest serialization comparison because it uses the same in-memory response for every representation.
+
+The full production runs add the required payload, presentation-processing, and CLI measurements.
+
+The production result confirms the selected version 2 wire format.
+
+At 50,000 results, 13.4 MB to 16.3 MB of field-name bytes remain inside the original ~results~ objects.
+
+Those objects are the complete query results that the client uses for actions.
+
+Compacting them needs schemas for file, heading, and link results plus nested include data.
+
+That change creates another result wire contract and adds client decoding complexity.
+
+Keep the original result objects in version 2 to preserve the simple action boundary.
+
+Treat result-object compaction as a separate payload task if later measurements justify that added contract.
+
+The current environment has no Rust toolchain, so the final review patch cannot run Rust checks here.
+
+** Blockers
+
+No implementation blocker is known.
+
+** Follow-ups
+
+Run ~make ci~ after applying the documentation-only review patch.
+
+No further row, context, cell, display, or role experiment is required for this task.
+
+A separate future task can evaluate compact query-result objects inside ~presentation-json~.

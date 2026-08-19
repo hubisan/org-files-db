@@ -2363,11 +2363,11 @@ fts5_enabled = false
 
         let text = std::str::from_utf8(&output).expect("presentation output should be UTF-8");
         assert_eq!(text.lines().count(), 1);
-        assert!(text.starts_with("{\"presentation_version\":1,"));
+        assert!(text.starts_with("{\"presentation_version\":2,"));
 
         let response: Value =
             serde_json::from_slice(&output).expect("presentation output should be valid JSON");
-        assert_eq!(response["presentation_version"], 1);
+        assert_eq!(response["presentation_version"], 2);
         assert!(!response["database_id"]
             .as_str()
             .expect("database_id should be a string")
@@ -2386,13 +2386,20 @@ fts5_enabled = false
             .as_array()
             .expect("presentation rows should be an array");
         assert_eq!(rows.len(), results.len());
-        assert!(rows.iter().all(|row| row.get("result").is_none()));
-        assert!(rows.iter().all(|row| row["row_context"].is_null()));
+        assert_eq!(
+            response["schemas"]["row_fields"],
+            serde_json::json!(["result_index", "row_context", "cells"])
+        );
+        assert_eq!(
+            response["schemas"]["cell_fields"],
+            serde_json::json!(["search_text", "display_text", "role"])
+        );
+        assert!(rows.iter().all(|row| row[1].is_null()));
 
         let search_values = rows
             .iter()
             .map(|row| {
-                row["cells"][0]["search_text"]
+                row[2][0][0]
                     .as_str()
                     .expect("title search text should be a string")
                     .to_string()
@@ -2405,13 +2412,13 @@ fts5_enabled = false
 
         let query_engine_row = rows
             .iter()
-            .find(|row| row["cells"][0]["search_text"].as_str() == Some("Query engine"))
+            .find(|row| row[2][0][0].as_str() == Some("Query engine"))
             .expect("NEXT heading should have a presentation row");
-        assert_eq!(
-            query_engine_row["cells"][0]["display_text"].as_str(),
-            Some("Query…")
-        );
-        assert_eq!(query_engine_row["cells"][0]["role"].as_str(), Some("title"));
+        assert_eq!(query_engine_row[2][0][1].as_str(), Some("Query…"));
+        let role_index = query_engine_row[2][0][2]
+            .as_u64()
+            .expect("title role should use an integer index") as usize;
+        assert_eq!(response["schemas"]["role_values"][role_index], "title");
 
         let status_output = run_cli_output(vec![
             "orgfdb".into(),
@@ -2462,21 +2469,19 @@ fts5_enabled = false
             .expect("projects result should exist");
         let project_rows = rows
             .iter()
-            .filter(|row| row["result_index"].as_u64() == Some(projects_index as u64))
+            .filter(|row| row[0].as_u64() == Some(projects_index as u64))
             .collect::<Vec<_>>();
 
         assert!(!project_rows.is_empty());
-        assert!(project_rows.iter().all(|row| row.get("result").is_none()));
         assert!(project_rows
             .iter()
-            .all(|row| row["row_context"]["kind"].as_str() == Some("keyword")));
+            .all(|row| row[1][0].as_str() == Some("keyword")));
         assert!(project_rows.iter().any(|row| {
-            row["row_context"]["name"].as_str() == Some("AUTHOR")
-                && row["row_context"]["value"].as_str() == Some("Alice")
+            row[1][1].as_str() == Some("AUTHOR") && row[1][2].as_str() == Some("Alice")
         }));
         assert!(project_rows
             .iter()
-            .all(|row| { row["cells"][0]["search_text"].as_str() == Some("projects.org") }));
+            .all(|row| { row[2][0][0].as_str() == Some("projects.org") }));
     }
 
     #[test]

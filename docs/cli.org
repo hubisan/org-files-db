@@ -417,11 +417,20 @@ The response contains:
 - ~database_id~
 - ~generation~
 - ~results~
+- ~schemas~
 - ~rows~
 
-~results~ stores each original query result once. Each row refers to one result through ~result_index~.
+~presentation_version~ is ~2~ for the current compact wire format.
 
-Each cell contains complete ~search_text~, final ~display_text~, and one optional semantic ~role~.
+~results~ stores each original query result once.
+
+~schemas~ defines the positional row, row-context, and cell layouts.
+
+Each row refers to one result through the ~result_index~ position defined by that schema.
+
+Each cell preserves complete ~search_text~, final ~display_text~, and one optional semantic ~role~.
+
+The wire format can encode equal display text as ~null~ and roles as indexes into the emitted role table.
 
 Read [[./design/presentation.org][Presentation Output Design]] for the current ~PresentationSpec~ model.
 

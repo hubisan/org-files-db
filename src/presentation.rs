@@ -1,6 +1,9 @@
 use std::{cmp::Ordering, error::Error, fmt, path::Path};
 
-use serde::{Deserialize, Serialize};
+use serde::{
+    ser::{SerializeMap, SerializeSeq},
+    Deserialize, Serialize, Serializer,
+};
 
 use crate::query::{PathEntry, QueryInclude, QueryResultNode, QueryTarget};
 
@@ -13,15 +16,197 @@ const TARGET_INCLUDE: &[QueryInclude] = &[QueryInclude::Target];
 const EFFECTIVE_PROPERTIES_INCLUDE: &[QueryInclude] = &[QueryInclude::EffectiveProperties];
 const KEYWORDS_INCLUDE: &[QueryInclude] = &[QueryInclude::Keywords];
 
-pub const PRESENTATION_VERSION: u32 = 1;
+pub const PRESENTATION_VERSION: u32 = 2;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+const PRESENTATION_ROLE_VALUES: &[&str] = &[
+    "heading",
+    "title",
+    "todo",
+    "done",
+    "priority",
+    "tag",
+    "date",
+    "file-name",
+    "file-path",
+    "keyword-name",
+    "keyword-value",
+    "property-name",
+    "property-value",
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresentationResponse {
     pub presentation_version: u32,
     pub database_id: String,
     pub generation: i64,
     pub results: Vec<QueryResultNode>,
     pub rows: Vec<PresentationRow>,
+}
+
+impl Serialize for PresentationResponse {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(6))?;
+        map.serialize_entry("presentation_version", &self.presentation_version)?;
+        map.serialize_entry("database_id", &self.database_id)?;
+        map.serialize_entry("generation", &self.generation)?;
+        map.serialize_entry("results", &self.results)?;
+        map.serialize_entry("schemas", &PresentationWireSchemas)?;
+        map.serialize_entry("rows", &PresentationWireRows(&self.rows))?;
+        map.end()
+    }
+}
+
+struct PresentationWireSchemas;
+
+impl Serialize for PresentationWireSchemas {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(6))?;
+        map.serialize_entry("row_fields", &["result_index", "row_context", "cells"])?;
+        map.serialize_entry("cell_fields", &["search_text", "display_text", "role"])?;
+        map.serialize_entry("row_context_shapes", &PresentationWireRowContextShapes)?;
+        map.serialize_entry("display_text_null", "same-as-search_text")?;
+        map.serialize_entry("role_encoding", "null-or-index-into-role_values")?;
+        map.serialize_entry("role_values", PRESENTATION_ROLE_VALUES)?;
+        map.end()
+    }
+}
+
+struct PresentationWireRowContextShapes;
+
+impl Serialize for PresentationWireRowContextShapes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(3))?;
+        map.serialize_entry("tag", &["kind", "value"])?;
+        map.serialize_entry("effective-property", &["kind", "name", "value"])?;
+        map.serialize_entry("keyword", &["kind", "name", "value"])?;
+        map.end()
+    }
+}
+
+struct PresentationWireRows<'a>(&'a [PresentationRow]);
+
+impl Serialize for PresentationWireRows<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for row in self.0 {
+            seq.serialize_element(&PresentationWireRow(row))?;
+        }
+        seq.end()
+    }
+}
+
+struct PresentationWireRow<'a>(&'a PresentationRow);
+
+impl Serialize for PresentationWireRow<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let row = self.0;
+        let mut seq = serializer.serialize_seq(Some(3))?;
+        seq.serialize_element(&row.result_index)?;
+        seq.serialize_element(&PresentationWireRowContext(row.row_context.as_ref()))?;
+        seq.serialize_element(&PresentationWireCells(&row.cells))?;
+        seq.end()
+    }
+}
+
+struct PresentationWireRowContext<'a>(Option<&'a PresentationRowContext>);
+
+impl Serialize for PresentationWireRowContext<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self.0 {
+            None => serializer.serialize_none(),
+            Some(PresentationRowContext::Tag { value }) => {
+                let mut seq = serializer.serialize_seq(Some(2))?;
+                seq.serialize_element("tag")?;
+                seq.serialize_element(value)?;
+                seq.end()
+            }
+            Some(PresentationRowContext::EffectiveProperty { name, value }) => {
+                let mut seq = serializer.serialize_seq(Some(3))?;
+                seq.serialize_element("effective-property")?;
+                seq.serialize_element(name)?;
+                seq.serialize_element(value)?;
+                seq.end()
+            }
+            Some(PresentationRowContext::Keyword { name, value }) => {
+                let mut seq = serializer.serialize_seq(Some(3))?;
+                seq.serialize_element("keyword")?;
+                seq.serialize_element(name)?;
+                seq.serialize_element(value)?;
+                seq.end()
+            }
+        }
+    }
+}
+
+struct PresentationWireCells<'a>(&'a [PresentationCell]);
+
+impl Serialize for PresentationWireCells<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for cell in self.0 {
+            seq.serialize_element(&PresentationWireCell(cell))?;
+        }
+        seq.end()
+    }
+}
+
+struct PresentationWireCell<'a>(&'a PresentationCell);
+
+impl Serialize for PresentationWireCell<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let cell = self.0;
+        let mut seq = serializer.serialize_seq(Some(3))?;
+        seq.serialize_element(&cell.search_text)?;
+        if cell.search_text == cell.display_text {
+            seq.serialize_element(&Option::<&str>::None)?;
+        } else {
+            seq.serialize_element(&cell.display_text)?;
+        }
+        seq.serialize_element(&cell.role.map(presentation_role_index))?;
+        seq.end()
+    }
+}
+
+const fn presentation_role_index(role: PresentationRole) -> u8 {
+    match role {
+        PresentationRole::Heading => 0,
+        PresentationRole::Title => 1,
+        PresentationRole::Todo => 2,
+        PresentationRole::Done => 3,
+        PresentationRole::Priority => 4,
+        PresentationRole::Tag => 5,
+        PresentationRole::Date => 6,
+        PresentationRole::FileName => 7,
+        PresentationRole::FilePath => 8,
+        PresentationRole::KeywordName => 9,
+        PresentationRole::KeywordValue => 10,
+        PresentationRole::PropertyName => 11,
+        PresentationRole::PropertyValue => 12,
+    }
 }
 
 impl PresentationResponse {
@@ -1889,11 +2074,12 @@ mod tests {
     };
 
     use super::{
-        PresentationCell, PresentationColumn, PresentationResponse, PresentationResultKind,
-        PresentationRole, PresentationRoleRule, PresentationRow, PresentationRowContext,
-        PresentationRowSourceKind, PresentationSortDirection, PresentationSpec,
-        PresentationTruncationPosition, PresentationValue, PresentationValueSource,
-        PresentationWidthMode, PRESENTATION_VERSION,
+        presentation_role_index, PresentationCell, PresentationColumn, PresentationResponse,
+        PresentationResultKind, PresentationRole, PresentationRoleRule, PresentationRow,
+        PresentationRowContext, PresentationRowSourceKind, PresentationSortDirection,
+        PresentationSpec, PresentationTruncationPosition, PresentationValue,
+        PresentationValueSource, PresentationWidthMode, PRESENTATION_ROLE_VALUES,
+        PRESENTATION_VERSION,
     };
 
     fn file_result(id: i64, title: &str) -> QueryResultNode {
@@ -2110,18 +2296,28 @@ mod tests {
         assert_eq!(value["generation"], 42);
         assert_eq!(value["results"].as_array().map(Vec::len), Some(1));
         assert_eq!(value["rows"].as_array().map(Vec::len), Some(1));
-        assert_eq!(value["rows"][0]["result_index"], 0);
-        assert!(value["rows"][0]["row_context"].is_null());
         assert_eq!(
-            value["rows"][0]["cells"][0]["search_text"],
+            value["schemas"]["row_fields"],
+            serde_json::json!(["result_index", "row_context", "cells"])
+        );
+        assert_eq!(
+            value["schemas"]["cell_fields"],
+            serde_json::json!(["search_text", "display_text", "role"])
+        );
+        assert_eq!(value["schemas"]["display_text_null"], "same-as-search_text");
+        assert_eq!(
+            value["schemas"]["role_encoding"],
+            "null-or-index-into-role_values"
+        );
+        assert_eq!(value["rows"][0][0], 0);
+        assert!(value["rows"][0][1].is_null());
+        assert_eq!(
+            value["rows"][0][2][0][0],
             "A complete value that stays searchable"
         );
-        assert_eq!(
-            value["rows"][0]["cells"][0]["display_text"],
-            "A complete value…"
-        );
-        assert_eq!(value["rows"][0]["cells"][0]["role"], "title");
-        assert!(value["rows"][0]["cells"][0].get("role_ranges").is_none());
+        assert_eq!(value["rows"][0][2][0][1], "A complete value…");
+        assert_eq!(value["rows"][0][2][0][2], 1);
+        assert_eq!(value["schemas"]["role_values"][1], "title");
     }
 
     #[test]
@@ -2166,23 +2362,68 @@ mod tests {
             .as_array()
             .expect("rows should be an array")
             .iter()
-            .all(|row| row["result_index"] == 0));
+            .all(|row| row[0] == 0));
+        assert_eq!(value["rows"][0][1], serde_json::json!(["tag", "project"]));
         assert_eq!(
-            value["rows"][0]["row_context"],
-            serde_json::json!({"kind": "tag", "value": "project"})
+            value["rows"][1][1],
+            serde_json::json!(["effective-property", "OWNER", "Daniel"])
         );
         assert_eq!(
-            value["rows"][1]["row_context"],
-            serde_json::json!({
-                "kind": "effective-property",
-                "name": "OWNER",
-                "value": "Daniel"
-            })
+            value["rows"][2][1],
+            serde_json::json!(["keyword", "TITLE", "Notes"])
         );
+    }
+
+    #[test]
+    fn wire_response_uses_null_display_sentinel_for_equal_text() {
+        let response = PresentationResponse::new(
+            "00000000-0000-4000-8000-000000000001",
+            1,
+            vec![file_result(1, "notes")],
+            vec![PresentationRow {
+                result_index: 0,
+                row_context: None,
+                cells: vec![PresentationCell {
+                    search_text: "same".to_string(),
+                    display_text: "same".to_string(),
+                    role: None,
+                }],
+            }],
+        );
+
+        let value =
+            serde_json::to_value(&response).expect("presentation response should serialize");
+
         assert_eq!(
-            value["rows"][2]["row_context"],
-            serde_json::json!({"kind": "keyword", "name": "TITLE", "value": "Notes"})
+            value["rows"][0][2][0],
+            serde_json::json!(["same", null, null])
         );
+    }
+
+    #[test]
+    fn wire_role_indexes_match_the_emitted_role_table() {
+        let roles = [
+            PresentationRole::Heading,
+            PresentationRole::Title,
+            PresentationRole::Todo,
+            PresentationRole::Done,
+            PresentationRole::Priority,
+            PresentationRole::Tag,
+            PresentationRole::Date,
+            PresentationRole::FileName,
+            PresentationRole::FilePath,
+            PresentationRole::KeywordName,
+            PresentationRole::KeywordValue,
+            PresentationRole::PropertyName,
+            PresentationRole::PropertyValue,
+        ];
+
+        for role in roles {
+            assert_eq!(
+                PRESENTATION_ROLE_VALUES[usize::from(presentation_role_index(role))],
+                role.as_str()
+            );
+        }
     }
 
     #[test]

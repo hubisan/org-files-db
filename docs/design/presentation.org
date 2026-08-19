@@ -323,7 +323,9 @@ The cell wire model stores one optional role per cell. It has no role ranges and
 
 * Results, rows, and cells
 
-The presentation response separates query results from presentation rows. The Rust wire model uses ~presentation_version = 1~.
+The presentation response separates query results from presentation rows.
+
+~presentation-json~ uses ~presentation_version = 2~.
 
 The response contains:
 
@@ -332,58 +334,134 @@ presentation_version
 database_id
 generation
 results
+schemas
 rows
 #+end_example
 
-~database_id~ and ~generation~ identify the database snapshot. ~results~ stores each original ~QueryResultNode~ once.
+~database_id~ and ~generation~ identify the database snapshot.
 
-Each row contains:
+~results~ stores each original ~QueryResultNode~ once.
 
-#+begin_example
-result_index
-row_context
-cells
-#+end_example
+Version 2 keeps the original query-result object representation inside ~results~.
 
-~result_index~ points into the top-level ~results~ array. Row order does not change result identity.
+The compact positional rules apply only to presentation rows, row contexts, and cells.
 
-Normal rows use ~row_context = null~. Expanded rows use one structured context from the active row source.
-
-A tag context has this JSON shape:
+The ~schemas~ object defines every positional field once per payload:
 
 #+begin_src json
-{"kind":"tag","value":"project"}
+{
+  "row_fields": ["result_index", "row_context", "cells"],
+  "cell_fields": ["search_text", "display_text", "role"],
+  "row_context_shapes": {
+    "tag": ["kind", "value"],
+    "effective-property": ["kind", "name", "value"],
+    "keyword": ["kind", "name", "value"]
+  },
+  "display_text_null": "same-as-search_text",
+  "role_encoding": "null-or-index-into-role_values",
+  "role_values": [
+    "heading",
+    "title",
+    "todo",
+    "done",
+    "priority",
+    "tag",
+    "date",
+    "file-name",
+    "file-path",
+    "keyword-name",
+    "keyword-value",
+    "property-name",
+    "property-value"
+  ]
+}
 #+end_src
 
-An effective-property context has this JSON shape:
+Each row is a three-value array that follows ~row_fields~:
 
 #+begin_src json
-{"kind":"effective-property","name":"OWNER","value":"Daniel"}
+[0, null, [["Task", null, 1]]]
 #+end_src
 
-A keyword context has this JSON shape:
+Index 0 is ~result_index~.
+
+It points into the top-level ~results~ array.
+
+Index 1 is ~row_context~.
+
+Normal rows use ~null~.
+
+Expanded rows use one positional context from ~row_context_shapes~.
+
+A tag context has this shape:
 
 #+begin_src json
-{"kind":"keyword","name":"TITLE","value":"Notes"}
+["tag", "project"]
 #+end_src
 
-The row-expansion stage creates these contexts before sorting and layout.
+An effective-property context has this shape:
 
-Each cell contains:
+#+begin_src json
+["effective-property", "OWNER", "Daniel"]
+#+end_src
 
-#+begin_example
-search_text
-display_text
-role
-#+end_example
+A keyword context has this shape:
 
-~search_text~ contains the complete logical value. Truncation and padding do not replace this value.
+#+begin_src json
+["keyword", "TITLE", "Notes"]
+#+end_src
 
-~display_text~ contains the final visible value after truncation and padding.
+Index 2 is the cell array.
 
-~role~ contains one semantic presentation role or ~null~. Cells contain no role ranges or other rich-text metadata.
+Each cell is a three-value array that follows ~cell_fields~.
 
-Rows do not duplicate complete result objects. Several rows can reference the same ~result_index~.
+Cell index 0 is ~search_text~.
+
+It contains the complete logical value.
+
+Cell index 1 is ~display_text~.
+
+It contains the final visible value after truncation and padding.
+
+If ~display_text~ equals ~search_text~, the wire value at index 1 is ~null~.
+
+This ~null~ value means exactly ~display_text == search_text~.
+
+The cell always keeps three positions, so the omission never shifts ~role~.
+
+Cell index 2 is ~role~.
+
+It is either ~null~ or an integer index into ~role_values~.
+
+The role indexes are stable in version 2:
+
+- 0: ~heading~
+- 1: ~title~
+- 2: ~todo~
+- 3: ~done~
+- 4: ~priority~
+- 5: ~tag~
+- 6: ~date~
+- 7: ~file-name~
+- 8: ~file-path~
+- 9: ~keyword-name~
+- 10: ~keyword-value~
+- 11: ~property-name~
+- 12: ~property-value~
+
+Rows do not duplicate complete result objects.
+
+Several rows can reference the same ~result_index~.
+
+The positional field order and role indexes are part of the version 2 wire contract.
+
+An incompatible positional change requires a new ~presentation_version~.
+
+New compatible top-level metadata can be added without changing existing positional meanings.
+
+These compact rules apply only to ~presentation-json~.
+
+Normal ~orgfdb query --format json~ keeps its existing object contract.
 
 * Initial pipeline
 
@@ -503,3 +581,7 @@ orgfdb query --format json '(headings)'
 #+end_src
 
 Presentation output is opt-in. It does not change existing JSON result fields, include semantics, output modes, or query matching.
+
+~presentation-json~ version 2 is an intentional wire-format change from version 1.
+
+Clients must read ~presentation_version~ and use the emitted ~schemas~ object for positional rows and cells.
