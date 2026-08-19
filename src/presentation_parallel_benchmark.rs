@@ -17,9 +17,9 @@ use crate::{
     query::QueryResultNode,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "2";
+pub const OUTPUT_SCHEMA_VERSION: &str = "3";
 
-const PARALLEL_SORT_ROW_THRESHOLD: usize = 100_000;
+const PARALLEL_SORT_ROW_THRESHOLD: usize = 150_000;
 const PARALLEL_LAYOUT_CELL_THRESHOLD: usize = 200_000;
 const PARALLEL_WIDE_COLUMN_THRESHOLD: usize = 8;
 const PARALLEL_WIDE_CELL_THRESHOLD: usize = 100_000;
@@ -98,6 +98,7 @@ pub struct PresentationParallelEquality {
     pub parallel_formatting_response_equal: bool,
     pub parallel_layout_response_equal: bool,
     pub parallel_all_response_equal: bool,
+    pub sequential_candidate_response_equal: bool,
     pub selective_strategy_response_equal: bool,
 }
 
@@ -166,7 +167,7 @@ pub fn run(
             equality_policy: "all candidate rows and complete PresentationResponse values must equal the sequential baseline before timings are accepted",
             ordering_policy: "parallel sorting uses the production comparator including original_index as the final deterministic tie-breaker",
             sqlite_policy: "query loading stays sequential on one read-only database snapshot; SQLite execution is outside candidate timings",
-            candidate_policy: "v2 measures isolated sort, value-extraction, formatting, layout, and all-parallel candidates plus one data-derived selective threshold strategy; production remains sequential",
+            candidate_policy: "v3 uses the same candidate code path for the timed sequential reference and selective strategy, measures them as paired samples, and keeps expanded-row layout work sequential; production remains sequential",
             cli_policy: "complete CLI timing is deferred until the selective strategy proves useful enough for production integration",
         },
         environment: PresentationParallelBenchmarkEnvironment {
@@ -337,6 +338,15 @@ fn measure_workload(
         true,
         true,
     )?;
+    let sequential_candidate_response = build_response_candidate(
+        &spec,
+        database_id.clone(),
+        generation,
+        results.clone(),
+        false,
+        false,
+        false,
+    )?;
     let selective_strategy_response = build_response_candidate(
         &spec,
         database_id.clone(),
@@ -353,12 +363,14 @@ fn measure_workload(
     let parallel_formatting_response_equal = parallel_formatting_response == sequential_response;
     let parallel_layout_response_equal = parallel_layout_response == sequential_response;
     let parallel_all_response_equal = parallel_all_response == sequential_response;
+    let sequential_candidate_response_equal = sequential_candidate_response == sequential_response;
     let selective_strategy_response_equal = selective_strategy_response == sequential_response;
     if !parallel_sort_response_equal
         || !parallel_value_extraction_response_equal
         || !parallel_formatting_response_equal
         || !parallel_layout_response_equal
         || !parallel_all_response_equal
+        || !sequential_candidate_response_equal
         || !selective_strategy_response_equal
     {
         return Err(format!(
@@ -476,13 +488,32 @@ fn measure_workload(
         )?,
     );
 
-    let sequential_total = measure_with_setup(
+    let (sequential_total, selective_strategy_total) = measure_pair_with_setup(
         options,
         || results.clone(),
         |results| {
-            let response = spec
-                .build_response(database_id.clone(), generation, results)
-                .map_err(|error| error.to_string())?;
+            let response = build_response_candidate(
+                &spec,
+                database_id.clone(),
+                generation,
+                results,
+                false,
+                false,
+                false,
+            )?;
+            std::hint::black_box(response);
+            Ok(())
+        },
+        |results| {
+            let response = build_response_candidate(
+                &spec,
+                database_id.clone(),
+                generation,
+                results,
+                strategy.parallel_sort,
+                strategy.parallel_value_extraction,
+                strategy.parallel_formatting,
+            )?;
             std::hint::black_box(response);
             Ok(())
         },
@@ -572,24 +603,6 @@ fn measure_workload(
             Ok(())
         },
     )?;
-    let selective_strategy_total = measure_with_setup(
-        options,
-        || results.clone(),
-        |results| {
-            let response = build_response_candidate(
-                &spec,
-                database_id.clone(),
-                generation,
-                results,
-                strategy.parallel_sort,
-                strategy.parallel_value_extraction,
-                strategy.parallel_formatting,
-            )?;
-            std::hint::black_box(response);
-            Ok(())
-        },
-    )?;
-
     let serialization_unchanged = measure(options, || {
         let bytes = serde_json::to_vec(&sequential_response).map_err(|error| error.to_string())?;
         std::hint::black_box(bytes);
@@ -612,6 +625,7 @@ fn measure_workload(
             parallel_formatting_response_equal,
             parallel_layout_response_equal,
             parallel_all_response_equal,
+            sequential_candidate_response_equal,
             selective_strategy_response_equal,
         },
         stages: PresentationParallelStageResults {
@@ -694,11 +708,12 @@ fn select_strategy(
         && cell_count >= PARALLEL_WIDE_CELL_THRESHOLD;
     let large_layout = cell_count >= PARALLEL_LAYOUT_CELL_THRESHOLD;
     let one_row_per_result = row_count == result_count;
+    let parallel_layout = one_row_per_result && (large_layout || wide_layout);
 
     PresentationParallelStrategyDecision {
         parallel_sort: row_count >= PARALLEL_SORT_ROW_THRESHOLD,
-        parallel_value_extraction: large_layout || wide_layout,
-        parallel_formatting: one_row_per_result && (large_layout || wide_layout),
+        parallel_value_extraction: parallel_layout,
+        parallel_formatting: parallel_layout,
         sort_row_threshold: PARALLEL_SORT_ROW_THRESHOLD,
         layout_cell_threshold: PARALLEL_LAYOUT_CELL_THRESHOLD,
         wide_column_threshold: PARALLEL_WIDE_COLUMN_THRESHOLD,
@@ -792,6 +807,58 @@ where
     Ok(timing(&samples))
 }
 
+fn measure_pair_with_setup<S, Setup, Left, Right>(
+    options: &PresentationBenchmarkOptions,
+    mut setup: Setup,
+    mut left: Left,
+    mut right: Right,
+) -> Result<(Timing, Timing), String>
+where
+    Setup: FnMut() -> S,
+    Left: FnMut(S) -> Result<(), String>,
+    Right: FnMut(S) -> Result<(), String>,
+{
+    for warmup in 0..options.warmups {
+        if warmup % 2 == 0 {
+            left(setup())?;
+            right(setup())?;
+        } else {
+            right(setup())?;
+            left(setup())?;
+        }
+    }
+
+    let mut left_samples = Vec::with_capacity(options.iterations);
+    let mut right_samples = Vec::with_capacity(options.iterations);
+    for iteration in 0..options.iterations {
+        if iteration % 2 == 0 {
+            let input = setup();
+            let start = Instant::now();
+            left(input)?;
+            left_samples.push(start.elapsed());
+
+            let input = setup();
+            let start = Instant::now();
+            right(input)?;
+            right_samples.push(start.elapsed());
+        } else {
+            let input = setup();
+            let start = Instant::now();
+            right(input)?;
+            right_samples.push(start.elapsed());
+
+            let input = setup();
+            let start = Instant::now();
+            left(input)?;
+            left_samples.push(start.elapsed());
+        }
+    }
+
+    left_samples.sort();
+    right_samples.sort();
+    Ok((timing(&left_samples), timing(&right_samples)))
+}
+
 fn timing(samples: &[Duration]) -> Timing {
     let ns = |index: usize| samples[index].as_nanos();
     Timing {
@@ -834,10 +901,15 @@ mod tests {
     }
 
     #[test]
-    fn selective_strategy_keeps_expanded_formatting_sequential() {
+    fn selective_strategy_parallelizes_only_large_expanded_sorting() {
+        let below_threshold = select_strategy(50_000, 149_999, 3);
+        assert!(!below_threshold.parallel_sort);
+        assert!(!below_threshold.parallel_value_extraction);
+        assert!(!below_threshold.parallel_formatting);
+
         let expanded = select_strategy(50_000, 150_000, 3);
         assert!(expanded.parallel_sort);
-        assert!(expanded.parallel_value_extraction);
+        assert!(!expanded.parallel_value_extraction);
         assert!(!expanded.parallel_formatting);
     }
 }

@@ -600,3 +600,59 @@ They also keep expanded-row formatting sequential when v1 shows a loss.
 The v2 benchmark measures extraction-only and formatting-only totals in addition to the previous candidates.
 
 Production remains sequential until this selective candidate passes the complete-presentation benchmark.
+
+
+* Parallel candidate v2 results and measurement correction
+
+The v2 benchmark keeps production sequential and tests the selective threshold strategy.
+
+All candidate responses equal the sequential production response.
+
+The isolated candidate data confirms two useful areas.
+
+For 50,000 original results, layout-only changes complete presentation time by:
+
+| Workload | Layout only |
+|----------+-------------|
+| ~headings.normal~ | -36.6 % |
+| ~headings.wide~ | -39.3 % |
+
+For 10,000 original results, ~headings.wide~ layout-only changes complete presentation time by -22.3 %.
+
+For 50,000 original results, sort-only changes the expanded workloads by:
+
+| Workload | Rows | Sort only |
+|----------+------+-----------|
+| ~headings.tags~ | 150,000 | -3.0 % |
+| ~headings.effective-properties~ | 150,000 | -27.1 % |
+| ~files.keywords~ | 150,000 | -20.0 % |
+
+The v2 selective total cannot be used as the production decision gate.
+
+The benchmark measures the sequential total and the selective total in separate timing blocks.
+
+When all strategy flags are false, both paths perform the same sequential candidate operations.
+
+Despite that, some medians differ substantially.
+
+For example, the 10,000-result ~headings.tags~ selective result reports -23.5 % with all flags false.
+
+The 1,000-result ~files.keywords~ selective result reports +59.6 % with all flags false.
+
+These values expose run-order and sample noise rather than parallel speedup.
+
+The v3 benchmark corrects this comparison.
+
+It uses the same candidate implementation for the timed sequential reference and selective strategy.
+
+It measures both paths as paired samples and alternates their execution order.
+
+The corrected strategy is conservative:
+
+- parallel sorting starts at 150,000 presentation rows
+- parallel extraction and formatting run only for one-row-per-result presentations
+- layout parallelism starts at 200,000 cells
+- presentations with at least 8 columns can start layout parallelism at 100,000 cells
+- expanded-row extraction and formatting stay sequential
+
+The production pipeline remains sequential until this corrected selective benchmark passes.

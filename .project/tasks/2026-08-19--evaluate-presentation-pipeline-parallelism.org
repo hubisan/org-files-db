@@ -275,30 +275,74 @@ The v1 data does not support one global all-parallel threshold.
 
 ** Candidate strategy for v2
 
-Test one deterministic selective strategy before production integration.
+The v2 benchmark tests one deterministic selective strategy before production integration.
 
-Use parallel sorting only when the presentation has at least 100,000 rows.
+The strategy uses parallel sorting at 100,000 presentation rows.
 
-Use parallel value extraction when either condition is true:
+It uses parallel value extraction when either condition is true:
 
 - the presentation has at least 200,000 cells
 - the presentation has at least 8 columns and 100,000 cells
 
-Use parallel final formatting only when there is one presentation row per query result and the layout condition is true.
+It uses parallel final formatting only when there is one presentation row per query result and the layout condition is true.
 
-This keeps 100 and 1,000 result workloads sequential.
+All candidate responses equal the sequential production response.
 
-It also keeps narrow 50,000-row presentations sequential for layout work.
+The v2 stage and isolated-candidate results confirm two useful areas.
 
-The 10,000-result wide workload uses parallel extraction and formatting without parallel sorting.
+At 50,000 original results, layout-only changes complete presentation time by:
 
-The 50,000-result normal and wide workloads use parallel extraction and formatting.
+- ~headings.normal~: -36.6 %
+- ~headings.wide~: -39.3 %
 
-The 150,000-row expanded workloads use parallel sorting and extraction but keep final formatting sequential.
+At 10,000 original results, ~headings.wide~ layout-only changes complete presentation time by -22.3 %.
 
-The v2 benchmark must measure extraction-only, formatting-only, and this exact selective strategy.
+At 50,000 original results, sort-only changes complete presentation time for expanded rows by:
 
-Do not integrate the strategy into ~build_response~ until the v2 complete-presentation result confirms the threshold.
+- ~headings.tags~: -3.0 %
+- ~headings.effective-properties~: -27.1 %
+- ~files.keywords~: -20.0 %
+
+The v2 selective total is not a valid production decision gate.
+
+When all strategy flags are false, the selective path executes the same sequential candidate operations.
+
+Its separately measured median still differs from the sequential total by large amounts in several workloads.
+
+For example, the 10,000-result ~headings.tags~ selective result reports -23.5 % even though all strategy flags are false.
+
+The 1,000-result ~files.keywords~ selective result reports +59.6 % with all strategy flags false.
+
+These differences show run-order and sample noise in the separate total measurements.
+
+Do not use those selective percentages to choose a production strategy.
+
+** Corrected candidate strategy for v3
+
+Use the same candidate implementation for the timed sequential reference and the selective strategy.
+
+Measure these two paths as paired samples and alternate their execution order.
+
+Keep the production ~build_response~ path sequential during this correction.
+
+Use parallel sorting only when the presentation has at least 150,000 rows.
+
+This threshold matches the measured large expanded workloads directly.
+
+The 30,000-row expanded workloads do not show a reliable complete-presentation gain.
+
+Use parallel layout work only for one-row-per-result presentations.
+
+Enable parallel extraction and formatting together when either condition is true:
+
+- the presentation has at least 200,000 cells
+- the presentation has at least 8 columns and 100,000 cells
+
+Do not parallelize extraction or formatting for expanded-row presentations in v3.
+
+This keeps the strategy simple and avoids weak or conflicting expanded-layout results.
+
+The v3 benchmark must confirm the corrected selective total before production integration.
 
 ** Blockers
 
@@ -306,6 +350,8 @@ No implementation blocker is known.
 
 ** Follow-ups
 
-Run the v2 selective-strategy benchmark.
+Run the v3 corrected selective-strategy benchmark.
 
-If the strategy wins without small-workload regression, integrate it into production and run the final CLI benchmark.
+If the paired selective result confirms the measured gains, integrate only that strategy into production.
+
+Then run the final CLI benchmark.
