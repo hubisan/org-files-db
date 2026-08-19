@@ -20,8 +20,11 @@ use crate::{
     indexer::Indexer,
     parser::OrgizeAdapter,
     presentation::{
-        PresentationCell, PresentationLayoutPlan, PresentationResponse, PresentationRow,
-        PresentationRowContext, PresentationSortPlan, PresentationSpec,
+        presentation_should_parallel_layout, presentation_should_parallel_sort, PresentationCell,
+        PresentationLayoutPlan, PresentationResponse, PresentationRow, PresentationRowContext,
+        PresentationSortPlan, PresentationSpec, PRESENTATION_PARALLEL_LAYOUT_CELL_THRESHOLD,
+        PRESENTATION_PARALLEL_SORT_ROW_THRESHOLD, PRESENTATION_PARALLEL_WIDE_CELL_THRESHOLD,
+        PRESENTATION_PARALLEL_WIDE_COLUMN_THRESHOLD,
     },
     query::{
         execute_and_shape_query, parse_query, sqlite_query_validation_options, validate_query,
@@ -29,7 +32,7 @@ use crate::{
     },
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "2";
+pub const OUTPUT_SCHEMA_VERSION: &str = "3";
 pub const PAYLOAD_ANALYSIS_SCHEMA_VERSION: &str = "2";
 pub const CORPUS_CONTRACT_VERSION: &str = "1";
 pub const DEFAULT_WARMUPS: usize = 3;
@@ -111,9 +114,22 @@ pub struct PresentationWorkloadResult {
     pub presentation_spec_json: &'static str,
     pub result_count: usize,
     pub presentation_row_count: usize,
+    pub cell_count: usize,
+    pub execution_strategy: PresentationExecutionStrategy,
     pub payload_bytes: usize,
     pub stages: PresentationStageTimings,
     pub cli_total_elapsed: Timing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PresentationExecutionStrategy {
+    pub parallel_sort: bool,
+    pub parallel_value_extraction: bool,
+    pub parallel_formatting: bool,
+    pub sort_row_threshold: usize,
+    pub layout_cell_threshold: usize,
+    pub wide_column_threshold: usize,
+    pub wide_cell_threshold: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -349,7 +365,7 @@ pub fn run(
             cli_measurement: "fresh orgfdb process per sample; stdout is captured through a pipe",
             process_startup_measurement: "fresh orgfdb --help process; includes help generation; stdout and stderr are discarded",
             cache_policy: "no presentation cache",
-            parallel_policy: "no presentation parallelism",
+            parallel_policy: "selective production parallelism: sort at 150,000 presentation rows; extraction and formatting only for one-row-per-result layouts at 200,000 cells or at least 8 columns and 100,000 cells",
         },
         environment: PresentationBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -472,7 +488,7 @@ pub fn analyze_payloads(
             compression: "none",
             streaming: "none",
             cache_policy: "no presentation cache",
-            parallel_policy: "no presentation parallelism",
+            parallel_policy: "production uses selective presentation parallelism; payload analysis measures bytes only",
         },
         environment: PresentationPayloadAnalysisEnvironment {
             command_arguments: std::env::args().collect(),
@@ -1139,6 +1155,23 @@ fn measure_workload(
         .expand_rows(&results)
         .map_err(|error| error.to_string())?;
     let presentation_row_count = expanded_rows.len();
+    let cell_count = presentation_row_count.saturating_mul(spec.columns.len());
+    let parallel_sort =
+        !spec.sort.is_empty() && presentation_should_parallel_sort(presentation_row_count);
+    let parallel_layout = presentation_should_parallel_layout(
+        results.len(),
+        presentation_row_count,
+        spec.columns.len(),
+    );
+    let execution_strategy = PresentationExecutionStrategy {
+        parallel_sort,
+        parallel_value_extraction: parallel_layout,
+        parallel_formatting: parallel_layout,
+        sort_row_threshold: PRESENTATION_PARALLEL_SORT_ROW_THRESHOLD,
+        layout_cell_threshold: PRESENTATION_PARALLEL_LAYOUT_CELL_THRESHOLD,
+        wide_column_threshold: PRESENTATION_PARALLEL_WIDE_COLUMN_THRESHOLD,
+        wide_cell_threshold: PRESENTATION_PARALLEL_WIDE_CELL_THRESHOLD,
+    };
     let row_expansion = measure(options, || {
         let rows = spec
             .expand_rows(&results)
@@ -1153,42 +1186,62 @@ fn measure_workload(
         Ok(())
     })?;
 
-    let sort_plan = spec
-        .prepare_sort_rows(&results, expanded_rows.clone())
-        .map_err(|error| error.to_string())?;
+    let sort_plan = if parallel_sort {
+        spec.prepare_sort_rows_parallel(&results, expanded_rows.clone())
+    } else {
+        spec.prepare_sort_rows(&results, expanded_rows.clone())
+    }
+    .map_err(|error| error.to_string())?;
     let sort_key_creation = measure_with_setup(
         options,
         || expanded_rows.clone(),
         |rows| {
-            let plan = spec
-                .prepare_sort_rows(&results, rows)
-                .map_err(|error| error.to_string())?;
+            let plan = if parallel_sort {
+                spec.prepare_sort_rows_parallel(&results, rows)
+            } else {
+                spec.prepare_sort_rows(&results, rows)
+            }
+            .map_err(|error| error.to_string())?;
             std::hint::black_box(plan);
             Ok(())
         },
     )?;
 
-    let sorted_rows = spec.finish_sort_rows(sort_plan.clone());
+    let sorted_rows = if parallel_sort {
+        spec.finish_sort_rows_parallel(sort_plan.clone())
+    } else {
+        spec.finish_sort_rows(sort_plan.clone())
+    };
     let sorting = measure_with_setup(
         options,
         || sort_plan.clone(),
         |plan: PresentationSortPlan| {
-            let rows = spec.finish_sort_rows(plan);
+            let rows = if parallel_sort {
+                spec.finish_sort_rows_parallel(plan)
+            } else {
+                spec.finish_sort_rows(plan)
+            };
             std::hint::black_box(rows);
             Ok(())
         },
     )?;
 
-    let layout_plan = spec
-        .prepare_layout_rows(&results, sorted_rows.clone())
-        .map_err(|error| error.to_string())?;
+    let layout_plan = if parallel_layout {
+        spec.prepare_layout_rows_parallel(&results, sorted_rows.clone())
+    } else {
+        spec.prepare_layout_rows(&results, sorted_rows.clone())
+    }
+    .map_err(|error| error.to_string())?;
     let value_extraction = measure_with_setup(
         options,
         || sorted_rows.clone(),
         |rows| {
-            let plan = spec
-                .prepare_layout_rows(&results, rows)
-                .map_err(|error| error.to_string())?;
+            let plan = if parallel_layout {
+                spec.prepare_layout_rows_parallel(&results, rows)
+            } else {
+                spec.prepare_layout_rows(&results, rows)
+            }
+            .map_err(|error| error.to_string())?;
             std::hint::black_box(plan);
             Ok(())
         },
@@ -1206,12 +1259,20 @@ fn measure_workload(
         Ok(())
     })?;
 
-    let final_rows = spec.finish_layout_rows(layout_plan.clone(), &widths);
+    let final_rows = if parallel_layout {
+        spec.finish_layout_rows_parallel(layout_plan.clone(), &widths)
+    } else {
+        spec.finish_layout_rows(layout_plan.clone(), &widths)
+    };
     let truncation_padding_and_row_formatting = measure_with_setup(
         options,
         || layout_plan.clone(),
         |plan: PresentationLayoutPlan| {
-            let rows = spec.finish_layout_rows(plan, &widths);
+            let rows = if parallel_layout {
+                spec.finish_layout_rows_parallel(plan, &widths)
+            } else {
+                spec.finish_layout_rows(plan, &widths)
+            };
             std::hint::black_box(rows);
             Ok(())
         },
@@ -1284,6 +1345,8 @@ fn measure_workload(
         presentation_spec_json: workload.presentation_spec_json,
         result_count: expected_results,
         presentation_row_count,
+        cell_count,
+        execution_strategy,
         payload_bytes,
         stages: PresentationStageTimings {
             database_query_execution,

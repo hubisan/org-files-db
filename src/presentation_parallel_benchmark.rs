@@ -9,7 +9,12 @@ use std::{
 use serde::Serialize;
 
 use crate::{
-    presentation::{PresentationResponse, PresentationSpec},
+    presentation::{
+        presentation_should_parallel_layout, presentation_should_parallel_sort,
+        PresentationResponse, PresentationSpec, PRESENTATION_PARALLEL_LAYOUT_CELL_THRESHOLD,
+        PRESENTATION_PARALLEL_SORT_ROW_THRESHOLD, PRESENTATION_PARALLEL_WIDE_CELL_THRESHOLD,
+        PRESENTATION_PARALLEL_WIDE_COLUMN_THRESHOLD,
+    },
     presentation_benchmark::{
         load_workload_response, PresentationBenchmarkOptions, PresentationWorkload, Timing,
         CORPUS_CONTRACT_VERSION, WORKLOADS,
@@ -17,12 +22,7 @@ use crate::{
     query::QueryResultNode,
 };
 
-pub const OUTPUT_SCHEMA_VERSION: &str = "3";
-
-const PARALLEL_SORT_ROW_THRESHOLD: usize = 150_000;
-const PARALLEL_LAYOUT_CELL_THRESHOLD: usize = 200_000;
-const PARALLEL_WIDE_COLUMN_THRESHOLD: usize = 8;
-const PARALLEL_WIDE_CELL_THRESHOLD: usize = 100_000;
+pub const OUTPUT_SCHEMA_VERSION: &str = "4";
 
 #[derive(Debug, Serialize)]
 pub struct PresentationParallelBenchmarkOutput {
@@ -162,13 +162,13 @@ pub fn run(
             warmups: options.warmups,
             iterations: options.iterations,
             row_counts: options.row_counts,
-            baseline: "final sequential presentation-json version 2 presentation pipeline",
+            baseline: "sequential presentation candidate implementation used as the timing reference",
             input_policy: "sequential and parallel candidates use identical in-memory query results loaded from the same benchmark database",
             equality_policy: "all candidate rows and complete PresentationResponse values must equal the sequential baseline before timings are accepted",
             ordering_policy: "parallel sorting uses the production comparator including original_index as the final deterministic tie-breaker",
             sqlite_policy: "query loading stays sequential on one read-only database snapshot; SQLite execution is outside candidate timings",
-            candidate_policy: "v3 uses the same candidate code path for the timed sequential reference and selective strategy, measures them as paired samples, and keeps expanded-row layout work sequential; production remains sequential",
-            cli_policy: "complete CLI timing is deferred until the selective strategy proves useful enough for production integration",
+            candidate_policy: "v4 shares the production thresholds, keeps the sequential candidate as the timing reference, and retains forced candidates for diagnostic comparison",
+            cli_policy: "complete CLI timing is measured by the normal production presentation benchmark after integration",
         },
         environment: PresentationParallelBenchmarkEnvironment {
             command_arguments: std::env::args().collect(),
@@ -703,21 +703,17 @@ fn select_strategy(
     row_count: usize,
     column_count: usize,
 ) -> PresentationParallelStrategyDecision {
-    let cell_count = row_count.saturating_mul(column_count);
-    let wide_layout = column_count >= PARALLEL_WIDE_COLUMN_THRESHOLD
-        && cell_count >= PARALLEL_WIDE_CELL_THRESHOLD;
-    let large_layout = cell_count >= PARALLEL_LAYOUT_CELL_THRESHOLD;
-    let one_row_per_result = row_count == result_count;
-    let parallel_layout = one_row_per_result && (large_layout || wide_layout);
+    let parallel_layout =
+        presentation_should_parallel_layout(result_count, row_count, column_count);
 
     PresentationParallelStrategyDecision {
-        parallel_sort: row_count >= PARALLEL_SORT_ROW_THRESHOLD,
+        parallel_sort: presentation_should_parallel_sort(row_count),
         parallel_value_extraction: parallel_layout,
         parallel_formatting: parallel_layout,
-        sort_row_threshold: PARALLEL_SORT_ROW_THRESHOLD,
-        layout_cell_threshold: PARALLEL_LAYOUT_CELL_THRESHOLD,
-        wide_column_threshold: PARALLEL_WIDE_COLUMN_THRESHOLD,
-        wide_cell_threshold: PARALLEL_WIDE_CELL_THRESHOLD,
+        sort_row_threshold: PRESENTATION_PARALLEL_SORT_ROW_THRESHOLD,
+        layout_cell_threshold: PRESENTATION_PARALLEL_LAYOUT_CELL_THRESHOLD,
+        wide_column_threshold: PRESENTATION_PARALLEL_WIDE_COLUMN_THRESHOLD,
+        wide_cell_threshold: PRESENTATION_PARALLEL_WIDE_CELL_THRESHOLD,
     }
 }
 

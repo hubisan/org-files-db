@@ -1,6 +1,5 @@
 use std::{cmp::Ordering, error::Error, fmt, path::Path};
 
-#[cfg(feature = "presentation-parallel-benchmark")]
 use rayon::prelude::*;
 use serde::{
     ser::{SerializeMap, SerializeSeq},
@@ -11,6 +10,30 @@ use crate::query::{PathEntry, QueryInclude, QueryResultNode, QueryTarget};
 
 const DEFAULT_TRUNCATION_MARKER: &str = "…";
 const DEFAULT_OUTLINE_SEPARATOR: &str = " » ";
+
+pub(crate) const PRESENTATION_PARALLEL_SORT_ROW_THRESHOLD: usize = 150_000;
+pub(crate) const PRESENTATION_PARALLEL_LAYOUT_CELL_THRESHOLD: usize = 200_000;
+pub(crate) const PRESENTATION_PARALLEL_WIDE_COLUMN_THRESHOLD: usize = 8;
+pub(crate) const PRESENTATION_PARALLEL_WIDE_CELL_THRESHOLD: usize = 100_000;
+
+pub(crate) fn presentation_should_parallel_sort(row_count: usize) -> bool {
+    row_count >= PRESENTATION_PARALLEL_SORT_ROW_THRESHOLD
+}
+
+pub(crate) fn presentation_should_parallel_layout(
+    result_count: usize,
+    row_count: usize,
+    column_count: usize,
+) -> bool {
+    if row_count != result_count {
+        return false;
+    }
+
+    let cell_count = row_count.saturating_mul(column_count);
+    cell_count >= PRESENTATION_PARALLEL_LAYOUT_CELL_THRESHOLD
+        || (column_count >= PRESENTATION_PARALLEL_WIDE_COLUMN_THRESHOLD
+            && cell_count >= PRESENTATION_PARALLEL_WIDE_CELL_THRESHOLD)
+}
 
 const NO_INCLUDES: &[QueryInclude] = &[];
 const PATH_INCLUDE: &[QueryInclude] = &[QueryInclude::Path];
@@ -460,7 +483,6 @@ impl PresentationSpec {
         plan.rows.into_iter().map(|entry| entry.row).collect()
     }
 
-    #[cfg(feature = "presentation-parallel-benchmark")]
     pub(crate) fn prepare_sort_rows_parallel(
         &self,
         results: &[QueryResultNode],
@@ -505,7 +527,6 @@ impl PresentationSpec {
         })
     }
 
-    #[cfg(feature = "presentation-parallel-benchmark")]
     pub(crate) fn finish_sort_rows_parallel(
         &self,
         mut plan: PresentationSortPlan,
@@ -586,7 +607,6 @@ impl PresentationSpec {
         })
     }
 
-    #[cfg(feature = "presentation-parallel-benchmark")]
     pub(crate) fn prepare_layout_rows_parallel(
         &self,
         results: &[QueryResultNode],
@@ -669,7 +689,6 @@ impl PresentationSpec {
         plan.rows
     }
 
-    #[cfg(feature = "presentation-parallel-benchmark")]
     pub(crate) fn finish_layout_rows_parallel(
         &self,
         mut plan: PresentationLayoutPlan,
@@ -806,12 +825,30 @@ impl PresentationSpec {
         let rows = self
             .expand_rows(&results)
             .map_err(PresentationBuildError::Expansion)?;
-        let rows = self
-            .sort_rows(&results, rows)
-            .map_err(PresentationBuildError::Sort)?;
-        let rows = self
-            .layout_rows(&results, rows)
-            .map_err(PresentationBuildError::Layout)?;
+        let parallel_sort = !self.sort.is_empty() && presentation_should_parallel_sort(rows.len());
+        let rows = if parallel_sort {
+            let plan = self
+                .prepare_sort_rows_parallel(&results, rows)
+                .map_err(PresentationBuildError::Sort)?;
+            self.finish_sort_rows_parallel(plan)
+        } else {
+            self.sort_rows(&results, rows)
+                .map_err(PresentationBuildError::Sort)?
+        };
+        let parallel_layout =
+            presentation_should_parallel_layout(results.len(), rows.len(), self.columns.len());
+        let rows = if parallel_layout {
+            let plan = self
+                .prepare_layout_rows_parallel(&results, rows)
+                .map_err(PresentationBuildError::Layout)?;
+            let widths = self
+                .resolve_layout_widths(plan.natural_widths())
+                .map_err(PresentationBuildError::Layout)?;
+            self.finish_layout_rows_parallel(plan, &widths)
+        } else {
+            self.layout_rows(&results, rows)
+                .map_err(PresentationBuildError::Layout)?
+        };
 
         Ok(PresentationResponse::new(
             database_id,
@@ -2213,12 +2250,13 @@ mod tests {
     };
 
     use super::{
-        presentation_role_index, PresentationCell, PresentationColumn, PresentationResponse,
-        PresentationResultKind, PresentationRole, PresentationRoleRule, PresentationRow,
-        PresentationRowContext, PresentationRowSourceKind, PresentationSortDirection,
-        PresentationSpec, PresentationTruncationPosition, PresentationValue,
-        PresentationValueSource, PresentationWidthMode, PRESENTATION_ROLE_VALUES,
-        PRESENTATION_VERSION,
+        presentation_role_index, presentation_should_parallel_layout,
+        presentation_should_parallel_sort, PresentationCell, PresentationColumn,
+        PresentationResponse, PresentationResultKind, PresentationRole, PresentationRoleRule,
+        PresentationRow, PresentationRowContext, PresentationRowSourceKind,
+        PresentationSortDirection, PresentationSpec, PresentationTruncationPosition,
+        PresentationValue, PresentationValueSource, PresentationWidthMode,
+        PRESENTATION_ROLE_VALUES, PRESENTATION_VERSION,
     };
 
     fn file_result(id: i64, title: &str) -> QueryResultNode {
@@ -3763,9 +3801,19 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "presentation-parallel-benchmark")]
     #[test]
-    fn parallel_candidate_stages_match_sequential_output() {
+    fn selected_parallel_thresholds_keep_small_and_expanded_layouts_sequential() {
+        assert!(!presentation_should_parallel_sort(149_999));
+        assert!(presentation_should_parallel_sort(150_000));
+
+        assert!(!presentation_should_parallel_layout(50_000, 50_000, 1));
+        assert!(presentation_should_parallel_layout(10_000, 10_000, 11));
+        assert!(presentation_should_parallel_layout(50_000, 50_000, 4));
+        assert!(!presentation_should_parallel_layout(50_000, 150_000, 3));
+    }
+
+    #[test]
+    fn parallel_stages_match_sequential_output() {
         let mut first = file_result(1, "Alpha");
         let mut second = file_result(2, "Beta");
         let QueryResultNode::File(first_node) = &mut first else {

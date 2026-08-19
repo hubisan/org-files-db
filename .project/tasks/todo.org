@@ -447,93 +447,12 @@ Task file: [[./2026-08-18--investigate-sqlite-planner-statistics.org][Investigat
 
 Task file: [[./2026-08-19--reduce-presentation-json-payload-size.org][Reduce Presentation JSON Payload Size]]
 
-* BUILD Evaluate presentation pipeline parallelism
+* DONE Evaluate presentation pipeline parallelism
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
 
 Task file: [[./2026-08-19--evaluate-presentation-pipeline-parallelism.org][Evaluate Presentation Pipeline Parallelism]]
-
-Start this task after presentation payload optimization is complete.
-
-Use the final sequential presentation pipeline as the baseline.
-
-Goal: add parallel execution only where profiling shows useful CPU-bound work.
-
-A valid result for this task is to keep the complete pipeline sequential.
-
-Profile the sequential pipeline before adding a dependency.
-
-Measure stages such as:
-
-- value extraction
-- row expansion
-- sort-key creation
-- sorting
-- width reduction
-- truncation and padding
-- final row formatting
-- serialization where applicable
-
-Keep the pipeline suitable for parallel execution:
-
-- Prefer immutable shared input.
-- Keep row processing independent.
-- Avoid shared mutable state between rows.
-- Build extracted values locally.
-- Build sort keys locally.
-- Format each row independently after shared widths are known.
-
-Do not parallelize SQLite query execution by default.
-
-Keep one database snapshot for each presentation response.
-
-Do not add ~rayon~ or another dependency before benchmarks identify a suitable bottleneck.
-
-If a candidate stage is expensive enough, compare sequential and parallel implementations.
-
-Use identical benchmark inputs.
-
-Require exact output equality.
-
-Keep result ordering deterministic.
-
-Measure:
-
-- stage latency
-- complete presentation latency
-- total CLI latency
-- small-workload overhead
-- large-workload improvement
-
-If parallel startup and coordination cost dominates, keep that stage sequential.
-
-If useful only above a workload threshold, use a simple deterministic threshold.
-
-Document the threshold and its benchmark evidence.
-
-Do not change:
-
-- query semantics
-- presentation ordering
-- column semantics
-- ~result_index~ references
-- ~database_id~ semantics
-- ~generation~ semantics
-- normal ~--format json~ compatibility
-
-Acceptance criteria:
-
-- Baseline profiling identifies the expensive presentation stages.
-- Parallel execution targets only measured CPU bottlenecks.
-- Sequential and parallel execution produce identical output.
-- Result ordering remains deterministic.
-- Small workloads have no material regression.
-- Enabled parallel paths show a measurable large-workload improvement.
-- The implementation keeps sequential execution where parallel work loses.
-- A fully sequential final design is allowed when benchmarks reject parallelism.
-- Benchmark results record the final execution strategy.
-- ~make ci~ passes.
 
 * TODO Decide whether Rust-side presentation caching is justified
 :PROPERTIES:
