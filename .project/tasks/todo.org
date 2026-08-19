@@ -454,7 +454,7 @@ Task file: [[./2026-08-19--reduce-presentation-json-payload-size.org][Reduce Pre
 
 Task file: [[./2026-08-19--evaluate-presentation-pipeline-parallelism.org][Evaluate Presentation Pipeline Parallelism]]
 
-* TODO Decide whether Rust-side presentation caching is justified
+* TODO Decide whether eager Rust-side presentation view caching is justified
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
@@ -463,35 +463,47 @@ Start this task after payload and parallelism decisions are complete.
 
 Use the final optimized presentation pipeline as the baseline.
 
-Goal: decide whether a Rust-side presentation cache solves a measured remaining bottleneck.
+Goal: decide whether explicit persistent presentation views justify a Rust-side cache.
 
-Do not implement a cache in this task.
+Do not implement the production cache in this task.
 
-Measure the complete cost of representative presentation requests.
+Evaluate this specific cache model:
 
-Separate:
+- The database has a small set of explicitly registered presentation views.
+- Each view defines its query and presentation specification.
+- The cache stores the complete materialized presentation output for one database generation.
+- The cache is persistent across separate ~orgfdb~ CLI processes.
+- A database change makes every registered view cache stale.
+- The watcher starts a full rebuild of stale view caches after the database update completes.
+- Do not wait for a query to start a rebuild.
+- Do not patch cached views from individual changed files.
+- Do not reuse a cached view across database generations.
+- Do not serve a stale view while a rebuild is in progress.
+- If a query requests a rebuilding view, wait until a cache for the current generation is ready.
+- If the database changes again during a rebuild, make sure that the final cache matches the newest generation.
+- Consecutive changes can skip obsolete intermediate cache generations.
+- After restart or recovery, rebuild stale registered views without requiring a query to trigger the rebuild.
 
-- database query cost
-- presentation CPU cost
-- process startup cost
-- JSON serialization cost
-- payload size
-- repeated-query cost
+Keep the design intentionally simple.
 
-Use measured values where possible.
+Do not add:
 
-Label transfer-cost estimates separately from measured local execution costs.
+- automatic caching of arbitrary queries
+- incremental per-file cache updates
+- LRU caching of arbitrary presentation requests
+- cross-generation result reuse
+- dependency tracking between files and cached results
 
-Test realistic repeated-query patterns for the Emacs client.
+Use ~database_id~ and ~generation~ to establish cache validity.
 
-Consider these possible outcomes:
+A valid cached view must belong to:
 
-- no presentation cache
-- persistent disk cache
-- long-lived ~orgfdb~ process or daemon
-- another mechanism that targets the measured bottleneck
+- the current database
+- the current database generation
+- the current registered view definition
+- the current presentation wire format
 
-Do not add a cache only because ~database_id~, ~generation~, and ~changes~ already exist.
+Determine whether an additional producer or cache format version is necessary.
 
 Keep the existing meanings of:
 
@@ -499,20 +511,69 @@ Keep the existing meanings of:
 - ~generation~
 - ~changes~
 
-For each cache candidate, identify:
+Do not change ~changes~ into a view-cache invalidation protocol.
 
-- cached value
-- cache key
-- invalidation source
-- expected hit pattern
-- expected saved work
-- lifecycle complexity
+Use existing benchmark results for costs that are already measured.
 
-Do not design detailed cache internals before the measurements justify a cache.
+These include:
 
-If no Rust-side cache is justified, record that decision and close this task.
+- database query cost
+- presentation CPU cost
+- process startup cost
+- JSON serialization cost
+- payload size
+- full CLI elapsed time
 
-If a cache is justified, create separate implementation TODOs.
+Add only the measurements that are necessary to evaluate the registered-view cache.
+
+Measure representative large presentation views.
+
+Compare at least:
+
+- the normal uncached presentation request
+- the cost to rebuild and persist a complete view cache
+- the cost of a valid cache hit
+- the cost to read the cached payload and send it through the normal CLI output path
+- the extra write cost that each database change adds
+- the wait time for a query that arrives during a rebuild
+
+Test rapid consecutive database changes.
+
+Determine whether obsolete rebuild generations can be skipped without serving stale data.
+
+Use realistic Emacs usage patterns.
+
+Evaluate at least these cases:
+
+- many reads of the same view between database changes
+- a database change followed by an immediate view request
+- several database changes before the next view request
+- several registered views that all require a rebuild after a database change
+
+Separate measured execution costs from estimated transfer costs.
+
+Record cache file sizes for representative result sets.
+
+Estimate the storage and write amplification for a realistic number of registered views.
+
+The main decision question is:
+
+Does eager full rebuilding move enough repeated presentation work out of the query path to justify its persistent storage, rebuild cost, synchronization, and lifecycle complexity?
+
+A cache hit alone is not sufficient evidence.
+
+The rebuild cost after each database change must also be acceptable.
+
+Consider these final outcomes:
+
+- no Rust-side presentation cache
+- an eager persistent cache for explicitly registered presentation views
+
+Do not broaden the task to other cache architectures unless the measurements show that this model cannot answer the performance problem.
+
+If the cache is not justified, record the decision and close this task.
+
+If the cache is justified, create separate focused implementation TODOs.
 
 Do not implement those TODOs as part of this decision task.
 
@@ -520,14 +581,22 @@ Acceptance criteria:
 
 - Benchmark evidence supports the final cache decision.
 - Measurements use the final optimized presentation pipeline.
-- The decision separates startup, query, presentation, and serialization costs.
-- The decision describes realistic repeated-query patterns.
-- Existing generation and change semantics keep their current meanings.
-- Unnecessary cache lifecycle complexity is avoided.
+- Existing benchmark data is reused where it already answers the question.
+- The cache candidate uses explicitly registered presentation views.
+- A database change causes an eager full rebuild of stale registered views.
+- A query never starts a cache rebuild.
+- A query never receives a stale cached view.
+- A query waits if the current view cache is still rebuilding.
+- Rapid database changes do not require publication of obsolete intermediate generations.
+- The decision includes cache-hit, rebuild, persistence, and query-wait costs.
+- The decision records representative cache file sizes.
+- The decision evaluates several registered views and realistic change frequency.
+- Existing ~database_id~, ~generation~, and ~changes~ semantics keep their current meanings.
+- The design does not require incremental per-file cache maintenance.
 - A no-cache decision requires no further implementation task.
 - A cache decision creates separate focused implementation TODOs.
-- Performance documentation records the decision.
-
+- Performance documentation records the final decision and benchmark evidence.
+  
 * TODO Benchmark-Sachen entfernen?
 
 Muss man nicht mehr notwendige Benchmark-Sachen entfernen. Oder A/B-Vergleiche?
