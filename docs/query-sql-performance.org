@@ -1335,6 +1335,60 @@ The temporary schema version ~14~ strategy harness was removed after the decisio
 
 The retained query SQL benchmark output remains schema version ~13~.
 
+* Planner statistics lifecycle
+
+SQLite planner statistics were tested with identical benchmark data on the bundled SQLite 3.53.2 runtime.
+
+The production candidate is normal ~PRAGMA optimize;~.
+
+The final decision uses only the paired baseline-versus-candidate measurements from the final WSL2 run.
+
+Do not compare those absolute timings with earlier runs from another environment.
+
+The final run measured 40.2 ms for ~PRAGMA optimize;~ on the 50'000-result benchmark database.
+
+The operation added 8'192 bytes, created 39 ~sqlite_stat1~ rows, and created no ~sqlite_stat4~ samples.
+
+The paired median complete-query results were:
+
+| Workload | Baseline | PRAGMA optimize | Change |
+|----------+----------+-----------------+--------|
+| ~cheap.heading-level~ | 316.0 ms | 248.7 ms | -21.29% |
+| ~selective.direct-property-1~ | 2.54 ms | 2.19 ms | -13.74% |
+| ~nonselective.effective-property-100~ | 262.8 ms | 253.9 ms | -3.41% |
+| ~expensive.multi-metadata-10~ | 120.8 ms | 125.5 ms | +3.89% |
+| ~enrichment-heavy.heading-level~ | 1306.6 ms | 1287.9 ms | -1.43% |
+
+All exact public query-output checks passed.
+
+The recorded matched-relation plans did not change.
+
+The recorded downstream heading-tag and outline-validation plans also did not change for cheap non-TEMP workloads.
+
+The complete latency result still supports normal ~PRAGMA optimize;~ as low-cost SQLite-managed maintenance.
+
+The official [[https://www.sqlite.org/lang_analyze.html][SQLite ANALYZE documentation]] recommends ~PRAGMA optimize;~ for current applications and after schema changes.
+
+Production does not run full ~ANALYZE~ and does not manage ~sqlite_stat1~ or ~sqlite_stat4~ directly.
+
+Production runs normal ~PRAGMA optimize;~ after a successful full rebuild commit.
+
+Production runs it after a successful incremental commit only when indexed state changed.
+
+A no-op incremental reconcile does not run planner maintenance.
+
+Read-only query connections do not run planner maintenance.
+
+The hook does not force ~ANALYZE~. SQLite decides whether ~PRAGMA optimize;~ needs analysis work.
+
+The watcher keeps a writable connection open. Its successful changed batches therefore run ~PRAGMA optimize;~ after commit instead of waiting for watcher shutdown.
+
+Planner maintenance is best-effort after commit. A maintenance error does not change the result of an already committed index transaction.
+
+The temporary planner-statistics benchmark harness was removed after this decision.
+
+The retained query SQL benchmark remains output schema version ~13~.
+
 * Benchmark output
 
 Each result size records the runtime SQLite variable limit and resulting ID chunk capacity.

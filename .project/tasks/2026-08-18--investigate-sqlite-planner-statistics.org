@@ -9,6 +9,104 @@
 :VISIBILITY: folded
 :END:
 
+** DONE Investigate SQLite planner statistics for production queries
+
+Task file: [[./2026-08-18--investigate-sqlite-planner-statistics.org][Investigate SQLite Planner Statistics]]
+
+Start this task after the bundled SQLite runtime and enrichment-aggregation investigations are settled.
+
+Use the final production query implementation and one stable SQLite runtime as the baseline.
+
+SQLite can use persistent planner statistics to choose indexes and join orders.
+
+The current controlled query benchmarks should therefore test whether planner statistics provide a useful production benefit for orgfdb data distributions.
+
+Goal: determine whether ~ANALYZE~ or ~PRAGMA optimize~ should be part of the orgfdb database lifecycle.
+
+This is an investigation task.
+
+Do not enable automatic production optimization before benchmark evidence exists.
+
+Do not change query semantics.
+
+Do not add new indexes in this task.
+
+*** Phase 1 - Establish comparable database states
+
+Create comparable benchmark databases with identical indexed data.
+
+Compare at least:
+
+- the normal current database state
+- the same database after the selected SQLite statistics operation
+
+Record the resulting relevant ~sqlite_stat*~ state where practical.
+
+Use the same SQLite runtime for both cases.
+
+Do not compare statistics results across different SQLite versions in this task.
+
+*** Phase 2 - Benchmark representative queries
+
+Measure workloads where planner decisions can matter.
+
+Include:
+
+- cheap heading queries
+- selective metadata predicates
+- less selective metadata predicates
+- expensive multi-predicate queries
+- queries that use the selective shared TEMP strategy
+- representative enrichment-heavy queries
+
+Record:
+
+- complete query latency
+- query plan
+- relevant statement counts
+- matched result counts
+
+Use repeated samples.
+
+If a query plan changes, record whether the change improves or regresses complete query latency.
+
+Do not infer a benefit only from a query plan that looks better.
+
+*** Phase 3 - Decide lifecycle behavior
+
+If planner statistics provide a clear and stable benefit, determine the smallest safe lifecycle integration.
+
+Consider when statistics would need refreshing after substantial index changes.
+
+Do not run expensive statistics work after every small update unless benchmarks justify it.
+
+Prefer SQLite's supported optimization mechanism over custom statistics management when it provides the required behavior.
+
+If statistics provide no useful production benefit, keep the current lifecycle unchanged.
+
+Document the no-change result.
+
+Update ~docs/query-sql-performance.org~ with:
+
+- tested database states
+- SQLite runtime used
+- statistics operation used
+- changed query plans
+- complete query latency results
+- the final lifecycle decision
+
+Acceptance criteria:
+
+- Statistics are tested on identical data with one SQLite runtime.
+- Representative selective and non-selective queries are included.
+- Query-plan changes are recorded where they occur.
+- Complete query latency determines the decision.
+- No new indexes or compiler changes are mixed into the experiment.
+- Any retained lifecycle integration has measured production benefit.
+- Statistics refresh behavior is explicit if retained.
+- A no-change result is allowed.
+- ~make ci~ passes.
+
 * Planning
 
 ** Problem summary
@@ -160,25 +258,52 @@ If query gains justify more work, a later step will measure lifecycle cost with 
 
 ** Open questions
 
-- Which downstream query plan explains the large simple-heading latency gain?
-- Does ~sqlite_stat4~ provide useful selectivity information beyond ~sqlite_stat1~ for these workloads?
-- If the downstream plan confirms a planner benefit, which indexing event is the smallest safe refresh point?
+No open implementation question remains.
+
+The final lifecycle uses normal ~PRAGMA optimize;~ after successful write-side index changes.
+
+Read-only query connections do not run planner maintenance.
 
 ** Proposed checks
 
-- Build ~orgfdb-query-planner-statistics-benchmark~ in release mode.
-- Run the planner-statistics benchmark at ~50'000~ results.
-- Inspect exact output equality, query-plan changes, complete latency, and statement counts.
-- Inspect ~sqlite_stat1~ and ~sqlite_stat4~ state in both database copies.
-- Run ~make ci~ after the benchmark code compiles locally.
+- Run ~cargo fmt --all~.
+- Run ~make ci~.
+- Run the targeted planner-statistics lifecycle test through the normal test suite.
+- Do not run another planner-statistics benchmark unless review finds a concrete regression.
+
+* Build
+
+The production integration uses normal ~PRAGMA optimize;~ only on writable indexing paths.
+
+A full rebuild runs it after the rebuild transaction commits.
+
+Incremental reconciliation runs it after commit only when the plan contains an invalidation, metadata-only update, create, modify, or delete.
+
+A no-op incremental reconcile does not run it.
+
+Read-only query connections do not run it.
+
+The hook does not force ~ANALYZE~. SQLite decides whether ~PRAGMA optimize;~ needs analysis work.
+
+The watcher keeps one writable connection open for its runtime. The incremental hook therefore runs after each committed watcher update instead of at watcher shutdown.
+
+Planner maintenance is best-effort after commit. A maintenance failure must not report an already committed index update as failed.
+
+The temporary planner-statistics benchmark binary and experiment-only support code are removed after the decision.
 
 * Results
 
 ** Approach
 
-The first patch adds only the isolated full-~ANALYZE~ gate.
+The investigation first used an isolated full-~ANALYZE~ gate.
 
-No production database or query lifecycle code changes in this patch.
+It then compared normal ~PRAGMA optimize;~ on identical data.
+
+The final v4 run added downstream query plans and kept exact public output checks.
+
+The production implementation retains only normal ~PRAGMA optimize;~ at write-side lifecycle points.
+
+The temporary experiment harness is removed.
 
 ** Changed files
 
@@ -200,13 +325,33 @@ The downstream-plan verification patch changes only:
 - ~.project/tasks/2026-08-18--investigate-sqlite-planner-statistics.org~
 - ~src/query_sql_benchmark.rs~
 
+The production integration changes:
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-18--investigate-sqlite-planner-statistics.org~
+- ~docs/query-sql-performance.org~
+- ~src/indexer.rs~
+- ~src/query_sql_benchmark.rs~
+
+It removes:
+
+- ~src/bin/orgfdb-query-planner-statistics-benchmark.rs~
+
 ** Checks performed
 
 Repository instructions, schema creation, index creation, full rebuild, incremental indexing, query execution, and benchmark code were inspected.
 
 Official SQLite documentation for ~ANALYZE~, ~PRAGMA optimize~, query planning, and ~SQLITE_ENABLE_STAT4~ was reviewed.
 
+The final production diff was checked for remaining experiment-only Rust references.
+
+The temporary benchmark binary is removed, and the retained query SQL benchmark remains schema version ~13~.
+
 ** Test results
+
+Earlier benchmark runs are historical investigation data.
+
+The final production decision does not compare their absolute timings with the final WSL2 run.
 
 The local release benchmark completed after the v2 lifetime correction.
 
@@ -282,16 +427,46 @@ Add one final plan-only extension for those downstream statements on cheap non-T
 
 Do not add another statistics candidate.
 
+The final v4 run was executed inside WSL2.
+
+Use only the paired baseline-versus-candidate comparison inside that run for the final decision.
+
+Do not compare its absolute timings with earlier runs from a different environment.
+
+Normal ~PRAGMA optimize;~ took 40.2 ms.
+
+It added 8'192 bytes, created 39 ~sqlite_stat1~ rows, and created no ~sqlite_stat4~ samples.
+
+The paired median complete-query changes were:
+
+- ~cheap.heading-level~: 316.0 ms -> 248.7 ms (-21.29 %)
+- ~selective.direct-property-1~: 2.54 ms -> 2.19 ms (-13.74 %)
+- ~nonselective.effective-property-100~: 262.8 ms -> 253.9 ms (-3.41 %)
+- ~expensive.multi-metadata-10~: 120.8 ms -> 125.5 ms (+3.89 %)
+- ~enrichment-heavy.heading-level~: 1306.6 ms -> 1287.9 ms (-1.43 %)
+
+All exact public query-output checks passed.
+
+The matched-relation plans did not change.
+
+The additional heading-tag and outline-validation plans also did not change for the cheap non-TEMP workloads.
+
+The end-to-end result still supports normal ~PRAGMA optimize;~ because four of five representative medians improved, its measured maintenance cost was small, and SQLite recommends this maintenance mechanism.
+
+The production decision does not use full ~ANALYZE~ or explicit ~sqlite_stat4~ maintenance.
+
+Run normal ~PRAGMA optimize;~ after a successful full rebuild commit.
+
+Run it after a successful incremental commit only when indexed state changed.
+
+Do not run it on read-only query connections or no-op watcher batches.
+
 ** Blockers
 
-No implementation blocker is known.
+The current environment has no Rust toolchain, so ~make ci~ was not run here.
 
 ** Follow-ups
 
-Run the planner-statistics benchmark again with ~--candidate optimize~ after the plan-only extension.
+Run ~cargo fmt --all~ and ~make ci~ locally.
 
-Inspect the heading-tag and outline-validation plan differences for the simple 50'000-result workload.
-
-If those plans explain the repeated latency gain, implement the smallest safe ~PRAGMA optimize~ lifecycle hook.
-
-If they do not explain the gain, keep production unchanged and record the rejection.
+No further planner-statistics benchmark is required before review.

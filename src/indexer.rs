@@ -513,6 +513,7 @@ where
         H: FnOnce(),
     {
         let ActionableChangePlan { plan } = actionable;
+        let should_optimize_planner_statistics = plan.has_index_changes();
         if !plan.failed.is_empty() {
             return Ok(ChangeApplicationResult::Rejected(
                 ChangeApplicationRejection::FailedSources,
@@ -668,6 +669,9 @@ where
         }
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
+        if should_optimize_planner_statistics {
+            optimize_planner_statistics(connection);
+        }
         Ok(ChangeApplicationResult::Applied(
             ChangeApplicationReport::from(&plan),
         ))
@@ -908,6 +912,7 @@ where
 
         tx.commit()
             .map_err(|source| IndexerError::Write(DbWriteError::Transaction { source }))?;
+        optimize_planner_statistics(connection);
 
         Ok(report)
     }
@@ -961,6 +966,13 @@ where
             path,
         })
     }
+}
+
+fn optimize_planner_statistics(connection: &Connection) {
+    // The indexing transaction is already committed. Planner maintenance is
+    // best-effort so that a maintenance failure cannot report a committed
+    // index update as failed.
+    let _maintenance_result = connection.execute_batch("PRAGMA optimize;");
 }
 
 fn generation_change_for_plan(
@@ -1158,6 +1170,14 @@ impl ChangePlan {
             .chain(self.created.iter().map(|file| &file.prepared.identity))
             .chain(self.modified.iter().map(|file| &file.prepared.identity))
             .collect()
+    }
+
+    fn has_index_changes(&self) -> bool {
+        !self.invalidations.is_empty()
+            || !self.metadata_only.is_empty()
+            || !self.created.is_empty()
+            || !self.modified.is_empty()
+            || !self.deleted.is_empty()
     }
 }
 
@@ -5297,6 +5317,72 @@ recursive = true
         assert!(path.starts_with("path-bytes:"));
         assert!(identity.starts_with(b"orgfdb-path-v1\0unix\0"));
         assert!(identity.ends_with(b"notes-\xff.org"));
+    }
+
+    #[test]
+    fn planner_statistics_refresh_after_rebuild_and_changed_incremental_reconcile() {
+        let test_dir = TestDir::new("planner-statistics-refresh");
+        let path = test_dir.path().join("note.org");
+        write_file(&path, "* Initial\n");
+        let config = Config {
+            db_path: test_dir.path().join("db.sqlite"),
+            files: vec![path.clone()],
+            dirs: Vec::new(),
+            links: Default::default(),
+            todo: Default::default(),
+            search: SearchConfig {
+                fts5_enabled: false,
+                index_body_text: false,
+            },
+            query: Default::default(),
+            discovery: Default::default(),
+        };
+        let mut connection = open_in_memory_database_with_schema(&SchemaDefinition::new(
+            CURRENT_SCHEMA_VERSION,
+            false,
+        ))
+        .expect("database should open");
+        let indexer = Indexer::new(OrgizeAdapter::new());
+
+        indexer
+            .rebuild(&mut connection, &config)
+            .expect("rebuild should succeed");
+        let rebuild_stat1_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_stat1", [], |row| row.get(0))
+            .expect("rebuild statistics should load");
+        assert!(rebuild_stat1_rows > 0);
+
+        connection
+            .execute("DELETE FROM sqlite_stat1", [])
+            .expect("test statistics should clear");
+        let no_change = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("no-op reconcile should succeed");
+        let ChangeApplicationResult::Applied(no_change_report) = no_change else {
+            panic!("no-op reconcile should apply");
+        };
+        assert_eq!(no_change_report.unchanged, 1);
+        assert_eq!(no_change_report.metadata_only, 0);
+        assert_eq!(no_change_report.created, 0);
+        assert_eq!(no_change_report.modified, 0);
+        assert_eq!(no_change_report.deleted, 0);
+        let no_change_stat1_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_stat1", [], |row| row.get(0))
+            .expect("no-op statistics should load");
+        assert_eq!(no_change_stat1_rows, 0);
+
+        write_file(&path, "* Changed heading\n");
+        let changed = indexer
+            .reconcile_configured_sources(&mut connection, &config)
+            .expect("changed reconcile should succeed");
+        let ChangeApplicationResult::Applied(changed_report) = changed else {
+            panic!("changed reconcile should apply");
+        };
+        assert_eq!(changed_report.modified, 1);
+        let changed_stat1_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM sqlite_stat1", [], |row| row.get(0))
+            .expect("changed statistics should load");
+        assert!(changed_stat1_rows > 0);
     }
 
     #[test]
