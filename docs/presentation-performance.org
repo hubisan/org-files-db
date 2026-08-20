@@ -782,3 +782,262 @@ The paired v3 benchmark remains the causal sequential-versus-parallel evidence.
 
 The v4 run is the final production dispatch and complete CLI validation.
 
+
+* Registered presentation view cache validation benchmark
+
+The cache validation benchmark tests the selected eager registered-view model before production implementation.
+
+It does not add a production cache or public ~orgfdb view~ command.
+
+The benchmark uses four expensive production presentation workloads at 50,000 results by default:
+
+- ~headings.wide~
+- ~headings.tags~
+- ~headings.effective-properties~
+- ~files.keywords~
+
+A rebuild worker uses the normal query and presentation code.
+
+The worker serializes the complete version 2 presentation payload and appends the normal CLI newline.
+
+It writes a worker-specific temporary file and then atomically renames the file to the cache path.
+
+The benchmark does not call ~fsync~ because the cache is disposable session data.
+
+A cache-hit worker only reads the materialized payload and writes it to stdout.
+
+The parent process captures stdout through a pipe.
+
+This measurement is a lower bound for the later ~orgfdb view~ command because it excludes registry IPC.
+
+The benchmark compares three rebuild-group modes:
+
+- sequential worker processes
+- concurrent worker processes where each process uses its default Rayon pool
+- concurrent worker processes where ~RAYON_NUM_THREADS~ divides the available CPU budget across active views
+
+The benchmark also measures an immediate request during a rebuild.
+
+That request waits for the rebuild worker and then performs one cache hit.
+
+The obsolete-generation test writes a complete temporary payload and pauses before publication.
+
+The parent advances the benchmark database generation and terminates the obsolete worker.
+
+The test then rebuilds the newest generation and confirms that the obsolete cache never becomes current.
+
+On Linux, the parent polls ~/proc/<pid>/status~ and records peak aggregate worker ~VmRSS~.
+
+The memory field is absent on systems without this interface.
+
+** Run the cache validation benchmark
+
+Build the production CLI and diagnostic benchmark:
+
+#+begin_src sh
+cargo build --release \
+  --features presentation-cache-benchmark \
+  --bin orgfdb \
+  --bin orgfdb-presentation-cache-benchmark
+#+end_src
+
+Use a new work directory for each benchmark version:
+
+#+begin_src sh
+rm -rf /tmp/orgfdb-presentation-cache-benchmark-v1-work
+
+target/release/orgfdb-presentation-cache-benchmark \
+  --orgfdb target/release/orgfdb \
+  --rows 50000 \
+  --view-counts 1,3,5,10 \
+  --warmups 1 \
+  --iterations 3 \
+  --group-iterations 2 \
+  --work-dir /tmp/orgfdb-presentation-cache-benchmark-v1-work \
+  --output ~/Downloads/orgfdb-presentation-cache-benchmark-linux-v1.json
+#+end_src
+
+The benchmark output records:
+
+- complete uncached CLI latency
+- full rebuild and atomic persistence latency
+- fresh-process cache-hit latency
+- immediate-request wait latency during a rebuild
+- cache payload size
+- peak rebuild-worker RSS on Linux
+- sequential rebuild-group latency
+- unbounded parallel rebuild-group latency
+- CPU-budgeted parallel rebuild-group latency
+- peak aggregate RSS for parallel rebuild groups on Linux
+- obsolete-worker termination and replacement-generation publication
+
+Use the final production presentation benchmark as the stage-level baseline.
+
+Do not interpret the cache-hit result as a complete production ~orgfdb view~ measurement.
+
+The later view registry and control channel add a small unmeasured lookup and synchronization cost.
+
+** Native Linux validation v1
+
+The validation ran on native Linux with 8 available CPUs.
+
+It used 50,000-result workloads and the final production presentation pipeline.
+
+The benchmark output is ~orgfdb-presentation-cache-benchmark-linux-v1.json~.
+
+The result supports the eager registered-view cache model.
+
+No correctness or performance blocker appeared.
+
+*** Single-view cost
+
+| Workload | Payload | Uncached CLI median | Rebuild + persist median | Cache-hit median | Hit reduction | Immediate wait median | Rebuild peak RSS |
+|----------+---------+---------------------+--------------------------+------------------+---------------+-----------------------+------------------|
+| ~headings.wide~ | 48.61 MiB | 667.10 ms | 536.73 ms | 49.42 ms | -92.6 % | 524.64 ms | 203.02 MiB |
+| ~headings.tags~ | 43.32 MiB | 796.03 ms | 660.92 ms | 44.57 ms | -94.4 % | 667.92 ms | 220.37 MiB |
+| ~headings.effective-properties~ | 54.46 MiB | 1,025.24 ms | 901.85 ms | 53.63 ms | -94.8 % | 889.46 ms | 266.73 MiB |
+| ~files.keywords~ | 62.82 MiB | 888.26 ms | 746.45 ms | 60.15 ms | -93.2 % | 752.51 ms | 267.48 MiB |
+
+A valid hit removes about 93 % to 95 % of the measured CLI latency.
+
+The hit still includes a fresh process, cache-file reading, stdout writing, and parent pipe capture.
+
+It does not include the future view-registry lookup or synchronization protocol.
+
+The full rebuild writes the complete cache payload to local storage.
+
+The measured rebuild is still faster than the uncached CLI path for all four workloads.
+
+One read after each database change already amortizes the measured eager rebuild cost.
+
+The combined rebuild plus one cache hit changes total measured time by:
+
+| Workload | Rebuild + one hit | One uncached read | Change |
+|----------+-------------------+-------------------+--------|
+| ~headings.wide~ | 586.15 ms | 667.10 ms | -12.1 % |
+| ~headings.tags~ | 705.49 ms | 796.03 ms | -11.4 % |
+| ~headings.effective-properties~ | 955.48 ms | 1,025.24 ms | -6.8 % |
+| ~files.keywords~ | 806.60 ms | 888.26 ms | -9.2 % |
+
+Each additional read in the same generation gains the full cache-hit reduction.
+
+The immediate-request result matches the intended blocking behavior.
+
+A request that arrives after a database change waits for about one rebuild duration.
+
+*** Parallel rebuild cost
+
+The benchmark compares sequential rebuilds with concurrent rebuild worker processes.
+
+| Views | Sequential median | Parallel unbounded median | Parallel budgeted median | Unbounded peak RSS | Budgeted peak RSS |
+|-------+-------------------+---------------------------+--------------------------+--------------------+-------------------|
+| 1 | 581.12 ms | 529.00 ms | 546.93 ms | 203.02 MiB | 202.93 MiB |
+| 3 | 2,198.72 ms | 1,088.42 ms | 1,460.27 ms | 535.45 MiB | 570.88 MiB |
+| 5 | 3,833.55 ms | 1,465.69 ms | 1,432.10 ms | 1,085.49 MiB | 1,044.61 MiB |
+| 10 | 7,025.47 ms | 4,721.05 ms | 3,827.00 ms | 2,245.45 MiB | 1,929.29 MiB |
+
+Concurrent rebuilds provide a clear wall-time benefit.
+
+Memory use grows with the number and shape of active views.
+
+Ten large concurrent workers use about 1.9 GiB to 2.2 GiB of aggregate worker RSS on this host.
+
+The 10-view timings also show stronger contention and variance.
+
+Do not start every registered view at the same time without a concurrency bound.
+
+On this 8-CPU host, 3 concurrent large workers are comfortable and 5 remain practical.
+
+Treat 10 concurrent large workers as outside the default operating target.
+
+The implementation must queue excess rebuilds while it keeps different views concurrent.
+
+The exact portable concurrency limit remains an implementation policy, not a cache-format rule.
+
+*** Obsolete generation handling
+
+The benchmark terminated an obsolete ~headings.effective-properties~ worker after the database generation changed.
+
+Worker termination took 13.42 ms.
+
+The generation 2 payload never became current.
+
+The replacement generation 3 rebuild took 839.70 ms.
+
+This result supports separate rebuild worker processes.
+
+The watcher can terminate obsolete workers without cooperative cancellation inside SQLite or Rayon.
+
+The watcher can continue to process file changes while rebuild workers run.
+
+*** Storage and lifecycle conclusions
+
+The representative cache payloads range from 43.32 MiB to 62.82 MiB per view.
+
+The 10-view benchmark set represents about 510.36 MiB of materialized cache data.
+
+Each full rebuild adds one local cache write of about 43.32 MiB to 62.82 MiB for these workloads.
+
+Each later cache hit reads the complete materialized payload once.
+
+These sizes do not justify a hard cache-size limit.
+
+A soft warning near ~250 MB~ for one view remains reasonable as an operational guard.
+
+Use an XDG cache directory for the production cache.
+
+Keep each watcher session in a separate cache namespace.
+
+A cache entry is valid only for an active registration in the current watcher session.
+
+A clean watcher shutdown can remove the session cache directory.
+
+A later watcher session must not use cache files from an abandoned session.
+
+The implementation can remove abandoned session directories during startup cleanup.
+
+Use a separate cache format version in addition to the presentation wire version.
+
+The cache format version covers the on-disk envelope and validity metadata.
+
+The presentation wire version covers the materialized payload itself.
+
+A valid cache entry must match:
+
+- the active watcher session
+- ~database_id~
+- ~generation~
+- the registered view-definition identity
+- the cache format version
+- the presentation wire version
+- the effective query date when the query contains relative date operands
+
+Relative dates use the existing query timezone rules.
+
+For a relative-date view, the watcher must start a rebuild when its effective local query date changes.
+
+This rebuild can use the same database generation.
+
+This rule keeps ~generation~ and ~changes~ semantics unchanged.
+
+*** Decision
+
+Proceed with the eager persistent cache for explicitly registered presentation views.
+
+Use session-local registrations from Emacs.
+
+Use complete materialized presentation payloads as cache values.
+
+Use separate rebuild worker processes so that obsolete work can terminate quickly.
+
+Run rebuild workers concurrently, but use a bounded queue for large views.
+
+A database generation change starts eager rebuild work and never waits for a view request.
+
+A view request waits when its current cache is not ready.
+
+Never serve the stale payload as the current view.
+
+Do not add incremental per-file updates or cross-generation reuse.
+
+The validation creates separate implementation tasks for registry access, storage, watcher coordination, cleanup, and relative-date validity.

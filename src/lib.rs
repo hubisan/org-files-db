@@ -15,6 +15,8 @@ pub(crate) mod notify_source;
 pub mod parser;
 pub mod presentation;
 pub mod presentation_benchmark;
+#[cfg(feature = "presentation-cache-benchmark")]
+pub mod presentation_cache_benchmark;
 #[cfg(feature = "presentation-parallel-benchmark")]
 pub mod presentation_parallel_benchmark;
 pub(crate) mod property;

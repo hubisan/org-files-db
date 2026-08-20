@@ -454,10 +454,12 @@ Task file: [[./2026-08-19--reduce-presentation-json-payload-size.org][Reduce Pre
 
 Task file: [[./2026-08-19--evaluate-presentation-pipeline-parallelism.org][Evaluate Presentation Pipeline Parallelism]]
 
-* TODO Validate eager caching for registered presentation views
+* BUILD Validate eager caching for registered presentation views
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-20--validate-eager-presentation-view-cache.org][Validate Eager Presentation View Cache]]
 
 Start this task after payload and parallelism decisions are complete.
 
@@ -741,6 +743,213 @@ Acceptance criteria:
 - A practical design creates separate focused implementation TODOs.
 - A discovered blocker is documented before any alternative cache design starts.
   
+* TODO Implement session-local presentation view registry and CLI
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after the eager presentation view cache validation is approved.
+
+Add a session-local registry for named presentation views.
+
+The running watcher owns the registry.
+
+Emacs registers views through the CLI after it starts its cache-enabled integration.
+
+A registered view contains all inputs that affect its presentation output.
+
+At minimum, include:
+
+- view name
+- query
+- query output mode
+- explicit query includes
+- presentation specification
+
+Add a local control path between separate ~orgfdb~ CLI processes and the running watcher.
+
+Add public commands for:
+
+- registering or replacing a view
+- reading a registered view
+- removing a registered view
+
+Use the ~orgfdb view~ command group.
+
+Registration starts the initial cache build through the later rebuild coordinator.
+
+Reading a view never starts a rebuild.
+
+Keep the existing ~orgfdb query~ interface unchanged.
+
+Do not persist view registrations across watcher sessions.
+
+Acceptance criteria:
+
+- Emacs can register a named view through ~orgfdb view~.
+- Re-registering a changed definition replaces the old definition.
+- Emacs can request and remove a registered view.
+- View registrations belong only to the active watcher session.
+- The watcher owns the authoritative registry state.
+- The normal ~orgfdb query~ behavior remains unchanged.
+- CLI documentation describes the new commands.
+- ~make ci~ passes.
+
+* TODO Implement persistent presentation view cache storage and validity
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after the session-local view registry exists.
+
+Store one current materialized presentation payload for each registered cache-enabled view.
+
+Use ~${XDG_CACHE_HOME}/orgfdb~ when ~XDG_CACHE_HOME~ is set.
+
+Otherwise use ~$HOME/.cache/orgfdb~ as the default cache location.
+
+Keep each watcher session in a separate cache namespace.
+
+Write new payloads to temporary files and publish them with an atomic rename.
+
+Do not require ~fsync~ for disposable session cache data.
+
+Use a cache envelope with an independent cache format version.
+
+Cache validity must include:
+
+- active watcher session identity
+- ~database_id~
+- ~generation~
+- view-definition identity
+- cache format version
+- presentation wire version
+
+Keep only one current cache for each registered view.
+
+Do not keep historical generation payloads.
+
+Do not add a hard cache-size limit.
+
+Emit a soft warning when one materialized view reaches about ~250 MB~.
+
+Acceptance criteria:
+
+- A valid cache can survive separate ~orgfdb~ CLI processes in one watcher session.
+- A cache from another database, generation, view definition, or session is rejected.
+- Readers never observe a partially written payload.
+- Only one current cache exists for each registered view.
+- The cache format has an explicit version independent of the presentation wire version.
+- The default path follows the XDG cache convention.
+- ~make ci~ passes.
+
+* TODO Integrate eager presentation view rebuild coordination with the watcher
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after view registration and cache storage are available.
+
+Keep registered cache-enabled views current after database changes.
+
+After each successful database generation change, mark all registered view caches stale.
+
+Start full rebuilds without waiting for a view request.
+
+Keep the normal watcher input loop responsive while rebuilds run.
+
+Use separate rebuild worker processes.
+
+Run different view rebuilds concurrently with a bounded active-worker count.
+
+Queue excess registered views instead of starting every large rebuild at once.
+
+Use the validation results as the initial concurrency evidence.
+
+On the measured 8-CPU host, 3 concurrent large workers are comfortable and 5 remain practical.
+
+Do not use 10 concurrent large workers as the default target.
+
+If a newer generation appears, terminate or discard obsolete worker output.
+
+Coalesce skipped intermediate generations into the newest required generation.
+
+A view request for a stale or rebuilding view waits until the current cache is ready.
+
+If the current rebuild fails, return an error for that view.
+
+Never return the stale payload as the current view.
+
+Acceptance criteria:
+
+- Database changes start eager rebuilds without a view request.
+- The watcher continues to process file changes while rebuild workers run.
+- Different views rebuild concurrently with bounded worker concurrency.
+- New generations make old rebuild work disposable.
+- Obsolete payloads never become current.
+- Intermediate generations can be skipped.
+- A view request waits for the current generation when necessary.
+- A failed current rebuild produces a view error.
+- ~make ci~ passes.
+
+* TODO Add presentation view session cleanup and cache recovery
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after production view caching works.
+
+Keep cache lifetime aligned with the non-persistent watcher view registry.
+
+On clean watcher shutdown, remove cache data for the current watcher session.
+
+On watcher startup, do not accept cache data from an old watcher session.
+
+Remove abandoned session cache directories when it is safe to do so.
+
+A new Emacs session must register its views again before any cached view becomes available.
+
+Do not add persistent view registration.
+
+Acceptance criteria:
+
+- Clean shutdown removes the current session cache data.
+- Abnormal shutdown files cannot become valid in a later watcher session.
+- Startup can clean abandoned cache namespaces safely.
+- A new watcher session starts with an empty view registry.
+- ~make ci~ passes.
+
+* TODO Add relative-date refresh for cached presentation views
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after eager production view rebuilding works.
+
+Support cached views whose queries contain relative date operands such as ~today~ or integer day offsets.
+
+Use the existing query timezone rules to determine the effective query date.
+
+Include the effective query date in cache validity only for views that depend on relative dates.
+
+When the effective query date changes, mark the affected registered views stale.
+
+Start an eager full rebuild even when the database generation stays unchanged.
+
+Do not change the meaning of ~database_id~, ~generation~, or ~changes~.
+
+Do not add general dependency tracking.
+
+Acceptance criteria:
+
+- Relative-date views rebuild when their effective query date changes.
+- Fixed-date views do not rebuild only because the calendar date changes.
+- Date-triggered rebuilds use the configured query timezone rules.
+- Date-triggered rebuilds keep the current database generation unchanged.
+- Existing ~generation~ and ~changes~ semantics remain unchanged.
+- ~make ci~ passes.
+
+
 * TODO Benchmark-Sachen entfernen?
 
 Muss man nicht mehr notwendige Benchmark-Sachen entfernen. Oder A/B-Vergleiche?

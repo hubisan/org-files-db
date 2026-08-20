@@ -27,6 +27,7 @@ toml = "1.1.4"
 
 [features]
 presentation-parallel-benchmark = []
+presentation-cache-benchmark = []
 
 [lib]
 name = "org_files_db"
@@ -40,3 +41,8 @@ path = "src/main.rs"
 name = "orgfdb-presentation-parallel-benchmark"
 path = "src/bin/orgfdb-presentation-parallel-benchmark.rs"
 required-features = ["presentation-parallel-benchmark"]
+
+[[bin]]
+name = "orgfdb-presentation-cache-benchmark"
+path = "src/bin/orgfdb-presentation-cache-benchmark.rs"
+required-features = ["presentation-cache-benchmark"]

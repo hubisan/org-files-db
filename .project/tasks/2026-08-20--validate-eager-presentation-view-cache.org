@@ -1,0 +1,517 @@
+#+TITLE: Validate Eager Presentation View Cache
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-20 Thu 09:40]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after payload and parallelism decisions are complete.
+
+Use the final optimized presentation pipeline as the baseline.
+
+Goal: validate the selected cache model before production implementation.
+
+Proceed toward implementation unless measurements or correctness constraints reveal a significant design problem.
+
+Do not implement the production cache in this task.
+
+Use this cache model:
+
+- Emacs registers a small set of named presentation views through the CLI.
+- View registration is valid only for the current Emacs and watcher session.
+- View registrations do not persist across watcher restarts.
+- A view contains a fixed query and presentation specification.
+- The specification includes columns, sorting, row layout, and other presentation inputs.
+- A view produces the presentation output that Emacs needs.
+- The cache stores the complete materialized presentation output.
+- The cache uses persistent local storage across separate ~orgfdb~ query processes.
+- Each registered view has only one current cache.
+- The normal unrestricted ~orgfdb query~ interface remains unchanged.
+- Add a separate ~orgfdb view~ interface in a later implementation task.
+
+The expected lifecycle is:
+
+- Emacs registers a cache-enabled view.
+- Registration starts the initial full cache build.
+- The watcher keeps the registered view current.
+- Each successful database change makes the current view cache stale.
+- The watcher starts a full rebuild after the database update.
+- The watcher does not wait for view rebuilds before it processes more file changes.
+- Rebuild different registered views in parallel.
+- Do not patch cached views from individual changed files.
+- Do not reuse cached results across database generations.
+- Do not keep historical cache generations.
+
+Handle consecutive database changes as one current target.
+
+If a newer database generation appears during a rebuild, stop or discard the obsolete rebuild.
+
+Start a new rebuild for the newest generation.
+
+Do not publish an obsolete intermediate generation.
+
+A view request must return data for the current valid generation.
+
+If its cache is rebuilding, block the request until the current cache is ready.
+
+Do not return the previous stale cache while a rebuild runs.
+
+If the current rebuild fails, return an error for that view.
+
+A view request must never start a rebuild.
+
+Registration, database changes, and view definition changes can start rebuilds.
+
+Treat a changed view definition as a full cache invalidation.
+
+The view definition includes all inputs that can change the presentation result.
+
+Use ~database_id~ and ~generation~ as part of cache validity.
+
+Also include enough view identity to reject a cache from an old view definition.
+
+Include the presentation wire format in cache validity.
+
+Determine whether a separate cache format or producer version is necessary.
+
+Keep the existing meanings of:
+
+- ~database_id~
+- ~generation~
+- ~changes~
+
+Do not turn ~changes~ into a view-cache invalidation protocol.
+
+Keep view-cache invalidation separate from file-level change reporting.
+
+Investigate time-dependent queries such as queries that use ~today~.
+
+A cached view must not become stale only because the effective query date changes.
+
+Find the simplest validity rule for these views.
+
+Do not add general dependency tracking to solve this case.
+
+Keep the cache design intentionally narrow.
+
+Do not add:
+
+- automatic caching of arbitrary queries
+- automatic selection of cache candidates
+- incremental per-file cache updates
+- LRU caching of arbitrary presentation requests
+- cross-generation result reuse
+- dependency tracking between files and cached results
+- persistent view registration
+- historical cache generations
+
+Assume that Emacs explicitly selects which views use caching.
+
+Target a small number of expensive views.
+
+Use 1 to 10 registered views as the expected operating range.
+
+Do not add a hard cache-size limit.
+
+Measure large cache files and record their sizes.
+
+Evaluate a warning for a single cache file near or above ~250 MB~.
+
+Use an XDG cache location as the default storage model.
+
+Prefer a location below ~${XDG_CACHE_HOME:-~/.cache}/orgfdb~.
+
+Determine the exact directory layout in a later implementation task.
+
+Do not add a configurable cache directory unless the validation finds a clear need.
+
+Define simple session cleanup behavior.
+
+A clean watcher shutdown can remove session-local view caches.
+
+Old files from an abnormal shutdown must never become valid without a matching active view registration.
+
+Determine the simplest safe cleanup and recovery behavior.
+
+Use the existing presentation benchmarks for costs that are already measured.
+
+Reuse measurements for:
+
+- database query execution
+- row expansion
+- sort-key creation
+- sorting
+- value extraction
+- width calculation
+- truncation and padding
+- row formatting
+- presentation total
+- JSON serialization
+- internal total
+- process startup
+- full CLI elapsed time
+- payload size
+
+Add only benchmarks that answer open cache questions.
+
+Measure representative large presentation views.
+
+Measure at least:
+
+- a normal uncached presentation request
+- an initial full view build
+- a full rebuild after a database generation change
+- persistence of the completed cache
+- a valid cache hit
+- reading the cached payload through the normal CLI output path
+- a view request that waits for an active rebuild
+- several view rebuilds in parallel
+- rapid consecutive database changes during active rebuilds
+
+Test parallel rebuilds with realistic view counts.
+
+Include at least 1, 3, 5, and 10 registered views where practical.
+
+Measure CPU load, elapsed time, and peak memory where these values affect the design.
+
+Check whether parallel rebuilds cause harmful SQLite, CPU, memory, or I/O contention.
+
+Compare parallel rebuilds with sequential rebuilds when this comparison helps the decision.
+
+Test obsolete rebuild cancellation or discard behavior.
+
+Use a workload where a newer generation appears before the previous rebuild completes.
+
+Confirm that only the newest required generation becomes visible.
+
+Measure the cost that eager rebuilding adds after each database change.
+
+Use realistic change patterns.
+
+Include:
+
+- many view reads between database changes
+- one database change followed by an immediate view request
+- several rapid database changes
+- several changes before any view request
+- several registered views after one database change
+
+A cache hit already removes database query and presentation work from the read path.
+
+Do not spend this task proving that basic property.
+
+Measure the cache-hit cost to quantify the saved work.
+
+Focus the validation on rebuild cost, concurrency, cancellation, storage, memory, and synchronization.
+
+Evaluate whether the watcher can coordinate rebuilds directly.
+
+Compare this with separate rebuild worker processes if cancellation is difficult inside the watcher process.
+
+Prefer the simpler design that keeps the watcher responsive.
+
+Do not select a worker architecture before measurements and code analysis support it.
+
+The main validation question is:
+
+Can eager full rebuilds keep a small set of expensive presentation views current without unacceptable update cost or complexity?
+
+Also answer:
+
+- How expensive is one full rebuild?
+- How much does a valid cache hit cost?
+- How much extra disk I/O does each rebuild add?
+- How large are representative cache files?
+- How much memory do parallel rebuilds require?
+- How many large views can rebuild in parallel without harmful contention?
+- How quickly can a newer generation replace obsolete rebuild work?
+- How long can a view request block after an immediate database change?
+- What lifecycle rules are necessary for session-local registrations?
+- What validity rule is necessary for time-dependent queries?
+
+Use measured values where possible.
+
+Label estimates separately from measured values.
+
+Record the final evidence in ~docs/presentation-performance.org~.
+
+If the design remains practical, create separate focused implementation TODOs.
+
+At minimum, separate later work for:
+
+- view registration and CLI access
+- cache storage and validity
+- watcher rebuild coordination
+- rebuild cancellation or obsolete-generation handling
+- concurrent view rebuilds
+- session cleanup and recovery
+- time-dependent view validity, if required
+
+Do not implement these TODOs in this validation task.
+
+If the investigation finds a significant design problem, document it before changing the cache model.
+
+Do not broaden the design automatically.
+
+Create a separate TODO if a different cache architecture needs investigation.
+
+Acceptance criteria:
+
+- Measurements use the final optimized presentation pipeline.
+- Existing benchmark evidence is reused where it already answers a question.
+- The tested model uses explicit session-local view registration from Emacs.
+- The tested cache stores complete materialized presentation output.
+- Database changes start eager full rebuilds.
+- View requests never start rebuilds.
+- The watcher remains responsive while view rebuilds run.
+- Different registered views can rebuild concurrently.
+- A newer database generation makes obsolete rebuild work disposable.
+- Obsolete intermediate generations are never published as current.
+- A view request blocks while its current cache rebuilds.
+- A stale cache is never returned as the current view.
+- A failed rebuild produces an error for the affected view.
+- Only one current cache exists for each registered view.
+- View definition changes cause a full rebuild.
+- Time-dependent query validity has a defined safe rule.
+- The decision records cache-hit and full-rebuild costs.
+- The decision records query wait time during rebuilds.
+- The decision records representative cache file sizes.
+- The decision records relevant memory and concurrency costs.
+- The decision evaluates 1 to 10 registered views where practical.
+- The decision evaluates rapid consecutive database changes.
+- Existing ~database_id~, ~generation~, and ~changes~ semantics remain unchanged.
+- The design does not require incremental per-file cache maintenance.
+- The design does not require persistent view registration.
+- The normal ~orgfdb query~ interface remains unchanged.
+- Performance documentation records the measurements and design conclusions.
+- A practical design creates separate focused implementation TODOs.
+- A discovered blocker is documented before any alternative cache design starts.
+
+* Planning
+
+** Problem summary
+
+The production presentation pipeline now uses the compact version 2 wire format and selective Rayon parallelism.
+
+The next design uses a small set of explicit presentation views from Emacs.
+
+The watcher keeps each registered view current with an eager full rebuild after a database generation change.
+
+This task must validate rebuild cost, cache-hit cost, concurrency, cancellation, storage, and lifecycle rules.
+
+The task must not add the production cache.
+
+** Goals
+
+- Add a diagnostic benchmark for the selected registered-view cache model.
+- Reuse the existing presentation benchmark corpus and production presentation pipeline.
+- Measure full rebuild plus persistent cache write cost.
+- Measure a fresh-process cache hit that reads the materialized payload and writes it to stdout.
+- Measure the maximum immediate-request wait when a rebuild is active.
+- Measure sequential and parallel rebuild groups for 1, 3, 5, and 10 registered views.
+- Measure obsolete-worker termination when a newer generation replaces active rebuild work.
+- Record representative cache file sizes and worker memory use when the platform exposes it.
+- Define safe validity and lifecycle rules for session-local views and time-dependent queries.
+- Record the decision and create focused implementation TODOs if the design remains practical.
+
+** Non-goals
+
+- Do not add production view registration or ~orgfdb view~ commands.
+- Do not add production cache storage or invalidation code.
+- Do not change watcher behavior.
+- Do not add incremental per-file cache updates.
+- Do not add cross-generation cache reuse.
+- Do not change ~database_id~, ~generation~, or ~changes~ semantics.
+
+** Architecture
+
+Add a benchmark-only module and binary behind a Cargo feature.
+
+The benchmark worker builds one existing presentation workload through the production query and presentation code.
+
+The worker serializes the complete presentation response, appends the CLI newline, writes a temporary file, and renames it to the target cache path.
+
+A cache-hit worker opens the materialized file and copies it to stdout.
+
+The parent benchmark uses separate worker processes for concurrent rebuild experiments.
+
+Separate processes match the preferred cancellation model because the watcher can terminate obsolete workers without cooperative SQLite or Rayon cancellation.
+
+The benchmark does not add a persistent registry.
+
+The benchmark simulates 1 to 10 registered views by assigning existing representative workloads to independent cache files.
+
+** Execution plan
+
+1. Add the benchmark-only feature, module, and binary.
+2. Reuse prepared databases from ~presentation_benchmark~.
+3. Add single-view rebuild, persistence, cache-hit, and wait measurements.
+4. Add sequential and parallel rebuild-group measurements for 1, 3, 5, and 10 views.
+5. Add an obsolete-worker termination experiment.
+6. Record peak resident memory from Linux ~/proc~ when available.
+7. Run focused unit tests and the benchmark on representative large data.
+8. Compare the new data with the final production presentation benchmark.
+9. Document the cache decision and lifecycle rules in ~docs/presentation-performance.org~.
+10. Create focused implementation TODOs if the design remains practical.
+11. Run ~cargo fmt --all~ and ~make ci~.
+
+** Risks & assumptions
+
+The benchmark worker process is diagnostic code, not the future public ~orgfdb view~ command.
+
+A worker startup adds a small process cost that the existing benchmark already measures separately.
+
+Parallel full rebuilds can contend for SQLite reads, CPU, memory, and disk writes.
+
+A 10-view test can use substantial memory because each worker owns a complete presentation response.
+
+The benchmark must report failures instead of adding a production limit from one machine result.
+
+A relative-date view can change while the database generation stays constant.
+
+The later implementation must include the effective query date in validity for queries with relative date operands.
+
+** Open questions
+
+- How much slower is a persistent full rebuild than the existing uncached request?
+- How cheap is a fresh-process cache hit for large payloads?
+- How much contention appears with 3, 5, and 10 concurrent rebuilds?
+- Is direct process termination a practical obsolete-generation cancellation mechanism?
+- Does the measured payload size support a warning near ~250 MB~ without a hard limit?
+
+** Proposed checks
+
+- ~cargo test --all-targets --all-features presentation_cache_benchmark~
+- run the release cache benchmark with a versioned work directory and output file
+- ~cargo fmt --all~
+- ~make ci~
+
+* Results
+
+** Approach
+
+The validation uses a benchmark-only worker process and the production presentation pipeline.
+
+The worker materializes the complete presentation JSON payload to a temporary file.
+
+It then atomically renames the file to the current cache path.
+
+Fresh benchmark processes read valid cache files and write them through stdout.
+
+The benchmark also tests parallel rebuild groups and obsolete-worker termination.
+
+The production cache remains unimplemented in this task.
+
+** Changed files
+
+- ~Cargo.toml~
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-20--validate-eager-presentation-view-cache.org~
+- ~docs/presentation-performance.org~
+- ~src/lib.rs~
+- ~src/presentation_cache_benchmark.rs~
+- ~src/bin/orgfdb-presentation-cache-benchmark.rs~
+
+** Checks performed
+
+The native benchmark completed on Linux with 8 available CPUs.
+
+It used this result file:
+
+- ~orgfdb-presentation-cache-benchmark-linux-v1.json~
+
+The benchmark used 50,000 target results.
+
+It tested 1, 3, 5, and 10 registered-view rebuild groups.
+
+Run ~make ci~ again after the final result and TODO patch before this task moves to ~REVIEW~.
+
+** Test results
+
+A valid cache hit takes 44.57 ms to 60.15 ms median for the four large workloads.
+
+The corresponding uncached CLI requests take 667.10 ms to 1,025.24 ms median.
+
+The cache hit reduces measured read latency by 92.6 % to 94.8 %.
+
+A full rebuild plus persistence takes 536.73 ms to 901.85 ms median.
+
+One read after each database change already amortizes the measured eager rebuild cost.
+
+The rebuild plus one hit is 6.8 % to 12.1 % faster than one uncached read.
+
+Representative cache files use 43.32 MiB to 62.82 MiB per view.
+
+One rebuild worker uses 203.02 MiB to 267.48 MiB peak RSS.
+
+Three concurrent large workers complete in 1,088.42 ms with 535.45 MiB peak aggregate RSS in the unbounded mode.
+
+Five budgeted workers complete in 1,432.10 ms with 1,044.61 MiB peak aggregate RSS.
+
+Ten budgeted workers complete in 3,827.00 ms with 1,929.29 MiB peak aggregate RSS.
+
+Ten large concurrent rebuilds are not a suitable default target on this 8-CPU host.
+
+Use bounded concurrent rebuild workers and queue excess registered views.
+
+The obsolete-worker experiment terminates the old worker in 13.42 ms.
+
+The obsolete generation never becomes current.
+
+The replacement generation rebuild completes in 839.70 ms.
+
+Separate worker processes therefore provide a simple cancellation boundary.
+
+The cache model remains practical and has no measured design blocker.
+
+** Design conclusions
+
+Proceed with the eager cache for explicit session-local presentation views.
+
+Use complete materialized presentation JSON payloads as cache values.
+
+Use an XDG cache location with one namespace for each watcher session.
+
+Use a separate cache format version in addition to the presentation wire version.
+
+Cache validity must include the active session, ~database_id~, ~generation~, view identity, and both format versions.
+
+For relative-date queries, cache validity must also include the effective query date.
+
+The watcher must rebuild these views when the effective query date changes.
+
+This date-triggered rebuild does not change ~generation~ or ~changes~ semantics.
+
+Use separate rebuild worker processes.
+
+Run different view rebuilds concurrently, but keep a bounded active-worker count.
+
+Do not publish obsolete worker output.
+
+A view request waits for the current cache and returns an error after a rebuild failure.
+
+Do not add incremental per-file cache updates or cross-generation reuse.
+
+Do not add a hard cache-size limit.
+
+A warning near ~250 MB~ for one view can remain a soft operational guard.
+
+** Blockers
+
+No benchmark or architecture blocker remains.
+
+The final ~make ci~ result is still required after this result-only patch.
+
+** Follow-ups
+
+Create focused implementation tasks for:
+
+- session-local view registration and CLI access
+- persistent cache storage and validity
+- eager watcher rebuild coordination, concurrency, and obsolete-worker termination
+- session cleanup and abandoned-cache recovery
+- relative-date view refresh
