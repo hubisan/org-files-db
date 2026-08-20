@@ -1,0 +1,218 @@
+#+TITLE: Implement Session-local Presentation View Registry and CLI
+#+STARTUP: showall
+#+TEMPLATE_VERSION: 0.8.0
+#+TASK_STARTED: [2026-08-20 Thu 13:05]
+#+TASK_COMPLETED:
+
+* Original Task (User only)
+:PROPERTIES:
+:VISIBILITY: folded
+:END:
+
+Start this task after the eager presentation view cache validation is approved.
+
+Add a session-local registry for named presentation views.
+
+The running watcher owns the registry.
+
+Emacs registers views through the CLI after it starts its cache-enabled integration.
+
+A registered view contains all inputs that affect its presentation output.
+
+At minimum, include:
+
+- view name
+- query
+- query output mode
+- explicit query includes
+- presentation specification
+
+Add a local control path between separate ~orgfdb~ CLI processes and the running watcher.
+
+Add public commands for:
+
+- registering or replacing a view
+- reading a registered view
+- removing a registered view
+
+Use the ~orgfdb view~ command group.
+
+Registration starts the initial cache build through the later rebuild coordinator.
+
+Reading a view never starts a rebuild.
+
+Keep the existing ~orgfdb query~ interface unchanged.
+
+Do not persist view registrations across watcher sessions.
+
+Acceptance criteria:
+
+- Emacs can register a named view through ~orgfdb view~.
+- Re-registering a changed definition replaces the old definition.
+- Emacs can request and remove a registered view.
+- View registrations belong only to the active watcher session.
+- The watcher owns the authoritative registry state.
+- The normal ~orgfdb query~ behavior remains unchanged.
+- CLI documentation describes the new commands.
+- ~make ci~ passes.
+
+* Planning
+
+** Problem summary
+
+Separate ~orgfdb~ CLI processes need access to view definitions that belong to one watcher session.
+
+The registry must stay in watcher memory. It must not become persistent configuration.
+
+This task must not implement materialized cache storage or watcher rebuild workers.
+
+** Goals
+
+- Add a session-local registry for named presentation views.
+- Store the query, output mode, explicit includes, query timezone, and presentation specification.
+- Add a local control connection between ~orgfdb view~ commands and the active watcher.
+- Add commands to register, show, and remove view registrations.
+- Validate view definitions with the existing query and presentation validation rules.
+- Keep identical registration requests idempotent.
+- Give changed definitions a new registry revision.
+- Start each watcher session with an empty registry.
+- Remove the local control socket on clean watcher shutdown.
+
+** Non-goals
+
+- Do not materialize presentation payloads.
+- Do not add persistent cache storage.
+- Do not add rebuild coordination.
+- Do not add rebuild cancellation.
+- Do not persist view registrations across watcher sessions.
+- Do not change ~orgfdb query~ behavior.
+- Do not add a configurable control directory.
+
+** Architecture
+
+The watcher starts one local Unix control socket before it reports ~watcher ready~.
+
+The control socket owns an in-memory registry for the watcher session.
+
+The socket path uses a stable hash of the configured database path.
+
+Use ~XDG_RUNTIME_DIR~ when it contains an absolute path.
+
+Use the XDG cache directory as the fallback control location.
+
+The server uses a private control directory and a user-only socket mode.
+
+Each CLI request opens one connection, sends one JSON request, and receives one JSON response.
+
+Use a protocol version so later cache tasks can extend the control messages safely.
+
+The registry gives each new or changed definition a monotonic session revision.
+
+An identical definition keeps its existing revision.
+
+Use ~orgfdb view show~ to read the active registration in this task.
+
+Reserve materialized presentation payload reading for the later cache tasks.
+
+** Execution plan
+
+1. Add the presentation view registry and local control protocol.
+2. Start and stop the control server with the watcher lifecycle.
+3. Add ~orgfdb view register~.
+4. Add ~orgfdb view show~.
+5. Add ~orgfdb view remove~.
+6. Validate registration inputs with existing query and presentation rules.
+7. Add registry, control-protocol, and CLI parsing tests.
+8. Update ~docs/cli.org~.
+9. Run ~cargo fmt --all~ and ~make ci~.
+
+** Risks & assumptions
+
+The control socket is local to one Unix user session.
+
+The current task does not expose the registry to a rebuild coordinator yet.
+
+A later task can add shared registry access when it adds watcher rebuild coordination.
+
+The control socket must not make stale registrations valid after watcher restart.
+
+The socket path can remain stable because the registry itself exists only in watcher memory.
+
+** Open questions
+
+None.
+
+** Proposed checks
+
+- ~cargo test presentation_view~
+- ~cargo test parses_presentation_view_commands~
+- ~cargo test presentation_view_definition_uses_query_and_presentation_validation~
+- ~cargo fmt --all~
+- ~make ci~
+
+* Results
+
+** Approach
+
+The watcher now creates an in-memory presentation view registry for each watcher session.
+
+A local Unix control socket connects separate ~orgfdb view~ processes to this registry.
+
+The watcher keeps the registry handle for the full watcher lifetime.
+
+The control server uses the same handle and removes its socket on clean shutdown.
+
+~orgfdb view register~ validates the query and presentation specification before registration.
+
+The registered definition also records the effective query timezone.
+
+The registry sorts and deduplicates explicit includes before it compares definitions.
+
+Identical definitions keep their revision. Changed definitions receive a new session revision.
+
+~orgfdb view show~ returns the active registration without query or cache work.
+
+~orgfdb view remove~ removes the registration from the active watcher session.
+
+The current task does not add materialized payload storage or rebuild coordination.
+
+** Changed files
+
+- ~.project/tasks/todo.org~
+- ~.project/tasks/2026-08-20--validate-eager-presentation-view-cache.org~
+- ~.project/tasks/2026-08-20--implement-session-local-presentation-view-registry-cli.org~
+- ~docs/cli.org~
+- ~src/lib.rs~
+- ~src/cli.rs~
+- ~src/presentation_view.rs~
+- ~src/watcher_cli.rs~
+
+** Checks performed
+
+The implementation includes focused tests for:
+
+- CLI parsing for all three ~orgfdb view~ commands
+- query and presentation validation for registered definitions
+- register, unchanged, replace, show, and remove control requests
+- include normalization
+- empty view names
+- duplicate active control servers
+- empty registry state after a watcher-session restart
+
+The current execution environment does not provide ~cargo~, ~rustfmt~, or ~clippy~.
+
+Run the proposed checks on the project Rust environment before this task moves to ~REVIEW~.
+
+** Test results
+
+Native Rust test and lint results are pending.
+
+** Blockers
+
+No design blocker is known.
+
+The final ~make ci~ result is still required.
+
+** Follow-ups
+
+The next task adds persistent materialized presentation cache storage and validity.

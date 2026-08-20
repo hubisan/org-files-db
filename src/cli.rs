@@ -24,6 +24,11 @@ use crate::{
     presentation::{
         PresentationBuildError, PresentationResponse, PresentationSpec, PresentationSpecError,
     },
+    presentation_view::{
+        register_presentation_view, remove_presentation_view, show_presentation_view,
+        PresentationViewDefinition, PresentationViewInclude, PresentationViewOutputMode,
+        ViewControlClientError,
+    },
     query::{
         execute_and_shape_query, parse_query, shape_matched_heading_nodes,
         sqlite_query_validation_options, validate_query, HeadingResultNode, QueryExecutionError,
@@ -100,6 +105,11 @@ enum Command {
         #[arg(long)]
         config: Option<PathBuf>,
     },
+    #[command(about = "Manage session-local presentation views in the active watcher")]
+    View {
+        #[command(subcommand)]
+        command: ViewCommand,
+    },
     Query {
         #[command(flatten)]
         format: CliQueryFormatArgs,
@@ -135,6 +145,43 @@ enum Command {
         config: Option<PathBuf>,
         #[arg(help = "Raw SQLite FTS5 MATCH expression")]
         expression: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ViewCommand {
+    #[command(about = "Register or replace a session-local presentation view")]
+    Register {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long, value_enum, default_value_t = CliQueryOutput::Flat)]
+        output: CliQueryOutput,
+        #[arg(long, value_enum, value_delimiter = ',')]
+        include: Vec<CliQueryInclude>,
+        #[arg(
+            long,
+            value_name = "JSON",
+            help = "PresentationSpec JSON for this view"
+        )]
+        presentation_spec_json: String,
+        #[arg(help = "Session-local view name")]
+        name: String,
+        #[arg(help = "Structural query expression, for example '(todo \"NEXT\")'")]
+        query: String,
+    },
+    #[command(about = "Show the active registration for a presentation view")]
+    Show {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(help = "Session-local view name")]
+        name: String,
+    },
+    #[command(about = "Remove a presentation view from the active watcher session")]
+    Remove {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(help = "Session-local view name")]
+        name: String,
     },
 }
 
@@ -213,6 +260,15 @@ impl From<CliQueryOutput> for QueryOutputMode {
     }
 }
 
+impl From<CliQueryOutput> for PresentationViewOutputMode {
+    fn from(value: CliQueryOutput) -> Self {
+        match value {
+            CliQueryOutput::Flat => Self::Flat,
+            CliQueryOutput::Outline => Self::Outline,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum CliQueryInclude {
     Path,
@@ -226,6 +282,21 @@ enum CliQueryInclude {
 }
 
 impl From<CliQueryInclude> for QueryInclude {
+    fn from(value: CliQueryInclude) -> Self {
+        match value {
+            CliQueryInclude::Path => Self::Path,
+            CliQueryInclude::Properties => Self::Properties,
+            CliQueryInclude::EffectiveProperties => Self::EffectiveProperties,
+            CliQueryInclude::Keywords => Self::Keywords,
+            CliQueryInclude::Links => Self::Links,
+            CliQueryInclude::Backlinks => Self::Backlinks,
+            CliQueryInclude::Source => Self::Source,
+            CliQueryInclude::Target => Self::Target,
+        }
+    }
+}
+
+impl From<CliQueryInclude> for PresentationViewInclude {
     fn from(value: CliQueryInclude) -> Self {
         match value {
             CliQueryInclude::Path => Self::Path,
@@ -330,6 +401,7 @@ where
             };
             write_output(output_format, writer, &response)
         }
+        Command::View { command } => run_view_command(command, writer),
         Command::Query {
             format,
             output,
@@ -394,6 +466,91 @@ where
             write_output(output_format, writer, &rows)
         }
     }
+}
+
+fn run_view_command(command: ViewCommand, writer: &mut impl Write) -> Result<(), CliError> {
+    match command {
+        ViewCommand::Register {
+            config,
+            output,
+            include,
+            presentation_spec_json,
+            name,
+            query,
+        } => {
+            let config = Config::load_from_file(config).map_err(CliError::Config)?;
+            let definition = presentation_view_definition(
+                &config,
+                name,
+                query,
+                output,
+                &include,
+                &presentation_spec_json,
+            )?;
+            let registration =
+                register_presentation_view(&config, definition).map_err(CliError::ViewControl)?;
+            write_json_output(writer, &registration)
+        }
+        ViewCommand::Show { config, name } => {
+            let config = Config::load_from_file(config).map_err(CliError::Config)?;
+            let view = show_presentation_view(&config, name).map_err(CliError::ViewControl)?;
+            write_json_output(writer, &view)
+        }
+        ViewCommand::Remove { config, name } => {
+            let config = Config::load_from_file(config).map_err(CliError::Config)?;
+            let removal = remove_presentation_view(&config, name).map_err(CliError::ViewControl)?;
+            write_json_output(writer, &removal)
+        }
+    }
+}
+
+fn presentation_view_definition(
+    config: &Config,
+    name: String,
+    query: String,
+    output: CliQueryOutput,
+    includes: &[CliQueryInclude],
+    presentation_spec_json: &str,
+) -> Result<PresentationViewDefinition, CliError> {
+    if name.trim().is_empty() {
+        return Err(CliError::InvalidPresentationViewUsage(
+            "presentation view name must not be empty".to_string(),
+        ));
+    }
+
+    let connection =
+        open_existing_database_read_only(&config.db_path).map_err(CliError::Database)?;
+    let parsed = parse_query(&query).map_err(CliError::QueryParse)?;
+    let validation_options =
+        sqlite_query_validation_options(&connection).map_err(CliError::QueryExecute)?;
+    let validated = validate_query(parsed, &validation_options).map_err(CliError::QueryValidate)?;
+    let spec =
+        PresentationSpec::parse_json(presentation_spec_json).map_err(CliError::PresentationSpec)?;
+    spec.validate_for_query_target(validated.target)
+        .map_err(CliError::PresentationSpec)?;
+
+    let explicit_includes = includes
+        .iter()
+        .copied()
+        .map(QueryInclude::from)
+        .collect::<Vec<_>>();
+    spec.combined_includes_for_query_target(validated.target, &explicit_includes)
+        .map_err(CliError::PresentationSpec)?;
+
+    let presentation_spec = serde_json::from_str(presentation_spec_json)
+        .map_err(|source| CliError::PresentationSpec(PresentationSpecError::Json(source)))?;
+    Ok(PresentationViewDefinition {
+        name,
+        query,
+        output: output.into(),
+        includes: includes
+            .iter()
+            .copied()
+            .map(PresentationViewInclude::from)
+            .collect(),
+        query_timezone: config.query.timezone.clone(),
+        presentation_spec,
+    })
 }
 
 #[cfg(test)]
@@ -1059,6 +1216,8 @@ enum CliError {
     DbRead(crate::db::DbReadError),
     Indexer(IndexerError),
     Watcher(WatcherCommandError),
+    ViewControl(ViewControlClientError),
+    InvalidPresentationViewUsage(String),
     QueryParse(QueryParseError),
     QueryValidate(QueryValidationError),
     QueryExecute(QueryExecutionError),
@@ -1101,12 +1260,14 @@ impl CliError {
             Self::Parse(_)
             | Self::InvalidSearchUsage(_)
             | Self::InvalidPresentationUsage(_)
+            | Self::InvalidPresentationViewUsage(_)
             | Self::PresentationSpec(_) => 2,
             Self::Config(_)
             | Self::Database(_)
             | Self::DbRead(_)
             | Self::Indexer(_)
             | Self::Watcher(_)
+            | Self::ViewControl(_)
             | Self::QueryParse(_)
             | Self::QueryValidate(_)
             | Self::QueryExecute(_)
@@ -1138,6 +1299,8 @@ impl fmt::Display for CliError {
             Self::DbRead(source) => write!(f, "{source}"),
             Self::Indexer(source) => write!(f, "{source}"),
             Self::Watcher(source) => write!(f, "{source}"),
+            Self::ViewControl(source) => write!(f, "{source}"),
+            Self::InvalidPresentationViewUsage(message) => write!(f, "{message}"),
             Self::QueryParse(source) => write!(f, "{source}"),
             Self::QueryValidate(source) => write!(f, "{source}"),
             Self::QueryExecute(source) => write!(f, "{source}"),
@@ -1194,6 +1357,7 @@ impl Error for CliError {
             Self::DbRead(source) => Some(source),
             Self::Indexer(source) => Some(source),
             Self::Watcher(source) => Some(source),
+            Self::ViewControl(source) => Some(source),
             Self::QueryParse(source) => Some(source),
             Self::QueryValidate(source) => Some(source),
             Self::QueryExecute(source) => Some(source),
@@ -1208,7 +1372,9 @@ impl Error for CliError {
             Self::PresentationSpec(source) => Some(source),
             Self::PresentationBuild(source) => Some(source),
             Self::PresentationSnapshot { source, .. } => Some(source),
-            Self::InvalidRestriction(_) | Self::InvalidPresentationUsage(_) => None,
+            Self::InvalidRestriction(_)
+            | Self::InvalidPresentationUsage(_)
+            | Self::InvalidPresentationViewUsage(_) => None,
             Self::InvalidHeadingPath { source, .. } => Some(source),
             Self::Json(source) => Some(source),
             Self::Io(source) => Some(source),
@@ -1459,8 +1625,8 @@ fn strip_root_breadcrumb(mut breadcrumbs: Vec<String>, heading_level: i64) -> Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        rebuild, run_with_args_and_writer, search_json_rows, Cli, CliError, CliSearchScope,
-        SearchError,
+        presentation_view_definition, rebuild, run_with_args_and_writer, search_json_rows, Cli,
+        CliError, CliSearchScope, SearchError,
     };
     use crate::db::{
         open_database, open_database_with_schema, open_in_memory_database_with_schema,
@@ -1627,6 +1793,135 @@ mod tests {
         let implicit_error = cli_error_summary(implicit);
         assert_eq!(implicit_error, cli_error_summary(explicit_json));
         assert_eq!(implicit_error, cli_error_summary(explicit_format));
+    }
+
+    #[test]
+    fn parses_presentation_view_commands() {
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "view",
+            "register",
+            "--config",
+            "config.toml",
+            "--output",
+            "outline",
+            "--include",
+            "path,properties",
+            "--presentation-spec-json",
+            r#"{"columns":[{"name":"title"}]}"#,
+            "agenda",
+            "(headings (todo \"NEXT\"))",
+        ])
+        .expect("view register args should parse");
+
+        match cli.command {
+            super::Command::View {
+                command:
+                    super::ViewCommand::Register {
+                        config,
+                        output,
+                        include,
+                        presentation_spec_json,
+                        name,
+                        query,
+                    },
+            } => {
+                assert_eq!(config, PathBuf::from("config.toml"));
+                assert_eq!(output, super::CliQueryOutput::Outline);
+                assert_eq!(
+                    include,
+                    vec![
+                        super::CliQueryInclude::Path,
+                        super::CliQueryInclude::Properties
+                    ]
+                );
+                assert_eq!(presentation_spec_json, r#"{"columns":[{"name":"title"}]}"#);
+                assert_eq!(name, "agenda");
+                assert_eq!(query, "(headings (todo \"NEXT\"))");
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "view",
+            "show",
+            "--config",
+            "config.toml",
+            "agenda",
+        ])
+        .expect("view show args should parse");
+        assert!(matches!(
+            cli.command,
+            super::Command::View {
+                command: super::ViewCommand::Show { .. }
+            }
+        ));
+
+        let cli = Cli::try_parse_from([
+            "orgfdb",
+            "view",
+            "remove",
+            "--config",
+            "config.toml",
+            "agenda",
+        ])
+        .expect("view remove args should parse");
+        assert!(matches!(
+            cli.command,
+            super::Command::View {
+                command: super::ViewCommand::Remove { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn presentation_view_definition_uses_query_and_presentation_validation() {
+        let test_dir = TestDir::new("presentation-view-definition");
+        let config_path = write_query_fixture(&test_dir);
+        let config = crate::config::Config::load_from_file(&config_path)
+            .expect("fixture config should load");
+
+        let definition = presentation_view_definition(
+            &config,
+            "agenda".to_string(),
+            "(headings (todo \"NEXT\"))".to_string(),
+            super::CliQueryOutput::Flat,
+            &[
+                super::CliQueryInclude::Properties,
+                super::CliQueryInclude::Path,
+            ],
+            r#"{"columns":[{"name":"title"}],"sort":[{"column":"title","direction":"asc"}]}"#,
+        )
+        .expect("valid view definition should pass validation");
+
+        assert_eq!(definition.name, "agenda");
+        assert_eq!(definition.query, "(headings (todo \"NEXT\"))");
+        assert_eq!(
+            definition.output,
+            crate::presentation_view::PresentationViewOutputMode::Flat
+        );
+        assert_eq!(definition.presentation_spec["columns"][0]["name"], "title");
+    }
+
+    #[test]
+    fn presentation_view_definition_rejects_invalid_target_columns() {
+        let test_dir = TestDir::new("presentation-view-target-validation");
+        let config_path = write_query_fixture(&test_dir);
+        let config = crate::config::Config::load_from_file(&config_path)
+            .expect("fixture config should load");
+
+        let error = presentation_view_definition(
+            &config,
+            "agenda".to_string(),
+            "(headings)".to_string(),
+            super::CliQueryOutput::Flat,
+            &[],
+            r#"{"columns":[{"name":"link-target"}]}"#,
+        )
+        .expect_err("link-only column should fail for heading view");
+
+        assert!(matches!(error, CliError::PresentationSpec(_)));
     }
 
     #[test]

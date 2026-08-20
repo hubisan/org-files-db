@@ -21,6 +21,9 @@ use crate::{
     indexer::Indexer,
     notify_source::NotifyWatcherError,
     parser::OrgizeAdapter,
+    presentation_view::{
+        PresentationViewControlServer, PresentationViewRegistryHandle, ViewControlServerError,
+    },
     watcher::{IndexerWatcherExecutor, WatcherBatchExecutor, WatcherExecutionError},
     watcher_runtime::{
         WatcherMessageSource, WatcherRuntime, WatcherRuntimeError, WatcherStartupError,
@@ -34,6 +37,9 @@ pub(crate) fn run_watch_command(
     stderr: &mut impl Write,
 ) -> Result<(), WatcherCommandError> {
     let shutdown = SignalShutdown::install()?;
+    let view_registry = PresentationViewRegistryHandle::for_watcher(config);
+    let _view_control = PresentationViewControlServer::start(config, &view_registry)
+        .map_err(WatcherCommandError::ViewControl)?;
     let schema = SchemaDefinition::new(CURRENT_SCHEMA_VERSION, config.search.fts5_enabled);
     let mut connection = open_database_with_schema(&config.db_path, &schema)
         .map_err(WatcherCommandError::Database)?;
@@ -183,6 +189,7 @@ pub(crate) enum WatcherCommandError {
     },
     Startup(Box<WatcherStartupError<NotifyWatcherError, WatcherExecutionError>>),
     Runtime(Box<WatcherRuntimeError<NotifyWatcherError, WatcherExecutionError>>),
+    ViewControl(ViewControlServerError),
     Io(io::Error),
 }
 
@@ -198,6 +205,9 @@ impl fmt::Display for WatcherCommandError {
             }
             Self::Startup(source) => write!(f, "{source}"),
             Self::Runtime(source) => write!(f, "{source}"),
+            Self::ViewControl(source) => {
+                write!(f, "failed to start presentation view control: {source}")
+            }
             Self::Io(source) => write!(f, "failed to write watcher lifecycle output: {source}"),
         }
     }
@@ -210,6 +220,7 @@ impl Error for WatcherCommandError {
             Self::RegisterSignal { source, .. } => Some(source),
             Self::Startup(source) => Some(source.as_ref()),
             Self::Runtime(source) => Some(source.as_ref()),
+            Self::ViewControl(source) => Some(source),
             Self::Io(source) => Some(source),
         }
     }

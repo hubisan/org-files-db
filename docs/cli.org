@@ -16,7 +16,9 @@ These read-only commands emit JSON by default:
 - ~query~
 - ~search~
 
-Use ~--format json~ as the explicit machine-readable form. ~--json~ is a compatibility form for the same output.
+The ~view register~, ~view show~, and ~view remove~ commands also emit JSON. These commands do not accept output-format options.
+
+For read-only commands, use ~--format json~ as the explicit machine-readable form. ~--json~ is a compatibility form for the same output.
 
 #+begin_src shell
 orgfdb query '(headings)'
@@ -30,7 +32,7 @@ Current JSON output is pretty-printed and ends with a newline.
 
 * Configuration selection
 
-~rebuild~ and ~watch~ require ~--config PATH~.
+~rebuild~, ~watch~, and all ~view~ subcommands require ~--config PATH~.
 
 Read-only commands accept an optional ~--config PATH~. If this option is absent, they use the default ~org-files-db.sqlite~ database path.
 
@@ -139,6 +141,91 @@ Routine file activity does not produce a JSON event stream.
 A watcher backend can report uncertainty instead of exact file changes. Buffer overflow can create the same condition.
 
 In that case, the runtime requests full configured-source reconciliation. It does not guess individual mutations.
+
+* ~orgfdb view~
+
+~view~ manages named presentation view registrations in the active watcher session.
+
+Emacs can register a small set of expensive views after it starts its watcher integration.
+
+Registrations exist only in watcher memory. A new watcher session starts with an empty registry.
+
+The current registry commands do not materialize or read cached presentation payloads. Later cache tasks use these registrations as their source of view definitions.
+
+** Control connection
+
+The watcher owns the authoritative view registry.
+
+Separate ~orgfdb view~ processes use a local Unix socket to reach the active watcher.
+
+The watcher creates the socket before it prints ~watcher ready~.
+
+The socket directory uses ~XDG_RUNTIME_DIR~ when that variable contains an absolute path.
+
+If ~XDG_RUNTIME_DIR~ is unavailable, the control path uses the XDG cache directory.
+
+The fallback is ~$HOME/.cache/orgfdb/control~ when ~XDG_CACHE_HOME~ is unavailable.
+
+A clean watcher shutdown removes the control socket. A stale socket from an abnormal shutdown is replaced at the next watcher start.
+
+A second watcher for the same database and control directory fails while the first watcher is active.
+
+** Register or replace a view
+
+#+begin_src shell
+orgfdb view register \
+  --config ./org-files-db.toml \
+  --output flat \
+  --include path,properties \
+  --presentation-spec-json '{"columns":[{"name":"title"},{"name":"file-path"}]}' \
+  agenda \
+  '(headings (todo "NEXT"))'
+#+end_src
+
+A view definition contains:
+
+- the view name
+- the structural query
+- the query output mode
+- explicit query includes
+- the effective query timezone
+- the presentation specification
+
+Registration validates the query and presentation specification before it contacts the watcher.
+
+The watcher normalizes explicit includes by sorting them and removing duplicates.
+
+An identical registration returns ~unchanged~ and keeps its revision.
+
+A changed definition returns ~replaced~ and receives a new revision.
+
+A new definition returns ~registered~.
+
+Each successful response also contains the watcher ~session_id~.
+
+** Show a registered view
+
+#+begin_src shell
+orgfdb view show \
+  --config ./org-files-db.toml \
+  agenda
+#+end_src
+
+~show~ returns the current session ID, definition revision, and complete registered definition.
+
+~show~ does not run the structural query. It also does not start presentation cache work.
+
+** Remove a registered view
+
+#+begin_src shell
+orgfdb view remove \
+  --config ./org-files-db.toml \
+  agenda
+#+end_src
+
+~remove~ removes the named registration from the active watcher session.
+
+The response contains ~removed: true~ when the view existed. A repeated removal returns ~removed: false~.
 
 * ~orgfdb headings~
 

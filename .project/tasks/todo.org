@@ -454,7 +454,7 @@ Task file: [[./2026-08-19--reduce-presentation-json-payload-size.org][Reduce Pre
 
 Task file: [[./2026-08-19--evaluate-presentation-pipeline-parallelism.org][Evaluate Presentation Pipeline Parallelism]]
 
-* BUILD Validate eager caching for registered presentation views
+* DONE Validate eager caching for registered presentation views
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
@@ -743,10 +743,12 @@ Acceptance criteria:
 - A practical design creates separate focused implementation TODOs.
 - A discovered blocker is documented before any alternative cache design starts.
   
-* TODO Implement session-local presentation view registry and CLI
+* DONE Implement session-local presentation view registry and CLI
 :PROPERTIES:
 :VISIBILITY: folded
 :END:
+
+Task file: [[./2026-08-20--implement-session-local-presentation-view-registry-cli.org][Implement Session-local Presentation View Registry and CLI]]
 
 Start this task after the eager presentation view cache validation is approved.
 

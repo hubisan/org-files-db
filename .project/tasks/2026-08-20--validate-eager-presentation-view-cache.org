@@ -428,7 +428,7 @@ The benchmark used 50,000 target results.
 
 It tested 1, 3, 5, and 10 registered-view rebuild groups.
 
-Run ~make ci~ again after the final result and TODO patch before this task moves to ~REVIEW~.
+The user reported a green ~make ci~ result after the final result and TODO patch.
 
 ** Test results
 
@@ -504,7 +504,7 @@ A warning near ~250 MB~ for one view can remain a soft operational guard.
 
 No benchmark or architecture blocker remains.
 
-The final ~make ci~ result is still required after this result-only patch.
+The user reported that the final ~make ci~ run passed.
 
 ** Follow-ups
 

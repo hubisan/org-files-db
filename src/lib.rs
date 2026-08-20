@@ -19,6 +19,7 @@ pub mod presentation_benchmark;
 pub mod presentation_cache_benchmark;
 #[cfg(feature = "presentation-parallel-benchmark")]
 pub mod presentation_parallel_benchmark;
+pub(crate) mod presentation_view;
 pub(crate) mod property;
 pub mod query;
 pub mod query_sql_benchmark;
